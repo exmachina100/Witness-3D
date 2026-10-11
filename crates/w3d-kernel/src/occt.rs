@@ -1,6 +1,6 @@
 //! OpenCascade backend, through the opencascade-rs bindings (LGPL-2.1 OCCT underneath).
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::path::Path;
 
 use glam::DVec3;
@@ -11,6 +11,20 @@ use crate::{BooleanOp, Frame, Kernel, KernelError, Profile, Tessellation};
 pub struct Occt;
 
 fn failed(e: impl std::fmt::Debug) -> KernelError { KernelError::Failed(format!("{e:?}")) }
+
+/// The edge's sample points, plus a key that is the same whichever face it was reached through.
+/// opencascade-rs hides the TopoDS handle, so geometry stands in for identity.
+fn edge_points(edge: &Edge) -> (Vec<[f64; 3]>, String) {
+    let pts: Vec<[f64; 3]> = edge.approximation_segments().map(|p| p.to_array()).collect();
+    let mut key: Vec<String> = pts.iter().map(|p| format!("{:.5},{:.5},{:.5}", p[0], p[1], p[2])).collect();
+    key.sort();
+    (pts, key.join("|"))
+}
+
+fn root(parent: &mut [usize], mut i: usize) -> usize {
+    while parent[i] != i { parent[i] = parent[parent[i]]; i = parent[i] }
+    i
+}
 
 impl Kernel for Occt {
     type Solid = Shape;
@@ -48,12 +62,21 @@ impl Kernel for Occt {
     }
 
     fn solid_count(&self, s: &Shape) -> usize {
-        // opencascade-rs exposes no solid iterator; a fused result is either one Solid or a Compound.
-        match s.shape_type() {
-            ShapeType::Solid => 1,
-            ShapeType::Compound | ShapeType::CompoundSolid => if s.faces().next().is_some() { 2 } else { 0 },
-            _ => 0,
+        // opencascade-rs has no solid iterator, and a boolean returns a Compound even when it holds
+        // one solid. Faces of one closed solid are connected through shared edges, so count the
+        // connected groups of faces.
+        if s.shape_type() == ShapeType::Solid { return 1 }
+        let faces: Vec<_> = s.faces().collect();
+        let mut parent: Vec<usize> = (0..faces.len()).collect();
+        let mut owner: HashMap<String, usize> = HashMap::new();
+        for (i, face) in faces.iter().enumerate() {
+            for edge in face.edges() {
+                let j = *owner.entry(edge_points(&edge).1).or_insert(i);
+                let (a, b) = (root(&mut parent, i), root(&mut parent, j));
+                parent[a] = b;
+            }
         }
+        (0..faces.len()).filter(|&i| root(&mut parent, i) == i).count()
     }
 
     fn face_count(&self, s: &Shape) -> usize { s.faces().count() }
@@ -67,10 +90,8 @@ impl Kernel for Occt {
         let mut seen = HashSet::new();
         let mut edges = Vec::new();
         for edge in s.edges() {
-            let pts: Vec<[f64; 3]> = edge.approximation_segments().map(|p| p.to_array()).collect();
-            let mut key: Vec<String> = pts.iter().map(|p| format!("{:.5},{:.5},{:.5}", p[0], p[1], p[2])).collect();
-            key.sort();
-            if seen.insert(key.join("|")) { edges.push(pts) }
+            let (pts, key) = edge_points(&edge);
+            if seen.insert(key) { edges.push(pts) }
         }
         Ok(Tessellation { positions, indices, edges })
     }
