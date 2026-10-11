@@ -1,0 +1,413 @@
+<title>Witness 3D Push/Pull</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&family=Space+Mono:wght@400;700&display=swap">
+<style>
+/* Layout: one full-height modeling viewport; a slim tool rail on top, a state-machine readout docked bottom-left, a parameter panel docked right. */
+:root {
+  --ground: #0f0f11;      /* viewport + page */
+  --panel: #18181b;
+  --line: #2c2c31;
+  --ink: #efebe0;         /* bone */
+  --muted: #8e949e;       /* steel */
+  --accent: #ff4d00;      /* signal orange: gizmo, active tool */
+  --cut: #ef4444;
+  --add: #3b82f6;
+  --scene: #0f0f11;
+  --grid: #26262b;
+  --font-ui: "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-data: "Space Mono", ui-monospace, "SFMono-Regular", Menlo, monospace;
+  color-scheme: dark;
+}
+@media (prefers-color-scheme: light) {
+  :root:not([data-theme="dark"]) {
+    --ground: #e9e7e1; --panel: #f6f5f1; --line: #d3d0c7; --ink: #17160f; --muted: #66676d;
+    --accent: #e04400; --cut: #d02c2c; --add: #2563eb; --scene: #e4e2dc; --grid: #c9c6bd; color-scheme: light;
+  }
+}
+:root[data-theme="light"] {
+  --ground: #e9e7e1; --panel: #f6f5f1; --line: #d3d0c7; --ink: #17160f; --muted: #66676d;
+  --accent: #e04400; --cut: #d02c2c; --add: #2563eb; --scene: #e4e2dc; --grid: #c9c6bd; color-scheme: light;
+}
+html, body { height: 100%; }
+body { background: var(--ground); color: var(--ink); font-family: var(--font-ui); overflow: hidden; }
+.app { position: relative; height: 100%; display: grid; grid-template-rows: auto 1fr; }
+.rail {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px;
+  padding: 10px 16px; border-bottom: 1px solid var(--line); background: var(--panel);
+}
+.brand { font-family: var(--font-data); font-weight: 700; font-size: 12px; letter-spacing: 1.5px; text-transform: uppercase; margin-right: auto; }
+.brand span { color: var(--accent); }
+.group { display: flex; gap: 4px; align-items: center; }
+.label { font-family: var(--font-data); font-size: 10px; letter-spacing: 1.5px; text-transform: uppercase; color: var(--muted); }
+button.tool {
+  font: 500 13px var(--font-ui); color: var(--ink); background: transparent;
+  border: 1px solid var(--line); border-radius: 4px; padding: 5px 10px; cursor: pointer;
+}
+button.tool:hover:not(:disabled) { border-color: var(--muted); }
+button.tool:disabled { opacity: 0.4; cursor: default; }
+button.tool[aria-pressed="true"] { border-color: var(--accent); color: var(--accent); }
+button.tool:focus-visible, input:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+kbd { font-family: var(--font-data); font-size: 10px; color: var(--muted); margin-left: 4px; }
+.stage { position: relative; min-height: 0; }
+canvas#view { display: block; width: 100%; height: 100%; touch-action: none; }
+.hud {
+  position: absolute; left: 16px; bottom: 16px; max-width: calc(100% - 32px);
+  font-family: var(--font-data); font-size: 10px; letter-spacing: 1.2px; text-transform: uppercase;
+  display: grid; gap: 6px; pointer-events: none;
+}
+.states { display: flex; flex-wrap: wrap; gap: 4px; }
+.state { padding: 3px 6px; border: 1px solid var(--line); border-radius: 3px; color: var(--muted); background: var(--panel); }
+.state.on { color: var(--ground); background: var(--accent); border-color: var(--accent); }
+.state.on[data-s="failed"] { background: var(--cut); border-color: var(--cut); }
+.counts { color: var(--muted); font-variant-numeric: tabular-nums; }
+.counts b { color: var(--ink); font-weight: 400; }
+.panel {
+  position: absolute; right: 16px; top: 16px; width: 240px; max-width: calc(100% - 32px);
+  background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 14px;
+  display: grid; gap: 12px; font-size: 13px;
+}
+.panel h2 { margin: 0; font-size: 14px; font-weight: 600; text-wrap: balance; }
+.row { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+.op { font-family: var(--font-data); font-size: 11px; letter-spacing: 1.2px; text-transform: uppercase; padding: 2px 6px; border-radius: 3px; border: 1px solid currentColor; }
+.op[data-op="union"], .op[data-op="new"] { color: var(--add); }
+.op[data-op="difference"] { color: var(--cut); }
+.op[data-op="idle"] { color: var(--muted); }
+input#distance { width: 90px; font: 400 13px var(--font-data); color: var(--ink); background: var(--ground); border: 1px solid var(--line); border-radius: 4px; padding: 4px 6px; text-align: right; font-variant-numeric: tabular-nums; }
+input#size { width: 100%; accent-color: var(--accent); }
+.hint { color: var(--muted); font-size: 12px; line-height: 1.5; margin: 0; }
+.actions { display: flex; gap: 6px; }
+.actions button { flex: 1; }
+button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+.loading[hidden] { display: none; }
+.loading { position: absolute; inset: 0; display: grid; place-items: center; background: var(--ground); color: var(--muted); font-family: var(--font-data); font-size: 12px; letter-spacing: 1.2px; text-transform: uppercase; }
+.toast { position: absolute; left: 50%; top: 16px; transform: translateX(-50%); background: var(--panel); border: 1px solid var(--cut); color: var(--ink); padding: 6px 10px; border-radius: 4px; font-size: 12px; }
+@media (max-width: 640px) {
+  .panel { top: auto; bottom: 16px; right: 16px; left: 16px; width: auto; gap: 8px; padding: 10px; }
+  .panel .hint, .panel h2 { display: none; }
+  .hud { bottom: auto; top: 12px; }
+  kbd { display: none; }
+}
+</style>
+
+<div class="app">
+  <header class="rail">
+    <div class="brand">Witness 3D <span>·</span> Push/Pull</div>
+    <div class="group" role="group" aria-label="Profile">
+      <span class="label">Profile</span>
+      <button class="tool" id="tool-rect" aria-pressed="true">Rectangle<kbd>R</kbd></button>
+      <button class="tool" id="tool-circle" aria-pressed="false">Circle<kbd>C</kbd></button>
+    </div>
+    <div class="group">
+      <button class="tool" id="undo">Undo<kbd>⌘Z</kbd></button>
+      <button class="tool" id="redo">Redo</button>
+      <button class="tool" id="reset">Reset</button>
+    </div>
+  </header>
+  <main class="stage">
+    <canvas id="view" aria-label="3D modeling viewport"></canvas>
+
+    <section class="panel" aria-label="Extrude">
+      <h2>Extrude</h2>
+      <div class="row"><span class="label">Operation</span><span class="op" id="op" data-op="idle">Idle</span></div>
+      <div class="row"><label class="label" for="distance">Distance</label><input id="distance" type="number" step="0.25" value="0" disabled></div>
+      <div class="row"><label class="label" for="size">Profile size</label><span class="counts" id="size-val">1.00</span></div>
+      <input id="size" type="range" min="0.25" max="3" step="0.05" value="1">
+      <div class="row"><label class="label" for="newbody">Always new body</label><input id="newbody" type="checkbox"></div>
+      <div class="actions">
+        <button class="tool primary" id="commit" disabled>Commit<kbd>↵</kbd></button>
+        <button class="tool" id="cancel" disabled>Cancel<kbd>Esc</kbd></button>
+      </div>
+      <p class="hint">Click any flat face to place a profile, then drag the orange arrow. Pull out to add, push in to cut. Hold Ctrl to snap to 0.25.</p>
+    </section>
+
+    <div class="hud" aria-live="polite">
+      <div class="states" id="states">
+        <span class="state" data-s="none">none</span>
+        <span class="state" data-s="updating">updating</span>
+        <span class="state" data-s="updated">updated</span>
+        <span class="state" data-s="failed">failed</span>
+        <span class="state" data-s="committed">committed</span>
+        <span class="state" data-s="cancelled">cancelled</span>
+      </div>
+      <div class="counts">Preview requests <b id="n-req">0</b> · computed <b id="n-calc">0</b> · bodies <b id="n-bodies">1</b></div>
+      <div class="counts">OpenCascade B-rep · loaded in <b id="kernel-ms">…</b> ms · total volume <b id="volume">…</b></div>
+    </div>
+    <div class="toast" id="toast" hidden></div>
+    <div class="loading" id="loading">Loading the OpenCascade kernel (7 MB)…</div>
+  </main>
+</div>
+
+<script type="importmap">
+{
+  "imports": {
+    "three": "https://cdn.jsdelivr.net/npm/three@0.185.1/build/three.module.js",
+    "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.185.1/examples/jsm/",
+    "replicad-opencascadejs": "https://cdn.jsdelivr.net/npm/replicad-opencascadejs@1.1.0/dist/replicad_single.js"
+  }
+}
+</script>
+<script type="module">
+import * as THREE from 'three';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+import { Document } from './src/Document.js';
+import { ExtrudeFactory } from './src/ExtrudeFactory.js';
+import { ExtrudeGizmo } from './src/ExtrudeGizmo.js';
+import { NoOpError } from './src/GeometryFactory.js';
+import { box as makeBox, facePlane, loadKernel, volume } from './src/Kernel.js';
+
+const $ = id => document.getElementById(id);
+const css = name => getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+
+// --- kernel: OpenCascade compiled to WebAssembly, shipped gzipped next to the page (occ.gz.wasm holds gzip bytes) ---
+async function bootKernel() {
+  try {
+    const res = await fetch('./occ.gz.wasm');
+    if (!res.ok) throw new Error(res.status);
+    // Some hosts decode gzip on the way; only decompress if the bytes are still gzipped.
+    const raw = await res.arrayBuffer();
+    const gz = new Uint8Array(raw, 0, 2);
+    const wasmBinary = gz[0] === 0x1f && gz[1] === 0x8b
+      ? await new Response(new Blob([raw]).stream().pipeThrough(new DecompressionStream('gzip'))).arrayBuffer()
+      : raw;
+    await loadKernel({ wasmBinary });
+  } catch {
+    await loadKernel(); // local dev: let the loader fetch its own .wasm
+  }
+}
+const t0 = performance.now();
+await bootKernel();
+$('loading').hidden = true;
+$('kernel-ms').textContent = Math.round(performance.now() - t0);
+
+
+// --- viewport -------------------------------------------------------------
+const canvas = $('view');
+const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
+renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+const scene = new THREE.Scene();
+const camera = new THREE.PerspectiveCamera(40, 1, 0.1, 200);
+camera.position.set(8, 7, 9);
+const controls = new OrbitControls(camera, canvas);
+controls.target.set(0, 1, 0);
+controls.enableDamping = true;
+
+scene.add(new THREE.HemisphereLight(0xffffff, 0x404048, 1.6));
+const sun = new THREE.DirectionalLight(0xffffff, 1.8);
+sun.position.set(5, 10, 7);
+scene.add(sun);
+const grid = new THREE.GridHelper(20, 40);
+scene.add(grid);
+
+function applyTheme() {
+  scene.background = new THREE.Color(css('--scene'));
+  grid.material.color = new THREE.Color(css('--grid'));
+  grid.material.vertexColors = false;
+}
+applyTheme();
+matchMedia('(prefers-color-scheme: light)').addEventListener('change', applyTheme);
+new MutationObserver(applyTheme).observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] });
+
+// --- document -------------------------------------------------------------
+const doc = new Document();
+scene.add(doc.root);
+
+function seed() {
+  for (const id of doc.ids) doc.removeItem(id);
+  doc.undoStack = []; doc.redoStack = [];
+  doc.addItem(makeBox(new THREE.Vector3(-2, 0, -1.5), new THREE.Vector3(2, 2, 1.5)));
+}
+
+doc.onChange(() => {
+  $('n-bodies').textContent = doc.ids.length;
+  $('volume').textContent = doc.ids.reduce((v, id) => v + volume(doc.shape(id)), 0).toFixed(3);
+});
+seed();
+
+// --- profile + hover preview ----------------------------------------------
+let tool = 'rect';
+let size = 1;
+function profile() {
+  if (tool === 'circle') return new THREE.Shape().absarc(0, 0, size / 2, 0, Math.PI * 2, false);
+  const h = size / 2;
+  return new THREE.Shape().moveTo(-h, -h).lineTo(h, -h).lineTo(h, h).lineTo(-h, h).closePath();
+}
+function frameFor(normal) {
+  const ref = Math.abs(normal.y) < 0.9 ? new THREE.Vector3(0, 1, 0) : new THREE.Vector3(0, 0, 1);
+  return new THREE.Vector3().crossVectors(ref, normal).normalize();
+}
+const outline = new THREE.LineLoop(new THREE.BufferGeometry(), new THREE.LineBasicMaterial({ color: css('--accent'), depthTest: false }));
+outline.renderOrder = 11;
+outline.visible = false;
+scene.add(outline);
+function placeOutline(origin, normal) {
+  const pts = profile().getPoints(48);
+  const x = frameFor(normal), y = new THREE.Vector3().crossVectors(normal, x);
+  outline.geometry.setFromPoints(pts.map(p => origin.clone().addScaledVector(x, p.x).addScaledVector(y, p.y).addScaledVector(normal, 0.002)));
+  outline.visible = true;
+}
+
+const raycaster = new THREE.Raycaster();
+const ground = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
+function pick(event) {
+  const r = canvas.getBoundingClientRect();
+  raycaster.setFromCamera(new THREE.Vector2(((event.clientX - r.left) / r.width) * 2 - 1, -((event.clientY - r.top) / r.height) * 2 + 1), camera);
+  const hit = raycaster.intersectObjects(doc.bodies.children, false)[0];
+  const snap = v => event.ctrlKey || event.metaKey ? v.set(...v.toArray().map(c => Math.round(c * 4) / 4)) : v;
+  if (hit) {
+    // Ask the B-rep which face was hit; only flat faces can carry a sketch.
+    const faceIndex = hit.object.geometry.getAttribute('faceIndex').getX(hit.face.a);
+    const plane = facePlane(hit.object.userData.shape, faceIndex);
+    if (!plane) return { curved: true };
+    const normal = plane.normal;
+    return { origin: snap(hit.point.clone()), normal, target: hit.object.userData.id };
+  }
+  const p = raycaster.ray.intersectPlane(ground, new THREE.Vector3());
+  if (p) return { origin: snap(p), normal: new THREE.Vector3(0, 1, 0), target: undefined };
+}
+
+// --- extrude command ------------------------------------------------------
+let factory, gizmo, requests = 0, computed = 0;
+
+function showState(tag) {
+  for (const el of $('states').children) el.classList.toggle('on', el.dataset.s === tag);
+}
+showState('none');
+
+function toast(msg) {
+  const t = $('toast'); t.textContent = msg; t.hidden = false;
+  clearTimeout(toast.timer); toast.timer = setTimeout(() => t.hidden = true, 2200);
+}
+
+function refreshPanel() {
+  const active = !!factory;
+  $('commit').disabled = $('cancel').disabled = $('distance').disabled = !active;
+  const op = $('op');
+  if (!active || factory.distance === 0) { op.dataset.op = 'idle'; op.textContent = 'Idle'; return; }
+  const kind = factory.target === undefined || !factory.isOverlapping || factory.operation === 'new' ? 'new' : factory.operationType;
+  op.dataset.op = kind;
+  op.textContent = { new: 'New body', union: 'Join', difference: 'Cut' }[kind];
+}
+
+function setDistance(d) {
+  factory.distance = d;
+  gizmo.render(d);
+  if (document.activeElement !== $('distance')) $('distance').value = d.toFixed(2);
+  requests++; $('n-req').textContent = requests;
+  factory.update().then(refreshPanel, e => toast(e.message));
+}
+
+function begin({ origin, normal, target }) {
+  factory = new ExtrudeFactory(doc);
+  factory.profile = profile();
+  factory.origin.copy(origin);
+  factory.normal.copy(normal);
+  factory.xAxis.copy(frameFor(normal));
+  factory.target = target;
+  factory.operation = $('newbody').checked ? 'new' : 'auto';
+  const calc = factory.calculate.bind(factory);
+  factory.calculate = async () => { computed++; $('n-calc').textContent = computed; return calc(); };
+  factory.onChange(s => showState(s.tag));
+  requests = computed = 0; $('n-req').textContent = $('n-calc').textContent = 0;
+
+  gizmo = new ExtrudeGizmo(camera, canvas);
+  gizmo.position.copy(origin);
+  gizmo.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), normal);
+  gizmo.onDragStart = () => controls.enabled = false;
+  gizmo.onDragEnd = () => controls.enabled = true;
+  gizmo.onChange = setDistance;
+  scene.add(gizmo);
+  placeOutline(origin, normal);
+  showState('none');
+  refreshPanel();
+}
+
+function end() {
+  gizmo?.dispose();
+  gizmo = factory = undefined;
+  outline.visible = false;
+  $('distance').value = '0';
+  refreshPanel();
+}
+
+async function commit() {
+  if (!factory) return;
+  const f = factory;
+  if (f.distance === 0) { f.cancel(); end(); return; }
+  try { await f.commit(); }
+  catch (e) { toast(e instanceof NoOpError ? 'Nothing to commit' : e.message); }
+  end();
+}
+function cancel() { if (!factory) return; factory.cancel(); end(); }
+
+// --- input ----------------------------------------------------------------
+let downAt;
+canvas.addEventListener('pointerdown', e => { downAt = [e.clientX, e.clientY]; });
+canvas.addEventListener('pointerup', async e => {
+  if (!downAt || Math.hypot(e.clientX - downAt[0], e.clientY - downAt[1]) > 4 || gizmo?.dragging) return;
+  const hit = pick(e);
+  if (factory) await commit();
+  if (hit?.curved) toast('Pick a flat face to sketch on');
+  else if (hit) begin(hit);
+});
+canvas.addEventListener('pointermove', e => {
+  if (factory || e.buttons) return;
+  const hit = pick(e);
+  if (hit && !hit.curved) placeOutline(hit.origin, hit.normal); else outline.visible = false;
+});
+
+function setTool(t) {
+  tool = t;
+  $('tool-rect').setAttribute('aria-pressed', t === 'rect');
+  $('tool-circle').setAttribute('aria-pressed', t === 'circle');
+  if (factory) { factory.profile = profile(); placeOutline(factory.origin, factory.normal); if (factory.distance) setDistance(factory.distance); }
+}
+$('tool-rect').onclick = () => setTool('rect');
+$('tool-circle').onclick = () => setTool('circle');
+$('size').oninput = e => {
+  size = +e.target.value; $('size-val').textContent = size.toFixed(2);
+  if (factory) { factory.profile = profile(); placeOutline(factory.origin, factory.normal); if (factory.distance) setDistance(factory.distance); }
+};
+$('newbody').onchange = e => { if (factory) { factory.operation = e.target.checked ? 'new' : 'auto'; if (factory.distance) setDistance(factory.distance); } };
+$('distance').addEventListener('input', e => { const v = parseFloat(e.target.value); if (factory && !isNaN(v)) setDistance(v); });
+$('commit').onclick = commit;
+$('cancel').onclick = cancel;
+$('undo').onclick = () => { cancel(); doc.undo(); };
+$('redo').onclick = () => { cancel(); doc.redo(); };
+$('reset').onclick = () => { cancel(); seed(); };
+
+addEventListener('keydown', e => {
+  if (e.target.tagName === 'INPUT' && e.key !== 'Enter' && e.key !== 'Escape') return;
+  if (e.key === 'Enter') { e.preventDefault(); commit(); }
+  else if (e.key === 'Escape') cancel();
+  else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'z') { e.preventDefault(); cancel(); e.shiftKey ? doc.redo() : doc.undo(); }
+  else if (e.key === 'r') setTool('rect');
+  else if (e.key === 'c') setTool('circle');
+});
+
+// --- demo opening state: a profile already sitting on the top face -------
+begin({ origin: new THREE.Vector3(0.6, 2, 0.2), normal: new THREE.Vector3(0, 1, 0), target: doc.ids[0] });
+setDistance(-0.75);
+
+// --- loop -----------------------------------------------------------------
+function resize() {
+  const { clientWidth: w, clientHeight: h } = canvas;
+  if (canvas.width !== Math.floor(w * renderer.getPixelRatio()) || canvas.height !== Math.floor(h * renderer.getPixelRatio())) {
+    renderer.setSize(w, h, false);
+    camera.aspect = w / h;
+    camera.updateProjectionMatrix();
+  }
+}
+renderer.setAnimationLoop(() => {
+  resize();
+  controls.update();
+  if (gizmo) {
+    // keep the arrow a constant size on screen
+    const s = camera.position.distanceTo(gizmo.position) / 9;
+    gizmo.scale.setScalar(s);
+    gizmo.render(gizmo.value);
+  }
+  renderer.render(scene, camera);
+});
+window.__w3d = { doc, get factory() { return factory }, setDistance, commit };
+</script>

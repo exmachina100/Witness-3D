@@ -1,0 +1,16 @@
+[package]
+name = "w3d-kernel"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+description = "Witness 3D modeling core: a kernel trait, an OpenCascade backend, and Plasticity-style extrude."
+
+[features]
+default = ["occt"]
+# OpenCascade backend through opencascade-rs. Builds OCCT from source on first compile.
+occt = ["dep:opencascade"]
+
+[dependencies]
+glam = "0.24"
+thiserror = "1"
+opencascade = { version = "=0.3.0", optional = true }
