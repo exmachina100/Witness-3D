@@ -1,6 +1,8 @@
 [workspace]
 resolver = "2"
-members = ["crates/w3d-kernel"]
+members = ["crates/w3d-kernel", "apps/desktop/src-tauri"]
+# The desktop app needs GTK/WebKit and OpenCascade; plain `cargo` commands at the root build only the core.
+default-members = ["crates/w3d-kernel"]
 
 [workspace.package]
 edition = "2021"

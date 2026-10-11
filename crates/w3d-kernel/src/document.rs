@@ -34,6 +34,12 @@ impl<K: Kernel> Document<K> {
     pub fn ids(&self) -> Vec<BodyId> { self.state.bodies.keys().copied().collect() }
     pub fn get(&self, id: BodyId) -> Option<&K::Solid> { self.state.bodies.get(&id).map(|s| &**s) }
 
+    /// Forget undo and redo, e.g. after loading a file or seeding a new document.
+    pub fn clear_history(&mut self) {
+        self.undo.clear();
+        self.redo.clear();
+    }
+
     fn checkpoint(&mut self) {
         self.undo.push(self.state.clone());
         self.redo.clear();
