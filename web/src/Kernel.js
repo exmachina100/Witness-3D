@@ -152,7 +152,7 @@ export function tessellate(shape, { deflection = 0.01, angle = 0.25 } = {}) {
     return { mesh, edges };
 }
 
-/** The planar face of `shape` at `faceIndex` (as numbered by tessellate) — its plane, for sketching on. */
+/** The planar face of `shape` at `faceIndex` (as numbered by tessellate): a point on it and its outward normal. */
 export function facePlane(shape, faceIndex) {
     const o = oc();
     let i = 0;
@@ -162,10 +162,10 @@ export function facePlane(shape, faceIndex) {
         const surface = new o.BRepAdaptor_Surface(face, true);
         if (surface.GetType() !== o.GeomAbs_SurfaceType.GeomAbs_Plane) return undefined;
         const pln = surface.Plane();
-        const d = pln.Axis().Direction();
+        const d = pln.Axis().Direction(), l = pln.Location();
         const n = new THREE.Vector3(d.X(), d.Y(), d.Z());
         if (face.Orientation() === o.TopAbs_Orientation.TopAbs_REVERSED) n.negate();
-        return { normal: n };
+        return { normal: n, origin: new THREE.Vector3(l.X(), l.Y(), l.Z()) };
     }
     return undefined;
 }
