@@ -73,6 +73,23 @@ fn edges_are_the_brep_edges() {
 }
 
 #[test]
+fn faces_are_pickable_and_flat_ones_have_planes() {
+    let (k, body, mut p) = setup();
+    let t = k.tessellate(&body, 0.01).unwrap();
+    assert_eq!(t.face_ids.len(), t.indices.len() / 3);
+    assert_eq!(t.face_planes.len(), 6);
+    let top = t.face_planes.iter().flatten().find(|pl| pl.normal.z > 0.5).expect("a top face");
+    close(top.origin.z, 2.0, 1e-9);
+    close(top.normal.z, 1.0, 1e-9);
+
+    p.profile = Profile::Circle { center: (0.0, 0.0), radius: 0.6 };
+    p.distance = 1.0;
+    let ExtrudeResult::Replace { solid, .. } = extrude(&k, Some(&body), &p).unwrap() else { panic!() };
+    let t = k.tessellate(&solid, 0.01).unwrap();
+    assert_eq!(t.face_planes.iter().filter(|pl| pl.is_none()).count(), 1, "only the cylinder wall is curved");
+}
+
+#[test]
 fn exports_step() {
     let (k, body, mut p) = setup();
     p.distance = -1.0;

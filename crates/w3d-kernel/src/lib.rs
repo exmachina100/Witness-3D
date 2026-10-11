@@ -8,8 +8,8 @@
 use glam::DVec3;
 
 pub mod document;
+pub mod engine;
 pub mod extrude;
-pub mod preview;
 #[cfg(feature = "occt")]
 pub mod occt;
 
@@ -54,7 +54,18 @@ impl Frame {
 pub struct Tessellation {
     pub positions: Vec<[f64; 3]>,
     pub indices: Vec<u32>,
+    /// For each triangle, the index of the B-rep face it belongs to, so a click picks a face.
+    pub face_ids: Vec<u32>,
+    /// For each face, its plane when it is flat: the faces a sketch can be drawn on.
+    pub face_planes: Vec<Option<Plane>>,
     pub edges: Vec<Vec<[f64; 3]>>,
+}
+
+/// A point on a flat face and its outward normal.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Plane {
+    pub origin: DVec3,
+    pub normal: DVec3,
 }
 
 impl Tessellation {

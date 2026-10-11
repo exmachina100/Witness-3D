@@ -6,7 +6,7 @@ use std::path::Path;
 use glam::DVec3;
 use opencascade::primitives::{Edge, Face, Shape, ShapeType, Wire};
 
-use crate::{BooleanOp, Frame, Kernel, KernelError, Profile, Tessellation};
+use crate::{BooleanOp, Frame, Kernel, KernelError, Plane, Profile, Tessellation};
 
 pub struct Occt;
 
@@ -19,6 +19,19 @@ fn edge_points(edge: &Edge) -> (Vec<[f64; 3]>, String) {
     let mut key: Vec<String> = pts.iter().map(|p| format!("{:.5},{:.5},{:.5}", p[0], p[1], p[2])).collect();
     key.sort();
     (pts, key.join("|"))
+}
+
+/// The face's plane if every triangle faces the same way. Triangle winding already accounts for
+/// the face's orientation in the solid, so the normal points out of the body.
+fn plane_of(mesh: &opencascade::mesh::Mesh) -> Option<Plane> {
+    let normals: Vec<DVec3> = mesh.indices.chunks_exact(3).filter_map(|t| {
+        let [a, b, c] = [t[0], t[1], t[2]].map(|i| mesh.vertices[i]);
+        (b - a).cross(c - a).try_normalize()
+    }).collect();
+    let normal = *normals.first()?;
+    if normals.iter().any(|n| n.dot(normal) < 1.0 - 1e-9) { return None }
+    let origin = mesh.vertices.iter().copied().sum::<DVec3>() / mesh.vertices.len() as f64;
+    Some(Plane { origin, normal })
 }
 
 fn root(parent: &mut [usize], mut i: usize) -> usize {
@@ -82,18 +95,26 @@ impl Kernel for Occt {
     fn face_count(&self, s: &Shape) -> usize { s.faces().count() }
 
     fn tessellate(&self, s: &Shape, tolerance: f64) -> Result<Tessellation, KernelError> {
-        let mesh = s.mesh_with_tolerance(tolerance).map_err(failed)?;
-        let positions = mesh.vertices.iter().map(|v| v.to_array()).collect();
-        let indices = mesh.indices.iter().map(|&i| i as u32).collect();
+        // Mesh the whole solid once so neighbouring faces share edge points, then read it back
+        // face by face to learn which triangles belong to which face.
+        s.mesh_with_tolerance(tolerance).map_err(failed)?;
+        let mut t = Tessellation::default();
+        for (face_id, face) in s.faces().enumerate() {
+            let mesh = Shape::from(&face).mesh_with_tolerance(tolerance).map_err(failed)?;
+            let offset = t.positions.len() as u32;
+            t.positions.extend(mesh.vertices.iter().map(|v| v.to_array()));
+            t.indices.extend(mesh.indices.iter().map(|&i| offset + i as u32));
+            t.face_ids.extend(std::iter::repeat(face_id as u32).take(mesh.indices.len() / 3));
+            t.face_planes.push(plane_of(&mesh));
+        }
 
         // The explorer meets each edge once per adjacent face; keep the first.
         let mut seen = HashSet::new();
-        let mut edges = Vec::new();
         for edge in s.edges() {
             let (pts, key) = edge_points(&edge);
-            if seen.insert(key) { edges.push(pts) }
+            if seen.insert(key) { t.edges.push(pts) }
         }
-        Ok(Tessellation { positions, indices, edges })
+        Ok(t)
     }
 
     fn write_step(&self, s: &Shape, path: &Path) -> Result<(), KernelError> {

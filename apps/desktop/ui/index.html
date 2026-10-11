@@ -1,0 +1,137 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Witness 3D</title>
+<style>
+/* Layout: one full-height modeling viewport; a slim tool rail on top, a state-machine readout docked bottom-left, a parameter panel docked right. */
+:root {
+  --ground: #0f0f11;      /* viewport + page */
+  --panel: #18181b;
+  --line: #2c2c31;
+  --ink: #efebe0;         /* bone */
+  --muted: #8e949e;       /* steel */
+  --accent: #ff4d00;      /* signal orange: gizmo, active tool */
+  --cut: #ef4444;
+  --add: #3b82f6;
+  --scene: #0f0f11;
+  --grid: #26262b;
+  --font-ui: "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-data: "Space Mono", ui-monospace, "SFMono-Regular", Menlo, monospace;
+  color-scheme: dark;
+}
+@media (prefers-color-scheme: light) {
+  :root:not([data-theme="dark"]) {
+    --ground: #e9e7e1; --panel: #f6f5f1; --line: #d3d0c7; --ink: #17160f; --muted: #66676d;
+    --accent: #e04400; --cut: #d02c2c; --add: #2563eb; --scene: #e4e2dc; --grid: #c9c6bd; color-scheme: light;
+  }
+}
+:root[data-theme="light"] {
+  --ground: #e9e7e1; --panel: #f6f5f1; --line: #d3d0c7; --ink: #17160f; --muted: #66676d;
+  --accent: #e04400; --cut: #d02c2c; --add: #2563eb; --scene: #e4e2dc; --grid: #c9c6bd; color-scheme: light;
+}
+html, body { height: 100%; }
+body { background: var(--ground); color: var(--ink); font-family: var(--font-ui); overflow: hidden; }
+.app { position: relative; height: 100%; display: grid; grid-template-rows: auto 1fr; }
+.rail {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px;
+  padding: 10px 16px; border-bottom: 1px solid var(--line); background: var(--panel);
+}
+.brand { font-family: var(--font-data); font-weight: 700; font-size: 12px; letter-spacing: 1.5px; text-transform: uppercase; margin-right: auto; }
+.brand span { color: var(--accent); }
+.group { display: flex; gap: 4px; align-items: center; }
+.label { font-family: var(--font-data); font-size: 10px; letter-spacing: 1.5px; text-transform: uppercase; color: var(--muted); }
+button.tool {
+  font: 500 13px var(--font-ui); color: var(--ink); background: transparent;
+  border: 1px solid var(--line); border-radius: 4px; padding: 5px 10px; cursor: pointer;
+}
+button.tool:hover:not(:disabled) { border-color: var(--muted); }
+button.tool:disabled { opacity: 0.4; cursor: default; }
+button.tool[aria-pressed="true"] { border-color: var(--accent); color: var(--accent); }
+button.tool:focus-visible, input:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+kbd { font-family: var(--font-data); font-size: 10px; color: var(--muted); margin-left: 4px; }
+.stage { position: relative; min-height: 0; }
+canvas#view { display: block; width: 100%; height: 100%; touch-action: none; }
+.hud {
+  position: absolute; left: 16px; bottom: 16px; max-width: calc(100% - 32px);
+  font-family: var(--font-data); font-size: 10px; letter-spacing: 1.2px; text-transform: uppercase;
+  display: grid; gap: 6px; pointer-events: none;
+}
+.states { display: flex; flex-wrap: wrap; gap: 4px; }
+.state { padding: 3px 6px; border: 1px solid var(--line); border-radius: 3px; color: var(--muted); background: var(--panel); }
+.state.on { color: var(--ground); background: var(--accent); border-color: var(--accent); }
+.state.on[data-s="failed"] { background: var(--cut); border-color: var(--cut); }
+.counts { color: var(--muted); font-variant-numeric: tabular-nums; }
+.counts b { color: var(--ink); font-weight: 400; }
+.panel {
+  position: absolute; right: 16px; top: 16px; width: 240px; max-width: calc(100% - 32px);
+  background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 14px;
+  display: grid; gap: 12px; font-size: 13px;
+}
+.panel h2 { margin: 0; font-size: 14px; font-weight: 600; text-wrap: balance; }
+.row { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+.op { font-family: var(--font-data); font-size: 11px; letter-spacing: 1.2px; text-transform: uppercase; padding: 2px 6px; border-radius: 3px; border: 1px solid currentColor; }
+.op[data-op="union"], .op[data-op="new"] { color: var(--add); }
+.op[data-op="difference"] { color: var(--cut); }
+.op[data-op="idle"] { color: var(--muted); }
+input#distance { width: 90px; font: 400 13px var(--font-data); color: var(--ink); background: var(--ground); border: 1px solid var(--line); border-radius: 4px; padding: 4px 6px; text-align: right; font-variant-numeric: tabular-nums; }
+input#size { width: 100%; accent-color: var(--accent); }
+.hint { color: var(--muted); font-size: 12px; line-height: 1.5; margin: 0; }
+.actions { display: flex; gap: 6px; }
+.actions button { flex: 1; }
+button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+.loading[hidden] { display: none; }
+.loading { position: absolute; inset: 0; display: grid; place-items: center; background: var(--ground); color: var(--muted); font-family: var(--font-data); font-size: 12px; letter-spacing: 1.2px; text-transform: uppercase; }
+.toast { position: absolute; left: 50%; top: 16px; transform: translateX(-50%); background: var(--panel); border: 1px solid var(--cut); color: var(--ink); padding: 6px 10px; border-radius: 4px; font-size: 12px; }
+@media (max-width: 640px) {
+  .panel { top: auto; bottom: 16px; right: 16px; left: 16px; width: auto; gap: 8px; padding: 10px; }
+  .panel .hint, .panel h2 { display: none; }
+  .hud { bottom: auto; top: 12px; }
+  kbd { display: none; }
+}
+</style>
+</head>
+<body>
+<div class="app">
+  <header class="rail">
+    <div class="brand">Witness 3D <span>·</span> Desktop</div>
+    <div class="group" role="group" aria-label="Profile">
+      <span class="label">Profile</span>
+      <button class="tool" id="tool-rect" aria-pressed="true">Rectangle<kbd>R</kbd></button>
+      <button class="tool" id="tool-circle" aria-pressed="false">Circle<kbd>C</kbd></button>
+    </div>
+    <div class="group">
+      <button class="tool" id="undo">Undo<kbd>Ctrl Z</kbd></button>
+      <button class="tool" id="redo">Redo</button>
+      <button class="tool" id="export" disabled>Export STEP</button>
+    </div>
+  </header>
+  <main class="stage">
+    <canvas id="view" aria-label="3D modeling viewport"></canvas>
+
+    <section class="panel" aria-label="Extrude">
+      <h2>Extrude</h2>
+      <div class="row"><span class="label">Operation</span><span class="op" id="op" data-op="idle">Idle</span></div>
+      <div class="row"><label class="label" for="distance">Distance</label><input id="distance" type="number" step="0.25" value="0" disabled></div>
+      <div class="row"><label class="label" for="size">Profile size</label><span class="counts" id="size-val">1.00</span></div>
+      <input id="size" type="range" min="0.25" max="3" step="0.05" value="1">
+      <div class="row"><label class="label" for="newbody">Always new body</label><input id="newbody" type="checkbox"></div>
+      <div class="actions">
+        <button class="tool primary" id="commit" disabled>Commit<kbd>↵</kbd></button>
+        <button class="tool" id="cancel" disabled>Cancel<kbd>Esc</kbd></button>
+      </div>
+      <p class="hint">Click any flat face to place a profile, then drag the orange arrow. Pull out to add, push in to cut. Hold Ctrl to snap to 0.25.</p>
+    </section>
+
+    <div class="hud" aria-live="polite">
+      <div class="counts">Drags sent <b id="n-req">0</b> · computed <b id="n-calc">0</b> · skipped as stale <b id="n-skip">0</b></div>
+      <div class="counts">OpenCascade (Rust) · bodies <b id="n-bodies">0</b> · total volume <b id="volume">…</b></div>
+    </div>
+    <div class="toast" id="toast" hidden></div>
+    <div class="loading" id="loading">Starting the modeling engine…</div>
+  </main>
+</div>
+<script type="module" src="./main.js"></script>
+</body>
+</html>
