@@ -92,7 +92,9 @@ button:focus-visible, input:focus-visible { outline: 1px solid var(--accent); ou
 .keys span { color: var(--muted); }
 .toast { position: absolute; left: 50%; top: 12px; transform: translateX(-50%); padding: 4px 8px; border: 1px solid var(--accent); color: var(--accent); background: var(--ground); white-space: nowrap; }
 .loading { position: absolute; inset: 0; display: grid; place-items: center; background: var(--ground); color: var(--muted); }
-.loading[hidden], .toast[hidden] { display: none; }
+.loading[hidden], .toast[hidden], .snap-tag[hidden] { display: none; }
+.snap-tag { position: absolute; left: 14px; top: 40px; padding: 2px 6px; border: 1px solid var(--accent); color: var(--accent); background: var(--ground); font-size: 10px; pointer-events: none; }
+.sec > .label output { color: var(--accent); margin-left: 6px; }
 
 /* right: inspector */
 .right { grid-column: 3; grid-row: 2; border-left: 1px solid var(--rule); display: flex; flex-direction: column; min-height: 0; overflow: auto; }
