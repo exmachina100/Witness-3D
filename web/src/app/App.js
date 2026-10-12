@@ -27,6 +27,12 @@
 //   save()                       -> file name, or null if the user backed out
 //   open()                       -> { name, scene: Body[] }, or null
 //   importStep()                 -> { id, scene: Body[] }, or null
+//   curves()                     -> Curve[]; addCurves(Curve[]) -> { ids }
+//   deleteItems(bodies, curves)  -> Body[]
+//   previewBoolean({ target, tools, op }) -> Body, or null when stale
+//   commitBoolean({ target, tools, op, keepTools }) -> { id, scene: Body[] }
+// Curve:   { id, origin, x, normal, kind: 'polyline', points: [u, v][], closed } | { ..., kind: 'circle', center, radius },
+//          in a plane in viewport coordinates, with v along normal × x
 // Body:    { id, positions, indices, faceIds, facePlanes: ({ origin, normal } | null)[], edges: number[][], volume,
 //            faceRefs: number[], edgeRefs: number[], revision }
 //          `edges` holds one polyline (x, y, z, x, y, z, ...) per B-rep edge; its index is the edge's
@@ -39,7 +45,10 @@
 //          coordinates (y up)
 // Units are millimetres throughout.
 // Preview: { outcome: 'join' | 'cut' | 'new' | 'none', tool: Body | null, result: Body | null }
-// Request: { target, origin, normal, xAxis, profile: { kind: 'rect', width, height } | { kind: 'circle', radius }, distance, newBody }
+// Request: { target, distance, op?: 'auto' | 'union' | 'difference' | 'intersect' | 'new', and one of
+//          region (a closed curve's id), face (a flat face's number on target), or
+//          origin, normal, xAxis, profile: { kind: 'rect', width, height } | { kind: 'circle', radius }, newBody }
+//          Preview.outcome can also be 'intersect'.
 
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
@@ -55,17 +64,25 @@ const KEYS = {
   move: [['X Y Z', 'AXIS'], ['⇧ X Y Z', 'PLANE'], ['G', 'SCREEN'], ['CTRL', 'SNAP'], ['⏎ / RMB', 'OK']],
   rotate: [['X Y Z', 'AXIS'], ['R', 'SCREEN'], ['CTRL', '15°'], ['⏎ / RMB', 'OK']],
   scale: [['S', 'UNIFORM'], ['CTRL', '0.1'], ['⏎ / RMB', 'OK']],
+  extrude: [['DRAG DOT', 'DISTANCE'], ['D', 'DISTANCE'], ['Q', 'UNION'], ['W', 'DIFFERENCE'], ['⇧E', 'INTERSECT'], ['B', 'NEW BODY'], ['⏎ / RMB', 'OK']],
+  boolean: [['Q', 'UNION'], ['W', 'DIFFERENCE'], ['⇧E', 'INTERSECT'], ['T', 'KEEP TOOLS'], ['⏎ / RMB', 'OK']],
+  rect: [['CLICK', 'CORNERS'], ['S', 'SQUARE'], ['C', 'FROM CENTRE'], ['TAB', 'TYPE SIZE'], ['ALT', 'NO SNAP'], ['ESC', 'CANCEL']],
+  circle: [['CLICK', 'CENTRE · RADIUS'], ['TAB', 'TYPE DIAMETER'], ['ALT', 'NO SNAP'], ['ESC', 'CANCEL']],
+  line: [['CLICK', 'POINTS'], ['CLICK START', 'CLOSE'], ['CTRL Z', 'BACK'], ['TAB', 'TYPE LENGTH'], ['⏎ / RMB', 'DONE']],
   pushpull: [['CLICK', 'PLACE'], ['DRAG DOT', 'DISTANCE'], ['Q', 'JOIN'], ['W', 'CUT'], ['B', 'NEW'], ['R C', 'SHAPE'], ['⏎ / RMB', 'OK']],
 };
+// Drawing commands: Plasticity's curve tools, which end in curves and the regions inside them.
+const DRAW = { rect: 'RECTANGLE', circle: 'CIRCLE', line: 'LINE' };
 const keysHtml = id => KEYS[id].map(([k, v]) => `<kbd>${k}</kbd><span>${v}</span>`).join('');
-const BAR = [['palette', 'F', 'SEARCH'], ['tool:fillet', 'B', 'FILLET'], ['tool:move', 'G', 'MOVE'], ['tool:rotate', 'R', 'ROTATE'], ['tool:scale', 'S', 'SCALE'], ['duplicate', '⇧D', 'DUPLICATE'], ['delete', '⇧X', 'DELETE']];
+const BAR = [['palette', 'F', 'SEARCH'], ['tool:extrude', 'E', 'EXTRUDE'], ['tool:boolean', 'Q', 'BOOLEAN'], ['tool:fillet', 'B', 'FILLET'], ['tool:move', 'G', 'MOVE'], ['tool:rotate', 'R', 'ROTATE'], ['tool:scale', 'S', 'SCALE'], ['duplicate', '⇧D', 'DUPLICATE'], ['delete', '⇧X', 'DELETE']];
 
 const SHELL = `
 <div class="w3d">
   <header class="bar">
     <div class="brand">WITNESS 3D</div>
     <nav class="tools" aria-label="Tools">
-      ${TOOLS.map(t => `<button class="tool" data-tool="${t.id}" aria-pressed="false" title="${t.summary}"><kbd>${t.key.toUpperCase()}</kbd>${t.label}</button>`).join('\n      ')}
+      ${[['rect', '⇧Q', 'RECT'], ['circle', '⇧W', 'CIRCLE'], ['line', '⇧A', 'LINE']].map(([id, k, l]) => `<button class="tool" data-tool="${id}" aria-pressed="false" title="Draw a ${DRAW[id].toLowerCase()}"><kbd>${k}</kbd>${l}</button>`).join('')}
+      ${TOOLS.filter(t => t.toolbar !== false).map(t => `<button class="tool" data-tool="${t.id}" aria-pressed="false" title="${t.summary}"><kbd>${t.key.toUpperCase()}</kbd>${t.label}</button>`).join('\n      ')}
     </nav>
     <span class="spacer"></span>
     <button class="export" data-id="file-new" hidden>NEW</button>
@@ -127,6 +144,38 @@ const SHELL = `
       <div class="field"><label for="w3d-blend-angle">ANGLE °</label><input id="w3d-blend-angle" data-id="blend-angle" type="number" step="5" min="1" max="89" value="45" title="The chamfer's angle"></div>
       <div class="field"><label>SHAPE</label><output data-id="blend-kind">ROUND</output></div>
       <div class="field"><label>EDGES</label><output data-id="blend-count">0</output></div>
+    </div>
+    <div class="sec" data-panel="draw" hidden>
+      <span class="hint" data-id="draw-hint">CLICK A FACE OR THE CONSTRUCTION PLANE</span>
+      <div class="field"><label>SIZE</label><output data-id="draw-size">—</output></div>
+      <div class="field"><label>POINTS</label><output data-id="draw-points">0</output></div>
+      <div class="chips" data-id="draw-rect">
+        <button data-draw="square" aria-pressed="false"><kbd>S</kbd>SQUARE</button>
+        <button data-draw="centre" aria-pressed="false"><kbd>C</kbd>FROM CENTRE</button>
+      </div>
+    </div>
+    <div class="sec" data-panel="extrude" hidden>
+      <span class="hint" data-id="ex-hint">DRAG THE DOT, OR D AND TYPE</span>
+      <div class="field"><label for="w3d-ex-distance">DISTANCE</label><input id="w3d-ex-distance" data-id="ex-distance" type="number" step="2.5" value="0"></div>
+      <div class="field"><label>RESULT</label><output data-id="ex-outcome">—</output></div>
+      <span class="label">OPERATION</span>
+      <div class="seg" role="group" aria-label="Extrude operation">
+        <button data-xop="union" aria-pressed="false"><kbd>Q</kbd>UNION</button>
+        <button data-xop="difference" aria-pressed="false"><kbd>W</kbd>DIFF</button>
+        <button data-xop="intersect" aria-pressed="false"><kbd>⇧E</kbd>INTER</button>
+        <button data-xop="new" aria-pressed="false"><kbd>B</kbd>NEW</button>
+      </div>
+    </div>
+    <div class="sec" data-panel="boolean" hidden>
+      <span class="hint" data-id="bool-hint">THE FIRST SOLID SELECTED IS THE TARGET</span>
+      <div class="field"><label>TOOLS</label><output data-id="bool-tools">—</output></div>
+      <span class="label">OPERATION</span>
+      <div class="seg" role="group" aria-label="Boolean operation">
+        <button data-bop="union" aria-pressed="true"><kbd>Q</kbd>UNION</button>
+        <button data-bop="difference" aria-pressed="false"><kbd>W</kbd>DIFF</button>
+        <button data-bop="intersect" aria-pressed="false"><kbd>⇧E</kbd>INTER</button>
+      </div>
+      <div class="chips"><button data-id="bool-keep" aria-pressed="false"><kbd>T</kbd>KEEP TOOLS</button></div>
     </div>
     <div class="sec" data-panel="move" hidden>
       <span class="hint" data-id="move-hint">DRAG AN ARROW, PRESS X Y Z, OR TYPE</span>
@@ -213,6 +262,7 @@ const DANGER = 0xef4444;
 const GRID_STEPS = [0.5, 1, 2.5, 5, 10];
 const DEG = Math.PI / 180;
 const label = id => `B-${String(id).padStart(2, '0')}`;
+const curveLabel = id => `C-${String(id).padStart(2, '0')}`;
 const fmt = n => (n < 0 ? '−' : '+') + Math.abs(n).toFixed(2);
 // User coordinates are z up; the viewport's own y is up.
 const toWorld = ([x, y, z]) => [x, z, -y];
@@ -371,6 +421,75 @@ export async function mount(root, backend) {
     $('export').disabled = list.length === 0;
     hover = null;
     selectionChanged({ quiet: true });
+    return loadCurves();
+  }
+
+  // --- drawn curves and their regions ----------------------------------------
+  // A curve lies in a plane { origin, x, normal } (viewport coordinates) with 2D points in it,
+  // y = normal × x. A closed one bounds a region, drawn as a faint fill that face mode can pick.
+  const curveGroup = new THREE.Group();
+  scene.add(curveGroup);
+  let curveList = [];
+  const curveMat = {
+    normal: new THREE.LineBasicMaterial({ color: 0x9a968c }),
+    hover: new THREE.LineBasicMaterial({ color: 0xffffff }),
+    selected: new THREE.LineBasicMaterial({ color: COLORS.accent }),
+  };
+  const regionLook = opacity => new THREE.MeshBasicMaterial({ color: COLORS.ink, transparent: true, opacity, depthWrite: false, side: THREE.DoubleSide, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 });
+  const regionMat = { normal: regionLook(0.04), hover: regionLook(0.12), selected: Object.assign(regionLook(0.3), { color: new THREE.Color(COLORS.accent) }) };
+  function curveFrame(c) {
+    const n = new THREE.Vector3(...c.normal).normalize();
+    const x = new THREE.Vector3(...c.x).projectOnPlane(n).normalize();
+    return { o: new THREE.Vector3(...c.origin), x, y: new THREE.Vector3().crossVectors(n, x), n };
+  }
+  const lift = (f, p, h = 0) => f.o.clone().addScaledVector(f.x, p.x).addScaledVector(f.y, p.y).addScaledVector(f.n, h);
+  const curve2d = c => c.kind === 'circle'
+    ? new THREE.Path().absarc(c.center[0], c.center[1], c.radius, 0, Math.PI * 2).getPoints(96).slice(0, -1)
+    : c.points.map(p => new THREE.Vector2(...p));
+  const isClosed = c => c.kind === 'circle' || (c.closed && c.points.length >= 3);
+  const curveName = c => c.kind === 'circle' ? 'CIRCLE' : !c.closed ? 'LINE' : c.points.length === 4 ? 'RECTANGLE' : 'POLYGON';
+  async function loadCurves() {
+    curveList = backend.curves ? await backend.curves() : [];
+    sel.keepCurves(curveList.map(c => c.id));
+    for (const o of [...curveGroup.children]) dispose(o);
+    for (const c of curveList) {
+      const f = curveFrame(c), pts = curve2d(c);
+      const line = new (isClosed(c) ? THREE.LineLoop : THREE.Line)(new THREE.BufferGeometry().setFromPoints(pts.map(p => lift(f, p, 0.02))), curveMat.normal);
+      line.userData = { curve: c.id };
+      line.renderOrder = 9;
+      curveGroup.add(line);
+      if (!isClosed(c)) continue;
+      const g = new THREE.ShapeGeometry(new THREE.Shape(pts), 1);
+      g.applyMatrix4(new THREE.Matrix4().makeBasis(f.x, f.y, f.n).setPosition(lift(f, { x: 0, y: 0 }, 0.02)));
+      const m = new THREE.Mesh(g, regionMat.normal);
+      m.userData = { region: c.id };
+      m.renderOrder = 7;
+      curveGroup.add(m);
+    }
+    drawOverlays();
+    renderOutliner();
+  }
+  /** Colour curves and regions for hover and selection. */
+  function paintCurves() {
+    const is = (kind, id) => sel.has({ kind, id }) ? 'selected' : hover?.kind === kind && hover.id === id ? 'hover' : 'normal';
+    for (const o of curveGroup.children) {
+      if (o.userData.curve !== undefined) o.material = curveMat[is('curve', o.userData.curve) === 'normal' && sel.has({ kind: 'region', id: o.userData.curve }) ? 'selected' : is('curve', o.userData.curve)];
+      else o.material = regionMat[is('region', o.userData.region)];
+    }
+  }
+  /** The centre of a region, in the viewport. */
+  function regionCentre(c) {
+    const f = curveFrame(c);
+    if (c.kind === 'circle') return lift(f, new THREE.Vector2(...c.center));
+    // The area centroid of the polygon.
+    const p = c.points;
+    let a = 0, cx = 0, cy = 0;
+    for (let i = 0; i < p.length; i++) {
+      const [x0, y0] = p[i], [x1, y1] = p[(i + 1) % p.length], w = x0 * y1 - x1 * y0;
+      a += w; cx += (x0 + x1) * w; cy += (y0 + y1) * w;
+    }
+    if (Math.abs(a) < 1e-12) return lift(f, { x: p.reduce((s, q) => s + q[0], 0) / p.length, y: p.reduce((s, q) => s + q[1], 0) / p.length });
+    return lift(f, { x: cx / (3 * a), y: cy / (3 * a) });
   }
 
   /** The area-weighted centre of a face, from its display triangles. */
@@ -391,8 +510,8 @@ export async function mount(root, backend) {
   // --- outliner and history -----------------------------------------------
   const history = [];   // committed steps, oldest first; `undone` counts how many from the end were undone
   let undone = 0;
-  function record(text, id) {
-    history.splice(history.length - undone, undone, { text, id });
+  function record(text, id, tag = label(id)) {
+    history.splice(history.length - undone, undone, { text, id, tag });
     undone = 0;
     renderHistory();
   }
@@ -413,9 +532,16 @@ export async function mount(root, backend) {
       out.append(row);
     }
     out.insertAdjacentHTML('beforeend', '<div class="group-title">▾ CURVES</div>');
-    out.insertAdjacentHTML('beforeend', cmd?.id === 'pushpull' && cmd.at
-      ? `<div class="row-item curve"><span class="ln"></span><span>${profileKind === 'circle' ? 'CIRCLE' : 'RECT'}.001</span></div>`
-      : '<div class="empty">NO CURVES</div>');
+    for (const c of curveList) {
+      const row = document.createElement('div');
+      row.className = 'row-item curve';
+      row.setAttribute('aria-current', sel.has({ kind: 'curve', id: c.id }) || sel.has({ kind: 'region', id: c.id }));
+      row.innerHTML = `<span class="ln"></span><span class="name">${curveName(c)}</span><span class="tag">${curveLabel(c.id)}</span>`;
+      row.onclick = e => { applySelect({ kind: 'curve', id: c.id }, modOf(e)); selectionChanged(); };
+      out.append(row);
+    }
+    if (cmd?.id === 'pushpull' && cmd.at) out.insertAdjacentHTML('beforeend', `<div class="row-item curve"><span class="ln"></span><span>${profileKind === 'circle' ? 'CIRCLE' : 'RECT'}.001</span></div>`);
+    else if (!curveList.length) out.insertAdjacentHTML('beforeend', '<div class="empty">NO CURVES</div>');
   }
   function renderHistory() {
     const live = history.length - undone;
@@ -424,7 +550,7 @@ export async function mount(root, backend) {
     history.forEach((h, i) => {
       const row = document.createElement('div');
       row.className = 'row-item hist' + (i >= live ? ' undone' : '');
-      row.innerHTML = `<span class="n">${String(i + 1).padStart(2, '0')}</span><span class="name">${h.text}</span><span class="tag">${label(h.id)}</span>`;
+      row.innerHTML = `<span class="n">${String(i + 1).padStart(2, '0')}</span><span class="name">${h.text}</span><span class="tag">${h.tag}</span>`;
       $('history').append(row);
     });
     $('undo').disabled = live === 0;
@@ -505,11 +631,21 @@ export async function mount(root, backend) {
     ray(e);
     const meshes = shownMeshes();
     const faceHit = raycaster.intersectObjects(meshes, false)[0];
+    const reach = faceHit ? faceHit.distance * 1.01 + 0.5 : Infinity; // in front of the face, or on it
+    raycaster.params.Line.threshold = unitsPerPixel(faceHit?.point ?? controls.target) * 6;
+    // Curves pick with edges or solids (Plasticity picks a curve whole), regions with faces.
+    const curveHit = (sel.allows('edge') || sel.allows('solid'))
+      && raycaster.intersectObjects(curveGroup.children.filter(o => o.userData.curve !== undefined), false).find(h => h.distance <= reach);
+    let edgeHit = null;
     if (sel.allows('edge')) {
-      raycaster.params.Line.threshold = unitsPerPixel(faceHit?.point ?? controls.target) * 6;
       const hits = raycaster.intersectObjects(meshes.map(m => m.userData.lines), false);
-      const h = hits.find(h => !faceHit || h.distance <= faceHit.distance * 1.01 + 1e-6);
-      if (h) return { kind: 'edge', body: h.object.parent.userData.id, n: h.object.userData.segEdge[h.index / 2], point: h.point };
+      edgeHit = hits.find(h => !faceHit || h.distance <= faceHit.distance * 1.01 + 1e-6);
+    }
+    if (curveHit && (!edgeHit || curveHit.distance <= edgeHit.distance + 0.5)) return { kind: 'curve', id: curveHit.object.userData.curve, point: curveHit.point };
+    if (edgeHit) return { kind: 'edge', body: edgeHit.object.parent.userData.id, n: edgeHit.object.userData.segEdge[edgeHit.index / 2], point: edgeHit.point };
+    if (sel.allows('face')) {
+      const r = raycaster.intersectObjects(curveGroup.children.filter(o => o.userData.region !== undefined), false).find(h => h.distance <= reach);
+      if (r) return { kind: 'region', id: r.object.userData.region, point: r.point };
     }
     if (!faceHit) return null;
     const { id, faceIds } = faceHit.object.userData;
@@ -525,6 +661,7 @@ export async function mount(root, backend) {
   // a double-click takes the solid, and a click on nothing clears.
   function clickTarget(hit, mod) {
     if (!hit) return null;
+    if (hit.body === undefined) return { kind: hit.kind, id: hit.id };
     const solid = { kind: 'solid', body: hit.body };
     if (hit.kind === 'solid') return solid;
     if (sel.allows('solid')) {
@@ -536,7 +673,7 @@ export async function mount(root, backend) {
   }
   function applySelect(it, mod) {
     if (!it) { if (mod === 'replace') sel.clear(); return; }
-    const drop = () => { if (it.kind !== 'solid') sel.remove({ kind: 'solid', body: it.body }); else for (const c of sel.list()) if (c.body === it.body && c.kind !== 'solid') sel.remove(c); };
+    const drop = () => { if (it.body === undefined) return; if (it.kind !== 'solid') sel.remove({ kind: 'solid', body: it.body }); else for (const c of sel.list()) if (c.body === it.body && c.kind !== 'solid') sel.remove(c); };
     if (mod === 'replace') { sel.clear(); sel.add(it); }
     else if (mod === 'add') { drop(); sel.add(it); }
     else if (sel.has(it)) sel.remove(it);
@@ -592,6 +729,10 @@ export async function mount(root, backend) {
         });
       }
     }
+    if (sel.allows('edge') || sel.allows('solid')) for (const c of curveList) {
+      const f = curveFrame(c);
+      if (polyHit(curve2d(c).map(p => screenOf(lift(f, p))), isClosed(c))) found.push({ kind: 'curve', id: c.id });
+    }
     if (mod === 'replace') sel.clear();
     for (const it of found) applySelect(it, mod === 'remove' ? 'remove' : 'add');
     selectionChanged();
@@ -640,7 +781,8 @@ export async function mount(root, backend) {
       if (edges.length) put(id, edgeLines(b, edges.filter(n => !failedEdges.includes(n)), overlayMat.selected));
       if (failedEdges.length && edges.length) put(id, edgeLines(b, failedEdges, overlayMat.failed));
     }
-    if (hover && !sel.has(hover)) {
+    paintCurves();
+    if (hover && !sel.has(hover) && hover.body !== undefined) {
       const b = bodyOf(hover.body);
       if (b) {
         if (hover.kind === 'edge') put(b.id, edgeLines(b, [hover.n], overlayMat.hover));
@@ -659,8 +801,15 @@ export async function mount(root, backend) {
     if (cmd?.onSelection) return cmd.onSelection();
     if (quiet) return;
     // Plasticity's default command: with edges selected the fillet's dot is already there to drag.
-    if (!cmd && edgeBody()) startFillet({ auto: true });
+    defaultCommand();
   }
+  /** Plasticity's default commands: the fillet's dot with edges selected, the extrude's with regions. */
+  function defaultCommand() {
+    if (cmd) return;
+    if (edgeBody()) startFillet({ auto: true });
+    else if (regionsOnly()) startExtrude({ auto: true });
+  }
+  const regionsOnly = () => sel.size > 0 && sel.list().every(it => it.kind === 'region');
   /** The one body all selected edges are on, and only edges are selected; else null. */
   function edgeBody() {
     const items = sel.list();
@@ -732,9 +881,9 @@ export async function mount(root, backend) {
   }
   function showTool(id) {
     for (const b of $$('[data-tool]')) b.setAttribute('aria-pressed', b.dataset.tool === id);
-    for (const el of $$('[data-panel]')) el.hidden = el.dataset.panel !== id;
+    for (const el of $$('[data-panel]')) el.hidden = el.dataset.panel !== (DRAW[id] ? 'draw' : id);
     $('keys').innerHTML = keysHtml(KEYS[id] ? id : 'idle');
-    const name = id ? toolInfo(id).label : 'SELECT';
+    const name = !id ? 'SELECT' : DRAW[id] ?? toolInfo(id).label;
     $('tool-name').textContent = name;
     $('status-tool').textContent = name;
     $('commit').disabled = $('cancel').disabled = !id;
@@ -761,6 +910,9 @@ export async function mount(root, backend) {
     if (id === 'fillet') return startFillet(opts);
     if (id === 'move' || id === 'rotate' || id === 'scale') return startTransform(id, opts);
     if (id === 'pushpull') return startPushPull(opts);
+    if (id === 'extrude') return startExtrude(opts);
+    if (id === 'boolean') return startBoolean();
+    if (DRAW[id]) return startDraw(id);
   }
 
   const previewGroup = new THREE.Group();
@@ -800,7 +952,7 @@ export async function mount(root, backend) {
     }
     const c = cmd = {
       id: 'fillet', auto, value: 0, angle: 45, sent: 0, shown: 0, good: null, bad: null, body: null, edges: [],
-      gizmo: null, entry: null,
+      gizmo: null, entry: null, entryDone: () => previewFillet(),
       get kind() { return this.value < 0 ? 'chamfer' : 'fillet' },
     };
     lastTool = 'fillet';
@@ -1236,8 +1388,8 @@ export async function mount(root, backend) {
   }
 
   // --- push/pull (P) --------------------------------------------------------
-  // Witness 3D's quick sketch-and-extrude, kept until sketching and Extrude (E) arrive in round 2:
-  // click a flat face or the construction plane to place a square or circle, then drag its dot.
+  // Witness 3D's older quick sketch-and-extrude, now off the toolbar (Plasticity draws curves and
+  // extrudes their regions instead): click a flat face or the plane to place a square or circle.
   let profileKind = 'rect', size = 10;
   const profile = () => profileKind === 'circle' ? { kind: 'circle', radius: size / 2 } : { kind: 'rect', width: size, height: size };
   function frameFor(normal) {
@@ -1403,6 +1555,386 @@ export async function mount(root, backend) {
     } catch (e) { setState('failed'); toast(say(e)); }
   }
 
+  // --- drawing: rectangle (Shift+Q), circle (Shift+W), line (Shift+A) ----------
+  // Plasticity's curve tools. The first click lands on a flat face or the construction plane and
+  // fixes the plane; snapping to points is on while drawing (Alt turns it off) and Ctrl rounds to
+  // the grid. A rectangle is two corners (S square, C from the centre), a circle a centre and a
+  // radius, a line a click per point: clicking its first point closes it, Enter or right-click
+  // leaves it open, Ctrl+Z takes back a point. Tab types the size instead of the second click.
+  // The result is a curve; a closed one has a region to extrude.
+  const drawPreview = new THREE.Line(new THREE.BufferGeometry(), new THREE.LineBasicMaterial({ color: COLORS.accent, depthTest: false }));
+  drawPreview.renderOrder = 20;
+  drawPreview.frustumCulled = false;
+  drawPreview.visible = false;
+  scene.add(drawPreview);
+
+  function startDraw(kind) {
+    const c = cmd = { id: kind, plane: null, pts: [], cursor: null, square: false, centre: false, entry: null };
+    lastTool = kind;
+    showTool(kind);
+    setState('none');
+    $('draw-rect').hidden = kind !== 'rect';
+    for (const b of $$('[data-draw]')) b.setAttribute('aria-pressed', false);
+    c.move = e => {
+      const p = drawPoint(e);
+      showSnap(p?.snap, e);
+      if (p && !p.curved) { c.cursor = p; drawShape(); }
+    };
+    c.click = e => {
+      const p = drawPoint(e);
+      if (p?.curved) toast('DRAW ON A FLAT FACE OR THE CONSTRUCTION PLANE');
+      else if (p) addPoint(p, e);
+      return true;
+    };
+    c.key = action => {
+      if (action === 'square' || action === 'centre') {
+        c[action] = !c[action];
+        $(`draw-rect`).querySelector(`[data-draw="${action}"]`).setAttribute('aria-pressed', c[action]);
+        drawShape();
+        return true;
+      }
+      if (action === 'back') {
+        c.pts.pop();
+        if (!c.pts.length) c.plane = null;
+        drawShape();
+        return true;
+      }
+      if (action === 'typed') { typeSize(); return true; }
+      return false;
+    };
+    c.entryDone = () => c.entry ? setHud(`${c.entry.label} ${c.entry.text}_`) : drawShape();
+    c.finish = () => finishDraw();
+    c.abort = () => endCmd('cancelled');
+    c.cleanup = () => { drawPreview.visible = false; };
+    drawShape();
+  }
+
+  /** The point under the pointer: on a face or the construction plane for the first, then in the drawing's plane. */
+  function drawPoint(e) {
+    const c = cmd;
+    if (!c.plane) {
+      const h = placeAt(e);
+      if (!h || h.curved) return h;
+      const x = frameFor(h.normal);
+      return { plane: { o: h.origin.clone(), n: h.normal.clone(), x, y: new THREE.Vector3().crossVectors(h.normal, x), target: h.target }, uv: new THREE.Vector2(), snap: h.snap };
+    }
+    ray(e);
+    const { o, n, x, y } = c.plane;
+    const plane = new THREE.Plane().setFromNormalAndCoplanarPoint(n, o);
+    const at = raycaster.ray.intersectPlane(plane, new THREE.Vector3());
+    if (!at) return null;
+    const s = e.altKey ? null : snapNear(e, shownMeshes(), plane);
+    const d = (s ? s.point : at).clone().sub(o);
+    const uv = new THREE.Vector2(d.dot(x), d.dot(y));
+    if (!s && snapping(e)) uv.set(Math.round(uv.x / gridStep()) * gridStep(), Math.round(uv.y / gridStep()) * gridStep());
+    return { uv, snap: s };
+  }
+
+  /** A rectangle's corners from its first click and the cursor, with S and C applied. */
+  function rectCorners(a, b) {
+    const c = cmd;
+    let dx = b.x - a.x, dy = b.y - a.y;
+    if (c.square) { const m = Math.max(Math.abs(dx), Math.abs(dy)); dx = (Math.sign(dx) || 1) * m; dy = (Math.sign(dy) || 1) * m; }
+    if (c.centre) return [[a.x - dx, a.y - dy], [a.x + dx, a.y - dy], [a.x + dx, a.y + dy], [a.x - dx, a.y + dy]];
+    return [[a.x, a.y], [a.x + dx, a.y], [a.x + dx, a.y + dy], [a.x, a.y + dy]];
+  }
+
+  function drawShape() {
+    const c = cmd, f = c.plane;
+    $('draw-points').textContent = c.pts.length;
+    $('draw-hint').textContent = !f ? 'CLICK A FACE OR THE CONSTRUCTION PLANE'
+      : c.id === 'rect' ? 'CLICK THE OTHER CORNER · TAB TYPES'
+      : c.id === 'circle' ? 'CLICK FOR THE RADIUS · TAB TYPES'
+      : 'CLICK THE NEXT POINT · CLICK THE FIRST TO CLOSE';
+    if (!f || !c.cursor?.uv) { drawPreview.visible = false; $('draw-size').textContent = '—'; return setHud(`${DRAW[c.id]} · CLICK TO START`); }
+    setTarget(f.target ? label(f.target) : cplane.name);
+    const a = c.pts[0], b = c.cursor.uv;
+    let pts, size;
+    if (c.id === 'rect') {
+      const k = rectCorners(a, b);
+      pts = [...k, k[0]];
+      size = `${Math.abs(k[1][0] - k[0][0]).toFixed(2)} × ${Math.abs(k[2][1] - k[1][1]).toFixed(2)}`;
+    } else if (c.id === 'circle') {
+      const r = b.distanceTo(a);
+      pts = new THREE.Path().absarc(a.x, a.y, r, 0, Math.PI * 2).getPoints(96).map(p => [p.x, p.y]);
+      size = `⌀ ${(2 * r).toFixed(2)}`;
+    } else {
+      pts = [...c.pts.map(p => [p.x, p.y]), [b.x, b.y]];
+      size = `L ${b.distanceTo(c.pts.at(-1)).toFixed(2)}`;
+    }
+    drawPreview.geometry.dispose();
+    drawPreview.geometry = new THREE.BufferGeometry().setFromPoints(pts.map(([u, v]) => lift(f, { x: u, y: v }, 0.03)));
+    drawPreview.visible = true;
+    $('draw-size').textContent = size;
+    setHud(size);
+  }
+
+  function addPoint(p, e) {
+    const c = cmd;
+    if (!c.plane) {
+      c.plane = p.plane;
+      c.pts = [p.uv];
+      c.cursor = p;
+      return drawShape();
+    }
+    const a = c.pts[0], b = p.uv;
+    if (c.id === 'rect') return commitRect(a, b);
+    if (c.id === 'circle') return commitCircle(b.distanceTo(a));
+    // A line closes on its first point (within the snap distance on screen).
+    if (c.pts.length >= 3) {
+      const s = screenOf(lift(c.plane, a)), q = local(e);
+      if (Math.hypot(s.x - q.x, s.y - q.y) < SNAP_PX) return commitLine(true);
+    }
+    if (b.distanceTo(c.pts.at(-1)) > 1e-6) c.pts.push(b.clone());
+    drawShape();
+  }
+
+  /** Tab: type the size. Directions come from where the cursor is. */
+  function typeSize() {
+    const c = cmd;
+    if (!c.plane) return toast('CLICK TO PLACE THE FIRST POINT, THEN TAB');
+    const a = c.pts[0], b = c.cursor?.uv ?? a.clone().add(new THREE.Vector2(1, 1));
+    const sx = Math.sign(b.x - a.x) || 1, sy = Math.sign(b.y - a.y) || 1;
+    if (c.id === 'rect') {
+      const half = c.centre ? 0.5 : 1;
+      c.entry = { label: 'WIDTH', text: '', apply: w => {
+        c.entry = { label: 'HEIGHT', text: '', apply: h => commitRect(a, new THREE.Vector2(a.x + sx * Math.abs(w) * half, a.y + sy * Math.abs(h) * half)) };
+      } };
+    } else if (c.id === 'circle') {
+      c.entry = { label: 'DIAMETER', text: '', apply: d => commitCircle(Math.abs(d) / 2) };
+    } else {
+      const last = c.pts.at(-1), dir = b.clone().sub(last);
+      if (dir.lengthSq() < 1e-12) dir.set(1, 0);
+      dir.normalize();
+      c.entry = { label: 'LENGTH', text: '', apply: l => { c.pts.push(last.clone().addScaledVector(dir, l)); c.cursor = { uv: c.pts.at(-1).clone() }; } };
+    }
+    c.entryDone();
+  }
+
+  function curveOf(shape) {
+    const { o, n, x } = cmd.plane;
+    return { origin: o.toArray(), x: x.toArray(), normal: n.toArray(), ...shape };
+  }
+  function commitRect(a, b) {
+    const k = rectCorners(a, b);
+    if (Math.abs(k[1][0] - k[0][0]) < 1e-6 || Math.abs(k[2][1] - k[1][1]) < 1e-6) return toast('THE RECTANGLE NEEDS A WIDTH AND A HEIGHT');
+    return commitCurve(curveOf({ kind: 'polyline', points: k, closed: true }), `RECTANGLE ${Math.abs(k[1][0] - k[0][0]).toFixed(2)} × ${Math.abs(k[2][1] - k[1][1]).toFixed(2)}`);
+  }
+  function commitCircle(r) {
+    if (!(r > 1e-6)) return toast('THE CIRCLE NEEDS A RADIUS');
+    return commitCurve(curveOf({ kind: 'circle', center: [cmd.pts[0].x, cmd.pts[0].y], radius: r }), `CIRCLE ⌀ ${(2 * r).toFixed(2)}`);
+  }
+  function commitLine(closed) {
+    const c = cmd;
+    return commitCurve(curveOf({ kind: 'polyline', points: c.pts.map(p => [p.x, p.y]), closed }), `${closed ? 'POLYGON' : 'LINE'} ×${c.pts.length}`);
+  }
+  async function finishDraw() {
+    const c = cmd;
+    if (c.id === 'line' && c.pts.length >= 2) return commitLine(false);
+    endCmd(c.plane ? 'cancelled' : null);
+  }
+  async function commitCurve(curve, text) {
+    if (!backend.addCurves) { endCmd('failed'); return toast('DRAWING IS NOT IN THIS BUILD YET'); }
+    endCmd('committed');
+    try {
+      const { ids } = await backend.addCurves([curve]);
+      record(text, ids[0], curveLabel(ids[0]));
+      await loadCurves();
+    } catch (e) { setState('failed'); toast(say(e)); }
+  }
+
+  // --- extrude (E) ------------------------------------------------------------
+  // Plasticity's Extrude: select a region (its dot is there at once, the default command for
+  // regions) or a flat face, and press E. Drag the dot or press D and type. It joins the body it
+  // sits on going out and cuts going in; Q union, W difference and Shift+E intersect force the
+  // boolean, B makes a new body. Enter, right-click or OK finishes and selects the result.
+  const XOPS = ['union', 'difference', 'intersect', 'new'];
+  /** What E acts on: the last selected region or flat face, as { region | face, at, normal, target }. */
+  function extrudeSource() {
+    const it = sel.list().filter(i => i.kind === 'region' || i.kind === 'face').at(-1);
+    if (!it) return null;
+    if (it.kind === 'region') {
+      const c = curveList.find(c => c.id === it.id);
+      if (!c) return null;
+      const at = regionCentre(c), normal = curveFrame(c).n;
+      return { region: c.id, at, normal, target: bodyAt(at, normal), name: curveLabel(c.id) };
+    }
+    const b = bodyOf(it.body), p = b?.facePlanes[it.n];
+    if (!p) return { curved: true };
+    return { face: it.n, at: faceCentre(b, it.n), normal: new THREE.Vector3(...p.normal), target: b.id, name: `FACE · ${label(b.id)}` };
+  }
+  /** The body a region lies on: one whose face is under (or over) it. */
+  function bodyAt(at, n) {
+    for (const s of [1, -1]) {
+      const rc = new THREE.Raycaster(at.clone().addScaledVector(n, 0.5 * s), n.clone().multiplyScalar(-s), 0, 1);
+      const h = rc.intersectObjects(shownMeshes(), false)[0];
+      if (h) return h.object.userData.id;
+    }
+    return null;
+  }
+  function startExtrude({ auto = false } = {}) {
+    const src = extrudeSource();
+    if (!src || src.curved) {
+      if (!auto) toast(src?.curved ? 'EXTRUDE A FLAT FACE OR A REGION' : 'SELECT A REGION OR A FLAT FACE TO EXTRUDE');
+      return;
+    }
+    const c = cmd = { id: 'extrude', auto, src, distance: 0, op: 'auto', outcome: null, sent: 0, shown: 0, gizmo: null };
+    lastTool = 'extrude';
+    showTool('extrude');
+    setState('none');
+    setTarget(src.target ? label(src.target) : 'NEW BODY');
+    $('ex-hint').textContent = `${src.name}${src.target ? ` ON ${label(src.target)}` : ''}`;
+    $('ex-distance').value = 0;
+    $('ex-outcome').textContent = '—';
+    setExtrudeOps();
+    c.gizmo = dot(src.at, src.normal, d => setExtrude(snapping(lastPointer) ? Math.round(d / gridStep()) * gridStep() : d));
+    c.gizmo.onStart = () => { controls.enabled = false; c.auto = false; };
+    c.onSelection = () => {
+      drawOverlays();
+      // The default command goes when the selection changes; a new region brings its own.
+      if (!c.auto || c.distance !== 0) return;
+      endCmd(null);
+      defaultCommand();
+    };
+    c.key = action => {
+      if (action === 'distance') { c.auto = false; c.gizmo.activate(lastPointer); return true; }
+      if (!XOPS.includes(action)) return false;
+      c.auto = false;
+      c.op = c.op === action ? 'auto' : action;
+      setExtrudeOps();
+      if (c.distance) previewExtrude();
+      return true;
+    };
+    c.finish = () => commitExtrude();
+    c.abort = () => endCmd('cancelled');
+    c.cleanup = () => { c.gizmo?.dispose(); clearPreview(); };
+    setHud(auto ? 'DRAG THE DOT · E EXTRUDE' : 'DRAG THE DOT · D · Q W ⇧E B');
+  }
+  function setExtrudeOps() { for (const b of $$('[data-xop]')) b.setAttribute('aria-pressed', cmd?.id === 'extrude' && cmd.op === b.dataset.xop); }
+  function setExtrude(d, fromGizmo = true) {
+    const c = cmd;
+    if (c?.id !== 'extrude') return;
+    c.distance = d;
+    c.auto = c.auto && d === 0;
+    if (!fromGizmo) c.gizmo.render(d);
+    if (document.activeElement !== $('ex-distance')) $('ex-distance').value = +d.toFixed(3);
+    previewExtrude();
+  }
+  const extrudeRequest = c => ({ target: c.src.target, ...(c.src.region !== undefined ? { region: c.src.region } : { face: c.src.face }), distance: c.distance, op: c.op });
+  async function previewExtrude() {
+    const c = cmd;
+    const n = ++c.sent;
+    if (!c.distance) { clearPreview(); setState('none'); return setHud('+0.00'); }
+    setState('updating');
+    const t0 = performance.now();
+    let p;
+    try { p = await backend.preview(extrudeRequest(c)); }
+    catch (e) {
+      if (cmd !== c || n !== c.sent) return;
+      clearPreview();
+      setState('failed');
+      $('ex-outcome').textContent = 'FAILED';
+      return setHud(say(e));
+    }
+    if (!p || cmd !== c || n < c.shown) return;
+    c.shown = n;
+    c.outcome = p.outcome;
+    $('ms').textContent = Math.round(performance.now() - t0);
+    clearPreview();
+    if (p.result) showPreviewBody(p.result);
+    if (p.tool) {
+      const look = phantom[p.outcome === 'cut' ? 'cut' : 'add'];
+      const m = meshOf(p.tool, look.face, look.edge);
+      m.renderOrder = 5;
+      previewGroup.add(m);
+    }
+    $('ex-outcome').textContent = p.outcome.toUpperCase();
+    setHud(`${fmt(c.distance)} ${p.outcome === 'none' ? '' : p.outcome.toUpperCase()}`.trim());
+    if (n === c.sent) setState('updated');
+  }
+  async function commitExtrude() {
+    const c = cmd;
+    if (!c.distance) return endCmd(c.auto ? null : 'cancelled');
+    const req = extrudeRequest(c);
+    try {
+      const { id, scene: list } = await backend.commit(req);
+      endCmd('committed');
+      record(`EXTRUDE ${fmt(req.distance)}${req.op === 'auto' ? '' : ` ${req.op.toUpperCase()}`}`, id);
+      await showScene(list);
+      sel.replace({ kind: 'solid', body: id });
+      selectionChanged({ quiet: true });
+    } catch (e) { setState('failed'); toast(say(e)); }
+  }
+
+  // --- boolean (Q) ------------------------------------------------------------
+  // Plasticity's Boolean: select the target, then the tools, and press Q. Q union, W difference,
+  // Shift+E intersect; T keeps the tools. The target changes and the tools go.
+  function startBoolean() {
+    const ids = sel.solids.filter(id => !hidden.has(id));
+    if (ids.length < 2) return toast('SELECT THE TARGET, THEN THE TOOLS');
+    if (!backend.previewBoolean) return toast('BOOLEAN IS NOT IN THIS BUILD YET');
+    const c = cmd = { id: 'boolean', target: ids[0], tools: ids.slice(1), op: 'union', keep: false, sent: 0, shown: 0 };
+    lastTool = 'boolean';
+    showTool('boolean');
+    setState('none');
+    setTarget(label(c.target));
+    $('bool-hint').textContent = `TARGET ${label(c.target)}`;
+    $('bool-tools').textContent = c.tools.map(label).join(' ');
+    c.onSelection = () => drawOverlays();
+    c.key = action => {
+      if (action === 'keep') c.keep = !c.keep;
+      else c.op = action;
+      previewBooleanCmd();
+      return true;
+    };
+    c.finish = () => commitBooleanCmd();
+    c.abort = () => endCmd('cancelled');
+    c.cleanup = () => clearPreview();
+    previewBooleanCmd();
+  }
+  async function previewBooleanCmd() {
+    const c = cmd;
+    for (const b of $$('[data-bop]')) b.setAttribute('aria-pressed', b.dataset.bop === c.op);
+    $('bool-keep').setAttribute('aria-pressed', c.keep);
+    const n = ++c.sent;
+    setState('updating');
+    const t0 = performance.now();
+    let body;
+    try { body = await backend.previewBoolean({ target: c.target, tools: c.tools, op: c.op }); }
+    catch (e) {
+      if (cmd !== c || n !== c.sent) return;
+      clearPreview();
+      setState('failed');
+      return setHud(say(e));
+    }
+    if (!body || cmd !== c || n < c.shown) return;
+    c.shown = n;
+    $('ms').textContent = Math.round(performance.now() - t0);
+    clearPreview();
+    showPreviewBody(body);
+    // The tools show as phantoms unless they are kept.
+    if (!c.keep) for (const t of c.tools) {
+      const m = bodyMesh(t), b = bodyOf(t);
+      if (m) m.visible = false;
+      const look = phantom[c.op === 'difference' ? 'cut' : 'add'];
+      if (b) { const ph = meshOf(b, look.face, look.edge); ph.renderOrder = 5; previewGroup.add(ph); }
+    }
+    setHud(`${c.op.toUpperCase()}${c.keep ? ' · KEEP TOOLS' : ''}`);
+    if (n === c.sent) setState('updated');
+  }
+  async function commitBooleanCmd() {
+    const c = cmd;
+    try {
+      const { id, scene: list } = await backend.commitBoolean({ target: c.target, tools: c.tools, op: c.op, keepTools: c.keep });
+      endCmd('committed');
+      record(`BOOLEAN ${c.op.toUpperCase()} ${c.tools.map(label).join(' ')}`, id);
+      sel.clear();
+      await showScene(list);
+      sel.replace({ kind: 'solid', body: id });
+      selectionChanged({ quiet: true });
+    } catch (e) { setState('failed'); toast(say(e)); }
+  }
+
   // --- actions without a command --------------------------------------------
   async function step(dir) {
     if (cmd) abort();
@@ -1414,13 +1946,14 @@ export async function mount(root, backend) {
   }
   async function deleteSelected() {
     if (cmd) await finish();
-    const ids = sel.solids;
-    if (!ids.length) return toast(sel.size ? 'DELETE WORKS ON SOLIDS FOR NOW' : 'SELECT SOMETHING TO DELETE');
+    const ids = sel.solids, curves = sel.curves;
+    if (!ids.length && !curves.length) return toast(sel.size ? 'DELETE WORKS ON SOLIDS AND CURVES FOR NOW' : 'SELECT SOMETHING TO DELETE');
     try {
-      const list = await backend.deleteBodies(ids);
-      record(`DELETE ${ids.map(label).join(' ')}`, ids[0]);
+      const list = backend.deleteItems ? await backend.deleteItems(ids, curves) : await backend.deleteBodies(ids);
+      const names = [...ids.map(label), ...curves.map(curveLabel)];
+      record(`DELETE ${names.join(' ')}`, ids[0] ?? curves[0], names[0]);
       sel.clear();
-      showScene(list);
+      await showScene(list);
     } catch (e) { toast(say(e)); }
   }
   /** Plasticity's Shift+D: copy, select the copies, and move them with the cursor. */
@@ -1475,7 +2008,7 @@ export async function mount(root, backend) {
         else sel.invert(current.filter(b => !hidden.has(b.id)));
         selectionChanged({ quiet: arg !== 'all' && arg !== 'invert' });
         return true;
-      case 'tool': await startTool(arg); return true;
+      case 'tool': case 'draw': await startTool(arg); return true;
       case 'plane':
         if (arg === 'selection') planeFromSelection(true);
         else if (arg === 'selection-keep-view') planeFromSelection(false);
@@ -1515,11 +2048,14 @@ export async function mount(root, backend) {
     const kinds = new Set(sel.list().map(it => it.kind));
     const out = [];
     if (kinds.has('edge')) out.push('tool:fillet');
-    if (kinds.has('face')) out.push('plane:selection', 'plane:selection-keep-view', 'tool:pushpull');
+    if (kinds.has('region')) out.push('tool:extrude');
+    if (kinds.has('curve') || kinds.has('region')) out.push('delete');
+    if (kinds.has('face')) out.push('tool:extrude', 'plane:selection', 'plane:selection-keep-view');
+    if (sel.solids.length > 1) out.push('tool:boolean');
     if (kinds.has('solid')) out.push('tool:move', 'tool:rotate', 'tool:scale', 'duplicate', 'delete', 'hide', 'export:step');
     if (kinds.size) out.push('convert:solid', 'select:invert', 'view:focus');
-    else out.push('tool:pushpull', 'select:all', 'unhide-all', 'plane:view');
-    return out.map(a => ENTRIES.find(e => e.action === a)).filter(Boolean);
+    else out.push('draw:rect', 'draw:circle', 'draw:line', 'select:all', 'unhide-all', 'plane:view');
+    return [...new Set(out)].map(a => ENTRIES.find(e => e.action === a)).filter(Boolean);
   }
   let palette = null;
   const fuzzy = (q, s) => { let i = 0; for (const ch of s) if (ch === q[i]) i++; return i === q.length; };
@@ -1674,7 +2210,7 @@ export async function mount(root, backend) {
   canvas.addEventListener('dblclick', e => {
     if (cmd && !cmd.auto) return;
     const hit = pickAt(e);
-    if (!hit) return;
+    if (!hit || hit.body === undefined) return;
     applySelect({ kind: 'solid', body: hit.body }, e.shiftKey ? 'add' : 'replace');
     selectionChanged();
   });
@@ -1711,6 +2247,11 @@ export async function mount(root, backend) {
   $('distance').addEventListener('input', e => { const v = parseFloat(e.target.value); if (!isNaN(v)) setDistance(v); });
   $('blend-distance').addEventListener('input', e => { const v = parseFloat(e.target.value); if (!isNaN(v) && cmd?.id === 'fillet') { cmd.auto = false; setFillet(v, false); } });
   $('blend-angle').addEventListener('input', e => { const v = parseFloat(e.target.value); if (cmd?.id === 'fillet' && v > 0 && v < 90) { cmd.angle = v; previewFillet(); } });
+  $('ex-distance').addEventListener('input', e => { const v = parseFloat(e.target.value); if (!isNaN(v) && cmd?.id === 'extrude') { cmd.auto = false; setExtrude(v, false); } });
+  for (const b of $$('[data-xop]')) b.onclick = () => cmd?.id === 'extrude' && cmd.key(b.dataset.xop);
+  for (const b of $$('[data-bop]')) b.onclick = () => cmd?.id === 'boolean' && cmd.key(b.dataset.bop);
+  $('bool-keep').onclick = () => cmd?.id === 'boolean' && cmd.key('keep');
+  for (const b of $$('[data-draw]')) b.onclick = () => cmd?.id === 'rect' && cmd.key(b.dataset.draw);
   $('commit').onclick = () => finish();
   $('cancel').onclick = () => abort();
   $('undo').onclick = () => step('undo');
@@ -1740,12 +2281,12 @@ export async function mount(root, backend) {
         return followTyped(f);
       }
     }
-    // A typed value (the fillet's A).
+    // A typed value (the fillet's A, a drawing's Tab).
     const entry = cmd?.entry;
     if (entry) {
       e.preventDefault();
-      if (e.key === 'Escape') { cmd.entry = null; return setHud(null), previewFillet(); }
-      if (e.key === 'Enter') { cmd.entry = null; const v = typed(entry.text); if (v !== undefined) entry.apply(v); return previewFillet(); }
+      if (e.key === 'Escape') { cmd.entry = null; setHud(null); return cmd.entryDone?.(); }
+      if (e.key === 'Enter') { cmd.entry = null; const v = typed(entry.text); if (v !== undefined) entry.apply(v); return cmd?.entryDone?.(); }
       if (/^[0-9.\-]$/.test(e.key)) entry.text += e.key;
       else if (e.key === 'Backspace') entry.text = entry.text.slice(0, -1);
       return setHud(`${entry.label} ${entry.text}_`);
@@ -1854,6 +2395,8 @@ export async function mount(root, backend) {
         faces: sel.list('face').map(it => ({ body: it.body, ref: bodyOf(it.body)?.faceRefs?.[it.n], number: it.n })),
         solids: sel.solids,
         body: sel.solids[0] ?? null,
+        curves: sel.list('curve').map(it => it.id),
+        regions: sel.list('region').map(it => it.id),
         plane: { name: cplane.name, origin: cplane.origin.toArray(), normal: cplane.normal.toArray() },
       };
     },
@@ -1863,7 +2406,7 @@ export async function mount(root, backend) {
      * The selection is named by ref: `edges` (fillet), `body` (move, rotate, scale) or `face` (push/pull).
      */
     async run(id, args = {}) {
-      const { edges, body, bodies: ids, face, ...rest } = args;
+      const { edges, body, bodies: ids, face, region, target, tools, ...rest } = args;
       const errors = check(id, rest);
       if (errors.length) throw new Error(errors.join('; '));
       const p = withDefaults(id, rest);
@@ -1894,6 +2437,29 @@ export async function mount(root, backend) {
         await startTool('pushpull', { at });
         cmd.newBody = p.newBody;
         if (p.distance) setDistance(p.distance);
+      } else if (id === 'extrude') {
+        sel.clear();
+        if (region !== undefined) {
+          if (!curveList.some(c => c.id === region && isClosed(c))) throw new Error('that region is gone');
+          sel.add({ kind: 'region', id: region });
+        } else {
+          const b = current.find(x => x.faceRefs?.includes(face));
+          if (!b) throw new Error('give a region or a face to extrude');
+          sel.add({ kind: 'face', body: b.id, n: b.faceRefs.indexOf(face) });
+        }
+        selectionChanged({ quiet: true });
+        await startTool('extrude');
+        if (cmd?.id !== 'extrude') throw new Error('that face is not flat');
+        if (p.op !== 'auto') cmd.key(p.op);
+        setExtrude(p.distance, false);
+      } else if (id === 'boolean') {
+        selectSolids([target, ...(tools ?? [])]);
+        selectionChanged({ quiet: true });
+        await startTool('boolean');
+        if (cmd?.id !== 'boolean') throw new Error('a boolean needs a target and at least one tool');
+        cmd.op = p.op;
+        cmd.keep = p.keepTools;
+        await previewBooleanCmd();
       }
     },
     /** Where a point (viewport coordinates) is on the page, in CSS pixels. */
@@ -1910,6 +2476,9 @@ export async function mount(root, backend) {
       if (c.id === 'fillet') Object.assign(out, { body: c.body, edges: c.edges, value: c.value, angle: c.angle, max: c.bad !== null ? c.good : null });
       if (c.tc) Object.assign(out, { bodies: c.ids, offset: toUser(c.offset.toArray()), angle: angleAbout(c.quat, c.axis), axis: c.axis, scale: c.scale, follow: c.follow?.name ?? null });
       if (c.id === 'pushpull') Object.assign(out, { placed: !!c.at, distance: c.distance });
+      if (c.id === 'extrude') Object.assign(out, { region: c.src.region ?? null, face: c.src.face ?? null, target: c.src.target, distance: c.distance, op: c.op, outcome: c.outcome });
+      if (c.id === 'boolean') Object.assign(out, { target: c.target, tools: c.tools, op: c.op, keep: c.keep });
+      if (DRAW[c.id]) Object.assign(out, { placed: !!c.plane, points: c.pts.length, square: c.square, centre: c.centre, entry: c.entry?.label ?? null });
       return out;
     },
     get plane() { return { name: cplane.name, origin: cplane.origin.toArray(), normal: cplane.normal.toArray() } },
@@ -1917,6 +2486,7 @@ export async function mount(root, backend) {
     get ortho() { return camera.isOrthographicCamera },
     get camera() { return { position: camera.position.toArray(), target: controls.target.toArray() } },
     get bodies() { return current },
+    get curves() { return curveList },
     get history() { return history.slice(0, history.length - undone).map(h => h.text) },
   };
 }
