@@ -8,7 +8,7 @@ use serde::{Deserialize, Serialize};
 use w3d_kernel::document::{BodyId, Document, FormRequest as FormKindRequest};
 use w3d_kernel::engine::Engine;
 use w3d_kernel::occt::Occt;
-use w3d_kernel::{extrude, file, form, FormParams, Blend, BlendParams, BooleanOp, Curve, CurveId, ExtrudeParams, ExtrudeResult, Frame, Kernel, KernelError, Motion, Operation, Profile, Ref, Refs, Tessellation};
+use w3d_kernel::{extrude, file, form, FormParams, Blend, BlendParams, BooleanOp, Curve, CurveId, CurveShape, ExtrudeParams, ExtrudeResult, Frame, Kernel, KernelError, Motion, Operation, Profile, Ref, Refs, Tessellation};
 
 /// Chord tolerance for display meshes, in millimetres.
 const MESH_TOLERANCE: f64 = 0.05;
@@ -91,6 +91,8 @@ pub enum OpChoice {
     Difference,
     Intersect,
     New,
+    /// Shift+Q: cut the body in two along the extrude.
+    Slice,
 }
 
 /// What to extrude: a push/pull sketch (`profile` at `origin`), a drawn region (`region`, a closed
@@ -117,13 +119,22 @@ pub struct ExtrudeRequest {
     /// Plasticity's Q, W, Shift+E and B inside Extrude.
     #[serde(default)]
     pub op: OpChoice,
+    /// The other way as well (S locks it to `distance`).
+    #[serde(default)]
+    pub back: f64,
+    /// Radians the sides lean in (A).
+    #[serde(default)]
+    pub angle: f64,
+    /// Wall thickness; zero for a filled solid (Shift+T).
+    #[serde(default)]
+    pub thickness: f64,
 }
 
 fn east() -> [f64; 3] { [1.0, 0.0, 0.0] }
 
 #[derive(Serialize, Debug)]
 #[serde(rename_all = "lowercase")]
-pub enum Outcome { Join, Cut, Intersect, New, None }
+pub enum Outcome { Join, Cut, Intersect, New, Slice, None }
 
 #[derive(Serialize, Debug)]
 pub struct Preview {
@@ -132,6 +143,9 @@ pub struct Preview {
     pub tool: Option<Body>,
     /// The target body as it would be after the join or cut.
     pub result: Option<Body>,
+    /// For a slice, the part cut off, which becomes a new body.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub piece: Option<Body>,
 }
 
 #[derive(Serialize, Debug)]
@@ -177,11 +191,15 @@ impl ExtrudeRequest {
             OpChoice::Difference => Operation::Difference,
             OpChoice::Intersect => Operation::Intersect,
             OpChoice::New => Operation::NewBody,
+            OpChoice::Slice => Operation::Slice,
         }
     }
 
     fn params(&self, doc: &Document<Occt>) -> Result<ExtrudeParams, String> {
-        if let Some(id) = self.region { return doc.region_params(id, self.distance, self.operation()).map_err(|e| e.to_string()) }
+        if let Some(id) = self.region {
+            let p = doc.region_params(id, self.distance, self.operation()).map_err(|e| e.to_string())?;
+            return Ok(ExtrudeParams { back: self.back, angle: self.angle, thickness: self.thickness, ..p });
+        }
         let profile = match self.profile {
             Some(ProfileShape::Rect { width, height }) => Profile::rectangle(width, height),
             Some(ProfileShape::Circle { radius }) => Profile::Circle { center: (0.0, 0.0), radius },
@@ -192,6 +210,9 @@ impl ExtrudeRequest {
             profile,
             frame: Frame::new(DVec3::from_array(self.origin), DVec3::from_array(self.x_axis), DVec3::from_array(self.normal)),
             distance: self.distance,
+            back: self.back,
+            angle: self.angle,
+            thickness: self.thickness,
             operation: self.operation(),
             face: self.face,
         })
@@ -207,19 +228,12 @@ pub fn preview(m: &Model, req: ExtrudeRequest) -> Option<Result<Preview, String>
     m.preview(move |doc| {
         let p = req.params(doc)?;
         let result = match doc.preview_extrude(req.target, &p) {
-            Err(KernelError::NoOp) => return Ok(Preview { outcome: Outcome::None, tool: None, result: None }),
+            Err(KernelError::NoOp) => return Ok(Preview { outcome: Outcome::None, tool: None, result: None, piece: None }),
             r => r.map_err(|e| e.to_string())?,
         };
         let tool = extrude::tool(&doc.kernel, req.target.and_then(|id| doc.get(id)), &p).map_err(|e| e.to_string())?;
         let tool = Some(body(&doc.kernel, 0, &tool)?);
-        Ok(match result {
-            ExtrudeResult::New(_) => Preview { outcome: Outcome::New, tool, result: None },
-            ExtrudeResult::Replace { solid, op, .. } => Preview {
-                outcome: match op { BooleanOp::Union => Outcome::Join, BooleanOp::Difference => Outcome::Cut, BooleanOp::Intersection => Outcome::Intersect },
-                result: Some(body(&doc.kernel, req.target.unwrap(), &solid)?),
-                tool,
-            },
-        })
+        Ok(preview_of(doc, req.target, result, tool)?)
     })
 }
 
@@ -279,6 +293,7 @@ impl FormRequest {
             OpChoice::Union => Operation::Union,
             OpChoice::Difference => Operation::Difference,
             OpChoice::Intersect => Operation::Intersect,
+            OpChoice::Slice => Operation::Slice,
             OpChoice::New | OpChoice::Auto => Operation::NewBody,
         };
         Ok(doc.form_params(&self.regions, kind, operation)?)
@@ -287,10 +302,17 @@ impl FormRequest {
 
 fn preview_of(doc: &Document<Occt>, target: Option<BodyId>, result: ExtrudeResult<<Occt as Kernel>::Solid>, tool: Option<Body>) -> Result<Preview, String> {
     Ok(match result {
-        ExtrudeResult::New(solid) => Preview { outcome: Outcome::New, tool: Some(match tool { Some(t) => t, None => body(&doc.kernel, 0, &solid)? }), result: None },
+        ExtrudeResult::New(solid) => Preview { outcome: Outcome::New, tool: Some(match tool { Some(t) => t, None => body(&doc.kernel, 0, &solid)? }), result: None, piece: None },
         ExtrudeResult::Replace { solid, op, .. } => Preview {
             outcome: match op { BooleanOp::Union => Outcome::Join, BooleanOp::Difference => Outcome::Cut, BooleanOp::Intersection => Outcome::Intersect },
             result: Some(body(&doc.kernel, target.unwrap(), &solid)?),
+            tool,
+            piece: None,
+        },
+        ExtrudeResult::Slice { solid, piece, .. } => Preview {
+            outcome: Outcome::Slice,
+            result: Some(body(&doc.kernel, target.unwrap(), &solid)?),
+            piece: Some(body(&doc.kernel, doc.next_id(), &piece)?),
             tool,
         },
     })
@@ -302,12 +324,12 @@ pub fn preview_form(m: &Model, req: FormRequest) -> Option<Result<Preview, ApiEr
         let p = req.params(doc)?;
         let target = req.target.filter(|_| p.operation != Operation::NewBody);
         let result = match doc.preview_form(target, &p) {
-            Err(KernelError::NoOp) => return Ok(Preview { outcome: Outcome::None, tool: None, result: None }),
+            Err(KernelError::NoOp) => return Ok(Preview { outcome: Outcome::None, tool: None, result: None, piece: None }),
             r => r?,
         };
         let tool = match &result {
             ExtrudeResult::New(_) => None,
-            ExtrudeResult::Replace { .. } => Some(body(&doc.kernel, 0, &form::tool(&doc.kernel, &p)?)?),
+            ExtrudeResult::Replace { .. } | ExtrudeResult::Slice { .. } => Some(body(&doc.kernel, 0, &form::tool(&doc.kernel, &p)?)?),
         };
         Ok(preview_of(doc, target, result, tool)?)
     })
@@ -352,10 +374,23 @@ pub struct CurveOut {
     pub id: CurveId,
     #[serde(flatten)]
     pub curve: Curve,
+    /// For a spline, points along it in its plane, which the viewport draws.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub samples: Option<Vec<[f64; 2]>>,
 }
 
 pub fn curves(m: &Model) -> Vec<CurveOut> {
-    m.call(|doc| doc.curve_ids().into_iter().map(|id| CurveOut { id, curve: doc.curve(id).unwrap().clone() }).collect())
+    m.call(|doc| {
+        doc.curve_ids().into_iter().map(|id| {
+            let curve = doc.curve(id).unwrap().clone();
+            let samples = matches!(curve.shape, CurveShape::Spline { .. }).then(|| {
+                let f = curve.frame();
+                let pts = doc.kernel.sample(&curve.path(), 64).unwrap_or_default();
+                pts.iter().map(|p| { let d = *p - f.origin; [d.dot(f.x), d.dot(f.y())] }).collect()
+            });
+            CurveOut { id, curve, samples }
+        }).collect()
+    })
 }
 
 #[derive(Serialize, Debug)]
@@ -389,7 +424,7 @@ impl BooleanRequest {
             OpChoice::Union | OpChoice::Auto => Ok(BooleanOp::Union),
             OpChoice::Difference => Ok(BooleanOp::Difference),
             OpChoice::Intersect => Ok(BooleanOp::Intersection),
-            OpChoice::New => Err(String::from("a boolean needs union, difference or intersect").into()),
+            OpChoice::New | OpChoice::Slice => Err(String::from("a boolean needs union, difference or intersect").into()),
         }
     }
 }

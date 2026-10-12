@@ -29,6 +29,8 @@ pub enum Profile {
     Polygon(Vec<(f64, f64)>),
     /// An exact circle around (x, y).
     Circle { center: (f64, f64), radius: f64 },
+    /// A smooth closed curve through the points, in order (Plasticity's Spline Curve, closed).
+    Spline(Vec<(f64, f64)>),
 }
 
 impl Profile {
@@ -43,6 +45,28 @@ impl Profile {
 pub enum Path {
     Polyline { points: Vec<DVec3>, closed: bool },
     Circle { center: DVec3, normal: DVec3, radius: f64 },
+    /// A smooth curve through the points.
+    Spline { points: Vec<DVec3>, closed: bool },
+    /// A circular arc from `start` through `mid` to `end`.
+    Arc { start: DVec3, mid: DVec3, end: DVec3 },
+}
+
+/// How far and in what form an extrude goes (Plasticity's Extrude options).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Extent {
+    /// Along the normal; negative goes backwards.
+    pub distance: f64,
+    /// The other way as well, at least zero (S locks it to `distance`).
+    pub back: f64,
+    /// Radians the sides lean in going away from the profile (A); negative leans out.
+    pub angle: f64,
+    /// Walls this thick inside the outline instead of a filled solid (Shift+T); zero for solid.
+    pub thickness: f64,
+}
+
+impl Extent {
+    pub fn to(distance: f64) -> Self { Extent { distance, back: 0.0, angle: 0.0, thickness: 0.0 } }
+    pub fn is_plain(&self) -> bool { self.back.abs() < 1e-12 && self.angle.abs() < 1e-12 && self.thickness.abs() < 1e-12 }
 }
 
 /// A sketch plane: origin, in-plane x axis, and normal (the extrude direction).
@@ -164,10 +188,10 @@ pub trait Kernel {
     type Solid;
 
     fn box_from_corners(&self, a: DVec3, b: DVec3) -> Self::Solid;
-    /// Sweep `profile` along the frame normal by `distance` (negative goes backwards).
-    fn extrude(&self, profile: &Profile, frame: &Frame, distance: f64) -> Result<Self::Solid, KernelError>;
-    /// Sweep the numbered face of `s` along its outward normal by `distance` (negative goes in).
-    fn extrude_face(&self, s: &Self::Solid, face: u32, distance: f64) -> Result<Self::Solid, KernelError>;
+    /// Sweep `profile` along the frame normal as `extent` says (a negative distance goes backwards).
+    fn extrude(&self, profile: &Profile, frame: &Frame, extent: &Extent) -> Result<Self::Solid, KernelError>;
+    /// Sweep the numbered face of `s` along its outward normal as `extent` says (negative goes in).
+    fn extrude_face(&self, s: &Self::Solid, face: u32, extent: &Extent) -> Result<Self::Solid, KernelError>;
     /// The boolean result, with coplanar faces merged, and where its faces and edges came from.
     fn boolean(&self, a: &Self::Solid, b: &Self::Solid, op: BooleanOp) -> Result<Traced<Self::Solid>, KernelError>;
     /// Number of disconnected solids in the shape.
@@ -195,6 +219,10 @@ pub trait Kernel {
     /// stretching to meet them (Plasticity's Offset Face).
     fn offset_faces(&self, _s: &Self::Solid, _faces: &[u32], _distance: f64) -> Result<Traced<Self::Solid>, KernelError> {
         Err(KernelError::Invalid("this kernel cannot offset faces"))
+    }
+    /// `n + 1` points along the path, for drawing curves like splines that only the kernel knows.
+    fn sample(&self, _path: &Path, _n: usize) -> Result<Vec<DVec3>, KernelError> {
+        Err(KernelError::Invalid("this kernel cannot sample curves"))
     }
     /// Whether the kernel's own checker accepts the shape.
     fn is_valid(&self, s: &Self::Solid) -> bool;

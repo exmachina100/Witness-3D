@@ -14,6 +14,9 @@ fn setup() -> (Occt, opencascade::primitives::Shape, ExtrudeParams) {
         profile: Profile::rectangle(1.0, 1.0),
         frame: Frame::new(DVec3::new(0.0, 0.0, 2.0), DVec3::X, DVec3::Z),
         distance: 1.0,
+        back: 0.0,
+        angle: 0.0,
+        thickness: 0.0,
         operation: Operation::Auto,
         face: None,
     };

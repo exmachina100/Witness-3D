@@ -58,7 +58,8 @@ export const COMMAND = {
     scale: { s: 'uniform' },
     pushpull: { d: 'distance', q: 'join', w: 'cut', b: 'new', r: 'rect', c: 'circle' },
     // Extrude and Boolean (manual: Q union, W difference, Shift+E intersect, B new body, T keep tools)
-    extrude: { d: 'distance', q: 'union', w: 'difference', 'shift-e': 'intersect', b: 'new' },
+    // (manual: A angle, Shift+T thickness, S lock both sides, Shift+Q slice)
+    extrude: { d: 'distance', a: 'angle', 'shift-t': 'thickness', s: 'lock', q: 'union', w: 'difference', 'shift-e': 'intersect', 'shift-q': 'slice', b: 'new' },
     boolean: { q: 'union', w: 'difference', 'shift-e': 'intersect', t: 'keep' },
     // Offset Face (manual: D distance; its A angle and Tab grow modes are not here yet)
     offset: { d: 'distance' },
@@ -69,6 +70,16 @@ export const COMMAND = {
     rect: { tab: 'typed', s: 'square', c: 'centre' },
     circle: { tab: 'typed' },
     line: { tab: 'typed', 'ctrl-z': 'back' },
+    // The other curve tools (manual: Tab types dimensions; Regular Polygon's arrows and C; Spline
+    // Curve's Ctrl+Z). They have no default keys in Plasticity either; F finds them.
+    'center-rect': { tab: 'typed', s: 'square' },
+    rect3: { tab: 'typed' },
+    circle2: { tab: 'typed' },
+    circle3: { tab: 'typed' },
+    arc3: { tab: 'typed' },
+    arc: { tab: 'typed' },
+    polygon: { tab: 'typed', arrowup: 'more', arrowdown: 'fewer', c: 'circumscribed' },
+    spline: { 'ctrl-z': 'back' },
 };
 
 /** Everything the palette (F) lists, with its key for display. Tools come from tools.js. */
@@ -85,6 +96,9 @@ export const ACTIONS = {
     'plane:selection': 'Construction plane from selection', 'plane:selection-keep-view': 'Construction plane from selection, keep view',
     'plane:view': 'Construction plane from view', 'plane:world': 'Construction plane: world XY',
     'draw:rect': 'Corner rectangle', 'draw:circle': 'Center circle', 'draw:line': 'Line',
+    'draw:center-rect': 'Center rectangle', 'draw:rect3': 'Three point rectangle', 'draw:circle2': 'Two point circle',
+    'draw:circle3': 'Three point circle', 'draw:arc3': 'Three point arc', 'draw:arc': 'Center point arc',
+    'draw:polygon': 'Regular polygon', 'draw:spline': 'Spline curve',
     'undo': 'Undo', 'redo': 'Redo', 'file:new': 'New', 'file:open': 'Open…', 'file:save': 'Save',
     'export:step': 'Export STEP', 'import:step': 'Import STEP',
 };
