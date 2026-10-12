@@ -262,6 +262,9 @@ pub struct FormRequest {
     /// Revolve: how far to turn, in radians.
     #[serde(default = "turn")]
     pub angle: f64,
+    /// Revolve: walls this thick instead of a filled solid (Shift+T); zero for solid.
+    #[serde(default)]
+    pub thickness: f64,
     /// Sweep: the curve to follow.
     #[serde(default)]
     pub path: Option<CurveId>,
@@ -285,7 +288,7 @@ fn new_op() -> OpChoice { OpChoice::New }
 impl FormRequest {
     fn params(&self, doc: &Document<Occt>) -> Result<FormParams, ApiError> {
         let kind = match self.kind {
-            FormName::Revolve => FormKindRequest::Revolve { axis_point: DVec3::from_array(self.axis_point), axis_dir: DVec3::from_array(self.axis_dir), angle: self.angle },
+            FormName::Revolve => FormKindRequest::Revolve { axis_point: DVec3::from_array(self.axis_point), axis_dir: DVec3::from_array(self.axis_dir), angle: self.angle, thickness: self.thickness },
             FormName::Loft => FormKindRequest::Loft,
             FormName::Sweep => FormKindRequest::Sweep { path: self.path.ok_or_else(|| ApiError::from(String::from("pick the path to sweep along")))?, twist: self.twist, scale: self.scale },
         };
@@ -374,20 +377,38 @@ pub struct CurveOut {
     pub id: CurveId,
     #[serde(flatten)]
     pub curve: Curve,
-    /// For a spline, points along it in its plane, which the viewport draws.
+    /// For a spline or a joined contour, points along it in its plane, which the viewport draws.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub samples: Option<Vec<[f64; 2]>>,
+}
+
+/// Points along a curve the viewport can't draw itself, in its plane: a spline, or a contour piece
+/// by piece so its corners stay sharp.
+fn samples(k: &Occt, curve: &Curve) -> Option<Vec<[f64; 2]>> {
+    let f = curve.frame();
+    let flat = |pts: Vec<glam::DVec3>| pts.iter().map(|p| { let d = *p - f.origin; [d.dot(f.x), d.dot(f.y())] }).collect::<Vec<_>>();
+    match &curve.shape {
+        CurveShape::Spline { .. } => Some(flat(k.sample(&curve.path(), 64).unwrap_or_default())),
+        CurveShape::Contour { pieces } => {
+            let mut out: Vec<[f64; 2]> = Vec::new();
+            for piece in pieces {
+                let part = match piece {
+                    CurveShape::Polyline { points, .. } => points.clone(),
+                    _ => flat(k.sample(&Curve { shape: piece.clone(), ..curve.clone() }.path(), 32).unwrap_or_default()),
+                };
+                out.extend(part.into_iter().skip(if out.is_empty() { 0 } else { 1 }));
+            }
+            Some(out)
+        }
+        _ => None,
+    }
 }
 
 pub fn curves(m: &Model) -> Vec<CurveOut> {
     m.call(|doc| {
         doc.curve_ids().into_iter().map(|id| {
             let curve = doc.curve(id).unwrap().clone();
-            let samples = matches!(curve.shape, CurveShape::Spline { .. }).then(|| {
-                let f = curve.frame();
-                let pts = doc.kernel.sample(&curve.path(), 64).unwrap_or_default();
-                pts.iter().map(|p| { let d = *p - f.origin; [d.dot(f.x), d.dot(f.y())] }).collect()
-            });
+            let samples = samples(&doc.kernel, &curve);
             CurveOut { id, curve, samples }
         }).collect()
     })
@@ -401,6 +422,11 @@ pub struct AddedCurves {
 /// Add drawn curves, as one undoable step.
 pub fn add_curves(m: &Model, curves: Vec<Curve>) -> Result<AddedCurves, ApiError> {
     m.call(move |doc| Ok(AddedCurves { ids: doc.commit_curves(curves)? }))
+}
+
+/// Join Curves (J): the curves replaced by their joined runs, as one undoable step.
+pub fn join_curves(m: &Model, ids: Vec<CurveId>) -> Result<AddedCurves, ApiError> {
+    m.call(move |doc| Ok(AddedCurves { ids: doc.commit_join(&ids)? }))
 }
 
 /// Delete bodies and curves together, as one undoable step.
@@ -419,29 +445,53 @@ pub struct BooleanRequest {
 }
 
 impl BooleanRequest {
-    fn op(&self) -> Result<BooleanOp, ApiError> {
+    /// The boolean to run, or `None` for Shift+Q's slice.
+    fn op(&self) -> Result<Option<BooleanOp>, ApiError> {
         match self.op {
-            OpChoice::Union | OpChoice::Auto => Ok(BooleanOp::Union),
-            OpChoice::Difference => Ok(BooleanOp::Difference),
-            OpChoice::Intersect => Ok(BooleanOp::Intersection),
-            OpChoice::New | OpChoice::Slice => Err(String::from("a boolean needs union, difference or intersect").into()),
+            OpChoice::Union | OpChoice::Auto => Ok(Some(BooleanOp::Union)),
+            OpChoice::Difference => Ok(Some(BooleanOp::Difference)),
+            OpChoice::Intersect => Ok(Some(BooleanOp::Intersection)),
+            OpChoice::Slice => Ok(None),
+            OpChoice::New => Err(String::from("a boolean needs union, difference, intersect or slice").into()),
         }
     }
 }
 
+/// The target after a boolean, and for a slice the pieces cut off it.
+#[derive(Serialize, Debug)]
+pub struct BooleanPreview {
+    #[serde(flatten)]
+    pub body: Body,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub pieces: Vec<Body>,
+}
+
 /// The target as it would be after the boolean. `None` means a newer request superseded it.
-pub fn preview_boolean(m: &Model, req: BooleanRequest) -> Option<Result<Body, ApiError>> {
+pub fn preview_boolean(m: &Model, req: BooleanRequest) -> Option<Result<BooleanPreview, ApiError>> {
     m.preview(move |doc| {
-        let t = doc.preview_boolean(req.target, &req.tools, req.op()?)?;
-        Ok(body(&doc.kernel, req.target, &t.solid)?)
+        match req.op()? {
+            Some(op) => {
+                let t = doc.preview_boolean(req.target, &req.tools, op)?;
+                Ok(BooleanPreview { body: body(&doc.kernel, req.target, &t.solid)?, pieces: vec![] })
+            }
+            None => {
+                let (rest, pieces) = doc.preview_boolean_slice(req.target, &req.tools)?;
+                let pieces = pieces.iter().map(|p| body(&doc.kernel, 0, p)).collect::<Result<_, _>>()?;
+                Ok(BooleanPreview { body: body(&doc.kernel, req.target, &rest.solid)?, pieces })
+            }
+        }
     })
 }
 
-/// Plasticity's Boolean, as one undoable step: the target changes and the tools go unless kept.
+/// Plasticity's Boolean, as one undoable step: the target changes and the tools go unless kept. A
+/// slice also adds the pieces as new bodies.
 pub fn commit_boolean(m: &Model, req: BooleanRequest) -> Result<Committed, ApiError> {
     m.call(move |doc| {
-        let id = doc.commit_boolean(req.target, &req.tools, req.op()?, req.keep_tools)?;
-        Ok(Committed { id, scene: bodies(doc)? })
+        match req.op()? {
+            Some(op) => { doc.commit_boolean(req.target, &req.tools, op, req.keep_tools)?; }
+            None => { doc.commit_boolean_slice(req.target, &req.tools, req.keep_tools)?; }
+        }
+        Ok(Committed { id: req.target, scene: bodies(doc)? })
     })
 }
 

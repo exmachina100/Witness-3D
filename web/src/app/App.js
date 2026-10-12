@@ -58,7 +58,7 @@ import { TOOLS, check, tool as toolInfo, withDefaults } from './tools.js';
 import { ACTIONS, COMMAND, VIEWPORT, keyFor, keyOf } from './keymap.js';
 import { Selection } from './Selection.js';
 import { claude, describe, MODEL, reply, request } from './ai.js';
-import { arcPoints, circleThrough, polygonCorners } from '../curves.js';
+import { arcPoints, circleThrough, ellipsePoints, loops, polygonCorners } from '../curves.js';
 
 const KEYS = {
   idle: [['CLICK', 'SELECT'], ['⇧ CLICK', 'ADD'], ['CTRL CLICK', 'REMOVE'], ['DRAG', 'BOX'], ['MMB', 'ORBIT'], ['RMB', 'PAN'], ['F', 'SEARCH']],
@@ -67,13 +67,13 @@ const KEYS = {
   rotate: [['X Y Z', 'AXIS'], ['R', 'SCREEN'], ['CTRL', '15°'], ['⏎ / RMB', 'OK']],
   scale: [['S', 'UNIFORM'], ['CTRL', '0.1'], ['⏎ / RMB', 'OK']],
   extrude: [['DRAG DOT', 'DISTANCE'], ['D', 'DISTANCE'], ['A', 'ANGLE'], ['⇧T', 'THICKNESS'], ['S', 'BOTH SIDES'], ['Q', 'UNION'], ['W', 'DIFFERENCE'], ['⇧E', 'INTERSECT'], ['⇧Q', 'SLICE'], ['B', 'NEW BODY'], ['⏎ / RMB', 'OK']],
-  boolean: [['Q', 'UNION'], ['W', 'DIFFERENCE'], ['⇧E', 'INTERSECT'], ['T', 'KEEP TOOLS'], ['⏎ / RMB', 'OK']],
+  boolean: [['Q', 'UNION'], ['W', 'DIFFERENCE'], ['⇧E', 'INTERSECT'], ['⇧Q', 'SLICE'], ['T', 'KEEP TOOLS'], ['⏎ / RMB', 'OK']],
   offset: [['DRAG DOT', 'DISTANCE'], ['D', 'DISTANCE'], ['⇧ CLICK', 'FACES'], ['⏎ / RMB', 'OK']],
-  revolve: [['CLICK', 'AXIS START · END'], ['A', 'ANGLE'], ['Q', 'UNION'], ['W', 'DIFFERENCE'], ['⇧E', 'INTERSECT'], ['B', 'NEW BODY'], ['⏎ / RMB', 'OK']],
+  revolve: [['CLICK', 'AXIS START · END'], ['A', 'ANGLE'], ['⇧T', 'THICKNESS'], ['Q', 'UNION'], ['W', 'DIFFERENCE'], ['⇧E', 'INTERSECT'], ['B', 'NEW BODY'], ['⏎ / RMB', 'OK']],
   loft: [['⏎ / RMB', 'OK'], ['ESC', 'CANCEL']],
   sweep: [['CLICK', 'PATH'], ['D', 'TWIST'], ['Q', 'UNION'], ['W', 'DIFFERENCE'], ['⇧E', 'INTERSECT'], ['B', 'NEW BODY'], ['⏎ / RMB', 'OK']],
   rect: [['CLICK', 'CORNERS'], ['S', 'SQUARE'], ['C', 'FROM CENTRE'], ['TAB', 'TYPE SIZE'], ['ALT', 'NO SNAP'], ['ESC', 'CANCEL']],
-  circle: [['CLICK', 'CENTRE · RADIUS'], ['TAB', 'TYPE DIAMETER'], ['ALT', 'NO SNAP'], ['ESC', 'CANCEL']],
+  circle: [['CLICK', 'CENTRE · RADIUS'], ['V', 'VERTICAL'], ['TAB', 'TYPE DIAMETER'], ['ALT', 'NO SNAP'], ['ESC', 'CANCEL']],
   line: [['CLICK', 'POINTS'], ['CLICK START', 'CLOSE'], ['CTRL Z', 'BACK'], ['TAB', 'TYPE LENGTH'], ['⏎ / RMB', 'DONE']],
   'center-rect': [['CLICK', 'CENTRE · CORNER'], ['S', 'SQUARE'], ['TAB', 'TYPE SIZE'], ['ALT', 'NO SNAP'], ['ESC', 'CANCEL']],
   rect3: [['CLICK', 'SIDE · WIDTH'], ['TAB', 'TYPE SIZE'], ['ALT', 'NO SNAP'], ['ESC', 'CANCEL']],
@@ -81,7 +81,9 @@ const KEYS = {
   circle3: [['CLICK', 'THREE POINTS'], ['ALT', 'NO SNAP'], ['ESC', 'CANCEL']],
   arc3: [['CLICK', 'START · END · ON ARC'], ['ALT', 'NO SNAP'], ['ESC', 'CANCEL']],
   arc: [['CLICK', 'CENTRE · START · END'], ['TAB', 'RADIUS · ANGLE'], ['ALT', 'NO SNAP'], ['ESC', 'CANCEL']],
-  polygon: [['CLICK', 'CENTRE · SIZE'], ['↑ ↓', 'SIDES'], ['⇧ WHEEL', 'SIDES'], ['C', 'CIRCUMSCRIBED'], ['TAB', 'TYPE RADIUS'], ['ESC', 'CANCEL']],
+  polygon: [['CLICK', 'CENTRE · SIZE'], ['↑ ↓', 'SIDES'], ['⇧ WHEEL', 'SIDES'], ['C', 'CIRCUMSCRIBED'], ['V', 'VERTICAL'], ['TAB', 'TYPE RADIUS'], ['ESC', 'CANCEL']],
+  ellipse: [['CLICK', 'CENTRE · AXIS · WIDTH'], ['ALT', 'NO SNAP'], ['ESC', 'CANCEL']],
+  ellipse3: [['CLICK', 'AXIS ENDS · WIDTH'], ['ALT', 'NO SNAP'], ['ESC', 'CANCEL']],
   spline: [['CLICK', 'POINTS'], ['CLICK START', 'CLOSE'], ['CTRL Z', 'BACK'], ['⏎ / RMB', 'DONE']],
   pushpull: [['CLICK', 'PLACE'], ['DRAG DOT', 'DISTANCE'], ['Q', 'JOIN'], ['W', 'CUT'], ['B', 'NEW'], ['R C', 'SHAPE'], ['⏎ / RMB', 'OK']],
 };
@@ -89,10 +91,10 @@ const KEYS = {
 const DRAW = {
   rect: 'RECTANGLE', circle: 'CIRCLE', line: 'LINE', 'center-rect': 'CENTER RECTANGLE', rect3: 'THREE POINT RECTANGLE',
   circle2: 'TWO POINT CIRCLE', circle3: 'THREE POINT CIRCLE', arc3: 'THREE POINT ARC', arc: 'CENTER POINT ARC',
-  polygon: 'REGULAR POLYGON', spline: 'SPLINE CURVE',
+  polygon: 'REGULAR POLYGON', spline: 'SPLINE CURVE', ellipse: 'CENTER ELLIPSE', ellipse3: 'THREE POINT ELLIPSE',
 };
 // Clicks that finish each drawing; lines and splines go on until closed or finished.
-const CLICKS = { rect: 2, 'center-rect': 2, rect3: 3, circle: 2, circle2: 2, circle3: 3, arc3: 3, arc: 3, polygon: 2 };
+const CLICKS = { rect: 2, 'center-rect': 2, rect3: 3, circle: 2, circle2: 2, circle3: 3, arc3: 3, arc: 3, polygon: 2, ellipse: 3, ellipse3: 3 };
 // Commands that grow a solid from drawn regions, sharing one panel.
 const FORMS = { revolve: true, loft: true, sweep: true };
 const keysHtml = id => KEYS[id].map(([k, v]) => `<kbd>${k}</kbd><span>${v}</span>`).join('');
@@ -187,6 +189,9 @@ const SHELL = `
         <button data-draw="more" aria-pressed="false"><kbd>↑</kbd>MORE</button>
         <button data-draw="circumscribed" aria-pressed="false"><kbd>C</kbd>CIRCUMSCRIBED</button>
       </div>
+      <div class="chips" data-id="draw-vertical" hidden>
+        <button data-draw="vertical" aria-pressed="false"><kbd>V</kbd>VERTICAL</button>
+      </div>
     </div>
     <div class="sec" data-panel="extrude" hidden>
       <span class="hint" data-id="ex-hint">DRAG THE DOT, OR D AND TYPE</span>
@@ -212,6 +217,7 @@ const SHELL = `
         <button data-bop="union" aria-pressed="true"><kbd>Q</kbd>UNION</button>
         <button data-bop="difference" aria-pressed="false"><kbd>W</kbd>DIFF</button>
         <button data-bop="intersect" aria-pressed="false"><kbd>⇧E</kbd>INTER</button>
+        <button data-bop="slice" aria-pressed="false"><kbd>⇧Q</kbd>SLICE</button>
       </div>
       <div class="chips"><button data-id="bool-keep" aria-pressed="false"><kbd>T</kbd>KEEP TOOLS</button></div>
     </div>
@@ -223,6 +229,7 @@ const SHELL = `
     <div class="sec" data-panel="form" hidden>
       <span class="hint" data-id="form-hint">—</span>
       <div class="field" data-id="form-angle-row"><label for="w3d-form-angle">ANGLE °</label><input id="w3d-form-angle" data-id="form-angle" type="number" step="15" value="360"></div>
+      <div class="field" data-id="form-thickness-row"><label for="w3d-form-thickness">THICKNESS</label><input id="w3d-form-thickness" data-id="form-thickness" type="number" step="0.5" min="0" value="0"></div>
       <div class="field" data-id="form-twist-row"><label for="w3d-form-twist">TWIST °</label><input id="w3d-form-twist" data-id="form-twist" type="number" step="15" value="0"></div>
       <div class="field" data-id="form-scale-row"><label for="w3d-form-scale">SCALE</label><input id="w3d-form-scale" data-id="form-scale" type="number" step="0.1" min="0.01" value="1"></div>
       <div class="field"><label>RESULT</label><output data-id="form-outcome">—</output></div>
@@ -514,9 +521,16 @@ export async function mount(root, backend) {
   const curve2d = c => c.kind === 'circle' ? new THREE.Path().absarc(c.center[0], c.center[1], c.radius, 0, Math.PI * 2).getPoints(96).slice(0, -1)
     : c.kind === 'arc' ? (arcPoints(c.start, c.mid, c.end, 48) ?? [c.start, c.end]).map(p => new THREE.Vector2(...p))
     : c.kind === 'spline' ? (c.samples ?? splinePreview(c.points, c.closed)).slice(0, c.closed ? -1 : undefined).map(p => new THREE.Vector2(...p))
+    : c.kind === 'ellipse' ? ellipsePoints(c.center, c.major, c.minor, 96).map(p => new THREE.Vector2(...p))
+    : c.kind === 'contour' ? contour2d(c)
     : c.points.map(p => new THREE.Vector2(...p));
-  const isClosed = c => c.kind === 'circle' || (c.kind !== 'arc' && c.closed && c.points.length >= 3);
-  const curveName = c => ({ circle: 'CIRCLE', arc: 'ARC', spline: 'SPLINE' })[c.kind] ?? (!c.closed ? 'LINE' : c.points.length === 4 ? 'RECTANGLE' : 'POLYGON');
+  /** A joined contour's points: the kernel's samples, or its pieces one after another. */
+  function contour2d(c) {
+    const pts = c.samples ? c.samples.map(p => new THREE.Vector2(...p)) : c.pieces.flatMap((p, i) => curve2d(p).slice(i ? 1 : 0));
+    return isClosed(c) && pts.length > 1 && pts[0].distanceTo(pts.at(-1)) < 1e-6 ? pts.slice(0, -1) : pts;
+  }
+  const isClosed = c => c.kind === 'circle' || c.kind === 'ellipse' || (c.kind === 'contour' ? loops(c.pieces) : c.kind !== 'arc' && c.closed && c.points.length >= 3);
+  const curveName = c => ({ circle: 'CIRCLE', arc: 'ARC', spline: 'SPLINE', ellipse: 'ELLIPSE', contour: 'CONTOUR' })[c.kind] ?? (!c.closed ? 'LINE' : c.points.length === 4 ? 'RECTANGLE' : 'POLYGON');
   /** A spline through the points for drawing before the kernel has made it (the kernel's own fit
    * is close to this chordal Catmull-Rom curve, not the same). */
   function splinePreview(points, closed) {
@@ -556,7 +570,7 @@ export async function mount(root, backend) {
   /** The centre of a region, in the viewport. */
   function regionCentre(c) {
     const f = curveFrame(c);
-    if (c.kind === 'circle') return lift(f, new THREE.Vector2(...c.center));
+    if (c.kind === 'circle' || c.kind === 'ellipse') return lift(f, new THREE.Vector2(...c.center));
     // The area centroid of the outline.
     const p = curve2d(c).map(q => [q.x, q.y]);
     let a = 0, cx = 0, cy = 0;
@@ -1655,12 +1669,13 @@ export async function mount(root, backend) {
   scene.add(drawPreview);
 
   function startDraw(kind) {
-    const c = cmd = { id: kind, plane: null, pts: [], cursor: null, square: false, centre: kind === 'center-rect', entry: null, sides: polygonSides, circumscribed: false, sweep: 0, turn: null };
+    const c = cmd = { id: kind, plane: null, pts: [], cursor: null, square: false, centre: kind === 'center-rect', entry: null, sides: polygonSides, circumscribed: false, vertical: false, sweep: 0, turn: null };
     lastTool = kind;
     showTool(kind);
     setState('none');
     $('draw-rect').hidden = kind !== 'rect' && kind !== 'center-rect';
     $('draw-polygon').hidden = kind !== 'polygon';
+    $('draw-vertical').hidden = kind !== 'polygon' && kind !== 'circle';
     for (const b of $$('[data-draw]')) b.setAttribute('aria-pressed', false);
     c.move = e => {
       const p = drawPoint(e);
@@ -1687,6 +1702,12 @@ export async function mount(root, backend) {
         return true;
       }
       if (action === 'more' || action === 'fewer') { setSides(c.sides + (action === 'more' ? 1 : -1)); return true; }
+      if (action === 'vertical' && (c.id === 'polygon' || c.id === 'circle')) {
+        c.vertical = !c.vertical;
+        $('draw-vertical').querySelector('[data-draw="vertical"]').setAttribute('aria-pressed', c.vertical);
+        drawShape();
+        return true;
+      }
       if (action === 'circumscribed') {
         c.circumscribed = !c.circumscribed;
         $('draw-polygon').querySelector('[data-draw="circumscribed"]').setAttribute('aria-pressed', c.circumscribed);
@@ -1764,8 +1785,9 @@ export async function mount(root, backend) {
         return { show: [...k, k[0]], size: `${d(a, b).toFixed(2)} × ${Math.abs(w).toFixed(2)}`, curve: d(a, b) > 1e-6 && Math.abs(w) > 1e-6 ? { kind: 'polyline', points: k, closed: true } : 'THE RECTANGLE NEEDS A WIDTH AND A HEIGHT', text: `RECTANGLE ${d(a, b).toFixed(2)} × ${Math.abs(w).toFixed(2)}` };
       }
       case 'circle': case 'circle2': {
-        const o = c.id === 'circle' ? a : [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2], r = c.id === 'circle' ? d(a, b) : d(a, b) / 2;
-        return { show: ring(o, r), size: `⌀ ${(2 * r).toFixed(2)}`, curve: r > 1e-6 ? { kind: 'circle', center: o, radius: r } : 'THE CIRCLE NEEDS A RADIUS', text: `CIRCLE ⌀ ${(2 * r).toFixed(2)}` };
+        const up = c.id === 'circle' && c.vertical;
+        const o = up ? [0, 0] : c.id === 'circle' ? a : [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2], r = c.id === 'circle' ? d(a, b) : d(a, b) / 2;
+        return { show: ring(o, r), frame: up ? standing(c, pts) : null, size: `⌀ ${(2 * r).toFixed(2)}`, curve: r > 1e-6 ? { kind: 'circle', center: o, radius: r } : 'THE CIRCLE NEEDS A RADIUS', text: `CIRCLE ⌀ ${(2 * r).toFixed(2)}${up ? ' VERTICAL' : ''}` };
       }
       case 'circle3': {
         if (n < 3) return line();
@@ -1787,14 +1809,34 @@ export async function mount(root, backend) {
         return { show, size: `R ${r.toFixed(2)} · ${(sw / DEG).toFixed(1)}°`, curve: r > 1e-6 && Math.abs(sw) > 1e-6 ? { kind: 'arc', start: at(0), mid: at(sw / 2), end: at(sw) } : 'THE ARC NEEDS A RADIUS AND AN ANGLE', text: `ARC R ${r.toFixed(2)} ${(sw / DEG).toFixed(1)}°` };
       }
       case 'polygon': {
-        const k = polygonCorners(a, b, c.sides, c.circumscribed);
-        return { show: [...k, k[0]], size: `${c.sides} · R ${d(a, b).toFixed(2)}`, curve: d(a, b) > 1e-6 ? { kind: 'polyline', points: k, closed: true } : 'THE POLYGON NEEDS A SIZE', text: `POLYGON ×${c.sides} R ${d(a, b).toFixed(2)}` };
+        // V stands it up: in the plane through the centre that holds the cursor and the plane's normal.
+        const k = c.vertical ? polygonCorners([0, 0], [0, d(a, b)], c.sides, c.circumscribed) : polygonCorners(a, b, c.sides, c.circumscribed);
+        return { show: [...k, k[0]], frame: c.vertical ? standing(c, pts) : null, size: `${c.sides} · R ${d(a, b).toFixed(2)}`, curve: d(a, b) > 1e-6 ? { kind: 'polyline', points: k, closed: true } : 'THE POLYGON NEEDS A SIZE', text: `POLYGON ×${c.sides} R ${d(a, b).toFixed(2)}${c.vertical ? ' VERTICAL' : ''}` };
+      }
+      case 'ellipse': case 'ellipse3': {
+        // Centre Ellipse: centre, end of an axis, then the width. Three Point: both ends of an axis, then the width.
+        if (n < 3) return line();
+        const o = c.id === 'ellipse' ? a : [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2], major = [b[0] - o[0], b[1] - o[1]], R = Math.hypot(...major);
+        const minor = R > 1e-9 ? Math.abs(major[0] * (q[1] - o[1]) - major[1] * (q[0] - o[0])) / R : 0;
+        const ok = R > 1e-6 && minor > 1e-6;
+        return { show: ok ? [...ellipsePoints(o, major, minor, 96), [o[0] + major[0], o[1] + major[1]]] : P, size: `${(2 * R).toFixed(2)} × ${(2 * minor).toFixed(2)}`, curve: ok ? { kind: 'ellipse', center: o, major, minor } : 'THE ELLIPSE NEEDS A LENGTH AND A WIDTH', text: `ELLIPSE ${(2 * R).toFixed(2)} × ${(2 * minor).toFixed(2)}` };
       }
       case 'spline':
         return { show: splinePreview(P, false), size: `×${c.pts.length}` };
       default:
         return { show: P, size: `L ${d(P.at(-2), P.at(-1)).toFixed(2)}` };
     }
+  }
+
+  /**
+   * The plane a circle or polygon stands in with V (Plasticity's vertical mode): through the centre,
+   * holding the drawing plane's normal and the direction to the cursor.
+   */
+  function standing(c, pts) {
+    const f = c.plane, a = lift(f, pts[0]), dir = lift(f, pts[1]).sub(a);
+    if (dir.lengthSq() < 1e-18) dir.copy(f.x);
+    dir.normalize();
+    return { o: a, x: f.n.clone(), y: dir, n: new THREE.Vector3().crossVectors(f.n, dir) };
   }
 
   /** Center Point Arc: the angle swept so far, following the cursor round either way. */
@@ -1816,18 +1858,20 @@ export async function mount(root, backend) {
     const need = CLICKS[c.id], left = need ? need - c.pts.length : 0;
     $('draw-hint').textContent = !f ? 'CLICK A FACE OR THE CONSTRUCTION PLANE'
       : c.id === 'rect' || c.id === 'center-rect' ? 'CLICK THE OTHER CORNER · TAB TYPES'
-      : c.id === 'circle' ? 'CLICK FOR THE RADIUS · TAB TYPES'
-      : c.id === 'polygon' ? 'CLICK FOR THE SIZE · ↑ ↓ SIDES · TAB TYPES'
+      : c.id === 'circle' ? `CLICK FOR THE RADIUS · TAB TYPES · V ${c.vertical ? 'FLAT' : 'VERTICAL'}`
+      : c.id === 'polygon' ? `CLICK FOR THE SIZE · ↑ ↓ SIDES · V ${c.vertical ? 'FLAT' : 'VERTICAL'}`
       : c.id === 'arc' ? (left === 2 ? 'CLICK THE START · TAB TYPES THE RADIUS' : 'CLICK THE END · TAB TYPES THE ANGLE')
       : c.id === 'arc3' ? (left === 2 ? 'CLICK THE END' : 'CLICK A POINT ON THE ARC')
+      : c.id === 'ellipse' ? (left === 2 ? 'CLICK THE END OF AN AXIS' : 'CLICK FOR THE WIDTH')
+      : c.id === 'ellipse3' ? (left === 2 ? 'CLICK THE OTHER END OF THE AXIS' : 'CLICK FOR THE WIDTH')
       : need ? `CLICK ${left} MORE`
       : 'CLICK THE NEXT POINT · CLICK THE FIRST TO CLOSE';
     if (!f || !c.cursor?.uv) { drawPreview.visible = false; $('draw-size').textContent = '—'; return setHud(`${DRAW[c.id]} · CLICK TO START`); }
     setTarget(f.target ? label(f.target) : cplane.name);
     trackSweep(c);
-    const { show, size } = drawn(c, [...c.pts, c.cursor.uv]);
+    const { show, size, frame } = drawn(c, [...c.pts, c.cursor.uv]);
     drawPreview.geometry.dispose();
-    drawPreview.geometry = new THREE.BufferGeometry().setFromPoints(show.map(([u, v]) => lift(f, { x: u, y: v }, 0.03)));
+    drawPreview.geometry = new THREE.BufferGeometry().setFromPoints(show.map(([u, v]) => lift(frame ?? f, { x: u, y: v }, frame ? 0 : 0.03)));
     drawPreview.visible = true;
     $('draw-size').textContent = size;
     setHud(size);
@@ -1875,7 +1919,7 @@ export async function mount(root, backend) {
         c.entry = { label: 'HEIGHT', text: '', apply: h => commitRect(a, new THREE.Vector2(a.x + sx * Math.abs(w) * half, a.y + sy * Math.abs(h) * half)) };
       } };
     } else if (c.id === 'circle') {
-      c.entry = { label: 'DIAMETER', text: '', apply: d => commitCircle(Math.abs(d) / 2) };
+      c.entry = { label: 'DIAMETER', text: '', apply: d => commitDrawn([a, along(Math.abs(d) / 2)]) };
     } else if (c.id === 'circle2') {
       c.entry = { label: 'DIAMETER', text: '', apply: d => commitDrawn([a, along(Math.abs(d))]) };
     } else if (c.id === 'polygon') {
@@ -1902,8 +1946,8 @@ export async function mount(root, backend) {
     c.entryDone();
   }
 
-  function curveOf(shape) {
-    const { o, n, x } = cmd.plane;
+  function curveOf(shape, frame = cmd.plane) {
+    const { o, n, x } = frame;
     return { origin: o.toArray(), x: x.toArray(), normal: n.toArray(), ...shape };
   }
   function commitRect(a, b) {
@@ -1911,10 +1955,7 @@ export async function mount(root, backend) {
     if (Math.abs(k[1][0] - k[0][0]) < 1e-6 || Math.abs(k[2][1] - k[1][1]) < 1e-6) return toast('THE RECTANGLE NEEDS A WIDTH AND A HEIGHT');
     return commitCurve(curveOf({ kind: 'polyline', points: k, closed: true }), `RECTANGLE ${Math.abs(k[1][0] - k[0][0]).toFixed(2)} × ${Math.abs(k[2][1] - k[1][1]).toFixed(2)}`);
   }
-  function commitCircle(r) {
-    if (!(r > 1e-6)) return toast('THE CIRCLE NEEDS A RADIUS');
-    return commitCurve(curveOf({ kind: 'circle', center: [cmd.pts[0].x, cmd.pts[0].y], radius: r }), `CIRCLE ⌀ ${(2 * r).toFixed(2)}`);
-  }
+
   function commitLine(closed) {
     const c = cmd, points = c.pts.map(p => [p.x, p.y]);
     if (c.id === 'spline') return commitCurve(curveOf({ kind: 'spline', points, closed }), `SPLINE ×${c.pts.length}${closed ? ' CLOSED' : ''}`);
@@ -1924,7 +1965,7 @@ export async function mount(root, backend) {
   function commitDrawn(pts) {
     const d = drawn(cmd, pts);
     if (typeof d.curve === 'string') { cmd.pts = pts.slice(0, -1); drawShape(); return toast(d.curve); }
-    return commitCurve(curveOf(d.curve), d.text);
+    return commitCurve(curveOf(d.curve, d.frame ?? cmd.plane), d.text);
   }
   async function finishDraw() {
     const c = cmd;
@@ -2103,7 +2144,8 @@ export async function mount(root, backend) {
 
   // --- boolean (Q) ------------------------------------------------------------
   // Plasticity's Boolean: select the target, then the tools, and press Q. Q union, W difference,
-  // Shift+E intersect; T keeps the tools. The target changes and the tools go.
+  // Shift+E intersect, Shift+Q slice (the target splits where each tool cuts it); T keeps the tools.
+  // The target changes and the tools go.
   function startBoolean() {
     const ids = sel.solids.filter(id => !hidden.has(id));
     if (ids.length < 2) return toast('SELECT THE TARGET, THEN THE TOOLS');
@@ -2147,13 +2189,14 @@ export async function mount(root, backend) {
     $('ms').textContent = Math.round(performance.now() - t0);
     clearPreview();
     showPreviewBody(body);
-    // The tools show as phantoms unless they are kept.
+    // The tools show as phantoms unless they are kept; a slice's pieces as new bodies.
     if (!c.keep) for (const t of c.tools) {
       const m = bodyMesh(t), b = bodyOf(t);
       if (m) m.visible = false;
-      const look = phantom[c.op === 'difference' ? 'cut' : 'add'];
+      const look = phantom[c.op === 'difference' || c.op === 'slice' ? 'cut' : 'add'];
       if (b) { const ph = meshOf(b, look.face, look.edge); ph.renderOrder = 5; previewGroup.add(ph); }
     }
+    for (const piece of body.pieces ?? []) { const m = meshOf(piece, phantom.add.face, phantom.add.edge); m.renderOrder = 6; previewGroup.add(m); }
     setHud(`${c.op.toUpperCase()}${c.keep ? ' · KEEP TOOLS' : ''}`);
     if (n === c.sent) setState('updated');
   }
@@ -2300,20 +2343,20 @@ export async function mount(root, backend) {
     if (!regions.length || (id === 'loft' && regions.length < 2)) return toast(id === 'loft' ? 'SELECT TWO REGIONS OR MORE, IN ORDER, TO LOFT' : `SELECT A REGION TO ${toolInfo(id).label}`);
     const first = curveList.find(c => c.id === regions[0]);
     const target = bodyAt(regionCentre(first), curveFrame(first).n);
-    const c = cmd = { id, regions: id === 'loft' ? regions : regions.slice(0, 1), target, op: 'new', angle: 360, twist: 0, scale: 1, p1: null, p2: null, path: null, outcome: null, sent: 0, shown: 0, line: null };
+    const c = cmd = { id, regions: id === 'loft' ? regions : regions.slice(0, 1), target, op: 'new', angle: 360, thickness: 0, twist: 0, scale: 1, p1: null, p2: null, path: null, outcome: null, sent: 0, shown: 0, line: null };
     lastTool = id;
     showTool(id);
     setState('none');
     setTarget(target ? label(target) : 'NEW BODY');
-    $('form-angle-row').hidden = id !== 'revolve';
+    $('form-angle-row').hidden = $('form-thickness-row').hidden = id !== 'revolve';
     $('form-twist-row').hidden = $('form-scale-row').hidden = id !== 'sweep';
     $('form-ops').hidden = id === 'loft';
-    $('form-angle').value = c.angle; $('form-twist').value = c.twist; $('form-scale').value = c.scale;
+    $('form-angle').value = c.angle; $('form-thickness').value = c.thickness; $('form-twist').value = c.twist; $('form-scale').value = c.scale;
     $('form-outcome').textContent = '—';
     setFormOps();
     const hint = () => {
       const text = id === 'loft' ? `${c.regions.map(r => curveLabel(r)).join(' → ')}`
-        : id === 'revolve' ? (!c.p1 ? 'CLICK THE AXIS START' : !c.p2 ? 'CLICK THE AXIS END' : `${c.angle}° ABOUT THE AXIS`)
+        : id === 'revolve' ? (!c.p1 ? 'CLICK THE AXIS START' : !c.p2 ? 'CLICK THE AXIS END' : `${c.angle}° ABOUT THE AXIS${c.thickness ? ` · WALLS ${c.thickness}` : ''}`)
         : !c.path ? 'CLICK THE CURVE TO SWEEP ALONG' : `ALONG ${curveLabel(c.path)}`;
       $('form-hint').textContent = text;
       setHud(text);
@@ -2324,6 +2367,11 @@ export async function mount(root, backend) {
       if (action === 'angle' && id === 'revolve') {
         c.entry = { label: 'ANGLE °', text: '', apply: v => { if (v !== 0) setForm({ angle: v }); } };
         setHud('ANGLE ° _');
+        return true;
+      }
+      if (action === 'thickness' && id === 'revolve') {
+        c.entry = { label: 'THICKNESS', text: '', apply: v => setForm({ thickness: Math.abs(v) }) };
+        setHud('THICKNESS _');
         return true;
       }
       if (action === 'twist' && id === 'sweep') {
@@ -2374,7 +2422,7 @@ export async function mount(root, backend) {
     const c = cmd;
     if (!FORMS[c?.id]) return;
     Object.assign(c, values);
-    for (const k of ['angle', 'twist', 'scale']) if (document.activeElement !== $(`form-${k}`)) $(`form-${k}`).value = c[k];
+    for (const k of ['angle', 'thickness', 'twist', 'scale']) if (document.activeElement !== $(`form-${k}`)) $(`form-${k}`).value = c[k];
     c.hint();
     previewFormCmd();
   }
@@ -2410,7 +2458,7 @@ export async function mount(root, backend) {
     if (c.id === 'revolve') {
       const p2 = c.p2 ?? c.moving;
       if (!c.p1 || !p2) return null;
-      Object.assign(req, { axisPoint: c.p1.toArray(), axisDir: p2.clone().sub(c.p1).toArray(), angle: c.angle * DEG });
+      Object.assign(req, { axisPoint: c.p1.toArray(), axisDir: p2.clone().sub(c.p1).toArray(), angle: c.angle * DEG, thickness: c.thickness });
     }
     if (c.id === 'sweep') {
       if (c.path === null) return null;
@@ -2457,7 +2505,7 @@ export async function mount(root, backend) {
     try {
       const { id, scene: list } = await backend.commitForm(req);
       endCmd('committed');
-      const what = c.id === 'revolve' ? `REVOLVE ${c.angle}°` : c.id === 'loft' ? `LOFT ×${c.regions.length}` : `SWEEP${c.twist ? ` ${c.twist}°` : ''}${c.scale !== 1 ? ` ×${c.scale}` : ''}`;
+      const what = c.id === 'revolve' ? `REVOLVE ${c.angle}°${c.thickness ? ` T ${c.thickness}` : ''}` : c.id === 'loft' ? `LOFT ×${c.regions.length}` : `SWEEP${c.twist ? ` ${c.twist}°` : ''}${c.scale !== 1 ? ` ×${c.scale}` : ''}`;
       record(`${what}${req.op === 'new' ? '' : ` ${req.op.toUpperCase()}`}`, id);
       await showScene(list);
       sel.replace({ kind: 'solid', body: id });
@@ -2484,6 +2532,21 @@ export async function mount(root, backend) {
       record(`DELETE ${names.join(' ')}`, ids[0] ?? curves[0], names[0]);
       sel.clear();
       await showScene(list);
+    } catch (e) { toast(say(e)); }
+  }
+  /** Plasticity's Join Curves (J): the selected curves that meet end to end become one, which bounds a region when it closes. */
+  async function joinSelected() {
+    if (cmd) await finish();
+    const ids = sel.curves;
+    if (ids.length < 2) return toast('SELECT TWO CURVES OR MORE TO JOIN');
+    if (!backend.joinCurves) return toast('JOIN IS NOT IN THIS BUILD YET');
+    try {
+      const { ids: joined } = await backend.joinCurves(ids);
+      record(`JOIN ${ids.map(curveLabel).join(' ')}`, joined[0], curveLabel(joined[0]));
+      sel.clear();
+      await loadCurves();
+      for (const id of joined) sel.add({ kind: curveList.find(c => c.id === id && isClosed(c)) ? 'region' : 'curve', id });
+      selectionChanged({ quiet: true });
     } catch (e) { toast(say(e)); }
   }
   /** Plasticity's Shift+D: copy, select the copies, and move them with the cursor. */
@@ -2560,6 +2623,7 @@ export async function mount(root, backend) {
       case 'repeat': if (lastTool) await startTool(lastTool); else toast('NO COMMAND TO REPEAT'); return true;
       case 'delete': await deleteSelected(); return true;
       case 'duplicate': await duplicateSelected(); return true;
+      case 'join': await joinSelected(); return true;
       case 'hide': setHidden(sel.bodies, true); return true;
       case 'hide-others': setHidden(current.map(b => b.id).filter(id => !sel.bodies.includes(id)), true); return true;
       case 'unhide-all': setHidden([...hidden], false); return true;
@@ -2580,6 +2644,7 @@ export async function mount(root, backend) {
     const out = [];
     if (kinds.has('edge')) out.push('tool:fillet');
     if (kinds.has('region')) out.push('tool:extrude');
+    if (sel.curves.length > 1) out.push('join');
     if (kinds.has('curve') || kinds.has('region')) out.push('delete');
     if (kinds.has('face')) out.push('tool:extrude', 'plane:selection', 'plane:selection-keep-view');
     if (sel.solids.length > 1) out.push('tool:boolean');
@@ -2838,7 +2903,7 @@ export async function mount(root, backend) {
   for (const b of $$('[data-action]')) b.onclick = () => doAction(b.dataset.action);
   for (const b of $$('[data-tool]')) b.onclick = () => startTool(b.dataset.tool);
   $('off-distance').addEventListener('input', e => { const v = parseFloat(e.target.value); if (!isNaN(v) && cmd?.id === 'offset') { cmd.auto = false; setOffsetDistance(v, false); } });
-  for (const k of ['angle', 'twist', 'scale']) $(`form-${k}`).addEventListener('input', e => { const v = parseFloat(e.target.value); if (!isNaN(v) && (k !== 'scale' || v > 0) && (k !== 'angle' || v !== 0)) setForm({ [k]: v }); });
+  for (const k of ['angle', 'thickness', 'twist', 'scale']) $(`form-${k}`).addEventListener('input', e => { const v = parseFloat(e.target.value); if (!isNaN(v) && (k !== 'scale' || v > 0) && (k !== 'angle' || v !== 0) && (k !== 'thickness' || v >= 0)) setForm({ [k]: v }); });
   for (const b of $$('[data-fop]')) b.onclick = () => cmd?.key?.(b.dataset.fop);
   function setGrid(dir) {
     const i = Math.max(0, Math.min(GRID_STEPS.length - 1, GRID_STEPS.indexOf(gridStep()) + dir));
@@ -3105,7 +3170,7 @@ export async function mount(root, backend) {
         }
         if (id === 'sweep') cmd.path = path;
         if (id !== 'loft') { cmd.op = p.op; setFormOps(); }
-        setForm(id === 'revolve' ? { angle: p.angle } : id === 'sweep' ? { twist: p.twist, scale: p.scale } : {});
+        setForm(id === 'revolve' ? { angle: p.angle, thickness: p.thickness } : id === 'sweep' ? { twist: p.twist, scale: p.scale } : {});
       }
     },
     /** Where a point (viewport coordinates) is on the page, in CSS pixels. */
@@ -3125,8 +3190,8 @@ export async function mount(root, backend) {
       if (c.id === 'extrude') Object.assign(out, { region: c.src.region ?? null, face: c.src.face ?? null, target: c.src.target, distance: c.distance, op: c.op, outcome: c.outcome, angle: c.angle, thickness: c.thickness, lock: c.lock });
       if (c.id === 'boolean') Object.assign(out, { target: c.target, tools: c.tools, op: c.op, keep: c.keep });
       if (c.id === 'offset') Object.assign(out, { body: c.body, faces: c.faces, distance: c.distance });
-      if (FORMS[c.id]) Object.assign(out, { regions: c.regions, target: c.target, op: c.op, outcome: c.outcome, axis: c.p1 && c.p2 ? [c.p1.toArray(), c.p2.toArray()] : null, angle: c.angle, path: c.path, twist: c.twist, scale: c.scale });
-      if (DRAW[c.id]) Object.assign(out, { placed: !!c.plane, points: c.pts.length, square: c.square, centre: c.centre, entry: c.entry?.label ?? null });
+      if (FORMS[c.id]) Object.assign(out, { regions: c.regions, target: c.target, op: c.op, outcome: c.outcome, axis: c.p1 && c.p2 ? [c.p1.toArray(), c.p2.toArray()] : null, angle: c.angle, thickness: c.thickness, path: c.path, twist: c.twist, scale: c.scale });
+      if (DRAW[c.id]) Object.assign(out, { placed: !!c.plane, points: c.pts.length, square: c.square, centre: c.centre, vertical: c.vertical, entry: c.entry?.label ?? null });
       return out;
     },
     get plane() { return { name: cplane.name, origin: cplane.origin.toArray(), normal: cplane.normal.toArray() } },

@@ -135,8 +135,8 @@ fn reason(e: cxx::Exception) -> String { e.what().to_string() }
 impl Shape {
     /// The profile (see `w3d.hxx` for the number layout) turned `angle` radians about `axis`
     /// (a point then a direction).
-    pub fn revolve_section(section: &[f64], axis: [f64; 6], angle: f64) -> Result<Shape, String> {
-        let s = ffi::w3d::w3d_revolve(section, &axis, angle).map_err(reason)?;
+    pub fn revolve_section(section: &[f64], axis: [f64; 6], angle: f64, thickness: f64) -> Result<Shape, String> {
+        let s = ffi::w3d::w3d_revolve(section, &axis, angle, thickness).map_err(reason)?;
         Ok(Shape::from_shape(&s))
     }
 

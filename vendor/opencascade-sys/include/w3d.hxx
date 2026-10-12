@@ -12,6 +12,7 @@
 #include <BRepBuilderAPI_MakeWire.hxx>
 #include <BRepBuilderAPI_Transform.hxx>
 #include <BRepAdaptor_CompCurve.hxx>
+#include <BRepAdaptor_Surface.hxx>
 #include <BRepGProp.hxx>
 #include <BRepGProp_Face.hxx>
 #include <BRepLib.hxx>
@@ -28,6 +29,7 @@
 #include <gp_Ax1.hxx>
 #include <gp_Ax2.hxx>
 #include <gp_Circ.hxx>
+#include <gp_Elips.hxx>
 #include <gp_Trsf.hxx>
 #include <BRepAlgoAPI_Cut.hxx>
 #include <BRepAlgoAPI_Fuse.hxx>
@@ -45,6 +47,7 @@
 #include <ChFiDS_ErrorStatus.hxx>
 #include <Standard_Failure.hxx>
 #include <TopExp.hxx>
+#include <TopExp_Explorer.hxx>
 #include <TopTools_IndexedDataMapOfShapeListOfShape.hxx>
 #include <cmath>
 #include <TopTools_IndexedMapOfShape.hxx>
@@ -343,6 +346,9 @@ inline rust::Vec<int32_t> w3d_result_pairs(const W3dResult &r, int32_t input, in
 // (a circle) or [3, n, 1, x, y, z, ...] (a closed spline through n points). A path is a section,
 // [2, n, x, y, z, ...] for an open polyline, [3, n, 0, x, y, z, ...] for an open spline, or
 // [4, x, y, z, x, y, z, x, y, z] for an arc from its first point through its second to its third.
+// [5, cx, cy, cz, nx, ny, nz, ax, ay, az, R, r] is an ellipse with radius R along (ax, ay, az) and r
+// across it (R >= r), and [6, m, ...] is a contour: m open pieces of the kinds above joined end to
+// end (Plasticity's Join Curves), closed when its ends meet.
 
 inline TopoDS_Wire w3d_section(const double *&p, const double *end) {
   auto need = [&](size_t n) { if (p + n > end) throw std::runtime_error("a profile is cut short"); };
@@ -370,6 +376,29 @@ inline TopoDS_Wire w3d_section(const double *&p, const double *end) {
     if (!fit.IsDone()) throw std::runtime_error("no smooth curve passes through those points");
     return BRepBuilderAPI_MakeWire(BRepBuilderAPI_MakeEdge(fit.Curve()).Edge()).Wire();
   }
+  if (kind == 5) {
+    need(11);
+    gp_Pnt c(p[0], p[1], p[2]);
+    gp_Dir n(p[3], p[4], p[5]), a(p[6], p[7], p[8]);
+    double R = p[9], r = p[10];
+    p += 11;
+    if (!(r > 0) || R < r) throw std::runtime_error("an ellipse needs two radii greater than zero");
+    return BRepBuilderAPI_MakeWire(BRepBuilderAPI_MakeEdge(gp_Elips(gp_Ax2(c, n, a), R, r)).Edge()).Wire();
+  }
+  if (kind == 6) {
+    need(1);
+    int m = int(*p++);
+    if (m < 1) throw std::runtime_error("a contour needs a piece");
+    BRepBuilderAPI_MakeWire mk;
+    for (int i = 0; i < m; i++) {
+      TopoDS_Wire piece = w3d_section(p, end);
+      for (TopExp_Explorer ex(piece, TopAbs_EDGE); ex.More(); ex.Next()) {
+        mk.Add(TopoDS::Edge(ex.Current()));
+        if (!mk.IsDone()) throw std::runtime_error("the curves do not meet end to end");
+      }
+    }
+    return mk.Wire();
+  }
   if (kind == 4) {
     need(9);
     gp_Pnt a(p[0], p[1], p[2]), b(p[3], p[4], p[5]), c(p[6], p[7], p[8]);
@@ -396,16 +425,28 @@ inline TopoDS_Wire w3d_one_section(rust::Slice<const double> data) {
 }
 
 // The profile turned `angle` radians about the axis through (ax, ay, az) along (dx, dy, dz).
+inline TopoDS_Wire w3d_offset_wire(const TopoDS_Wire &w, double d);
+inline TopoDS_Shape w3d_cut(const TopoDS_Shape &a, const TopoDS_Shape &b, const char *why);
+
+inline TopoDS_Shape w3d_revolved(const TopoDS_Wire &w, const gp_Ax1 &ax, double angle) {
+  TopoDS_Face face = BRepBuilderAPI_MakeFace(w, Standard_True).Face();
+  BRepPrimAPI_MakeRevol mk(face, ax, angle, Standard_True);
+  mk.Build();
+  if (!mk.IsDone()) throw std::runtime_error("the profile could not be revolved about that axis");
+  return mk.Shape();
+}
+
+// With a `thickness`, only walls that thick inside the outline are turned (Shift+T).
 inline std::unique_ptr<TopoDS_Shape> w3d_revolve(rust::Slice<const double> section, rust::Slice<const double> axis,
-                                                 double angle) {
+                                                 double angle, double thickness) {
   try {
     if (axis.size() != 6) throw std::runtime_error("an axis is a point and a direction");
-    TopoDS_Face face = BRepBuilderAPI_MakeFace(w3d_one_section(section), Standard_True).Face();
+    if (!(thickness >= 0)) throw std::runtime_error("a thickness can't be negative");
+    TopoDS_Wire w = w3d_one_section(section);
     gp_Ax1 ax(gp_Pnt(axis[0], axis[1], axis[2]), gp_Dir(axis[3], axis[4], axis[5]));
-    BRepPrimAPI_MakeRevol mk(face, ax, angle, Standard_True);
-    mk.Build();
-    if (!mk.IsDone()) throw std::runtime_error("the profile could not be revolved about that axis");
-    return std::unique_ptr<TopoDS_Shape>(new TopoDS_Shape(mk.Shape()));
+    TopoDS_Shape r = w3d_revolved(w, ax, angle);
+    if (thickness > 1e-12) r = w3d_cut(r, w3d_revolved(w3d_offset_wire(w, -thickness), ax, angle), "the walls could not be made that thick");
+    return std::unique_ptr<TopoDS_Shape>(new TopoDS_Shape(r));
   } catch (const Standard_Failure &f) {
     throw w3d_kernel_error(f);
   }
@@ -563,26 +604,65 @@ inline TopoDS_Wire w3d_moved(const TopoDS_Wire &w, const gp_Vec &v) {
   return TopoDS::Wire(BRepBuilderAPI_Transform(w, t, Standard_True).Shape());
 }
 
-// The solid swept from the outline `w` along unit `n`: from `back` behind it to `d` ahead, its sides
-// leaning in by `angle` away from the outline's plane.
-inline TopoDS_Shape w3d_stack(const TopoDS_Wire &w, const gp_Vec &n, double d, double back, double angle) {
+// The area a closed planar wire encloses.
+inline double w3d_enclosed(const TopoDS_Wire &w) {
+  GProp_GProps g;
+  BRepGProp::SurfaceProperties(BRepBuilderAPI_MakeFace(w, Standard_True).Face(), g);
+  return std::fabs(g.Mass());
+}
+
+// The wire grown by `d` (shrunk when negative) whichever way round it runs: a hole's wire runs the
+// other way, which turns OpenCascade's offset inside out.
+inline TopoDS_Wire w3d_grown(const TopoDS_Wire &w, double d) {
+  if (std::fabs(d) < 1e-12) return w;
+  TopoDS_Wire r = w3d_offset_wire(w, d);
+  if ((w3d_enclosed(r) > w3d_enclosed(w)) != (d > 0)) r = w3d_offset_wire(w, -d);
+  return r;
+}
+
+// The solid swept from the outline `w` along unit `n`: from `back` behind it to `d` ahead. At height
+// h the outline is grown by `grow + slope * |h|` (shrunk when negative); a slope of -tan(angle) leans
+// the sides in by `angle` going away from the outline's plane.
+inline TopoDS_Shape w3d_stack(const TopoDS_Wire &w, const gp_Vec &n, double d, double back, double grow,
+                              double slope) {
   double sign = d < 0 ? -1 : 1;
-  if (std::fabs(angle) < 1e-12) {
-    TopoDS_Face f = BRepBuilderAPI_MakeFace(w3d_moved(w, n * (-sign * back)), Standard_True).Face();
+  if (std::fabs(slope) < 1e-12) {
+    TopoDS_Face f = BRepBuilderAPI_MakeFace(w3d_moved(w3d_grown(w, grow), n * (-sign * back)), Standard_True).Face();
     BRepPrimAPI_MakePrism mk(f, n * (d + sign * back), Standard_True);
     if (!mk.IsDone()) throw std::runtime_error("the profile could not be extruded");
     return mk.Shape();
   }
-  double k = std::tan(angle);
   BRepOffsetAPI_ThruSections mk(Standard_True, Standard_True);
   std::vector<double> at;
   if (back > 1e-12) at.push_back(-sign * back);
   at.push_back(0);
   at.push_back(d);
-  for (double h : at) mk.AddWire(w3d_moved(w3d_offset_wire(w, -std::fabs(h) * k), n * h));
+  for (double h : at) mk.AddWire(w3d_moved(w3d_grown(w, grow + std::fabs(h) * slope), n * h));
   mk.Build();
   if (!mk.IsDone()) throw std::runtime_error("the sides cannot lean that far");
   return mk.Shape();
+}
+
+inline TopoDS_Shape w3d_cut(const TopoDS_Shape &a, const TopoDS_Shape &b, const char *why) {
+  BRepAlgoAPI_Cut cut(a, b);
+  if (!cut.IsDone()) throw std::runtime_error(why);
+  return cut.Shape();
+}
+
+// The region of the planar face `base` swept as w3d_stack says, its outline grown by `grow` and its
+// holes shrunk by as much: the outline leans in by `angle` and every hole leans out to match, so all
+// side walls keep the same draft.
+inline TopoDS_Shape w3d_region_stack(const TopoDS_Face &base, const gp_Vec &n, double d, double back, double angle,
+                                     double grow) {
+  double k = std::tan(angle);
+  TopoDS_Wire outer = BRepTools::OuterWire(base);
+  TopoDS_Shape solid = w3d_stack(outer, n, d, back, grow, -k);
+  for (TopExp_Explorer ex(base, TopAbs_WIRE); ex.More(); ex.Next()) {
+    TopoDS_Wire hole = TopoDS::Wire(ex.Current());
+    if (hole.IsSame(outer)) continue;
+    solid = w3d_cut(solid, w3d_stack(hole, n, d, back, -grow, k), "a hole closes up at that angle");
+  }
+  return solid;
 }
 
 inline TopoDS_Shape w3d_extrude_base(const TopoDS_Face &base, const gp_Vec &n, double d, double back, double angle,
@@ -600,16 +680,9 @@ inline TopoDS_Shape w3d_extrude_base(const TopoDS_Face &base, const gp_Vec &n, d
     if (!mk.IsDone()) throw std::runtime_error("the profile could not be extruded");
     return mk.Shape();
   }
-  TopTools_IndexedMapOfShape wires;
-  TopExp::MapShapes(base, TopAbs_WIRE, wires);
-  if (wires.Extent() != 1) throw std::runtime_error("an angle or a thickness needs a profile without holes");
-  TopoDS_Wire outer = BRepTools::OuterWire(base);
-  TopoDS_Shape solid = w3d_stack(outer, n, d, back, angle);
+  TopoDS_Shape solid = w3d_region_stack(base, n, d, back, angle, 0);
   if (thickness < 1e-12) return solid;
-  TopoDS_Shape hole = w3d_stack(w3d_offset_wire(outer, -thickness), n, d, back, angle);
-  BRepAlgoAPI_Cut cut(solid, hole);
-  if (!cut.IsDone()) throw std::runtime_error("the walls could not be made that thick");
-  return cut.Shape();
+  return w3d_cut(solid, w3d_region_stack(base, n, d, back, angle, -thickness), "the walls could not be made that thick");
 }
 
 // A profile (see w3d_section) extruded along unit `dir`.

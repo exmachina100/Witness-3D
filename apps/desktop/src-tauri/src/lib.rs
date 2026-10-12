@@ -139,6 +139,14 @@ async fn add_curves(
 }
 
 #[tauri::command]
+async fn join_curves(
+    model: State<'_, Model>,
+    ids: Vec<u32>,
+) -> Result<api::AddedCurves, api::ApiError> {
+    on_model(&model, move |m| api::join_curves(m, ids)).await?
+}
+
+#[tauri::command]
 async fn delete_items(
     model: State<'_, Model>,
     bodies: Vec<u32>,
@@ -151,7 +159,7 @@ async fn delete_items(
 async fn preview_boolean(
     model: State<'_, Model>,
     req: api::BooleanRequest,
-) -> Result<Option<api::Body>, api::ApiError> {
+) -> Result<Option<api::BooleanPreview>, api::ApiError> {
     on_model(&model, move |m| api::preview_boolean(m, req))
         .await?
         .transpose()
@@ -293,6 +301,7 @@ pub fn run() {
             duplicate_bodies,
             curves,
             add_curves,
+            join_curves,
             delete_items,
             preview_boolean,
             commit_boolean,
