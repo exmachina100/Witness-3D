@@ -3,6 +3,12 @@
 // OpenCascade compiled to WebAssembly on the web (LocalBackend.js) and the Rust engine on the
 // desktop (apps/desktop/ui/main.js).
 //
+// Input follows Plasticity (see /mnt/project-files/witness3d/plasticity-parity.md and keymap.js):
+// middle-drag orbits, right-drag pans, the wheel zooms; left-click selects and left-drag draws a
+// selection box; a command starts from its key, the command bar or the palette (F), is adjusted
+// with its yellow dot, its keys and typed numbers, and is finished by Enter, right-click or OK, or
+// aborted by Escape. Starting one command finishes the one running.
+//
 // A backend implements:
 //   info                         { kernel: string }
 //   scene()                      -> Body[]
@@ -11,7 +17,9 @@
 //   previewBlend(req)            -> Body (the body as it would be), or null when stale; a failure
 //                                   throws an error whose `edges` lists the edges the kernel blamed
 //   commitBlend(req)             -> { id, scene: Body[] }
-//   commitMotion(req)            -> { id, scene: Body[] }; the viewport previews a rigid motion itself
+//   commitMotion(req)            -> { id, scene: Body[] }; the viewport previews a motion itself
+//   deleteBodies(ids)            -> Body[]
+//   duplicateBodies(ids)         -> { ids, scene: Body[] }
 //   undo(), redo()               -> Body[]
 //   exportStep(id)               -> string to show, or null if the user backed out
 // Optional, shown only when present (the desktop has them, the web page does not yet):
@@ -25,9 +33,10 @@
 //          number, the same on both backends, and is what a BlendRequest names. Numbers change when
 //          an edit rebuilds a body; refs (`faceRefs[n]`, `edgeRefs[n]`) follow a face or edge
 //          through edits, so the selection is kept as refs. `revision` changes with every edit.
-// BlendRequest: { body, edges: number[], size, kind: 'fillet' | 'chamfer' }
-// MotionRequest: { body, offset, pivot, axis, angle }: turn by `angle` radians about `axis` through
-//          `pivot`, then move by `offset`, in the viewport's coordinates (y up)
+// BlendRequest: { body, edges: number[], size, kind: 'fillet' | 'chamfer', angle (radians, chamfers) }
+// MotionRequest: { bodies, offset, pivot, axis, angle, scale }: scale by `scale` and turn by `angle`
+//          radians about `axis`, both about `pivot`, then move by `offset`, in the viewport's
+//          coordinates (y up)
 // Units are millimetres throughout.
 // Preview: { outcome: 'join' | 'cut' | 'new' | 'none', tool: Body | null, result: Body | null }
 // Request: { target, origin, normal, xAxis, profile: { kind: 'rect', width, height } | { kind: 'circle', radius }, distance, newBody }
@@ -35,15 +44,28 @@
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { TransformControls } from 'three/addons/controls/TransformControls.js';
-import { ExtrudeGizmo } from '../ExtrudeGizmo.js';
-import { TOOLS, check, tool as toolInfo, toolForKey, withDefaults } from './tools.js';
+import { MagnitudeGizmo, typed } from '../MagnitudeGizmo.js';
+import { TOOLS, check, tool as toolInfo, withDefaults } from './tools.js';
+import { ACTIONS, COMMAND, VIEWPORT, keyFor, keyOf } from './keymap.js';
+import { Selection } from './Selection.js';
+
+const KEYS = {
+  idle: [['CLICK', 'SELECT'], ['⇧ CLICK', 'ADD'], ['CTRL CLICK', 'REMOVE'], ['DRAG', 'BOX'], ['MMB', 'ORBIT'], ['RMB', 'PAN'], ['F', 'SEARCH']],
+  fillet: [['DRAG DOT', 'RADIUS'], ['IN', 'CHAMFER'], ['D', 'DISTANCE'], ['C', 'CHAMFER'], ['A', 'ANGLE'], ['CTRL CLICK', 'EDGES'], ['⏎ / RMB', 'OK']],
+  move: [['X Y Z', 'AXIS'], ['⇧ X Y Z', 'PLANE'], ['G', 'SCREEN'], ['CTRL', 'SNAP'], ['⏎ / RMB', 'OK']],
+  rotate: [['X Y Z', 'AXIS'], ['R', 'SCREEN'], ['CTRL', '15°'], ['⏎ / RMB', 'OK']],
+  scale: [['S', 'UNIFORM'], ['CTRL', '0.1'], ['⏎ / RMB', 'OK']],
+  pushpull: [['CLICK', 'PLACE'], ['DRAG DOT', 'DISTANCE'], ['Q', 'JOIN'], ['W', 'CUT'], ['B', 'NEW'], ['R C', 'SHAPE'], ['⏎ / RMB', 'OK']],
+};
+const keysHtml = id => KEYS[id].map(([k, v]) => `<kbd>${k}</kbd><span>${v}</span>`).join('');
+const BAR = [['palette', 'F', 'SEARCH'], ['tool:fillet', 'B', 'FILLET'], ['tool:move', 'G', 'MOVE'], ['tool:rotate', 'R', 'ROTATE'], ['tool:scale', 'S', 'SCALE'], ['duplicate', '⇧D', 'DUPLICATE'], ['delete', '⇧X', 'DELETE']];
 
 const SHELL = `
 <div class="w3d">
   <header class="bar">
     <div class="brand">WITNESS 3D</div>
     <nav class="tools" aria-label="Tools">
-      ${TOOLS.map(t => `<button class="tool" data-tool="${t.id}" aria-pressed="${t.id === 'pushpull'}" title="${t.summary}"><kbd>${t.key.toUpperCase()}</kbd>${t.label}</button>`).join('\n      ')}
+      ${TOOLS.map(t => `<button class="tool" data-tool="${t.id}" aria-pressed="false" title="${t.summary}"><kbd>${t.key.toUpperCase()}</kbd>${t.label}</button>`).join('\n      ')}
     </nav>
     <span class="spacer"></span>
     <button class="export" data-id="file-new" hidden>NEW</button>
@@ -62,6 +84,7 @@ const SHELL = `
     <div class="list" data-id="outliner"></div>
     <div class="list" data-id="history" hidden></div>
     <dl class="stats">
+      <dt>SELECTED</dt><dd data-id="sel-count">—</dd>
       <dt>VOLUME</dt><dd data-id="volume">—</dd>
       <dt>FACES</dt><dd data-id="faces">—</dd>
     </dl>
@@ -74,61 +97,45 @@ const SHELL = `
   <main class="view">
     <canvas aria-label="3D modeling viewport"></canvas>
     <span class="corner tl"></span><span class="corner tr"></span><span class="corner bl"></span><span class="corner br"></span>
-    <span class="hud" data-id="hud" data-idle>CLICK A FLAT FACE</span>
+    <span class="hud" data-id="hud" data-idle>SELECT · F SEARCH</span>
     <div class="views" role="group" aria-label="View">
-      <button data-view="top">TOP</button><button data-view="front">FRONT</button><button data-view="right">RIGHT</button><button data-view="iso" aria-pressed="true">ISO</button>
+      <button data-view="top" title="Numpad 7">TOP</button><button data-view="front" title="Numpad 1">FRONT</button><button data-view="right" title="Numpad 3">RIGHT</button><button data-view="iso" aria-pressed="true">ISO</button><button data-id="ortho" aria-pressed="false" title="Numpad 5">ORTHO</button>
     </div>
     <div class="modes" role="group" aria-label="Selection mode">
-      <button disabled title="Not built yet">1 PT</button><button data-mode="edge" aria-pressed="false">2 EDGE</button><button data-mode="face" aria-pressed="true">3 FACE</button><button data-mode="solid" aria-pressed="false">4 SOLID</button>
+      <button data-mode="point" aria-pressed="true" title="1 · ⇧1 toggles">1 PT</button><button data-mode="edge" aria-pressed="true" title="2 · ⇧2 toggles">2 EDGE</button><button data-mode="face" aria-pressed="true" title="3 · ⇧3 toggles">3 FACE</button><button data-mode="solid" aria-pressed="true" title="4 · ⇧4 toggles">4 SOLID</button><button data-mode="all" aria-pressed="true" title="5">5 ALL</button>
     </div>
-    <div class="keys" data-keys="pushpull">
-      <kbd>DRAG</kbd><span>SET Δ</span>
-      <kbd>Q</kbd><span>JOIN</span>
-      <kbd>W</kbd><span>CUT</span>
-      <kbd>B</kbd><span>NEW BODY</span>
-      <kbd>⏎</kbd><span>OK</span>
+    <div class="cmdbar" role="toolbar" aria-label="Command bar">
+      ${BAR.map(([a, k, l]) => `<button data-action="${a}"><kbd>${k}</kbd>${l}</button>`).join('')}
     </div>
-    <div class="keys" data-keys="fillet" hidden>
-      <kbd>CLICK</kbd><span>PICK EDGE</span>
-      <kbd>⇧ CLICK</kbd><span>ADD / REMOVE</span>
-      <kbd>DRAG</kbd><span>SET RADIUS</span>
-      <kbd>⏎</kbd><span>OK</span>
-    </div>
-    <div class="keys" data-keys="move" hidden>
-      <kbd>DRAG</kbd><span>MOVE</span>
-      <kbd>CTRL</kbd><span>GRID</span>
-      <kbd>⏎</kbd><span>OK</span>
-    </div>
-    <div class="keys" data-keys="rotate" hidden>
-      <kbd>DRAG</kbd><span>TURN</span>
-      <kbd>X Y Z</kbd><span>AXIS</span>
-      <kbd>⏎</kbd><span>OK</span>
-    </div>
+    <div class="keys" data-id="keys">${keysHtml('idle')}</div>
     <span class="snap-tag" data-id="snap-tag" hidden></span>
+    <div class="boxsel" data-id="boxsel" hidden></div>
+    <div class="palette" data-id="palette" hidden>
+      <div class="palette-title" data-id="palette-title">SEARCH COMMANDS</div>
+      <input data-id="palette-input" placeholder="TYPE A COMMAND" autocomplete="off" spellcheck="false">
+      <ul data-id="palette-list" role="listbox"></ul>
+    </div>
     <div class="toast" data-id="toast" hidden></div>
     <div class="loading" data-id="loading">STARTING THE KERNEL…</div>
   </main>
 
   <aside class="right" aria-label="Inspector">
-    <header><span data-id="tool-name">PUSH·PULL</span><span data-id="target">—</span></header>
+    <header><span data-id="tool-name">SELECT</span><span data-id="target">—</span></header>
     <div class="sec" data-panel="fillet" hidden>
       <span class="hint" data-id="blend-hint">SELECT EDGES TO ROUND</span>
-      <div class="field"><label for="w3d-blend-size" data-id="blend-size-label">RADIUS</label><input id="w3d-blend-size" data-id="blend-size" type="number" step="0.5" min="0.05" value="2"></div>
+      <div class="field"><label for="w3d-blend-distance">DISTANCE</label><input id="w3d-blend-distance" data-id="blend-distance" type="number" step="0.5" value="0" title="Negative makes a chamfer"></div>
+      <div class="field"><label for="w3d-blend-angle">ANGLE °</label><input id="w3d-blend-angle" data-id="blend-angle" type="number" step="5" min="1" max="89" value="45" title="The chamfer's angle"></div>
+      <div class="field"><label>SHAPE</label><output data-id="blend-kind">ROUND</output></div>
       <div class="field"><label>EDGES</label><output data-id="blend-count">0</output></div>
-      <span class="label">TYPE</span>
-      <div class="seg" role="group" aria-label="Blend type">
-        <button data-blend="fillet" aria-pressed="true">ROUND</button>
-        <button data-blend="chamfer" aria-pressed="false">CHAMFER</button>
-      </div>
     </div>
     <div class="sec" data-panel="move" hidden>
-      <span class="hint">DRAG AN ARROW OR TYPE A DISTANCE</span>
+      <span class="hint" data-id="move-hint">DRAG AN ARROW, PRESS X Y Z, OR TYPE</span>
       <div class="field"><label for="w3d-dx">ΔX</label><input id="w3d-dx" data-move="0" type="number" step="2.5" value="0"></div>
       <div class="field"><label for="w3d-dy">ΔY</label><input id="w3d-dy" data-move="1" type="number" step="2.5" value="0"></div>
       <div class="field"><label for="w3d-dz">ΔZ</label><input id="w3d-dz" data-move="2" type="number" step="2.5" value="0"></div>
     </div>
     <div class="sec" data-panel="rotate" hidden>
-      <span class="hint">DRAG THE RING OR TYPE AN ANGLE</span>
+      <span class="hint">DRAG A RING, PRESS X Y Z OR R, OR TYPE</span>
       <span class="label">AXIS</span>
       <div class="seg" role="group" aria-label="Axis">
         <button data-axis="x" aria-pressed="false">X</button>
@@ -137,18 +144,19 @@ const SHELL = `
       </div>
       <div class="field"><label for="w3d-angle">ANGLE °</label><input id="w3d-angle" data-id="angle" type="number" step="15" value="0"></div>
     </div>
-    <div class="sec" data-panel="pushpull">
+    <div class="sec" data-panel="scale" hidden>
+      <span class="hint">DRAG THE CENTRE, PRESS S, OR TYPE</span>
+      <div class="field"><label for="w3d-factor">FACTOR</label><input id="w3d-factor" data-id="factor" type="number" step="0.1" min="0.01" value="1"></div>
+    </div>
+    <div class="sec" data-panel="pushpull" hidden>
+      <span class="hint" data-id="pp-hint">CLICK A FACE OR THE CONSTRUCTION PLANE</span>
       <div class="field"><label for="w3d-distance">Δ DISTANCE</label><input id="w3d-distance" data-id="distance" type="number" step="2.5" value="0" disabled></div>
       <div class="field"><label for="w3d-size">SIZE</label><input id="w3d-size" data-id="size" type="number" step="2.5" min="0.5" value="10"></div>
-    </div>
-    <div class="sec" data-panel="pushpull">
       <span class="label">PROFILE</span>
       <div class="seg" role="group" aria-label="Profile">
         <button data-profile="rect" aria-pressed="true"><kbd>R</kbd>RECT</button>
         <button data-profile="circle" aria-pressed="false"><kbd>C</kbd>CIRCLE</button>
       </div>
-    </div>
-    <div class="sec" data-panel="pushpull">
       <span class="label">OPERATION</span>
       <div class="seg" role="group" aria-label="Operation">
         <button data-op="join" aria-pressed="false"><kbd>Q</kbd>JOIN</button>
@@ -161,18 +169,18 @@ const SHELL = `
       <div class="chips">
         <button data-toggle="edges" aria-pressed="true">EDGES</button>
         <button data-toggle="faces" aria-pressed="true">FACES</button>
-        <button data-toggle="xray" aria-pressed="false">X-RAY</button>
-        <button data-toggle="snap" aria-pressed="false" title="Snap the drag to the grid step (or hold Ctrl)">GRID SNAP</button>
+        <button data-toggle="xray" aria-pressed="false" title="Alt+Z">X-RAY</button>
+        <button data-toggle="snap" aria-pressed="false" title="Snap without holding Ctrl">SNAP</button>
       </div>
       <div class="stepper"><span>GRID</span><button data-id="grid-dec" aria-label="Smaller grid step">−</button><output data-id="grid">2.5</output><button data-id="grid-inc" aria-label="Larger grid step">+</button></div>
     </div>
     <div class="sec">
-      <span class="label">WORK PLANE <output data-id="plane">GROUND</output></span>
-      <div class="seg" role="group" aria-label="Work plane">
-        <button data-id="plane-face" title="Sketch on the plane of a face you pick, even off the body"><kbd>K</kbd>FROM FACE</button>
-        <button data-id="plane-ground" title="Sketch on the ground again">GROUND</button>
+      <span class="label">CONSTRUCTION PLANE <output data-id="plane">XY</output></span>
+      <div class="seg" role="group" aria-label="Construction plane">
+        <button data-action="plane:selection" title="Space: a plane on the selected face, view aligned"><kbd>␣</kbd>FROM FACE</button>
+        <button data-action="plane:view" title="Ctrl+Space: a plane facing the view"><kbd>^␣</kbd>VIEW</button>
+        <button data-action="plane:world" title="The world XY plane">XY</button>
       </div>
-      <div class="field"><label for="w3d-plane-offset">OFFSET</label><input id="w3d-plane-offset" data-id="plane-offset" type="number" step="2.5" value="0"></div>
     </div>
     <div class="states">
       <span class="label">STATE</span>
@@ -189,10 +197,10 @@ const SHELL = `
   </aside>
 
   <footer class="status">
-    <span>SYS.1 / <span data-id="status-tool">PUSH·PULL</span> / <span data-id="status-target">VOID</span></span>
+    <span>SYS.1 / <span data-id="status-tool">SELECT</span> / <span data-id="status-target">VOID</span></span>
     <span data-id="kernel"></span>
     <span>UNITS MM</span>
-    <span>PLANE <span data-id="status-plane">GROUND</span></span>
+    <span>PLANE <span data-id="status-plane">XY</span></span>
     <span>PREVIEW <output data-id="ms">—</output> MS · COALESCED <output data-id="coalesced">0→0</output></span>
     <span class="spacer"></span>
     <output data-id="cursor">X 0.00 Y 0.00 Z 0.00</output>
@@ -201,16 +209,30 @@ const SHELL = `
 
 const COLORS = { ground: 0x0f0f11, ink: 0xefebe0, accent: 0xff4d00, face: 0x1c1c20, grid: 0x19191c, gridMajor: 0x232327 };
 const DANGER = 0xef4444;
-// Millimetres. The grid steps are what Ctrl-drag snaps to.
+// Millimetres. The grid steps are what Ctrl snaps lengths to.
 const GRID_STEPS = [0.5, 1, 2.5, 5, 10];
+const DEG = Math.PI / 180;
 const label = id => `B-${String(id).padStart(2, '0')}`;
-const mm = n => `${n.toFixed(2)} MM`;
 const fmt = n => (n < 0 ? '−' : '+') + Math.abs(n).toFixed(2);
+// User coordinates are z up; the viewport's own y is up.
+const toWorld = ([x, y, z]) => [x, z, -y];
+const toUser = ([x, y, z]) => [x, -z, y];
+const AXES = { x: [1, 0, 0], y: [0, 1, 0], z: [0, 0, 1] };
+const worldAxis = a => new THREE.Vector3(...toWorld(AXES[a]));
+// Numpad views: where the camera sits from the target, and the construction plane it brings
+// (Plasticity: Num7 top and XY, Num1 front and XZ, Num3 right and YZ; Ctrl for the opposite side).
+const VIEWS = {
+  top: { dir: [0, 1, 0.0001], plane: 'XY' }, bottom: { dir: [0, -1, 0.0001], plane: 'XY' },
+  front: { dir: [0, 0, 1], plane: 'XZ' }, back: { dir: [0, 0, -1], plane: 'XZ' },
+  right: { dir: [1, 0, 0], plane: 'YZ' }, left: { dir: [-1, 0, 0], plane: 'YZ' },
+  iso: { dir: [125, 105, 140] },
+};
 
 export async function mount(root, backend) {
   root.innerHTML = SHELL;
   const $ = id => root.querySelector(`[data-id="${id}"]`);
   const $$ = sel => [...root.querySelectorAll(sel)];
+  const say = e => String(e?.message ?? e).toUpperCase();
 
   const toast = msg => {
     const t = $('toast'); t.textContent = msg; t.hidden = false;
@@ -218,36 +240,78 @@ export async function mount(root, backend) {
   };
   $('kernel').textContent = `KERNEL: ${backend.info.kernel}`;
 
-  // --- viewport -----------------------------------------------------------
+  // --- viewport and navigation ---------------------------------------------
+  // Plasticity's mouse: middle-drag orbits, right-drag pans, the wheel zooms in steps and
+  // Ctrl+middle-drag zooms smoothly. The left button is for selecting.
   const canvas = root.querySelector('canvas');
+  const viewEl = root.querySelector('.view');
   const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
   renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
   const scene = new THREE.Scene();
   scene.background = new THREE.Color(COLORS.ground);
-  const camera = new THREE.PerspectiveCamera(36, 1, 1, 4000);
+  const persp = new THREE.PerspectiveCamera(36, 1, 1, 4000);
+  const ortho = new THREE.OrthographicCamera(-1, 1, 1, -1, -4000, 4000);
+  let camera = persp;
   const controls = new OrbitControls(camera, canvas);
   controls.enableDamping = true;
+  controls.zoomToCursor = true;
+  controls.mouseButtons = { LEFT: null, MIDDLE: THREE.MOUSE.ROTATE, RIGHT: THREE.MOUSE.PAN };
+  viewEl.addEventListener('pointerdown', e => {
+    if (e.button === 1) controls.mouseButtons.MIDDLE = (e.ctrlKey || e.metaKey) ? THREE.MOUSE.DOLLY : THREE.MOUSE.ROTATE;
+  }, true);
   scene.add(new THREE.HemisphereLight(0xffffff, 0x202024, 1.4));
-  const key = new THREE.DirectionalLight(0xffffff, 1.6);
-  key.position.set(5, 10, 7);
-  scene.add(key);
-  const grid = new THREE.GridHelper(400, 40, COLORS.gridMajor, COLORS.grid);
-  scene.add(grid);
+  const keyLight = new THREE.DirectionalLight(0xffffff, 1.6);
+  keyLight.position.set(5, 10, 7);
+  scene.add(keyLight);
 
-  const VIEWS = { top: [0, 190, 0.01], front: [0, 15, 190], right: [190, 15, 0], iso: [125, 105, 140] };
   function setView(name) {
-    camera.position.set(...VIEWS[name]);
-    controls.target.set(0, 15, 0);
+    const v = VIEWS[name];
+    const dist = name === 'iso' ? 225 : camera.position.distanceTo(controls.target);
+    if (name === 'iso') controls.target.set(0, 15, 0);
+    const dir = new THREE.Vector3(...v.dir).normalize();
+    camera.position.copy(controls.target).addScaledVector(dir, dist);
+    camera.lookAt(controls.target);
     for (const b of $$('[data-view]')) b.setAttribute('aria-pressed', b.dataset.view === name);
+    if (v.plane) setPlane({ origin: new THREE.Vector3(), normal: new THREE.Vector3(...v.dir).normalize().round(), name: v.plane });
   }
-  setView('iso');
-  for (const b of $$('[data-view]')) b.onclick = () => setView(b.dataset.view);
+  function setOrtho(on) {
+    if (on === camera.isOrthographicCamera) return;
+    const next = on ? ortho : persp;
+    next.position.copy(camera.position);
+    next.quaternion.copy(camera.quaternion);
+    if (on) {
+      // Keep what's at the target the same size on screen.
+      const h = camera.position.distanceTo(controls.target) * Math.tan(persp.fov * DEG / 2);
+      ortho.top = h; ortho.bottom = -h; ortho.zoom = 1;
+    } else {
+      const h = (ortho.top - ortho.bottom) / 2 / ortho.zoom;
+      const d = h / Math.tan(persp.fov * DEG / 2);
+      next.position.copy(controls.target).add(camera.position.clone().sub(controls.target).normalize().multiplyScalar(d));
+    }
+    camera = next;
+    controls.object = camera;
+    for (const g of [cmd?.gizmo, cmd?.tc]) if (g) g.camera = camera;
+    $('ortho').setAttribute('aria-pressed', on);
+    resize(true);
+  }
+  /** Frame the selection, or everything (Plasticity 0.6.30's /). */
+  function focus() {
+    const ids = sel.size ? sel.bodies : current.map(b => b.id);
+    const box = new THREE.Box3();
+    for (const id of ids) { const m = bodyMesh(id); if (m) box.expandByObject(m); }
+    if (box.isEmpty()) return;
+    const s = box.getBoundingSphere(new THREE.Sphere());
+    const dir = camera.position.clone().sub(controls.target).normalize();
+    controls.target.copy(s.center);
+    camera.position.copy(s.center).addScaledVector(dir, s.radius / Math.sin(persp.fov * DEG / 2) * 1.1);
+    if (camera.isOrthographicCamera) camera.zoom = (ortho.top - ortho.bottom) / (2.2 * s.radius);
+    camera.updateProjectionMatrix();
+  }
 
   // --- drawing what the backend sends ---------------------------------------
   const view = { edges: true, faces: true, xray: false, snap: false };
   const faceMat = new THREE.MeshStandardMaterial({ color: COLORS.face, roughness: 0.85, metalness: 0, polygonOffset: true, polygonOffsetFactor: 1, polygonOffsetUnits: 1 });
   const edgeMat = new THREE.LineBasicMaterial({ color: COLORS.ink, transparent: true, opacity: 0.8 });
-  const selEdgeMat = new THREE.LineBasicMaterial({ color: COLORS.accent });
   const phantom = {
     add: { face: new THREE.MeshBasicMaterial({ color: COLORS.ink, transparent: true, opacity: 0.1, depthWrite: false }), edge: new THREE.LineBasicMaterial({ color: COLORS.ink }) },
     cut: { face: new THREE.MeshBasicMaterial({ color: COLORS.accent, transparent: true, opacity: 0.16, depthWrite: false }), edge: new THREE.LineBasicMaterial({ color: COLORS.accent }) },
@@ -258,7 +322,8 @@ export async function mount(root, backend) {
     faceMat.depthWrite = !view.xray;
     faceMat.colorWrite = view.faces;
     faceMat.needsUpdate = true;
-    scene.traverse(o => { if (o.isLineSegments && o.userData.bodyEdges) o.visible = view.edges; });
+    for (const b of $$('[data-toggle]')) b.setAttribute('aria-pressed', view[b.dataset.toggle]);
+    scene.traverse(o => { if (o.userData.bodyEdges) o.visible = view.edges; });
   }
 
   function meshOf(body, faces = faceMat, edges = edgeMat) {
@@ -272,46 +337,40 @@ export async function mount(root, backend) {
       for (let i = 3; i < e.length; i += 3) { pts.push(e[i - 3], e[i - 2], e[i - 1], e[i], e[i + 1], e[i + 2]); segEdge.push(n); }
     });
     const lines = new THREE.LineSegments(new THREE.BufferGeometry().setAttribute('position', new THREE.Float32BufferAttribute(pts, 3)), edges);
-    lines.userData.bodyEdges = edges === edgeMat || edges === selEdgeMat;
-    lines.userData.segEdge = segEdge; // segment index → edge number, for picking edges
-    lines.visible = !lines.userData.bodyEdges || view.edges;
+    lines.userData = { bodyEdges: edges === edgeMat, segEdge }; // segment index → edge number, for picking edges
+    lines.visible = edges !== edgeMat || view.edges;
     mesh.add(lines);
-    mesh.userData = { id: body.id, faceIds: body.faceIds, facePlanes: body.facePlanes, volume: body.volume, edges: body.edges };
+    mesh.userData = { id: body.id, faceIds: body.faceIds, facePlanes: body.facePlanes, edges: body.edges, lines };
     return mesh;
   }
   const dispose = obj => { obj.traverse(o => o.geometry?.dispose()); obj.removeFromParent(); };
 
   const bodies = new THREE.Group();
   scene.add(bodies);
-  let current = [], selected = null;
+  let current = [];
   const hidden = new Set();
+  const sel = new Selection();
+  const bodyMesh = id => bodies.children.find(m => m.userData.id === id);
+  const bodyOf = id => current.find(b => b.id === id);
+  const shownMeshes = () => bodies.children.filter(m => !hidden.has(m.userData.id));
 
   function showScene(list) {
     // The selection is kept as refs across the change and turned back into the new numbers.
-    const keep = selection.body !== null && refsOf(selection.body, [...selection.edges]);
+    const saved = sel.toRefs(current);
     current = list;
-    if (keep) {
-      const b = list.find(x => x.id === selection.body);
-      const now = b ? (b.edgeRefs ?? []).flatMap((r, n) => keep.includes(r) ? [n] : []) : [];
-      selection.edges = new Set(now);
-      if (!now.length) selection.body = null;
-      failedEdges = [];
-      $('blend-count').textContent = selection.edges.size;
-    }
-    if (selected !== null && !list.some(b => b.id === selected)) selected = null;
+    sel.fromRefs(saved, list);
+    for (const id of [...hidden]) if (!list.some(b => b.id === id)) hidden.delete(id);
     for (const m of [...bodies.children]) dispose(m);
     for (const b of list) {
-      const m = meshOf(b, faceMat, b.id === selected ? selEdgeMat : edgeMat);
+      const m = meshOf(b);
       m.visible = !hidden.has(b.id);
       bodies.add(m);
     }
     $('volume').textContent = list.reduce((v, b) => v + b.volume, 0).toFixed(3);
     $('faces').textContent = list.reduce((n, b) => n + b.facePlanes.length, 0);
     $('export').disabled = list.length === 0;
-    renderOutliner();
-    // Edge numbers belong to the bodies just replaced.
-    hoverEdge = null;
-    drawOverlays();
+    hover = null;
+    selectionChanged({ quiet: true });
   }
 
   /** The area-weighted centre of a face, from its display triangles. */
@@ -329,15 +388,14 @@ export async function mount(root, backend) {
     return area > 0 ? c.divideScalar(area) : null;
   }
 
-  /** Refs of the numbered edges of a body as currently shown; null if it has none (an old backend). */
-  function refsOf(body, numbers) {
-    const refs = current.find(b => b.id === body)?.edgeRefs;
-    return refs?.length ? numbers.map(n => refs[n]).filter(r => r !== undefined) : null;
-  }
-
   // --- outliner and history -----------------------------------------------
   const history = [];   // committed steps, oldest first; `undone` counts how many from the end were undone
   let undone = 0;
+  function record(text, id) {
+    history.splice(history.length - undone, undone, { text, id });
+    undone = 0;
+    renderHistory();
+  }
   function renderOutliner() {
     const out = $('outliner');
     out.innerHTML = '<div class="group-title">▾ SOLIDS</div>';
@@ -345,19 +403,18 @@ export async function mount(root, backend) {
     for (const b of current) {
       const row = document.createElement('div');
       row.className = 'row-item';
-      row.setAttribute('aria-current', b.id === selected);
+      row.setAttribute('aria-current', sel.has({ kind: 'solid', body: b.id }));
       row.innerHTML = `<span class="sq"></span><span class="name">BODY ${b.id}</span><span class="tag">${label(b.id)}</span><button class="eye" aria-pressed="${!hidden.has(b.id)}" aria-label="Show or hide">◉</button>`;
       row.onclick = e => {
-        if (e.target.classList.contains('eye')) {
-          hidden.has(b.id) ? hidden.delete(b.id) : hidden.add(b.id);
-        } else selected = selected === b.id ? null : b.id;
-        showScene(current);
+        if (e.target.classList.contains('eye')) return setHidden([b.id], !hidden.has(b.id));
+        applySelect({ kind: 'solid', body: b.id }, e.shiftKey ? 'add' : (e.ctrlKey || e.metaKey) ? 'remove' : 'replace');
+        selectionChanged();
       };
       out.append(row);
     }
     out.insertAdjacentHTML('beforeend', '<div class="group-title">▾ CURVES</div>');
-    out.insertAdjacentHTML('beforeend', active
-      ? `<div class="row-item curve"><span class="ln"></span><span>${profile.kind === 'circle' ? 'CIRCLE' : 'RECT'}.001</span></div>`
+    out.insertAdjacentHTML('beforeend', cmd?.id === 'pushpull' && cmd.at
+      ? `<div class="row-item curve"><span class="ln"></span><span>${profileKind === 'circle' ? 'CIRCLE' : 'RECT'}.001</span></div>`
       : '<div class="empty">NO CURVES</div>');
   }
   function renderHistory() {
@@ -382,10 +439,807 @@ export async function mount(root, backend) {
   $('tab-outliner').onclick = () => tab('outliner');
   $('tab-history').onclick = () => tab('history');
 
-  // --- sketch profile -----------------------------------------------------
+  // --- construction plane ---------------------------------------------------
+  // Where sketches go when they land on no face; the grid is drawn on it. Plasticity: Space takes
+  // it from the selected face and turns the view to face it, Shift+Space keeps the view, Ctrl+Space
+  // makes one facing the view through the origin, and Num7/1/3 bring XY, XZ and YZ with their views.
+  const UP = new THREE.Vector3(0, 1, 0);
+  const cplane = { origin: new THREE.Vector3(), normal: UP.clone(), name: 'XY' };
+  const grid = new THREE.GridHelper(400, 40, COLORS.gridMajor, COLORS.grid);
+  scene.add(grid);
+  const planeOf = () => new THREE.Plane().setFromNormalAndCoplanarPoint(cplane.normal, cplane.origin);
+  function setPlane({ origin, normal, name }) {
+    cplane.origin.copy(origin);
+    cplane.normal.copy(normal).normalize();
+    cplane.name = name;
+    grid.position.copy(origin);
+    grid.quaternion.setFromUnitVectors(UP, cplane.normal);
+    $('plane').textContent = name;
+    $('status-plane').textContent = name;
+  }
+  function planeFromSelection(alignView) {
+    const faces = sel.list('face');
+    const f = faces[faces.length - 1];
+    const b = f && bodyOf(f.body), p = b?.facePlanes[f.n];
+    if (!p) return toast('SELECT A FLAT FACE FOR THE CONSTRUCTION PLANE');
+    const origin = faceCentre(b, f.n), normal = new THREE.Vector3(...p.normal);
+    setPlane({ origin, normal, name: `FACE · ${label(b.id)}` });
+    if (!alignView) return;
+    const dist = camera.position.distanceTo(controls.target);
+    controls.target.copy(origin);
+    const dir = normal.clone();
+    if (Math.abs(dir.dot(UP)) > 0.9999) dir.z += 0.0001;
+    camera.position.copy(origin).addScaledVector(dir.normalize(), dist);
+  }
+  function planeFromView() {
+    setPlane({ origin: new THREE.Vector3(), normal: camera.position.clone().sub(controls.target).normalize(), name: 'VIEW' });
+  }
+
+  // --- picking ------------------------------------------------------------
+  const raycaster = new THREE.Raycaster();
+  const gridStep = () => +$('grid').value;
+  let lastPointer = null;
+  const ndc = e => {
+    const r = canvas.getBoundingClientRect();
+    return new THREE.Vector2(((e.clientX - r.left) / r.width) * 2 - 1, -((e.clientY - r.top) / r.height) * 2 + 1);
+  };
+  function ray(e) { raycaster.setFromCamera(ndc(e), camera); return raycaster.ray; }
+  /** World units per screen pixel at a point. */
+  function unitsPerPixel(at) {
+    const h = canvas.clientHeight || 1;
+    if (camera.isOrthographicCamera) return (camera.top - camera.bottom) / camera.zoom / h;
+    return 2 * camera.position.distanceTo(at) * Math.tan(persp.fov * DEG / 2) / h;
+  }
+  /** Screen position (CSS pixels relative to the canvas) of a world point. */
+  function screenOf(p) {
+    const s = p.clone().project(camera);
+    return { x: (s.x + 1) / 2 * canvas.clientWidth, y: (1 - s.y) / 2 * canvas.clientHeight, behind: s.z > 1 };
+  }
+  const local = e => { const r = canvas.getBoundingClientRect(); return { x: e.clientX - r.left, y: e.clientY - r.top }; };
+
+  /**
+   * What is under the pointer among the active selection modes: an edge if one is close (and not
+   * behind a face), else a face, else the solid. Returns { kind, body, n?, point }.
+   */
+  function pickAt(e) {
+    ray(e);
+    const meshes = shownMeshes();
+    const faceHit = raycaster.intersectObjects(meshes, false)[0];
+    if (sel.allows('edge')) {
+      raycaster.params.Line.threshold = unitsPerPixel(faceHit?.point ?? controls.target) * 6;
+      const hits = raycaster.intersectObjects(meshes.map(m => m.userData.lines), false);
+      const h = hits.find(h => !faceHit || h.distance <= faceHit.distance * 1.01 + 1e-6);
+      if (h) return { kind: 'edge', body: h.object.parent.userData.id, n: h.object.userData.segEdge[h.index / 2], point: h.point };
+    }
+    if (!faceHit) return null;
+    const { id, faceIds } = faceHit.object.userData;
+    if (sel.allows('face')) return { kind: 'face', body: id, n: faceIds[faceHit.faceIndex], point: faceHit.point };
+    if (sel.allows('solid')) return { kind: 'solid', body: id, point: faceHit.point };
+    return null;
+  }
+
+  // --- selection ------------------------------------------------------------
+  // Clicks follow Plasticity 0.6.30 (src/selection/Click.ts): with solids selectable, the first
+  // click on a solid takes the whole solid, and a click on a solid already selected (or one with
+  // faces or edges selected) drills down to the face or edge. Shift adds, Ctrl removes or adds back,
+  // a double-click takes the solid, and a click on nothing clears.
+  function clickTarget(hit, mod) {
+    if (!hit) return null;
+    const solid = { kind: 'solid', body: hit.body };
+    if (hit.kind === 'solid') return solid;
+    if (sel.allows('solid')) {
+      const children = sel.list().some(it => it.body === hit.body && it.kind !== 'solid');
+      if (sel.has(solid)) { if (mod !== 'replace') return solid; }
+      else if (!children) return solid;
+    }
+    return { kind: hit.kind, body: hit.body, n: hit.n };
+  }
+  function applySelect(it, mod) {
+    if (!it) { if (mod === 'replace') sel.clear(); return; }
+    const drop = () => { if (it.kind !== 'solid') sel.remove({ kind: 'solid', body: it.body }); else for (const c of sel.list()) if (c.body === it.body && c.kind !== 'solid') sel.remove(c); };
+    if (mod === 'replace') { sel.clear(); sel.add(it); }
+    else if (mod === 'add') { drop(); sel.add(it); }
+    else if (sel.has(it)) sel.remove(it);
+    else { drop(); sel.add(it); }
+  }
+  const modOf = e => e.shiftKey ? 'add' : (e.ctrlKey || e.metaKey) ? 'remove' : 'replace';
+
+  // Box select (Plasticity: right-to-left takes what the box touches, left-to-right what it holds).
+  function boxSelect(a, b, mod) {
+    const r = { x0: Math.min(a.x, b.x), x1: Math.max(a.x, b.x), y0: Math.min(a.y, b.y), y1: Math.max(a.y, b.y) };
+    const touch = b.x < a.x;
+    const inside = p => !p.behind && p.x >= r.x0 && p.x <= r.x1 && p.y >= r.y0 && p.y <= r.y1;
+    const v = new THREE.Vector3();
+    const proj = (arr, i) => screenOf(v.fromArray(arr, i));
+    const segHits = (p, q) => inside(p) || inside(q) || [[r.x0, r.y0, r.x1, r.y0], [r.x1, r.y0, r.x1, r.y1], [r.x1, r.y1, r.x0, r.y1], [r.x0, r.y1, r.x0, r.y0]].some(([x1, y1, x2, y2]) => crosses(p, q, { x: x1, y: y1 }, { x: x2, y: y2 }));
+    const centre = { x: (r.x0 + r.x1) / 2, y: (r.y0 + r.y1) / 2 };
+    function polyHit(points, closed) {
+      if (touch) {
+        for (let i = 0; i < points.length; i++) {
+          if (inside(points[i])) return true;
+          const j = i + 1 < points.length ? i + 1 : closed ? 0 : -1;
+          if (j >= 0 && segHits(points[i], points[j])) return true;
+        }
+        return closed && points.length === 3 && inTriangle(centre, ...points);
+      }
+      return points.every(inside);
+    }
+    const found = [];
+    for (const m of shownMeshes()) {
+      const id = m.userData.id, body = bodyOf(id);
+      const solidSelected = sel.has({ kind: 'solid', body: id });
+      const children = sel.list().some(it => it.body === id && it.kind !== 'solid');
+      const drill = !sel.allows('solid') || solidSelected || children;
+      const tris = () => {
+        const out = new Map();
+        for (let t = 0; t < body.faceIds.length; t++) {
+          const f = body.faceIds[t];
+          if (!out.has(f)) out.set(f, []);
+          out.get(f).push([0, 1, 2].map(k => proj(body.positions, body.indices[3 * t + k] * 3)));
+        }
+        return out;
+      };
+      if (!drill) {
+        const all = [...tris().values()].flat();
+        if (touch ? all.some(t => polyHit(t, true)) : all.every(t => polyHit(t, true))) found.push({ kind: 'solid', body: id });
+      } else if (sel.allows('face')) {
+        for (const [f, ts] of tris()) if (touch ? ts.some(t => polyHit(t, true)) : ts.every(t => polyHit(t, true))) found.push({ kind: 'face', body: id, n: f });
+      } else if (sel.allows('edge')) {
+        body.edges.forEach((e, n) => {
+          const pts = [];
+          for (let i = 0; i < e.length; i += 3) pts.push(proj(e, i));
+          if (polyHit(pts, false)) found.push({ kind: 'edge', body: id, n });
+        });
+      }
+    }
+    if (mod === 'replace') sel.clear();
+    for (const it of found) applySelect(it, mod === 'remove' ? 'remove' : 'add');
+    selectionChanged();
+  }
+
+  // Overlays live on each body's mesh, so they move with it during a move preview.
+  const overlayMat = {
+    hover: new THREE.LineBasicMaterial({ color: 0xffffff }),
+    selected: new THREE.LineBasicMaterial({ color: COLORS.accent }),
+    failed: new THREE.LineBasicMaterial({ color: DANGER, depthTest: false }),
+    hoverFace: new THREE.MeshBasicMaterial({ color: COLORS.ink, transparent: true, opacity: 0.08, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -1 }),
+    face: new THREE.MeshBasicMaterial({ color: COLORS.accent, transparent: true, opacity: 0.28, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -1 }),
+  };
+  let hover = null, failedEdges = [];
+  function edgeLines(body, numbers, material) {
+    const pts = [];
+    for (const n of numbers) {
+      const e = body.edges[n];
+      if (e) for (let i = 3; i < e.length; i += 3) pts.push(e[i - 3], e[i - 2], e[i - 1], e[i], e[i + 1], e[i + 2]);
+    }
+    const lines = new THREE.LineSegments(new THREE.BufferGeometry().setAttribute('position', new THREE.Float32BufferAttribute(pts, 3)), material);
+    lines.renderOrder = 12;
+    lines.userData.overlay = true;
+    return lines;
+  }
+  function faceMesh(body, faces, material) {
+    const ix = [];
+    for (let t = 0; t < body.faceIds.length; t++) if (faces.includes(body.faceIds[t])) ix.push(body.indices[3 * t], body.indices[3 * t + 1], body.indices[3 * t + 2]);
+    const g = new THREE.BufferGeometry().setAttribute('position', new THREE.Float32BufferAttribute(body.positions, 3));
+    g.setIndex(ix);
+    const m = new THREE.Mesh(g, material);
+    m.renderOrder = 6;
+    m.userData.overlay = true;
+    return m;
+  }
+  function drawOverlays() {
+    for (const m of bodies.children) for (const o of m.children.filter(o => o.userData.overlay)) dispose(o);
+    const put = (id, obj) => bodyMesh(id)?.add(obj);
+    for (const m of bodies.children) {
+      const id = m.userData.id, b = bodyOf(id);
+      if (!b) continue;
+      if (sel.has({ kind: 'solid', body: id })) put(id, edgeLines(b, b.edges.map((_, n) => n), overlayMat.selected));
+      const faces = sel.list('face').filter(it => it.body === id).map(it => it.n);
+      if (faces.length) put(id, faceMesh(b, faces, overlayMat.face));
+      const edges = sel.list('edge').filter(it => it.body === id).map(it => it.n);
+      if (edges.length) put(id, edgeLines(b, edges.filter(n => !failedEdges.includes(n)), overlayMat.selected));
+      if (failedEdges.length && edges.length) put(id, edgeLines(b, failedEdges, overlayMat.failed));
+    }
+    if (hover && !sel.has(hover)) {
+      const b = bodyOf(hover.body);
+      if (b) {
+        if (hover.kind === 'edge') put(b.id, edgeLines(b, [hover.n], overlayMat.hover));
+        else if (hover.kind === 'face') put(b.id, faceMesh(b, [hover.n], overlayMat.hoverFace));
+        else put(b.id, edgeLines(b, b.edges.map((_, n) => n), overlayMat.hover));
+      }
+    }
+  }
+
+  /** After any change of selection: redraw, update the panels, and start or stop the default command. */
+  function selectionChanged({ quiet = false } = {}) {
+    drawOverlays();
+    renderOutliner();
+    const n = sel.size;
+    $('sel-count').textContent = n ? `${n} ${[...new Set(sel.list().map(it => it.kind))].join('+').toUpperCase()}` : '—';
+    if (cmd?.onSelection) return cmd.onSelection();
+    if (quiet) return;
+    // Plasticity's default command: with edges selected the fillet's dot is already there to drag.
+    if (!cmd && edgeBody()) startFillet({ auto: true });
+  }
+  /** The one body all selected edges are on, and only edges are selected; else null. */
+  function edgeBody() {
+    const items = sel.list();
+    if (!items.length || items.some(it => it.kind !== 'edge')) return null;
+    const ids = new Set(items.map(it => it.body));
+    return ids.size === 1 ? [...ids][0] : null;
+  }
+  /** The bodies a transform acts on: the selected solids, else the bodies of whatever is selected. */
+  const targetBodies = () => sel.solids.length ? sel.solids : sel.bodies;
+
+  // --- point snapping -------------------------------------------------------
+  // Plasticity: Ctrl snaps to the ends and middles of edges and the centres of faces, shown as a dot
+  // with a tip; it is on by itself while placing a sketch. Alt turns it off for that.
+  const SNAP_PX = 10;
+  const snapDot = new THREE.Group();
+  for (const [color, size] of [[COLORS.ink, 10], [0x000000, 6]]) {
+    const p = new THREE.Points(new THREE.BufferGeometry().setAttribute('position', new THREE.Float32BufferAttribute([0, 0, 0], 3)),
+      new THREE.PointsMaterial({ color, size, sizeAttenuation: false, depthTest: false }));
+    p.renderOrder = 30 + size;
+    snapDot.add(p);
+  }
+  snapDot.visible = false;
+  scene.add(snapDot);
+  function snapCandidates(m) {
+    if (m.userData.snaps) return m.userData.snaps;
+    const out = [];
+    const at = (e, i) => new THREE.Vector3(e[i], e[i + 1], e[i + 2]);
+    for (const e of m.userData.edges) {
+      const n = e.length / 3;
+      out.push({ point: at(e, 0), kind: 'END' }, { point: at(e, (n - 1) * 3), kind: 'END' });
+      // Lines come as two points; curves as even samples, so the middle sample is the midpoint.
+      const mid = n === 2 ? at(e, 0).lerp(at(e, 3), 0.5) : n % 2 ? at(e, (n - 1) / 2 * 3) : at(e, (n / 2 - 1) * 3).lerp(at(e, n / 2 * 3), 0.5);
+      out.push({ point: mid, kind: 'MIDDLE' });
+    }
+    const body = bodyOf(m.userData.id);
+    m.userData.facePlanes.forEach((p, f) => { const c = p && body && faceCentre(body, f); if (c) out.push({ point: c, kind: 'CENTER' }); });
+    return m.userData.snaps = out;
+  }
+  function snapNear(e, meshes, plane = null) {
+    const c = local(e);
+    let best = null, bestD = SNAP_PX;
+    for (const m of meshes) for (const s of snapCandidates(m)) {
+      if (plane && Math.abs(plane.distanceToPoint(s.point)) > 1e-3) continue;
+      const p = screenOf(s.point);
+      if (p.behind) continue;
+      const d = Math.hypot(p.x - c.x, p.y - c.y);
+      if (d < bestD) { bestD = d; best = s; }
+    }
+    return best && { point: best.point.clone(), kind: best.kind };
+  }
+  function showSnap(s, e) {
+    snapDot.visible = !!s;
+    if (s) snapDot.position.copy(s.point);
+    const tag = $('snap-tag');
+    tag.hidden = !s;
+    if (s && e) { const c = local(e); tag.textContent = s.kind; tag.style.left = `${c.x + 12}px`; tag.style.top = `${c.y + 12}px`; }
+  }
+  const snapping = e => view.snap !== !!(e?.ctrlKey || e?.metaKey);
+
+  // --- commands -------------------------------------------------------------
+  // One command runs at a time: `cmd` is { id, finish(), abort(), key?(action, e), click?(e), ... }.
+  // Starting a command finishes the one running, as in Plasticity.
+  let cmd = null, lastTool = null;
+  function setState(s) { for (const li of $('states').children) li.setAttribute('aria-current', li.dataset.s === s); }
+  function setHud(text) {
+    const h = $('hud');
+    if (text) { h.textContent = text; delete h.dataset.idle; }
+    else { h.textContent = 'SELECT · F SEARCH'; h.dataset.idle = ''; }
+  }
+  function showTool(id) {
+    for (const b of $$('[data-tool]')) b.setAttribute('aria-pressed', b.dataset.tool === id);
+    for (const el of $$('[data-panel]')) el.hidden = el.dataset.panel !== id;
+    $('keys').innerHTML = keysHtml(KEYS[id] ? id : 'idle');
+    const name = id ? toolInfo(id).label : 'SELECT';
+    $('tool-name').textContent = name;
+    $('status-tool').textContent = name;
+    $('commit').disabled = $('cancel').disabled = !id;
+  }
+  function setTarget(text) { $('target').textContent = text ?? '—'; $('status-target').textContent = text ?? 'VOID'; }
+  function endCmd(state) {
+    const c = cmd;
+    cmd = null;
+    c?.cleanup?.();
+    showTool(null);
+    setTarget(null);
+    setHud(null);
+    showSnap(null);
+    if (state) setState(state);
+    renderOutliner();
+  }
+  async function finish() { const c = cmd; if (c) await c.finish(); }
+  function abort() { cmd?.abort(); }
+
+  async function startTool(id, opts = {}) {
+    if (cmd && cmd.id === id && !cmd.auto) return;
+    if (cmd) await finish();
+    lastTool = id;
+    if (id === 'fillet') return startFillet(opts);
+    if (id === 'move' || id === 'rotate' || id === 'scale') return startTransform(id, opts);
+    if (id === 'pushpull') return startPushPull(opts);
+  }
+
+  const previewGroup = new THREE.Group();
+  scene.add(previewGroup);
+  function clearPreview() {
+    for (const m of [...previewGroup.children]) dispose(m);
+    for (const m of bodies.children) m.visible = !hidden.has(m.userData.id);
+  }
+  function showPreviewBody(body, faces = faceMat, edges = edgeMat) {
+    for (const m of bodies.children) if (m.userData.id === body.id) m.visible = false;
+    const m = meshOf(body, faces, edges);
+    previewGroup.add(m);
+    return m;
+  }
+
+  /** A yellow-dot handle wired to the viewport; `onValue` gets every new value. */
+  function dot(origin, dir, onValue, onEnd) {
+    const g = new MagnitudeGizmo(camera, canvas, { step: gridStep() });
+    g.setFrame(origin, dir);
+    g.onStart = () => { controls.enabled = false; };
+    g.onEnd = () => { controls.enabled = true; onEnd?.(); };
+    g.onChange = onValue;
+    g.onText = t => setHud(`${t}_`);
+    scene.add(g);
+    return g;
+  }
+
+  // --- fillet (B) -----------------------------------------------------------
+  // Select edges and the yellow dot is there (Plasticity's default command for edges), or press B.
+  // Drag the dot out to round, in (negative) to chamfer; D, C and A set the distance, the chamfer
+  // and its angle from the cursor or typed numbers. Ctrl+click adds or removes edges. Too large a
+  // radius stops at the largest that works. Enter or right-click finishes and selects the solid.
+  function startFillet({ auto = false } = {}) {
+    if (!auto && !edgeBody()) {
+      if (sel.list('edge').length) return toast('FILLET THE EDGES OF ONE SOLID AT A TIME');
+      if (!sel.allows('edge')) sel.toggleMode('edge'), renderModes();
+    }
+    const c = cmd = {
+      id: 'fillet', auto, value: 0, angle: 45, sent: 0, shown: 0, good: null, bad: null, body: null, edges: [],
+      gizmo: null, entry: null,
+      get kind() { return this.value < 0 ? 'chamfer' : 'fillet' },
+    };
+    lastTool = 'fillet';
+    showTool('fillet');
+    setState('none');
+    c.onSelection = () => {
+      drawOverlays();
+      const body = edgeBody();
+      if (!body) {
+        // In Plasticity the default command goes when the selection stops being edges.
+        if (c.auto && c.value === 0) return abortFillet(null);
+        c.body = null; c.edges = [];
+        c.gizmo?.dispose(); c.gizmo = null;
+        clearPreview();
+        setTarget(null);
+        $('blend-count').textContent = 0;
+        $('blend-hint').textContent = 'CTRL+CLICK EDGES TO ROUND';
+        return setHud('SELECT EDGES');
+      }
+      const edges = sel.list('edge').map(it => it.n).sort((a, b) => a - b);
+      const moved = c.body !== body || String(edges) !== String(c.edges);
+      c.body = body; c.edges = edges;
+      c.good = c.bad = null;
+      failedEdges = [];
+      setTarget(label(body));
+      $('blend-count').textContent = edges.length;
+      $('blend-hint').textContent = `${edges.length} EDGE${edges.length > 1 ? 'S' : ''} ON ${label(body)}`;
+      if (moved || !c.gizmo) placeFilletDot();
+      previewFillet();
+    };
+    c.key = (action, e) => {
+      if (action === 'distance') { c.auto = false; c.sign = 0; c.gizmo?.activate(lastPointer); return true; }
+      if (action === 'chamfer') {
+        c.auto = false; c.sign = -1;
+        if (c.value > 0) setFillet(-c.value);
+        c.gizmo?.activate(lastPointer);
+        return true;
+      }
+      if (action === 'angle') {
+        c.entry = { label: 'ANGLE °', text: '', apply: v => { if (v > 0 && v < 90) { c.angle = v; $('blend-angle').value = v; previewFillet(); } else toast('THE ANGLE MUST BE BETWEEN 0 AND 90'); } };
+        setHud('ANGLE ° _');
+        return true;
+      }
+      return false;
+    };
+    c.click = e => {
+      // Ctrl+click (or Shift) adds or removes an edge; with nothing picked yet a plain click picks.
+      const hit = pickAt(e);
+      if (hit?.kind !== 'edge') return !c.auto;
+      if (e.ctrlKey || e.metaKey || e.shiftKey || !sel.list('edge').length) {
+        sel.toggle({ kind: 'edge', body: hit.body, n: hit.n });
+        for (const s of sel.list('solid')) sel.remove(s);
+        selectionChanged();
+        return true;
+      }
+      return !c.auto;
+    };
+    c.finish = () => commitFillet();
+    c.abort = () => abortFillet('cancelled');
+    c.cleanup = () => {
+      c.gizmo?.dispose();
+      clearPreview();
+      failedEdges = [];
+      drawOverlays();
+    };
+    $('blend-distance').value = 0;
+    $('blend-angle').value = c.angle;
+    c.onSelection();
+  }
+  function abortFillet(state) {
+    endCmd(state);
+  }
+
+  /** The dot sits at the middle of the last edge, pointing out between the faces that meet there. */
+  function placeFilletDot() {
+    const c = cmd;
+    c.gizmo?.dispose();
+    c.gizmo = null;
+    const b = bodyOf(c.body), e = b?.edges[c.edges[c.edges.length - 1]];
+    if (!e) return;
+    const n = e.length / 3, mid = Math.floor((n - 1) / 2);
+    const a = new THREE.Vector3().fromArray(e, mid * 3), d = new THREE.Vector3().fromArray(e, (mid + 1) * 3);
+    const at = a.clone().lerp(d, 0.5), tangent = d.clone().sub(a).normalize();
+    const out = new THREE.Vector3();
+    b.facePlanes.forEach(p => {
+      if (!p) return;
+      const o = new THREE.Vector3(...p.origin), nrm = new THREE.Vector3(...p.normal);
+      for (let i = 0; i < e.length; i += 3) if (Math.abs(new THREE.Vector3().fromArray(e, i).sub(o).dot(nrm)) > 1e-4) return;
+      out.add(nrm);
+    });
+    if (out.lengthSq() < 1e-6) {
+      const m = bodyMesh(c.body);
+      m.geometry.computeBoundingBox();
+      out.copy(at).sub(m.geometry.boundingBox.getCenter(new THREE.Vector3()));
+    }
+    out.addScaledVector(tangent, -out.dot(tangent)).normalize();
+    if (out.lengthSq() < 0.5) return;
+    c.gizmo = dot(at, out, v => {
+      if (c.sign < 0) v = -Math.abs(v);
+      setFillet(snapping(lastPointer) ? Math.round(v / gridStep()) * gridStep() : v);
+    }, () => refineFillet());
+    c.gizmo.onStart = () => { controls.enabled = false; c.auto = false; };
+    c.gizmo.render(c.value);
+  }
+
+  function setFillet(v, fromGizmo = true) {
+    const c = cmd;
+    if (c?.id !== 'fillet') return;
+    c.value = v;
+    c.auto = c.auto && v === 0;
+    if (!fromGizmo) c.gizmo?.render(v);
+    if (document.activeElement !== $('blend-distance')) $('blend-distance').value = +v.toFixed(3);
+    $('blend-kind').textContent = v < 0 ? 'CHAMFER' : 'ROUND';
+    previewFillet();
+  }
+
+  const filletRequest = (c, v = c.value) => ({ body: c.body, edges: c.edges, size: Math.abs(v), kind: v < 0 ? 'chamfer' : 'fillet', angle: c.angle * DEG });
+
+  async function previewFillet() {
+    const c = cmd;
+    if (c?.id !== 'fillet') return;
+    const n = ++c.sent, v = c.value;
+    if (c.body === null || v === 0) {
+      clearPreview();
+      setState('none');
+      return setHud(c.body === null ? 'SELECT EDGES' : 'DRAG THE DOT · D C A');
+    }
+    // Past the size that failed (same sign), show the largest that worked; refined when the drag ends.
+    if (c.good !== null && c.bad !== null && Math.sign(v) === Math.sign(c.bad) && Math.abs(v) >= Math.abs(c.bad)) {
+      return setHud(`${v < 0 ? 'CHAMFER' : 'R'} ${Math.abs(c.good).toFixed(2)} MAX`);
+    }
+    setState('updating');
+    const t0 = performance.now();
+    let body;
+    try { body = await backend.previewBlend(filletRequest(c, v)); }
+    catch (e) {
+      if (cmd !== c || n !== c.sent) return;
+      if (c.good !== null && Math.sign(c.good) === Math.sign(v) && Math.abs(c.good) < Math.abs(v)) {
+        c.bad = v;
+        return setHud(`${v < 0 ? 'CHAMFER' : 'R'} ${Math.abs(c.good).toFixed(2)} MAX`);
+      }
+      // When the kernel can't say which edges failed, mark the whole selection.
+      failedEdges = e.edges?.length ? e.edges : [...c.edges];
+      clearPreview();
+      drawOverlays();
+      setState('failed');
+      setHud(`${v < 0 ? 'CHAMFER' : 'ROUND'} FAILED`);
+      $('blend-hint').textContent = say(e);
+      return;
+    }
+    if (!body || cmd !== c || n < c.shown) return;
+    c.shown = n;
+    if (c.good === null || Math.sign(c.good) !== Math.sign(v) || Math.abs(v) > Math.abs(c.good)) c.good = v;
+    if (c.bad !== null && Math.abs(v) >= Math.abs(c.bad)) c.bad = null;
+    if (failedEdges.length) { failedEdges = []; drawOverlays(); }
+    $('ms').textContent = Math.round(performance.now() - t0);
+    clearPreview();
+    showPreviewBody(body);
+    setHud(`${v < 0 ? 'CHAMFER' : 'R'} ${Math.abs(v).toFixed(2)}`);
+    if (n === c.sent) setState('updated');
+  }
+
+  /** After a drag that went past what works, find the largest size that does and stop there (0.6.30). */
+  async function refineFillet() {
+    const c = cmd;
+    if (c?.id !== 'fillet' || c.good === null || c.bad === null) return;
+    let lo = Math.abs(c.good), hi = Math.abs(c.bad);
+    const s = Math.sign(c.bad);
+    for (let i = 0; i < 7 && hi - lo > 0.01; i++) {
+      const mid = (lo + hi) / 2;
+      try { if (await backend.previewBlend(filletRequest(c, s * mid))) lo = mid; } catch { hi = mid; }
+      if (cmd !== c) return;
+    }
+    c.good = s * lo; c.bad = s * hi;
+    c.gizmo?.render(s * lo);
+    setFillet(s * lo, false);
+  }
+
+  async function commitFillet() {
+    const c = cmd;
+    if (c.body === null || c.value === 0) return abortFillet(c.auto ? null : 'cancelled');
+    if (c.bad !== null && Math.abs(c.value) >= Math.abs(c.bad)) c.value = c.good;
+    const req = filletRequest(c);
+    const text = `${req.kind === 'chamfer' ? 'CHAMFER' : 'FILLET'} ${req.size.toFixed(2)} ×${req.edges.length}`;
+    try {
+      const { id, scene: list } = await backend.commitBlend(req);
+      endCmd('committed');
+      record(text, id);
+      showScene(list);
+      // Plasticity selects the result.
+      sel.replace({ kind: 'solid', body: id });
+      selectionChanged({ quiet: true });
+    } catch (e) {
+      failedEdges = e.edges ?? [];
+      drawOverlays();
+      setState('failed');
+      toast(say(e));
+    }
+  }
+
+  // --- move (G), rotate (R), scale (S) --------------------------------------
+  // The handles drag; inside the command a key makes the cursor drive one value until a click
+  // (Plasticity: X/Y/Z an axis, Shift+X/Y/Z a plane, G the screen; R the screen axis; S uniform),
+  // and typing while it does sets the value exactly. The meshes follow as the preview, since a
+  // rigid motion needs no kernel work; finishing sends one request, one undo step.
+  function startTransform(kind, { follow = null } = {}) {
+    const ids = targetBodies().filter(id => !hidden.has(id));
+    if (!ids.length) return toast(`SELECT A SOLID TO ${kind.toUpperCase()}`);
+    const box = new THREE.Box3();
+    for (const id of ids) box.expandByObject(bodyMesh(id));
+    const pivot = box.getCenter(new THREE.Vector3());
+    const handle = new THREE.Object3D();
+    handle.position.copy(pivot);
+    scene.add(handle);
+    const tc = new TransformControls(camera, canvas);
+    tc.setMode({ move: 'translate', rotate: 'rotate', scale: 'scale' }[kind]);
+    tc.setSpace('world');
+    tc.attach(handle);
+    tc.addEventListener('dragging-changed', e => { controls.enabled = !e.value; if (e.value) c.follow = null; });
+    tc.addEventListener('objectChange', () => fromHandle());
+    scene.add(tc.getHelper());
+    const c = cmd = { id: kind, ids, pivot, handle, tc, offset: new THREE.Vector3(), quat: new THREE.Quaternion(), scale: 1, axis: 'z', follow: null };
+    lastTool = kind;
+    showTool(kind);
+    setTarget(ids.map(label).join(' '));
+    setState('none');
+    setAxis('z');
+    snapsFor(false);
+
+    function fromHandle() {
+      c.offset.copy(handle.position).sub(pivot);
+      c.quat.copy(handle.quaternion);
+      if (kind === 'scale') {
+        // Uniform only: take whichever component the drag changed.
+        const s = handle.scale.toArray().reduce((a, b) => Math.abs(b - c.scale) > Math.abs(a - c.scale) ? b : a, c.scale);
+        c.scale = Math.max(0.001, s);
+      }
+      apply();
+    }
+    c.key = (action, e) => {
+      const p = lastPointer ?? centreEvent();
+      if (kind === 'move') {
+        if ('xyz'.includes(action)) beginFollow({ type: 'axis', dir: worldAxis(action), name: action.toUpperCase() }, p);
+        else if (['yz', 'xz', 'xy'].includes(action)) beginFollow({ type: 'plane', normal: worldAxis('xyz'.replace(action[0], '').replace(action[1], '')), name: action.toUpperCase() }, p);
+        else if (action === 'screen') beginFollow({ type: 'plane', normal: null, name: 'SCREEN' }, p);
+        else return false;
+      } else if (kind === 'rotate') {
+        if ('xyz'.includes(action)) { setAxis(action); beginFollow({ type: 'rotate', dir: worldAxis(action), name: action.toUpperCase() }, p); }
+        else if (action === 'screen') beginFollow({ type: 'rotate', dir: null, name: 'SCREEN' }, p);
+        else return false;
+      } else if (action === 'uniform') beginFollow({ type: 'scale', name: 'UNIFORM' }, p);
+      else return false;
+      return true;
+    };
+    c.click = () => true; // clicks don't change the selection while transforming
+    c.finish = () => commitTransform();
+    c.abort = () => endCmd('cancelled');
+    c.cleanup = () => {
+      for (const id of ids) { const m = bodyMesh(id); if (m) { m.position.set(0, 0, 0); m.quaternion.identity(); m.scale.set(1, 1, 1); } }
+      tc.detach();
+      tc.getHelper().removeFromParent();
+      tc.dispose();
+      handle.removeFromParent();
+      controls.enabled = true;
+    };
+    apply();
+    if (follow) c.key(follow);
+  }
+
+  function setAxis(a) {
+    for (const b of $$('[data-axis]')) b.setAttribute('aria-pressed', b.dataset.axis === a);
+    if (cmd?.id !== 'rotate') return;
+    const angle = angleAbout(cmd.quat, a);
+    cmd.axis = a;
+    setAngle(angle);
+  }
+  /** The turn of `q` about a user axis, in degrees. */
+  function angleAbout(q, a) {
+    const ax = worldAxis(a);
+    return Math.round(2 * Math.atan2(new THREE.Vector3(q.x, q.y, q.z).dot(ax), q.w) / DEG * 1e6) / 1e6;
+  }
+  function setAngle(deg) {
+    const c = cmd;
+    if (c?.id !== 'rotate') return;
+    c.quat.setFromAxisAngle(worldAxis(c.axis), deg * DEG);
+    apply();
+  }
+  function setOffset(user) {
+    const c = cmd;
+    if (c?.id !== 'move') return;
+    c.offset.set(...toWorld(user));
+    apply();
+  }
+  function setFactor(f) {
+    const c = cmd;
+    if (c?.id !== 'scale' || !(f > 0)) return;
+    c.scale = f;
+    apply();
+  }
+  function snapsFor(on) {
+    const c = cmd;
+    if (!c?.tc) return;
+    c.tc.setTranslationSnap(on ? gridStep() : null);
+    c.tc.setRotationSnap(on ? 15 * DEG : null);
+    c.tc.setScaleSnap(on ? 0.1 : null);
+  }
+
+  /** Preview: M = T(pivot + offset) · R · S · T(−pivot) on every target mesh, and the panel. */
+  function apply() {
+    const c = cmd;
+    const { pivot, offset, quat, scale } = c;
+    c.handle.position.copy(pivot).add(offset);
+    c.handle.quaternion.copy(quat);
+    c.handle.scale.setScalar(scale);
+    for (const id of c.ids) {
+      const m = bodyMesh(id);
+      m.scale.setScalar(scale);
+      m.quaternion.copy(quat);
+      m.position.copy(pivot).add(offset).sub(pivot.clone().multiplyScalar(scale).applyQuaternion(quat));
+    }
+    const user = toUser(offset.toArray());
+    for (const input of $$('[data-move]')) if (document.activeElement !== input) input.value = +user[input.dataset.move].toFixed(3);
+    const angle = angleAbout(quat, c.axis);
+    if (document.activeElement !== $('angle')) $('angle').value = +angle.toFixed(3);
+    if (document.activeElement !== $('factor')) $('factor').value = +scale.toFixed(4);
+    const lock = c.follow ? ` · ${c.follow.name}` : '';
+    if (c.follow?.text) setHud(`${c.follow.name} ${c.follow.text}_`);
+    else setHud(c.id === 'move' ? `Δ ${user.map(fmt).join(' ')}${lock}`
+      : c.id === 'rotate' ? `${c.follow?.type === 'rotate' && c.follow.dir === null ? 'SCREEN' : c.axis.toUpperCase()} ${fmt(angle)}°${lock}`
+        : `×${scale.toFixed(3)}${lock}`);
+    const moved = offset.lengthSq() > 1e-18 || Math.abs(quat.w) < 1 - 1e-12 || Math.abs(scale - 1) > 1e-12;
+    setState(moved ? 'updated' : 'none');
+  }
+
+  const centreEvent = () => { const r = canvas.getBoundingClientRect(); return { clientX: r.left + r.width / 2, clientY: r.top + r.height / 2 }; };
+
+  /** The cursor drives one value until a click, Enter (keep) or Escape (put it back). */
+  function beginFollow(f, e) {
+    const c = cmd;
+    f.base = { offset: c.offset.clone(), quat: c.quat.clone(), scale: c.scale };
+    f.text = '';
+    const camDir = camera.getWorldDirection(new THREE.Vector3());
+    const at = c.pivot.clone().add(c.offset);
+    if (f.type === 'axis') {
+      // Intersect with the plane through the axis that faces the camera best.
+      const n = f.dir.clone().cross(camDir).cross(f.dir).normalize();
+      f.plane = new THREE.Plane().setFromNormalAndCoplanarPoint(n.lengthSq() > 1e-9 ? n : camDir, at);
+    } else if (f.type === 'plane') {
+      f.plane = new THREE.Plane().setFromNormalAndCoplanarPoint(f.normal ?? camDir.clone().negate(), at);
+    } else if (f.type === 'rotate') {
+      f.dir = f.dir ?? camDir.clone().negate();
+      f.centre = screenOf(at);
+    } else f.centre = screenOf(at);
+    f.start = followPoint(f, e);
+    c.follow = f;
+    apply();
+  }
+  function followPoint(f, e) {
+    if (f.plane) {
+      const s = snapping(e) && f.type !== 'rotate' ? snapNear(e, shownMeshes().filter(m => !cmd.ids.includes(m.userData.id))) : null;
+      showSnap(s, e);
+      if (s) return s.point;
+      return ray(e).intersectPlane(f.plane, new THREE.Vector3()) ?? f.start ?? f.plane.coplanarPoint(new THREE.Vector3());
+    }
+    return local(e);
+  }
+  function followMove(e) {
+    const c = cmd, f = c?.follow;
+    if (!f || f.text) return;
+    const p = followPoint(f, e);
+    const snap = snapping(e), step = gridStep();
+    if (f.type === 'axis') {
+      let t = p.clone().sub(f.start).dot(f.dir);
+      if (snap && !snapDot.visible) t = Math.round(t / step) * step;
+      c.offset.copy(f.base.offset).addScaledVector(f.dir, t);
+    } else if (f.type === 'plane') {
+      const d = p.clone().sub(f.start);
+      if (snap && !snapDot.visible) d.set(...d.toArray().map(v => Math.round(v / step) * step));
+      c.offset.copy(f.base.offset).add(d);
+    } else if (f.type === 'rotate') {
+      const a0 = Math.atan2(-(f.start.y - f.centre.y), f.start.x - f.centre.x), a1 = Math.atan2(-(p.y - f.centre.y), p.x - f.centre.x);
+      const toward = camera.position.clone().sub(c.pivot).dot(f.dir) >= 0 ? 1 : -1;
+      let deg = (a1 - a0) / DEG * toward;
+      if (snap) deg = Math.round(deg / 15) * 15;
+      c.quat.setFromAxisAngle(f.dir, deg * DEG).multiply(f.base.quat);
+    } else if (f.type === 'scale') {
+      const d0 = Math.hypot(f.start.x - f.centre.x, f.start.y - f.centre.y) || 1, d1 = Math.hypot(p.x - f.centre.x, p.y - f.centre.y);
+      let s = f.base.scale * d1 / d0;
+      if (snap) s = Math.max(0.1, Math.round(s * 10) / 10);
+      c.scale = Math.max(0.001, s);
+    }
+    apply();
+  }
+  function followTyped(f) {
+    const c = cmd, v = typed(f.text);
+    if (v === undefined) return apply();
+    if (f.type === 'axis') c.offset.copy(f.base.offset).addScaledVector(f.dir, v);
+    else if (f.type === 'rotate') c.quat.setFromAxisAngle(f.dir, v * DEG).multiply(f.base.quat);
+    else if (f.type === 'scale') { if (v > 0) c.scale = v; }
+    apply();
+  }
+  function endFollow(keep) {
+    const c = cmd, f = c?.follow;
+    if (!f) return;
+    if (!keep) { c.offset.copy(f.base.offset); c.quat.copy(f.base.quat); c.scale = f.base.scale; }
+    c.follow = null;
+    showSnap(null);
+    apply();
+  }
+
+  async function commitTransform() {
+    const c = cmd;
+    endFollow(true);
+    const moved = c.offset.lengthSq() > 1e-18 || Math.abs(c.quat.w) < 1 - 1e-12 || Math.abs(c.scale - 1) > 1e-12;
+    if (!moved) return endCmd('cancelled');
+    const q = c.quat.clone().normalize();
+    if (q.w < 0) q.set(-q.x, -q.y, -q.z, -q.w);
+    const angle = 2 * Math.acos(Math.min(1, q.w)), s = Math.sqrt(Math.max(0, 1 - q.w * q.w));
+    const axis = s < 1e-9 ? [0, 1, 0] : [q.x / s, q.y / s, q.z / s];
+    const req = { bodies: c.ids, offset: c.offset.toArray(), pivot: c.pivot.toArray(), axis, angle: s < 1e-9 ? 0 : angle, scale: c.scale };
+    const user = toUser(req.offset);
+    const text = c.id === 'move' ? `MOVE ${user.map(fmt).join(' ')}`
+      : c.id === 'rotate' ? `ROTATE ${fmt(angle / DEG)}°` : `SCALE ×${c.scale.toFixed(3)}`;
+    try {
+      const { id, scene: list } = await backend.commitMotion(req);
+      endCmd('committed');
+      record(text, id);
+      showScene(list);
+    } catch (e) {
+      setState('failed');
+      toast(say(e));
+    }
+  }
+
+  // --- push/pull (P) --------------------------------------------------------
+  // Witness 3D's quick sketch-and-extrude, kept until sketching and Extrude (E) arrive in round 2:
+  // click a flat face or the construction plane to place a square or circle, then drag its dot.
   let profileKind = 'rect', size = 10;
-  let profile = { kind: 'rect', width: 10, height: 10 };
-  const makeProfile = () => profile = profileKind === 'circle' ? { kind: 'circle', radius: size / 2 } : { kind: 'rect', width: size, height: size };
+  const profile = () => profileKind === 'circle' ? { kind: 'circle', radius: size / 2 } : { kind: 'rect', width: size, height: size };
   function frameFor(normal) {
     const ref = Math.abs(normal.y) < 0.9 ? new THREE.Vector3(0, 1, 0) : new THREE.Vector3(0, 0, 1);
     return new THREE.Vector3().crossVectors(ref, normal).normalize();
@@ -405,674 +1259,324 @@ export async function mount(root, backend) {
     outline.visible = true;
   }
 
-  // --- picking ------------------------------------------------------------
-  const raycaster = new THREE.Raycaster();
-  const gridStep = () => +$('grid').value;
-  const snapValue = (v, e) => (view.snap || e?.ctrlKey || e?.metaKey) ? Math.round(v / gridStep()) * gridStep() : v;
-  function ray(event) {
-    const r = canvas.getBoundingClientRect();
-    raycaster.setFromCamera(new THREE.Vector2(((event.clientX - r.left) / r.width) * 2 - 1, -((event.clientY - r.top) / r.height) * 2 + 1), camera);
-  }
-
-  // The work plane: where a sketch goes when the click lands on no body. The ground unless set
-  // from a face, and shifted along its normal by an offset.
-  const UP = new THREE.Vector3(0, 1, 0);
-  const work = { origin: new THREE.Vector3(), normal: UP.clone(), offset: 0, name: 'GROUND' };
-  const workPoint = () => work.origin.clone().addScaledVector(work.normal, work.offset);
-  const workPlane = () => new THREE.Plane().setFromNormalAndCoplanarPoint(work.normal, workPoint());
-  const workGrid = new THREE.GridHelper(160, 32, COLORS.accent, COLORS.accent);
-  for (const m of [workGrid.material].flat()) Object.assign(m, { transparent: true, opacity: 0.22, depthWrite: false });
-  workGrid.visible = false;
-  scene.add(workGrid);
-  function placeWorkPlane() {
-    const ground = work.name === 'GROUND';
-    workGrid.visible = !ground || work.offset !== 0;
-    workGrid.position.copy(workPoint());
-    workGrid.quaternion.setFromUnitVectors(UP, work.normal);
-    const name = work.offset ? `${work.name} ${fmt(work.offset)}` : work.name;
-    $('plane').textContent = name;
-    $('status-plane').textContent = name;
-    if (document.activeElement !== $('plane-offset')) $('plane-offset').value = work.offset;
-  }
-  /** Put the work plane on a picked flat face, or back on the ground with no face. */
-  function setWorkPlane(hit) {
-    if (hit?.target != null && !hit.curved) {
-      work.origin.copy(hit.origin);
-      work.normal.copy(hit.normal);
-      work.name = `FACE · ${label(hit.target)}`;
-    } else {
-      work.origin.set(0, 0, 0);
-      work.normal.copy(UP);
-      work.name = 'GROUND';
-    }
-    work.offset = 0;
-    placeWorkPlane();
-  }
-
-  // Point snapping: a sketch starts on a vertex, an edge's midpoint or a face's centre when the
-  // pointer is within a few pixels of one on the same plane. Alt turns it off for a click.
-  const SNAP_PX = 10;
-  const snapMarker = new THREE.Points(new THREE.BufferGeometry().setAttribute('position', new THREE.Float32BufferAttribute([0, 0, 0], 3)),
-    new THREE.PointsMaterial({ color: COLORS.accent, size: 9, sizeAttenuation: false, depthTest: false }));
-  snapMarker.renderOrder = 13;
-  snapMarker.visible = false;
-  scene.add(snapMarker);
-  function snapCandidates(m) {
-    if (m.userData.snaps) return m.userData.snaps;
-    const out = [];
-    const at = (e, i) => new THREE.Vector3(e[i], e[i + 1], e[i + 2]);
-    for (const e of m.userData.edges) {
-      const n = e.length / 3;
-      out.push({ point: at(e, 0), kind: 'VERTEX' }, { point: at(e, (n - 1) * 3), kind: 'VERTEX' });
-      // Lines come as two points; curves as even samples, so the middle sample is the midpoint.
-      const mid = n === 2 ? at(e, 0).lerp(at(e, 3), 0.5) : n % 2 ? at(e, (n - 1) / 2 * 3) : at(e, (n / 2 - 1) * 3).lerp(at(e, n / 2 * 3), 0.5);
-      out.push({ point: mid, kind: 'MIDPOINT' });
-    }
-    const body = current.find(b => b.id === m.userData.id);
-    m.userData.facePlanes.forEach((p, f) => { const c = p && body && faceCentre(body, f); if (c) out.push({ point: c, kind: 'CENTRE' }); });
-    return m.userData.snaps = out;
-  }
-  function snapPoint(event, plane, meshes) {
-    if (event.altKey) return null;
-    const r = canvas.getBoundingClientRect();
-    let best = null, bestD = SNAP_PX;
-    for (const m of meshes) for (const c of snapCandidates(m)) {
-      if (Math.abs(plane.distanceToPoint(c.point)) > 1e-3) continue;
-      const s = c.point.clone().project(camera);
-      if (s.z > 1) continue;
-      const d = Math.hypot((s.x + 1) / 2 * r.width + r.left - event.clientX, (1 - s.y) / 2 * r.height + r.top - event.clientY);
-      if (d < bestD) { bestD = d; best = c; }
-    }
-    return best && { point: best.point.clone(), kind: best.kind };
-  }
-  function showSnap(hit) {
-    snapMarker.visible = !!hit?.snap;
-    if (hit?.snap) snapMarker.position.copy(hit.origin);
-    const tag = $('snap-tag');
-    tag.hidden = !hit?.snap;
-    if (hit?.snap) tag.textContent = hit.snap;
-  }
-
-  function pick(event) {
-    ray(event);
+  /** Where a sketch would go: on a flat face under the pointer, else on the construction plane. */
+  function placeAt(e) {
+    ray(e);
     const onPlane = (v, plane) => v.addScaledVector(plane.normal, -plane.distanceToPoint(v));
-    const gridSnap = v => v.set(...v.toArray().map(c => snapValue(c, event)));
-    const visible = bodies.children.filter(m => m.visible);
+    const grid = v => snapping(e) ? v.set(...v.toArray().map(c => Math.round(c / gridStep()) * gridStep())) : v;
+    const visible = shownMeshes();
     const hit = raycaster.intersectObjects(visible, false)[0];
     if (hit) {
       const { faceIds, facePlanes, id } = hit.object.userData;
       const face = faceIds[hit.faceIndex];
-      const plane = facePlanes[face];
-      if (!plane) return { curved: true };
-      const normal = new THREE.Vector3(...plane.normal);
-      const p = new THREE.Plane().setFromNormalAndCoplanarPoint(normal, new THREE.Vector3(...plane.origin));
-      const s = snapPoint(event, p, [hit.object]);
-      // Keep the sketch exactly on the face's plane, wherever the ray landed.
-      const origin = onPlane(s ? s.point : gridSnap(hit.point.clone()), p);
-      return { origin, normal, target: id, face, snap: s?.kind };
+      const p = facePlanes[face];
+      if (!p) return { curved: true };
+      const normal = new THREE.Vector3(...p.normal);
+      const plane = new THREE.Plane().setFromNormalAndCoplanarPoint(normal, new THREE.Vector3(...p.origin));
+      const s = e.altKey ? null : snapNear(e, [hit.object], plane);
+      return { origin: onPlane(s ? s.point : grid(hit.point.clone()), plane), normal, target: id, snap: s };
     }
-    const plane = workPlane();
+    const plane = planeOf();
     const at = raycaster.ray.intersectPlane(plane, new THREE.Vector3());
-    if (!at) return;
-    const s = snapPoint(event, plane, visible);
-    return { origin: onPlane(s ? s.point : gridSnap(at), plane), normal: work.normal.clone(), target: null, snap: s?.kind };
+    if (!at) return null;
+    const s = e.altKey ? null : snapNear(e, visible, plane);
+    return { origin: onPlane(s ? s.point : grid(at), plane), normal: cplane.normal.clone(), target: null, snap: s };
   }
 
-  // --- the push/pull command ----------------------------------------------
-  // Every drag goes to the backend. Both backends compute only the newest of the requests that
-  // queue up and answer the rest with null, so the preview keeps pace with the cursor.
-  let active, gizmo, sent = 0, computed = 0, shown = 0, newBody = false;
-  const previewGroup = new THREE.Group();
-  scene.add(previewGroup);
-
-  function setState(s) {
-    for (const li of $('states').children) li.setAttribute('aria-current', li.dataset.s === s);
+  function startPushPull({ at = null } = {}) {
+    const c = cmd = { id: 'pushpull', at: null, distance: 0, newBody: false, sent: 0, computed: 0, shown: 0, gizmo: null };
+    lastTool = 'pushpull';
+    showTool('pushpull');
+    setState('none');
+    setHud('CLICK A FACE OR THE PLANE');
+    $('pp-hint').textContent = 'CLICK A FACE OR THE CONSTRUCTION PLANE';
+    // A selected flat face places the sketch at once.
+    const f = sel.list('face').at(-1), b = f && bodyOf(f.body), p = b?.facePlanes[f.n];
+    if (!at && p) at = { origin: faceCentre(b, f.n), normal: new THREE.Vector3(...p.normal), target: b.id };
+    c.move = e => {
+      if (c.at) return;
+      const hit = placeAt(e);
+      showSnap(hit?.snap, e);
+      if (hit && !hit.curved) placeOutline(hit.origin, hit.normal); else outline.visible = false;
+    };
+    c.click = async e => {
+      const hit = placeAt(e);
+      if (!hit) return true;
+      if (hit.curved) { toast('PICK A FLAT FACE TO SKETCH ON'); return true; }
+      if (c.at) { await finish(); startPushPull({ at: hit }); }
+      else placeSketch(hit);
+      return true;
+    };
+    c.key = action => {
+      if (!c.at && action !== 'rect' && action !== 'circle') return false;
+      if (action === 'distance') c.gizmo?.activate(lastPointer);
+      else if (action === 'rect' || action === 'circle') setProfile(action);
+      else setOperation(action);
+      return true;
+    };
+    c.finish = () => commitPushPull();
+    c.abort = () => endCmd('cancelled');
+    c.cleanup = () => { c.gizmo?.dispose(); outline.visible = false; clearPreview(); $('distance').value = '0'; $('distance').disabled = true; setOps(null); };
+    if (at) placeSketch(at);
   }
-  function setHud(text) {
-    const h = $('hud');
-    if (text) { h.textContent = text; delete h.dataset.idle; }
-    else { h.textContent = 'CLICK A FLAT FACE'; h.dataset.idle = ''; }
+  function placeSketch({ origin, normal, target }) {
+    const c = cmd;
+    c.at = { origin, normal, target };
+    c.distance = 0;
+    c.sent = c.computed = c.shown = 0;
+    $('coalesced').textContent = '0→0';
+    c.gizmo = dot(origin, normal, d => setDistance(snapping(lastPointer) ? Math.round(d / gridStep()) * gridStep() : d));
+    placeOutline(origin, normal);
+    showSnap(null);
+    $('distance').disabled = false;
+    $('pp-hint').textContent = 'DRAG THE DOT · Q JOIN · W CUT · B NEW';
+    setTarget(target ? label(target) : cplane.name);
+    setHud('+0.00');
+    renderOutliner();
   }
-  function setOp(outcome) {
-    for (const b of $$('[data-op]')) b.setAttribute('aria-pressed', !!active && b.dataset.op === outcome);
+  function setOps(outcome) { for (const b of $$('[data-op]')) b.setAttribute('aria-pressed', b.dataset.op === outcome); }
+  function ppRequest(c) {
+    const { origin, normal, target } = c.at;
+    return { target, origin: origin.toArray(), normal: normal.toArray(), xAxis: frameFor(normal).toArray(), profile: profile(), distance: c.distance, newBody: c.newBody };
   }
-
-  function request() {
-    const { origin, normal, target, distance } = active;
-    return { target, origin: origin.toArray(), normal: normal.toArray(), xAxis: frameFor(normal).toArray(), profile, distance, newBody };
+  function setDistance(d) {
+    const c = cmd;
+    if (c?.id !== 'pushpull' || !c.at) return;
+    c.distance = d;
+    c.gizmo.render(d);
+    if (document.activeElement !== $('distance')) $('distance').value = d.toFixed(2);
+    updatePushPull();
   }
-
-  function clearPreview() {
-    for (const m of [...previewGroup.children]) dispose(m);
-    for (const m of bodies.children) m.visible = !hidden.has(m.userData.id);
-  }
-
-  async function update() {
-    const n = ++sent;
+  async function updatePushPull() {
+    const c = cmd;
+    const n = ++c.sent;
     setState('updating');
     const t0 = performance.now();
     let p;
-    try { p = await backend.preview(request()); }
-    catch (e) { if (active) setState('failed'); toast(String(e.message ?? e)); return; }
-    $('coalesced').textContent = `${sent}→${computed + (p ? 1 : 0)}`;
+    try { p = await backend.preview(ppRequest(c)); }
+    catch (e) { if (cmd === c) setState('failed'); toast(say(e)); return; }
+    $('coalesced').textContent = `${c.sent}→${c.computed + (p ? 1 : 0)}`;
     if (!p) return;
-    computed++;
+    c.computed++;
     $('ms').textContent = Math.round(performance.now() - t0);
-    if (!active || n < shown) return; // the command ended, or a newer answer is already on screen
-    shown = n;
+    if (cmd !== c || n < c.shown) return; // the command ended, or a newer answer is already on screen
+    c.shown = n;
     clearPreview();
-    if (p.result) {
-      for (const m of bodies.children) if (m.userData.id === p.result.id) m.visible = false;
-      previewGroup.add(meshOf(p.result, faceMat, edgeMat));
-    }
+    if (p.result) showPreviewBody(p.result);
     if (p.tool) {
       const look = phantom[p.outcome === 'cut' ? 'cut' : 'add'];
       const m = meshOf(p.tool, look.face, look.edge);
       m.renderOrder = 5;
       previewGroup.add(m);
     }
-    setOp(p.outcome);
-    setHud(p.outcome === 'none' ? `${fmt(active.distance)}` : `${fmt(active.distance)} ${p.outcome.toUpperCase()}`);
-    if (n === sent) setState('updated');
+    setOps(p.outcome);
+    setHud(p.outcome === 'none' ? fmt(c.distance) : `${fmt(c.distance)} ${p.outcome.toUpperCase()}`);
+    if (n === c.sent) setState('updated');
   }
-
-  function setDistance(d) {
-    active.distance = d;
-    gizmo.render(d);
-    if (document.activeElement !== $('distance')) $('distance').value = d.toFixed(2);
-    update();
-  }
-
-  function refreshPanel() {
-    $('distance').disabled = !active;
-    $('commit').disabled = $('cancel').disabled = !active && !blend && !motion;
-    if (motion) {
-      $('target').textContent = label(motion.body);
-      $('status-target').textContent = label(motion.body);
-      return;
+  function setOperation(op) {
+    const c = cmd;
+    if (c?.id !== 'pushpull' || !c.at) return;
+    if (op === 'new') c.newBody = !c.newBody;
+    else {
+      c.newBody = false;
+      const d = Math.abs(c.distance) || gridStep();
+      return setDistance(op === 'join' ? d : -d);
     }
-    if (blend) {
-      const t = selection.body !== null ? label(selection.body) : '—';
-      $('target').textContent = t;
-      $('status-target').textContent = t;
-      return;
-    }
-    $('distance').classList.toggle('hot', !!active);
-    const t = active ? (active.target ? label(active.target) : 'GROUND') : '—';
-    $('target').textContent = t;
-    $('status-target').textContent = active ? t : 'VOID';
-    if (!active) { setOp(null); setHud(null); }
-    renderOutliner();
+    if (c.distance) updatePushPull();
   }
-
-  function begin({ origin, normal, target }) {
-    if (blend) endBlend('cancelled');
-    if (motion) endMotion('cancelled');
-    setTool('pushpull');
-    active = { origin, normal, target, distance: 0 };
-    sent = computed = shown = 0;
-    $('coalesced').textContent = '0→0';
-    gizmo = new ExtrudeGizmo(camera, canvas, { step: gridStep() });
-    gizmo.position.copy(origin);
-    gizmo.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), normal);
-    gizmo.onDragStart = () => controls.enabled = false;
-    gizmo.onDragEnd = () => controls.enabled = true;
-    gizmo.onChange = d => setDistance(view.snap ? snapValue(d) : d);
-    scene.add(gizmo);
-    placeOutline(origin, normal);
-    setState('none');
-    setHud('+0.00');
-    refreshPanel();
+  function setProfile(kind) {
+    profileKind = kind;
+    for (const b of $$('[data-profile]')) b.setAttribute('aria-pressed', b.dataset.profile === kind);
+    const c = cmd;
+    if (c?.id === 'pushpull' && c.at) { placeOutline(c.at.origin, c.at.normal); renderOutliner(); if (c.distance) updatePushPull(); }
   }
-
-  function end(state) {
-    gizmo?.dispose();
-    gizmo?.removeFromParent();
-    gizmo = active = undefined;
-    outline.visible = false;
-    clearPreview();
-    $('distance').value = '0';
-    setState(state);
-    refreshPanel();
-  }
-
   async function commitPushPull() {
-    if (!active) return;
-    const req = request();
-    if (req.distance === 0) return end('cancelled');
-    const text = `${fmt(req.distance)} ${newBody ? 'NEW' : req.distance > 0 ? 'JOIN' : 'CUT'}`;
-    end('committed');
+    const c = cmd;
+    if (!c.at || c.distance === 0) return endCmd('cancelled');
+    const req = ppRequest(c);
+    const text = `${fmt(req.distance)} ${c.newBody ? 'NEW' : req.distance > 0 ? 'JOIN' : 'CUT'}`;
+    endCmd('committed');
     try {
       const { id, scene: list } = await backend.commit(req);
-      history.splice(history.length - undone, undone, { text, id });
-      undone = 0;
-      renderHistory();
+      record(text, id);
       showScene(list);
-    } catch (e) { setState('failed'); toast(String(e.message ?? e)); }
-  }
-  // --- the command lifecycle ------------------------------------------------
-  // One command runs at a time: choose a tool (button, key or `run`), adjust against a live preview,
-  // then commit (Enter, OK) or cancel (Escape). Push/pull is what runs when no other tool is chosen.
-  const running = () => motion ? 'motion' : blend ? 'fillet' : active ? 'pushpull' : null;
-  const commit = () => ({ motion: commitMotion, fillet: commitBlend, pushpull: commitPushPull })[running()]?.();
-  const cancel = () => ({ motion: () => endMotion('cancelled'), fillet: () => endBlend('cancelled'), pushpull: () => end('cancelled') })[running()]?.();
-
-  /** Start a tool from the registry, as its button or key would. */
-  function startTool(id) {
-    if (id === 'pushpull') return cancel();
-    if (id === 'fillet') return blend || beginBlend();
-    if (id === 'move' || id === 'rotate') return motion?.kind === id || beginMotion(id);
+    } catch (e) { setState('failed'); toast(say(e)); }
   }
 
+  // --- actions without a command --------------------------------------------
   async function step(dir) {
-    cancel();
+    if (cmd) abort();
     if (dir === 'undo' && undone >= history.length) return;
     if (dir === 'redo' && undone === 0) return;
     showScene(await backend[dir]());
     undone += dir === 'undo' ? 1 : -1;
     renderHistory();
   }
-
-  function setOperation(op) {
-    if (!active) return;
-    if (op === 'new') { newBody = !newBody; }
-    else {
-      newBody = false;
-      const d = Math.abs(active.distance) || gridStep();
-      return setDistance(op === 'join' ? d : -d);
-    }
-    if (active.distance) update();
+  async function deleteSelected() {
+    if (cmd) await finish();
+    const ids = sel.solids;
+    if (!ids.length) return toast(sel.size ? 'DELETE WORKS ON SOLIDS FOR NOW' : 'SELECT SOMETHING TO DELETE');
+    try {
+      const list = await backend.deleteBodies(ids);
+      record(`DELETE ${ids.map(label).join(' ')}`, ids[0]);
+      sel.clear();
+      showScene(list);
+    } catch (e) { toast(say(e)); }
   }
-
-
-  // --- edge selection -----------------------------------------------------
-  // Edges are picked by number (the index into a body's `edges`). The numbers belong to one version
-  // of a body, so any change to the scene clears the selection.
-  const selection = { body: null, edges: new Set() };
-  let mode = 'face', hoverEdge = null;
-  const overlays = new THREE.Group();
-  scene.add(overlays);
-  const overlayMat = {
-    hover: new THREE.LineBasicMaterial({ color: COLORS.ink, depthTest: false, transparent: true, opacity: 0.9 }),
-    selected: new THREE.LineBasicMaterial({ color: COLORS.accent, depthTest: false }),
-    failed: new THREE.LineBasicMaterial({ color: DANGER, depthTest: false }),
-  };
-  let failedEdges = [];
-
-  const bodyMesh = id => bodies.children.find(m => m.userData.id === id);
-  function edgeLines(id, numbers, material) {
-    const m = bodyMesh(id);
-    if (!m) return null;
-    const pts = [];
-    for (const n of numbers) {
-      const e = m.userData.edges[n];
-      if (e) for (let i = 3; i < e.length; i += 3) pts.push(e[i - 3], e[i - 2], e[i - 1], e[i], e[i + 1], e[i + 2]);
-    }
-    const lines = new THREE.LineSegments(new THREE.BufferGeometry().setAttribute('position', new THREE.Float32BufferAttribute(pts, 3)), material);
-    lines.renderOrder = 12;
-    return lines;
+  /** Plasticity's Shift+D: copy, select the copies, and move them with the cursor. */
+  async function duplicateSelected() {
+    if (cmd) await finish();
+    const ids = targetBodies();
+    if (!ids.length) return toast('SELECT A SOLID TO DUPLICATE');
+    try {
+      const { ids: copies, scene: list } = await backend.duplicateBodies(ids);
+      record(`DUPLICATE ${ids.map(label).join(' ')}`, copies[0]);
+      sel.clear();
+      for (const id of copies) sel.add({ kind: 'solid', body: id });
+      showScene(list);
+      startTransform('move', { follow: 'screen' });
+    } catch (e) { toast(say(e)); }
   }
-  function drawOverlays() {
-    for (const o of [...overlays.children]) dispose(o);
-    if (hoverEdge && !(hoverEdge.body === selection.body && selection.edges.has(hoverEdge.edge))) {
-      const l = edgeLines(hoverEdge.body, [hoverEdge.edge], overlayMat.hover);
-      if (l) overlays.add(l);
-    }
-    if (selection.body !== null) {
-      const l = edgeLines(selection.body, [...selection.edges].filter(e => !failedEdges.includes(e)), overlayMat.selected);
-      if (l) overlays.add(l);
-      const bad = failedEdges.length && edgeLines(selection.body, failedEdges, overlayMat.failed);
-    if (bad) overlays.add(bad);
-    }
-  }
-
-  /** The edge under the pointer, if it is not hidden behind a face. */
-  function pickEdge(event) {
-    ray(event);
-    // Pick on the committed bodies even while a preview stands in for one: edge numbers refer to them.
-    const visible = bodies.children.filter(m => !hidden.has(m.userData.id));
-    raycaster.params.Line.threshold = camera.position.distanceTo(controls.target) * 0.008;
-    const hits = raycaster.intersectObjects(visible.map(m => m.children[0]), false);
-    if (!hits.length) return null;
-    const face = raycaster.intersectObjects(visible, false)[0]; // a face in front hides the edge
-    const hit = hits.find(h => !face || h.distance <= face.distance + face.distance * 0.01);
-    if (!hit) return null;
-    const segment = hit.index / 2;
-    return { body: hit.object.parent.userData.id, edge: hit.object.userData.segEdge[segment] };
-  }
-
-  function selectEdge(hit, add) {
-    failedEdges = [];
-    if (!hit) { if (!add) clearSelection(); return; }
-    if (selection.body !== hit.body) { selection.body = hit.body; selection.edges.clear(); }
-    else if (!add) {
-      const only = selection.edges.size === 1 && selection.edges.has(hit.edge);
-      selection.edges.clear();
-      if (only) { selection.body = null; return selectionChanged(); }
-    }
-    if (add && selection.edges.has(hit.edge)) selection.edges.delete(hit.edge);
-    else selection.edges.add(hit.edge);
-    if (!selection.edges.size) selection.body = null;
-    selectionChanged();
-  }
-  function clearSelection() {
-    selection.body = null;
-    selection.edges.clear();
-    failedEdges = [];
-    selectionChanged();
-  }
-  function selectionChanged() {
-    drawOverlays();
-    $('blend-count').textContent = selection.edges.size;
-    if (blend) { refreshPanel(); previewBlend(); }
-  }
-
-  /** Select a whole body (solid mode, or the outliner); null clears. */
-  function selectBody(id) {
-    selected = id;
-    showScene(current);
-  }
-
-  function setMode(m) {
-    mode = m;
-    for (const b of $$('[data-mode]')) b.setAttribute('aria-pressed', b.dataset.mode === m);
-    if (m !== 'face') { outline.visible = false; showSnap(null); }
-    hoverEdge = null;
-    drawOverlays();
-    setHud(null);
-  }
-
-  // --- the fillet command -------------------------------------------------
-  // Select edges, then F (or the reverse: F, then pick edges). The preview follows every change of
-  // selection, radius or type; the handle on the first edge drags the radius. Enter commits, Escape
-  // leaves the tool and keeps the selection. A failure keeps the tool open, names the reason and
-  // marks the edges the kernel blamed in red.
-  let blend = null, blendGizmo = null, blendSent = 0, blendShown = 0;
-  const lastSize = { fillet: 2, chamfer: 1 };
-
-  function blendRequest() {
-    return { body: selection.body, edges: [...selection.edges].sort((a, b) => a - b), size: blend.size, kind: blend.kind };
-  }
-
-  /** Where the radius handle sits: the first edge's midpoint, pointing into the body. */
-  function placeBlendGizmo() {
-    blendGizmo?.dispose();
-    blendGizmo = null;
-    const m = bodyMesh(selection.body);
-    const first = [...selection.edges][0];
-    const e = m?.userData.edges[first];
-    if (!e) return;
-    const n = e.length / 3, mid = Math.floor((n - 1) / 2);
-    const a = new THREE.Vector3(e[mid * 3], e[mid * 3 + 1], e[mid * 3 + 2]);
-    const b = new THREE.Vector3(e[(mid + 1) * 3], e[(mid + 1) * 3 + 1], e[(mid + 1) * 3 + 2]);
-    const at = a.clone().lerp(b, 0.5), tangent = b.clone().sub(a).normalize();
-    m.geometry.computeBoundingBox();
-    const inward = m.geometry.boundingBox.getCenter(new THREE.Vector3()).sub(at);
-    inward.addScaledVector(tangent, -inward.dot(tangent)).normalize();
-    if (inward.lengthSq() < 0.5) return;
-    blendGizmo = new ExtrudeGizmo(camera, canvas, { step: gridStep() });
-    blendGizmo.position.copy(at);
-    blendGizmo.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), inward);
-    blendGizmo.onDragStart = () => controls.enabled = false;
-    blendGizmo.onDragEnd = () => controls.enabled = true;
-    blendGizmo.onChange = d => setBlendSize(Math.max(0.05, view.snap ? snapValue(d) : d), true);
-    blendGizmo.render(blend.size);
-    scene.add(blendGizmo);
-  }
-
-  function setBlendSize(v, fromGizmo = false) {
-    if (!blend || !(v > 0)) return;
-    blend.size = lastSize[blend.kind] = v;
-    if (document.activeElement !== $('blend-size')) $('blend-size').value = v.toFixed(2);
-    if (!fromGizmo) blendGizmo?.render(v);
-    previewBlend();
-  }
-
-  function setBlendKind(kind) {
-    for (const b of $$('[data-blend]')) b.setAttribute('aria-pressed', b.dataset.blend === kind);
-    $('blend-size-label').textContent = kind === 'chamfer' ? 'DISTANCE' : 'RADIUS';
-    if (!blend) return;
-    blend.kind = kind;
-    setBlendSize(lastSize[kind]);
-    refreshPanel();
-  }
-
-  function clearBlendPreview() {
-    for (const m of [...previewGroup.children]) dispose(m);
+  function setHidden(ids, hide) {
+    for (const id of ids) hide ? hidden.add(id) : hidden.delete(id);
+    if (hide) for (const it of sel.list()) if (ids.includes(it.body)) sel.remove(it);
     for (const m of bodies.children) m.visible = !hidden.has(m.userData.id);
+    selectionChanged({ quiet: true });
   }
-
-  async function previewBlend() {
-    if (!blend) return;
-    const n = ++blendSent;
-    clearBlendPreview();
-    if (selection.body === null || !selection.edges.size) {
-      blendGizmo?.dispose(); blendGizmo = null;
-      setState('none');
-      setHud(blend.kind === 'chamfer' ? 'SELECT EDGES TO CHAMFER' : 'SELECT EDGES TO ROUND');
-      $('blend-hint').textContent = 'CLICK AN EDGE · ⇧ CLICK ADDS';
-      return;
-    }
-    if (!blendGizmo) placeBlendGizmo();
-    $('blend-hint').textContent = `${selection.edges.size} EDGE${selection.edges.size > 1 ? 'S' : ''} ON ${label(selection.body)}`;
-    setState('updating');
-    const t0 = performance.now();
-    let body;
-    try { body = await backend.previewBlend(blendRequest()); }
-    catch (e) {
-      if (!blend || n !== blendSent) return;
-      // When the kernel can't say which edges failed, mark the whole selection.
-      failedEdges = e.edges?.length ? e.edges : [...selection.edges];
-      drawOverlays();
-      setState('failed');
-      setHud(`${blend.kind === 'chamfer' ? 'CHAMFER' : 'ROUND'} FAILED`);
-      $('blend-hint').textContent = String(e.message ?? e).toUpperCase();
-      toast(String(e.message ?? e).toUpperCase());
-      return;
-    }
-    if (!body || !blend || n < blendShown) return;
-    blendShown = n;
-    if (failedEdges.length) { failedEdges = []; drawOverlays(); }
-    $('ms').textContent = Math.round(performance.now() - t0);
-    clearBlendPreview();
-    for (const m of bodies.children) if (m.userData.id === body.id) m.visible = false;
-    previewGroup.add(meshOf(body, faceMat, edgeMat));
-    setHud(`${blend.kind === 'chamfer' ? 'CHAMFER' : 'R'} ${mm(blend.size)}`);
-    if (n === blendSent) setState('updated');
-  }
-
-  function beginBlend(kind = 'fillet') {
-    if (active) end('cancelled');
-    if (motion) endMotion('cancelled');
-    blend = { kind, size: lastSize[kind] };
-    blendSent = blendShown = 0;
-    setTool('fillet');
-    setMode('edge');
-    setBlendKind(kind);
-    $('blend-size').value = blend.size.toFixed(2);
-    setState('none');
-    refreshPanel();
-  }
-
-  function endBlend(state) {
-    blendGizmo?.dispose();
-    blendGizmo = blend = null;
-    clearBlendPreview();
-    failedEdges = [];
-    drawOverlays();
-    setState(state);
-    setTool('pushpull');
-    refreshPanel();
-  }
-
-  async function commitBlend() {
-    if (!blend) return;
-    if (selection.body === null || !selection.edges.size) return toast('SELECT AT LEAST ONE EDGE');
-    const req = blendRequest();
-    const text = `${req.kind === 'chamfer' ? 'CHAMFER' : 'ROUND'} ${req.size.toFixed(2)} ×${req.edges.length}`;
-    try {
-      const { id, scene: list } = await backend.commitBlend(req);
-      endBlend('committed');
-      history.splice(history.length - undone, undone, { text, id });
-      undone = 0;
-      renderHistory();
-      clearSelection();
-      showScene(list);
-    } catch (e) {
-      failedEdges = e.edges ?? [];
-      drawOverlays();
-      setState('failed');
-      toast(String(e.message ?? e).toUpperCase());
+  async function exportSelected() {
+    const ids = sel.bodies.length ? sel.bodies : current.map(b => b.id);
+    for (const id of ids) {
+      try { const msg = await backend.exportStep(id); if (!msg) return; toast(msg); }
+      catch (e) { toast(say(e)); }
     }
   }
 
-  function setTool(t) {
-    for (const b of $$('[data-tool]')) b.setAttribute('aria-pressed', b.dataset.tool === t);
-    for (const el of $$('[data-panel]')) el.hidden = el.dataset.panel !== t;
-    for (const el of $$('[data-keys]')) el.hidden = el.dataset.keys !== t;
-    const name = toolInfo(t).label;
-    $('tool-name').textContent = name;
-    $('status-tool').textContent = name;
+  function renderModes() {
+    const all = ['point', 'edge', 'face', 'solid'].every(k => sel.allows(k));
+    for (const b of $$('[data-mode]')) b.setAttribute('aria-pressed', b.dataset.mode === 'all' ? all : sel.allows(b.dataset.mode));
   }
 
-  // --- move and rotate ----------------------------------------------------
-  // Select a body (4 SOLID, or the outliner), then G or R. The handles move a stand-in for the body;
-  // the body's mesh follows it as the preview, since a rigid motion needs no kernel work. Enter
-  // sends the motion to the kernel as one undo step; the body keeps its face and edge refs.
-  // The panel shows the user's coordinates (z up); the viewport's own y is up.
-  const toWorld = ([x, y, z]) => [x, z, -y];
-  const toUser = ([x, y, z]) => [x, -z, y];
-  const AXES = { x: [1, 0, 0], y: [0, 1, 0], z: [0, 0, 1] };
-  const DEG = Math.PI / 180;
-  let motion = null;
-
-  function beginMotion(kind) {
-    if (selected === null && current.length === 1) selectBody(current[0].id);
-    if (selected === null) {
-      setMode('solid');
-      return toast('SELECT A BODY TO ' + (kind === 'move' ? 'MOVE' : 'ROTATE'));
+  /** Run a named action (keymap.js); returns false for names it doesn't know. */
+  async function doAction(a) {
+    const [kind, arg] = a.split(':');
+    switch (kind) {
+      case 'view':
+        if (arg === 'ortho') setOrtho(!camera.isOrthographicCamera);
+        else if (arg === 'focus') focus();
+        else if (arg === 'xray') { view.xray = !view.xray; applyView(); }
+        else setView(arg);
+        return true;
+      case 'mode': sel.setMode(arg); renderModes(); hover = null; drawOverlays(); return true;
+      case 'mode-toggle': sel.toggleMode(arg); renderModes(); return true;
+      case 'convert': sel.convert(arg, current); renderModes(); selectionChanged({ quiet: true }); return true;
+      case 'select':
+        if (arg === 'none') { if (cmd) abort(); sel.clear(); }
+        else if (arg === 'all') sel.selectAll(current.filter(b => !hidden.has(b.id)));
+        else sel.invert(current.filter(b => !hidden.has(b.id)));
+        selectionChanged({ quiet: arg !== 'all' && arg !== 'invert' });
+        return true;
+      case 'tool': await startTool(arg); return true;
+      case 'plane':
+        if (arg === 'selection') planeFromSelection(true);
+        else if (arg === 'selection-keep-view') planeFromSelection(false);
+        else if (arg === 'view') planeFromView();
+        else setPlane({ origin: new THREE.Vector3(), normal: UP, name: 'XY' });
+        return true;
+      case 'file': {
+        const b = $({ new: 'file-new', open: 'file-open', save: 'file-save' }[arg]);
+        if (b.hidden) toast('NOT IN THE BROWSER YET'); else b.click();
+        return true;
+      }
+      case 'export': exportSelected(); return true;
+      case 'import': $('import').hidden ? toast('NOT IN THE BROWSER YET') : $('import').click(); return true;
     }
-    if (active) end('cancelled');
-    if (blend) endBlend('cancelled');
-    if (motion) endMotion('cancelled');
-    const mesh = bodyMesh(selected);
-    mesh.geometry.computeBoundingBox();
-    const pivot = mesh.geometry.boundingBox.getCenter(new THREE.Vector3());
-    const handle = new THREE.Object3D();
-    handle.position.copy(pivot);
-    scene.add(handle);
-    const tc = new TransformControls(camera, canvas);
-    tc.setMode(kind === 'move' ? 'translate' : 'rotate');
-    tc.setSpace('world');
-    tc.attach(handle);
-    tc.addEventListener('dragging-changed', e => { controls.enabled = !e.value; });
-    tc.addEventListener('objectChange', () => motionChanged(true));
-    scene.add(tc.getHelper());
-    motion = { kind, body: selected, pivot, handle, tc, axis: 'z' };
-    setTool(kind);
-    setMotionAxis('z');
-    setMotionSnap();
-    setState('none');
-    motionChanged(false);
-    refreshPanel();
-  }
-
-  /** The handle's offset (user coordinates) and turn about the chosen axis (degrees). */
-  function motionValues() {
-    const offset = toUser(motion.handle.position.clone().sub(motion.pivot).toArray());
-    const a = new THREE.Vector3(...toWorld(AXES[motion.axis])), q = motion.handle.quaternion;
-    const angle = 2 * Math.atan2(new THREE.Vector3(q.x, q.y, q.z).dot(a), q.w) / DEG;
-    return { offset, angle: Math.round(angle * 1e6) / 1e6 };
-  }
-
-  /** Follow the handle with the body's mesh, and the panel with the handle. */
-  function motionChanged(fromHandle) {
-    const m = bodyMesh(motion.body), h = motion.handle;
-    m.quaternion.copy(h.quaternion);
-    m.position.copy(h.position).sub(motion.pivot.clone().applyQuaternion(h.quaternion));
-    for (const o of overlays.children) { o.quaternion.copy(m.quaternion); o.position.copy(m.position); }
-    const { offset, angle } = motionValues();
-    for (const input of $$('[data-move]')) if (document.activeElement !== input) input.value = +offset[input.dataset.move].toFixed(3);
-    if (document.activeElement !== $('angle')) $('angle').value = +angle.toFixed(3);
-    const moved = offset.some(v => Math.abs(v) > 1e-9) || Math.abs(angle) > 1e-9;
-    setHud(motion.kind === 'move'
-      ? `Δ ${offset.map(v => fmt(v)).join(' ')}`
-      : `${motion.axis.toUpperCase()} ${fmt(angle)}°`);
-    if (fromHandle || moved) setState(moved ? 'updated' : 'none');
-  }
-
-  function setMotionOffset(offset) {
-    if (!motion) return;
-    motion.handle.position.copy(motion.pivot).add(new THREE.Vector3(...toWorld(offset)));
-    motionChanged(false);
-  }
-  function setMotionAngle(deg) {
-    if (!motion) return;
-    motion.handle.quaternion.setFromAxisAngle(new THREE.Vector3(...toWorld(AXES[motion.axis])), deg * DEG);
-    motionChanged(false);
-  }
-  function setMotionAxis(axis) {
-    for (const b of $$('[data-axis]')) b.setAttribute('aria-pressed', b.dataset.axis === axis);
-    if (!motion) return;
-    const angle = motion.kind === 'rotate' ? motionValues().angle : 0;
-    motion.axis = axis;
-    if (motion.kind === 'rotate') {
-      // Show only the ring that turns about this axis, in the viewport's axes.
-      const w = toWorld(AXES[axis]).map(Math.abs);
-      Object.assign(motion.tc, { showX: !!w[0], showY: !!w[1], showZ: !!w[2] });
-      setMotionAngle(angle);
+    switch (a) {
+      case 'palette': openPalette(false); return true;
+      case 'suggest': openPalette(true); return true;
+      case 'repeat': if (lastTool) await startTool(lastTool); else toast('NO COMMAND TO REPEAT'); return true;
+      case 'delete': await deleteSelected(); return true;
+      case 'duplicate': await duplicateSelected(); return true;
+      case 'hide': setHidden(sel.bodies, true); return true;
+      case 'hide-others': setHidden(current.map(b => b.id).filter(id => !sel.bodies.includes(id)), true); return true;
+      case 'unhide-all': setHidden([...hidden], false); return true;
+      case 'undo': await step('undo'); return true;
+      case 'redo': await step('redo'); return true;
     }
-  }
-  function setMotionSnap() {
-    if (!motion) return;
-    motion.tc.setTranslationSnap(view.snap ? gridStep() : null);
-    motion.tc.setRotationSnap(view.snap ? 15 * DEG : null);
+    return false;
   }
 
-  function endMotion(state) {
-    if (!motion) return;
-    const m = bodyMesh(motion.body);
-    if (m) { m.position.set(0, 0, 0); m.quaternion.identity(); }
-    for (const o of overlays.children) { o.position.set(0, 0, 0); o.quaternion.identity(); }
-    motion.tc.detach();
-    motion.tc.getHelper().removeFromParent();
-    motion.tc.dispose();
-    motion.handle.removeFromParent();
-    motion = null;
-    controls.enabled = true;
-    setState(state);
-    setTool('pushpull');
-    setHud(null);
-    refreshPanel();
+  // --- command palette (F) and suggestions (Shift+F) --------------------------
+  const ENTRIES = [
+    ...TOOLS.map(t => ({ action: `tool:${t.id}`, label: t.label, key: t.key.toUpperCase() })),
+    ...Object.entries(ACTIONS).map(([action, l]) => ({ action, label: l.toUpperCase(), key: keyFor(action) })),
+  ];
+  /** Commands that fit what is selected (Plasticity's Shift+F). */
+  function suggestions() {
+    const kinds = new Set(sel.list().map(it => it.kind));
+    const out = [];
+    if (kinds.has('edge')) out.push('tool:fillet');
+    if (kinds.has('face')) out.push('plane:selection', 'plane:selection-keep-view', 'tool:pushpull');
+    if (kinds.has('solid')) out.push('tool:move', 'tool:rotate', 'tool:scale', 'duplicate', 'delete', 'hide', 'export:step');
+    if (kinds.size) out.push('convert:solid', 'select:invert', 'view:focus');
+    else out.push('tool:pushpull', 'select:all', 'unhide-all', 'plane:view');
+    return out.map(a => ENTRIES.find(e => e.action === a)).filter(Boolean);
   }
-
-  async function commitMotion() {
-    if (!motion) return;
-    const { offset, angle } = motionValues();
-    if (offset.every(v => Math.abs(v) < 1e-9) && Math.abs(angle) < 1e-9) return endMotion('cancelled');
-    const req = motion.kind === 'move'
-      ? { body: motion.body, offset: toWorld(offset), pivot: [0, 0, 0], axis: [0, 1, 0], angle: 0 }
-      : { body: motion.body, offset: [0, 0, 0], pivot: motion.pivot.toArray(), axis: toWorld(AXES[motion.axis]), angle: angle * DEG };
-    const text = motion.kind === 'move'
-      ? `MOVE ${offset.map(v => fmt(v)).join(' ')}`
-      : `ROTATE ${motion.axis.toUpperCase()} ${fmt(angle)}°`;
-    try {
-      const { id, scene: list } = await backend.commitMotion(req);
-      endMotion('committed');
-      history.splice(history.length - undone, undone, { text, id });
-      undone = 0;
-      renderHistory();
-      showScene(list);
-    } catch (e) {
-      setState('failed');
-      toast(String(e.message ?? e).toUpperCase());
-    }
+  let palette = null;
+  const fuzzy = (q, s) => { let i = 0; for (const ch of s) if (ch === q[i]) i++; return i === q.length; };
+  function openPalette(suggest) {
+    palette = { suggest, index: 0, items: [] };
+    $('palette').hidden = false;
+    $('palette-title').textContent = suggest ? 'SUGGESTED FOR THE SELECTION' : 'SEARCH COMMANDS';
+    $('palette-input').value = '';
+    renderPalette();
+    $('palette-input').focus();
   }
+  function closePalette() { palette = null; $('palette').hidden = true; $('palette-input').blur(); }
+  function renderPalette() {
+    const q = $('palette-input').value.toUpperCase().replace(/\s+/g, '');
+    const pool = palette.suggest ? suggestions() : ENTRIES;
+    // Whole-word starts first, then anywhere in the name, then letters in order.
+    const rank = e => {
+      const l = e.label.replace(/[^A-Z0-9 ]/g, '');
+      if (!q || l.split(' ').some(w => w.startsWith(q)) || l.startsWith(q)) return 0;
+      if (l.replace(/\s+/g, '').includes(q)) return 1;
+      return fuzzy(q, l.replace(/\s+/g, '')) ? 2 : 3;
+    };
+    palette.items = pool.map(e => [rank(e), e]).filter(([r]) => r < 3).sort((a, b) => a[0] - b[0]).map(([, e]) => e).slice(0, 12);
+    palette.index = Math.min(palette.index, Math.max(0, palette.items.length - 1));
+    const ul = $('palette-list');
+    ul.innerHTML = '';
+    palette.items.forEach((e, i) => {
+      const li = document.createElement('li');
+      li.setAttribute('role', 'option');
+      li.setAttribute('aria-selected', i === palette.index);
+      li.innerHTML = `<span>${e.label}</span><kbd>${e.key}</kbd>`;
+      li.onmousedown = ev => { ev.preventDefault(); runPalette(i); };
+      ul.append(li);
+    });
+    if (!palette.items.length) ul.innerHTML = '<li class="none">NOTHING MATCHES</li>';
+  }
+  function runPalette(i) {
+    const e = palette?.items[i];
+    closePalette();
+    if (e) doAction(e.action);
+  }
+  $('palette-input').addEventListener('input', () => { palette.index = 0; renderPalette(); });
+  $('palette-input').addEventListener('keydown', e => {
+    if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+      e.preventDefault();
+      palette.index = (palette.index + (e.key === 'ArrowDown' ? 1 : -1) + palette.items.length) % Math.max(1, palette.items.length);
+      renderPalette();
+    } else if (e.key === 'Enter') { e.preventDefault(); runPalette(palette.index); }
+    else if (e.key === 'Escape') { e.preventDefault(); closePalette(); }
+    e.stopPropagation();
+  });
+  $('palette-input').addEventListener('blur', () => setTimeout(() => palette && closePalette(), 100));
 
   // --- files --------------------------------------------------------------
   function newScene(list, name) {
-    cancel();
-    clearSelection();
+    if (cmd) abort();
+    sel.clear();
     history.length = 0;
     undone = 0;
     renderHistory();
@@ -1080,7 +1584,7 @@ export async function mount(root, backend) {
     $('file-name').textContent = name;
   }
   async function fileAction(fn) {
-    try { await fn(); } catch (e) { toast(String(e.message ?? e).toUpperCase()); }
+    try { await fn(); } catch (e) { toast(say(e)); }
   }
   for (const [id, method] of [['file-new', 'newDocument'], ['file-open', 'open'], ['file-save', 'save'], ['import', 'importStep']]) {
     $(id).hidden = typeof backend[method] !== 'function';
@@ -1097,227 +1601,298 @@ export async function mount(root, backend) {
   $('import').onclick = () => fileAction(async () => {
     const r = await backend.importStep();
     if (!r) return;
-    cancel();
-    clearSelection();
-    history.splice(history.length - undone, undone, { text: 'IMPORT STEP', id: r.id });
-    undone = 0;
-    renderHistory();
+    if (cmd) abort();
+    sel.clear();
+    record('IMPORT STEP', r.id);
     showScene(r.scene);
   });
 
-  // --- input --------------------------------------------------------------
-  let downAt;
-  canvas.addEventListener('pointerdown', e => { downAt = [e.clientX, e.clientY]; });
-  let pickingPlane = false;
-  canvas.addEventListener('pointerup', async e => {
-    if (!downAt || Math.hypot(e.clientX - downAt[0], e.clientY - downAt[1]) > 4 || gizmo?.dragging || blendGizmo?.dragging) return;
-    if (motion) return;
-    if (pickingPlane) {
-      pickingPlane = false;
-      const hit = pick(e);
-      if (hit?.target == null || hit.curved) return toast('PICK A FLAT FACE FOR THE WORK PLANE');
-      setWorkPlane(hit);
-      return setHud(null);
-    }
-    if (blend || mode === 'edge') return selectEdge(pickEdge(e), e.shiftKey);
-    if (mode === 'solid') {
-      ray(e);
-      const hit = raycaster.intersectObjects(bodies.children.filter(m => m.visible), false)[0];
-      return selectBody(hit ? (hit.object.userData.id === selected && !e.shiftKey ? null : hit.object.userData.id) : null);
-    }
-    const hit = pick(e);
-    if (active) await commit();
-    if (hit?.curved) toast('PICK A FLAT FACE TO SKETCH ON');
-    else if (hit) begin(hit);
+  // --- pointer input --------------------------------------------------------
+  let down = null; // { x, y, button, consumed, box }
+  canvas.addEventListener('pointerdown', e => {
+    lastPointer = e;
+    const g = cmd?.gizmo;
+    const grabbed = g?.busy || g?.state === 'hover' || (cmd?.tc && cmd.tc.axis !== null);
+    down = { x: e.clientX, y: e.clientY, button: e.button, consumed: grabbed, box: null };
+    if (e.button === 0 && cmd?.follow) { endFollow(true); down.consumed = true; }
   });
   canvas.addEventListener('pointermove', e => {
+    lastPointer = e;
     ray(e);
-    const p = raycaster.ray.intersectPlane(new THREE.Plane(UP, 0), new THREE.Vector3());
-    if (p) $('cursor').textContent = `X ${p.x.toFixed(2)} Y ${(-p.z).toFixed(2)} Z ${p.y.toFixed(2)}`;
-    if (active || motion || e.buttons) return;
-    if (blend || mode === 'edge') {
-      const h = pickEdge(e);
-      if (h?.body !== hoverEdge?.body || h?.edge !== hoverEdge?.edge) { hoverEdge = h; drawOverlays(); }
+    const p = raycaster.ray.intersectPlane(planeOf(), new THREE.Vector3());
+    if (p) { const u = toUser(p.toArray()); $('cursor').textContent = `X ${u[0].toFixed(2)} Y ${u[1].toFixed(2)} Z ${u[2].toFixed(2)}`; }
+    if (cmd?.follow) return followMove(e);
+    if (down && down.button === 0 && !down.consumed && (e.buttons & 1)) {
+      const a = local({ clientX: down.x, clientY: down.y }), b = local(e);
+      if (down.box || Math.hypot(b.x - a.x, b.y - a.y) > 4) {
+        down.box = b;
+        const el = $('boxsel');
+        el.hidden = false;
+        el.dataset.touch = b.x < a.x;
+        Object.assign(el.style, { left: `${Math.min(a.x, b.x)}px`, top: `${Math.min(a.y, b.y)}px`, width: `${Math.abs(b.x - a.x)}px`, height: `${Math.abs(b.y - a.y)}px` });
+      }
       return;
     }
-    if (mode === 'solid') return;
-    const hit = pick(e);
-    lastHover = hit;
-    showSnap(hit);
-    if (hit && !hit.curved && !pickingPlane) placeOutline(hit.origin, hit.normal); else outline.visible = false;
+    if (e.buttons) return;
+    if (cmd?.move) return cmd.move(e);
+    if (cmd && !cmd.auto && cmd.id !== 'fillet') return;
+    scheduleHover(e);
   });
-  let lastHover = null;
-
-  function setProfile(kind) {
-    profileKind = kind;
-    makeProfile();
-    for (const b of $$('[data-profile]')) b.setAttribute('aria-pressed', b.dataset.profile === kind);
-    if (active) { placeOutline(active.origin, active.normal); renderOutliner(); if (active.distance) update(); }
+  let hoverQueued = null;
+  function scheduleHover(e) {
+    if (hoverQueued) { hoverQueued = e; return; }
+    hoverQueued = e;
+    requestAnimationFrame(() => {
+      const ev = hoverQueued;
+      hoverQueued = null;
+      const g = cmd?.gizmo;
+      const h = g?.state === 'hover' || g?.busy ? null : clickTarget(pickAt(ev), cmd?.id === 'fillet' ? 'add' : modOf(ev));
+      const show = cmd?.id === 'fillet' && h && h.kind !== 'edge' ? null : h;
+      if (JSON.stringify(show) !== JSON.stringify(hover)) { hover = show; drawOverlays(); }
+    });
   }
+  canvas.addEventListener('pointerleave', () => { if (hover) { hover = null; drawOverlays(); } });
+  canvas.addEventListener('pointerup', async e => {
+    const d = down;
+    down = null;
+    if (!d || d.button !== e.button) return;
+    const moved = Math.hypot(e.clientX - d.x, e.clientY - d.y) > 4;
+    if (e.button === 2) { if (!moved && cmd) await finish(); return; } // Plasticity: right-click finishes
+    if (e.button !== 0 || d.consumed) return;
+    if (d.box) {
+      $('boxsel').hidden = true;
+      if (cmd && !cmd.auto) return;
+      return boxSelect(local({ clientX: d.x, clientY: d.y }), local(e), modOf(e));
+    }
+    if (moved) return;
+    if (cmd?.click && await cmd.click(e)) return;
+    if (cmd && !cmd.auto) return;
+    applySelect(clickTarget(pickAt(e), modOf(e)), modOf(e));
+    hover = null;
+    selectionChanged();
+  });
+  canvas.addEventListener('dblclick', e => {
+    if (cmd && !cmd.auto) return;
+    const hit = pickAt(e);
+    if (!hit) return;
+    applySelect({ kind: 'solid', body: hit.body }, e.shiftKey ? 'add' : 'replace');
+    selectionChanged();
+  });
+  canvas.addEventListener('contextmenu', e => e.preventDefault());
+
+  // --- panel input ----------------------------------------------------------
   for (const b of $$('[data-profile]')) b.onclick = () => setProfile(b.dataset.profile);
   for (const b of $$('[data-op]')) b.onclick = () => setOperation(b.dataset.op);
-  for (const b of $$('[data-toggle]')) b.onclick = () => {
-    const k = b.dataset.toggle;
-    view[k] = !view[k];
-    b.setAttribute('aria-pressed', view[k]);
-    applyView();
-    setMotionSnap();
-  };
-  for (const input of $$('[data-move]')) input.addEventListener('input', () => {
-    const v = $$('[data-move]').map(i => parseFloat(i.value) || 0);
-    setMotionOffset(v);
-  });
-  $('angle').addEventListener('input', e => { const v = parseFloat(e.target.value); if (!isNaN(v)) setMotionAngle(v); });
-  for (const b of $$('[data-axis]')) b.onclick = () => setMotionAxis(b.dataset.axis);
-  function pickWorkPlane() {
-    // Over a flat face, take it at once; otherwise wait for the next click on one.
-    if (lastHover?.target != null && !lastHover.curved && mode === 'face' && !active) return setWorkPlane(lastHover);
-    pickingPlane = true;
-    setMode('face');
-    setHud('CLICK A FLAT FACE FOR THE WORK PLANE');
-  }
-  $('plane-face').onclick = () => { lastHover = null; pickWorkPlane(); };
-  $('plane-ground').onclick = () => setWorkPlane(null);
-  $('plane-offset').addEventListener('input', e => { const v = parseFloat(e.target.value); if (!isNaN(v)) { work.offset = v; placeWorkPlane(); } });
+  for (const b of $$('[data-toggle]')) b.onclick = () => { view[b.dataset.toggle] = !view[b.dataset.toggle]; applyView(); snapsFor(view.snap); };
+  for (const input of $$('[data-move]')) input.addEventListener('input', () => setOffset($$('[data-move]').map(i => parseFloat(i.value) || 0)));
+  $('angle').addEventListener('input', e => { const v = parseFloat(e.target.value); if (!isNaN(v)) setAngle(v); });
+  $('factor').addEventListener('input', e => setFactor(parseFloat(e.target.value)));
+  for (const b of $$('[data-axis]')) b.onclick = () => setAxis(b.dataset.axis);
+  for (const b of $$('[data-view]')) b.onclick = () => setView(b.dataset.view);
+  $('ortho').onclick = () => setOrtho(!camera.isOrthographicCamera);
+  for (const b of $$('[data-mode]')) b.onclick = e => doAction(b.dataset.mode === 'all' ? 'mode:all' : `${e.shiftKey ? 'mode-toggle' : 'mode'}:${b.dataset.mode}`);
+  for (const b of $$('[data-action]')) b.onclick = () => doAction(b.dataset.action);
+  for (const b of $$('[data-tool]')) b.onclick = () => startTool(b.dataset.tool);
   function setGrid(dir) {
     const i = Math.max(0, Math.min(GRID_STEPS.length - 1, GRID_STEPS.indexOf(gridStep()) + dir));
     $('grid').value = GRID_STEPS[i];
     $('distance').step = GRID_STEPS[i];
-    if (gizmo) gizmo.step = GRID_STEPS[i];
+    if (cmd?.gizmo) cmd.gizmo.step = GRID_STEPS[i];
   }
   $('grid-dec').onclick = () => setGrid(-1);
   $('grid-inc').onclick = () => setGrid(1);
   $('size').addEventListener('input', e => {
     const v = parseFloat(e.target.value);
     if (!(v > 0)) return;
-    size = v; makeProfile();
-    if (active) { placeOutline(active.origin, active.normal); if (active.distance) update(); }
+    size = v;
+    const c = cmd;
+    if (c?.id === 'pushpull' && c.at) { placeOutline(c.at.origin, c.at.normal); if (c.distance) updatePushPull(); }
   });
-  $('distance').addEventListener('input', e => { const v = parseFloat(e.target.value); if (active && !isNaN(v)) setDistance(v); });
-  $('blend-size').addEventListener('input', e => setBlendSize(parseFloat(e.target.value)));
-  for (const b of $$('[data-blend]')) b.onclick = () => blend ? setBlendKind(b.dataset.blend) : beginBlend(b.dataset.blend);
-  for (const b of $$('[data-mode]')) b.onclick = () => setMode(b.dataset.mode);
-  for (const b of $$('[data-tool]')) b.onclick = () => startTool(b.dataset.tool);
-  $('commit').onclick = commit;
-  $('cancel').onclick = cancel;
+  $('distance').addEventListener('input', e => { const v = parseFloat(e.target.value); if (!isNaN(v)) setDistance(v); });
+  $('blend-distance').addEventListener('input', e => { const v = parseFloat(e.target.value); if (!isNaN(v) && cmd?.id === 'fillet') { cmd.auto = false; setFillet(v, false); } });
+  $('blend-angle').addEventListener('input', e => { const v = parseFloat(e.target.value); if (cmd?.id === 'fillet' && v > 0 && v < 90) { cmd.angle = v; previewFillet(); } });
+  $('commit').onclick = () => finish();
+  $('cancel').onclick = () => abort();
   $('undo').onclick = () => step('undo');
   $('redo').onclick = () => step('redo');
-  $('export').onclick = async () => {
-    const ids = selected !== null ? [selected] : current.map(b => b.id);
-    for (const id of ids) {
-      try { const msg = await backend.exportStep(id); if (!msg) return; toast(msg); }
-      catch (e) { toast(String(e.message ?? e)); }
-    }
-  };
+  $('export').onclick = () => exportSelected();
 
-  addEventListener('keydown', e => {
-    if (e.target.tagName === 'INPUT' && e.key !== 'Enter' && e.key !== 'Escape') return;
-    const k = e.key.toLowerCase();
-    if (e.key === 'Enter') { e.preventDefault(); commit(); }
-    else if (e.key === 'Escape') {
-      if (pickingPlane) { pickingPlane = false; setHud(null); }
-      else if (running()) cancel();
-      else { clearSelection(); selectBody(null); }
+  // --- keyboard -------------------------------------------------------------
+  // In order: a handle or typed entry taking keys, the running command's own keys, then the
+  // viewport's (keymap.js).
+  addEventListener('keydown', async e => {
+    if (palette) return;
+    const inInput = e.target.tagName === 'INPUT';
+    if (inInput && e.key !== 'Enter' && e.key !== 'Escape') return;
+    if (inInput) e.target.blur();
+    const k = keyOf(e);
+    if (k === 'ctrl' && cmd?.tc) snapsFor(!view.snap);
+    // A dot being dragged or following the cursor.
+    if (cmd?.gizmo?.busy && cmd.gizmo.key(e)) { e.preventDefault(); return; }
+    // The transform's cursor-follow.
+    const f = cmd?.follow;
+    if (f) {
+      if (e.key === 'Escape') { e.preventDefault(); return endFollow(false); }
+      if (e.key === 'Enter') { e.preventDefault(); return endFollow(true); }
+      if (/^[0-9.\-]$/.test(e.key) || e.key === 'Backspace') {
+        e.preventDefault();
+        f.text = e.key === 'Backspace' ? f.text.slice(0, -1) : f.text + e.key;
+        return followTyped(f);
+      }
     }
-    else if ((e.ctrlKey || e.metaKey) && k === 'z') { e.preventDefault(); step(e.shiftKey ? 'redo' : 'undo'); }
-    else if (e.key === 'Control' && motion) { view.snap = !view.snap; setMotionSnap(); view.snap = !view.snap; }
-    else if (e.ctrlKey || e.metaKey || e.altKey) return;
-    else if (motion?.kind === 'rotate' && 'xyz'.includes(k)) setMotionAxis(k);
-    // While a push/pull runs, its own keys come first.
-    else if (active && k === 'q') setOperation('join');
-    else if (active && k === 'w') setOperation('cut');
-    else if (active && k === 'b') setOperation('new');
-    else if (active && k === 'r') setProfile('rect');
-    else if (active && k === 'c') setProfile('circle');
-    else if (toolForKey(k)) startTool(toolForKey(k).id);
-    else if (k === 'k') pickWorkPlane();
-    else if (k === '2') setMode('edge');
-    else if (k === '3') { if (!blend) setMode('face'); }
-    else if (k === '4') { if (!blend) setMode('solid'); }
+    // A typed value (the fillet's A).
+    const entry = cmd?.entry;
+    if (entry) {
+      e.preventDefault();
+      if (e.key === 'Escape') { cmd.entry = null; return setHud(null), previewFillet(); }
+      if (e.key === 'Enter') { cmd.entry = null; const v = typed(entry.text); if (v !== undefined) entry.apply(v); return previewFillet(); }
+      if (/^[0-9.\-]$/.test(e.key)) entry.text += e.key;
+      else if (e.key === 'Backspace') entry.text = entry.text.slice(0, -1);
+      return setHud(`${entry.label} ${entry.text}_`);
+    }
+    if (cmd) {
+      const action = COMMAND[cmd.id]?.[k];
+      if (action && !(cmd.auto && !['distance', 'chamfer', 'angle'].includes(action)) && cmd.key?.(action, e)) { e.preventDefault(); return; }
+      if (e.key === 'Enter') { e.preventDefault(); return finish(); }
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        // An untouched default command goes, and Escape then deselects as it would with none.
+        const auto = cmd.auto;
+        abort();
+        if (auto) { sel.clear(); selectionChanged({ quiet: true }); }
+        return;
+      }
+    }
+    const action = VIEWPORT[k];
+    if (!action) return;
+    e.preventDefault();
+    await doAction(action);
   });
-  addEventListener('keyup', e => { if (e.key === 'Control') setMotionSnap(); });
+  addEventListener('keyup', e => { if (e.key === 'Control' && cmd?.tc) snapsFor(view.snap); });
 
   // --- start --------------------------------------------------------------
   renderHistory();
+  renderModes();
+  setView('iso');
+  setPlane({ origin: new THREE.Vector3(), normal: UP, name: 'XY' });
+  showTool(null);
   showScene(await backend.scene());
   $('loading').hidden = true;
 
-  function resize() {
+  function resize(force = false) {
     const { clientWidth: w, clientHeight: h } = canvas;
-    if (canvas.width !== Math.floor(w * renderer.getPixelRatio()) || canvas.height !== Math.floor(h * renderer.getPixelRatio())) {
-      renderer.setSize(w, h, false);
-      camera.aspect = w / h;
-      camera.updateProjectionMatrix();
-    }
+    if (!force && canvas.width === Math.floor(w * renderer.getPixelRatio()) && canvas.height === Math.floor(h * renderer.getPixelRatio())) return;
+    renderer.setSize(w, h, false);
+    persp.aspect = w / h;
+    persp.updateProjectionMatrix();
+    const half = (ortho.top - ortho.bottom) / 2;
+    ortho.left = -half * w / h; ortho.right = half * w / h;
+    ortho.updateProjectionMatrix();
   }
   renderer.setAnimationLoop(() => {
     resize();
     controls.update();
-    if (gizmo) { gizmo.scale.setScalar(camera.position.distanceTo(gizmo.position) / 9); gizmo.render(gizmo.value); }
-    if (blendGizmo) { blendGizmo.scale.setScalar(camera.position.distanceTo(blendGizmo.position) / 14); blendGizmo.render(blendGizmo.value); }
+    if (cmd?.gizmo) cmd.gizmo.render(cmd.gizmo.value);
     renderer.render(scene, camera);
   });
 
+  /** Select by refs or numbers for `run`: edges of one body. */
+  function selectEdgeRefs(refs) {
+    const owner = current.find(b => refs?.length && refs.every(r => b.edgeRefs?.includes(r)));
+    if (!owner) throw new Error('those edges are not all on one body any more');
+    sel.clear();
+    owner.edgeRefs.forEach((r, n) => { if (refs.includes(r)) sel.add({ kind: 'edge', body: owner.id, n }); });
+  }
+  function selectSolids(ids) {
+    if (!ids.length || ids.some(id => !bodyOf(id))) throw new Error('that body no longer exists');
+    sel.clear();
+    for (const id of ids) sel.add({ kind: 'solid', body: id });
+  }
+
   return {
-    begin: (origin, normal, target) => begin({ origin: new THREE.Vector3(...origin), normal: new THREE.Vector3(...normal), target }),
-    setDistance: d => active && setDistance(d),
-    commit, cancel, step,
-    /** Select edges by number on one body, as a click would. */
-    selectEdges(body, edges) { clearSelection(); for (const edge of edges) selectEdge({ body, edge }, true); },
-    beginBlend, setBlendSize, setMode, selectBody, startTool, setMotionOffset, setMotionAngle, setMotionAxis,
-    /** Put the work plane on a body's face (by number), or back on the ground with no arguments. */
-    setWorkPlane(body, face, offset = 0) {
-      const b = current.find(x => x.id === body), p = b?.facePlanes[face];
-      setWorkPlane(p ? { target: body, origin: faceCentre(b, face), normal: new THREE.Vector3(...p.normal) } : null);
-      work.offset = offset;
-      placeWorkPlane();
+    /** Start push/pull with its sketch placed, as a click would. */
+    async begin(origin, normal, target) {
+      await startTool('pushpull', { at: { origin: new THREE.Vector3(...origin), normal: new THREE.Vector3(...normal), target } });
+    },
+    setDistance: d => setDistance(d),
+    commit: () => finish(), cancel: () => abort(), finish: () => finish(), abort: () => abort(), step,
+    doAction, startTool, setView, setOrtho,
+    /** Select edges by number on one body, as clicks would. */
+    selectEdges(body, edges) {
+      sel.clear();
+      for (const n of edges) sel.add({ kind: 'edge', body, n });
+      selectionChanged();
+    },
+    selectFaces(body, faces) {
+      sel.clear();
+      for (const n of faces) sel.add({ kind: 'face', body, n });
+      selectionChanged();
+    },
+    selectBody(id, add = false) {
+      if (!add) sel.clear();
+      if (id !== null && id !== undefined) sel.add({ kind: 'solid', body: id });
+      selectionChanged();
+    },
+    setMode: m => doAction(`mode:${m}`),
+    setFillet: v => { if (cmd?.id === 'fillet') { cmd.auto = false; setFillet(v, false); } },
+    setOffset, setAngle, setAxis, setFactor,
+    setPlane(body, face) {
+      if (body === undefined) return doAction('plane:world');
+      sel.replace({ kind: 'face', body, n: face });
+      selectionChanged({ quiet: true });
+      planeFromSelection(false);
     },
     /** What a command would act on now, by ref: the context an AI request is checked against. */
     context() {
-      const b = current.find(x => x.id === selection.body);
+      const eb = edgeBody(), b = bodyOf(eb);
+      const edges = sel.list('edge');
       return {
         revision: current[0]?.revision ?? 0,
-        tool: running(),
-        edges: selection.body === null ? null : { body: selection.body, refs: refsOf(selection.body, [...selection.edges]) ?? [], numbers: [...selection.edges], count: b?.edges.length },
-        body: selected,
-        workPlane: { name: work.name, origin: workPoint().toArray(), normal: work.normal.toArray() },
+        tool: cmd?.id ?? null,
+        modes: [...sel.modes],
+        edges: eb === null ? null : { body: eb, refs: edges.map(it => b.edgeRefs?.[it.n]).filter(r => r !== undefined), numbers: edges.map(it => it.n), count: b?.edges.length },
+        faces: sel.list('face').map(it => ({ body: it.body, ref: bodyOf(it.body)?.faceRefs?.[it.n], number: it.n })),
+        solids: sel.solids,
+        body: sel.solids[0] ?? null,
+        plane: { name: cplane.name, origin: cplane.origin.toArray(), normal: cplane.normal.toArray() },
       };
     },
     /**
      * Start a registered tool with checked arguments and leave its preview for the user to adjust
-     * and confirm, as the AI command box will. Throws with the reasons when the arguments are wrong.
-     * The selection is named by ref: `edges` (fillet) or `body` (move, rotate).
+     * and finish, as the AI command box will. Throws with the reasons when the arguments are wrong.
+     * The selection is named by ref: `edges` (fillet), `body` (move, rotate, scale) or `face` (push/pull).
      */
     async run(id, args = {}) {
-      const { edges, body, face, ...rest } = args;
+      const { edges, body, bodies: ids, face, ...rest } = args;
       const errors = check(id, rest);
       if (errors.length) throw new Error(errors.join('; '));
       const p = withDefaults(id, rest);
+      if (cmd) abort();
       if (id === 'fillet') {
-        const owner = current.find(b => edges?.length && edges.every(r => b.edgeRefs?.includes(r)));
-        if (!owner) throw new Error('those edges are not all on one body any more');
-        clearSelection();
-        selection.body = owner.id;
-        selection.edges = new Set(owner.edgeRefs.flatMap((r, n) => edges.includes(r) ? [n] : []));
-        selectionChanged();
-        if (!blend) beginBlend(p.kind); else setBlendKind(p.kind);
-        setBlendSize(p.size);
-      } else if (id === 'move' || id === 'rotate') {
-        if (!current.some(b => b.id === body)) throw new Error('that body no longer exists');
-        selectBody(body);
-        beginMotion(id);
-        if (id === 'move') setMotionOffset(p.offset);
-        else { setMotionAxis(p.axis); setMotionAngle(p.angle); }
+        selectEdgeRefs(edges);
+        selectionChanged({ quiet: true });
+        await startTool('fillet');
+        cmd.angle = p.angle;
+        $('blend-angle').value = p.angle;
+        cmd.auto = false;
+        setFillet(p.distance, false);
+      } else if (id === 'move' || id === 'rotate' || id === 'scale') {
+        selectSolids(ids ?? [body]);
+        selectionChanged({ quiet: true });
+        await startTool(id);
+        if (id === 'move') setOffset(p.offset);
+        else if (id === 'rotate') { setAxis(p.axis); setAngle(p.angle); }
+        else setFactor(p.factor);
       } else if (id === 'pushpull') {
         const b = face !== undefined && current.find(x => x.faceRefs?.includes(face));
         const n = b ? b.faceRefs.indexOf(face) : -1, plane = b?.facePlanes[n];
         if (face !== undefined && !plane) throw new Error('that face is gone or not flat');
         const at = plane ? { origin: faceCentre(b, n), normal: new THREE.Vector3(...plane.normal), target: b.id }
-          : { origin: workPoint(), normal: work.normal.clone(), target: null };
+          : { origin: cplane.origin.clone(), normal: cplane.normal.clone(), target: null };
         setProfile(p.profile);
-        size = p.size; makeProfile(); $('size').value = size;
-        newBody = p.newBody;
-        begin(at);
+        size = p.size; $('size').value = size;
+        await startTool('pushpull', { at });
+        cmd.newBody = p.newBody;
         if (p.distance) setDistance(p.distance);
       }
     },
@@ -1326,12 +1901,34 @@ export async function mount(root, backend) {
       const r = canvas.getBoundingClientRect(), s = new THREE.Vector3(...p).project(camera);
       return [(s.x + 1) / 2 * r.width + r.left, (1 - s.y) / 2 * r.height + r.top];
     },
-    get selection() { return { body: selection.body, edges: [...selection.edges] } },
-    get selectedBody() { return selected },
-    get blend() { return blend && { ...blend } },
-    get motion() { return motion && { kind: motion.kind, body: motion.body, axis: motion.axis, ...motionValues() } },
-    get workPlane() { return { name: work.name, offset: work.offset, origin: workPoint().toArray(), normal: work.normal.toArray() } },
-    get active() { return active },
+    get selection() { return sel.list().map(it => ({ ...it })) },
+    get modes() { return [...sel.modes] },
+    get command() {
+      const c = cmd;
+      if (!c) return null;
+      const out = { id: c.id, auto: !!c.auto, dot: c.gizmo ? { at: c.gizmo.position.toArray(), dir: c.gizmo.direction.toArray(), state: c.gizmo.state } : null };
+      if (c.id === 'fillet') Object.assign(out, { body: c.body, edges: c.edges, value: c.value, angle: c.angle, max: c.bad !== null ? c.good : null });
+      if (c.tc) Object.assign(out, { bodies: c.ids, offset: toUser(c.offset.toArray()), angle: angleAbout(c.quat, c.axis), axis: c.axis, scale: c.scale, follow: c.follow?.name ?? null });
+      if (c.id === 'pushpull') Object.assign(out, { placed: !!c.at, distance: c.distance });
+      return out;
+    },
+    get plane() { return { name: cplane.name, origin: cplane.origin.toArray(), normal: cplane.normal.toArray() } },
+    get hidden() { return [...hidden] },
+    get ortho() { return camera.isOrthographicCamera },
+    get camera() { return { position: camera.position.toArray(), target: controls.target.toArray() } },
     get bodies() { return current },
+    get history() { return history.slice(0, history.length - undone).map(h => h.text) },
   };
+}
+
+/** Whether segments pq and rs cross. */
+function crosses(p, q, r, s) {
+  const d = (a, b, c) => (b.x - a.x) * (c.y - a.y) - (b.y - a.y) * (c.x - a.x);
+  const d1 = d(r, s, p), d2 = d(r, s, q), d3 = d(p, q, r), d4 = d(p, q, s);
+  return d1 * d2 < 0 && d3 * d4 < 0;
+}
+function inTriangle(p, a, b, c) {
+  const d = (u, v, w) => (v.x - u.x) * (w.y - u.y) - (v.y - u.y) * (w.x - u.x);
+  const s1 = d(a, b, p), s2 = d(b, c, p), s3 = d(c, a, p);
+  return (s1 >= 0 && s2 >= 0 && s3 >= 0) || (s1 <= 0 && s2 <= 0 && s3 <= 0);
 }

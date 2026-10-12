@@ -3,9 +3,10 @@
 // place and the AI can only ask for what is listed here, with arguments checked the same way a
 // typed value is.
 //
-// Every tool follows one lifecycle (see App.js): select what it acts on, choose the tool, adjust
-// its parameters against a live preview, then confirm (Enter) or cancel (Escape). Nothing changes
-// the document until confirm, and a confirm is one undo step.
+// Every tool follows Plasticity's lifecycle (see App.js): select what it acts on, start the tool by
+// its key, adjust against a live preview with its handle, its keys or typed numbers, then finish
+// (Enter, right-click or OK) or abort (Escape). Nothing changes the document until it finishes, and
+// a finish is one undo step. Keys follow Plasticity's defaults (see keymap.js).
 //
 // `selects` is what the tool acts on: 'face' (a point on a flat face, or the work plane), 'edge'
 // (one or more edges of one body) or 'solid' (one body). Lengths are millimetres, angles degrees,
@@ -23,26 +24,33 @@ export const TOOLS = [
         },
     },
     {
-        id: 'fillet', label: 'FILLET', key: 'f', group: 'shape', selects: 'edge',
-        summary: 'Round or bevel the selected edges of one body.',
+        id: 'fillet', label: 'FILLET', key: 'b', group: 'shape', selects: 'edge',
+        summary: 'Round the selected edges of one body, or bevel them with a negative distance.',
         params: {
-            size: { type: 'number', unit: 'mm', above: 0, default: 2, describe: 'radius of the round, or distance of the chamfer' },
-            kind: { type: 'enum', values: ['fillet', 'chamfer'], default: 'fillet', describe: 'round or bevel' },
+            distance: { type: 'number', unit: 'mm', nonzero: true, default: 2, describe: 'radius of the round; a negative value makes a chamfer of that distance instead' },
+            angle: { type: 'number', unit: 'deg', above: 0, below: 90, default: 45, describe: 'for a chamfer, its angle from the first face; 45 gives equal distances' },
         },
     },
     {
         id: 'move', label: 'MOVE', key: 'g', group: 'organise', selects: 'solid',
-        summary: 'Move the selected body.',
+        summary: 'Move the selected bodies.',
         params: {
             offset: { type: 'vector', unit: 'mm', default: [0, 0, 0], describe: 'how far to move along x, y and z (z is up)' },
         },
     },
     {
         id: 'rotate', label: 'ROTATE', key: 'r', group: 'organise', selects: 'solid',
-        summary: 'Turn the selected body about an axis through its centre.',
+        summary: 'Turn the selected bodies about an axis through the centre of their bounding box.',
         params: {
             axis: { type: 'enum', values: ['x', 'y', 'z'], default: 'z', describe: 'the axis to turn about; z is up' },
             angle: { type: 'number', unit: 'deg', default: 0, describe: 'how far to turn, counter-clockwise looking down the axis' },
+        },
+    },
+    {
+        id: 'scale', label: 'SCALE', key: 's', group: 'organise', selects: 'solid',
+        summary: 'Scale the selected bodies evenly about the centre of their bounding box.',
+        params: {
+            factor: { type: 'number', above: 0, default: 1, describe: 'the scale factor; 2 doubles every length' },
         },
     },
 ];
@@ -72,6 +80,8 @@ export function check(id, args = {}) {
             if (typeof v !== 'number' || !Number.isFinite(v)) errors.push(`${what} must be a number`);
             else if (p.min !== undefined && v < p.min) errors.push(`${what} must be at least ${p.min}`);
             else if (p.above !== undefined && !(v > p.above)) errors.push(`${what} must be greater than ${p.above}`);
+            else if (p.below !== undefined && !(v < p.below)) errors.push(`${what} must be less than ${p.below}`);
+            else if (p.nonzero && v === 0) errors.push(`${what} must not be zero`);
         } else if (p.type === 'enum') {
             if (!p.values.includes(v)) errors.push(`${name} must be one of ${p.values.join(', ')}`);
         } else if (p.type === 'boolean') {
@@ -101,7 +111,7 @@ export function schema() {
         if (t.selects !== 'face') required.push(selName);
         for (const [name, p] of Object.entries(t.params)) {
             const description = p.describe + (p.unit ? `, in ${p.unit}` : '');
-            if (p.type === 'number') properties[name] = { type: 'number', description, ...(p.min !== undefined && { minimum: p.min }), ...(p.above !== undefined && { exclusiveMinimum: p.above }) };
+            if (p.type === 'number') properties[name] = { type: 'number', description, ...(p.min !== undefined && { minimum: p.min }), ...(p.above !== undefined && { exclusiveMinimum: p.above }), ...(p.below !== undefined && { exclusiveMaximum: p.below }), ...(p.nonzero && { not: { const: 0 } }) };
             else if (p.type === 'enum') properties[name] = { type: 'string', enum: p.values, description };
             else if (p.type === 'boolean') properties[name] = { type: 'boolean', description };
             else if (p.type === 'vector') properties[name] = { type: 'array', items: { type: 'number' }, minItems: 3, maxItems: 3, description };

@@ -57,7 +57,5 @@ if (!tauri) {
   root.innerHTML = '<p style="padding:24px;font-family:monospace">Run this page inside the Witness 3D app: npm run tauri dev</p>';
 } else {
   const app = await mount(root, rust);
-  // Open with a profile already on the top face, pushed in, so the first frame shows a live cut.
-  if (app.bodies[0]) { app.begin([6, 30, 2], [0, 1, 0], app.bodies[0].id); app.setDistance(-7.5); }
   window.__w3d = app;
 }

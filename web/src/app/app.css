@@ -83,17 +83,17 @@ button:focus-visible, input:focus-visible { outline: 1px solid var(--accent); ou
 .views button { padding: 4px 8px; color: var(--muted); }
 .views button:hover { color: var(--ink); }
 .views button[aria-pressed="true"] { color: var(--accent); }
-.modes { position: absolute; left: 14px; bottom: 14px; display: flex; border: 1px solid rgba(239, 235, 224, 0.35); background: var(--ground); }
+.modes { position: absolute; left: 14px; top: 44px; display: flex; border: 1px solid rgba(239, 235, 224, 0.35); background: var(--ground); }
 .modes button { padding: 5px 10px; color: var(--muted); }
 .modes button[aria-pressed="true"] { background: var(--ink); color: var(--on-accent); }
 .modes button:disabled { color: var(--dim); }
-.keys { position: absolute; right: 14px; bottom: 14px; display: grid; grid-template-columns: auto auto; gap: 5px 10px; font-size: 10px; pointer-events: none; }
+.keys { position: absolute; right: 14px; top: 44px; display: grid; grid-template-columns: auto auto; gap: 5px 10px; font-size: 10px; pointer-events: none; }
 .keys kbd { font: inherit; text-align: right; padding: 0 5px; border: 1px solid rgba(239, 235, 224, 0.6); }
 .keys span { color: var(--muted); }
 .toast { position: absolute; left: 50%; top: 12px; transform: translateX(-50%); padding: 4px 8px; border: 1px solid var(--accent); color: var(--accent); background: var(--ground); white-space: nowrap; }
 .loading { position: absolute; inset: 0; display: grid; place-items: center; background: var(--ground); color: var(--muted); }
 .loading[hidden], .toast[hidden], .snap-tag[hidden] { display: none; }
-.snap-tag { position: absolute; left: 14px; top: 40px; padding: 2px 6px; border: 1px solid var(--accent); color: var(--accent); background: var(--ground); font-size: 10px; pointer-events: none; }
+.snap-tag { position: absolute; left: 14px; top: 40px; padding: 2px 6px; border: 1px solid var(--ink); color: var(--ink); background: var(--ground); font-size: 10px; pointer-events: none; }
 .sec > .label output { color: var(--accent); margin-left: 6px; }
 
 /* right: inspector */
@@ -158,3 +158,27 @@ button:focus-visible, input:focus-visible { outline: 1px solid var(--accent); ou
 .bar .export[hidden] { display: none; }
 .keys[hidden] { display: none; }
 .sec[hidden] { display: none; }
+
+/* Plasticity's command bar, along the bottom of the viewport */
+.cmdbar { position: absolute; left: 50%; bottom: 14px; transform: translateX(-50%); display: flex; border: 1px solid rgba(239, 235, 224, 0.35); background: var(--ground); font-size: 10px; }
+.cmdbar button { padding: 6px 10px; color: var(--muted); white-space: nowrap; }
+.cmdbar button + button { border-left: 1px solid var(--rule-soft); }
+.cmdbar button:hover { color: var(--ink); background: var(--hover); }
+.cmdbar kbd { font: inherit; opacity: 0.6; margin-right: 6px; }
+
+/* box select: green touches (right to left), purple holds (left to right), as in Plasticity */
+.boxsel { position: absolute; pointer-events: none; border: 1px solid #a78bfa; background: rgba(167, 139, 250, 0.08); }
+.boxsel[data-touch="true"] { border: 1px dashed #4ade80; background: rgba(74, 222, 128, 0.08); }
+.boxsel[hidden] { display: none; }
+
+/* command palette (F) */
+.palette { position: absolute; left: 50%; top: 56px; transform: translateX(-50%); width: min(440px, calc(100% - 32px)); background: var(--raised); border: 1px solid var(--rule); box-shadow: 0 12px 40px rgba(0, 0, 0, 0.5); z-index: 5; }
+.palette[hidden] { display: none; }
+.palette-title { padding: 8px 12px; color: var(--muted); font-size: 10px; border-bottom: 1px solid var(--rule-soft); }
+.palette input { width: 100%; font: inherit; letter-spacing: 1px; text-transform: uppercase; color: var(--ink); background: var(--ground); border: 0; border-bottom: 1px solid var(--rule); padding: 10px 12px; outline: none; }
+.palette ul { list-style: none; margin: 0; padding: 4px 0; max-height: 320px; overflow: auto; }
+.palette li { display: flex; justify-content: space-between; gap: 12px; padding: 7px 12px; cursor: pointer; }
+.palette li[aria-selected="true"] { background: var(--ink); color: var(--on-accent); }
+.palette li kbd { font: inherit; opacity: 0.6; }
+.palette li.none { color: var(--dim); cursor: default; }
+@media (max-width: 900px) { .cmdbar { display: none; } }
