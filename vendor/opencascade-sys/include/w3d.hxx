@@ -15,7 +15,12 @@
 #include <BRepGProp.hxx>
 #include <BRepGProp_Face.hxx>
 #include <BRepLib.hxx>
+#include <BRepOffsetAPI_MakeOffset.hxx>
 #include <BRepOffsetAPI_MakePipeShell.hxx>
+#include <BRepPrimAPI_MakePrism.hxx>
+#include <GC_MakeArcOfCircle.hxx>
+#include <GeomAPI_Interpolate.hxx>
+#include <TColgp_HArray1OfPnt.hxx>
 #include <BRepOffsetAPI_ThruSections.hxx>
 #include <BRepOffset_MakeOffset.hxx>
 #include <BRepPrimAPI_MakeRevol.hxx>
@@ -334,8 +339,10 @@ inline rust::Vec<int32_t> w3d_result_pairs(const W3dResult &r, int32_t input, in
 
 // --- Revolve, loft, sweep and offset face --------------------------------------------------------
 // Profiles and paths arrive as plain numbers so no wire or face crosses the language boundary.
-// A section is [0, n, x, y, z, ...] (a closed polygon of n corners) or [1, cx, cy, cz, nx, ny, nz, r]
-// (a circle). A path is a section, or [2, n, x, y, z, ...] for an open polyline.
+// A section is [0, n, x, y, z, ...] (a closed polygon of n corners), [1, cx, cy, cz, nx, ny, nz, r]
+// (a circle) or [3, n, 1, x, y, z, ...] (a closed spline through n points). A path is a section,
+// [2, n, x, y, z, ...] for an open polyline, [3, n, 0, x, y, z, ...] for an open spline, or
+// [4, x, y, z, x, y, z, x, y, z] for an arc from its first point through its second to its third.
 
 inline TopoDS_Wire w3d_section(const double *&p, const double *end) {
   auto need = [&](size_t n) { if (p + n > end) throw std::runtime_error("a profile is cut short"); };
@@ -349,6 +356,27 @@ inline TopoDS_Wire w3d_section(const double *&p, const double *end) {
     p += 7;
     if (!(r > 0)) throw std::runtime_error("a circle needs a radius greater than zero");
     return BRepBuilderAPI_MakeWire(BRepBuilderAPI_MakeEdge(gp_Circ(gp_Ax2(c, n), r)).Edge()).Wire();
+  }
+  if (kind == 3) {
+    need(2);
+    int n = int(*p++);
+    bool closed = *p++ != 0;
+    need(size_t(n) * 3);
+    if (n < 2 || (closed && n < 3)) throw std::runtime_error("a curve needs more points");
+    Handle(TColgp_HArray1OfPnt) pts = new TColgp_HArray1OfPnt(1, n);
+    for (int i = 1; i <= n; i++, p += 3) pts->SetValue(i, gp_Pnt(p[0], p[1], p[2]));
+    GeomAPI_Interpolate fit(pts, closed, 1e-7);
+    fit.Perform();
+    if (!fit.IsDone()) throw std::runtime_error("no smooth curve passes through those points");
+    return BRepBuilderAPI_MakeWire(BRepBuilderAPI_MakeEdge(fit.Curve()).Edge()).Wire();
+  }
+  if (kind == 4) {
+    need(9);
+    gp_Pnt a(p[0], p[1], p[2]), b(p[3], p[4], p[5]), c(p[6], p[7], p[8]);
+    p += 9;
+    GC_MakeArcOfCircle arc(a, b, c);
+    if (!arc.IsDone()) throw std::runtime_error("the three points of an arc must not lie on a line");
+    return BRepBuilderAPI_MakeWire(BRepBuilderAPI_MakeEdge(arc.Value()).Edge()).Wire();
   }
   if (kind != 0 && kind != 2) throw std::runtime_error("unknown profile kind");
   need(1);
@@ -506,6 +534,136 @@ inline std::unique_ptr<W3dResult> w3d_offset_faces(const TopoDS_Shape &shape, ru
     };
     w3d_record(*r, 0, shape, {step});
     return r;
+  } catch (const Standard_Failure &f) {
+    throw w3d_kernel_error(f);
+  }
+}
+
+// --- Extrude with an angle, a wall thickness and a second side ----------------------------------
+// Plasticity's Extrude options: A tapers the sides by `angle` radians (positive narrows away from
+// the profile), Shift+T leaves walls `thickness` thick inside the outline, and `back` extrudes the
+// other way too (S locks it to the same distance).
+
+// The planar wire grown outwards by `d` (shrunk when negative), with sharp corners.
+inline TopoDS_Wire w3d_offset_wire(const TopoDS_Wire &w, double d) {
+  if (std::fabs(d) < 1e-12) return w;
+  TopoDS_Face face = BRepBuilderAPI_MakeFace(w, Standard_True).Face();
+  BRepOffsetAPI_MakeOffset mk(face, GeomAbs_Intersection);
+  mk.Perform(d);
+  if (!mk.IsDone()) throw std::runtime_error("the outline cannot be shrunk that far");
+  TopTools_IndexedMapOfShape wires;
+  TopExp::MapShapes(mk.Shape(), TopAbs_WIRE, wires);
+  if (wires.Extent() != 1) throw std::runtime_error("the outline cannot be shrunk that far");
+  return TopoDS::Wire(wires(1));
+}
+
+inline TopoDS_Wire w3d_moved(const TopoDS_Wire &w, const gp_Vec &v) {
+  gp_Trsf t;
+  t.SetTranslation(v);
+  return TopoDS::Wire(BRepBuilderAPI_Transform(w, t, Standard_True).Shape());
+}
+
+// The solid swept from the outline `w` along unit `n`: from `back` behind it to `d` ahead, its sides
+// leaning in by `angle` away from the outline's plane.
+inline TopoDS_Shape w3d_stack(const TopoDS_Wire &w, const gp_Vec &n, double d, double back, double angle) {
+  double sign = d < 0 ? -1 : 1;
+  if (std::fabs(angle) < 1e-12) {
+    TopoDS_Face f = BRepBuilderAPI_MakeFace(w3d_moved(w, n * (-sign * back)), Standard_True).Face();
+    BRepPrimAPI_MakePrism mk(f, n * (d + sign * back), Standard_True);
+    if (!mk.IsDone()) throw std::runtime_error("the profile could not be extruded");
+    return mk.Shape();
+  }
+  double k = std::tan(angle);
+  BRepOffsetAPI_ThruSections mk(Standard_True, Standard_True);
+  std::vector<double> at;
+  if (back > 1e-12) at.push_back(-sign * back);
+  at.push_back(0);
+  at.push_back(d);
+  for (double h : at) mk.AddWire(w3d_moved(w3d_offset_wire(w, -std::fabs(h) * k), n * h));
+  mk.Build();
+  if (!mk.IsDone()) throw std::runtime_error("the sides cannot lean that far");
+  return mk.Shape();
+}
+
+inline TopoDS_Shape w3d_extrude_base(const TopoDS_Face &base, const gp_Vec &n, double d, double back, double angle,
+                                     double thickness) {
+  if (std::fabs(d) < 1e-12 && back < 1e-12) throw std::runtime_error("the extrude has no length");
+  if (back < 0 || thickness < 0) throw std::runtime_error("distances on the far side and thicknesses are positive");
+  if (std::fabs(angle) >= M_PI / 2 - 1e-6) throw std::runtime_error("the angle must be less than 90 degrees");
+  bool plain = std::fabs(angle) < 1e-12 && thickness < 1e-12;
+  if (plain) {
+    double sign = d < 0 ? -1 : 1;
+    gp_Trsf t;
+    t.SetTranslation(n * (-sign * back));
+    TopoDS_Face f = TopoDS::Face(BRepBuilderAPI_Transform(base, t, Standard_True).Shape());
+    BRepPrimAPI_MakePrism mk(f, n * (d + sign * back), Standard_True);
+    if (!mk.IsDone()) throw std::runtime_error("the profile could not be extruded");
+    return mk.Shape();
+  }
+  TopTools_IndexedMapOfShape wires;
+  TopExp::MapShapes(base, TopAbs_WIRE, wires);
+  if (wires.Extent() != 1) throw std::runtime_error("an angle or a thickness needs a profile without holes");
+  TopoDS_Wire outer = BRepTools::OuterWire(base);
+  TopoDS_Shape solid = w3d_stack(outer, n, d, back, angle);
+  if (thickness < 1e-12) return solid;
+  TopoDS_Shape hole = w3d_stack(w3d_offset_wire(outer, -thickness), n, d, back, angle);
+  BRepAlgoAPI_Cut cut(solid, hole);
+  if (!cut.IsDone()) throw std::runtime_error("the walls could not be made that thick");
+  return cut.Shape();
+}
+
+// A profile (see w3d_section) extruded along unit `dir`.
+inline std::unique_ptr<TopoDS_Shape> w3d_extrude(rust::Slice<const double> section, rust::Slice<const double> dir,
+                                                 double distance, double back, double angle, double thickness) {
+  try {
+    if (dir.size() != 3) throw std::runtime_error("a direction is three numbers");
+    TopoDS_Wire w = w3d_one_section(section);
+    if (!w.Closed()) throw std::runtime_error("only a closed curve has a region to extrude");
+    TopoDS_Face base = BRepBuilderAPI_MakeFace(w, Standard_True).Face();
+    gp_Vec n(dir[0], dir[1], dir[2]);
+    if (n.Magnitude() < 1e-12) throw std::runtime_error("the extrude has no direction");
+    TopoDS_Shape r = w3d_extrude_base(base, n.Normalized(), distance, back, angle, thickness);
+    return std::unique_ptr<TopoDS_Shape>(new TopoDS_Shape(r));
+  } catch (const Standard_Failure &f) {
+    throw w3d_kernel_error(f);
+  }
+}
+
+// The numbered face of `shape` extruded along `dir` (its outward normal, from the caller).
+inline std::unique_ptr<TopoDS_Shape> w3d_extrude_face(const TopoDS_Shape &shape, int32_t face,
+                                                      rust::Slice<const double> dir, double distance, double back,
+                                                      double angle, double thickness) {
+  TopTools_IndexedMapOfShape map;
+  TopExp::MapShapes(shape, TopAbs_FACE, map);
+  if (face < 0 || face >= map.Extent()) throw std::out_of_range("no such face");
+  try {
+    if (dir.size() != 3) throw std::runtime_error("a direction is three numbers");
+    gp_Vec n(dir[0], dir[1], dir[2]);
+    if (n.Magnitude() < 1e-12) throw std::runtime_error("that face has no direction to extrude in");
+    TopoDS_Face base = TopoDS::Face(map(face + 1));
+    base.Orientation(TopAbs_FORWARD);
+    TopoDS_Shape r = w3d_extrude_base(base, n.Normalized(), distance, back, angle, thickness);
+    return std::unique_ptr<TopoDS_Shape>(new TopoDS_Shape(r));
+  } catch (const Standard_Failure &f) {
+    throw w3d_kernel_error(f);
+  }
+}
+
+// `n + 1` points evenly spaced in parameter along a section or path (see w3d_section), for drawing
+// curves the viewport can't compute itself, like splines.
+inline rust::Vec<double> w3d_sample(rust::Slice<const double> section, int32_t n) {
+  try {
+    if (n < 1) throw std::runtime_error("sample at least one step");
+    BRepAdaptor_CompCurve c(w3d_one_section(section));
+    rust::Vec<double> out;
+    double t0 = c.FirstParameter(), t1 = c.LastParameter();
+    for (int i = 0; i <= n; i++) {
+      gp_Pnt p = c.Value(t0 + (t1 - t0) * i / n);
+      out.push_back(p.X());
+      out.push_back(p.Y());
+      out.push_back(p.Z());
+    }
+    return out;
   } catch (const Standard_Failure &f) {
     throw w3d_kernel_error(f);
   }

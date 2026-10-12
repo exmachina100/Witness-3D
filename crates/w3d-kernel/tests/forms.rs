@@ -125,7 +125,7 @@ fn offset_face_widens_a_hole() {
                 radius: 5.0,
             },
             &ground(-1.0),
-            32.0,
+            &Extent::to(32.0),
         )
         .unwrap();
     let body = k

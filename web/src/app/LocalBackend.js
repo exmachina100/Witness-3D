@@ -5,7 +5,7 @@ import * as THREE from 'three';
 import { ExtrudeFactory } from '../ExtrudeFactory.js';
 import { NoOpError } from '../GeometryFactory.js';
 import { blendEdges, booleanWithHistory, box, count, exportSTEP, facePlane, numberedEdges, oc, tessellate, transform, volume } from '../Kernel.js';
-import { loft, offsetFlatFaces, revolve, sweep } from '../Forms.js';
+import { loft, offsetFlatFaces, regionFace, revolve, splineSamples, sweep } from '../Forms.js';
 
 const v3 = a => new THREE.Vector3(...a);
 
@@ -23,7 +23,8 @@ export class LocalBackend {
         this.redoStack = [];
         this.pending = null;
         this.running = false;
-        // Drawn curves by id: { origin, x, normal, kind: 'polyline' | 'circle', points, closed, center, radius }.
+        // Drawn curves by id: { origin, x, normal, kind: 'polyline' | 'circle' | 'spline' | 'arc', points,
+        // closed, center, radius, start, mid, end }.
         this.curveMap = new Map();
         this.nextCurve = 1;
         // The product-enclosure blank, in millimetres, as on the desktop.
@@ -70,9 +71,8 @@ export class LocalBackend {
         if (req.region !== undefined && req.region !== null) {
             const c = this.curveMap.get(req.region);
             if (!c) throw new Error('that curve no longer exists');
-            const shape = regionShape(c);
-            if (!shape) throw new Error('only a closed curve has a region to extrude');
-            f.profile = shape;
+            if (!isClosed(c)) throw new Error('only a closed curve has a region to extrude');
+            f.baseFace = regionFace(c);
             f.origin.copy(v3(c.origin)); f.normal.copy(v3(c.normal)); f.xAxis.copy(v3(c.x));
         } else if (req.face !== undefined && req.face !== null) {
             f.face = req.face;
@@ -86,15 +86,16 @@ export class LocalBackend {
             f.xAxis.copy(v3(req.xAxis));
         }
         f.distance = req.distance;
+        Object.assign(f, { back: req.back ?? 0, angle: req.angle ?? 0, thickness: req.thickness ?? 0 });
         f.target = req.target ?? undefined;
-        f.operation = req.newBody || req.op === 'new' ? 'new' : ({ union: 'union', difference: 'difference', intersect: 'intersection' })[req.op] ?? 'auto';
-        const [r] = await f.calculate();
-        const outcome = r.replaces === undefined ? 'new' : ({ union: 'join', difference: 'cut', intersection: 'intersect' })[f.operationType];
-        return { f, r, outcome };
+        f.operation = req.newBody || req.op === 'new' ? 'new' : ({ union: 'union', difference: 'difference', intersect: 'intersection', slice: 'slice' })[req.op] ?? 'auto';
+        const [r, piece] = await f.calculate();
+        const outcome = r.replaces === undefined ? 'new' : ({ union: 'join', difference: 'cut', intersection: 'intersect', slice: 'slice' })[f.operationType];
+        return { f, r, piece, outcome };
     }
 
     /** Drawn curves, as { id, ...curve }. */
-    curves() { return [...this.curveMap].map(([id, c]) => ({ id, ...structuredClone(c) })) }
+    curves() { return [...this.curveMap].map(([id, c]) => ({ id, ...structuredClone(c), ...(c.kind === 'spline' && { samples: splineSamples(c) }) })) }
 
     /** Add drawn curves, as one undo step. */
     async addCurves(list) {
@@ -221,8 +222,8 @@ export class LocalBackend {
     preview(req) {
         return this.latest(async () => {
             try {
-                const { f, r, outcome } = await this.run(req);
-                return { outcome, tool: this.body(0, f.tool()), result: r.replaces === undefined ? null : this.body(r.replaces, r.shape) };
+                const { f, r, piece, outcome } = await this.run(req);
+                return { outcome, tool: this.body(0, f.tool()), result: r.replaces === undefined ? null : this.body(r.replaces, r.shape), ...(piece && { piece: this.body(this.nextId, piece.shape) }) };
             } catch (e) {
                 if (e instanceof NoOpError) return { outcome: 'none', tool: null, result: null };
                 throw e;
@@ -311,10 +312,11 @@ export class LocalBackend {
     }
 
     async commit(req) {
-        const { r } = await this.run(req);
+        const { r, piece } = await this.run(req);
         this.checkpoint();
         const id = r.replaces ?? this.nextId++;
         this.put(id, r.shape, r.history);
+        if (piece) this.put(this.nextId++, piece.shape);
         return { id, scene: this.bodies() };
     }
 
@@ -337,14 +339,8 @@ export class LocalBackend {
     }
 }
 
-/** A closed curve's region as a THREE.Shape in its plane, or null for an open curve. */
-function regionShape(c) {
-    if (c.kind === 'circle') return new THREE.Shape().absarc(c.center[0], c.center[1], c.radius, 0, Math.PI * 2, false);
-    if (!c.closed || c.points.length < 3) return null;
-    const s = new THREE.Shape().moveTo(...c.points[0]);
-    for (const p of c.points.slice(1)) s.lineTo(...p);
-    return s.closePath();
-}
+/** Whether the curve encloses a region. */
+const isClosed = c => c.kind === 'circle' || (['polyline', 'spline'].includes(c.kind) && c.closed && c.points.length >= 3);
 
 function checkCurve(c) {
     const finite = a => Array.isArray(a) && a.every(Number.isFinite);
@@ -354,7 +350,15 @@ function checkCurve(c) {
     else if (c.kind === 'polyline') {
         if (!Array.isArray(c.points) || c.points.length < 2 || (c.closed && c.points.length < 3)) throw new Error('a line needs two points, a closed one three');
         if (!c.points.every(finite)) throw new Error('a point is not a number');
-    } else throw new Error('a curve is a polyline or a circle');
+    } else if (c.kind === 'spline') {
+        if (!Array.isArray(c.points) || c.points.length < 2 || (c.closed && c.points.length < 3)) throw new Error('a curve needs two points, a closed one three');
+        if (!c.points.every(finite)) throw new Error('a point is not a number');
+        if (c.points.some((p, i) => i > 0 && Math.hypot(p[0] - c.points[i - 1][0], p[1] - c.points[i - 1][1]) < 1e-6)) throw new Error('two points of the curve are in the same place');
+    } else if (c.kind === 'arc') {
+        if (![c.start, c.mid, c.end].every(finite)) throw new Error('a point is not a number');
+        const cross = (c.mid[0] - c.start[0]) * (c.end[1] - c.start[1]) - (c.mid[1] - c.start[1]) * (c.end[0] - c.start[0]);
+        if (Math.abs(cross) < 1e-9) throw new Error('the three points of an arc must not lie on a line');
+    } else throw new Error('a curve is a line, circle, spline or arc');
 }
 
 /** The history of doing `a` then `b`, for the body being changed (input 0). */

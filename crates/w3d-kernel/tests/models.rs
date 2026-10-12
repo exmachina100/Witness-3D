@@ -106,6 +106,9 @@ fn a_boss_joined_by_push_pull_can_be_rounded_where_it_meets_the_body() {
         profile: Profile::Circle { center: (0.0, 0.0), radius: 8.0 },
         frame: Frame::new(DVec3::new(0.0, 30.0, 0.0), DVec3::X, DVec3::Y),
         distance: 10.0,
+        back: 0.0,
+        angle: 0.0,
+        thickness: 0.0,
         operation: Operation::Auto,
         face: None,
     };
@@ -199,6 +202,9 @@ fn refs_follow_faces_and_edges_through_a_join() {
         profile: Profile::Circle { center: (0.0, 0.0), radius: 8.0 },
         frame: Frame::new(DVec3::new(0.0, 30.0, 0.0), DVec3::X, DVec3::Y),
         distance: 10.0,
+        back: 0.0,
+        angle: 0.0,
+        thickness: 0.0,
         operation: Operation::Auto,
         face: None,
     }).unwrap();
@@ -371,7 +377,7 @@ fn a_face_extrudes_along_its_normal() {
     let a = doc.add(enclosure(&doc.kernel));
     let t = doc.kernel.tessellate(doc.get(a).unwrap(), 0.01).unwrap();
     let top = t.face_planes.iter().position(|p| p.is_some_and(|p| p.normal.y > 0.99)).unwrap() as u32;
-    let p = ExtrudeParams { profile: Profile::rectangle(1.0, 1.0), frame: Frame::new(DVec3::ZERO, DVec3::X, DVec3::Y), distance: 10.0, operation: Operation::Auto, face: Some(top) };
+    let p = ExtrudeParams { profile: Profile::rectangle(1.0, 1.0), frame: Frame::new(DVec3::ZERO, DVec3::X, DVec3::Y), distance: 10.0, back: 0.0, angle: 0.0, thickness: 0.0, operation: Operation::Auto, face: Some(top) };
     doc.commit_extrude(Some(a), &p).unwrap();
     close(volume(&doc.kernel, doc.get(a).unwrap()), 80.0 * 40.0 * 50.0, 1e-3);
     let p = ExtrudeParams { distance: -10.0, ..p };

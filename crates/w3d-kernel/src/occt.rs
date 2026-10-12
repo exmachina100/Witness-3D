@@ -6,7 +6,7 @@ use std::path::Path as FilePath;
 use glam::DVec3;
 use opencascade::primitives::{BooleanKind, Edge, Face, Shape, ShapeHistory, ShapeType, Wire};
 
-use crate::{Blend, BooleanOp, Frame, History, Kernel, KernelError, Motion, Path, Plane, Profile, Tessellation, Traced};
+use crate::{Blend, BooleanOp, Extent, Frame, History, Kernel, KernelError, Motion, Path, Plane, Profile, Tessellation, Traced};
 
 pub struct Occt;
 
@@ -48,6 +48,12 @@ fn section(profile: &Profile, frame: &Frame) -> Result<Vec<f64>, KernelError> {
             for p in pts { v.extend(frame.point(*p).to_array()) }
             v
         }
+        Profile::Spline(pts) => {
+            if pts.len() < 3 { return Err(KernelError::Invalid("a closed curve needs three points")) }
+            let mut v = vec![3.0, pts.len() as f64, 1.0];
+            for p in pts { v.extend(frame.point(*p).to_array()) }
+            v
+        }
     })
 }
 
@@ -63,6 +69,13 @@ fn path_numbers(path: &Path) -> Result<Vec<f64>, KernelError> {
             for p in points { v.extend(p.to_array()) }
             v
         }
+        Path::Spline { points, closed } => {
+            if points.len() < 2 { return Err(KernelError::Invalid("a path needs two points")) }
+            let mut v = vec![3.0, points.len() as f64, if *closed { 1.0 } else { 0.0 }];
+            for p in points { v.extend(p.to_array()) }
+            v
+        }
+        Path::Arc { start, mid, end } => [4.0].into_iter().chain([start, mid, end].into_iter().flat_map(|p| p.to_array())).collect(),
     })
 }
 
@@ -90,30 +103,39 @@ impl Kernel for Occt {
         Shape::box_from_corners(a, b)
     }
 
-    fn extrude(&self, profile: &Profile, frame: &Frame, distance: f64) -> Result<Shape, KernelError> {
-        let wire = match profile {
-            Profile::Circle { center, radius } => {
-                if *radius <= 0.0 { return Err(KernelError::Invalid("radius must be positive")) }
-                Wire::from_edges([&Edge::circle(frame.point(*center), frame.normal, *radius)])
-            }
-            Profile::Polygon(pts) => {
-                if pts.len() < 3 { return Err(KernelError::Invalid("a polygon needs three corners")) }
-                let corners: Vec<DVec3> = pts.iter().map(|p| frame.point(*p)).collect();
-                let edges: Vec<Edge> = (0..corners.len())
-                    .map(|i| Edge::segment(corners[i], corners[(i + 1) % corners.len()]))
-                    .collect();
-                Wire::from_edges(&edges)
-            }
-        };
-        let solid = Face::from_wire(&wire).extrude(frame.normal * distance);
-        Ok(Shape::from(solid))
+    fn extrude(&self, profile: &Profile, frame: &Frame, e: &Extent) -> Result<Shape, KernelError> {
+        if let (true, Profile::Circle { .. } | Profile::Polygon(_)) = (e.is_plain(), profile) {
+            let wire = match profile {
+                Profile::Circle { center, radius } => {
+                    if *radius <= 0.0 { return Err(KernelError::Invalid("radius must be positive")) }
+                    Wire::from_edges([&Edge::circle(frame.point(*center), frame.normal, *radius)])
+                }
+                Profile::Polygon(pts) => {
+                    if pts.len() < 3 { return Err(KernelError::Invalid("a polygon needs three corners")) }
+                    let corners: Vec<DVec3> = pts.iter().map(|p| frame.point(*p)).collect();
+                    let edges: Vec<Edge> = (0..corners.len())
+                        .map(|i| Edge::segment(corners[i], corners[(i + 1) % corners.len()]))
+                        .collect();
+                    Wire::from_edges(&edges)
+                }
+                Profile::Spline(_) => unreachable!(),
+            };
+            return Ok(Shape::from(Face::from_wire(&wire).extrude(frame.normal * e.distance)));
+        }
+        let n = frame.normal.normalize().to_array();
+        Shape::extrude_section(&section(profile, frame)?, n, e.distance, e.back, e.angle, e.thickness).map_err(shim)
     }
 
-    fn extrude_face(&self, s: &Shape, face: u32, distance: f64) -> Result<Shape, KernelError> {
+    fn sample(&self, path: &Path, n: usize) -> Result<Vec<DVec3>, KernelError> {
+        Shape::sample_section(&path_numbers(path)?, n).map_err(shim)
+    }
+
+    fn extrude_face(&self, s: &Shape, face: u32, e: &Extent) -> Result<Shape, KernelError> {
         let f = s.face_at(face as usize).ok_or(KernelError::Invalid("that face no longer exists"))?;
         let normal = f.normal_at_center();
         if !normal.is_finite() || normal.length() < 0.5 { return Err(KernelError::Invalid("that face has no direction to extrude in")) }
-        Ok(Shape::from(f.extrude(normal.normalize() * distance)))
+        if e.is_plain() { return Ok(Shape::from(f.extrude(normal.normalize() * e.distance))) }
+        s.extrude_face_shaped(face as usize, normal.normalize().to_array(), e.distance, e.back, e.angle, e.thickness).map_err(shim)
     }
 
     fn boolean(&self, a: &Shape, b: &Shape, op: BooleanOp) -> Result<Traced<Shape>, KernelError> {

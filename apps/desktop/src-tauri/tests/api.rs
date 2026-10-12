@@ -15,6 +15,9 @@ fn on_top(target: Option<u32>, distance: f64) -> ExtrudeRequest {
         distance,
         new_body: false,
         op: OpChoice::Auto,
+        back: 0.0,
+        angle: 0.0,
+        thickness: 0.0,
     }
 }
 
@@ -225,4 +228,33 @@ fn boolean_cuts_the_target_with_a_duplicate_and_removes_it() {
     close(c.scene[0].volume, 60_000.0);
     let bad: BooleanRequest = serde_json::from_str(r#"{"target":1,"tools":[1],"op":"union"}"#).unwrap();
     assert!(api::commit_boolean(&m, bad).is_err());
+}
+
+#[test]
+fn splines_come_with_samples_and_extrudes_take_their_options_from_json() {
+    let m = api::start();
+    let curves: Vec<w3d_kernel::Curve> = serde_json::from_str(r#"[
+        {"origin":[0,30,0],"x":[1,0,0],"normal":[0,1,0],"kind":"polyline","points":[[-10,-5],[10,-5],[10,5],[-10,5]],"closed":true},
+        {"origin":[0,30,0],"x":[1,0,0],"normal":[0,1,0],"kind":"spline","points":[[20,0],[30,0],[30,10]],"closed":false},
+        {"origin":[0,30,0],"x":[1,0,0],"normal":[0,1,0],"kind":"arc","start":[0,0],"mid":[5,5],"end":[10,0]}]"#).unwrap();
+    let ids = api::add_curves(&m, curves).unwrap().ids;
+    let out = api::curves(&m);
+    let json = serde_json::to_value(&out).unwrap();
+    assert!(json[0].get("samples").is_none() && json[2].get("samples").is_none());
+    let samples = json[1]["samples"].as_array().unwrap();
+    assert_eq!(samples.len(), 65);
+    close(samples[64][0].as_f64().unwrap(), 30.0);
+    close(samples[64][1].as_f64().unwrap(), 10.0);
+    // Angle (radians), thickness and both sides, as the viewport sends them.
+    let req: ExtrudeRequest = serde_json::from_str(&format!(r#"{{"target":1,"region":{},"distance":5,"back":5,"thickness":1,"op":"new"}}"#, ids[0])).unwrap();
+    let p = api::preview(&m, req).unwrap().unwrap();
+    close(p.tool.unwrap().volume, (200.0 - 18.0 * 8.0) * 10.0);
+    // Shift+Q: the body cut in two, the piece shown before it is made.
+    let req: ExtrudeRequest = serde_json::from_str(&format!(r#"{{"target":1,"region":{},"distance":-30,"op":"slice"}}"#, ids[0])).unwrap();
+    let p = api::preview(&m, req.clone()).unwrap().unwrap();
+    assert!(matches!(p.outcome, Outcome::Slice));
+    close(p.piece.unwrap().volume, 6_000.0);
+    let c = api::commit(&m, req).unwrap();
+    assert_eq!(c.scene.len(), 2);
+    close(c.scene[0].volume, 114_000.0);
 }

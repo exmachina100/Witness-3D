@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { GeometryFactory, NoOpError, ValidationError } from './GeometryFactory.js';
-import { booleanWithHistory, count, extrudeFace, makeProfileFace, prism, volume } from './Kernel.js';
+import { booleanWithHistory, count, extrudeFace, makeProfileFace, volume } from './Kernel.js';
+import { faceBase, shapedExtrude } from './Forms.js';
 
 // Push/pull extrude that becomes a boolean when it meets a body, modeled on Plasticity's
 // PossiblyBooleanExtrudeFactory (src/commands/extrude/ExtrudeFactory.ts). Positive distance
@@ -23,6 +24,13 @@ export class ExtrudeFactory extends GeometryFactory {
         this.operation = 'auto';
         /** @type {number | undefined} extrude this face of the target instead of the profile */
         this.face = undefined;
+        /** An exact face to extrude instead of `profile` (a drawn region). */
+        this.baseFace = undefined;
+        /** Plasticity's Extrude options: the other way as well (S), the sides' lean in radians (A)
+         * and a wall thickness (Shift+T). */
+        this.back = 0;
+        this.angle = 0;
+        this.thickness = 0;
         this.isOverlapping = false;
     }
 
@@ -38,12 +46,18 @@ export class ExtrudeFactory extends GeometryFactory {
         return this.distance > 0 ? 'union' : 'difference';
     }
 
+    get plain() { return Math.abs(this.back) < 1e-12 && Math.abs(this.angle) < 1e-12 && Math.abs(this.thickness) < 1e-12 }
+
     tool() {
-        if (Math.abs(this.distance) < 1e-6) throw new NoOpError();
-        if (this.face !== undefined) return extrudeFace(this.doc.shape(this.target), this.face, this.distance);
-        if (!this.profile) throw new ValidationError("No profile to extrude");
-        const face = makeProfileFace(this.profile, this.frame);
-        return prism(face, this.normal.clone().normalize().multiplyScalar(this.distance));
+        if (Math.abs(this.distance) < 1e-6 && Math.abs(this.back) < 1e-6) throw new NoOpError();
+        const shaped = (face, n) => shapedExtrude(face, n, this.distance, this.back, this.angle, this.thickness);
+        if (this.face !== undefined) {
+            if (this.plain) return extrudeFace(this.doc.shape(this.target), this.face, this.distance);
+            const { face, normal } = faceBase(this.doc.shape(this.target), this.face);
+            return shaped(face, normal);
+        }
+        if (!this.baseFace && !this.profile) throw new ValidationError("No profile to extrude");
+        return shaped(this.baseFace ?? makeProfileFace(this.profile, this.frame), this.normal.clone().normalize());
     }
 
     async calculate() {
@@ -55,6 +69,14 @@ export class ExtrudeFactory extends GeometryFactory {
             return [{ shape: tool }];
         }
 
+        if (op === 'slice') {
+            // Plasticity's Shift+Q: the body cut in two along the tool; the part inside is a new body.
+            const { shape: rest, history } = booleanWithHistory(body, tool, 'difference');
+            const piece = booleanWithHistory(body, tool, 'intersection').shape;
+            this.isOverlapping = volume(piece) > 1e-9 && volume(rest) > 1e-9;
+            if (!this.isOverlapping) throw new ValidationError("the slice does not cut through the body");
+            return [{ shape: rest, replaces: this.target, history }, { shape: piece }];
+        }
         const { shape: result, history } = booleanWithHistory(body, tool, op);
         // Touching or overlapping fuses into one solid; a cut that removes nothing missed the body.
         this.isOverlapping = op === 'union'
@@ -72,6 +94,6 @@ export class ExtrudeFactory extends GeometryFactory {
         if (this.target === undefined || this.operation === 'new') return [];
         let tool;
         try { tool = this.tool() } catch { return [] }
-        return [{ shape: tool, kind: this.operationType === 'difference' ? 'cut' : 'add' }];
+        return [{ shape: tool, kind: ['difference', 'slice'].includes(this.operationType) ? 'cut' : 'add' }];
     }
 }

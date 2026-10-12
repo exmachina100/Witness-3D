@@ -12,8 +12,8 @@ struct NoKernel;
 impl Kernel for NoKernel {
     type Solid = ();
     fn box_from_corners(&self, _: DVec3, _: DVec3) {}
-    fn extrude(&self, _: &Profile, _: &Frame, _: f64) -> Result<(), KernelError> { Ok(()) }
-    fn extrude_face(&self, _: &(), _: u32, _: f64) -> Result<(), KernelError> { Ok(()) }
+    fn extrude(&self, _: &Profile, _: &Frame, _: &w3d_kernel::Extent) -> Result<(), KernelError> { Ok(()) }
+    fn extrude_face(&self, _: &(), _: u32, _: &w3d_kernel::Extent) -> Result<(), KernelError> { Ok(()) }
     fn boolean(&self, _: &(), _: &(), _: BooleanOp) -> Result<Traced<()>, KernelError> { Ok(Traced { solid: (), history: History::default() }) }
     fn solid_count(&self, _: &()) -> usize { 1 }
     fn face_count(&self, _: &()) -> usize { 6 }

@@ -2,6 +2,7 @@
 //! failure instead of aborting, a validity check, and BREP text I/O. See vendor/README.md.
 
 use super::{Edge, Face, Shape};
+use glam::DVec3;
 use opencascade_sys as ffi;
 
 /// Why a fillet or chamfer failed: the edges the kernel could not blend (by number, possibly
@@ -152,6 +153,25 @@ impl Shape {
     }
 
     /// The numbered faces moved `distance` along their normals, neighbours following, with history.
+    /// The profile extruded along `dir` by `distance`, and `back` the other way; its sides lean in
+    /// by `angle` radians and `thickness` leaves walls instead of a filled solid.
+    pub fn extrude_section(section: &[f64], dir: [f64; 3], distance: f64, back: f64, angle: f64, thickness: f64) -> Result<Shape, String> {
+        let s = ffi::w3d::w3d_extrude(section, &dir, distance, back, angle, thickness).map_err(reason)?;
+        Ok(Shape::from_shape(&s))
+    }
+
+    /// The numbered face extruded along `dir`, with the options of [`Shape::extrude_section`].
+    pub fn extrude_face_shaped(&self, face: usize, dir: [f64; 3], distance: f64, back: f64, angle: f64, thickness: f64) -> Result<Shape, String> {
+        let s = ffi::w3d::w3d_extrude_face(&self.inner, face as i32, &dir, distance, back, angle, thickness).map_err(reason)?;
+        Ok(Shape::from_shape(&s))
+    }
+
+    /// `n + 1` points along a profile or path, evenly spaced in its parameter.
+    pub fn sample_section(section: &[f64], n: usize) -> Result<Vec<DVec3>, String> {
+        let v = ffi::w3d::w3d_sample(section, n as i32).map_err(reason)?;
+        Ok(v.chunks_exact(3).map(|p| DVec3::new(p[0], p[1], p[2])).collect())
+    }
+
     pub fn offset_faces_with_history(&self, faces: &[usize], distance: f64) -> Result<(Shape, ShapeHistory), String> {
         let ids: Vec<i32> = faces.iter().map(|&f| f as i32).collect();
         let r = ffi::w3d::w3d_offset_faces(&self.inner, &ids, distance).map_err(reason)?;

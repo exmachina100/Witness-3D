@@ -58,6 +58,7 @@ import { TOOLS, check, tool as toolInfo, withDefaults } from './tools.js';
 import { ACTIONS, COMMAND, VIEWPORT, keyFor, keyOf } from './keymap.js';
 import { Selection } from './Selection.js';
 import { claude, describe, MODEL, reply, request } from './ai.js';
+import { arcPoints, circleThrough, polygonCorners } from '../curves.js';
 
 const KEYS = {
   idle: [['CLICK', 'SELECT'], ['⇧ CLICK', 'ADD'], ['CTRL CLICK', 'REMOVE'], ['DRAG', 'BOX'], ['MMB', 'ORBIT'], ['RMB', 'PAN'], ['F', 'SEARCH']],
@@ -65,7 +66,7 @@ const KEYS = {
   move: [['X Y Z', 'AXIS'], ['⇧ X Y Z', 'PLANE'], ['G', 'SCREEN'], ['CTRL', 'SNAP'], ['⏎ / RMB', 'OK']],
   rotate: [['X Y Z', 'AXIS'], ['R', 'SCREEN'], ['CTRL', '15°'], ['⏎ / RMB', 'OK']],
   scale: [['S', 'UNIFORM'], ['CTRL', '0.1'], ['⏎ / RMB', 'OK']],
-  extrude: [['DRAG DOT', 'DISTANCE'], ['D', 'DISTANCE'], ['Q', 'UNION'], ['W', 'DIFFERENCE'], ['⇧E', 'INTERSECT'], ['B', 'NEW BODY'], ['⏎ / RMB', 'OK']],
+  extrude: [['DRAG DOT', 'DISTANCE'], ['D', 'DISTANCE'], ['A', 'ANGLE'], ['⇧T', 'THICKNESS'], ['S', 'BOTH SIDES'], ['Q', 'UNION'], ['W', 'DIFFERENCE'], ['⇧E', 'INTERSECT'], ['⇧Q', 'SLICE'], ['B', 'NEW BODY'], ['⏎ / RMB', 'OK']],
   boolean: [['Q', 'UNION'], ['W', 'DIFFERENCE'], ['⇧E', 'INTERSECT'], ['T', 'KEEP TOOLS'], ['⏎ / RMB', 'OK']],
   offset: [['DRAG DOT', 'DISTANCE'], ['D', 'DISTANCE'], ['⇧ CLICK', 'FACES'], ['⏎ / RMB', 'OK']],
   revolve: [['CLICK', 'AXIS START · END'], ['A', 'ANGLE'], ['Q', 'UNION'], ['W', 'DIFFERENCE'], ['⇧E', 'INTERSECT'], ['B', 'NEW BODY'], ['⏎ / RMB', 'OK']],
@@ -74,10 +75,24 @@ const KEYS = {
   rect: [['CLICK', 'CORNERS'], ['S', 'SQUARE'], ['C', 'FROM CENTRE'], ['TAB', 'TYPE SIZE'], ['ALT', 'NO SNAP'], ['ESC', 'CANCEL']],
   circle: [['CLICK', 'CENTRE · RADIUS'], ['TAB', 'TYPE DIAMETER'], ['ALT', 'NO SNAP'], ['ESC', 'CANCEL']],
   line: [['CLICK', 'POINTS'], ['CLICK START', 'CLOSE'], ['CTRL Z', 'BACK'], ['TAB', 'TYPE LENGTH'], ['⏎ / RMB', 'DONE']],
+  'center-rect': [['CLICK', 'CENTRE · CORNER'], ['S', 'SQUARE'], ['TAB', 'TYPE SIZE'], ['ALT', 'NO SNAP'], ['ESC', 'CANCEL']],
+  rect3: [['CLICK', 'SIDE · WIDTH'], ['TAB', 'TYPE SIZE'], ['ALT', 'NO SNAP'], ['ESC', 'CANCEL']],
+  circle2: [['CLICK', 'TWO ENDS'], ['TAB', 'TYPE DIAMETER'], ['ALT', 'NO SNAP'], ['ESC', 'CANCEL']],
+  circle3: [['CLICK', 'THREE POINTS'], ['ALT', 'NO SNAP'], ['ESC', 'CANCEL']],
+  arc3: [['CLICK', 'START · END · ON ARC'], ['ALT', 'NO SNAP'], ['ESC', 'CANCEL']],
+  arc: [['CLICK', 'CENTRE · START · END'], ['TAB', 'RADIUS · ANGLE'], ['ALT', 'NO SNAP'], ['ESC', 'CANCEL']],
+  polygon: [['CLICK', 'CENTRE · SIZE'], ['↑ ↓', 'SIDES'], ['⇧ WHEEL', 'SIDES'], ['C', 'CIRCUMSCRIBED'], ['TAB', 'TYPE RADIUS'], ['ESC', 'CANCEL']],
+  spline: [['CLICK', 'POINTS'], ['CLICK START', 'CLOSE'], ['CTRL Z', 'BACK'], ['⏎ / RMB', 'DONE']],
   pushpull: [['CLICK', 'PLACE'], ['DRAG DOT', 'DISTANCE'], ['Q', 'JOIN'], ['W', 'CUT'], ['B', 'NEW'], ['R C', 'SHAPE'], ['⏎ / RMB', 'OK']],
 };
 // Drawing commands: Plasticity's curve tools, which end in curves and the regions inside them.
-const DRAW = { rect: 'RECTANGLE', circle: 'CIRCLE', line: 'LINE' };
+const DRAW = {
+  rect: 'RECTANGLE', circle: 'CIRCLE', line: 'LINE', 'center-rect': 'CENTER RECTANGLE', rect3: 'THREE POINT RECTANGLE',
+  circle2: 'TWO POINT CIRCLE', circle3: 'THREE POINT CIRCLE', arc3: 'THREE POINT ARC', arc: 'CENTER POINT ARC',
+  polygon: 'REGULAR POLYGON', spline: 'SPLINE CURVE',
+};
+// Clicks that finish each drawing; lines and splines go on until closed or finished.
+const CLICKS = { rect: 2, 'center-rect': 2, rect3: 3, circle: 2, circle2: 2, circle3: 3, arc3: 3, arc: 3, polygon: 2 };
 // Commands that grow a solid from drawn regions, sharing one panel.
 const FORMS = { revolve: true, loft: true, sweep: true };
 const keysHtml = id => KEYS[id].map(([k, v]) => `<kbd>${k}</kbd><span>${v}</span>`).join('');
@@ -166,16 +181,26 @@ const SHELL = `
         <button data-draw="square" aria-pressed="false"><kbd>S</kbd>SQUARE</button>
         <button data-draw="centre" aria-pressed="false"><kbd>C</kbd>FROM CENTRE</button>
       </div>
+      <div class="chips" data-id="draw-polygon" hidden>
+        <span class="field"><label>SIDES</label><output data-id="draw-sides">6</output></span>
+        <button data-draw="fewer" aria-pressed="false"><kbd>↓</kbd>FEWER</button>
+        <button data-draw="more" aria-pressed="false"><kbd>↑</kbd>MORE</button>
+        <button data-draw="circumscribed" aria-pressed="false"><kbd>C</kbd>CIRCUMSCRIBED</button>
+      </div>
     </div>
     <div class="sec" data-panel="extrude" hidden>
       <span class="hint" data-id="ex-hint">DRAG THE DOT, OR D AND TYPE</span>
       <div class="field"><label for="w3d-ex-distance">DISTANCE</label><input id="w3d-ex-distance" data-id="ex-distance" type="number" step="2.5" value="0"></div>
+      <div class="field"><label for="w3d-ex-angle">ANGLE °</label><input id="w3d-ex-angle" data-id="ex-angle" type="number" step="1" value="0"></div>
+      <div class="field"><label for="w3d-ex-thickness">THICKNESS</label><input id="w3d-ex-thickness" data-id="ex-thickness" type="number" step="0.5" min="0" value="0"></div>
+      <div class="chips"><button data-id="ex-lock" aria-pressed="false"><kbd>S</kbd>BOTH SIDES</button></div>
       <div class="field"><label>RESULT</label><output data-id="ex-outcome">—</output></div>
       <span class="label">OPERATION</span>
-      <div class="seg" role="group" aria-label="Extrude operation">
+      <div class="seg wrap" role="group" aria-label="Extrude operation">
         <button data-xop="union" aria-pressed="false"><kbd>Q</kbd>UNION</button>
         <button data-xop="difference" aria-pressed="false"><kbd>W</kbd>DIFF</button>
         <button data-xop="intersect" aria-pressed="false"><kbd>⇧E</kbd>INTER</button>
+        <button data-xop="slice" aria-pressed="false"><kbd>⇧Q</kbd>SLICE</button>
         <button data-xop="new" aria-pressed="false"><kbd>B</kbd>NEW</button>
       </div>
     </div>
@@ -344,6 +369,13 @@ export async function mount(root, backend) {
   viewEl.addEventListener('pointerdown', e => {
     if (e.button === 1) controls.mouseButtons.MIDDLE = (e.ctrlKey || e.metaKey) ? THREE.MOUSE.DOLLY : THREE.MOUSE.ROTATE;
   }, true);
+  // Regular Polygon: Shift+wheel adds or takes away a side instead of zooming.
+  viewEl.addEventListener('wheel', e => {
+    if (cmd?.id !== 'polygon' || !e.shiftKey) return;
+    e.preventDefault();
+    e.stopImmediatePropagation();
+    setSides(cmd.sides + (e.deltaY < 0 || e.deltaX < 0 ? 1 : -1));
+  }, { capture: true, passive: false });
   scene.add(new THREE.HemisphereLight(0xffffff, 0x202024, 1.4));
   const keyLight = new THREE.DirectionalLight(0xffffff, 1.6);
   keyLight.position.set(5, 10, 7);
@@ -479,11 +511,19 @@ export async function mount(root, backend) {
     return { o: new THREE.Vector3(...c.origin), x, y: new THREE.Vector3().crossVectors(n, x), n };
   }
   const lift = (f, p, h = 0) => f.o.clone().addScaledVector(f.x, p.x).addScaledVector(f.y, p.y).addScaledVector(f.n, h);
-  const curve2d = c => c.kind === 'circle'
-    ? new THREE.Path().absarc(c.center[0], c.center[1], c.radius, 0, Math.PI * 2).getPoints(96).slice(0, -1)
+  const curve2d = c => c.kind === 'circle' ? new THREE.Path().absarc(c.center[0], c.center[1], c.radius, 0, Math.PI * 2).getPoints(96).slice(0, -1)
+    : c.kind === 'arc' ? (arcPoints(c.start, c.mid, c.end, 48) ?? [c.start, c.end]).map(p => new THREE.Vector2(...p))
+    : c.kind === 'spline' ? (c.samples ?? splinePreview(c.points, c.closed)).slice(0, c.closed ? -1 : undefined).map(p => new THREE.Vector2(...p))
     : c.points.map(p => new THREE.Vector2(...p));
-  const isClosed = c => c.kind === 'circle' || (c.closed && c.points.length >= 3);
-  const curveName = c => c.kind === 'circle' ? 'CIRCLE' : !c.closed ? 'LINE' : c.points.length === 4 ? 'RECTANGLE' : 'POLYGON';
+  const isClosed = c => c.kind === 'circle' || (c.kind !== 'arc' && c.closed && c.points.length >= 3);
+  const curveName = c => ({ circle: 'CIRCLE', arc: 'ARC', spline: 'SPLINE' })[c.kind] ?? (!c.closed ? 'LINE' : c.points.length === 4 ? 'RECTANGLE' : 'POLYGON');
+  /** A spline through the points for drawing before the kernel has made it (the kernel's own fit
+   * is close to this chordal Catmull-Rom curve, not the same). */
+  function splinePreview(points, closed) {
+    if (points.length < 2) return points;
+    const c = new THREE.CatmullRomCurve3(points.map(([u, v]) => new THREE.Vector3(u, v, 0)), closed, 'chordal');
+    return c.getPoints(16 * points.length).map(p => [p.x, p.y]);
+  }
   async function loadCurves() {
     curveList = backend.curves ? await backend.curves() : [];
     sel.keepCurves(curveList.map(c => c.id));
@@ -517,8 +557,8 @@ export async function mount(root, backend) {
   function regionCentre(c) {
     const f = curveFrame(c);
     if (c.kind === 'circle') return lift(f, new THREE.Vector2(...c.center));
-    // The area centroid of the polygon.
-    const p = c.points;
+    // The area centroid of the outline.
+    const p = curve2d(c).map(q => [q.x, q.y]);
     let a = 0, cx = 0, cy = 0;
     for (let i = 0; i < p.length; i++) {
       const [x0, y0] = p[i], [x1, y1] = p[(i + 1) % p.length], w = x0 * y1 - x1 * y0;
@@ -1615,11 +1655,12 @@ export async function mount(root, backend) {
   scene.add(drawPreview);
 
   function startDraw(kind) {
-    const c = cmd = { id: kind, plane: null, pts: [], cursor: null, square: false, centre: false, entry: null };
+    const c = cmd = { id: kind, plane: null, pts: [], cursor: null, square: false, centre: kind === 'center-rect', entry: null, sides: polygonSides, circumscribed: false, sweep: 0, turn: null };
     lastTool = kind;
     showTool(kind);
     setState('none');
-    $('draw-rect').hidden = kind !== 'rect';
+    $('draw-rect').hidden = kind !== 'rect' && kind !== 'center-rect';
+    $('draw-polygon').hidden = kind !== 'polygon';
     for (const b of $$('[data-draw]')) b.setAttribute('aria-pressed', false);
     c.move = e => {
       const p = drawPoint(e);
@@ -1645,6 +1686,13 @@ export async function mount(root, backend) {
         drawShape();
         return true;
       }
+      if (action === 'more' || action === 'fewer') { setSides(c.sides + (action === 'more' ? 1 : -1)); return true; }
+      if (action === 'circumscribed') {
+        c.circumscribed = !c.circumscribed;
+        $('draw-polygon').querySelector('[data-draw="circumscribed"]').setAttribute('aria-pressed', c.circumscribed);
+        drawShape();
+        return true;
+      }
       if (action === 'typed') { typeSize(); return true; }
       return false;
     };
@@ -1652,6 +1700,16 @@ export async function mount(root, backend) {
     c.finish = () => finishDraw();
     c.abort = () => endCmd('cancelled');
     c.cleanup = () => { drawPreview.visible = false; };
+    drawShape();
+  }
+
+  // Regular Polygon remembers its number of sides, as in Plasticity.
+  let polygonSides = 6;
+  function setSides(n) {
+    const c = cmd;
+    if (c?.id !== 'polygon') return;
+    c.sides = polygonSides = Math.max(3, Math.min(64, n));
+    $('draw-sides').textContent = c.sides;
     drawShape();
   }
 
@@ -1685,31 +1743,91 @@ export async function mount(root, backend) {
     return [[a.x, a.y], [a.x + dx, a.y], [a.x + dx, a.y + dy], [a.x, a.y + dy]];
   }
 
+  /**
+   * What the drawing would be with `pts` (the clicks so far plus the cursor): the points to show,
+   * its size for the readout, and the curve once there are enough points (or an error).
+   */
+  function drawn(c, pts) {
+    const P = pts.map(p => [p.x, p.y]), [a, b, q] = P, n = P.length;
+    const d = (p, r) => Math.hypot(r[0] - p[0], r[1] - p[1]);
+    const ring = (o, r) => new THREE.Path().absarc(o[0], o[1], r, 0, Math.PI * 2).getPoints(96).map(p => [p.x, p.y]);
+    const line = () => ({ show: P, size: `L ${d(a, b).toFixed(2)}` });
+    switch (c.id) {
+      case 'rect': case 'center-rect': {
+        const k = rectCorners(pts[0], pts[1]), w = Math.abs(k[1][0] - k[0][0]), h = Math.abs(k[2][1] - k[1][1]);
+        return { show: [...k, k[0]], size: `${w.toFixed(2)} × ${h.toFixed(2)}`, curve: w > 1e-6 && h > 1e-6 ? { kind: 'polyline', points: k, closed: true } : 'THE RECTANGLE NEEDS A WIDTH AND A HEIGHT', text: `RECTANGLE ${w.toFixed(2)} × ${h.toFixed(2)}` };
+      }
+      case 'rect3': {
+        if (n < 3) return line();
+        const ux = (b[0] - a[0]) / d(a, b), uy = (b[1] - a[1]) / d(a, b), w = (q[0] - a[0]) * -uy + (q[1] - a[1]) * ux;
+        const k = [a, b, [b[0] - uy * w, b[1] + ux * w], [a[0] - uy * w, a[1] + ux * w]];
+        return { show: [...k, k[0]], size: `${d(a, b).toFixed(2)} × ${Math.abs(w).toFixed(2)}`, curve: d(a, b) > 1e-6 && Math.abs(w) > 1e-6 ? { kind: 'polyline', points: k, closed: true } : 'THE RECTANGLE NEEDS A WIDTH AND A HEIGHT', text: `RECTANGLE ${d(a, b).toFixed(2)} × ${Math.abs(w).toFixed(2)}` };
+      }
+      case 'circle': case 'circle2': {
+        const o = c.id === 'circle' ? a : [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2], r = c.id === 'circle' ? d(a, b) : d(a, b) / 2;
+        return { show: ring(o, r), size: `⌀ ${(2 * r).toFixed(2)}`, curve: r > 1e-6 ? { kind: 'circle', center: o, radius: r } : 'THE CIRCLE NEEDS A RADIUS', text: `CIRCLE ⌀ ${(2 * r).toFixed(2)}` };
+      }
+      case 'circle3': {
+        if (n < 3) return line();
+        const t = circleThrough(a, b, q);
+        if (!t) return { show: P, size: '—', curve: 'THE THREE POINTS MUST NOT LIE ON A LINE' };
+        return { show: ring(t.center, t.radius), size: `⌀ ${(2 * t.radius).toFixed(2)}`, curve: { kind: 'circle', center: t.center, radius: t.radius }, text: `CIRCLE ⌀ ${(2 * t.radius).toFixed(2)}` };
+      }
+      case 'arc3': {
+        if (n < 3) return line();
+        const show = arcPoints(a, q, b, 48), t = circleThrough(a, q, b);
+        if (!show) return { show: P, size: '—', curve: 'THE THREE POINTS OF AN ARC MUST NOT LIE ON A LINE' };
+        return { show, size: `R ${t.radius.toFixed(2)}`, curve: { kind: 'arc', start: a, mid: q, end: b }, text: `ARC R ${t.radius.toFixed(2)}` };
+      }
+      case 'arc': {
+        if (n < 3) return { show: [a, b, ...ring(a, d(a, b))], size: `R ${d(a, b).toFixed(2)}` };
+        const r = d(a, b), t0 = Math.atan2(b[1] - a[1], b[0] - a[0]), sw = c.sweep;
+        const at = t => [a[0] + r * Math.cos(t0 + t), a[1] + r * Math.sin(t0 + t)];
+        const show = Array.from({ length: 49 }, (_, i) => at(sw * i / 48));
+        return { show, size: `R ${r.toFixed(2)} · ${(sw / DEG).toFixed(1)}°`, curve: r > 1e-6 && Math.abs(sw) > 1e-6 ? { kind: 'arc', start: at(0), mid: at(sw / 2), end: at(sw) } : 'THE ARC NEEDS A RADIUS AND AN ANGLE', text: `ARC R ${r.toFixed(2)} ${(sw / DEG).toFixed(1)}°` };
+      }
+      case 'polygon': {
+        const k = polygonCorners(a, b, c.sides, c.circumscribed);
+        return { show: [...k, k[0]], size: `${c.sides} · R ${d(a, b).toFixed(2)}`, curve: d(a, b) > 1e-6 ? { kind: 'polyline', points: k, closed: true } : 'THE POLYGON NEEDS A SIZE', text: `POLYGON ×${c.sides} R ${d(a, b).toFixed(2)}` };
+      }
+      case 'spline':
+        return { show: splinePreview(P, false), size: `×${c.pts.length}` };
+      default:
+        return { show: P, size: `L ${d(P.at(-2), P.at(-1)).toFixed(2)}` };
+    }
+  }
+
+  /** Center Point Arc: the angle swept so far, following the cursor round either way. */
+  function trackSweep(c) {
+    if (c.id !== 'arc' || c.pts.length < 2 || !c.cursor?.uv) return;
+    const [a] = c.pts, u = c.cursor.uv, t = Math.atan2(u.y - a.y, u.x - a.x);
+    if (c.turn !== null) {
+      let dt = t - c.turn;
+      while (dt > Math.PI) dt -= 2 * Math.PI;
+      while (dt <= -Math.PI) dt += 2 * Math.PI;
+      c.sweep = Math.max(-2 * Math.PI + 1e-3, Math.min(2 * Math.PI - 1e-3, c.sweep + dt));
+    }
+    c.turn = t;
+  }
+
   function drawShape() {
     const c = cmd, f = c.plane;
     $('draw-points').textContent = c.pts.length;
+    const need = CLICKS[c.id], left = need ? need - c.pts.length : 0;
     $('draw-hint').textContent = !f ? 'CLICK A FACE OR THE CONSTRUCTION PLANE'
-      : c.id === 'rect' ? 'CLICK THE OTHER CORNER · TAB TYPES'
+      : c.id === 'rect' || c.id === 'center-rect' ? 'CLICK THE OTHER CORNER · TAB TYPES'
       : c.id === 'circle' ? 'CLICK FOR THE RADIUS · TAB TYPES'
+      : c.id === 'polygon' ? 'CLICK FOR THE SIZE · ↑ ↓ SIDES · TAB TYPES'
+      : c.id === 'arc' ? (left === 2 ? 'CLICK THE START · TAB TYPES THE RADIUS' : 'CLICK THE END · TAB TYPES THE ANGLE')
+      : c.id === 'arc3' ? (left === 2 ? 'CLICK THE END' : 'CLICK A POINT ON THE ARC')
+      : need ? `CLICK ${left} MORE`
       : 'CLICK THE NEXT POINT · CLICK THE FIRST TO CLOSE';
     if (!f || !c.cursor?.uv) { drawPreview.visible = false; $('draw-size').textContent = '—'; return setHud(`${DRAW[c.id]} · CLICK TO START`); }
     setTarget(f.target ? label(f.target) : cplane.name);
-    const a = c.pts[0], b = c.cursor.uv;
-    let pts, size;
-    if (c.id === 'rect') {
-      const k = rectCorners(a, b);
-      pts = [...k, k[0]];
-      size = `${Math.abs(k[1][0] - k[0][0]).toFixed(2)} × ${Math.abs(k[2][1] - k[1][1]).toFixed(2)}`;
-    } else if (c.id === 'circle') {
-      const r = b.distanceTo(a);
-      pts = new THREE.Path().absarc(a.x, a.y, r, 0, Math.PI * 2).getPoints(96).map(p => [p.x, p.y]);
-      size = `⌀ ${(2 * r).toFixed(2)}`;
-    } else {
-      pts = [...c.pts.map(p => [p.x, p.y]), [b.x, b.y]];
-      size = `L ${b.distanceTo(c.pts.at(-1)).toFixed(2)}`;
-    }
+    trackSweep(c);
+    const { show, size } = drawn(c, [...c.pts, c.cursor.uv]);
     drawPreview.geometry.dispose();
-    drawPreview.geometry = new THREE.BufferGeometry().setFromPoints(pts.map(([u, v]) => lift(f, { x: u, y: v }, 0.03)));
+    drawPreview.geometry = new THREE.BufferGeometry().setFromPoints(show.map(([u, v]) => lift(f, { x: u, y: v }, 0.03)));
     drawPreview.visible = true;
     $('draw-size').textContent = size;
     setHud(size);
@@ -1724,9 +1842,15 @@ export async function mount(root, backend) {
       return drawShape();
     }
     const a = c.pts[0], b = p.uv;
-    if (c.id === 'rect') return commitRect(a, b);
-    if (c.id === 'circle') return commitCircle(b.distanceTo(a));
-    // A line closes on its first point (within the snap distance on screen).
+    const need = CLICKS[c.id];
+    if (need) {
+      if (b.distanceTo(c.pts.at(-1)) < 1e-6) return;
+      c.cursor = p;
+      trackSweep(c);
+      if (c.pts.length + 1 < need) { c.pts.push(b.clone()); if (c.id === 'arc') { c.sweep = 0; c.turn = null; } return drawShape(); }
+      return commitDrawn([...c.pts, b]);
+    }
+    // A line or spline closes on its first point (within the snap distance on screen).
     if (c.pts.length >= 3) {
       const s = screenOf(lift(c.plane, a)), q = local(e);
       if (Math.hypot(s.x - q.x, s.y - q.y) < SNAP_PX) return commitLine(true);
@@ -1741,13 +1865,34 @@ export async function mount(root, backend) {
     if (!c.plane) return toast('CLICK TO PLACE THE FIRST POINT, THEN TAB');
     const a = c.pts[0], b = c.cursor?.uv ?? a.clone().add(new THREE.Vector2(1, 1));
     const sx = Math.sign(b.x - a.x) || 1, sy = Math.sign(b.y - a.y) || 1;
-    if (c.id === 'rect') {
+    const dir = b.clone().sub(c.pts.at(-1));
+    if (dir.lengthSq() < 1e-12) dir.set(1, 0);
+    dir.normalize();
+    const along = l => c.pts.at(-1).clone().addScaledVector(dir, l);
+    if (c.id === 'rect' || c.id === 'center-rect') {
       const half = c.centre ? 0.5 : 1;
       c.entry = { label: 'WIDTH', text: '', apply: w => {
         c.entry = { label: 'HEIGHT', text: '', apply: h => commitRect(a, new THREE.Vector2(a.x + sx * Math.abs(w) * half, a.y + sy * Math.abs(h) * half)) };
       } };
     } else if (c.id === 'circle') {
       c.entry = { label: 'DIAMETER', text: '', apply: d => commitCircle(Math.abs(d) / 2) };
+    } else if (c.id === 'circle2') {
+      c.entry = { label: 'DIAMETER', text: '', apply: d => commitDrawn([a, along(Math.abs(d))]) };
+    } else if (c.id === 'polygon') {
+      c.entry = { label: 'RADIUS', text: '', apply: r => commitDrawn([a, along(Math.abs(r))]) };
+    } else if (c.id === 'rect3') {
+      const width = () => { c.entry = { label: 'WIDTH', text: '', apply: w => {
+        const [p, q] = c.pts, side = q.clone().sub(p).normalize();
+        const cur = c.cursor?.uv ?? q, s = Math.sign((cur.x - p.x) * -side.y + (cur.y - p.y) * side.x) || 1;
+        commitDrawn([p, q, q.clone().add(new THREE.Vector2(-side.y, side.x).multiplyScalar(s * Math.abs(w)))]);
+      } }; };
+      if (c.pts.length === 1) c.entry = { label: 'LENGTH', text: '', apply: l => { c.pts.push(along(Math.abs(l))); width(); } };
+      else width();
+    } else if (c.id === 'arc') {
+      if (c.pts.length === 1) c.entry = { label: 'RADIUS', text: '', apply: r => { c.pts.push(along(Math.abs(r))); c.sweep = 0; c.turn = null; } };
+      else c.entry = { label: 'ANGLE °', text: '', apply: v => { c.sweep = Math.max(-359.9, Math.min(359.9, v)) * DEG; commitDrawn([...c.pts, c.pts[1]]); } };
+    } else if (CLICKS[c.id] || c.id === 'spline') {
+      return toast('CLICK THE POINTS');
     } else {
       const last = c.pts.at(-1), dir = b.clone().sub(last);
       if (dir.lengthSq() < 1e-12) dir.set(1, 0);
@@ -1771,12 +1916,19 @@ export async function mount(root, backend) {
     return commitCurve(curveOf({ kind: 'circle', center: [cmd.pts[0].x, cmd.pts[0].y], radius: r }), `CIRCLE ⌀ ${(2 * r).toFixed(2)}`);
   }
   function commitLine(closed) {
-    const c = cmd;
-    return commitCurve(curveOf({ kind: 'polyline', points: c.pts.map(p => [p.x, p.y]), closed }), `${closed ? 'POLYGON' : 'LINE'} ×${c.pts.length}`);
+    const c = cmd, points = c.pts.map(p => [p.x, p.y]);
+    if (c.id === 'spline') return commitCurve(curveOf({ kind: 'spline', points, closed }), `SPLINE ×${c.pts.length}${closed ? ' CLOSED' : ''}`);
+    return commitCurve(curveOf({ kind: 'polyline', points, closed }), `${closed ? 'POLYGON' : 'LINE'} ×${c.pts.length}`);
+  }
+  /** Finish a drawing with a fixed number of clicks, from all of them. */
+  function commitDrawn(pts) {
+    const d = drawn(cmd, pts);
+    if (typeof d.curve === 'string') { cmd.pts = pts.slice(0, -1); drawShape(); return toast(d.curve); }
+    return commitCurve(curveOf(d.curve), d.text);
   }
   async function finishDraw() {
     const c = cmd;
-    if (c.id === 'line' && c.pts.length >= 2) return commitLine(false);
+    if ((c.id === 'line' || c.id === 'spline') && c.pts.length >= 2) return commitLine(false);
     endCmd(c.plane ? 'cancelled' : null);
   }
   async function commitCurve(curve, text) {
@@ -1794,7 +1946,7 @@ export async function mount(root, backend) {
   // regions) or a flat face, and press E. Drag the dot or press D and type. It joins the body it
   // sits on going out and cuts going in; Q union, W difference and Shift+E intersect force the
   // boolean, B makes a new body. Enter, right-click or OK finishes and selects the result.
-  const XOPS = ['union', 'difference', 'intersect', 'new'];
+  const XOPS = ['union', 'difference', 'intersect', 'slice', 'new'];
   /** What E acts on: the last selected region or flat face, as { region | face, at, normal, target }. */
   function extrudeSource() {
     const it = sel.list().filter(i => i.kind === 'region' || i.kind === 'face').at(-1);
@@ -1824,13 +1976,15 @@ export async function mount(root, backend) {
       if (!auto) toast(src?.curved ? 'EXTRUDE A FLAT FACE OR A REGION' : 'SELECT A REGION OR A FLAT FACE TO EXTRUDE');
       return;
     }
-    const c = cmd = { id: 'extrude', auto, src, distance: 0, op: 'auto', outcome: null, sent: 0, shown: 0, gizmo: null };
+    const c = cmd = { id: 'extrude', auto, src, distance: 0, angle: 0, thickness: 0, lock: false, op: 'auto', outcome: null, sent: 0, shown: 0, gizmo: null, entry: null };
     lastTool = 'extrude';
     showTool('extrude');
     setState('none');
     setTarget(src.target ? label(src.target) : 'NEW BODY');
     $('ex-hint').textContent = `${src.name}${src.target ? ` ON ${label(src.target)}` : ''}`;
     $('ex-distance').value = 0;
+    $('ex-angle').value = 0;
+    $('ex-thickness').value = 0;
     $('ex-outcome').textContent = '—';
     setExtrudeOps();
     c.gizmo = dot(src.at, src.normal, d => setExtrude(snapping(lastPointer) ? Math.round(d / gridStep()) * gridStep() : d));
@@ -1844,6 +1998,19 @@ export async function mount(root, backend) {
     };
     c.key = action => {
       if (action === 'distance') { c.auto = false; c.gizmo.activate(lastPointer); return true; }
+      // A and Shift+T take a typed value, as the dialog's Degrees and Thickness do.
+      if (action === 'angle') {
+        c.auto = false;
+        c.entry = { label: 'ANGLE °', text: '', apply: v => setExtrudeShape({ angle: v }) };
+        setHud('ANGLE ° _');
+        return true;
+      }
+      if (action === 'thickness') {
+        c.entry = { label: 'THICKNESS', text: '', apply: v => setExtrudeShape({ thickness: Math.abs(v) }) };
+        setHud('THICKNESS _');
+        return true;
+      }
+      if (action === 'lock') { setExtrudeShape({ lock: !c.lock }); return true; }
       if (!XOPS.includes(action)) return false;
       c.auto = false;
       c.op = c.op === action ? 'auto' : action;
@@ -1851,12 +2018,28 @@ export async function mount(root, backend) {
       if (c.distance) previewExtrude();
       return true;
     };
+    c.entryDone = () => { if (!c.entry) previewExtrude(); };
     c.finish = () => commitExtrude();
     c.abort = () => endCmd('cancelled');
     c.cleanup = () => { c.gizmo?.dispose(); clearPreview(); };
-    setHud(auto ? 'DRAG THE DOT · E EXTRUDE' : 'DRAG THE DOT · D · Q W ⇧E B');
+    setHud(auto ? 'DRAG THE DOT · E EXTRUDE' : 'DRAG THE DOT · D · A ⇧T S · Q W ⇧E ⇧Q B');
   }
-  function setExtrudeOps() { for (const b of $$('[data-xop]')) b.setAttribute('aria-pressed', cmd?.id === 'extrude' && cmd.op === b.dataset.xop); }
+  function setExtrudeOps() {
+    for (const b of $$('[data-xop]')) b.setAttribute('aria-pressed', cmd?.id === 'extrude' && cmd.op === b.dataset.xop);
+    $('ex-lock').setAttribute('aria-pressed', cmd?.id === 'extrude' && cmd.lock);
+  }
+  /** Change the angle (degrees), thickness or both-sides lock, and preview again. */
+  function setExtrudeShape(v) {
+    const c = cmd;
+    if (c?.id !== 'extrude') return;
+    if (v.angle !== undefined && !(Math.abs(v.angle) < 90)) return toast('THE ANGLE MUST BE LESS THAN 90°');
+    Object.assign(c, v);
+    c.auto = false;
+    if (document.activeElement !== $('ex-angle')) $('ex-angle').value = c.angle;
+    if (document.activeElement !== $('ex-thickness')) $('ex-thickness').value = c.thickness;
+    setExtrudeOps();
+    if (c.distance) previewExtrude();
+  }
   function setExtrude(d, fromGizmo = true) {
     const c = cmd;
     if (c?.id !== 'extrude') return;
@@ -1866,7 +2049,10 @@ export async function mount(root, backend) {
     if (document.activeElement !== $('ex-distance')) $('ex-distance').value = +d.toFixed(3);
     previewExtrude();
   }
-  const extrudeRequest = c => ({ target: c.src.target, ...(c.src.region !== undefined ? { region: c.src.region } : { face: c.src.face }), distance: c.distance, op: c.op });
+  const extrudeRequest = c => ({
+    target: c.src.target, ...(c.src.region !== undefined ? { region: c.src.region } : { face: c.src.face }), distance: c.distance, op: c.op,
+    back: c.lock ? Math.abs(c.distance) : 0, angle: c.angle * DEG, thickness: c.thickness,
+  });
   async function previewExtrude() {
     const c = cmd;
     const n = ++c.sent;
@@ -1889,11 +2075,13 @@ export async function mount(root, backend) {
     clearPreview();
     if (p.result) showPreviewBody(p.result);
     if (p.tool) {
-      const look = phantom[p.outcome === 'cut' ? 'cut' : 'add'];
+      const look = phantom[p.outcome === 'cut' || p.outcome === 'slice' ? 'cut' : 'add'];
       const m = meshOf(p.tool, look.face, look.edge);
       m.renderOrder = 5;
       previewGroup.add(m);
     }
+    // A slice's cut-off part shows as the new body it will be.
+    if (p.piece) { const m = meshOf(p.piece, phantom.add.face, phantom.add.edge); m.renderOrder = 6; previewGroup.add(m); }
     $('ex-outcome').textContent = p.outcome.toUpperCase();
     setHud(`${fmt(c.distance)} ${p.outcome === 'none' ? '' : p.outcome.toUpperCase()}`.trim());
     if (n === c.sent) setState('updated');
@@ -1905,7 +2093,8 @@ export async function mount(root, backend) {
     try {
       const { id, scene: list } = await backend.commit(req);
       endCmd('committed');
-      record(`EXTRUDE ${fmt(req.distance)}${req.op === 'auto' ? '' : ` ${req.op.toUpperCase()}`}`, id);
+      const extra = [c.lock && 'BOTH SIDES', c.angle && `${c.angle}°`, c.thickness && `T ${c.thickness}`].filter(Boolean).join(' ');
+      record(`EXTRUDE ${fmt(req.distance)}${extra ? ` ${extra}` : ''}${req.op === 'auto' ? '' : ` ${req.op.toUpperCase()}`}`, id);
       await showScene(list);
       sel.replace({ kind: 'solid', body: id });
       selectionChanged({ quiet: true });
@@ -2671,9 +2860,12 @@ export async function mount(root, backend) {
   $('blend-angle').addEventListener('input', e => { const v = parseFloat(e.target.value); if (cmd?.id === 'fillet' && v > 0 && v < 90) { cmd.angle = v; previewFillet(); } });
   $('ex-distance').addEventListener('input', e => { const v = parseFloat(e.target.value); if (!isNaN(v) && cmd?.id === 'extrude') { cmd.auto = false; setExtrude(v, false); } });
   for (const b of $$('[data-xop]')) b.onclick = () => cmd?.id === 'extrude' && cmd.key(b.dataset.xop);
+  $('ex-lock').onclick = () => cmd?.id === 'extrude' && cmd.key('lock');
+  $('ex-angle').addEventListener('input', e => { const v = parseFloat(e.target.value); if (!isNaN(v)) setExtrudeShape({ angle: v }); });
+  $('ex-thickness').addEventListener('input', e => { const v = parseFloat(e.target.value); if (!isNaN(v) && v >= 0) setExtrudeShape({ thickness: v }); });
   for (const b of $$('[data-bop]')) b.onclick = () => cmd?.id === 'boolean' && cmd.key(b.dataset.bop);
   $('bool-keep').onclick = () => cmd?.id === 'boolean' && cmd.key('keep');
-  for (const b of $$('[data-draw]')) b.onclick = () => cmd?.id === 'rect' && cmd.key(b.dataset.draw);
+  for (const b of $$('[data-draw]')) b.onclick = () => DRAW[cmd?.id] && cmd.key(b.dataset.draw);
   $('commit').onclick = () => finish();
   $('cancel').onclick = () => abort();
   $('undo').onclick = () => step('undo');
@@ -2873,6 +3065,8 @@ export async function mount(root, backend) {
         await startTool('extrude');
         if (cmd?.id !== 'extrude') throw new Error('that face is not flat');
         if (p.op !== 'auto') cmd.key(p.op);
+        Object.assign(cmd, { angle: p.angle, thickness: p.thickness, lock: p.bothSides });
+        setExtrudeShape({});
         setExtrude(p.distance, false);
       } else if (id === 'boolean') {
         selectSolids([target, ...(tools ?? [])]);
@@ -2928,7 +3122,7 @@ export async function mount(root, backend) {
       if (c.id === 'fillet') Object.assign(out, { body: c.body, edges: c.edges, value: c.value, angle: c.angle, max: c.bad !== null ? c.good : null });
       if (c.tc) Object.assign(out, { bodies: c.ids, offset: toUser(c.offset.toArray()), angle: angleAbout(c.quat, c.axis), axis: c.axis, scale: c.scale, follow: c.follow?.name ?? null });
       if (c.id === 'pushpull') Object.assign(out, { placed: !!c.at, distance: c.distance });
-      if (c.id === 'extrude') Object.assign(out, { region: c.src.region ?? null, face: c.src.face ?? null, target: c.src.target, distance: c.distance, op: c.op, outcome: c.outcome });
+      if (c.id === 'extrude') Object.assign(out, { region: c.src.region ?? null, face: c.src.face ?? null, target: c.src.target, distance: c.distance, op: c.op, outcome: c.outcome, angle: c.angle, thickness: c.thickness, lock: c.lock });
       if (c.id === 'boolean') Object.assign(out, { target: c.target, tools: c.tools, op: c.op, keep: c.keep });
       if (c.id === 'offset') Object.assign(out, { body: c.body, faces: c.faces, distance: c.distance });
       if (FORMS[c.id]) Object.assign(out, { regions: c.regions, target: c.target, op: c.op, outcome: c.outcome, axis: c.p1 && c.p2 ? [c.p1.toArray(), c.p2.toArray()] : null, angle: c.angle, path: c.path, twist: c.twist, scale: c.scale });

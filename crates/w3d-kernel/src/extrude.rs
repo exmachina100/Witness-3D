@@ -2,7 +2,7 @@
 //! `PossiblyBooleanExtrudeFactory` (src/commands/extrude/ExtrudeFactory.ts:115-117, :150):
 //! pulling out of a face joins, pushing in cuts, and an extrude that touches nothing is a new body.
 
-use crate::{BooleanOp, Frame, History, Kernel, KernelError, Profile};
+use crate::{BooleanOp, Extent, Frame, History, Kernel, KernelError, Profile};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Operation {
@@ -15,6 +15,8 @@ pub enum Operation {
     Union,
     Difference,
     Intersect,
+    /// Plasticity's Shift+Q: cut the body in two along the tool; the part inside becomes a new body.
+    Slice,
 }
 
 #[derive(Clone, Debug)]
@@ -22,17 +24,33 @@ pub struct ExtrudeParams {
     pub profile: Profile,
     pub frame: Frame,
     pub distance: f64,
+    /// The other way as well (S locks it to `distance`).
+    pub back: f64,
+    /// Radians the sides lean in (A).
+    pub angle: f64,
+    /// Wall thickness, zero for a filled solid (Shift+T).
+    pub thickness: f64,
     pub operation: Operation,
     /// Extrude this face of the target along its normal instead of `profile` (Plasticity's
     /// Extrude on a face). `frame` and `profile` are then unused.
     pub face: Option<u32>,
 }
 
+impl ExtrudeParams {
+    pub fn extent(&self) -> Extent { Extent { distance: self.distance, back: self.back, angle: self.angle, thickness: self.thickness } }
+}
+
 /// The extruded shape on its own, before any boolean.
 pub fn tool<K: Kernel>(k: &K, target: Option<&K::Solid>, p: &ExtrudeParams) -> Result<K::Solid, KernelError> {
+    let e = p.extent();
+    if !e.distance.is_finite() || !e.back.is_finite() || !e.angle.is_finite() || !e.thickness.is_finite() {
+        return Err(KernelError::Invalid("a distance is not a number"));
+    }
+    if e.back < 0.0 || e.thickness < 0.0 { return Err(KernelError::Invalid("the far side and the thickness can't be negative")) }
+    if e.angle.abs() >= std::f64::consts::FRAC_PI_2 - 1e-6 { return Err(KernelError::Invalid("the angle must be less than 90 degrees")) }
     match p.face {
-        Some(face) => k.extrude_face(target.ok_or(KernelError::Invalid("that body no longer exists"))?, face, p.distance),
-        None => k.extrude(&p.profile, &p.frame, p.distance),
+        Some(face) => k.extrude_face(target.ok_or(KernelError::Invalid("that body no longer exists"))?, face, &e),
+        None => k.extrude(&p.profile, &p.frame, &e),
     }
 }
 
@@ -42,10 +60,12 @@ pub enum ExtrudeResult<S> {
     Replace { solid: S, op: BooleanOp, history: History },
     /// A separate new body.
     New(S),
+    /// The target cut in two: `solid` replaces it, `piece` (the part inside the tool) is a new body.
+    Slice { solid: S, history: History, piece: S },
 }
 
 pub fn extrude<K: Kernel>(k: &K, target: Option<&K::Solid>, p: &ExtrudeParams) -> Result<ExtrudeResult<K::Solid>, KernelError> {
-    if p.distance.abs() < 1e-9 {
+    if p.distance.abs() < 1e-9 && p.back.abs() < 1e-9 {
         return Err(KernelError::NoOp);
     }
     let tool = tool(k, target, p)?;
@@ -60,10 +80,19 @@ pub fn combine<K: Kernel>(k: &K, target: Option<&K::Solid>, tool: K::Solid, oper
         return Ok(ExtrudeResult::New(tool));
     };
 
+    if operation == Operation::Slice {
+        let crate::Traced { solid, history } = k.boolean(body, &tool, BooleanOp::Difference)?;
+        let piece = k.boolean(body, &tool, BooleanOp::Intersection)?.solid;
+        if k.solid_count(&solid) == 0 || k.solid_count(&piece) == 0 || k.face_count(&piece) == 0 {
+            return Err(KernelError::Invalid("the slice does not cut through the body"));
+        }
+        return Ok(ExtrudeResult::Slice { solid, history, piece });
+    }
     let op = match operation {
         Operation::Union => BooleanOp::Union,
         Operation::Difference => BooleanOp::Difference,
         Operation::Intersect => BooleanOp::Intersection,
+        Operation::Slice => unreachable!(),
         _ if outward => BooleanOp::Union,
         _ => BooleanOp::Difference,
     };

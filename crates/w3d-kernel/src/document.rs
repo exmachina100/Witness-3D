@@ -75,6 +75,10 @@ pub struct Curve {
 pub enum CurveShape {
     Polyline { points: Vec<[f64; 2]>, closed: bool },
     Circle { center: [f64; 2], radius: f64 },
+    /// A smooth curve through the points (Plasticity's Spline Curve).
+    Spline { points: Vec<[f64; 2]>, closed: bool },
+    /// A circular arc from `start` through `mid` to `end` (Three Point and Center Point Arc).
+    Arc { start: [f64; 2], mid: [f64; 2], end: [f64; 2] },
 }
 
 impl Curve {
@@ -85,6 +89,7 @@ impl Curve {
         match &self.shape {
             CurveShape::Polyline { points, closed: true } if points.len() >= 3 => Some(Profile::Polygon(points.iter().map(|p| (p[0], p[1])).collect())),
             CurveShape::Circle { center, radius } => Some(Profile::Circle { center: (center[0], center[1]), radius: *radius }),
+            CurveShape::Spline { points, closed: true } if points.len() >= 3 => Some(Profile::Spline(points.iter().map(|p| (p[0], p[1])).collect())),
             _ => None,
         }
     }
@@ -95,6 +100,8 @@ impl Curve {
         match &self.shape {
             CurveShape::Polyline { points, closed } => Path::Polyline { points: points.iter().map(|p| f.point((p[0], p[1]))).collect(), closed: *closed },
             CurveShape::Circle { center, radius } => Path::Circle { center: f.point((center[0], center[1])), normal: f.normal, radius: *radius },
+            CurveShape::Spline { points, closed } => Path::Spline { points: points.iter().map(|p| f.point((p[0], p[1]))).collect(), closed: *closed },
+            CurveShape::Arc { start, mid, end } => Path::Arc { start: f.point((start[0], start[1])), mid: f.point((mid[0], mid[1])), end: f.point((end[0], end[1])) },
         }
     }
 
@@ -110,6 +117,16 @@ impl Curve {
             }
             CurveShape::Circle { center, radius } => {
                 if !finite(center) || !(*radius > 0.0) || !radius.is_finite() { return Err(KernelError::Invalid("the circle's radius must be greater than zero")) }
+            }
+            CurveShape::Spline { points, closed } => {
+                if points.len() < 2 || (*closed && points.len() < 3) { return Err(KernelError::Invalid("a curve needs two points, a closed one three")) }
+                if !points.iter().all(|p| finite(p)) { return Err(KernelError::Invalid("a point is not a number")) }
+                if points.windows(2).any(|w| (w[0][0] - w[1][0]).hypot(w[0][1] - w[1][1]) < 1e-6) { return Err(KernelError::Invalid("two points of the curve are in the same place")) }
+            }
+            CurveShape::Arc { start, mid, end } => {
+                if !finite(start) || !finite(mid) || !finite(end) { return Err(KernelError::Invalid("a point is not a number")) }
+                let cross = (mid[0] - start[0]) * (end[1] - start[1]) - (mid[1] - start[1]) * (end[0] - start[0]);
+                if cross.abs() < 1e-9 { return Err(KernelError::Invalid("the three points of an arc must not lie on a line")) }
             }
         }
         Ok(())
@@ -383,6 +400,16 @@ impl<K: Kernel> Document<K> {
                 self.replace_traced(id, Traced { solid, history });
                 id
             }
+            ExtrudeResult::Slice { solid, history, piece } => {
+                let id = target.expect("a slice always has a target");
+                self.checkpoint();
+                self.replace_traced(id, Traced { solid, history });
+                let new = self.state.next_id;
+                self.state.next_id += 1;
+                let refs = self.new_refs(&piece);
+                self.state.bodies.insert(new, Rc::new(Body { solid: piece, refs }));
+                id
+            }
         }
     }
 
@@ -438,7 +465,7 @@ impl<K: Kernel> Document<K> {
     pub fn region_params(&self, curve: CurveId, distance: f64, operation: crate::Operation) -> Result<ExtrudeParams, KernelError> {
         let c = self.curve(curve).ok_or(KernelError::Invalid("that curve no longer exists"))?;
         let profile = c.profile().ok_or(KernelError::Invalid("only a closed curve has a region to extrude"))?;
-        Ok(ExtrudeParams { profile, frame: c.frame(), distance, operation, face: None })
+        Ok(ExtrudeParams { profile, frame: c.frame(), distance, back: 0.0, angle: 0.0, thickness: 0.0, operation, face: None })
     }
 
     pub fn undo(&mut self) -> bool {

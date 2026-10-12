@@ -29,7 +29,10 @@ export const TOOLS = [
         summary: 'Pull the region inside a closed curve, or a flat face, into a solid; it joins or cuts the body it sits on.',
         params: {
             distance: { type: 'number', unit: 'mm', nonzero: true, default: 10, describe: 'how far to extrude along the normal; negative goes the other way' },
-            op: { type: 'enum', values: ['auto', 'union', 'difference', 'intersect', 'new'], default: 'auto', describe: 'auto joins pulling out and cuts pushing in; or force a boolean, or make a new body' },
+            op: { type: 'enum', values: ['auto', 'union', 'difference', 'intersect', 'slice', 'new'], default: 'auto', describe: 'auto joins pulling out and cuts pushing in; or force a boolean, slice the body in two, or make a new body' },
+            angle: { type: 'number', unit: 'deg', above: -90, below: 90, default: 0, describe: 'how far the sides lean in going away from the profile (draft); negative leans out' },
+            thickness: { type: 'number', unit: 'mm', min: 0, default: 0, describe: 'leave walls this thick inside the outline instead of a filled solid; 0 for solid' },
+            bothSides: { type: 'boolean', default: false, describe: 'extrude the same distance the other way too' },
         },
     },
     {
