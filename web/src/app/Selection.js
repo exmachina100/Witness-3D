@@ -3,11 +3,14 @@
 // faces are held by number on a body and also as refs, so a selection survives edits that renumber
 // the body (see Body.edgeRefs and Body.faceRefs in App.js).
 //
-// An item is { kind: 'solid', body } or { kind: 'edge' | 'face', body, n }.
+// An item is { kind: 'solid', body }, { kind: 'edge' | 'face', body, n }, or a drawn curve or the
+// region inside a closed one, { kind: 'curve' | 'region', id } (Plasticity's mode 2 picks curves
+// with edges, mode 3 regions with faces).
 
 export const KINDS = ['point', 'edge', 'face', 'solid'];
 
-const keyOf = it => it.kind === 'solid' ? `s:${it.body}` : `${it.kind[0]}:${it.body}:${it.n}`;
+const keyOf = it => it.kind === 'solid' ? `s:${it.body}` : it.kind === 'curve' || it.kind === 'region' ? `${it.kind}:${it.id}` : `${it.kind[0]}:${it.body}:${it.n}`;
+const onBody = it => it.body !== undefined;
 
 export class Selection {
     constructor() {
@@ -40,7 +43,11 @@ export class Selection {
     edgesByBody() { return group(this.list('edge')) }
     facesByBody() { return group(this.list('face')) }
     /** Every body that has anything selected on it. */
-    get bodies() { return [...new Set(this.list().map(it => it.body))] }
+    get bodies() { return [...new Set(this.list().filter(onBody).map(it => it.body))] }
+    /** Ids of the selected curves, and of the curves whose regions are selected. */
+    get curves() { return [...new Set(this.list().filter(it => it.kind === 'curve' || it.kind === 'region').map(it => it.id))] }
+    /** Drop curves and regions whose curve is gone; `ids` are the curves that exist. */
+    keepCurves(ids) { for (const it of this.list()) if (!onBody(it) && !ids.includes(it.id)) this.remove(it) }
 
     /**
      * Change every item to `kind` (Plasticity's Ctrl+2, Ctrl+3, Ctrl+4): edges and faces of the
@@ -50,7 +57,7 @@ export class Selection {
         const out = [];
         for (const it of this.list()) {
             const b = scene.find(x => x.id === it.body);
-            if (!b) continue;
+            if (!b) { if (!onBody(it)) out.push(it); continue; }
             if (kind === 'solid') out.push({ kind: 'solid', body: b.id });
             else if (kind === 'edge') {
                 if (it.kind === 'edge') out.push(it);
@@ -93,7 +100,7 @@ export class Selection {
     /** The selection as refs, to carry across a scene change. */
     toRefs(scene) {
         return this.list().map(it => {
-            if (it.kind === 'solid') return it;
+            if (it.kind === 'solid' || !onBody(it)) return it;
             const b = scene.find(x => x.id === it.body);
             const refs = it.kind === 'edge' ? b?.edgeRefs : b?.faceRefs;
             return { ...it, ref: refs?.[it.n] };
@@ -104,6 +111,7 @@ export class Selection {
     fromRefs(saved, scene) {
         this.clear();
         for (const it of saved) {
+            if (!onBody(it)) { this.add(it); continue; }
             const b = scene.find(x => x.id === it.body);
             if (!b) continue;
             if (it.kind === 'solid') { this.add(it); continue; }

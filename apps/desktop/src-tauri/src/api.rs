@@ -8,7 +8,7 @@ use serde::{Deserialize, Serialize};
 use w3d_kernel::document::{BodyId, Document};
 use w3d_kernel::engine::Engine;
 use w3d_kernel::occt::Occt;
-use w3d_kernel::{file, Blend, BlendParams, BooleanOp, ExtrudeParams, ExtrudeResult, Frame, Kernel, KernelError, Motion, Operation, Profile, Ref, Refs, Tessellation};
+use w3d_kernel::{extrude, file, Blend, BlendParams, BooleanOp, Curve, CurveId, ExtrudeParams, ExtrudeResult, Frame, Kernel, KernelError, Motion, Operation, Profile, Ref, Refs, Tessellation};
 
 /// Chord tolerance for display meshes, in millimetres.
 const MESH_TOLERANCE: f64 = 0.05;
@@ -81,23 +81,49 @@ pub enum ProfileShape {
     Circle { radius: f64 },
 }
 
+#[derive(Deserialize, Debug, Clone, Copy, Default, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum OpChoice {
+    /// Join pulling out, cut pushing in.
+    #[default]
+    Auto,
+    Union,
+    Difference,
+    Intersect,
+    New,
+}
+
+/// What to extrude: a push/pull sketch (`profile` at `origin`), a drawn region (`region`, a closed
+/// curve's id) or a face of the target (`face`).
 #[derive(Deserialize, Debug, Clone)]
 #[serde(rename_all = "camelCase")]
 pub struct ExtrudeRequest {
-    /// The body the sketch sits on; none when sketching on the ground.
+    /// The body to join or cut; none for a separate body.
     pub target: Option<BodyId>,
+    #[serde(default)]
     pub origin: [f64; 3],
+    #[serde(default = "up")]
     pub normal: [f64; 3],
+    #[serde(default = "east")]
     pub x_axis: [f64; 3],
-    pub profile: ProfileShape,
+    pub profile: Option<ProfileShape>,
+    #[serde(default)]
+    pub region: Option<CurveId>,
+    #[serde(default)]
+    pub face: Option<u32>,
     pub distance: f64,
     #[serde(default)]
     pub new_body: bool,
+    /// Plasticity's Q, W, Shift+E and B inside Extrude.
+    #[serde(default)]
+    pub op: OpChoice,
 }
+
+fn east() -> [f64; 3] { [1.0, 0.0, 0.0] }
 
 #[derive(Serialize, Debug)]
 #[serde(rename_all = "lowercase")]
-pub enum Outcome { Join, Cut, New, None }
+pub enum Outcome { Join, Cut, Intersect, New, None }
 
 #[derive(Serialize, Debug)]
 pub struct Preview {
@@ -143,17 +169,32 @@ fn bodies(doc: &Document<Occt>) -> Result<Vec<Body>, String> {
 }
 
 impl ExtrudeRequest {
-    fn params(&self) -> ExtrudeParams {
+    fn operation(&self) -> Operation {
+        match self.op {
+            _ if self.new_body => Operation::NewBody,
+            OpChoice::Auto => Operation::Auto,
+            OpChoice::Union => Operation::Union,
+            OpChoice::Difference => Operation::Difference,
+            OpChoice::Intersect => Operation::Intersect,
+            OpChoice::New => Operation::NewBody,
+        }
+    }
+
+    fn params(&self, doc: &Document<Occt>) -> Result<ExtrudeParams, String> {
+        if let Some(id) = self.region { return doc.region_params(id, self.distance, self.operation()).map_err(|e| e.to_string()) }
         let profile = match self.profile {
-            ProfileShape::Rect { width, height } => Profile::rectangle(width, height),
-            ProfileShape::Circle { radius } => Profile::Circle { center: (0.0, 0.0), radius },
+            Some(ProfileShape::Rect { width, height }) => Profile::rectangle(width, height),
+            Some(ProfileShape::Circle { radius }) => Profile::Circle { center: (0.0, 0.0), radius },
+            None if self.face.is_some() => Profile::rectangle(1.0, 1.0),
+            None => return Err("say what to extrude: a profile, a region or a face".into()),
         };
-        ExtrudeParams {
+        Ok(ExtrudeParams {
             profile,
             frame: Frame::new(DVec3::from_array(self.origin), DVec3::from_array(self.x_axis), DVec3::from_array(self.normal)),
             distance: self.distance,
-            operation: if self.new_body { Operation::NewBody } else { Operation::Auto },
-        }
+            operation: self.operation(),
+            face: self.face,
+        })
     }
 }
 
@@ -164,17 +205,17 @@ pub fn scene(m: &Model) -> Result<Vec<Body>, String> {
 /// `None` means a newer drag arrived first and this one was skipped.
 pub fn preview(m: &Model, req: ExtrudeRequest) -> Option<Result<Preview, String>> {
     m.preview(move |doc| {
-        let p = req.params();
+        let p = req.params(doc)?;
         let result = match doc.preview_extrude(req.target, &p) {
             Err(KernelError::NoOp) => return Ok(Preview { outcome: Outcome::None, tool: None, result: None }),
             r => r.map_err(|e| e.to_string())?,
         };
-        let tool = doc.kernel.extrude(&p.profile, &p.frame, p.distance).map_err(|e| e.to_string())?;
+        let tool = extrude::tool(&doc.kernel, req.target.and_then(|id| doc.get(id)), &p).map_err(|e| e.to_string())?;
         let tool = Some(body(&doc.kernel, 0, &tool)?);
         Ok(match result {
             ExtrudeResult::New(_) => Preview { outcome: Outcome::New, tool, result: None },
             ExtrudeResult::Replace { solid, op, .. } => Preview {
-                outcome: if op == BooleanOp::Union { Outcome::Join } else { Outcome::Cut },
+                outcome: match op { BooleanOp::Union => Outcome::Join, BooleanOp::Difference => Outcome::Cut, BooleanOp::Intersection => Outcome::Intersect },
                 result: Some(body(&doc.kernel, req.target.unwrap(), &solid)?),
                 tool,
             },
@@ -184,7 +225,72 @@ pub fn preview(m: &Model, req: ExtrudeRequest) -> Option<Result<Preview, String>
 
 pub fn commit(m: &Model, req: ExtrudeRequest) -> Result<Committed, String> {
     m.call(move |doc| {
-        let id = doc.commit_extrude(req.target, &req.params()).map_err(|e| e.to_string())?;
+        let p = req.params(doc)?;
+        let id = doc.commit_extrude(req.target, &p).map_err(|e| e.to_string())?;
+        Ok(Committed { id, scene: bodies(doc)? })
+    })
+}
+
+/// A drawn curve as the viewport gets it: its id plus the curve.
+#[derive(Serialize, Debug)]
+pub struct CurveOut {
+    pub id: CurveId,
+    #[serde(flatten)]
+    pub curve: Curve,
+}
+
+pub fn curves(m: &Model) -> Vec<CurveOut> {
+    m.call(|doc| doc.curve_ids().into_iter().map(|id| CurveOut { id, curve: doc.curve(id).unwrap().clone() }).collect())
+}
+
+#[derive(Serialize, Debug)]
+pub struct AddedCurves {
+    pub ids: Vec<CurveId>,
+}
+
+/// Add drawn curves, as one undoable step.
+pub fn add_curves(m: &Model, curves: Vec<Curve>) -> Result<AddedCurves, ApiError> {
+    m.call(move |doc| Ok(AddedCurves { ids: doc.commit_curves(curves)? }))
+}
+
+/// Delete bodies and curves together, as one undoable step.
+pub fn delete_items(m: &Model, bodies_: Vec<BodyId>, curves: Vec<CurveId>) -> Result<Vec<Body>, ApiError> {
+    m.call(move |doc| { doc.commit_delete_items(&bodies_, &curves)?; Ok(bodies(doc)?) })
+}
+
+#[derive(Deserialize, Debug, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct BooleanRequest {
+    pub target: BodyId,
+    pub tools: Vec<BodyId>,
+    pub op: OpChoice,
+    #[serde(default)]
+    pub keep_tools: bool,
+}
+
+impl BooleanRequest {
+    fn op(&self) -> Result<BooleanOp, ApiError> {
+        match self.op {
+            OpChoice::Union | OpChoice::Auto => Ok(BooleanOp::Union),
+            OpChoice::Difference => Ok(BooleanOp::Difference),
+            OpChoice::Intersect => Ok(BooleanOp::Intersection),
+            OpChoice::New => Err(String::from("a boolean needs union, difference or intersect").into()),
+        }
+    }
+}
+
+/// The target as it would be after the boolean. `None` means a newer request superseded it.
+pub fn preview_boolean(m: &Model, req: BooleanRequest) -> Option<Result<Body, ApiError>> {
+    m.preview(move |doc| {
+        let t = doc.preview_boolean(req.target, &req.tools, req.op()?)?;
+        Ok(body(&doc.kernel, req.target, &t.solid)?)
+    })
+}
+
+/// Plasticity's Boolean, as one undoable step: the target changes and the tools go unless kept.
+pub fn commit_boolean(m: &Model, req: BooleanRequest) -> Result<Committed, ApiError> {
+    m.call(move |doc| {
+        let id = doc.commit_boolean(req.target, &req.tools, req.op()?, req.keep_tools)?;
         Ok(Committed { id, scene: bodies(doc)? })
     })
 }

@@ -1,6 +1,6 @@
 //! The commands the viewport calls, run against real OpenCascade without opening a window.
 
-use w3d_desktop::api::{self, BlendKind, BlendRequest, ExtrudeRequest, MotionRequest, Outcome, ProfileShape};
+use w3d_desktop::api::{self, BlendKind, BlendRequest, BooleanRequest, ExtrudeRequest, MotionRequest, OpChoice, Outcome, ProfileShape};
 
 /// A 10×10 mm square on the seed enclosure's top face (y = 30), pulled or pushed by `distance`.
 fn on_top(target: Option<u32>, distance: f64) -> ExtrudeRequest {
@@ -9,9 +9,12 @@ fn on_top(target: Option<u32>, distance: f64) -> ExtrudeRequest {
         origin: [0.0, 30.0, 0.0],
         normal: [0.0, 1.0, 0.0],
         x_axis: [1.0, 0.0, 0.0],
-        profile: ProfileShape::Rect { width: 10.0, height: 10.0 },
+        profile: Some(ProfileShape::Rect { width: 10.0, height: 10.0 }),
+        region: None,
+        face: None,
         distance,
         new_body: false,
+        op: OpChoice::Auto,
     }
 }
 
@@ -60,7 +63,7 @@ fn zero_distance_previews_nothing() {
 fn requests_parse_from_the_viewport_json() {
     let req: ExtrudeRequest = serde_json::from_str(r#"{"target":1,"origin":[0,2,0],"normal":[0,1,0],"xAxis":[1,0,0],
         "profile":{"kind":"circle","radius":0.5},"distance":-0.5}"#).unwrap();
-    assert!(matches!(req.profile, ProfileShape::Circle { radius } if radius == 0.5));
+    assert!(matches!(req.profile, Some(ProfileShape::Circle { radius }) if radius == 0.5));
     assert!(!req.new_body);
 }
 
@@ -186,4 +189,40 @@ fn bodies_duplicate_and_delete_as_one_step_each() {
     assert_eq!(d.scene.len(), 2);
     assert!(api::delete_bodies(&m, vec![1, 2]).unwrap().is_empty());
     assert_eq!(api::undo(&m).unwrap().len(), 2);
+}
+
+#[test]
+fn a_drawn_rectangle_extrudes_as_a_region_with_a_chosen_operation() {
+    let m = api::start();
+    let curves: Vec<w3d_kernel::Curve> = serde_json::from_str(r#"[{"origin":[0,30,0],"x":[1,0,0],"normal":[0,1,0],
+        "kind":"polyline","points":[[-5,-5],[5,-5],[5,5],[-5,5]],"closed":true}]"#).unwrap();
+    let ids = api::add_curves(&m, curves).unwrap().ids;
+    assert_eq!(api::curves(&m).len(), 1);
+    let req: ExtrudeRequest = serde_json::from_str(&format!(r#"{{"target":1,"region":{},"distance":-4,"op":"difference"}}"#, ids[0])).unwrap();
+    let p = api::preview(&m, req.clone()).unwrap().unwrap();
+    assert!(matches!(p.outcome, Outcome::Cut));
+    let c = api::commit(&m, req).unwrap();
+    close(c.scene[0].volume, 120_000.0 - 400.0);
+    let x: ExtrudeRequest = serde_json::from_str(&format!(r#"{{"target":1,"region":{},"distance":-10,"op":"intersect"}}"#, ids[0])).unwrap();
+    assert!(matches!(api::preview(&m, x).unwrap().unwrap().outcome, Outcome::Intersect));
+    // Deleting the curve and undoing brings it back.
+    api::delete_items(&m, vec![], ids.clone()).unwrap();
+    assert!(api::curves(&m).is_empty());
+    api::undo(&m).unwrap();
+    assert_eq!(api::curves(&m).len(), 1);
+}
+
+#[test]
+fn boolean_cuts_the_target_with_a_duplicate_and_removes_it() {
+    let m = api::start();
+    let d = api::duplicate_bodies(&m, vec![1]).unwrap();
+    let moved = api::commit_motion(&m, MotionRequest { bodies: d.ids.clone(), offset: [40.0, 0.0, 0.0], pivot: [0.0; 3], axis: [0.0, 1.0, 0.0], angle: 0.0, scale: 1.0 }).unwrap();
+    assert_eq!(moved.scene.len(), 2);
+    let req: BooleanRequest = serde_json::from_str(r#"{"target":1,"tools":[2],"op":"difference"}"#).unwrap();
+    close(api::preview_boolean(&m, req.clone()).unwrap().unwrap().volume, 60_000.0);
+    let c = api::commit_boolean(&m, req).unwrap();
+    assert_eq!(c.scene.len(), 1);
+    close(c.scene[0].volume, 60_000.0);
+    let bad: BooleanRequest = serde_json::from_str(r#"{"target":1,"tools":[1],"op":"union"}"#).unwrap();
+    assert!(api::commit_boolean(&m, bad).is_err());
 }

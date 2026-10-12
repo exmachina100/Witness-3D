@@ -107,6 +107,7 @@ fn a_boss_joined_by_push_pull_can_be_rounded_where_it_meets_the_body() {
         frame: Frame::new(DVec3::new(0.0, 30.0, 0.0), DVec3::X, DVec3::Y),
         distance: 10.0,
         operation: Operation::Auto,
+        face: None,
     };
     let ExtrudeResult::Replace { solid, .. } = extrude(&k, Some(&body), &boss).unwrap() else { panic!("expected a join") };
     // The circle where the boss meets the top, and the boss's top rim.
@@ -199,6 +200,7 @@ fn refs_follow_faces_and_edges_through_a_join() {
         frame: Frame::new(DVec3::new(0.0, 30.0, 0.0), DVec3::X, DVec3::Y),
         distance: 10.0,
         operation: Operation::Auto,
+        face: None,
     }).unwrap();
     assert!(doc.revision() > before);
     let (solid, refs) = (doc.get(id).unwrap(), doc.refs(id).unwrap());
@@ -320,4 +322,94 @@ fn bodies_scale_duplicate_and_delete_as_single_steps() {
     assert!(doc.ids().is_empty());
     assert!(doc.undo());
     assert_eq!(doc.ids().len(), 2);
+}
+
+/// A rectangle drawn on the enclosure's top face, as Plasticity's Corner Rectangle makes it.
+fn top_rect(w: f64, d: f64) -> Curve {
+    let (w, d) = (w / 2.0, d / 2.0);
+    Curve {
+        origin: [0.0, 30.0, 0.0], x: [1.0, 0.0, 0.0], normal: [0.0, 1.0, 0.0],
+        shape: CurveShape::Polyline { points: vec![[-w, -d], [w, -d], [w, d], [-w, d]], closed: true },
+    }
+}
+
+#[test]
+fn a_drawn_region_extrudes_into_a_boss_or_a_pocket_and_undoes_with_its_curve() {
+    let mut doc = Document::new(Occt);
+    let a = doc.add(enclosure(&doc.kernel));
+    let ids = doc.commit_curves(vec![top_rect(20.0, 10.0)]).unwrap();
+    assert_eq!(doc.curve_ids(), ids);
+    // Out of the face joins (Auto), as Plasticity's extrude does.
+    let p = doc.region_params(ids[0], 5.0, Operation::Auto).unwrap();
+    assert_eq!(doc.commit_extrude(Some(a), &p).unwrap(), a);
+    close(volume(&doc.kernel, doc.get(a).unwrap()), 120_000.0 + 20.0 * 10.0 * 5.0, 1e-3);
+    // W forces a difference even pulling out: here it cuts the boss back off.
+    let w = doc.region_params(ids[0], 5.0, Operation::Difference).unwrap();
+    let ExtrudeResult::Replace { solid, op: BooleanOp::Difference, .. } = doc.preview_extrude(Some(a), &w).unwrap() else { panic!("expected a cut") };
+    close(volume(&doc.kernel, &solid), 120_000.0, 1e-3);
+    // A forced cut that reaches nothing says so instead of making a new body.
+    let far = doc.commit_curves(vec![Curve { origin: [0.0, 100.0, 0.0], ..top_rect(5.0, 5.0) }]).unwrap()[0];
+    assert!(doc.preview_extrude(Some(a), &doc.region_params(far, 5.0, Operation::Difference).unwrap()).is_err());
+    assert!(doc.undo());
+    // An open line has no region.
+    let open = Curve { shape: CurveShape::Polyline { points: vec![[0.0, 0.0], [5.0, 0.0]], closed: false }, ..top_rect(1.0, 1.0) };
+    let line = doc.commit_curves(vec![open]).unwrap()[0];
+    assert!(doc.region_params(line, 5.0, Operation::Auto).is_err());
+    assert!(doc.commit_curves(vec![Curve { shape: CurveShape::Circle { center: [0.0, 0.0], radius: 0.0 }, ..top_rect(1.0, 1.0) }]).is_err());
+    // Undo takes the line, then the boss; the rectangle stays until its own step goes.
+    assert!(doc.undo());
+    assert_eq!(doc.curve_ids(), ids);
+    assert!(doc.undo());
+    close(volume(&doc.kernel, doc.get(a).unwrap()), 120_000.0, 1e-3);
+    assert!(doc.undo());
+    assert!(doc.curve_ids().is_empty());
+}
+
+#[test]
+fn a_face_extrudes_along_its_normal() {
+    let mut doc = Document::new(Occt);
+    let a = doc.add(enclosure(&doc.kernel));
+    let t = doc.kernel.tessellate(doc.get(a).unwrap(), 0.01).unwrap();
+    let top = t.face_planes.iter().position(|p| p.is_some_and(|p| p.normal.y > 0.99)).unwrap() as u32;
+    let p = ExtrudeParams { profile: Profile::rectangle(1.0, 1.0), frame: Frame::new(DVec3::ZERO, DVec3::X, DVec3::Y), distance: 10.0, operation: Operation::Auto, face: Some(top) };
+    doc.commit_extrude(Some(a), &p).unwrap();
+    close(volume(&doc.kernel, doc.get(a).unwrap()), 80.0 * 40.0 * 50.0, 1e-3);
+    let p = ExtrudeParams { distance: -10.0, ..p };
+    let top = doc.kernel.tessellate(doc.get(a).unwrap(), 0.01).unwrap().face_planes.iter().position(|p| p.is_some_and(|p| p.normal.y > 0.99 && p.origin.y > 39.0)).unwrap() as u32;
+    doc.commit_extrude(Some(a), &ExtrudeParams { face: Some(top), ..p }).unwrap();
+    close(volume(&doc.kernel, doc.get(a).unwrap()), 120_000.0, 1e-3);
+}
+
+#[test]
+fn boolean_changes_the_target_removes_the_tools_and_keeps_refs() {
+    let mut doc = Document::new(Occt);
+    let a = doc.add(enclosure(&doc.kernel));
+    let b = doc.add(doc.kernel.box_from_corners(DVec3::new(30.0, 20.0, -5.0), DVec3::new(50.0, 40.0, 5.0)));
+    let c = doc.add(doc.kernel.box_from_corners(DVec3::new(-50.0, 20.0, -5.0), DVec3::new(-30.0, 40.0, 5.0)));
+    let bottom = doc.refs(a).unwrap().faces.clone();
+    doc.commit_boolean(a, &[b, c], BooleanOp::Difference, false).unwrap();
+    close(volume(&doc.kernel, doc.get(a).unwrap()), 120_000.0 - 2.0 * 10.0 * 10.0 * 10.0, 1e-3);
+    assert_eq!(doc.ids(), vec![a]);
+    // Faces of the target that survive keep their refs through both cuts.
+    let now = &doc.refs(a).unwrap().faces;
+    assert!(bottom.iter().filter(|r| now.contains(r)).count() >= 4, "{bottom:?} vs {now:?}");
+    assert!(doc.undo());
+    doc.commit_boolean(a, &[b], BooleanOp::Intersection, true).unwrap();
+    close(volume(&doc.kernel, doc.get(a).unwrap()), 1_000.0, 1e-3);
+    assert_eq!(doc.ids().len(), 3);
+    assert!(doc.commit_boolean(a, &[a], BooleanOp::Union, false).is_err());
+}
+
+#[test]
+fn curves_survive_save_and_reopen() {
+    let mut doc = Document::new(Occt);
+    doc.add(enclosure(&doc.kernel));
+    let circle = Curve { shape: CurveShape::Circle { center: [3.0, 4.0], radius: 5.0 }, ..top_rect(1.0, 1.0) };
+    let ids = doc.commit_curves(vec![top_rect(20.0, 10.0), circle.clone()]).unwrap();
+    let text = file::write(&doc).unwrap();
+    let mut back = Document::new(Occt);
+    file::read(&mut back, &text).unwrap();
+    assert_eq!(back.curve_ids(), ids);
+    assert_eq!(back.curve(ids[1]), Some(&circle));
+    assert_eq!(back.commit_curves(vec![circle]).unwrap(), vec![ids[1] + 1]);
 }

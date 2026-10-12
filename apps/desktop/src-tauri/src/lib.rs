@@ -62,6 +62,31 @@ async fn delete_bodies(model: State<'_, Model>, ids: Vec<u32>) -> Result<Vec<api
 }
 
 #[tauri::command]
+async fn curves(model: State<'_, Model>) -> Result<Vec<api::CurveOut>, String> {
+    on_model(&model, api::curves).await
+}
+
+#[tauri::command]
+async fn add_curves(model: State<'_, Model>, curves: Vec<w3d_kernel::Curve>) -> Result<api::AddedCurves, api::ApiError> {
+    on_model(&model, move |m| api::add_curves(m, curves)).await?
+}
+
+#[tauri::command]
+async fn delete_items(model: State<'_, Model>, bodies: Vec<u32>, curves: Vec<u32>) -> Result<Vec<api::Body>, api::ApiError> {
+    on_model(&model, move |m| api::delete_items(m, bodies, curves)).await?
+}
+
+#[tauri::command]
+async fn preview_boolean(model: State<'_, Model>, req: api::BooleanRequest) -> Result<Option<api::Body>, api::ApiError> {
+    on_model(&model, move |m| api::preview_boolean(m, req)).await?.transpose()
+}
+
+#[tauri::command]
+async fn commit_boolean(model: State<'_, Model>, req: api::BooleanRequest) -> Result<api::Committed, api::ApiError> {
+    on_model(&model, move |m| api::commit_boolean(m, req)).await?
+}
+
+#[tauri::command]
 async fn duplicate_bodies(model: State<'_, Model>, ids: Vec<u32>) -> Result<api::Duplicated, api::ApiError> {
     on_model(&model, move |m| api::duplicate_bodies(m, ids)).await?
 }
@@ -97,6 +122,7 @@ pub fn run() {
         .manage(Model(Arc::new(api::start())))
         .invoke_handler(tauri::generate_handler![
             scene, preview_extrude, commit_extrude, preview_blend, commit_blend, commit_motion, delete_bodies, duplicate_bodies,
+            curves, add_curves, delete_items, preview_boolean, commit_boolean,
             undo, redo, new_document, save, open, import_step, export_step,
         ])
         .run(tauri::generate_context!())

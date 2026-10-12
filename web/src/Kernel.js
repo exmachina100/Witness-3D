@@ -55,6 +55,18 @@ export function prism(face, vector) {
     return new o.BRepPrimAPI_MakePrism(face, new o.gp_Vec(vector.x, vector.y, vector.z), false, true).Shape();
 }
 
+/** The numbered flat face of `shape` swept along its outward normal by `distance`. */
+export function extrudeFace(shape, faceIndex, distance) {
+    const o = oc();
+    const plane = facePlane(shape, faceIndex);
+    if (!plane) throw new Error('only flat faces can be extruded here yet');
+    let i = 0;
+    for (const ex = new o.TopExp_Explorer(shape, o.TopAbs_ShapeEnum.TopAbs_FACE, o.TopAbs_ShapeEnum.TopAbs_SHAPE); ex.More(); ex.Next(), i++) {
+        if (i === faceIndex) return prism(o.TopoDS.Face(ex.Current()), plane.normal.clone().multiplyScalar(distance));
+    }
+    throw new Error('that face no longer exists');
+}
+
 export function box(min, max) {
     return new (oc().BRepPrimAPI_MakeBox)(pnt(min), pnt(max)).Shape();
 }

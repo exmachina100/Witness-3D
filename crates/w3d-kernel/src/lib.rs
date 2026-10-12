@@ -18,6 +18,7 @@ pub mod occt;
 pub use blend::{blend, Blend, BlendParams};
 pub use document::{Ref, Refs};
 pub use extrude::{extrude, ExtrudeParams, ExtrudeResult, Operation};
+pub use document::{Curve, CurveId, CurveShape};
 
 /// A closed 2D profile, drawn in a sketch plane.
 #[derive(Clone, Debug, PartialEq)]
@@ -153,6 +154,8 @@ pub trait Kernel {
     fn box_from_corners(&self, a: DVec3, b: DVec3) -> Self::Solid;
     /// Sweep `profile` along the frame normal by `distance` (negative goes backwards).
     fn extrude(&self, profile: &Profile, frame: &Frame, distance: f64) -> Result<Self::Solid, KernelError>;
+    /// Sweep the numbered face of `s` along its outward normal by `distance` (negative goes in).
+    fn extrude_face(&self, s: &Self::Solid, face: u32, distance: f64) -> Result<Self::Solid, KernelError>;
     /// The boolean result, with coplanar faces merged, and where its faces and edges came from.
     fn boolean(&self, a: &Self::Solid, b: &Self::Solid, op: BooleanOp) -> Result<Traced<Self::Solid>, KernelError>;
     /// Number of disconnected solids in the shape.

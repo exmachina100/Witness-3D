@@ -72,6 +72,13 @@ impl Kernel for Occt {
         Ok(Shape::from(solid))
     }
 
+    fn extrude_face(&self, s: &Shape, face: u32, distance: f64) -> Result<Shape, KernelError> {
+        let f = s.face_at(face as usize).ok_or(KernelError::Invalid("that face no longer exists"))?;
+        let normal = f.normal_at_center();
+        if !normal.is_finite() || normal.length() < 0.5 { return Err(KernelError::Invalid("that face has no direction to extrude in")) }
+        Ok(Shape::from(f.extrude(normal.normalize() * distance)))
+    }
+
     fn boolean(&self, a: &Shape, b: &Shape, op: BooleanOp) -> Result<Traced<Shape>, KernelError> {
         let kind = match op {
             BooleanOp::Union => BooleanKind::Union,

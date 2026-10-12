@@ -36,6 +36,9 @@ export const VIEWPORT = {
     // Commands (manual: Command Bar, General Functions)
     f: 'palette', 'shift-f': 'suggest', 'shift-r': 'repeat',
     b: 'tool:fillet', g: 'tool:move', r: 'tool:rotate', s: 'tool:scale', p: 'tool:pushpull',
+    e: 'tool:extrude', q: 'tool:boolean',
+    // Sketching (manual: Line is Shift+A; 0.6.30 for the rectangle and circle, which 26.1 leaves unbound)
+    'shift-q': 'draw:rect', 'shift-w': 'draw:circle', 'shift-a': 'draw:line',
     'shift-x': 'delete', 'shift-delete': 'delete', 'shift-backspace': 'delete',
     'shift-d': 'duplicate',
     h: 'hide', 'shift-h': 'hide-others', 'alt-h': 'unhide-all',
@@ -52,6 +55,13 @@ export const COMMAND = {
     rotate: { x: 'x', y: 'y', z: 'z', r: 'screen' },
     scale: { s: 'uniform' },
     pushpull: { d: 'distance', q: 'join', w: 'cut', b: 'new', r: 'rect', c: 'circle' },
+    // Extrude and Boolean (manual: Q union, W difference, Shift+E intersect, B new body, T keep tools)
+    extrude: { d: 'distance', q: 'union', w: 'difference', 'shift-e': 'intersect', b: 'new' },
+    boolean: { q: 'union', w: 'difference', 'shift-e': 'intersect', t: 'keep' },
+    // Drawing (manual: Tab types dimensions, S square and C centre for rectangles, Ctrl+Z drops a line's last point)
+    rect: { tab: 'typed', s: 'square', c: 'centre' },
+    circle: { tab: 'typed' },
+    line: { tab: 'typed', 'ctrl-z': 'back' },
 };
 
 /** Everything the palette (F) lists, with its key for display. Tools come from tools.js. */
@@ -67,6 +77,7 @@ export const ACTIONS = {
     'hide': 'Hide selected', 'hide-others': 'Hide unselected', 'unhide-all': 'Unhide all',
     'plane:selection': 'Construction plane from selection', 'plane:selection-keep-view': 'Construction plane from selection, keep view',
     'plane:view': 'Construction plane from view', 'plane:world': 'Construction plane: world XY',
+    'draw:rect': 'Corner rectangle', 'draw:circle': 'Center circle', 'draw:line': 'Line',
     'undo': 'Undo', 'redo': 'Redo', 'file:new': 'New', 'file:open': 'Open…', 'file:save': 'Save',
     'export:step': 'Export STEP', 'import:step': 'Import STEP',
 };

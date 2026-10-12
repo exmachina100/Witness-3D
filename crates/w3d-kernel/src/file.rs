@@ -8,7 +8,7 @@ use std::path::Path;
 
 use serde::{Deserialize, Serialize};
 
-use crate::document::{BodyId, Document, Ref, Refs, TOLERANCE, UNITS};
+use crate::document::{BodyId, Curve, CurveId, Document, Ref, Refs, TOLERANCE, UNITS};
 use crate::{Kernel, KernelError};
 
 pub const FORMAT: &str = "witness3d";
@@ -26,6 +26,18 @@ struct File {
     #[serde(default)]
     next_ref: Ref,
     bodies: Vec<FileBody>,
+    /// Drawn curves; added after version 1 shipped, so older files have none.
+    #[serde(default)]
+    curves: Vec<FileCurve>,
+    #[serde(default)]
+    next_curve: CurveId,
+}
+
+#[derive(Serialize, Deserialize)]
+struct FileCurve {
+    id: CurveId,
+    #[serde(flatten)]
+    curve: Curve,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -52,7 +64,8 @@ pub fn write<K: Kernel>(doc: &Document<K>) -> Result<String, KernelError> {
         face_refs: doc.refs(id).map(|r| r.faces.clone()),
         edge_refs: doc.refs(id).map(|r| r.edges.clone()),
     })).collect::<Result<_, KernelError>>()?;
-    let file = File { format: FORMAT.into(), version: VERSION, units: UNITS.into(), tolerance: TOLERANCE, next_id: doc.next_id(), next_ref: doc.next_ref(), bodies };
+    let curves = doc.curve_ids().into_iter().map(|id| FileCurve { id, curve: doc.curve(id).unwrap().clone() }).collect();
+    let file = File { format: FORMAT.into(), version: VERSION, units: UNITS.into(), tolerance: TOLERANCE, next_id: doc.next_id(), next_ref: doc.next_ref(), bodies, curves, next_curve: doc.next_curve() };
     serde_json::to_string(&file).map_err(err)
 }
 
@@ -80,6 +93,7 @@ pub fn read<K: Kernel>(doc: &mut Document<K>, text: &str) -> Result<(), KernelEr
         bodies.push((b.id, solid, refs));
     }
     doc.replace_all(bodies, file.next_id, file.next_ref);
+    doc.replace_curves(file.curves.into_iter().map(|c| (c.id, c.curve)), file.next_curve);
     Ok(())
 }
 

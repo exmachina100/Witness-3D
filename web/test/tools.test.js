@@ -6,7 +6,7 @@ test('every tool has a unique id and key and complete parameters', () => {
     assert.equal(new Set(TOOLS.map(t => t.id)).size, TOOLS.length);
     assert.equal(new Set(TOOLS.map(t => t.key)).size, TOOLS.length);
     for (const t of TOOLS) {
-        assert.ok(['face', 'edge', 'solid'].includes(t.selects), t.id);
+        assert.ok(['face', 'edge', 'solid', 'region', 'solids'].includes(t.selects), t.id);
         for (const [name, p] of Object.entries(t.params)) {
             assert.ok(p.describe, `${t.id}.${name} needs a description`);
             assert.deepEqual(check(t.id, { [name]: p.default }), [], `${t.id}.${name} default must pass its own check`);
@@ -36,5 +36,7 @@ test('the schema lists only registered tools, with the selection as a required r
     assert.equal(fillet.input_schema.properties.angle.exclusiveMaximum, 90);
     assert.equal(fillet.input_schema.additionalProperties, false);
     assert.deepEqual(s.find(t => t.name === 'pushpull').input_schema.required, []);
+    assert.deepEqual(s.find(t => t.name === 'boolean').input_schema.required, ['target', 'tools']);
+    assert.ok(s.find(t => t.name === 'extrude').input_schema.properties.face);
     JSON.stringify(s); // plain data
 });

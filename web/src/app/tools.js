@@ -14,13 +14,29 @@
 
 export const TOOLS = [
     {
-        id: 'pushpull', label: 'PUSH·PULL', key: 'p', group: 'shape', selects: 'face',
+        id: 'pushpull', label: 'PUSH·PULL', key: 'p', group: 'shape', selects: 'face', toolbar: false,
         summary: 'Sketch a square or circle on a flat face or the work plane, then pull it out into a boss or push it in to cut a pocket.',
         params: {
             distance: { type: 'number', unit: 'mm', default: 0, describe: 'how far to pull; positive joins, negative cuts' },
             profile: { type: 'enum', values: ['rect', 'circle'], default: 'rect', describe: 'the sketch shape' },
             size: { type: 'number', unit: 'mm', min: 0.5, default: 10, describe: 'side of the square, or diameter of the circle' },
             newBody: { type: 'boolean', default: false, describe: 'make a separate body instead of joining or cutting' },
+        },
+    },
+    {
+        id: 'extrude', label: 'EXTRUDE', key: 'e', group: 'shape', selects: 'region',
+        summary: 'Pull the region inside a closed curve, or a flat face, into a solid; it joins or cuts the body it sits on.',
+        params: {
+            distance: { type: 'number', unit: 'mm', nonzero: true, default: 10, describe: 'how far to extrude along the normal; negative goes the other way' },
+            op: { type: 'enum', values: ['auto', 'union', 'difference', 'intersect', 'new'], default: 'auto', describe: 'auto joins pulling out and cuts pushing in; or force a boolean, or make a new body' },
+        },
+    },
+    {
+        id: 'boolean', label: 'BOOLEAN', key: 'q', group: 'shape', selects: 'solids',
+        summary: 'Join, cut or intersect a target solid with tool solids.',
+        params: {
+            op: { type: 'enum', values: ['union', 'difference', 'intersect'], default: 'union', describe: 'what to do with the tools' },
+            keepTools: { type: 'boolean', default: false, describe: 'keep the tool bodies afterwards' },
         },
     },
     {
@@ -97,7 +113,14 @@ const SELECTION_PARAM = {
     edge: ['edges', { type: 'array', items: { type: 'integer' }, minItems: 1, description: 'the edges to act on, by ref, all on one body' }],
     solid: ['body', { type: 'integer', description: 'the body to act on, by id' }],
     face: ['face', { type: 'integer', description: 'the flat face to sketch on, by ref; leave out to use the work plane' }],
+    region: ['region', { type: 'integer', description: 'the closed curve whose region to extrude, by id; or give face instead' }],
+    solids: ['target', { type: 'integer', description: 'the body to change, by id' }],
 };
+const EXTRA_PARAMS = {
+    extrude: { face: { type: 'integer', description: 'a flat face to extrude instead of a region, by ref' } },
+    boolean: { tools: { type: 'array', items: { type: 'integer' }, minItems: 1, description: 'the tool bodies, by id' } },
+};
+const REQUIRED = { edge: true, solid: true, solids: true };
 
 /**
  * The tools as JSON Schema tool definitions ({ name, description, input_schema }), for a model
@@ -108,7 +131,9 @@ export function schema() {
         const properties = {}, required = [];
         const [selName, selSchema] = SELECTION_PARAM[t.selects];
         properties[selName] = selSchema;
-        if (t.selects !== 'face') required.push(selName);
+        if (REQUIRED[t.selects]) required.push(selName);
+        Object.assign(properties, EXTRA_PARAMS[t.id]);
+        if (t.id === 'boolean') required.push('tools');
         for (const [name, p] of Object.entries(t.params)) {
             const description = p.describe + (p.unit ? `, in ${p.unit}` : '');
             if (p.type === 'number') properties[name] = { type: 'number', description, ...(p.min !== undefined && { minimum: p.min }), ...(p.above !== undefined && { exclusiveMinimum: p.above }), ...(p.below !== undefined && { exclusiveMaximum: p.below }), ...(p.nonzero && { not: { const: 0 } }) };

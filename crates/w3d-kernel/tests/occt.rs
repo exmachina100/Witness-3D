@@ -15,6 +15,7 @@ fn setup() -> (Occt, opencascade::primitives::Shape, ExtrudeParams) {
         frame: Frame::new(DVec3::new(0.0, 0.0, 2.0), DVec3::X, DVec3::Z),
         distance: 1.0,
         operation: Operation::Auto,
+        face: None,
     };
     (k, body, params)
 }
