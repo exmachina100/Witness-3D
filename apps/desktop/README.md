@@ -1,9 +1,9 @@
 # Witness 3D desktop
 
 The Rust modeling core (`crates/w3d-kernel`, OpenCascade) in a [Tauri](https://tauri.app) window,
-with the Three.js viewport from `web/` as its face.
+with the same UI as the web page (`web/src/app`) as its face.
 
-![Pulling a boss out of a box: the blue phantom is the join preview](screenshot.png)
+![Pulling a boss out of a box: the bone phantom is the join preview](screenshot.png)
 
 Geometry never runs in the page. The viewport sends each drag to Rust as an `ExtrudeRequest`. The
 model lives on its own thread (`w3d_kernel::engine`), and when drags pile up behind a slow
@@ -15,7 +15,8 @@ click knows where a sketch can go.
 |---|---|
 | `src-tauri/src/api.rs` | The commands as plain functions: scene, preview, commit, undo, redo, STEP export |
 | `src-tauri/src/lib.rs` | Tauri wiring; each command waits on the model thread off the async runtime |
-| `ui/main.js` | Viewport, picking, the extrude gizmo (shared with `web/src/ExtrudeGizmo.js`) |
+| `ui/main.js` | Mounts the shared UI with a backend that calls the Rust commands; bundles the fonts |
+| `web/src/app/App.js` | The UI itself, shared with the web page: viewport, picking, outliner, history, inspector |
 
 ## Run
 

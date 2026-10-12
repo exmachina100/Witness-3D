@@ -31,6 +31,7 @@ so the repo hosts the 26.x installers but its public source stops at app version
 | `PossiblyBooleanExtrudeFactory` | `src/ExtrudeFactory.js` |
 | `ExtrudeGizmo` distance handle | `src/ExtrudeGizmo.js` |
 | `GeometryDatabase` + `History` | `src/Document.js` |
+| The app shell (outliner, history, inspector), shared with the desktop app | `src/app/App.js`, `src/app/app.css`, `src/app/LocalBackend.js` |
 | C3D kernel (`ExtrusionSolid`, `UnionResult`) | OpenCascade via [replicad-opencascadejs](https://www.npmjs.com/package/replicad-opencascadejs) (WASM, LGPL-2.1): `src/Kernel.js` |
 
 Bodies are exact B-rep solids: `BRepPrimAPI_MakePrism` for the extrude, `BRepAlgoAPI_Fuse`/`Cut`
