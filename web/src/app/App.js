@@ -57,6 +57,7 @@ import { MagnitudeGizmo, typed } from '../MagnitudeGizmo.js';
 import { TOOLS, check, tool as toolInfo, withDefaults } from './tools.js';
 import { ACTIONS, COMMAND, VIEWPORT, keyFor, keyOf } from './keymap.js';
 import { Selection } from './Selection.js';
+import { claude, describe, MODEL, reply, request } from './ai.js';
 
 const KEYS = {
   idle: [['CLICK', 'SELECT'], ['⇧ CLICK', 'ADD'], ['CTRL CLICK', 'REMOVE'], ['DRAG', 'BOX'], ['MMB', 'ORBIT'], ['RMB', 'PAN'], ['F', 'SEARCH']],
@@ -85,6 +86,7 @@ const SHELL = `
       ${TOOLS.filter(t => t.toolbar !== false).map(t => `<button class="tool" data-tool="${t.id}" aria-pressed="false" title="${t.summary}"><kbd>${t.key.toUpperCase()}</kbd>${t.label}</button>`).join('\n      ')}
     </nav>
     <span class="spacer"></span>
+    <button class="export" data-action="ask" title="Ask for a command in words (Ctrl+K)">✦ ASK</button>
     <button class="export" data-id="file-new" hidden>NEW</button>
     <button class="export" data-id="file-open" hidden>OPEN</button>
     <button class="export" data-id="file-save" hidden>SAVE</button>
@@ -131,6 +133,11 @@ const SHELL = `
       <div class="palette-title" data-id="palette-title">SEARCH COMMANDS</div>
       <input data-id="palette-input" placeholder="TYPE A COMMAND" autocomplete="off" spellcheck="false">
       <ul data-id="palette-list" role="listbox"></ul>
+    </div>
+    <div class="palette ask" data-id="ask" hidden>
+      <div class="palette-title" data-id="ask-title">ASK · ONE COMMAND, PREVIEWED FIRST</div>
+      <input data-id="ask-input" placeholder="E.G. ROUND THE TOP EDGES BY 4 MM" autocomplete="off" spellcheck="false">
+      <div class="ask-out" data-id="ask-out"></div>
     </div>
     <div class="toast" data-id="toast" hidden></div>
     <div class="loading" data-id="loading">STARTING THE KERNEL…</div>
@@ -250,6 +257,7 @@ const SHELL = `
     <span data-id="kernel"></span>
     <span>UNITS MM</span>
     <span>PLANE <span data-id="status-plane">XY</span></span>
+    <span data-id="blender" hidden>BLENDER <output data-id="blender-state">—</output></span>
     <span>PREVIEW <output data-id="ms">—</output> MS · COALESCED <output data-id="coalesced">0→0</output></span>
     <span class="spacer"></span>
     <output data-id="cursor">X 0.00 Y 0.00 Z 0.00</output>
@@ -421,6 +429,7 @@ export async function mount(root, backend) {
     $('export').disabled = list.length === 0;
     hover = null;
     selectionChanged({ quiet: true });
+    if (backend.sceneChanged) backend.sceneChanged().then(showBridge, () => {});
     return loadCurves();
   }
 
@@ -2025,6 +2034,7 @@ export async function mount(root, backend) {
     }
     switch (a) {
       case 'palette': openPalette(false); return true;
+      case 'ask': openAsk(); return true;
       case 'suggest': openPalette(true); return true;
       case 'repeat': if (lastTool) await startTool(lastTool); else toast('NO COMMAND TO REPEAT'); return true;
       case 'delete': await deleteSelected(); return true;
@@ -2108,6 +2118,83 @@ export async function mount(root, backend) {
     e.stopPropagation();
   });
   $('palette-input').addEventListener('blur', () => setTimeout(() => palette && closePalette(), 100));
+
+  // --- AI text commands (Ctrl+K) ------------------------------------------------
+  // A sentence becomes one registered tool, started with its preview exactly as if its key had
+  // been pressed; Enter or right-click keeps it, Escape drops it. See ai.js.
+  let asking = null, lastAsk = null, send = backend.ai ?? null;
+  const session = {
+    get: k => { try { return sessionStorage.getItem(k); } catch { return null; } },
+    set: (k, v) => { try { v ? sessionStorage.setItem(k, v) : sessionStorage.removeItem(k); } catch { /* storage off */ } },
+  };
+  async function sender() {
+    if (send) return send;
+    const key = backend.aiKey ? await backend.aiKey() : session.get('w3d-anthropic-key');
+    if (!key) return null;
+    return send = await claude(key);
+  }
+  function askMode(mode, note = '') {
+    asking.mode = mode;
+    const input = $('ask-input');
+    input.value = '';
+    input.type = mode === 'key' ? 'password' : 'text';
+    input.placeholder = mode === 'key' ? 'PASTE YOUR ANTHROPIC API KEY' : 'E.G. ROUND THE TOP EDGES BY 4 MM';
+    $('ask-title').textContent = mode === 'key'
+      ? (backend.setAiKey ? 'API KEY · SAVED FOR THIS USER ON THIS COMPUTER' : 'API KEY · KEPT IN THIS TAB ONLY')
+      : `ASK · ${MODEL.toUpperCase()} · ONE COMMAND, PREVIEWED FIRST`;
+    $('ask-out').textContent = note;
+    input.focus();
+  }
+  async function openAsk() {
+    if (cmd) await finish();
+    asking = { mode: 'prompt', busy: false };
+    $('ask').hidden = false;
+    askMode(send || (backend.aiKey ? await backend.aiKey() : session.get('w3d-anthropic-key')) ? 'prompt' : 'key');
+  }
+  function closeAsk() { asking = null; $('ask').hidden = true; $('ask-input').blur(); }
+  /** Ask for `prompt` and start the tool that comes back. Returns { tool, args, text }. */
+  async function ask(prompt) {
+    const t = await sender();
+    if (!t) throw new Error('add an Anthropic API key first');
+    const described = describe({ bodies: current, curves: curveList, hidden: [...hidden], context: api.context(), toUser });
+    const r = reply(await t(request(prompt, described)));
+    lastAsk = { prompt, ...r, started: false };
+    if (r.tool) { await api.run(r.tool, r.args); lastAsk.started = true; }
+    return lastAsk;
+  }
+  async function submitAsk() {
+    const text = $('ask-input').value.trim();
+    if (!text || asking.busy) return;
+    if (asking.mode === 'key') {
+      if (backend.setAiKey) await backend.setAiKey(text); else session.set('w3d-anthropic-key', text);
+      send = backend.ai ?? null;
+      return askMode('prompt', 'KEY SAVED. NOW SAY WHAT TO DO.');
+    }
+    asking.busy = true;
+    $('ask-out').textContent = 'THINKING…';
+    try {
+      const r = await ask(text);
+      if (!r.tool) { $('ask-out').textContent = r.text.toUpperCase(); return; }
+      closeAsk();
+      toast(`${toolInfo(r.tool)?.label ?? r.tool.toUpperCase()} FROM “${text.toUpperCase()}” · ADJUST, THEN ⏎ TO KEEP`);
+    } catch (e) {
+      // A rejected key goes back to asking for one.
+      if (e?.status === 401) { send = backend.ai ?? null; if (backend.setAiKey) await backend.setAiKey(''); else session.set('w3d-anthropic-key', ''); return askMode('key', 'THAT KEY WAS NOT ACCEPTED.'); }
+      $('ask-out').textContent = say(e);
+    } finally { if (asking) asking.busy = false; }
+  }
+  $('ask-input').addEventListener('keydown', e => {
+    e.stopPropagation();
+    if (e.key === 'Enter') { e.preventDefault(); submitAsk(); }
+    else if (e.key === 'Escape') { e.preventDefault(); closeAsk(); }
+  });
+
+  // --- Blender bridge status (desktop) -------------------------------------------
+  function showBridge([connected, live] = [0, 0]) {
+    $('blender').hidden = false;
+    $('blender-state').textContent = !connected ? 'NOT CONNECTED' : live ? `LIVE ×${live}` : `CONNECTED ×${connected}`;
+  }
+  if (backend.bridgeStatus) setInterval(() => backend.bridgeStatus().then(showBridge, () => {}), 2000);
 
   // --- files --------------------------------------------------------------
   function newScene(list, name) {
@@ -2262,7 +2349,7 @@ export async function mount(root, backend) {
   // In order: a handle or typed entry taking keys, the running command's own keys, then the
   // viewport's (keymap.js).
   addEventListener('keydown', async e => {
-    if (palette) return;
+    if (palette || asking) return;
     const inInput = e.target.tagName === 'INPUT';
     if (inInput && e.key !== 'Enter' && e.key !== 'Escape') return;
     if (inInput) e.target.blur();
@@ -2350,7 +2437,7 @@ export async function mount(root, backend) {
     for (const id of ids) sel.add({ kind: 'solid', body: id });
   }
 
-  return {
+  const api = {
     /** Start push/pull with its sketch placed, as a click would. */
     async begin(origin, normal, target) {
       await startTool('pushpull', { at: { origin: new THREE.Vector3(...origin), normal: new THREE.Vector3(...normal), target } });
@@ -2488,7 +2575,11 @@ export async function mount(root, backend) {
     get bodies() { return current },
     get curves() { return curveList },
     get history() { return history.slice(0, history.length - undone).map(h => h.text) },
+    /** Turn a sentence into a command with its preview, as the ASK box does. */
+    ask,
+    get lastAsk() { return lastAsk },
   };
+  return api;
 }
 
 /** Whether segments pq and rs cross. */

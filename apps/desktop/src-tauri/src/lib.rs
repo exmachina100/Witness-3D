@@ -2,18 +2,24 @@
 //! thread; each command hands its work to the engine's thread and awaits the answer.
 
 pub mod api;
+pub mod bridge;
 
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use tauri::State;
+use tauri::{Manager, State};
 
 struct Model(Arc<api::Model>);
 
 /// Run blocking model work off the async runtime's threads.
-async fn on_model<R: Send + 'static>(model: &State<'_, Model>, f: impl FnOnce(&api::Model) -> R + Send + 'static) -> Result<R, String> {
+async fn on_model<R: Send + 'static>(
+    model: &State<'_, Model>,
+    f: impl FnOnce(&api::Model) -> R + Send + 'static,
+) -> Result<R, String> {
     let m = model.0.clone();
-    tauri::async_runtime::spawn_blocking(move || f(&m)).await.map_err(|e| e.to_string())
+    tauri::async_runtime::spawn_blocking(move || f(&m))
+        .await
+        .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -22,12 +28,20 @@ async fn scene(model: State<'_, Model>) -> Result<Vec<api::Body>, String> {
 }
 
 #[tauri::command]
-async fn preview_extrude(model: State<'_, Model>, req: api::ExtrudeRequest) -> Result<Option<api::Preview>, String> {
-    on_model(&model, move |m| api::preview(m, req)).await?.transpose()
+async fn preview_extrude(
+    model: State<'_, Model>,
+    req: api::ExtrudeRequest,
+) -> Result<Option<api::Preview>, String> {
+    on_model(&model, move |m| api::preview(m, req))
+        .await?
+        .transpose()
 }
 
 #[tauri::command]
-async fn commit_extrude(model: State<'_, Model>, req: api::ExtrudeRequest) -> Result<api::Committed, String> {
+async fn commit_extrude(
+    model: State<'_, Model>,
+    req: api::ExtrudeRequest,
+) -> Result<api::Committed, String> {
     on_model(&model, move |m| api::commit(m, req)).await?
 }
 
@@ -42,22 +56,36 @@ async fn redo(model: State<'_, Model>) -> Result<Vec<api::Body>, String> {
 }
 
 #[tauri::command]
-async fn preview_blend(model: State<'_, Model>, req: api::BlendRequest) -> Result<Option<api::Body>, api::ApiError> {
-    on_model(&model, move |m| api::preview_blend(m, req)).await?.transpose()
+async fn preview_blend(
+    model: State<'_, Model>,
+    req: api::BlendRequest,
+) -> Result<Option<api::Body>, api::ApiError> {
+    on_model(&model, move |m| api::preview_blend(m, req))
+        .await?
+        .transpose()
 }
 
 #[tauri::command]
-async fn commit_blend(model: State<'_, Model>, req: api::BlendRequest) -> Result<api::Committed, api::ApiError> {
+async fn commit_blend(
+    model: State<'_, Model>,
+    req: api::BlendRequest,
+) -> Result<api::Committed, api::ApiError> {
     on_model(&model, move |m| api::commit_blend(m, req)).await?
 }
 
 #[tauri::command]
-async fn commit_motion(model: State<'_, Model>, req: api::MotionRequest) -> Result<api::Committed, api::ApiError> {
+async fn commit_motion(
+    model: State<'_, Model>,
+    req: api::MotionRequest,
+) -> Result<api::Committed, api::ApiError> {
     on_model(&model, move |m| api::commit_motion(m, req)).await?
 }
 
 #[tauri::command]
-async fn delete_bodies(model: State<'_, Model>, ids: Vec<u32>) -> Result<Vec<api::Body>, api::ApiError> {
+async fn delete_bodies(
+    model: State<'_, Model>,
+    ids: Vec<u32>,
+) -> Result<Vec<api::Body>, api::ApiError> {
     on_model(&model, move |m| api::delete_bodies(m, ids)).await?
 }
 
@@ -67,27 +95,45 @@ async fn curves(model: State<'_, Model>) -> Result<Vec<api::CurveOut>, String> {
 }
 
 #[tauri::command]
-async fn add_curves(model: State<'_, Model>, curves: Vec<w3d_kernel::Curve>) -> Result<api::AddedCurves, api::ApiError> {
+async fn add_curves(
+    model: State<'_, Model>,
+    curves: Vec<w3d_kernel::Curve>,
+) -> Result<api::AddedCurves, api::ApiError> {
     on_model(&model, move |m| api::add_curves(m, curves)).await?
 }
 
 #[tauri::command]
-async fn delete_items(model: State<'_, Model>, bodies: Vec<u32>, curves: Vec<u32>) -> Result<Vec<api::Body>, api::ApiError> {
+async fn delete_items(
+    model: State<'_, Model>,
+    bodies: Vec<u32>,
+    curves: Vec<u32>,
+) -> Result<Vec<api::Body>, api::ApiError> {
     on_model(&model, move |m| api::delete_items(m, bodies, curves)).await?
 }
 
 #[tauri::command]
-async fn preview_boolean(model: State<'_, Model>, req: api::BooleanRequest) -> Result<Option<api::Body>, api::ApiError> {
-    on_model(&model, move |m| api::preview_boolean(m, req)).await?.transpose()
+async fn preview_boolean(
+    model: State<'_, Model>,
+    req: api::BooleanRequest,
+) -> Result<Option<api::Body>, api::ApiError> {
+    on_model(&model, move |m| api::preview_boolean(m, req))
+        .await?
+        .transpose()
 }
 
 #[tauri::command]
-async fn commit_boolean(model: State<'_, Model>, req: api::BooleanRequest) -> Result<api::Committed, api::ApiError> {
+async fn commit_boolean(
+    model: State<'_, Model>,
+    req: api::BooleanRequest,
+) -> Result<api::Committed, api::ApiError> {
     on_model(&model, move |m| api::commit_boolean(m, req)).await?
 }
 
 #[tauri::command]
-async fn duplicate_bodies(model: State<'_, Model>, ids: Vec<u32>) -> Result<api::Duplicated, api::ApiError> {
+async fn duplicate_bodies(
+    model: State<'_, Model>,
+    ids: Vec<u32>,
+) -> Result<api::Duplicated, api::ApiError> {
     on_model(&model, move |m| api::duplicate_bodies(m, ids)).await?
 }
 
@@ -116,14 +162,111 @@ async fn export_step(model: State<'_, Model>, id: u32, path: PathBuf) -> Result<
     on_model(&model, move |m| api::export_step(m, id, path)).await?
 }
 
+/// The model changed; send it to Blender add-ons with Live Link on. Returns (connected, live).
+#[tauri::command]
+async fn bridge_changed(
+    bridge: State<'_, Option<bridge::Bridge>>,
+) -> Result<(usize, usize), String> {
+    let Some(b) = bridge.inner().clone() else {
+        return Ok((0, 0));
+    };
+    tauri::async_runtime::spawn_blocking(move || {
+        b.changed();
+        b.status()
+    })
+    .await
+    .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn bridge_status(bridge: State<'_, Option<bridge::Bridge>>) -> (usize, usize) {
+    bridge.as_ref().map_or((0, 0), |b| b.status())
+}
+
+/// Where the user's Anthropic API key is kept: the app's config folder, never the repo or a document.
+fn key_file(app: &tauri::AppHandle) -> Result<PathBuf, String> {
+    Ok(app
+        .path()
+        .app_config_dir()
+        .map_err(|e| e.to_string())?
+        .join("anthropic-api-key"))
+}
+
+/// The key for AI commands: ANTHROPIC_API_KEY if set, else the one saved with `set_ai_key`.
+#[tauri::command]
+fn ai_key(app: tauri::AppHandle) -> Result<Option<String>, String> {
+    if let Ok(k) = std::env::var("ANTHROPIC_API_KEY") {
+        if !k.is_empty() {
+            return Ok(Some(k));
+        }
+    }
+    Ok(std::fs::read_to_string(key_file(&app)?)
+        .ok()
+        .map(|k| k.trim().to_string())
+        .filter(|k| !k.is_empty()))
+}
+
+/// Save the key (readable by this user only), or forget it when empty.
+#[tauri::command]
+fn set_ai_key(app: tauri::AppHandle, key: String) -> Result<(), String> {
+    let path = key_file(&app)?;
+    if key.trim().is_empty() {
+        let _ = std::fs::remove_file(&path);
+        return Ok(());
+    }
+    std::fs::create_dir_all(path.parent().unwrap()).map_err(|e| e.to_string())?;
+    let mut opts = std::fs::OpenOptions::new();
+    opts.write(true).create(true).truncate(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        opts.mode(0o600);
+    }
+    use std::io::Write;
+    opts.open(&path)
+        .and_then(|mut f| f.write_all(key.trim().as_bytes()))
+        .map_err(|e| e.to_string())
+}
+
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
-        .manage(Model(Arc::new(api::start())))
+        .setup(|app| {
+            let model = Arc::new(api::start());
+            let m = model.clone();
+            // Without the port (another copy running, say) the app still works, minus the bridge.
+            let bridge = bridge::Bridge::start(bridge::PORT, Arc::new(move || api::scene(&m)))
+                .map_err(|e| eprintln!("Blender bridge off: {e}"))
+                .ok();
+            app.manage(Model(model));
+            app.manage(bridge);
+            Ok(())
+        })
         .invoke_handler(tauri::generate_handler![
-            scene, preview_extrude, commit_extrude, preview_blend, commit_blend, commit_motion, delete_bodies, duplicate_bodies,
-            curves, add_curves, delete_items, preview_boolean, commit_boolean,
-            undo, redo, new_document, save, open, import_step, export_step,
+            scene,
+            preview_extrude,
+            commit_extrude,
+            preview_blend,
+            commit_blend,
+            commit_motion,
+            delete_bodies,
+            duplicate_bodies,
+            curves,
+            add_curves,
+            delete_items,
+            preview_boolean,
+            commit_boolean,
+            undo,
+            redo,
+            new_document,
+            save,
+            open,
+            import_step,
+            export_step,
+            bridge_changed,
+            bridge_status,
+            ai_key,
+            set_ai_key,
         ])
         .run(tauri::generate_context!())
         .expect("error while running Witness 3D");

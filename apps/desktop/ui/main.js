@@ -28,6 +28,12 @@ const rust = {
   deleteItems: (bodies, curves) => tauri.core.invoke('delete_items', { bodies, curves }),
   previewBoolean: req => tauri.core.invoke('preview_boolean', { req }),
   commitBoolean: req => tauri.core.invoke('commit_boolean', { req }),
+  // The Anthropic key for AI commands lives in the app's config folder (or ANTHROPIC_API_KEY).
+  aiKey: () => tauri.core.invoke('ai_key'),
+  setAiKey: key => tauri.core.invoke('set_ai_key', { key }),
+  // The Blender bridge: tell Live Link the model changed; both answer [connected, live].
+  sceneChanged: () => tauri.core.invoke('bridge_changed'),
+  bridgeStatus: () => tauri.core.invoke('bridge_status'),
   undo: () => tauri.core.invoke('undo'),
   redo: () => tauri.core.invoke('redo'),
   newDocument() { filePath = null; return tauri.core.invoke('new_document'); },

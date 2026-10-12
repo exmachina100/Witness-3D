@@ -41,6 +41,8 @@ export const VIEWPORT = {
     'shift-q': 'draw:rect', 'shift-w': 'draw:circle', 'shift-a': 'draw:line',
     'shift-x': 'delete', 'shift-delete': 'delete', 'shift-backspace': 'delete',
     'shift-d': 'duplicate',
+    // Witness 3D's own: a command asked for in words (ai.js); Plasticity has no equivalent
+    'ctrl-k': 'ask',
     h: 'hide', 'shift-h': 'hide-others', 'alt-h': 'unhide-all',
     // Construction planes (manual: Construction Plane)
     space: 'plane:selection', 'shift-space': 'plane:selection-keep-view', 'ctrl-space': 'plane:view',
@@ -73,7 +75,7 @@ export const ACTIONS = {
     'mode:solid': 'Selection mode: solids', 'mode:all': 'Selection mode: all',
     'convert:edge': 'Convert selection to edges', 'convert:face': 'Convert selection to faces', 'convert:solid': 'Convert selection to solids',
     'select:all': 'Select all', 'select:none': 'Deselect all', 'select:invert': 'Invert selection',
-    'repeat': 'Repeat last command', 'delete': 'Delete', 'duplicate': 'Duplicate',
+    'repeat': 'Repeat last command', 'ask': 'Ask for a command in words', 'delete': 'Delete', 'duplicate': 'Duplicate',
     'hide': 'Hide selected', 'hide-others': 'Hide unselected', 'unhide-all': 'Unhide all',
     'plane:selection': 'Construction plane from selection', 'plane:selection-keep-view': 'Construction plane from selection, keep view',
     'plane:view': 'Construction plane from view', 'plane:world': 'Construction plane: world XY',

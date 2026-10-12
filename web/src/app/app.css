@@ -183,3 +183,7 @@ button:focus-visible, input:focus-visible { outline: 1px solid var(--accent); ou
 .palette li kbd { font: inherit; opacity: 0.6; }
 .palette li.none { color: var(--dim); cursor: default; }
 @media (max-width: 900px) { .cmdbar { display: none; } }
+
+.ask { width: min(560px, calc(100% - 32px)); }
+.ask-out { padding: 10px 14px; min-height: 18px; font-size: 11px; letter-spacing: 1px; line-height: 1.6; color: var(--muted); white-space: pre-wrap; }
+.ask-out:empty { display: none; }
