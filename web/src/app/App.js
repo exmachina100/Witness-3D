@@ -45,8 +45,8 @@ const SHELL = `
     <button class="export" data-id="file-new" hidden>NEW</button>
     <button class="export" data-id="file-open" hidden>OPEN</button>
     <button class="export" data-id="file-save" hidden>SAVE</button>
-    <button class="export" data-id="import" hidden>⇩ IMPORT STEP</button>
-    <button class="export" data-id="export" disabled>⇪ EXPORT STEP</button>
+    <button class="export" data-id="import" hidden title="Import a STEP file">⇩ STEP</button>
+    <button class="export" data-id="export" disabled title="Export STEP">⇪ STEP</button>
     <span class="file" data-id="file-name">UNTITLED.W3D</span>
   </header>
 
@@ -258,6 +258,9 @@ export async function mount(root, backend) {
     $('faces').textContent = list.reduce((n, b) => n + b.facePlanes.length, 0);
     $('export').disabled = list.length === 0;
     renderOutliner();
+    // Edge numbers belong to the bodies just replaced.
+    hoverEdge = null;
+    drawOverlays();
   }
 
   // --- outliner and history -----------------------------------------------
@@ -551,11 +554,12 @@ export async function mount(root, backend) {
   /** The edge under the pointer, if it is not hidden behind a face. */
   function pickEdge(event) {
     ray(event);
-    const visible = bodies.children.filter(m => m.visible);
+    // Pick on the committed bodies even while a preview stands in for one: edge numbers refer to them.
+    const visible = bodies.children.filter(m => !hidden.has(m.userData.id));
     raycaster.params.Line.threshold = camera.position.distanceTo(controls.target) * 0.008;
     const hits = raycaster.intersectObjects(visible.map(m => m.children[0]), false);
     if (!hits.length) return null;
-    const face = raycaster.intersectObjects(visible, false)[0];
+    const face = raycaster.intersectObjects(visible, false)[0]; // a face in front hides the edge
     const hit = hits.find(h => !face || h.distance <= face.distance + face.distance * 0.01);
     if (!hit) return null;
     const segment = hit.index / 2;

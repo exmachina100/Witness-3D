@@ -1,13 +1,15 @@
 # Witness 3D
 
-A direct modeler in the spirit of Plasticity: exact B-rep solids, live push/pull previews, and
-whole-document undo, on the OpenCascade kernel.
+A direct modeler in the spirit of Plasticity: exact B-rep solids, live push/pull previews, edge
+fillets and chamfers, and whole-document undo, on the OpenCascade kernel. Documents are in
+millimetres and save as `.w3d` files (exact geometry); STEP is for exchange.
 
 | Folder | What it is |
 |---|---|
 | [`web/`](web/) | The push/pull extrude running in the browser: Three.js plus OpenCascade compiled to WebAssembly. Includes the notes on how Plasticity is built, with file and line evidence. |
 | [`apps/desktop/`](apps/desktop/) | The desktop app: the Rust core in a Tauri window with the Three.js viewport. |
-| [`crates/w3d-kernel/`](crates/w3d-kernel/) | The Rust modeling core. Geometry goes through a `Kernel` trait, implemented today by OpenCascade via [opencascade-rs](https://github.com/bschwind/opencascade-rs). It also holds the extrude-to-boolean logic, the document with undo/redo, and the engine thread that keeps previews on the newest drag. |
+| [`crates/w3d-kernel/`](crates/w3d-kernel/) | The Rust modeling core. Geometry goes through a `Kernel` trait, implemented today by OpenCascade via [opencascade-rs](https://github.com/bschwind/opencascade-rs). It also holds the extrude-to-boolean logic, fillet/chamfer, the native file format, the document with undo/redo, and the engine thread that keeps previews on the newest drag. |
+| [`vendor/`](vendor/) | opencascade-rs 0.3.0 with small Witness 3D additions (checked fillets, edge numbering, BREP text); see its README. |
 
 ## Run it
 
