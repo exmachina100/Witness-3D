@@ -16,6 +16,7 @@ pub mod file;
 pub mod occt;
 
 pub use blend::{blend, Blend, BlendParams};
+pub use document::{Ref, Refs};
 pub use extrude::{extrude, ExtrudeParams, ExtrudeResult, Operation};
 
 /// A closed 2D profile, drawn in a sketch plane.
@@ -101,6 +102,46 @@ pub enum KernelError {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum BooleanOp { Union, Difference, Intersection }
 
+/// Where an operation's result faces and edges came from, by number (see [`Tessellation`]).
+/// `faces[k]` and `edges[k]` hold (number in input k, number in the result) pairs: input 0 is the
+/// body being changed, input 1 the tool of a boolean. A split source appears once per piece.
+/// `generated_faces` holds (input edge, result face) for faces grown from an edge, like a round.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct History {
+    pub faces: [Vec<(u32, u32)>; 2],
+    pub edges: [Vec<(u32, u32)>; 2],
+    pub generated_faces: Vec<(u32, u32)>,
+}
+
+/// A solid together with the [`History`] of the operation that made it.
+#[derive(Clone, Debug)]
+pub struct Traced<S> {
+    pub solid: S,
+    pub history: History,
+}
+
+/// A rigid motion: rotate by `angle` radians about `axis` through `pivot`, then move by `offset`.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Motion {
+    pub offset: DVec3,
+    pub pivot: DVec3,
+    pub axis: DVec3,
+    pub angle: f64,
+}
+
+impl Motion {
+    pub fn translation(offset: DVec3) -> Self { Motion { offset, pivot: DVec3::ZERO, axis: DVec3::Y, angle: 0.0 } }
+    pub fn rotation(pivot: DVec3, axis: DVec3, angle: f64) -> Self { Motion { offset: DVec3::ZERO, pivot, axis, angle } }
+    pub fn is_identity(&self) -> bool { self.offset.length() < 1e-12 && self.angle.abs() < 1e-12 }
+    /// Where the motion takes point `p`.
+    pub fn apply(&self, p: DVec3) -> DVec3 {
+        let q = if self.angle == 0.0 { p } else {
+            glam::DQuat::from_axis_angle(self.axis.normalize(), self.angle) * (p - self.pivot) + self.pivot
+        };
+        q + self.offset
+    }
+}
+
 /// Everything a modeling tool may ask of geometry. One implementation per kernel.
 pub trait Kernel {
     type Solid;
@@ -108,14 +149,16 @@ pub trait Kernel {
     fn box_from_corners(&self, a: DVec3, b: DVec3) -> Self::Solid;
     /// Sweep `profile` along the frame normal by `distance` (negative goes backwards).
     fn extrude(&self, profile: &Profile, frame: &Frame, distance: f64) -> Result<Self::Solid, KernelError>;
-    /// The boolean result, with coplanar faces merged.
-    fn boolean(&self, a: &Self::Solid, b: &Self::Solid, op: BooleanOp) -> Result<Self::Solid, KernelError>;
+    /// The boolean result, with coplanar faces merged, and where its faces and edges came from.
+    fn boolean(&self, a: &Self::Solid, b: &Self::Solid, op: BooleanOp) -> Result<Traced<Self::Solid>, KernelError>;
     /// Number of disconnected solids in the shape.
     fn solid_count(&self, s: &Self::Solid) -> usize;
     fn face_count(&self, s: &Self::Solid) -> usize;
     fn edge_count(&self, s: &Self::Solid) -> usize;
     /// Round or bevel the numbered edges (see [`Tessellation::edges`]) by `size`.
-    fn blend(&self, s: &Self::Solid, edges: &[u32], size: f64, kind: Blend) -> Result<Self::Solid, KernelError>;
+    fn blend(&self, s: &Self::Solid, edges: &[u32], size: f64, kind: Blend) -> Result<Traced<Self::Solid>, KernelError>;
+    /// The solid moved rigidly. Faces and edges keep their numbers.
+    fn transform(&self, s: &Self::Solid, m: &Motion) -> Self::Solid;
     /// Whether the kernel's own checker accepts the shape.
     fn is_valid(&self, s: &Self::Solid) -> bool;
     fn tessellate(&self, s: &Self::Solid, tolerance: f64) -> Result<Tessellation, KernelError>;

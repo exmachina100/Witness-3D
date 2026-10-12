@@ -13,11 +13,12 @@ impl Kernel for NoKernel {
     type Solid = ();
     fn box_from_corners(&self, _: DVec3, _: DVec3) {}
     fn extrude(&self, _: &Profile, _: &Frame, _: f64) -> Result<(), KernelError> { Ok(()) }
-    fn boolean(&self, _: &(), _: &(), _: BooleanOp) -> Result<(), KernelError> { Ok(()) }
+    fn boolean(&self, _: &(), _: &(), _: BooleanOp) -> Result<Traced<()>, KernelError> { Ok(Traced { solid: (), history: History::default() }) }
     fn solid_count(&self, _: &()) -> usize { 1 }
     fn face_count(&self, _: &()) -> usize { 6 }
     fn edge_count(&self, _: &()) -> usize { 12 }
-    fn blend(&self, _: &(), _: &[u32], _: f64, _: Blend) -> Result<(), KernelError> { Ok(()) }
+    fn blend(&self, _: &(), _: &[u32], _: f64, _: Blend) -> Result<Traced<()>, KernelError> { Ok(Traced { solid: (), history: History::default() }) }
+    fn transform(&self, _: &(), _: &Motion) {}
     fn is_valid(&self, _: &()) -> bool { true }
     fn tessellate(&self, _: &(), _: f64) -> Result<Tessellation, KernelError> { Ok(Tessellation::default()) }
     fn write_step(&self, _: &(), _: &std::path::Path) -> Result<(), KernelError> { Ok(()) }

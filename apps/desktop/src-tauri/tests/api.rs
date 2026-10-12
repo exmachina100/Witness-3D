@@ -1,6 +1,6 @@
 //! The commands the viewport calls, run against real OpenCascade without opening a window.
 
-use w3d_desktop::api::{self, BlendKind, BlendRequest, ExtrudeRequest, Outcome, ProfileShape};
+use w3d_desktop::api::{self, BlendKind, BlendRequest, ExtrudeRequest, MotionRequest, Outcome, ProfileShape};
 
 /// A 10×10 mm square on the seed enclosure's top face (y = 30), pulled or pushed by `distance`.
 fn on_top(target: Option<u32>, distance: f64) -> ExtrudeRequest {
@@ -136,4 +136,44 @@ fn saves_reopens_and_imports_step() {
     close(imported.scene[1].volume, 121_000.0);
     assert!(api::open(&m, dir.join("missing.w3d")).is_err());
     std::fs::remove_dir_all(dir).unwrap();
+}
+
+/// The edge running along the top front of the seed enclosure (y = 30, z = 25).
+fn top_front(b: &api::Body) -> Vec<u32> {
+    (0..b.edges.len() as u32).filter(|&i| {
+        b.edges[i as usize].chunks(3).all(|p| (p[1] - 30.0).abs() < 1e-3 && (p[2] - 25.0).abs() < 1e-3)
+    }).collect()
+}
+
+#[test]
+fn bodies_carry_refs_that_survive_a_fillet() {
+    let m = api::start();
+    let before = api::scene(&m).unwrap().remove(0);
+    assert_eq!(before.edge_refs.len(), before.edges.len());
+    assert_eq!(before.face_refs.len(), before.face_planes.len());
+    let r = before.edge_refs[top_front(&before)[0] as usize];
+    let done = api::commit_blend(&m, BlendRequest { body: before.id, edges: vertical_edges(&before), size: 4.0, kind: BlendKind::Fillet }).unwrap();
+    let after = &done.scene[0];
+    assert!(after.revision > before.revision);
+    let found: Vec<u32> = (0..after.edge_refs.len() as u32).filter(|&i| after.edge_refs[i as usize] == r).collect();
+    assert_eq!(found, top_front(after));
+}
+
+#[test]
+fn a_body_moves_and_turns_as_one_undoable_step() {
+    let m = api::start();
+    let before = api::scene(&m).unwrap().remove(0);
+    let req: MotionRequest = serde_json::from_str(r#"{"body":1,"offset":[10,0,0],"pivot":[0,0,0],"axis":[0,1,0],"angle":1.5707963267948966}"#).unwrap();
+    let after = api::commit_motion(&m, req).unwrap().scene.remove(0);
+    assert_eq!(after.edge_refs, before.edge_refs);
+    close(after.volume, before.volume);
+    let xs = after.positions.chunks(3).map(|p| p[0] as f64);
+    let (lo, hi) = xs.fold((f64::MAX, f64::MIN), |(a, b), x| (a.min(x), b.max(x)));
+    close(lo, -15.0);
+    close(hi, 35.0);
+    // Nothing to do, and nonsense, are refused without a step.
+    assert!(api::commit_motion(&m, serde_json::from_str(r#"{"body":1}"#).unwrap()).is_err());
+    assert!(api::commit_motion(&m, MotionRequest { body: 1, offset: [f64::NAN, 0.0, 0.0], pivot: [0.0; 3], axis: [0.0, 1.0, 0.0], angle: 0.0 }).is_err());
+    let undone = api::undo(&m).unwrap().remove(0);
+    close(undone.positions.chunks(3).map(|p| p[0] as f64).fold(f64::MAX, f64::min), -40.0);
 }

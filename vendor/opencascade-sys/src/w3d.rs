@@ -23,5 +23,16 @@ mod inner {
         pub fn w3d_is_valid(shape: &TopoDS_Shape) -> bool;
         pub fn w3d_write_brep(shape: &TopoDS_Shape) -> Result<String>;
         pub fn w3d_read_brep(text: &str) -> Result<UniquePtr<TopoDS_Shape>>;
+
+        type W3dResult;
+        pub fn w3d_boolean(a: &TopoDS_Shape, b: &TopoDS_Shape, op: i32) -> Result<UniquePtr<W3dResult>>;
+        pub fn w3d_blend_edges_history(
+            shape: &TopoDS_Shape,
+            edges: &[i32],
+            size: f64,
+            chamfer: bool,
+        ) -> Result<UniquePtr<W3dResult>>;
+        pub fn w3d_result_shape(r: &W3dResult) -> UniquePtr<TopoDS_Shape>;
+        pub fn w3d_result_pairs(r: &W3dResult, input: i32, kind: i32) -> Vec<i32>;
     }
 }

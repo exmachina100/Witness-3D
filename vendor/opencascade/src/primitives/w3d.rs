@@ -47,16 +47,7 @@ impl Shape {
         let ids: Vec<i32> = edges.iter().map(|&e| e as i32).collect();
         match ffi::w3d::w3d_blend_edges(&self.inner, &ids, size, chamfer) {
             Ok(shape) => Ok(Shape::from_shape(&shape)),
-            Err(e) => {
-                let msg = e.what().to_string();
-                match msg.strip_prefix("BLEND|").and_then(|m| m.split_once('|')) {
-                    Some((list, reason)) => Err(BlendError {
-                        edges: list.split(',').filter_map(|n| n.parse().ok()).collect(),
-                        reason: reason.to_string(),
-                    }),
-                    None => Err(BlendError { edges: vec![], reason: msg }),
-                }
-            }
+            Err(e) => Err(parse_blend_error(e.what())),
         }
     }
 
@@ -71,5 +62,66 @@ impl Shape {
     pub fn from_brep_text(text: &str) -> Result<Shape, crate::Error> {
         let s = ffi::w3d::w3d_read_brep(text).map_err(|_| crate::Error::BrepReadFailed)?;
         Ok(Shape::from_shape(&s))
+    }
+}
+
+/// Which result faces and edges came from which input faces and edges, by number.
+/// `faces[k]` / `edges[k]` hold (source number in input k, result number) pairs; a source that was
+/// split appears once per piece, and pieces merged from several sources appear once per source.
+/// `generated_faces` holds (input edge number, result face number) for faces grown from an edge,
+/// such as the round of a fillet.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct ShapeHistory {
+    pub faces: [Vec<(usize, usize)>; 2],
+    pub edges: [Vec<(usize, usize)>; 2],
+    pub generated_faces: Vec<(usize, usize)>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum BooleanKind {
+    Union,
+    Difference,
+    Intersection,
+}
+
+fn pairs(v: Vec<i32>) -> Vec<(usize, usize)> {
+    v.chunks_exact(2).map(|p| (p[0] as usize, p[1] as usize)).collect()
+}
+
+fn history(r: &ffi::w3d::W3dResult, inputs: usize) -> ShapeHistory {
+    let mut h = ShapeHistory::default();
+    for k in 0..inputs {
+        h.faces[k] = pairs(ffi::w3d::w3d_result_pairs(r, k as i32, 0));
+        h.edges[k] = pairs(ffi::w3d::w3d_result_pairs(r, k as i32, 1));
+    }
+    h.generated_faces = pairs(ffi::w3d::w3d_result_pairs(r, 0, 2));
+    h
+}
+
+impl Shape {
+    /// A boolean followed by merging coplanar faces (as [`Shape::clean`]), with its history.
+    pub fn boolean_with_history(&self, other: &Shape, kind: BooleanKind) -> Result<(Shape, ShapeHistory), String> {
+        let op = match kind { BooleanKind::Union => 0, BooleanKind::Difference => 1, BooleanKind::Intersection => 2 };
+        let r = ffi::w3d::w3d_boolean(&self.inner, &other.inner, op).map_err(|e| e.what().to_string())?;
+        Ok((Shape::from_shape(&ffi::w3d::w3d_result_shape(&r)), history(&r, 2)))
+    }
+
+    /// [`Shape::blend_edges`] with its history.
+    pub fn blend_edges_with_history(&self, edges: &[usize], size: f64, chamfer: bool) -> Result<(Shape, ShapeHistory), BlendError> {
+        let ids: Vec<i32> = edges.iter().map(|&e| e as i32).collect();
+        match ffi::w3d::w3d_blend_edges_history(&self.inner, &ids, size, chamfer) {
+            Ok(r) => Ok((Shape::from_shape(&ffi::w3d::w3d_result_shape(&r)), history(&r, 1))),
+            Err(e) => Err(parse_blend_error(e.what())),
+        }
+    }
+}
+
+fn parse_blend_error(msg: &str) -> BlendError {
+    match msg.strip_prefix("BLEND|").and_then(|m| m.split_once('|')) {
+        Some((list, reason)) => BlendError {
+            edges: list.split(',').filter_map(|n| n.parse().ok()).collect(),
+            reason: reason.to_string(),
+        },
+        None => BlendError { edges: vec![], reason: msg.to_string() },
     }
 }

@@ -2,7 +2,7 @@
 //! `PossiblyBooleanExtrudeFactory` (src/commands/extrude/ExtrudeFactory.ts:115-117, :150):
 //! pulling out of a face joins, pushing in cuts, and an extrude that touches nothing is a new body.
 
-use crate::{BooleanOp, Frame, Kernel, KernelError, Profile};
+use crate::{BooleanOp, Frame, History, Kernel, KernelError, Profile};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Operation {
@@ -23,7 +23,7 @@ pub struct ExtrudeParams {
 #[derive(Clone, Debug)]
 pub enum ExtrudeResult<S> {
     /// The target body, replaced by the joined or cut result.
-    Replace { solid: S, op: BooleanOp },
+    Replace { solid: S, op: BooleanOp, history: History },
     /// A separate new body.
     New(S),
 }
@@ -38,7 +38,7 @@ pub fn extrude<K: Kernel>(k: &K, target: Option<&K::Solid>, p: &ExtrudeParams) -
     };
 
     let op = if p.distance > 0.0 { BooleanOp::Union } else { BooleanOp::Difference };
-    let result = k.boolean(body, &tool, op)?;
+    let crate::Traced { solid: result, history } = k.boolean(body, &tool, op)?;
     // Touching or overlapping fuses into the same number of solids; a cut that changed nothing missed.
     let met = match op {
         BooleanOp::Union => k.solid_count(&result) == k.solid_count(body),
@@ -50,5 +50,5 @@ pub fn extrude<K: Kernel>(k: &K, target: Option<&K::Solid>, p: &ExtrudeParams) -
     if k.solid_count(&result) == 0 {
         return Err(KernelError::Invalid("boolean produced an empty body"));
     }
-    Ok(ExtrudeResult::Replace { solid: result, op })
+    Ok(ExtrudeResult::Replace { solid: result, op, history })
 }

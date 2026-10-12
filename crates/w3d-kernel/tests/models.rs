@@ -51,7 +51,7 @@ fn edges_are_numbered_once_each() {
 fn enclosure_rounds_its_corners_then_its_top() {
     let k = Occt;
     let body = enclosure(&k);
-    let corners = blend(&k, &body, &fillet(vertical(&k, &body), 4.0)).unwrap();
+    let corners = blend(&k, &body, &fillet(vertical(&k, &body), 4.0)).unwrap().solid;
     // Each corner loses a 4×4 square less a quarter disc, over the 30 mm height.
     let corner_loss = (16.0 - PI * 4.0) * 30.0;
     close(volume(&k, &corners), 80.0 * 30.0 * 50.0 - 4.0 * corner_loss, 2.0);
@@ -61,7 +61,7 @@ fn enclosure_rounds_its_corners_then_its_top() {
     // The top outline is now one tangent chain of 8 edges; round all of it by 2 mm.
     let top = edges_where(&k, &corners, |p| (p.y - 30.0).abs() < 1e-6);
     assert_eq!(top.len(), 8);
-    let rounded = blend(&k, &corners, &fillet(top, 2.0)).unwrap();
+    let rounded = blend(&k, &corners, &fillet(top, 2.0)).unwrap().solid;
     assert!(k.is_valid(&rounded));
     assert!(volume(&k, &rounded) < volume(&k, &corners));
 }
@@ -72,7 +72,7 @@ fn chamfer_cuts_a_triangular_prism() {
     let body = enclosure(&k);
     let edge = edges_where(&k, &body, |p| (p.y - 30.0).abs() < 1e-6 && (p.z - 25.0).abs() < 1e-6);
     assert_eq!(edge.len(), 1);
-    let cut = blend(&k, &body, &BlendParams { edges: edge, size: 3.0, kind: Blend::Chamfer }).unwrap();
+    let cut = blend(&k, &body, &BlendParams { edges: edge, size: 3.0, kind: Blend::Chamfer }).unwrap().solid;
     close(volume(&k, &cut), 120_000.0 - 0.5 * 3.0 * 3.0 * 80.0, 1e-3);
     assert_eq!(k.face_count(&cut), 7);
 }
@@ -113,7 +113,7 @@ fn a_boss_joined_by_push_pull_can_be_rounded_where_it_meets_the_body() {
     let base = edges_where(&k, &solid, |p| (p.y - 30.0).abs() < 1e-6 && (p.x * p.x + p.z * p.z - 64.0).abs() < 1e-3);
     let rim = edges_where(&k, &solid, |p| (p.y - 40.0).abs() < 1e-6);
     assert!(!base.is_empty() && !rim.is_empty());
-    let rounded = blend(&k, &solid, &fillet([base, rim].concat(), 1.5)).unwrap();
+    let rounded = blend(&k, &solid, &fillet([base, rim].concat(), 1.5)).unwrap().solid;
     assert!(k.is_valid(&rounded));
     assert_eq!(k.solid_count(&rounded), 1);
 }
@@ -149,7 +149,7 @@ fn a_document_saves_and_reopens_exactly() {
 fn step_export_reimports_the_same_solid() {
     let k = Occt;
     let body = enclosure(&k);
-    let rounded = blend(&k, &body, &fillet(vertical(&k, &body), 4.0)).unwrap();
+    let rounded = blend(&k, &body, &fillet(vertical(&k, &body), 4.0)).unwrap().solid;
     let path = std::env::temp_dir().join(format!("w3d-step-{}.step", std::process::id()));
     k.write_step(&rounded, &path).unwrap();
     let back = k.read_step(&path).unwrap();
@@ -167,4 +167,111 @@ fn a_damaged_file_leaves_the_document_alone() {
     let bad = r#"{"format":"witness3d","version":1,"units":"mm","tolerance":1e-7,"next_id":2,"bodies":[{"id":1,"encoding":"occt-brep","shape":"garbage"}]}"#;
     assert!(file::read(&mut doc, bad).is_err());
     assert_eq!(doc.ids(), vec![id]);
+}
+
+/// Numbers of the flat faces facing `normal` whose plane passes through `point`.
+fn faces_facing(k: &Occt, s: &Shape, point: DVec3, normal: DVec3) -> Vec<u32> {
+    let t = k.tessellate(s, 0.01).unwrap();
+    t.face_planes.iter().enumerate()
+        .filter(|(_, p)| p.as_ref().is_some_and(|p| p.normal.dot(normal) > 1.0 - 1e-9 && (p.origin - point).dot(normal).abs() < 1e-6))
+        .map(|(i, _)| i as u32)
+        .collect()
+}
+
+fn top_front(k: &Occt, s: &Shape) -> Vec<u32> {
+    edges_where(k, s, |p| (p.y - 30.0).abs() < 1e-6 && (p.z - 25.0).abs() < 1e-6)
+}
+
+#[test]
+fn refs_follow_faces_and_edges_through_a_join() {
+    let mut doc = Document::new(Occt);
+    let id = doc.add(enclosure(&doc.kernel));
+    let edge = top_front(&doc.kernel, doc.get(id).unwrap());
+    assert_eq!(edge.len(), 1);
+    let edge_ref = doc.refs(id).unwrap().edges[edge[0] as usize];
+    let top = faces_facing(&doc.kernel, doc.get(id).unwrap(), DVec3::new(0.0, 30.0, 0.0), DVec3::Y);
+    let top_ref = doc.refs(id).unwrap().faces[top[0] as usize];
+    let before = doc.revision();
+
+    // A boss on the top renumbers the body's faces and edges.
+    doc.commit_extrude(Some(id), &ExtrudeParams {
+        profile: Profile::Circle { center: (0.0, 0.0), radius: 8.0 },
+        frame: Frame::new(DVec3::new(0.0, 30.0, 0.0), DVec3::X, DVec3::Y),
+        distance: 10.0,
+        operation: Operation::Auto,
+    }).unwrap();
+    assert!(doc.revision() > before);
+    let (solid, refs) = (doc.get(id).unwrap(), doc.refs(id).unwrap());
+    assert_eq!(refs.edges.len(), doc.kernel.edge_count(solid));
+    assert_eq!(refs.faces.len(), doc.kernel.face_count(solid));
+    assert_eq!(refs.edges_with(&[edge_ref]), top_front(&doc.kernel, solid));
+    assert_eq!(refs.faces_with(&[top_ref]), faces_facing(&doc.kernel, solid, DVec3::new(0.0, 30.0, 0.0), DVec3::Y));
+    // The boss's own faces are new.
+    let boss_top = faces_facing(&doc.kernel, solid, DVec3::new(0.0, 40.0, 0.0), DVec3::Y);
+    assert_eq!(boss_top.len(), 1);
+    assert_ne!(refs.faces[boss_top[0] as usize], top_ref);
+}
+
+#[test]
+fn a_fillet_keeps_the_refs_of_trimmed_edges_and_gives_its_rounds_new_ones() {
+    let mut doc = Document::new(Occt);
+    let id = doc.add(enclosure(&doc.kernel));
+    let old = doc.refs(id).unwrap().clone();
+    let edge_ref = old.edges[top_front(&doc.kernel, doc.get(id).unwrap())[0] as usize];
+    doc.commit_blend(id, &fillet(vertical(&doc.kernel, doc.get(id).unwrap()), 4.0)).unwrap();
+    let (solid, refs) = (doc.get(id).unwrap(), doc.refs(id).unwrap());
+    // The top front edge got shorter at both ends but is the same edge.
+    assert_eq!(refs.edges_with(&[edge_ref]), top_front(&doc.kernel, solid));
+    // Six original faces plus four rounds; only the rounds are new.
+    assert_eq!(refs.faces.len(), 10);
+    assert_eq!(refs.faces.iter().filter(|r| !old.faces.contains(r)).count(), 4);
+    // Undo brings back the old numbering with the old refs.
+    assert!(doc.undo());
+    assert_eq!(doc.refs(id).unwrap(), &old);
+}
+
+#[test]
+fn moving_a_body_keeps_its_refs_and_moves_its_geometry() {
+    let mut doc = Document::new(Occt);
+    let id = doc.add(enclosure(&doc.kernel));
+    let old = doc.refs(id).unwrap().clone();
+    let m = Motion { offset: DVec3::new(10.0, 0.0, 0.0), pivot: DVec3::ZERO, axis: DVec3::Y, angle: PI / 2.0 };
+    assert!(matches!(doc.commit_motion(id, &Motion::translation(DVec3::ZERO)), Err(KernelError::NoOp)));
+    doc.commit_motion(id, &m).unwrap();
+    assert_eq!(doc.refs(id).unwrap(), &old);
+    // A quarter turn about y swaps the footprint: 50 wide in x, 80 deep in z, then 10 along x.
+    let t = doc.kernel.tessellate(doc.get(id).unwrap(), 0.01).unwrap();
+    let xs = t.positions.iter().map(|p| p[0]);
+    let (lo, hi) = xs.fold((f64::MAX, f64::MIN), |(a, b), x| (a.min(x), b.max(x)));
+    close(lo, -15.0, 1e-6);
+    close(hi, 35.0, 1e-6);
+    // The same edge, renumbered or not, is still where the motion took it.
+    let edge_ref = old.edges[top_front(&doc.kernel, &enclosure(&doc.kernel))[0] as usize];
+    let moved = doc.refs(id).unwrap().edges_with(&[edge_ref]);
+    let want = m.apply(DVec3::new(0.0, 30.0, 25.0));
+    let mid = edges_where(&doc.kernel, doc.get(id).unwrap(), |p| (p.y - 30.0).abs() < 1e-6 && (p.x - want.x).abs() < 1e-6);
+    assert_eq!(moved, mid);
+}
+
+#[test]
+fn refs_survive_save_and_reopen() {
+    let mut doc = Document::new(Occt);
+    let id = doc.add(enclosure(&doc.kernel));
+    doc.commit_blend(id, &fillet(vertical(&doc.kernel, doc.get(id).unwrap()), 4.0)).unwrap();
+    let text = file::write(&doc).unwrap();
+    let mut back = Document::new(Occt);
+    file::read(&mut back, &text).unwrap();
+    assert_eq!(back.refs(id), doc.refs(id));
+    assert_eq!(back.next_ref(), doc.next_ref());
+    // A version 1 file without refs still opens, with fresh ones.
+    let old: serde_json::Value = serde_json::from_str(&text).unwrap();
+    let mut old = old;
+    old.as_object_mut().unwrap().remove("next_ref");
+    for b in old["bodies"].as_array_mut().unwrap() {
+        b.as_object_mut().unwrap().remove("face_refs");
+        b.as_object_mut().unwrap().remove("edge_refs");
+    }
+    let mut legacy = Document::new(Occt);
+    file::read(&mut legacy, &old.to_string()).unwrap();
+    assert_eq!(legacy.refs(id).unwrap().faces.len(), 10);
 }

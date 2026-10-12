@@ -52,6 +52,11 @@ async fn commit_blend(model: State<'_, Model>, req: api::BlendRequest) -> Result
 }
 
 #[tauri::command]
+async fn commit_motion(model: State<'_, Model>, req: api::MotionRequest) -> Result<api::Committed, api::ApiError> {
+    on_model(&model, move |m| api::commit_motion(m, req)).await?
+}
+
+#[tauri::command]
 async fn new_document(model: State<'_, Model>) -> Result<Vec<api::Body>, String> {
     on_model(&model, api::new_document).await?
 }
@@ -81,7 +86,7 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .manage(Model(Arc::new(api::start())))
         .invoke_handler(tauri::generate_handler![
-            scene, preview_extrude, commit_extrude, preview_blend, commit_blend,
+            scene, preview_extrude, commit_extrude, preview_blend, commit_blend, commit_motion,
             undo, redo, new_document, save, open, import_step, export_step,
         ])
         .run(tauri::generate_context!())

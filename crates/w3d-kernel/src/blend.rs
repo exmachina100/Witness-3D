@@ -2,7 +2,7 @@
 //! and the result after, so a bad request or a broken solid comes back as a sentence the user can
 //! act on rather than as a kernel crash or a quietly corrupt body.
 
-use crate::{Kernel, KernelError};
+use crate::{Kernel, KernelError, Traced};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Blend {
@@ -27,7 +27,7 @@ impl Blend {
     }
 }
 
-pub fn blend<K: Kernel>(k: &K, body: &K::Solid, p: &BlendParams) -> Result<K::Solid, KernelError> {
+pub fn blend<K: Kernel>(k: &K, body: &K::Solid, p: &BlendParams) -> Result<Traced<K::Solid>, KernelError> {
     if p.edges.is_empty() {
         return Err(KernelError::Invalid("select at least one edge"));
     }
@@ -45,16 +45,17 @@ pub fn blend<K: Kernel>(k: &K, body: &K::Solid, p: &BlendParams) -> Result<K::So
     edges.sort_unstable();
     edges.dedup();
 
-    let result = k.blend(body, &edges, p.size, p.kind)?;
-    if !k.is_valid(&result) {
+    let traced = k.blend(body, &edges, p.size, p.kind)?;
+    let result = &traced.solid;
+    if !k.is_valid(result) {
         return Err(KernelError::Blend {
             edges,
             reason: format!("the kernel built a {} but the solid it produced is invalid; try a smaller {}",
                 if p.kind == Blend::Fillet { "round" } else { "chamfer" }, p.kind.noun()),
         });
     }
-    if k.solid_count(&result) != k.solid_count(body) {
+    if k.solid_count(result) != k.solid_count(body) {
         return Err(KernelError::Blend { edges, reason: "the result split the body apart; try a smaller size".into() });
     }
-    Ok(result)
+    Ok(traced)
 }

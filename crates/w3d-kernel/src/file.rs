@@ -8,7 +8,7 @@ use std::path::Path;
 
 use serde::{Deserialize, Serialize};
 
-use crate::document::{BodyId, Document, TOLERANCE, UNITS};
+use crate::document::{BodyId, Document, Ref, Refs, TOLERANCE, UNITS};
 use crate::{Kernel, KernelError};
 
 pub const FORMAT: &str = "witness3d";
@@ -22,6 +22,9 @@ struct File {
     units: String,
     tolerance: f64,
     next_id: BodyId,
+    /// Added after version 1 shipped; older files get fresh refs.
+    #[serde(default)]
+    next_ref: Ref,
     bodies: Vec<FileBody>,
 }
 
@@ -31,6 +34,11 @@ struct FileBody {
     /// What wrote `shape`, e.g. "occt-brep".
     encoding: String,
     shape: String,
+    /// Face and edge refs by number (see [`Refs`]).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    face_refs: Option<Vec<Ref>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    edge_refs: Option<Vec<Ref>>,
 }
 
 fn err(e: impl std::fmt::Display) -> KernelError { KernelError::File(e.to_string()) }
@@ -41,8 +49,10 @@ pub fn write<K: Kernel>(doc: &Document<K>) -> Result<String, KernelError> {
         id,
         encoding: doc.kernel.native_format().into(),
         shape: doc.kernel.to_native(doc.get(id).unwrap())?,
+        face_refs: doc.refs(id).map(|r| r.faces.clone()),
+        edge_refs: doc.refs(id).map(|r| r.edges.clone()),
     })).collect::<Result<_, KernelError>>()?;
-    let file = File { format: FORMAT.into(), version: VERSION, units: UNITS.into(), tolerance: TOLERANCE, next_id: doc.next_id(), bodies };
+    let file = File { format: FORMAT.into(), version: VERSION, units: UNITS.into(), tolerance: TOLERANCE, next_id: doc.next_id(), next_ref: doc.next_ref(), bodies };
     serde_json::to_string(&file).map_err(err)
 }
 
@@ -63,9 +73,13 @@ pub fn read<K: Kernel>(doc: &mut Document<K>, text: &str) -> Result<(), KernelEr
             return Err(err(format!("body {} was saved as {}, which this kernel can't read", b.id, b.encoding)));
         }
         let solid = doc.kernel.from_native(&b.shape).map_err(|e| err(format!("body {} could not be read: {e}", b.id)))?;
-        bodies.push((b.id, solid));
+        let refs = match (b.face_refs, b.edge_refs) {
+            (Some(faces), Some(edges)) => Some(Refs { faces, edges }),
+            _ => None,
+        };
+        bodies.push((b.id, solid, refs));
     }
-    doc.replace_all(bodies, file.next_id);
+    doc.replace_all(bodies, file.next_id, file.next_ref);
     Ok(())
 }
 

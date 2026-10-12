@@ -4,9 +4,9 @@ use std::collections::HashMap;
 use std::path::Path;
 
 use glam::DVec3;
-use opencascade::primitives::{Edge, Face, Shape, ShapeType, Wire};
+use opencascade::primitives::{BooleanKind, Edge, Face, Shape, ShapeHistory, ShapeType, Wire};
 
-use crate::{Blend, BooleanOp, Frame, Kernel, KernelError, Plane, Profile, Tessellation};
+use crate::{Blend, BooleanOp, Frame, History, Kernel, KernelError, Motion, Plane, Profile, Tessellation, Traced};
 
 pub struct Occt;
 
@@ -32,6 +32,13 @@ fn plane_of(mesh: &opencascade::mesh::Mesh) -> Option<Plane> {
     if normals.iter().any(|n| n.dot(normal) < 1.0 - 1e-9) { return None }
     let origin = mesh.vertices.iter().copied().sum::<DVec3>() / mesh.vertices.len() as f64;
     Some(Plane { origin, normal })
+}
+
+fn history(h: ShapeHistory) -> History {
+    let pairs = |v: Vec<(usize, usize)>| v.into_iter().map(|(a, b)| (a as u32, b as u32)).collect::<Vec<_>>();
+    let [f0, f1] = h.faces;
+    let [e0, e1] = h.edges;
+    History { faces: [pairs(f0), pairs(f1)], edges: [pairs(e0), pairs(e1)], generated_faces: pairs(h.generated_faces) }
 }
 
 fn root(parent: &mut [usize], mut i: usize) -> usize {
@@ -65,13 +72,14 @@ impl Kernel for Occt {
         Ok(Shape::from(solid))
     }
 
-    fn boolean(&self, a: &Shape, b: &Shape, op: BooleanOp) -> Result<Shape, KernelError> {
-        let result = match op {
-            BooleanOp::Union => a.union(b).shape,
-            BooleanOp::Difference => a.subtract(b).shape,
-            BooleanOp::Intersection => a.intersect(b).shape,
+    fn boolean(&self, a: &Shape, b: &Shape, op: BooleanOp) -> Result<Traced<Shape>, KernelError> {
+        let kind = match op {
+            BooleanOp::Union => BooleanKind::Union,
+            BooleanOp::Difference => BooleanKind::Difference,
+            BooleanOp::Intersection => BooleanKind::Intersection,
         };
-        Ok(result.clean())
+        let (solid, h) = a.boolean_with_history(b, kind).map_err(KernelError::Failed)?;
+        Ok(Traced { solid, history: history(h) })
     }
 
     fn solid_count(&self, s: &Shape) -> usize {
@@ -96,12 +104,21 @@ impl Kernel for Occt {
 
     fn edge_count(&self, s: &Shape) -> usize { s.edge_count() }
 
-    fn blend(&self, s: &Shape, edges: &[u32], size: f64, kind: Blend) -> Result<Shape, KernelError> {
+    fn blend(&self, s: &Shape, edges: &[u32], size: f64, kind: Blend) -> Result<Traced<Shape>, KernelError> {
         let edges: Vec<usize> = edges.iter().map(|&e| e as usize).collect();
-        s.blend_edges(&edges, size, kind == Blend::Chamfer).map_err(|e| KernelError::Blend {
+        let (solid, h) = s.blend_edges_with_history(&edges, size, kind == Blend::Chamfer).map_err(|e| KernelError::Blend {
             edges: e.edges.iter().map(|&i| i as u32).collect(),
             reason: e.reason,
-        })
+        })?;
+        Ok(Traced { solid, history: history(h) })
+    }
+
+    fn transform(&self, s: &Shape, m: &Motion) -> Shape {
+        // opencascade-rs shapes are not Clone; every step below copies.
+        let turned = if m.angle == 0.0 { None } else {
+            Some(s.translated(-m.pivot).rotated(m.axis.normalize(), m.angle).translated(m.pivot))
+        };
+        turned.as_ref().unwrap_or(s).translated(m.offset)
     }
 
     fn is_valid(&self, s: &Shape) -> bool { s.is_valid() }

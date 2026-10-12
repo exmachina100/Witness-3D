@@ -5,7 +5,15 @@
 // Standard_Failure and rethrows it as std::runtime_error; a stray one would abort the process.
 #pragma once
 #include "rust/cxx.h"
+#include <BRepAlgoAPI_Common.hxx>
+#include <BRepAlgoAPI_Cut.hxx>
+#include <BRepAlgoAPI_Fuse.hxx>
 #include <BRepCheck_Analyzer.hxx>
+#include <BRepTools_History.hxx>
+#include <ShapeUpgrade_UnifySameDomain.hxx>
+#include <TopTools_ListOfShape.hxx>
+#include <functional>
+#include <vector>
 #include <BRepFilletAPI_MakeChamfer.hxx>
 #include <BRepFilletAPI_MakeFillet.hxx>
 #include <BRepTools.hxx>
@@ -134,4 +142,141 @@ inline std::unique_ptr<TopoDS_Shape> w3d_read_brep(rust::Str text) {
   }
   if (shape->IsNull()) throw std::runtime_error("not a BREP shape");
   return shape;
+}
+
+// ---------------------------------------------------------------------------------------------
+// Operations with history: which faces and edges of the result came from which of the inputs.
+// This is what keeps a selection, or an AI proposal that names edges, valid across an operation:
+// an edge number changes, but its lineage is known.
+
+struct W3dResult {
+  TopoDS_Shape shape;
+  // [input][kind] flat (source index, result index) pairs. kind 0: faces that are, or were cut
+  // from, the source face; 1: the same for edges; 2: faces generated from a source edge (a
+  // fillet's rounds).
+  std::vector<int32_t> pairs[2][3];
+};
+
+using W3dSuccessors = std::function<void(const TopoDS_Shape &, TopTools_ListOfShape &)>;
+
+// Successors through one step: removed means none, modified means its pieces, else itself.
+inline W3dSuccessors w3d_step(BRepBuilderAPI_MakeShape &mk) {
+  return [&mk](const TopoDS_Shape &s, TopTools_ListOfShape &out) {
+    if (mk.IsDeleted(s)) return;
+    const TopTools_ListOfShape &m = mk.Modified(s);
+    if (m.IsEmpty()) out.Append(s);
+    else for (TopTools_ListOfShape::Iterator it(m); it.More(); it.Next()) out.Append(it.Value());
+  };
+}
+
+inline W3dSuccessors w3d_step(const Handle(BRepTools_History) & h) {
+  return [h](const TopoDS_Shape &s, TopTools_ListOfShape &out) {
+    if (h.IsNull()) { out.Append(s); return; }
+    if (h->IsRemoved(s)) return;
+    const TopTools_ListOfShape &m = h->Modified(s);
+    if (m.IsEmpty()) out.Append(s);
+    else for (TopTools_ListOfShape::Iterator it(m); it.More(); it.Next()) out.Append(it.Value());
+  };
+}
+
+// Record, for every face and edge of `input`, where its successors through `steps` landed in `result`.
+inline void w3d_record(W3dResult &r, int which, const TopoDS_Shape &input, const std::vector<W3dSuccessors> &steps) {
+  for (int kind = 0; kind < 2; kind++) {
+    TopAbs_ShapeEnum type = kind == 0 ? TopAbs_FACE : TopAbs_EDGE;
+    TopTools_IndexedMapOfShape in, out;
+    TopExp::MapShapes(input, type, in);
+    TopExp::MapShapes(r.shape, type, out);
+    for (int i = 1; i <= in.Extent(); i++) {
+      TopTools_ListOfShape now;
+      now.Append(in(i));
+      for (const auto &step : steps) {
+        TopTools_ListOfShape next;
+        for (TopTools_ListOfShape::Iterator it(now); it.More(); it.Next()) step(it.Value(), next);
+        now = next;
+      }
+      for (TopTools_ListOfShape::Iterator it(now); it.More(); it.Next()) {
+        if (it.Value().ShapeType() != type) continue;
+        int j = out.FindIndex(it.Value());
+        if (j > 0) {
+          r.pairs[which][kind].push_back(i - 1);
+          r.pairs[which][kind].push_back(j - 1);
+        }
+      }
+    }
+  }
+}
+
+// Union (0), difference (1) or intersection (2), then merge coplanar faces like Shape::clean.
+inline std::unique_ptr<W3dResult> w3d_boolean(const TopoDS_Shape &a, const TopoDS_Shape &b, int32_t op) {
+  try {
+    std::unique_ptr<BRepAlgoAPI_BooleanOperation> mk;
+    if (op == 0) mk.reset(new BRepAlgoAPI_Fuse(a, b));
+    else if (op == 1) mk.reset(new BRepAlgoAPI_Cut(a, b));
+    else mk.reset(new BRepAlgoAPI_Common(a, b));
+    if (!mk->IsDone() || mk->HasErrors()) throw std::runtime_error("the boolean operation failed");
+    ShapeUpgrade_UnifySameDomain unify(mk->Shape(), Standard_True, Standard_True, Standard_True);
+    unify.AllowInternalEdges(Standard_False);
+    unify.Build();
+    std::unique_ptr<W3dResult> r(new W3dResult());
+    r->shape = unify.Shape();
+    std::vector<W3dSuccessors> steps{w3d_step(*mk), w3d_step(unify.History())};
+    w3d_record(*r, 0, a, steps);
+    w3d_record(*r, 1, b, steps);
+    return r;
+  } catch (const Standard_Failure &f) {
+    throw w3d_kernel_error(f);
+  }
+}
+
+// w3d_blend_edges with history: the body's faces and edges, plus the faces each edge became.
+inline std::unique_ptr<W3dResult> w3d_blend_edges_history(const TopoDS_Shape &shape, rust::Slice<const int32_t> edges,
+                                                          double size, bool chamfer) {
+  TopTools_IndexedMapOfShape map;
+  TopExp::MapShapes(shape, TopAbs_EDGE, map);
+  for (int32_t e : edges)
+    if (e < 0 || e >= map.Extent()) throw std::out_of_range("no such edge");
+  std::unique_ptr<W3dResult> r(new W3dResult());
+  try {
+    std::unique_ptr<BRepFilletAPI_LocalOperation> mk;
+    if (chamfer) {
+      BRepFilletAPI_MakeChamfer *c = new BRepFilletAPI_MakeChamfer(shape);
+      mk.reset(c);
+      for (int32_t e : edges) c->Add(size, TopoDS::Edge(map(e + 1)));
+    } else {
+      BRepFilletAPI_MakeFillet *f = new BRepFilletAPI_MakeFillet(shape);
+      mk.reset(f);
+      for (int32_t e : edges) f->Add(size, TopoDS::Edge(map(e + 1)));
+    }
+    mk->Build();
+    if (!mk->IsDone()) {
+      // Run the reporting version for the reason and the edges.
+      w3d_blend_edges(shape, edges, size, chamfer);
+      throw std::runtime_error("BLEND||the kernel could not build the blend");
+    }
+    r->shape = mk->Shape();
+    w3d_record(*r, 0, shape, {w3d_step(*mk)});
+    TopTools_IndexedMapOfShape faces;
+    TopExp::MapShapes(r->shape, TopAbs_FACE, faces);
+    for (int i = 1; i <= map.Extent(); i++) {
+      const TopTools_ListOfShape &g = mk->Generated(map(i));
+      for (TopTools_ListOfShape::Iterator it(g); it.More(); it.Next()) {
+        int j = faces.FindIndex(it.Value());
+        if (j > 0) { r->pairs[0][2].push_back(i - 1); r->pairs[0][2].push_back(j - 1); }
+      }
+    }
+    return r;
+  } catch (const Standard_Failure &f) {
+    throw w3d_kernel_error(f);
+  }
+}
+
+inline std::unique_ptr<TopoDS_Shape> w3d_result_shape(const W3dResult &r) {
+  return std::unique_ptr<TopoDS_Shape>(new TopoDS_Shape(r.shape));
+}
+
+inline rust::Vec<int32_t> w3d_result_pairs(const W3dResult &r, int32_t input, int32_t kind) {
+  rust::Vec<int32_t> v;
+  if (input < 0 || input > 1 || kind < 0 || kind > 2) return v;
+  for (int32_t x : r.pairs[input][kind]) v.push_back(x);
+  return v;
 }
