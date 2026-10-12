@@ -3,3 +3,4 @@ node_modules/
 *.step
 /apps/desktop/dist
 /apps/desktop/src-tauri/gen
+__pycache__/
