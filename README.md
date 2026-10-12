@@ -1,7 +1,6 @@
 # Witness 3D
 
-A direct modeler in the spirit of Plasticity: exact B-rep solids, live push/pull previews, and
-whole-document undo, on the OpenCascade kernel.
+A direct modeler in the OpenCascade kernel.
 
 | Folder | What it is |
 |---|---|
