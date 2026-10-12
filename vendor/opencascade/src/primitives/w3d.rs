@@ -54,6 +54,12 @@ impl Shape {
     /// Whether OpenCascade's checker finds the shape's topology and geometry consistent.
     pub fn is_valid(&self) -> bool { ffi::w3d::w3d_is_valid(&self.inner) }
 
+    /// The shape with small gaps, tolerances and orientations repaired (ShapeFix_Shape).
+    pub fn healed(&self) -> Result<Shape, String> {
+        let s = ffi::w3d::w3d_heal(&self.inner).map_err(|e| e.what().to_string())?;
+        Ok(Shape::from_shape(&s))
+    }
+
     /// The exact shape as OpenCascade BREP text.
     pub fn to_brep_text(&self) -> Result<String, crate::Error> {
         ffi::w3d::w3d_write_brep(&self.inner).map_err(|_| crate::Error::BrepWriteFailed)

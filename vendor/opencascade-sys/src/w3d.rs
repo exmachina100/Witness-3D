@@ -21,6 +21,7 @@ mod inner {
             chamfer: bool,
         ) -> Result<UniquePtr<TopoDS_Shape>>;
         pub fn w3d_is_valid(shape: &TopoDS_Shape) -> bool;
+        pub fn w3d_heal(shape: &TopoDS_Shape) -> Result<UniquePtr<TopoDS_Shape>>;
         pub fn w3d_write_brep(shape: &TopoDS_Shape) -> Result<String>;
         pub fn w3d_read_brep(text: &str) -> Result<UniquePtr<TopoDS_Shape>>;
 

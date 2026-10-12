@@ -148,6 +148,10 @@ impl Kernel for Occt {
 
     fn read_step(&self, path: &Path) -> Result<Shape, KernelError> {
         let shape = Shape::read_step(path).map_err(|_| KernelError::File("the STEP file could not be read".into()))?;
+        // Exported files often carry small gaps and loose tolerances; repair them on the way in,
+        // as Plasticity 26 does with its repair library (see the teardown), so later fillets and
+        // booleans get clean input.
+        let shape = shape.healed().map_err(|e| KernelError::File(format!("the STEP geometry could not be repaired: {e}")))?;
         if shape.faces().next().is_none() {
             return Err(KernelError::File("the STEP file holds no surfaces or solids".into()));
         }

@@ -11,6 +11,7 @@
 #include <BRepCheck_Analyzer.hxx>
 #include <BRepTools_History.hxx>
 #include <ShapeUpgrade_UnifySameDomain.hxx>
+#include <ShapeFix_Shape.hxx>
 #include <TopTools_ListOfShape.hxx>
 #include <functional>
 #include <vector>
@@ -120,6 +121,17 @@ inline bool w3d_is_valid(const TopoDS_Shape &shape) {
   }
 }
 
+// Repair small gaps, tolerances and orientation problems in imported geometry.
+inline std::unique_ptr<TopoDS_Shape> w3d_heal(const TopoDS_Shape &shape) {
+  try {
+    ShapeFix_Shape fix(shape);
+    fix.Perform();
+    return std::unique_ptr<TopoDS_Shape>(new TopoDS_Shape(fix.Shape()));
+  } catch (const Standard_Failure &f) {
+    throw w3d_kernel_error(f);
+  }
+}
+
 // Exact geometry as OpenCascade's own BREP text, without display triangles.
 inline rust::String w3d_write_brep(const TopoDS_Shape &shape) {
   std::ostringstream out;
@@ -210,9 +222,16 @@ inline void w3d_record(W3dResult &r, int which, const TopoDS_Shape &input, const
 inline std::unique_ptr<W3dResult> w3d_boolean(const TopoDS_Shape &a, const TopoDS_Shape &b, int32_t op) {
   try {
     std::unique_ptr<BRepAlgoAPI_BooleanOperation> mk;
-    if (op == 0) mk.reset(new BRepAlgoAPI_Fuse(a, b));
-    else if (op == 1) mk.reset(new BRepAlgoAPI_Cut(a, b));
-    else mk.reset(new BRepAlgoAPI_Common(a, b));
+    if (op == 0) mk.reset(new BRepAlgoAPI_Fuse());
+    else if (op == 1) mk.reset(new BRepAlgoAPI_Cut());
+    else mk.reset(new BRepAlgoAPI_Common());
+    TopTools_ListOfShape args, tools;
+    args.Append(a);
+    tools.Append(b);
+    mk->SetArguments(args);
+    mk->SetTools(tools);
+    mk->SetRunParallel(Standard_True);
+    mk->Build();
     if (!mk->IsDone() || mk->HasErrors()) throw std::runtime_error("the boolean operation failed");
     ShapeUpgrade_UnifySameDomain unify(mk->Shape(), Standard_True, Standard_True, Standard_True);
     unify.AllowInternalEdges(Standard_False);
