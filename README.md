@@ -9,10 +9,6 @@ whole-document undo, on the OpenCascade kernel.
 | [`apps/desktop/`](apps/desktop/) | The desktop app: the Rust core in a Tauri window with the Three.js viewport. |
 | [`crates/w3d-kernel/`](crates/w3d-kernel/) | The Rust modeling core. Geometry goes through a `Kernel` trait, implemented today by OpenCascade via [opencascade-rs](https://github.com/bschwind/opencascade-rs). It also holds the extrude-to-boolean logic, the document with undo/redo, and the engine thread that keeps previews on the newest drag. |
 
-## Research
-
-- [What Plasticity 26.1.4 is built on](docs/plasticity-26-teardown.md): the shipped app's kernel and SDKs, compared with the open-source 0.6.30, and what Witness 3D uses instead.
-
 ## Run it
 
 ```sh
