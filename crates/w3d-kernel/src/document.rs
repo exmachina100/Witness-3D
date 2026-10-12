@@ -15,8 +15,9 @@ use glam::DVec3;
 use serde::{Deserialize, Serialize};
 
 use crate::blend::{blend, BlendParams};
-use crate::extrude::{extrude, ExtrudeParams, ExtrudeResult};
-use crate::{BooleanOp, Frame, History, Kernel, KernelError, Motion, Profile, Traced};
+use crate::extrude::{extrude, ExtrudeParams, ExtrudeResult, Operation};
+use crate::form::{form, offset_faces, FormKind, FormParams};
+use crate::{BooleanOp, Frame, History, Kernel, KernelError, Motion, Path, Profile, Traced};
 
 /// Length unit of every coordinate in a document. Fixed for now; stored in files so a later
 /// version can convert.
@@ -49,6 +50,15 @@ impl Refs {
 
 pub type CurveId = u32;
 
+/// What a Revolve, Loft or Sweep needs besides its regions.
+#[derive(Clone, Copy, Debug)]
+pub enum FormRequest {
+    Revolve { axis_point: DVec3, axis_dir: DVec3, angle: f64 },
+    Loft,
+    /// Sweep along the curve `path`.
+    Sweep { path: CurveId, twist: f64, scale: f64 },
+}
+
 /// A planar curve drawn on a construction plane (Plasticity's Line, Rectangle and Circle). A closed
 /// one bounds a region that Extrude can turn into a solid. Points are in the plane's coordinates.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -76,6 +86,15 @@ impl Curve {
             CurveShape::Polyline { points, closed: true } if points.len() >= 3 => Some(Profile::Polygon(points.iter().map(|p| (p[0], p[1])).collect())),
             CurveShape::Circle { center, radius } => Some(Profile::Circle { center: (center[0], center[1]), radius: *radius }),
             _ => None,
+        }
+    }
+
+    /// The curve in model space, as a path to sweep along.
+    pub fn path(&self) -> Path {
+        let f = self.frame();
+        match &self.shape {
+            CurveShape::Polyline { points, closed } => Path::Polyline { points: points.iter().map(|p| f.point((p[0], p[1]))).collect(), closed: *closed },
+            CurveShape::Circle { center, radius } => Path::Circle { center: f.point((center[0], center[1])), normal: f.normal, radius: *radius },
         }
     }
 
@@ -351,15 +370,68 @@ impl<K: Kernel> Document<K> {
 
     /// Run an extrude and record it as one undoable step. Returns the body it created or changed.
     pub fn commit_extrude(&mut self, target: Option<BodyId>, p: &ExtrudeParams) -> Result<BodyId, KernelError> {
-        match self.preview_extrude(target, p)? {
-            ExtrudeResult::New(solid) => Ok(self.add(solid)),
+        let r = self.preview_extrude(target, p)?;
+        Ok(self.commit_result(target, r))
+    }
+
+    fn commit_result(&mut self, target: Option<BodyId>, r: ExtrudeResult<K::Solid>) -> BodyId {
+        match r {
+            ExtrudeResult::New(solid) => self.add(solid),
             ExtrudeResult::Replace { solid, history, .. } => {
                 let id = target.expect("a replace always has a target");
                 self.checkpoint();
                 self.replace_traced(id, Traced { solid, history });
-                Ok(id)
+                id
             }
         }
+    }
+
+    /// The region inside a closed curve, as a profile on its plane.
+    fn region(&self, curve: CurveId) -> Result<(Profile, Frame), KernelError> {
+        let c = self.curve(curve).ok_or(KernelError::Invalid("that curve no longer exists"))?;
+        let profile = c.profile().ok_or(KernelError::Invalid("only a closed curve has a region"))?;
+        Ok((profile, c.frame()))
+    }
+
+    /// Revolve, Loft or Sweep of drawn regions. Loft takes them in order; the others take one.
+    pub fn form_params(&self, regions: &[CurveId], kind: FormRequest, operation: Operation) -> Result<FormParams, KernelError> {
+        let (first, rest) = regions.split_first().ok_or(KernelError::Invalid("select a region first"))?;
+        let (profile, frame) = self.region(*first)?;
+        let kind = match kind {
+            FormRequest::Revolve { axis_point, axis_dir, angle } => FormKind::Revolve { axis_point, axis_dir, angle },
+            FormRequest::Loft => FormKind::Loft { more: rest.iter().map(|&id| self.region(id)).collect::<Result<_, _>>()? },
+            FormRequest::Sweep { path, twist, scale } => {
+                if regions.contains(&path) { return Err(KernelError::Invalid("pick a path other than the profile")) }
+                let path = self.curve(path).ok_or(KernelError::Invalid("that path no longer exists"))?.path();
+                FormKind::Sweep { path, twist, scale }
+            }
+        };
+        Ok(FormParams { profile, frame, kind, operation })
+    }
+
+    pub fn preview_form(&self, target: Option<BodyId>, p: &FormParams) -> Result<ExtrudeResult<K::Solid>, KernelError> {
+        form(&self.kernel, target.and_then(|id| self.get(id)), p)
+    }
+
+    /// Run a Revolve, Loft or Sweep as one undoable step. Returns the body it created or changed.
+    pub fn commit_form(&mut self, target: Option<BodyId>, p: &FormParams) -> Result<BodyId, KernelError> {
+        let r = self.preview_form(target, p)?;
+        Ok(self.commit_result(target, r))
+    }
+
+    /// Compute an Offset Face without changing the document.
+    pub fn preview_offset(&self, body: BodyId, faces: &[u32], distance: f64) -> Result<K::Solid, KernelError> {
+        let solid = self.get(body).ok_or(KernelError::Invalid("that body no longer exists"))?;
+        Ok(offset_faces(&self.kernel, solid, faces, distance)?.solid)
+    }
+
+    /// Run an Offset Face as one undoable step; faces and edges keep their refs.
+    pub fn commit_offset(&mut self, body: BodyId, faces: &[u32], distance: f64) -> Result<BodyId, KernelError> {
+        let solid = self.get(body).ok_or(KernelError::Invalid("that body no longer exists"))?;
+        let t = offset_faces(&self.kernel, solid, faces, distance)?;
+        self.checkpoint();
+        self.replace_traced(body, t);
+        Ok(body)
     }
 
     /// Extrude a closed curve's region (Plasticity's Extrude on a region).

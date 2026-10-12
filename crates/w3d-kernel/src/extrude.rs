@@ -49,15 +49,22 @@ pub fn extrude<K: Kernel>(k: &K, target: Option<&K::Solid>, p: &ExtrudeParams) -
         return Err(KernelError::NoOp);
     }
     let tool = tool(k, target, p)?;
-    let Some(body) = target.filter(|_| p.operation != Operation::NewBody) else {
+    combine(k, target, tool, p.operation, p.distance > 0.0, "the extrude does not meet the body")
+}
+
+/// Join `tool` to `target`, cut it out or intersect with it, as `operation` says; `Auto` joins when
+/// `outward` and cuts otherwise. A tool that misses the body becomes a new body under `Auto` and
+/// `Union`, and the error `miss` for the others.
+pub fn combine<K: Kernel>(k: &K, target: Option<&K::Solid>, tool: K::Solid, operation: Operation, outward: bool, miss: &'static str) -> Result<ExtrudeResult<K::Solid>, KernelError> {
+    let Some(body) = target.filter(|_| operation != Operation::NewBody) else {
         return Ok(ExtrudeResult::New(tool));
     };
 
-    let op = match p.operation {
+    let op = match operation {
         Operation::Union => BooleanOp::Union,
         Operation::Difference => BooleanOp::Difference,
         Operation::Intersect => BooleanOp::Intersection,
-        _ if p.distance > 0.0 => BooleanOp::Union,
+        _ if outward => BooleanOp::Union,
         _ => BooleanOp::Difference,
     };
     let crate::Traced { solid: result, history } = k.boolean(body, &tool, op)?;
@@ -70,9 +77,9 @@ pub fn extrude<K: Kernel>(k: &K, target: Option<&K::Solid>, p: &ExtrudeParams) -
         BooleanOp::Intersection => k.face_count(&result) > 0,
     };
     if !met {
-        return match p.operation {
+        return match operation {
             Operation::Auto | Operation::Union => Ok(ExtrudeResult::New(tool)),
-            _ => Err(KernelError::Invalid("the extrude does not meet the body")),
+            _ => Err(KernelError::Invalid(miss)),
         };
     }
     if k.solid_count(&result) == 0 {

@@ -6,6 +6,24 @@
 #pragma once
 #include "rust/cxx.h"
 #include <BRepAlgoAPI_Common.hxx>
+#include <BRepBuilderAPI_MakeEdge.hxx>
+#include <BRepBuilderAPI_MakeFace.hxx>
+#include <BRepBuilderAPI_MakePolygon.hxx>
+#include <BRepBuilderAPI_MakeWire.hxx>
+#include <BRepBuilderAPI_Transform.hxx>
+#include <BRepAdaptor_CompCurve.hxx>
+#include <BRepGProp.hxx>
+#include <BRepGProp_Face.hxx>
+#include <BRepLib.hxx>
+#include <BRepOffsetAPI_MakePipeShell.hxx>
+#include <BRepOffsetAPI_ThruSections.hxx>
+#include <BRepOffset_MakeOffset.hxx>
+#include <BRepPrimAPI_MakeRevol.hxx>
+#include <GProp_GProps.hxx>
+#include <gp_Ax1.hxx>
+#include <gp_Ax2.hxx>
+#include <gp_Circ.hxx>
+#include <gp_Trsf.hxx>
 #include <BRepAlgoAPI_Cut.hxx>
 #include <BRepAlgoAPI_Fuse.hxx>
 #include <BRepCheck_Analyzer.hxx>
@@ -312,4 +330,183 @@ inline rust::Vec<int32_t> w3d_result_pairs(const W3dResult &r, int32_t input, in
   if (input < 0 || input > 1 || kind < 0 || kind > 2) return v;
   for (int32_t x : r.pairs[input][kind]) v.push_back(x);
   return v;
+}
+
+// --- Revolve, loft, sweep and offset face --------------------------------------------------------
+// Profiles and paths arrive as plain numbers so no wire or face crosses the language boundary.
+// A section is [0, n, x, y, z, ...] (a closed polygon of n corners) or [1, cx, cy, cz, nx, ny, nz, r]
+// (a circle). A path is a section, or [2, n, x, y, z, ...] for an open polyline.
+
+inline TopoDS_Wire w3d_section(const double *&p, const double *end) {
+  auto need = [&](size_t n) { if (p + n > end) throw std::runtime_error("a profile is cut short"); };
+  need(1);
+  int kind = int(*p++);
+  if (kind == 1) {
+    need(7);
+    gp_Pnt c(p[0], p[1], p[2]);
+    gp_Dir n(p[3], p[4], p[5]);
+    double r = p[6];
+    p += 7;
+    if (!(r > 0)) throw std::runtime_error("a circle needs a radius greater than zero");
+    return BRepBuilderAPI_MakeWire(BRepBuilderAPI_MakeEdge(gp_Circ(gp_Ax2(c, n), r)).Edge()).Wire();
+  }
+  if (kind != 0 && kind != 2) throw std::runtime_error("unknown profile kind");
+  need(1);
+  int n = int(*p++);
+  need(size_t(n) * 3);
+  if (n < 2 || (kind == 0 && n < 3)) throw std::runtime_error("a profile needs more corners");
+  BRepBuilderAPI_MakePolygon poly;
+  for (int i = 0; i < n; i++, p += 3) poly.Add(gp_Pnt(p[0], p[1], p[2]));
+  if (kind == 0) poly.Close();
+  if (!poly.IsDone()) throw std::runtime_error("the profile has repeated corners");
+  return poly.Wire();
+}
+
+inline TopoDS_Wire w3d_one_section(rust::Slice<const double> data) {
+  const double *p = data.data(), *end = data.data() + data.size();
+  return w3d_section(p, end);
+}
+
+// The profile turned `angle` radians about the axis through (ax, ay, az) along (dx, dy, dz).
+inline std::unique_ptr<TopoDS_Shape> w3d_revolve(rust::Slice<const double> section, rust::Slice<const double> axis,
+                                                 double angle) {
+  try {
+    if (axis.size() != 6) throw std::runtime_error("an axis is a point and a direction");
+    TopoDS_Face face = BRepBuilderAPI_MakeFace(w3d_one_section(section), Standard_True).Face();
+    gp_Ax1 ax(gp_Pnt(axis[0], axis[1], axis[2]), gp_Dir(axis[3], axis[4], axis[5]));
+    BRepPrimAPI_MakeRevol mk(face, ax, angle, Standard_True);
+    mk.Build();
+    if (!mk.IsDone()) throw std::runtime_error("the profile could not be revolved about that axis");
+    return std::unique_ptr<TopoDS_Shape>(new TopoDS_Shape(mk.Shape()));
+  } catch (const Standard_Failure &f) {
+    throw w3d_kernel_error(f);
+  }
+}
+
+// A solid through the sections, in order.
+inline std::unique_ptr<TopoDS_Shape> w3d_loft(rust::Slice<const double> sections) {
+  try {
+    const double *p = sections.data(), *end = sections.data() + sections.size();
+    BRepOffsetAPI_ThruSections mk(Standard_True, Standard_False);
+    int n = 0;
+    while (p < end) { mk.AddWire(w3d_section(p, end)); n++; }
+    if (n < 2) throw std::runtime_error("a loft needs two profiles or more");
+    mk.Build();
+    if (!mk.IsDone()) throw std::runtime_error("no surface could be lofted through those profiles");
+    return std::unique_ptr<TopoDS_Shape>(new TopoDS_Shape(mk.Shape()));
+  } catch (const Standard_Failure &f) {
+    throw w3d_kernel_error(f);
+  }
+}
+
+// The profile swept along the path. The far end is turned by `twist` radians about the profile's
+// centre and scaled by `scale`; the section changes evenly in between.
+//
+// Without a twist this is one pipe shell, with mitred corners, its far section carried along the
+// path when it is scaled. A twist is not a straight blend between two sections (that would pinch
+// the middle), so a twisted sweep is lofted through sections carried along the path at even steps,
+// each turned its share of the twist.
+inline std::unique_ptr<TopoDS_Shape> w3d_sweep(rust::Slice<const double> section, rust::Slice<const double> path,
+                                               double twist, double scale) {
+  try {
+    TopoDS_Wire profile = w3d_one_section(section);
+    TopoDS_Wire spine = w3d_one_section(path);
+    bool plain = std::fabs(twist) < 1e-12 && std::fabs(scale - 1) < 1e-12;
+    if (!(scale > 0)) throw std::runtime_error("the end scale must be greater than zero");
+    if (!plain && spine.Closed()) throw std::runtime_error("twist and scale need a path with two ends");
+
+    TopoDS_Face face = BRepBuilderAPI_MakeFace(profile, Standard_True).Face();
+    GProp_GProps props;
+    BRepGProp::SurfaceProperties(face, props);
+    gp_Pnt c = props.CentreOfMass();
+    BRepGProp_Face normal_at(face);
+    double u0, u1, v0, v1;
+    normal_at.Bounds(u0, u1, v0, v1);
+    gp_Pnt pt;
+    gp_Vec n;
+    normal_at.Normal((u0 + u1) / 2, (v0 + v1) / 2, pt, n);
+
+    BRepAdaptor_CompCurve along(spine);
+    // The section a fraction `f` along the path: turned and scaled about its centre, then carried
+    // by the path's own turn (parallel transport through `steps` samples) and position.
+    auto section_at = [&](double f, int steps) {
+      gp_Trsf turn, grow, carry, move;
+      turn.SetRotation(gp_Ax1(c, gp_Dir(n)), twist * f);
+      grow.SetScale(c, 1 + (scale - 1) * f);
+      double t0 = along.FirstParameter(), t1 = along.FirstParameter() + (along.LastParameter() - along.FirstParameter()) * f;
+      gp_Pnt start, p;
+      gp_Vec prev, tan;
+      along.D1(t0, start, prev);
+      for (int i = 1; i <= steps; i++) {
+        along.D1(t0 + (t1 - t0) * i / steps, p, tan);
+        if (prev.Magnitude() > 1e-12 && tan.Magnitude() > 1e-12 && !prev.IsParallel(tan, 1e-9)) {
+          gp_Trsf r;
+          r.SetRotation(gp_Ax1(start, gp_Dir(prev.Crossed(tan))), prev.Angle(tan));
+          carry = r * carry;
+        }
+        prev = tan;
+      }
+      along.D0(t1, p);
+      move.SetTranslation(start, p);
+      return BRepBuilderAPI_Transform(profile, move * carry * grow * turn, Standard_True).Shape();
+    };
+
+    if (std::fabs(twist) > 1e-12) {
+      int n_sections = std::max(8, int(std::ceil(std::fabs(twist) / (M_PI / 12))));
+      BRepOffsetAPI_ThruSections mk(Standard_True, Standard_False);
+      for (int i = 0; i <= n_sections; i++) mk.AddWire(TopoDS::Wire(section_at(double(i) / n_sections, 4 * n_sections)));
+      mk.CheckCompatibility(Standard_False);
+      mk.Build();
+      if (!mk.IsDone()) throw std::runtime_error("the profile could not be twisted along that path");
+      return std::unique_ptr<TopoDS_Shape>(new TopoDS_Shape(mk.Shape()));
+    }
+
+    BRepOffsetAPI_MakePipeShell mk(spine);
+    mk.SetMode(Standard_False);
+    mk.SetTransitionMode(BRepBuilderAPI_RightCorner);
+    mk.Add(profile, Standard_False, Standard_False);
+    if (!plain) {
+      TopoDS_Vertex first, last;
+      TopExp::Vertices(spine, first, last);
+      mk.Add(section_at(1, 64), last, Standard_False, Standard_False);
+    }
+    mk.Build();
+    if (!mk.IsDone()) throw std::runtime_error("the profile could not be swept along that path");
+    if (!mk.MakeSolid()) throw std::runtime_error("the sweep did not close into a solid");
+    return std::unique_ptr<TopoDS_Shape>(new TopoDS_Shape(mk.Shape()));
+  } catch (const Standard_Failure &f) {
+    throw w3d_kernel_error(f);
+  }
+}
+
+// Plasticity's Offset Face: the numbered faces move `distance` along their normals and their
+// neighbours stretch or shrink to meet them. Faces and edges are traced into the result.
+inline std::unique_ptr<W3dResult> w3d_offset_faces(const TopoDS_Shape &shape, rust::Slice<const int32_t> faces,
+                                                   double distance) {
+  TopTools_IndexedMapOfShape map;
+  TopExp::MapShapes(shape, TopAbs_FACE, map);
+  for (int32_t f : faces)
+    if (f < 0 || f >= map.Extent()) throw std::out_of_range("no such face");
+  try {
+    BRepOffset_MakeOffset mk;
+    mk.Initialize(shape, 0.0, 1e-6, BRepOffset_Skin, Standard_False, Standard_False, GeomAbs_Intersection,
+                  Standard_False, Standard_True);
+    for (int32_t f : faces) mk.SetOffsetOnFace(TopoDS::Face(map(f + 1)), distance);
+    mk.MakeOffsetShape();
+    if (!mk.IsDone() || mk.Shape().IsNull())
+      throw std::runtime_error("the faces could not be offset that far; try a smaller distance");
+    std::unique_ptr<W3dResult> r(new W3dResult());
+    r->shape = mk.Shape();
+    if (!w3d_is_valid(r->shape)) throw std::runtime_error("offsetting that far breaks the body; try a smaller distance");
+    // MakeOffset reports each face's and edge's offset image as "generated" from it.
+    W3dSuccessors step = [&mk](const TopoDS_Shape &s, TopTools_ListOfShape &out) {
+      const TopTools_ListOfShape &g = mk.Generated(s);
+      if (!g.IsEmpty()) { for (TopTools_ListOfShape::Iterator it(g); it.More(); it.Next()) out.Append(it.Value()); return; }
+      if (!mk.IsDeleted(s)) out.Append(s);
+    };
+    w3d_record(*r, 0, shape, {step});
+    return r;
+  } catch (const Standard_Failure &f) {
+    throw w3d_kernel_error(f);
+  }
 }

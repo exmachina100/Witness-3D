@@ -5,10 +5,10 @@ use std::path::PathBuf;
 
 use glam::DVec3;
 use serde::{Deserialize, Serialize};
-use w3d_kernel::document::{BodyId, Document};
+use w3d_kernel::document::{BodyId, Document, FormRequest as FormKindRequest};
 use w3d_kernel::engine::Engine;
 use w3d_kernel::occt::Occt;
-use w3d_kernel::{extrude, file, Blend, BlendParams, BooleanOp, Curve, CurveId, ExtrudeParams, ExtrudeResult, Frame, Kernel, KernelError, Motion, Operation, Profile, Ref, Refs, Tessellation};
+use w3d_kernel::{extrude, file, form, FormParams, Blend, BlendParams, BooleanOp, Curve, CurveId, ExtrudeParams, ExtrudeResult, Frame, Kernel, KernelError, Motion, Operation, Profile, Ref, Refs, Tessellation};
 
 /// Chord tolerance for display meshes, in millimetres.
 const MESH_TOLERANCE: f64 = 0.05;
@@ -227,6 +227,121 @@ pub fn commit(m: &Model, req: ExtrudeRequest) -> Result<Committed, String> {
     m.call(move |doc| {
         let p = req.params(doc)?;
         let id = doc.commit_extrude(req.target, &p).map_err(|e| e.to_string())?;
+        Ok(Committed { id, scene: bodies(doc)? })
+    })
+}
+
+/// Revolve, Loft or Sweep of drawn regions (Plasticity's commands of those names).
+#[derive(Deserialize, Debug, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct FormRequest {
+    /// The body to join, cut or intersect with; ignored for a new body.
+    pub target: Option<BodyId>,
+    /// Closed curves whose regions are the profiles; a loft takes them in this order.
+    pub regions: Vec<CurveId>,
+    pub kind: FormName,
+    /// Revolve: a point on the axis and its direction.
+    #[serde(default)]
+    pub axis_point: [f64; 3],
+    #[serde(default = "up")]
+    pub axis_dir: [f64; 3],
+    /// Revolve: how far to turn, in radians.
+    #[serde(default = "turn")]
+    pub angle: f64,
+    /// Sweep: the curve to follow.
+    #[serde(default)]
+    pub path: Option<CurveId>,
+    /// Sweep: the far end's turn in radians and scale.
+    #[serde(default)]
+    pub twist: f64,
+    #[serde(default = "one")]
+    pub scale: f64,
+    /// New body unless Q, W or Shift+E asks for a boolean.
+    #[serde(default = "new_op")]
+    pub op: OpChoice,
+}
+
+#[derive(Deserialize, Debug, Clone, Copy, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum FormName { Revolve, Loft, Sweep }
+
+fn turn() -> f64 { std::f64::consts::TAU }
+fn new_op() -> OpChoice { OpChoice::New }
+
+impl FormRequest {
+    fn params(&self, doc: &Document<Occt>) -> Result<FormParams, ApiError> {
+        let kind = match self.kind {
+            FormName::Revolve => FormKindRequest::Revolve { axis_point: DVec3::from_array(self.axis_point), axis_dir: DVec3::from_array(self.axis_dir), angle: self.angle },
+            FormName::Loft => FormKindRequest::Loft,
+            FormName::Sweep => FormKindRequest::Sweep { path: self.path.ok_or_else(|| ApiError::from(String::from("pick the path to sweep along")))?, twist: self.twist, scale: self.scale },
+        };
+        let operation = match self.op {
+            OpChoice::Union => Operation::Union,
+            OpChoice::Difference => Operation::Difference,
+            OpChoice::Intersect => Operation::Intersect,
+            OpChoice::New | OpChoice::Auto => Operation::NewBody,
+        };
+        Ok(doc.form_params(&self.regions, kind, operation)?)
+    }
+}
+
+fn preview_of(doc: &Document<Occt>, target: Option<BodyId>, result: ExtrudeResult<<Occt as Kernel>::Solid>, tool: Option<Body>) -> Result<Preview, String> {
+    Ok(match result {
+        ExtrudeResult::New(solid) => Preview { outcome: Outcome::New, tool: Some(match tool { Some(t) => t, None => body(&doc.kernel, 0, &solid)? }), result: None },
+        ExtrudeResult::Replace { solid, op, .. } => Preview {
+            outcome: match op { BooleanOp::Union => Outcome::Join, BooleanOp::Difference => Outcome::Cut, BooleanOp::Intersection => Outcome::Intersect },
+            result: Some(body(&doc.kernel, target.unwrap(), &solid)?),
+            tool,
+        },
+    })
+}
+
+/// What a Revolve, Loft or Sweep would make. `None` means a newer request superseded it.
+pub fn preview_form(m: &Model, req: FormRequest) -> Option<Result<Preview, ApiError>> {
+    m.preview(move |doc| {
+        let p = req.params(doc)?;
+        let target = req.target.filter(|_| p.operation != Operation::NewBody);
+        let result = match doc.preview_form(target, &p) {
+            Err(KernelError::NoOp) => return Ok(Preview { outcome: Outcome::None, tool: None, result: None }),
+            r => r?,
+        };
+        let tool = match &result {
+            ExtrudeResult::New(_) => None,
+            ExtrudeResult::Replace { .. } => Some(body(&doc.kernel, 0, &form::tool(&doc.kernel, &p)?)?),
+        };
+        Ok(preview_of(doc, target, result, tool)?)
+    })
+}
+
+/// Run a Revolve, Loft or Sweep as one undoable step.
+pub fn commit_form(m: &Model, req: FormRequest) -> Result<Committed, ApiError> {
+    m.call(move |doc| {
+        let p = req.params(doc)?;
+        let target = req.target.filter(|_| p.operation != Operation::NewBody);
+        let id = doc.commit_form(target, &p)?;
+        Ok(Committed { id, scene: bodies(doc)? })
+    })
+}
+
+/// Offset Face: faces of one body moved along their normals.
+#[derive(Deserialize, Debug, Clone)]
+pub struct OffsetRequest {
+    pub body: BodyId,
+    pub faces: Vec<u32>,
+    pub distance: f64,
+}
+
+/// The body as it would be after the offset. `None` means a newer request superseded it.
+pub fn preview_offset(m: &Model, req: OffsetRequest) -> Option<Result<Body, ApiError>> {
+    m.preview(move |doc| {
+        let solid = doc.preview_offset(req.body, &req.faces, req.distance)?;
+        Ok(body(&doc.kernel, req.body, &solid)?)
+    })
+}
+
+pub fn commit_offset(m: &Model, req: OffsetRequest) -> Result<Committed, ApiError> {
+    m.call(move |doc| {
+        let id = doc.commit_offset(req.body, &req.faces, req.distance)?;
         Ok(Committed { id, scene: bodies(doc)? })
     })
 }

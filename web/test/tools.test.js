@@ -4,9 +4,11 @@ import { TOOLS, check, schema, tool, toolForKey, withDefaults } from '../src/app
 
 test('every tool has a unique id and key and complete parameters', () => {
     assert.equal(new Set(TOOLS.map(t => t.id)).size, TOOLS.length);
-    assert.equal(new Set(TOOLS.map(t => t.key)).size, TOOLS.length);
+    // Keys are unique where bound; Plasticity leaves some commands without one (Revolve, Offset Face).
+    const keys = TOOLS.map(t => t.key).filter(Boolean);
+    assert.equal(new Set(keys).size, keys.length);
     for (const t of TOOLS) {
-        assert.ok(['face', 'edge', 'solid', 'region', 'solids'].includes(t.selects), t.id);
+        assert.ok(['face', 'faces', 'edge', 'solid', 'region', 'regions', 'solids'].includes(t.selects), t.id);
         for (const [name, p] of Object.entries(t.params)) {
             assert.ok(p.describe, `${t.id}.${name} needs a description`);
             assert.deepEqual(check(t.id, { [name]: p.default }), [], `${t.id}.${name} default must pass its own check`);

@@ -36,7 +36,7 @@ export const VIEWPORT = {
     // Commands (manual: Command Bar, General Functions)
     f: 'palette', 'shift-f': 'suggest', 'shift-r': 'repeat',
     b: 'tool:fillet', g: 'tool:move', r: 'tool:rotate', s: 'tool:scale', p: 'tool:pushpull',
-    e: 'tool:extrude', q: 'tool:boolean',
+    e: 'tool:extrude', q: 'tool:boolean', l: 'tool:loft', 'shift-p': 'tool:sweep',
     // Sketching (manual: Line is Shift+A; 0.6.30 for the rectangle and circle, which 26.1 leaves unbound)
     'shift-q': 'draw:rect', 'shift-w': 'draw:circle', 'shift-a': 'draw:line',
     'shift-x': 'delete', 'shift-delete': 'delete', 'shift-backspace': 'delete',
@@ -60,6 +60,11 @@ export const COMMAND = {
     // Extrude and Boolean (manual: Q union, W difference, Shift+E intersect, B new body, T keep tools)
     extrude: { d: 'distance', q: 'union', w: 'difference', 'shift-e': 'intersect', b: 'new' },
     boolean: { q: 'union', w: 'difference', 'shift-e': 'intersect', t: 'keep' },
+    // Offset Face (manual: D distance; its A angle and Tab grow modes are not here yet)
+    offset: { d: 'distance' },
+    // Revolve and Sweep (manual: A angle, D twist, Q W Shift+E B as in Extrude)
+    revolve: { a: 'angle', q: 'union', w: 'difference', 'shift-e': 'intersect', b: 'new' },
+    sweep: { d: 'twist', q: 'union', w: 'difference', 'shift-e': 'intersect', b: 'new' },
     // Drawing (manual: Tab types dimensions, S square and C centre for rectangles, Ctrl+Z drops a line's last point)
     rect: { tab: 'typed', s: 'square', c: 'centre' },
     circle: { tab: 'typed' },
