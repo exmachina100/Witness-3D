@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { GeometryFactory, NoOpError, ValidationError } from './GeometryFactory.js';
-import { boolean, count, makeProfileFace, prism, volume } from './Kernel.js';
+import { booleanWithHistory, count, extrudeFace, makeProfileFace, prism, volume } from './Kernel.js';
 
 // Push/pull extrude that becomes a boolean when it meets a body, modeled on Plasticity's
 // PossiblyBooleanExtrudeFactory (src/commands/extrude/ExtrudeFactory.ts). Positive distance
@@ -18,8 +18,11 @@ export class ExtrudeFactory extends GeometryFactory {
         this.distance = 0;
         /** @type {string | undefined} body the sketch sits on */
         this.target = undefined;
-        /** 'auto' picks union/difference from the sign of distance; 'new' always makes a separate body */
+        /** 'auto' picks union/difference from the sign of distance; 'new' always makes a separate
+         * body; 'union', 'difference' and 'intersection' force that boolean (Plasticity's Q, W, Shift+E) */
         this.operation = 'auto';
+        /** @type {number | undefined} extrude this face of the target instead of the profile */
+        this.face = undefined;
         this.isOverlapping = false;
     }
 
@@ -36,8 +39,9 @@ export class ExtrudeFactory extends GeometryFactory {
     }
 
     tool() {
-        if (!this.profile) throw new ValidationError("No profile to extrude");
         if (Math.abs(this.distance) < 1e-6) throw new NoOpError();
+        if (this.face !== undefined) return extrudeFace(this.doc.shape(this.target), this.face, this.distance);
+        if (!this.profile) throw new ValidationError("No profile to extrude");
         const face = makeProfileFace(this.profile, this.frame);
         return prism(face, this.normal.clone().normalize().multiplyScalar(this.distance));
     }
@@ -51,14 +55,17 @@ export class ExtrudeFactory extends GeometryFactory {
             return [{ shape: tool }];
         }
 
-        const result = boolean(body, tool, op);
+        const { shape: result, history } = booleanWithHistory(body, tool, op);
         // Touching or overlapping fuses into one solid; a cut that removes nothing missed the body.
         this.isOverlapping = op === 'union'
             ? count(result, 'TopAbs_SOLID') === count(body, 'TopAbs_SOLID')
-            : Math.abs(volume(result) - volume(body)) > 1e-9;
-        if (!this.isOverlapping) return [{ shape: tool }];
+            : op === 'difference' ? Math.abs(volume(result) - volume(body)) > 1e-9 : volume(result) > 1e-9;
+        if (!this.isOverlapping) {
+            if (this.operation === 'auto' || this.operation === 'union') return [{ shape: tool }];
+            throw new ValidationError("the extrude does not meet the body");
+        }
         if (count(result, 'TopAbs_SOLID') === 0) throw new ValidationError("Boolean produced an empty body");
-        return [{ shape: result, replaces: this.target }];
+        return [{ shape: result, replaces: this.target, history }];
     }
 
     async calculatePhantoms() {

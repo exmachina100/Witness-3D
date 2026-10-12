@@ -7,13 +7,18 @@
 
 use glam::DVec3;
 
+pub mod blend;
 pub mod document;
 pub mod engine;
 pub mod extrude;
+pub mod file;
 #[cfg(feature = "occt")]
 pub mod occt;
 
+pub use blend::{blend, Blend, BlendParams};
+pub use document::{Ref, Refs};
 pub use extrude::{extrude, ExtrudeParams, ExtrudeResult, Operation};
+pub use document::{Curve, CurveId, CurveShape};
 
 /// A closed 2D profile, drawn in a sketch plane.
 #[derive(Clone, Debug, PartialEq)]
@@ -58,6 +63,8 @@ pub struct Tessellation {
     pub face_ids: Vec<u32>,
     /// For each face, its plane when it is flat: the faces a sketch can be drawn on.
     pub face_planes: Vec<Option<Plane>>,
+    /// The true edges as polylines. The index is the edge's number: what a click on an edge
+    /// selects and what [`Kernel::blend`] takes.
     pub edges: Vec<Vec<[f64; 3]>>,
 }
 
@@ -86,10 +93,59 @@ pub enum KernelError {
     Invalid(&'static str),
     #[error("kernel failure: {0}")]
     Failed(String),
+    /// A fillet or chamfer the kernel could not build, with the edges it names (maybe none).
+    #[error("{reason}")]
+    Blend { edges: Vec<u32>, reason: String },
+    #[error("{0}")]
+    File(String),
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum BooleanOp { Union, Difference, Intersection }
+
+/// Where an operation's result faces and edges came from, by number (see [`Tessellation`]).
+/// `faces[k]` and `edges[k]` hold (number in input k, number in the result) pairs: input 0 is the
+/// body being changed, input 1 the tool of a boolean. A split source appears once per piece.
+/// `generated_faces` holds (input edge, result face) for faces grown from an edge, like a round.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct History {
+    pub faces: [Vec<(u32, u32)>; 2],
+    pub edges: [Vec<(u32, u32)>; 2],
+    pub generated_faces: Vec<(u32, u32)>,
+}
+
+/// A solid together with the [`History`] of the operation that made it.
+#[derive(Clone, Debug)]
+pub struct Traced<S> {
+    pub solid: S,
+    pub history: History,
+}
+
+/// A similarity motion about `pivot`: scale by `scale`, rotate by `angle` radians about `axis`,
+/// then move by `offset`.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Motion {
+    pub offset: DVec3,
+    pub pivot: DVec3,
+    pub axis: DVec3,
+    pub angle: f64,
+    pub scale: f64,
+}
+
+impl Motion {
+    pub fn translation(offset: DVec3) -> Self { Motion { offset, pivot: DVec3::ZERO, axis: DVec3::Y, angle: 0.0, scale: 1.0 } }
+    pub fn rotation(pivot: DVec3, axis: DVec3, angle: f64) -> Self { Motion { offset: DVec3::ZERO, pivot, axis, angle, scale: 1.0 } }
+    pub fn scaling(pivot: DVec3, scale: f64) -> Self { Motion { offset: DVec3::ZERO, pivot, axis: DVec3::Y, angle: 0.0, scale } }
+    pub fn is_identity(&self) -> bool {
+        self.offset.length() < 1e-12 && self.angle.abs() < 1e-12 && (self.scale - 1.0).abs() < 1e-12
+    }
+    /// Where the motion takes point `p`.
+    pub fn apply(&self, p: DVec3) -> DVec3 {
+        let mut q = (p - self.pivot) * self.scale;
+        if self.angle != 0.0 { q = glam::DQuat::from_axis_angle(self.axis.normalize(), self.angle) * q }
+        q + self.pivot + self.offset
+    }
+}
 
 /// Everything a modeling tool may ask of geometry. One implementation per kernel.
 pub trait Kernel {
@@ -98,11 +154,27 @@ pub trait Kernel {
     fn box_from_corners(&self, a: DVec3, b: DVec3) -> Self::Solid;
     /// Sweep `profile` along the frame normal by `distance` (negative goes backwards).
     fn extrude(&self, profile: &Profile, frame: &Frame, distance: f64) -> Result<Self::Solid, KernelError>;
-    /// The boolean result, with coplanar faces merged.
-    fn boolean(&self, a: &Self::Solid, b: &Self::Solid, op: BooleanOp) -> Result<Self::Solid, KernelError>;
+    /// Sweep the numbered face of `s` along its outward normal by `distance` (negative goes in).
+    fn extrude_face(&self, s: &Self::Solid, face: u32, distance: f64) -> Result<Self::Solid, KernelError>;
+    /// The boolean result, with coplanar faces merged, and where its faces and edges came from.
+    fn boolean(&self, a: &Self::Solid, b: &Self::Solid, op: BooleanOp) -> Result<Traced<Self::Solid>, KernelError>;
     /// Number of disconnected solids in the shape.
     fn solid_count(&self, s: &Self::Solid) -> usize;
     fn face_count(&self, s: &Self::Solid) -> usize;
+    fn edge_count(&self, s: &Self::Solid) -> usize;
+    /// Round or bevel the numbered edges (see [`Tessellation::edges`]) by `size`. A chamfer's
+    /// `angle` (radians) is measured from each edge's first face; π/4 gives equal distances.
+    fn blend(&self, s: &Self::Solid, edges: &[u32], size: f64, kind: Blend, angle: f64) -> Result<Traced<Self::Solid>, KernelError>;
+    /// The solid moved rigidly. Faces and edges keep their numbers.
+    fn transform(&self, s: &Self::Solid, m: &Motion) -> Self::Solid;
+    /// Whether the kernel's own checker accepts the shape.
+    fn is_valid(&self, s: &Self::Solid) -> bool;
     fn tessellate(&self, s: &Self::Solid, tolerance: f64) -> Result<Tessellation, KernelError>;
     fn write_step(&self, s: &Self::Solid, path: &std::path::Path) -> Result<(), KernelError>;
+    fn read_step(&self, path: &std::path::Path) -> Result<Self::Solid, KernelError>;
+    /// The exact shape in the kernel's own text format, for the native file.
+    /// Names the format [`Kernel::to_native`] writes, so a file is only read by a kernel that can.
+    fn native_format(&self) -> &'static str;
+    fn to_native(&self, s: &Self::Solid) -> Result<String, KernelError>;
+    fn from_native(&self, text: &str) -> Result<Self::Solid, KernelError>;
 }

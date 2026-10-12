@@ -16,7 +16,8 @@
   "imports": {
     "three": "https://cdn.jsdelivr.net/npm/three@0.185.1/build/three.module.js",
     "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.185.1/examples/jsm/",
-    "replicad-opencascadejs": "https://cdn.jsdelivr.net/npm/replicad-opencascadejs@1.1.0/dist/replicad_single.js"
+    "replicad-opencascadejs": "https://cdn.jsdelivr.net/npm/replicad-opencascadejs@1.1.0/dist/replicad_single.js",
+    "@anthropic-ai/sdk": "https://cdn.jsdelivr.net/npm/@anthropic-ai/sdk@0.128.0/+esm"
   }
 }
 </script>
@@ -45,9 +46,6 @@ async function bootKernel() {
 document.getElementById('app').innerHTML = '<div class="loading" style="position:fixed">LOADING THE OPENCASCADE KERNEL (7 MB)…</div>';
 await bootKernel();
 const app = await mount(document.getElementById('app'), new LocalBackend());
-// Open with a profile already on the top face, pushed in, so the first frame shows a live cut.
-app.begin([0.6, 2, 0.2], [0, 1, 0], app.bodies[0].id);
-app.setDistance(-0.75);
 window.__w3d = app;
 </script>
 </body>

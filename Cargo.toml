@@ -3,7 +3,14 @@ resolver = "2"
 members = ["crates/w3d-kernel", "apps/desktop/src-tauri"]
 # The desktop app needs GTK/WebKit and OpenCascade; plain `cargo` commands at the root build only the core.
 default-members = ["crates/w3d-kernel"]
+exclude = ["vendor"]
 
 [workspace.package]
 edition = "2021"
 license = "MIT OR Apache-2.0"
+
+# opencascade-rs 0.3.0 with Witness 3D additions (checked fillet/chamfer, numbered edges, BREP
+# text). Both crates are LGPL-2.1; see vendor/README.md for what changed.
+[patch.crates-io]
+opencascade = { path = "vendor/opencascade" }
+opencascade-sys = { path = "vendor/opencascade-sys" }

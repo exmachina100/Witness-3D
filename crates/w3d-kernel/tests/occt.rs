@@ -15,6 +15,7 @@ fn setup() -> (Occt, opencascade::primitives::Shape, ExtrudeParams) {
         frame: Frame::new(DVec3::new(0.0, 0.0, 2.0), DVec3::X, DVec3::Z),
         distance: 1.0,
         operation: Operation::Auto,
+        face: None,
     };
     (k, body, params)
 }
@@ -24,7 +25,7 @@ fn volume(k: &Occt, s: &opencascade::primitives::Shape) -> f64 { k.tessellate(s,
 #[test]
 fn pulling_out_joins_into_one_solid() {
     let (k, body, p) = setup();
-    let ExtrudeResult::Replace { solid, op } = extrude(&k, Some(&body), &p).unwrap() else { panic!("expected a join") };
+    let ExtrudeResult::Replace { solid, op, .. } = extrude(&k, Some(&body), &p).unwrap() else { panic!("expected a join") };
     assert_eq!(op, BooleanOp::Union);
     assert_eq!(k.solid_count(&solid), 1);
     assert_eq!(k.face_count(&solid), 11, "top faces merged: 6 box faces + 5 boss faces");
@@ -35,7 +36,7 @@ fn pulling_out_joins_into_one_solid() {
 fn pushing_in_cuts_a_pocket() {
     let (k, body, mut p) = setup();
     p.distance = -1.5;
-    let ExtrudeResult::Replace { solid, op } = extrude(&k, Some(&body), &p).unwrap() else { panic!("expected a cut") };
+    let ExtrudeResult::Replace { solid, op, .. } = extrude(&k, Some(&body), &p).unwrap() else { panic!("expected a cut") };
     assert_eq!(op, BooleanOp::Difference);
     close(volume(&k, &solid), 62.5, 1e-6);
 }

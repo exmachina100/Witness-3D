@@ -8,21 +8,42 @@ use serde::{Deserialize, Serialize};
 use w3d_kernel::document::{BodyId, Document};
 use w3d_kernel::engine::Engine;
 use w3d_kernel::occt::Occt;
-use w3d_kernel::{BooleanOp, ExtrudeParams, ExtrudeResult, Frame, Kernel, KernelError, Operation, Profile, Tessellation};
+use w3d_kernel::{extrude, file, Blend, BlendParams, BooleanOp, Curve, CurveId, ExtrudeParams, ExtrudeResult, Frame, Kernel, KernelError, Motion, Operation, Profile, Ref, Refs, Tessellation};
 
-/// Chord tolerance for display meshes, in model units.
-const MESH_TOLERANCE: f64 = 0.01;
+/// Chord tolerance for display meshes, in millimetres.
+const MESH_TOLERANCE: f64 = 0.05;
 
 pub type Model = Engine<Occt>;
 
+/// The product-enclosure blank every new document starts with: 80 × 30 × 50 mm on the ground.
+fn seed(doc: &mut Document<Occt>) {
+    let body = doc.kernel.box_from_corners(DVec3::new(-40.0, 0.0, -25.0), DVec3::new(40.0, 30.0, 25.0));
+    doc.replace_all([(1, body, None)], 2, 1);
+}
+
 pub fn start() -> Model {
     let engine = Engine::new(|| Occt);
-    engine.call(|doc| {
-        let body = doc.kernel.box_from_corners(DVec3::new(-2.0, 0.0, -1.5), DVec3::new(2.0, 2.0, 1.5));
-        doc.add(body);
-        doc.clear_history();
-    });
+    engine.call(seed);
     engine
+}
+
+/// An error the viewport can act on: what to tell the user, and the edges to point at if the
+/// kernel named any.
+#[derive(Serialize, Debug)]
+pub struct ApiError {
+    pub message: String,
+    pub edges: Vec<u32>,
+}
+
+impl From<KernelError> for ApiError {
+    fn from(e: KernelError) -> Self {
+        let edges = if let KernelError::Blend { edges, .. } = &e { edges.clone() } else { vec![] };
+        ApiError { message: e.to_string(), edges }
+    }
+}
+
+impl From<String> for ApiError {
+    fn from(message: String) -> Self { ApiError { message, edges: vec![] } }
 }
 
 #[derive(Serialize, Debug)]
@@ -39,6 +60,12 @@ pub struct Body {
     /// Each edge as a polyline, x, y, z per point.
     pub edges: Vec<Vec<f32>>,
     pub volume: f64,
+    /// Persistent ids of the faces and edges, by number; empty for previews of new geometry.
+    /// A selection kept as refs survives edits that renumber the body.
+    pub face_refs: Vec<Ref>,
+    pub edge_refs: Vec<Ref>,
+    /// The document revision this body was drawn from.
+    pub revision: u64,
 }
 
 #[derive(Serialize, Debug)]
@@ -54,23 +81,49 @@ pub enum ProfileShape {
     Circle { radius: f64 },
 }
 
+#[derive(Deserialize, Debug, Clone, Copy, Default, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum OpChoice {
+    /// Join pulling out, cut pushing in.
+    #[default]
+    Auto,
+    Union,
+    Difference,
+    Intersect,
+    New,
+}
+
+/// What to extrude: a push/pull sketch (`profile` at `origin`), a drawn region (`region`, a closed
+/// curve's id) or a face of the target (`face`).
 #[derive(Deserialize, Debug, Clone)]
 #[serde(rename_all = "camelCase")]
 pub struct ExtrudeRequest {
-    /// The body the sketch sits on; none when sketching on the ground.
+    /// The body to join or cut; none for a separate body.
     pub target: Option<BodyId>,
+    #[serde(default)]
     pub origin: [f64; 3],
+    #[serde(default = "up")]
     pub normal: [f64; 3],
+    #[serde(default = "east")]
     pub x_axis: [f64; 3],
-    pub profile: ProfileShape,
+    pub profile: Option<ProfileShape>,
+    #[serde(default)]
+    pub region: Option<CurveId>,
+    #[serde(default)]
+    pub face: Option<u32>,
     pub distance: f64,
     #[serde(default)]
     pub new_body: bool,
+    /// Plasticity's Q, W, Shift+E and B inside Extrude.
+    #[serde(default)]
+    pub op: OpChoice,
 }
+
+fn east() -> [f64; 3] { [1.0, 0.0, 0.0] }
 
 #[derive(Serialize, Debug)]
 #[serde(rename_all = "lowercase")]
-pub enum Outcome { Join, Cut, New, None }
+pub enum Outcome { Join, Cut, Intersect, New, None }
 
 #[derive(Serialize, Debug)]
 pub struct Preview {
@@ -97,25 +150,51 @@ fn body(k: &Occt, id: BodyId, solid: &<Occt as Kernel>::Solid) -> Result<Body, S
         face_ids: t.face_ids,
         face_planes: t.face_planes.iter().map(|p| p.map(|p| FacePlane { origin: p.origin.to_array(), normal: p.normal.to_array() })).collect(),
         edges: t.edges.iter().map(|e| e.iter().flatten().map(|&c| c as f32).collect()).collect(),
+        face_refs: vec![],
+        edge_refs: vec![],
+        revision: 0,
     })
 }
 
+/// A committed body, with its refs and the document revision.
+fn doc_body(doc: &Document<Occt>, id: BodyId) -> Result<Body, String> {
+    let mut b = body(&doc.kernel, id, doc.get(id).ok_or("no such body")?)?;
+    let Refs { faces, edges } = doc.refs(id).cloned().unwrap_or_default();
+    (b.face_refs, b.edge_refs, b.revision) = (faces, edges, doc.revision());
+    Ok(b)
+}
+
 fn bodies(doc: &Document<Occt>) -> Result<Vec<Body>, String> {
-    doc.ids().into_iter().map(|id| body(&doc.kernel, id, doc.get(id).unwrap())).collect()
+    doc.ids().into_iter().map(|id| doc_body(doc, id)).collect()
 }
 
 impl ExtrudeRequest {
-    fn params(&self) -> ExtrudeParams {
+    fn operation(&self) -> Operation {
+        match self.op {
+            _ if self.new_body => Operation::NewBody,
+            OpChoice::Auto => Operation::Auto,
+            OpChoice::Union => Operation::Union,
+            OpChoice::Difference => Operation::Difference,
+            OpChoice::Intersect => Operation::Intersect,
+            OpChoice::New => Operation::NewBody,
+        }
+    }
+
+    fn params(&self, doc: &Document<Occt>) -> Result<ExtrudeParams, String> {
+        if let Some(id) = self.region { return doc.region_params(id, self.distance, self.operation()).map_err(|e| e.to_string()) }
         let profile = match self.profile {
-            ProfileShape::Rect { width, height } => Profile::rectangle(width, height),
-            ProfileShape::Circle { radius } => Profile::Circle { center: (0.0, 0.0), radius },
+            Some(ProfileShape::Rect { width, height }) => Profile::rectangle(width, height),
+            Some(ProfileShape::Circle { radius }) => Profile::Circle { center: (0.0, 0.0), radius },
+            None if self.face.is_some() => Profile::rectangle(1.0, 1.0),
+            None => return Err("say what to extrude: a profile, a region or a face".into()),
         };
-        ExtrudeParams {
+        Ok(ExtrudeParams {
             profile,
             frame: Frame::new(DVec3::from_array(self.origin), DVec3::from_array(self.x_axis), DVec3::from_array(self.normal)),
             distance: self.distance,
-            operation: if self.new_body { Operation::NewBody } else { Operation::Auto },
-        }
+            operation: self.operation(),
+            face: self.face,
+        })
     }
 }
 
@@ -126,17 +205,17 @@ pub fn scene(m: &Model) -> Result<Vec<Body>, String> {
 /// `None` means a newer drag arrived first and this one was skipped.
 pub fn preview(m: &Model, req: ExtrudeRequest) -> Option<Result<Preview, String>> {
     m.preview(move |doc| {
-        let p = req.params();
+        let p = req.params(doc)?;
         let result = match doc.preview_extrude(req.target, &p) {
             Err(KernelError::NoOp) => return Ok(Preview { outcome: Outcome::None, tool: None, result: None }),
             r => r.map_err(|e| e.to_string())?,
         };
-        let tool = doc.kernel.extrude(&p.profile, &p.frame, p.distance).map_err(|e| e.to_string())?;
+        let tool = extrude::tool(&doc.kernel, req.target.and_then(|id| doc.get(id)), &p).map_err(|e| e.to_string())?;
         let tool = Some(body(&doc.kernel, 0, &tool)?);
         Ok(match result {
             ExtrudeResult::New(_) => Preview { outcome: Outcome::New, tool, result: None },
-            ExtrudeResult::Replace { solid, op } => Preview {
-                outcome: if op == BooleanOp::Union { Outcome::Join } else { Outcome::Cut },
+            ExtrudeResult::Replace { solid, op, .. } => Preview {
+                outcome: match op { BooleanOp::Union => Outcome::Join, BooleanOp::Difference => Outcome::Cut, BooleanOp::Intersection => Outcome::Intersect },
                 result: Some(body(&doc.kernel, req.target.unwrap(), &solid)?),
                 tool,
             },
@@ -146,7 +225,72 @@ pub fn preview(m: &Model, req: ExtrudeRequest) -> Option<Result<Preview, String>
 
 pub fn commit(m: &Model, req: ExtrudeRequest) -> Result<Committed, String> {
     m.call(move |doc| {
-        let id = doc.commit_extrude(req.target, &req.params()).map_err(|e| e.to_string())?;
+        let p = req.params(doc)?;
+        let id = doc.commit_extrude(req.target, &p).map_err(|e| e.to_string())?;
+        Ok(Committed { id, scene: bodies(doc)? })
+    })
+}
+
+/// A drawn curve as the viewport gets it: its id plus the curve.
+#[derive(Serialize, Debug)]
+pub struct CurveOut {
+    pub id: CurveId,
+    #[serde(flatten)]
+    pub curve: Curve,
+}
+
+pub fn curves(m: &Model) -> Vec<CurveOut> {
+    m.call(|doc| doc.curve_ids().into_iter().map(|id| CurveOut { id, curve: doc.curve(id).unwrap().clone() }).collect())
+}
+
+#[derive(Serialize, Debug)]
+pub struct AddedCurves {
+    pub ids: Vec<CurveId>,
+}
+
+/// Add drawn curves, as one undoable step.
+pub fn add_curves(m: &Model, curves: Vec<Curve>) -> Result<AddedCurves, ApiError> {
+    m.call(move |doc| Ok(AddedCurves { ids: doc.commit_curves(curves)? }))
+}
+
+/// Delete bodies and curves together, as one undoable step.
+pub fn delete_items(m: &Model, bodies_: Vec<BodyId>, curves: Vec<CurveId>) -> Result<Vec<Body>, ApiError> {
+    m.call(move |doc| { doc.commit_delete_items(&bodies_, &curves)?; Ok(bodies(doc)?) })
+}
+
+#[derive(Deserialize, Debug, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct BooleanRequest {
+    pub target: BodyId,
+    pub tools: Vec<BodyId>,
+    pub op: OpChoice,
+    #[serde(default)]
+    pub keep_tools: bool,
+}
+
+impl BooleanRequest {
+    fn op(&self) -> Result<BooleanOp, ApiError> {
+        match self.op {
+            OpChoice::Union | OpChoice::Auto => Ok(BooleanOp::Union),
+            OpChoice::Difference => Ok(BooleanOp::Difference),
+            OpChoice::Intersect => Ok(BooleanOp::Intersection),
+            OpChoice::New => Err(String::from("a boolean needs union, difference or intersect").into()),
+        }
+    }
+}
+
+/// The target as it would be after the boolean. `None` means a newer request superseded it.
+pub fn preview_boolean(m: &Model, req: BooleanRequest) -> Option<Result<Body, ApiError>> {
+    m.preview(move |doc| {
+        let t = doc.preview_boolean(req.target, &req.tools, req.op()?)?;
+        Ok(body(&doc.kernel, req.target, &t.solid)?)
+    })
+}
+
+/// Plasticity's Boolean, as one undoable step: the target changes and the tools go unless kept.
+pub fn commit_boolean(m: &Model, req: BooleanRequest) -> Result<Committed, ApiError> {
+    m.call(move |doc| {
+        let id = doc.commit_boolean(req.target, &req.tools, req.op()?, req.keep_tools)?;
         Ok(Committed { id, scene: bodies(doc)? })
     })
 }
@@ -164,4 +308,130 @@ pub fn export_step(m: &Model, id: BodyId, path: PathBuf) -> Result<(), String> {
         let solid = doc.get(id).ok_or("no such body")?;
         doc.kernel.write_step(solid, &path).map_err(|e| e.to_string())
     })
+}
+
+#[derive(Deserialize, Debug, Clone, Copy, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum BlendKind { Fillet, Chamfer }
+
+#[derive(Deserialize, Debug, Clone)]
+pub struct BlendRequest {
+    pub body: BodyId,
+    /// Edge numbers, as indices into the body's `edges`.
+    pub edges: Vec<u32>,
+    /// Radius or distance, in millimetres.
+    pub size: f64,
+    pub kind: BlendKind,
+    /// Chamfer angle from each edge's first face, in radians; π/4 (the default) is equal distances.
+    #[serde(default = "equal")]
+    pub angle: f64,
+}
+
+fn equal() -> f64 { w3d_kernel::blend::EQUAL }
+
+impl BlendRequest {
+    fn params(&self) -> BlendParams {
+        BlendParams {
+            edges: self.edges.clone(),
+            size: self.size,
+            kind: if self.kind == BlendKind::Chamfer { Blend::Chamfer } else { Blend::Fillet },
+            angle: self.angle,
+        }
+    }
+}
+
+/// The body as it would be after the fillet or chamfer. `None` means a newer request superseded it.
+pub fn preview_blend(m: &Model, req: BlendRequest) -> Option<Result<Body, ApiError>> {
+    m.preview(move |doc| {
+        let solid = doc.preview_blend(req.body, &req.params())?;
+        Ok(body(&doc.kernel, req.body, &solid)?)
+    })
+}
+
+pub fn commit_blend(m: &Model, req: BlendRequest) -> Result<Committed, ApiError> {
+    m.call(move |doc| {
+        let id = doc.commit_blend(req.body, &req.params())?;
+        Ok(Committed { id, scene: bodies(doc)? })
+    })
+}
+
+/// Start over with the seed enclosure.
+pub fn new_document(m: &Model) -> Result<Vec<Body>, String> {
+    m.call(|doc| { seed(doc); bodies(doc) })
+}
+
+pub fn save(m: &Model, path: PathBuf) -> Result<(), String> {
+    m.call(move |doc| file::save(doc, &path).map_err(|e| e.to_string()))
+}
+
+/// Replace the document with a saved one. History starts empty.
+pub fn open(m: &Model, path: PathBuf) -> Result<Vec<Body>, String> {
+    m.call(move |doc| { file::open(doc, &path).map_err(|e| e.to_string())?; bodies(doc) })
+}
+
+/// Add the STEP file's geometry as one new body, as an undoable step.
+pub fn import_step(m: &Model, path: PathBuf) -> Result<Committed, String> {
+    m.call(move |doc| {
+        let solid = doc.kernel.read_step(&path).map_err(|e| e.to_string())?;
+        let id = doc.add(solid);
+        Ok(Committed { id, scene: bodies(doc)? })
+    })
+}
+
+#[derive(Deserialize, Debug, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct MotionRequest {
+    pub bodies: Vec<BodyId>,
+    /// Moved by this much after the turn, in millimetres.
+    #[serde(default)]
+    pub offset: [f64; 3],
+    /// Scaled by `scale`, then turned by `angle` radians about `axis`, both about `pivot`.
+    #[serde(default)]
+    pub pivot: [f64; 3],
+    #[serde(default = "up")]
+    pub axis: [f64; 3],
+    #[serde(default)]
+    pub angle: f64,
+    #[serde(default = "one")]
+    pub scale: f64,
+}
+
+fn up() -> [f64; 3] { [0.0, 1.0, 0.0] }
+fn one() -> f64 { 1.0 }
+
+impl MotionRequest {
+    fn motion(&self) -> Result<Motion, ApiError> {
+        let axis = DVec3::from_array(self.axis);
+        let all = self.offset.iter().chain(&self.pivot).chain(&self.axis).chain([&self.angle, &self.scale]);
+        if all.into_iter().any(|v| !v.is_finite()) || (self.angle != 0.0 && axis.length() < 1e-9) {
+            return Err(String::from("the move, turn or scale is not a valid number").into());
+        }
+        Ok(Motion { offset: DVec3::from_array(self.offset), pivot: DVec3::from_array(self.pivot), axis, angle: self.angle, scale: self.scale })
+    }
+}
+
+/// Move, turn or scale bodies, as one undoable step. The viewport previews this itself, since it
+/// needs no geometry work; the bodies' faces and edges keep their refs.
+pub fn commit_motion(m: &Model, req: MotionRequest) -> Result<Committed, ApiError> {
+    let motion = req.motion()?;
+    m.call(move |doc| {
+        doc.commit_motion(&req.bodies, &motion)?;
+        Ok(Committed { id: req.bodies[0], scene: bodies(doc)? })
+    })
+}
+
+/// Delete bodies, as one undoable step.
+pub fn delete_bodies(m: &Model, ids: Vec<BodyId>) -> Result<Vec<Body>, ApiError> {
+    m.call(move |doc| { doc.commit_delete(&ids)?; Ok(bodies(doc)?) })
+}
+
+#[derive(Serialize, Debug)]
+pub struct Duplicated {
+    pub ids: Vec<BodyId>,
+    pub scene: Vec<Body>,
+}
+
+/// Copy bodies in place, as one undoable step.
+pub fn duplicate_bodies(m: &Model, ids: Vec<BodyId>) -> Result<Duplicated, ApiError> {
+    m.call(move |doc| { let ids = doc.commit_duplicate(&ids)?; Ok(Duplicated { ids, scene: bodies(doc)? }) })
 }
