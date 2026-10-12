@@ -1,0 +1,328 @@
+// Revolve, Loft and Sweep of drawn regions, Offset Face, and Extrude's angle, thickness and second
+// side, on OpenCascade WebAssembly. They mirror the desktop kernel
+// (vendor/opencascade-sys/include/w3d.hxx); Offset Face here is limited to flat faces, since this
+// OpenCascade build leaves out the per-face offset algorithm.
+
+import * as THREE from 'three';
+import { arcPoints, ellipsePoints, loops } from './curves.js';
+import { boolean, count, extrudeFace, facePlane, oc } from './Kernel.js';
+
+const pnt = v => new (oc().gp_Pnt)(v.x, v.y, v.z);
+const dir = v => new (oc().gp_Dir)(v.x, v.y, v.z);
+
+/** A drawn curve's plane: origin, x, y and normal as vectors. */
+function plane(c) {
+    const o = new THREE.Vector3(...c.origin), n = new THREE.Vector3(...c.normal).normalize();
+    const x = new THREE.Vector3(...c.x).projectOnPlane(n).normalize();
+    return { o, x, y: n.clone().cross(x), n, at: ([u, v]) => o.clone().addScaledVector(x, u).addScaledVector(new THREE.Vector3().crossVectors(n, x), v) };
+}
+
+/** The smooth curve through the points (a closed one is periodic), as on the desktop. */
+function interpolate(points, closed) {
+    const o = oc();
+    const a = new o.NCollection_Array1_gp_Pnt(1, points.length);
+    points.forEach((q, i) => a.SetValue(i + 1, pnt(q)));
+    const fit = new o.GeomAPI_Interpolate(new o.NCollection_HArray1_gp_Pnt(a), closed, 1e-7);
+    fit.Perform();
+    if (!fit.IsDone()) throw new Error('no smooth curve passes through those points');
+    return fit.Curve();
+}
+
+/**
+ * The curve in space: an exact circle, a smooth spline, an arc through three points, or a polyline.
+ * Splines and arcs also carry sample points, which a sweep follows to carry its profile.
+ */
+function geometry(c) {
+    const p = plane(c);
+    if (c.kind === 'circle') return { circle: { center: p.at(c.center), normal: p.n, radius: c.radius, x: p.x, y: p.y } };
+    if (c.kind === 'spline') {
+        const curve = interpolate(c.points.map(q => p.at(q)), !!c.closed);
+        const t0 = curve.FirstParameter(), t1 = curve.LastParameter(), n = 64;
+        const pts = Array.from({ length: c.closed ? n : n + 1 }, (_, i) => { const v = curve.Value(t0 + (t1 - t0) * i / n); return new THREE.Vector3(v.X(), v.Y(), v.Z()); });
+        return { spline: curve, points: pts, closed: !!c.closed };
+    }
+    if (c.kind === 'arc') {
+        const pts = arcPoints(c.start, c.mid, c.end, 48);
+        if (!pts) throw new Error('the three points of an arc must not lie on a line');
+        return { arc: [c.start, c.mid, c.end].map(q => p.at(q)), points: pts.map(q => p.at(q)), closed: false };
+    }
+    if (c.kind === 'ellipse') {
+        const r = Math.hypot(...c.major);
+        if (!(r > 1e-9) || !(c.minor > 1e-9)) throw new Error('an ellipse needs two radii greater than zero');
+        // OpenCascade wants the longer radius first.
+        const major = p.at(c.major).sub(p.o), across = p.n.clone().cross(major).normalize();
+        const [axis, R, rr] = r >= c.minor ? [major.clone().normalize(), r, c.minor] : [across, c.minor, r];
+        return { ellipse: { center: p.at(c.center), normal: p.n, axis, R, r: rr }, points: ellipsePoints(c.center, c.major, c.minor, 64).map(q => p.at(q)), closed: true };
+    }
+    if (c.kind === 'contour') {
+        const parts = c.pieces.map(q => geometry({ ...q, origin: c.origin, x: c.x, normal: c.normal }));
+        return { pieces: parts, points: parts.flatMap((g, i) => i ? g.points.slice(1) : g.points), closed: loops(c.pieces) };
+    }
+    return { points: c.points.map(q => p.at(q)), closed: !!c.closed };
+}
+
+function wireOf(g) {
+    const o = oc();
+    const mk = new o.BRepBuilderAPI_MakeWire();
+    if (g.pieces) {
+        for (const part of g.pieces) {
+            for (const ex = new o.TopExp_Explorer(wireOf(part).Wire(), o.TopAbs_ShapeEnum.TopAbs_EDGE, o.TopAbs_ShapeEnum.TopAbs_SHAPE); ex.More(); ex.Next()) {
+                mk.Add(o.TopoDS.Edge(ex.Current()));
+                if (!mk.IsDone()) throw new Error('the curves do not meet end to end');
+            }
+        }
+        return mk;
+    }
+    if (g.ellipse) {
+        const e = g.ellipse;
+        mk.Add(new o.BRepBuilderAPI_MakeEdge(new o.gp_Elips(new o.gp_Ax2(pnt(e.center), dir(e.normal), dir(e.axis)), e.R, e.r)).Edge());
+        return mk;
+    }
+    if (g.circle) {
+        mk.Add(new o.BRepBuilderAPI_MakeEdge(new o.gp_Circ(new o.gp_Ax2(pnt(g.circle.center), dir(g.circle.normal)), g.circle.radius)).Edge());
+        return mk;
+    }
+    if (g.spline) { mk.Add(new o.BRepBuilderAPI_MakeEdge(g.spline).Edge()); return mk; }
+    if (g.arc) {
+        mk.Add(new o.BRepBuilderAPI_MakeEdge(new o.GC_MakeArcOfCircle(...g.arc.map(pnt)).Value()).Edge());
+        return mk;
+    }
+    const pts = g.points, n = pts.length;
+    for (let i = 0; i < (g.closed ? n : n - 1); i++) mk.Add(new o.BRepBuilderAPI_MakeEdge(pnt(pts[i]), pnt(pts[(i + 1) % n])).Edge());
+    return mk;
+}
+
+/** A closed curve's region as a wire, with its centre and normal. */
+function section(c) {
+    const g = geometry(c);
+    if (!g.circle && (!g.closed || g.points.length < 3)) throw new Error('only a closed curve has a region');
+    const centre = g.circle ? g.circle.center : g.ellipse ? g.ellipse.center : g.points.reduce((a, b) => a.add(b), new THREE.Vector3()).divideScalar(g.points.length);
+    return { wire: wireOf(g).Wire(), centre, normal: plane(c).n };
+}
+
+/** A spline's or a contour's points in its own plane, for drawing it. */
+export function splineSamples(c) {
+    const p = plane(c);
+    return geometry(c).points.map(q => { const d = q.clone().sub(p.o); return [d.dot(p.x), d.dot(p.y)]; });
+}
+
+/** A closed curve's region as an exact face, for Extrude. */
+export function regionFace(c) { return face(section(c).wire) }
+
+const face = wire => new (oc().BRepBuilderAPI_MakeFace)(wire, true).Face();
+
+/** The region turned about the axis; with a `thickness`, only walls that thick inside its outline (Shift+T). */
+export function revolve(c, axisPoint, axisDir, angle, thickness = 0) {
+    const o = oc();
+    if (!Number.isFinite(angle) || Math.abs(angle) < 1e-9) return null;
+    if (!Number.isFinite(thickness) || thickness < 0) throw new Error("the thickness can't be negative");
+    const d = new THREE.Vector3(...axisDir);
+    if (d.length() < 1e-9) throw new Error('pick two different points for the axis');
+    const a = Math.max(-2 * Math.PI, Math.min(2 * Math.PI, angle));
+    const ax = new o.gp_Ax1(pnt(new THREE.Vector3(...axisPoint)), dir(d.normalize()));
+    const turned = w => {
+        const mk = new o.BRepPrimAPI_MakeRevol(face(w), ax, a, true);
+        if (!mk.IsDone()) throw new Error('the profile could not be revolved about that axis');
+        return mk.Shape();
+    };
+    const w = section(c).wire, solid = turned(w);
+    return thickness > 1e-12 ? boolean(solid, turned(grown(w, -thickness)), 'difference') : solid;
+}
+
+export function loft(cs) {
+    const o = oc();
+    if (cs.length < 2) throw new Error('select two regions or more to loft');
+    const mk = new o.BRepOffsetAPI_ThruSections(true, false, 1e-6);
+    for (const c of cs) mk.AddWire(section(c).wire);
+    mk.Build(new o.Message_ProgressRange());
+    if (!mk.IsDone()) throw new Error('no surface could be lofted through those profiles');
+    return mk.Shape();
+}
+
+/** Point and tangent a fraction `f` along the path. */
+function along(g, f) {
+    if (g.circle) {
+        const { center, radius, x, y } = g.circle, t = f * 2 * Math.PI;
+        return { point: center.clone().addScaledVector(x, radius * Math.cos(t)).addScaledVector(y, radius * Math.sin(t)), tangent: x.clone().multiplyScalar(-Math.sin(t)).addScaledVector(y, Math.cos(t)) };
+    }
+    const pts = g.closed ? [...g.points, g.points[0]] : g.points;
+    const lengths = pts.slice(1).map((p, i) => p.distanceTo(pts[i]));
+    let s = f * lengths.reduce((a, b) => a + b, 0);
+    for (let i = 0; i < lengths.length; i++) {
+        if (s <= lengths[i] || i === lengths.length - 1) {
+            const tangent = pts[i + 1].clone().sub(pts[i]).normalize();
+            return { point: pts[i].clone().addScaledVector(tangent, Math.min(s, lengths[i])), tangent };
+        }
+        s -= lengths[i];
+    }
+}
+
+export function sweep(c, path, twist = 0, scale = 1) {
+    const o = oc();
+    if (!Number.isFinite(twist) || !(scale > 0)) throw new Error('the end scale must be greater than zero');
+    const prof = section(c), g = geometry(path);
+    const plain = Math.abs(twist) < 1e-12 && Math.abs(scale - 1) < 1e-12;
+    if (!plain && (g.circle || g.closed)) throw new Error('twist and scale need a path with two ends');
+    // The profile a fraction `f` along: turned and scaled about its centre, then carried by the
+    // path's own turn (parallel transport) and position, as on the desktop.
+    const sectionAt = (f, steps) => {
+        const t = new o.gp_Trsf();
+        t.SetRotation(new o.gp_Ax1(pnt(prof.centre), dir(prof.normal)), twist * f);
+        const grow = new o.gp_Trsf();
+        grow.SetScale(pnt(prof.centre), 1 + (scale - 1) * f);
+        const carry = new THREE.Quaternion();
+        const start = along(g, 0);
+        let prev = start.tangent;
+        for (let i = 1; i <= steps; i++) {
+            const tan = along(g, f * i / steps).tangent;
+            carry.premultiply(new THREE.Quaternion().setFromUnitVectors(prev.clone().normalize(), tan.clone().normalize()));
+            prev = tan;
+        }
+        const r = new o.gp_Trsf();
+        const ax = new THREE.Vector3(carry.x, carry.y, carry.z);
+        if (ax.length() > 1e-12) r.SetRotation(new o.gp_Ax1(pnt(start.point), dir(ax.normalize())), 2 * Math.acos(Math.min(1, Math.max(-1, carry.w))));
+        const end = along(g, f).point;
+        const move = new o.gp_Trsf();
+        move.SetTranslation(pnt(start.point), pnt(end));
+        const all = move.Multiplied(r).Multiplied(grow).Multiplied(t);
+        return o.TopoDS.Wire(new o.BRepBuilderAPI_Transform(prof.wire, all, true, false).Shape());
+    };
+    if (Math.abs(twist) > 1e-12) {
+        const n = Math.max(8, Math.ceil(Math.abs(twist) / (Math.PI / 12)));
+        const mk = new o.BRepOffsetAPI_ThruSections(true, false, 1e-6);
+        for (let i = 0; i <= n; i++) mk.AddWire(sectionAt(i / n, 4 * n));
+        mk.CheckCompatibility(false);
+        mk.Build(new o.Message_ProgressRange());
+        if (!mk.IsDone()) throw new Error('the profile could not be twisted along that path');
+        return mk.Shape();
+    }
+    const spine = wireOf(g);
+    const mk = new o.BRepOffsetAPI_MakePipeShell(spine.Wire());
+    mk.SetMode(false);
+    mk.SetTransitionMode(o.BRepBuilderAPI_TransitionMode.BRepBuilderAPI_RightCorner);
+    mk.Add(prof.wire, false, false);
+    if (!plain) mk.Add(sectionAt(1, 64), spine.Vertex(), false, false);
+    mk.Build(new o.Message_ProgressRange());
+    if (!mk.IsDone()) throw new Error('the profile could not be swept along that path');
+    if (!mk.MakeSolid()) throw new Error('the sweep did not close into a solid');
+    return mk.Shape();
+}
+
+/** Flat faces pushed out (positive) or in; each face's slab is joined or cut. */
+export function offsetFlatFaces(shape, faces, distance, booleanWithHistory, chain) {
+    let s = shape, history = null;
+    // Later faces keep their numbers only until the first boolean, so take their slabs up front.
+    const slabs = faces.map(f => extrudeFace(shape, f, distance));
+    for (const slab of slabs) {
+        const r = booleanWithHistory(s, slab, distance > 0 ? 'union' : 'difference');
+        history = history ? chain(history, r.history) : r.history;
+        s = r.shape;
+    }
+    // A pushed face ends up as the slab's far face; it stays the face that was picked, as on the
+    // desktop, so it keeps its ref.
+    const moved = [];
+    for (const f of faces) {
+        const p = facePlane(shape, f), at = p.origin.clone().addScaledVector(p.normal, distance);
+        for (let j = 0; j < count(s, 'TopAbs_FACE'); j++) {
+            const q = facePlane(s, j);
+            if (q && q.normal.dot(p.normal) > 1 - 1e-9 && Math.abs(q.origin.clone().sub(at).dot(p.normal)) < 1e-6) moved.push([f, j]);
+        }
+    }
+    history.faces[0] = [...moved, ...history.faces[0].filter(([, j]) => !moved.some(([, k]) => k === j))];
+    return { shape: s, history };
+}
+
+// --- Extrude with an angle, a wall thickness and a second side ----------------------------------
+// As on the desktop: A leans the sides in by `angle` radians going away from the profile, Shift+T
+// leaves walls `thickness` thick inside the outline, and `back` extrudes the other way as well.
+
+/** The planar wire grown outwards by `d` (shrunk when negative), with sharp corners. */
+function offsetWire(w, d) {
+    const o = oc();
+    if (Math.abs(d) < 1e-12) return w;
+    const mk = new o.BRepOffsetAPI_MakeOffset(face(w), o.GeomAbs_JoinType.GeomAbs_Intersection, false);
+    mk.Perform(d, 0);
+    if (!mk.IsDone()) throw new Error('the outline cannot be shrunk that far');
+    const wires = [];
+    for (const ex = new o.TopExp_Explorer(mk.Shape(), o.TopAbs_ShapeEnum.TopAbs_WIRE, o.TopAbs_ShapeEnum.TopAbs_SHAPE); ex.More(); ex.Next()) wires.push(o.TopoDS.Wire(ex.Current()));
+    if (wires.length !== 1) throw new Error('the outline cannot be shrunk that far');
+    return wires[0];
+}
+
+function moved(shape, v) {
+    const o = oc(), t = new o.gp_Trsf();
+    t.SetTranslation(new o.gp_Vec(v.x, v.y, v.z));
+    return new o.BRepBuilderAPI_Transform(shape, t, true, false).Shape();
+}
+
+/** The area a closed planar wire encloses. */
+function enclosed(w) {
+    const o = oc(), g = new o.GProp_GProps();
+    o.BRepGProp.SurfaceProperties(face(w), g, false, false);
+    return Math.abs(g.Mass());
+}
+
+/** The wire grown by `d` (shrunk when negative) whichever way round it runs, as a hole's runs the other way. */
+function grown(w, d) {
+    if (Math.abs(d) < 1e-12) return w;
+    const r = offsetWire(w, d);
+    return (enclosed(r) > enclosed(w)) === (d > 0) ? r : offsetWire(w, -d);
+}
+
+/**
+ * The outline swept along unit `n` from `back` behind to `d` ahead; at height h it is grown by
+ * `grow + slope * |h|`, so a slope of -tan(angle) leans the sides in by `angle`.
+ */
+function stack(w, n, d, back, grow, slope) {
+    const o = oc(), sign = d < 0 ? -1 : 1;
+    if (Math.abs(slope) < 1e-12) {
+        const base = o.TopoDS.Face(moved(face(grown(w, grow)), n.clone().multiplyScalar(-sign * back)));
+        const v = n.clone().multiplyScalar(d + sign * back);
+        return new o.BRepPrimAPI_MakePrism(base, new o.gp_Vec(v.x, v.y, v.z), false, true).Shape();
+    }
+    const mk = new o.BRepOffsetAPI_ThruSections(true, true, 1e-6);
+    for (const h of [...(back > 1e-12 ? [-sign * back] : []), 0, d]) mk.AddWire(o.TopoDS.Wire(moved(grown(w, grow + Math.abs(h) * slope), n.clone().multiplyScalar(h))));
+    mk.Build(new o.Message_ProgressRange());
+    if (!mk.IsDone()) throw new Error('the sides cannot lean that far');
+    return mk.Shape();
+}
+
+/** The face's region swept by `stack`, its outline grown by `grow` and its holes shrunk to match. */
+function regionStack(base, n, d, back, angle, grow) {
+    const o = oc(), k = Math.tan(angle), outer = o.BRepTools.OuterWire(base);
+    let solid = stack(outer, n, d, back, grow, -k);
+    for (const ex = new o.TopExp_Explorer(base, o.TopAbs_ShapeEnum.TopAbs_WIRE, o.TopAbs_ShapeEnum.TopAbs_SHAPE); ex.More(); ex.Next()) {
+        const hole = o.TopoDS.Wire(ex.Current());
+        if (hole.IsSame(outer)) continue;
+        solid = boolean(solid, stack(hole, n, d, back, -grow, k), 'difference');
+    }
+    return solid;
+}
+
+/** `base` (a planar face, holes and all) extruded along unit `n`, with Plasticity's Extrude options. */
+export function shapedExtrude(base, n, d, back = 0, angle = 0, thickness = 0) {
+    const o = oc();
+    if (![d, back, angle, thickness].every(Number.isFinite)) throw new Error('a distance is not a number');
+    if (back < 0 || thickness < 0) throw new Error("the far side and the thickness can't be negative");
+    if (Math.abs(angle) >= Math.PI / 2 - 1e-6) throw new Error('the angle must be less than 90 degrees');
+    if (Math.abs(angle) < 1e-12 && thickness < 1e-12) {
+        const sign = d < 0 ? -1 : 1, f = o.TopoDS.Face(moved(base, n.clone().multiplyScalar(-sign * back))), v = n.clone().multiplyScalar(d + sign * back);
+        return new o.BRepPrimAPI_MakePrism(f, new o.gp_Vec(v.x, v.y, v.z), false, true).Shape();
+    }
+    const solid = regionStack(base, n, d, back, angle, 0);
+    if (thickness < 1e-12) return solid;
+    return boolean(solid, regionStack(base, n, d, back, angle, -thickness), 'difference');
+}
+
+/** The numbered face of `shape` as a face to extrude, with its outward normal. */
+export function faceBase(shape, index) {
+    const o = oc(), p = facePlane(shape, index);
+    if (!p) throw new Error('only flat faces can be extruded here yet');
+    let i = 0;
+    for (const ex = new o.TopExp_Explorer(shape, o.TopAbs_ShapeEnum.TopAbs_FACE, o.TopAbs_ShapeEnum.TopAbs_SHAPE); ex.More(); ex.Next(), i++) {
+        if (i !== index) continue;
+        const f = o.TopoDS.Face(ex.Current());
+        return { face: o.TopoDS.Face(f.Oriented(o.TopAbs_Orientation.TopAbs_FORWARD)), normal: p.normal };
+    }
+    throw new Error('that face no longer exists');
+}

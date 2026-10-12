@@ -8,15 +8,60 @@ import { mount } from '../../../web/src/app/App.js';
 
 const tauri = window.__TAURI__;
 
+const W3D = [{ name: 'Witness 3D', extensions: ['w3d'] }];
+const STEP = [{ name: 'STEP', extensions: ['step', 'stp'] }];
+const baseName = p => p.split(/[\\/]/).pop();
+let filePath = null; // where Save writes without asking
+
 const rust = {
-  info: { kernel: 'OPENCASCADE 7.8 · RUST' },
+  info: { kernel: 'OPENCASCADE 7.8 · RUST', units: 'mm' },
   scene: () => tauri.core.invoke('scene'),
   preview: req => tauri.core.invoke('preview_extrude', { req }),
   commit: req => tauri.core.invoke('commit_extrude', { req }),
+  previewBlend: req => tauri.core.invoke('preview_blend', { req }),
+  commitBlend: req => tauri.core.invoke('commit_blend', { req }),
+  commitMotion: req => tauri.core.invoke('commit_motion', { req }),
+  deleteBodies: ids => tauri.core.invoke('delete_bodies', { ids }),
+  duplicateBodies: ids => tauri.core.invoke('duplicate_bodies', { ids }),
+  curves: () => tauri.core.invoke('curves'),
+  addCurves: curves => tauri.core.invoke('add_curves', { curves }),
+  joinCurves: ids => tauri.core.invoke('join_curves', { ids }),
+  deleteItems: (bodies, curves) => tauri.core.invoke('delete_items', { bodies, curves }),
+  previewBoolean: req => tauri.core.invoke('preview_boolean', { req }),
+  commitBoolean: req => tauri.core.invoke('commit_boolean', { req }),
+  previewForm: req => tauri.core.invoke('preview_form', { req }),
+  commitForm: req => tauri.core.invoke('commit_form', { req }),
+  previewOffset: req => tauri.core.invoke('preview_offset', { req }),
+  commitOffset: req => tauri.core.invoke('commit_offset', { req }),
+  // The Anthropic key for AI commands lives in the app's config folder (or ANTHROPIC_API_KEY).
+  aiKey: () => tauri.core.invoke('ai_key'),
+  setAiKey: key => tauri.core.invoke('set_ai_key', { key }),
+  // The Blender bridge: tell Live Link the model changed; both answer [connected, live].
+  sceneChanged: () => tauri.core.invoke('bridge_changed'),
+  bridgeStatus: () => tauri.core.invoke('bridge_status'),
   undo: () => tauri.core.invoke('undo'),
   redo: () => tauri.core.invoke('redo'),
+  newDocument() { filePath = null; return tauri.core.invoke('new_document'); },
+  async save() {
+    const path = filePath ?? await tauri.dialog.save({ defaultPath: 'untitled.w3d', filters: W3D });
+    if (!path) return null;
+    await tauri.core.invoke('save', { path });
+    filePath = path;
+    return baseName(path);
+  },
+  async open() {
+    const path = await tauri.dialog.open({ multiple: false, directory: false, filters: W3D });
+    if (!path) return null;
+    const scene = await tauri.core.invoke('open', { path });
+    filePath = path;
+    return { name: baseName(path), scene };
+  },
+  async importStep() {
+    const path = await tauri.dialog.open({ multiple: false, directory: false, filters: STEP });
+    return path ? tauri.core.invoke('import_step', { path }) : null;
+  },
   async exportStep(id) {
-    const path = await tauri.dialog.save({ defaultPath: `witness3d-body-${id}.step`, filters: [{ name: 'STEP', extensions: ['step', 'stp'] }] });
+    const path = await tauri.dialog.save({ defaultPath: `witness3d-body-${id}.step`, filters: STEP });
     if (!path) return null;
     await tauri.core.invoke('export_step', { id, path });
     return `SAVED ${path}`;
@@ -28,7 +73,5 @@ if (!tauri) {
   root.innerHTML = '<p style="padding:24px;font-family:monospace">Run this page inside the Witness 3D app: npm run tauri dev</p>';
 } else {
   const app = await mount(root, rust);
-  // Open with a profile already on the top face, pushed in, so the first frame shows a live cut.
-  if (app.bodies[0]) { app.begin([0.6, 2, 0.2], [0, 1, 0], app.bodies[0].id); app.setDistance(-0.75); }
   window.__w3d = app;
 }

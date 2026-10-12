@@ -1,12 +1,12 @@
 //! OpenCascade backend, through the opencascade-rs bindings (LGPL-2.1 OCCT underneath).
 
-use std::collections::{HashMap, HashSet};
-use std::path::Path;
+use std::collections::HashMap;
+use std::path::Path as FilePath;
 
 use glam::DVec3;
-use opencascade::primitives::{Edge, Face, Shape, ShapeType, Wire};
+use opencascade::primitives::{BooleanKind, Edge, Face, Shape, ShapeHistory, ShapeType, Wire};
 
-use crate::{BooleanOp, Frame, Kernel, KernelError, Plane, Profile, Tessellation};
+use crate::{Blend, BooleanOp, Extent, Frame, History, Kernel, KernelError, Motion, Path, Plane, Profile, Segment, Tessellation, Traced};
 
 pub struct Occt;
 
@@ -34,6 +34,93 @@ fn plane_of(mesh: &opencascade::mesh::Mesh) -> Option<Plane> {
     Some(Plane { origin, normal })
 }
 
+/// A profile as the numbers the shim reads (vendor/opencascade-sys/include/w3d.hxx).
+fn section(profile: &Profile, frame: &Frame) -> Result<Vec<f64>, KernelError> {
+    Ok(match profile {
+        Profile::Circle { center, radius } => {
+            if *radius <= 0.0 { return Err(KernelError::Invalid("radius must be positive")) }
+            let c = frame.point(*center);
+            vec![1.0, c.x, c.y, c.z, frame.normal.x, frame.normal.y, frame.normal.z, *radius]
+        }
+        Profile::Polygon(pts) => {
+            if pts.len() < 3 { return Err(KernelError::Invalid("a polygon needs three corners")) }
+            let mut v = vec![0.0, pts.len() as f64];
+            for p in pts { v.extend(frame.point(*p).to_array()) }
+            v
+        }
+        Profile::Spline(pts) => {
+            if pts.len() < 3 { return Err(KernelError::Invalid("a closed curve needs three points")) }
+            let mut v = vec![3.0, pts.len() as f64, 1.0];
+            for p in pts { v.extend(frame.point(*p).to_array()) }
+            v
+        }
+        Profile::Ellipse { center, major, minor } => {
+            let (c, m) = (frame.point(*center), frame.point(*major) - frame.origin);
+            ellipse_numbers(c, frame.normal, m, *minor)?
+        }
+        Profile::Contour(segments) => {
+            let path = |pts: &Vec<(f64, f64)>| pts.iter().map(|p| frame.point(*p)).collect::<Vec<_>>();
+            path_numbers(&Path::Contour(segments.iter().map(|s| match s {
+                Segment::Line(pts) => Path::Polyline { points: path(pts), closed: false },
+                Segment::Spline(pts) => Path::Spline { points: path(pts), closed: false },
+                Segment::Arc(a, b, c) => Path::Arc { start: frame.point(*a), mid: frame.point(*b), end: frame.point(*c) },
+            }).collect()))?
+        }
+    })
+}
+
+/// An ellipse as the shim reads it, with the longer radius first as OpenCascade needs.
+fn ellipse_numbers(c: DVec3, n: DVec3, major: DVec3, minor: f64) -> Result<Vec<f64>, KernelError> {
+    let r = major.length();
+    if !(r > 0.0) || !(minor > 0.0) || !r.is_finite() || !minor.is_finite() { return Err(KernelError::Invalid("an ellipse needs two radii greater than zero")) }
+    let (axis, big, small) = if r >= minor { (major / r, r, minor) } else { (n.normalize().cross(major / r), minor, r) };
+    let mut v = vec![5.0];
+    for p in [c, n, axis] { v.extend(p.to_array()) }
+    v.extend([big, small]);
+    Ok(v)
+}
+
+fn path_numbers(path: &Path) -> Result<Vec<f64>, KernelError> {
+    Ok(match path {
+        Path::Circle { center, normal, radius } => {
+            if *radius <= 0.0 { return Err(KernelError::Invalid("radius must be positive")) }
+            vec![1.0, center.x, center.y, center.z, normal.x, normal.y, normal.z, *radius]
+        }
+        Path::Polyline { points, closed } => {
+            if points.len() < 2 { return Err(KernelError::Invalid("a path needs two points")) }
+            let mut v = vec![if *closed { 0.0 } else { 2.0 }, points.len() as f64];
+            for p in points { v.extend(p.to_array()) }
+            v
+        }
+        Path::Spline { points, closed } => {
+            if points.len() < 2 { return Err(KernelError::Invalid("a path needs two points")) }
+            let mut v = vec![3.0, points.len() as f64, if *closed { 1.0 } else { 0.0 }];
+            for p in points { v.extend(p.to_array()) }
+            v
+        }
+        Path::Arc { start, mid, end } => [4.0].into_iter().chain([start, mid, end].into_iter().flat_map(|p| p.to_array())).collect(),
+        Path::Ellipse { center, normal, major, minor } => ellipse_numbers(*center, *normal, *major, *minor)?,
+        Path::Contour(pieces) => {
+            if pieces.is_empty() { return Err(KernelError::Invalid("a contour needs a piece")) }
+            let mut v = vec![6.0, pieces.len() as f64];
+            for p in pieces { v.extend(path_numbers(p)?) }
+            v
+        }
+    })
+}
+
+/// Our own sentences from the shim go to the user as they are; OpenCascade's are kernel failures.
+fn shim(e: String) -> KernelError {
+    if e.starts_with("kernel:") { KernelError::Failed(e) } else { KernelError::Refused(e) }
+}
+
+fn history(h: ShapeHistory) -> History {
+    let pairs = |v: Vec<(usize, usize)>| v.into_iter().map(|(a, b)| (a as u32, b as u32)).collect::<Vec<_>>();
+    let [f0, f1] = h.faces;
+    let [e0, e1] = h.edges;
+    History { faces: [pairs(f0), pairs(f1)], edges: [pairs(e0), pairs(e1)], generated_faces: pairs(h.generated_faces) }
+}
+
 fn root(parent: &mut [usize], mut i: usize) -> usize {
     while parent[i] != i { parent[i] = parent[parent[i]]; i = parent[i] }
     i
@@ -46,32 +133,49 @@ impl Kernel for Occt {
         Shape::box_from_corners(a, b)
     }
 
-    fn extrude(&self, profile: &Profile, frame: &Frame, distance: f64) -> Result<Shape, KernelError> {
-        let wire = match profile {
-            Profile::Circle { center, radius } => {
-                if *radius <= 0.0 { return Err(KernelError::Invalid("radius must be positive")) }
-                Wire::from_edges([&Edge::circle(frame.point(*center), frame.normal, *radius)])
-            }
-            Profile::Polygon(pts) => {
-                if pts.len() < 3 { return Err(KernelError::Invalid("a polygon needs three corners")) }
-                let corners: Vec<DVec3> = pts.iter().map(|p| frame.point(*p)).collect();
-                let edges: Vec<Edge> = (0..corners.len())
-                    .map(|i| Edge::segment(corners[i], corners[(i + 1) % corners.len()]))
-                    .collect();
-                Wire::from_edges(&edges)
-            }
-        };
-        let solid = Face::from_wire(&wire).extrude(frame.normal * distance);
-        Ok(Shape::from(solid))
+    fn extrude(&self, profile: &Profile, frame: &Frame, e: &Extent) -> Result<Shape, KernelError> {
+        if let (true, Profile::Circle { .. } | Profile::Polygon(_)) = (e.is_plain(), profile) {
+            let wire = match profile {
+                Profile::Circle { center, radius } => {
+                    if *radius <= 0.0 { return Err(KernelError::Invalid("radius must be positive")) }
+                    Wire::from_edges([&Edge::circle(frame.point(*center), frame.normal, *radius)])
+                }
+                Profile::Polygon(pts) => {
+                    if pts.len() < 3 { return Err(KernelError::Invalid("a polygon needs three corners")) }
+                    let corners: Vec<DVec3> = pts.iter().map(|p| frame.point(*p)).collect();
+                    let edges: Vec<Edge> = (0..corners.len())
+                        .map(|i| Edge::segment(corners[i], corners[(i + 1) % corners.len()]))
+                        .collect();
+                    Wire::from_edges(&edges)
+                }
+                _ => unreachable!(),
+            };
+            return Ok(Shape::from(Face::from_wire(&wire).extrude(frame.normal * e.distance)));
+        }
+        let n = frame.normal.normalize().to_array();
+        Shape::extrude_section(&section(profile, frame)?, n, e.distance, e.back, e.angle, e.thickness).map_err(shim)
     }
 
-    fn boolean(&self, a: &Shape, b: &Shape, op: BooleanOp) -> Result<Shape, KernelError> {
-        let result = match op {
-            BooleanOp::Union => a.union(b).shape,
-            BooleanOp::Difference => a.subtract(b).shape,
-            BooleanOp::Intersection => a.intersect(b).shape,
+    fn sample(&self, path: &Path, n: usize) -> Result<Vec<DVec3>, KernelError> {
+        Shape::sample_section(&path_numbers(path)?, n).map_err(shim)
+    }
+
+    fn extrude_face(&self, s: &Shape, face: u32, e: &Extent) -> Result<Shape, KernelError> {
+        let f = s.face_at(face as usize).ok_or(KernelError::Invalid("that face no longer exists"))?;
+        let normal = f.normal_at_center();
+        if !normal.is_finite() || normal.length() < 0.5 { return Err(KernelError::Invalid("that face has no direction to extrude in")) }
+        if e.is_plain() { return Ok(Shape::from(f.extrude(normal.normalize() * e.distance))) }
+        s.extrude_face_shaped(face as usize, normal.normalize().to_array(), e.distance, e.back, e.angle, e.thickness).map_err(shim)
+    }
+
+    fn boolean(&self, a: &Shape, b: &Shape, op: BooleanOp) -> Result<Traced<Shape>, KernelError> {
+        let kind = match op {
+            BooleanOp::Union => BooleanKind::Union,
+            BooleanOp::Difference => BooleanKind::Difference,
+            BooleanOp::Intersection => BooleanKind::Intersection,
         };
-        Ok(result.clean())
+        let (solid, h) = a.boolean_with_history(b, kind).map_err(KernelError::Failed)?;
+        Ok(Traced { solid, history: history(h) })
     }
 
     fn solid_count(&self, s: &Shape) -> usize {
@@ -94,6 +198,48 @@ impl Kernel for Occt {
 
     fn face_count(&self, s: &Shape) -> usize { s.faces().count() }
 
+    fn edge_count(&self, s: &Shape) -> usize { s.edge_count() }
+
+    fn blend(&self, s: &Shape, edges: &[u32], size: f64, kind: Blend, angle: f64) -> Result<Traced<Shape>, KernelError> {
+        let edges: Vec<usize> = edges.iter().map(|&e| e as usize).collect();
+        let (solid, h) = s.blend_edges_with_history(&edges, size, kind == Blend::Chamfer, angle).map_err(|e| KernelError::Blend {
+            edges: e.edges.iter().map(|&i| i as u32).collect(),
+            reason: e.reason,
+        })?;
+        Ok(Traced { solid, history: history(h) })
+    }
+
+    fn transform(&self, s: &Shape, m: &Motion) -> Shape {
+        // opencascade-rs shapes are not Clone; every step below copies.
+        let at_origin = s.translated(-m.pivot);
+        let scaled = if m.scale == 1.0 { at_origin } else { at_origin.scaled(DVec3::ZERO, m.scale) };
+        let turned = if m.angle == 0.0 { scaled } else { scaled.rotated(m.axis.normalize(), m.angle) };
+        turned.translated(m.pivot + m.offset)
+    }
+
+    fn revolve(&self, profile: &Profile, frame: &Frame, axis_point: DVec3, axis_dir: DVec3, angle: f64, thickness: f64) -> Result<Shape, KernelError> {
+        let axis = [axis_point.x, axis_point.y, axis_point.z, axis_dir.x, axis_dir.y, axis_dir.z];
+        Shape::revolve_section(&section(profile, frame)?, axis, angle, thickness).map_err(shim)
+    }
+
+    fn loft(&self, sections: &[(Profile, Frame)]) -> Result<Shape, KernelError> {
+        let mut all = Vec::new();
+        for (p, f) in sections { all.extend(section(p, f)?) }
+        Shape::loft_sections(&all).map_err(shim)
+    }
+
+    fn sweep(&self, profile: &Profile, frame: &Frame, path: &Path, twist: f64, scale: f64) -> Result<Shape, KernelError> {
+        Shape::sweep_section(&section(profile, frame)?, &path_numbers(path)?, twist, scale).map_err(shim)
+    }
+
+    fn offset_faces(&self, s: &Shape, faces: &[u32], distance: f64) -> Result<Traced<Shape>, KernelError> {
+        let faces: Vec<usize> = faces.iter().map(|&f| f as usize).collect();
+        let (solid, h) = s.offset_faces_with_history(&faces, distance).map_err(shim)?;
+        Ok(Traced { solid, history: history(h) })
+    }
+
+    fn is_valid(&self, s: &Shape) -> bool { s.is_valid() }
+
     fn tessellate(&self, s: &Shape, tolerance: f64) -> Result<Tessellation, KernelError> {
         // Mesh the whole solid once so neighbouring faces share edge points, then read it back
         // face by face to learn which triangles belong to which face.
@@ -108,16 +254,30 @@ impl Kernel for Occt {
             t.face_planes.push(plane_of(&mesh));
         }
 
-        // The explorer meets each edge once per adjacent face; keep the first.
-        let mut seen = HashSet::new();
-        for edge in s.edges() {
-            let (pts, key) = edge_points(&edge);
-            if seen.insert(key) { t.edges.push(pts) }
-        }
+        // Each edge once, in the kernel's numbering, so an index here is an edge a tool can name.
+        t.edges = s.numbered_edges().iter().map(|e| edge_points(e).0).collect();
         Ok(t)
     }
 
-    fn write_step(&self, s: &Shape, path: &Path) -> Result<(), KernelError> {
+    fn write_step(&self, s: &Shape, path: &FilePath) -> Result<(), KernelError> {
         s.write_step(path).map_err(failed)
     }
+
+    fn read_step(&self, path: &FilePath) -> Result<Shape, KernelError> {
+        let shape = Shape::read_step(path).map_err(|_| KernelError::File("the STEP file could not be read".into()))?;
+        // Exported files often carry small gaps and loose tolerances; repair them on the way in,
+        // as Plasticity 26 does with its repair library (see the teardown), so later fillets and
+        // booleans get clean input.
+        let shape = shape.healed().map_err(|e| KernelError::File(format!("the STEP geometry could not be repaired: {e}")))?;
+        if shape.faces().next().is_none() {
+            return Err(KernelError::File("the STEP file holds no surfaces or solids".into()));
+        }
+        Ok(shape)
+    }
+
+    fn native_format(&self) -> &'static str { "occt-brep" }
+
+    fn to_native(&self, s: &Shape) -> Result<String, KernelError> { s.to_brep_text().map_err(failed) }
+
+    fn from_native(&self, text: &str) -> Result<Shape, KernelError> { Shape::from_brep_text(text).map_err(failed) }
 }
