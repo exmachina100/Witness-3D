@@ -20,6 +20,7 @@ const rust = {
   commit: req => tauri.core.invoke('commit_extrude', { req }),
   previewBlend: req => tauri.core.invoke('preview_blend', { req }),
   commitBlend: req => tauri.core.invoke('commit_blend', { req }),
+  commitMotion: req => tauri.core.invoke('commit_motion', { req }),
   undo: () => tauri.core.invoke('undo'),
   redo: () => tauri.core.invoke('redo'),
   newDocument() { filePath = null; return tauri.core.invoke('new_document'); },

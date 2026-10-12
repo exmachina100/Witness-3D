@@ -84,8 +84,13 @@ pub enum BooleanKind {
     Intersection,
 }
 
+/// The flat pairs, each once (a source split into pieces that land on one face appears once).
 fn pairs(v: Vec<i32>) -> Vec<(usize, usize)> {
-    v.chunks_exact(2).map(|p| (p[0] as usize, p[1] as usize)).collect()
+    let mut out: Vec<(usize, usize)> = Vec::new();
+    for p in v.chunks_exact(2).map(|p| (p[0] as usize, p[1] as usize)) {
+        if !out.contains(&p) { out.push(p) }
+    }
+    out
 }
 
 fn history(r: &ffi::w3d::W3dResult, inputs: usize) -> ShapeHistory {

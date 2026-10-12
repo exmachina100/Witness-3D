@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { GeometryFactory, NoOpError, ValidationError } from './GeometryFactory.js';
-import { boolean, count, makeProfileFace, prism, volume } from './Kernel.js';
+import { booleanWithHistory, count, makeProfileFace, prism, volume } from './Kernel.js';
 
 // Push/pull extrude that becomes a boolean when it meets a body, modeled on Plasticity's
 // PossiblyBooleanExtrudeFactory (src/commands/extrude/ExtrudeFactory.ts). Positive distance
@@ -51,14 +51,14 @@ export class ExtrudeFactory extends GeometryFactory {
             return [{ shape: tool }];
         }
 
-        const result = boolean(body, tool, op);
+        const { shape: result, history } = booleanWithHistory(body, tool, op);
         // Touching or overlapping fuses into one solid; a cut that removes nothing missed the body.
         this.isOverlapping = op === 'union'
             ? count(result, 'TopAbs_SOLID') === count(body, 'TopAbs_SOLID')
             : Math.abs(volume(result) - volume(body)) > 1e-9;
         if (!this.isOverlapping) return [{ shape: tool }];
         if (count(result, 'TopAbs_SOLID') === 0) throw new ValidationError("Boolean produced an empty body");
-        return [{ shape: result, replaces: this.target }];
+        return [{ shape: result, replaces: this.target, history }];
     }
 
     async calculatePhantoms() {

@@ -275,3 +275,19 @@ fn refs_survive_save_and_reopen() {
     file::read(&mut legacy, &old.to_string()).unwrap();
     assert_eq!(legacy.refs(id).unwrap().faces.len(), 10);
 }
+
+#[test]
+fn faces_merged_after_a_boolean_inherit_from_the_faces_merged_into_them() {
+    let k = Occt;
+    let a = enclosure(&k);
+    let b = k.box_from_corners(DVec3::new(30.0, 0.0, -25.0), DVec3::new(50.0, 30.0, 25.0));
+    let Traced { solid, history } = k.boolean(&a, &b, BooleanOp::Union).unwrap();
+    // One longer box. The faces where they overlap are gone; the other five of `a` each land on one
+    // face of the result, and four of them were merged with a face of `b`.
+    assert_eq!(k.face_count(&solid), 6);
+    let from_a: std::collections::HashMap<u32, u32> = history.faces[0].iter().copied().collect();
+    assert_eq!(from_a.len(), 5);
+    let targets: std::collections::HashSet<u32> = from_a.values().copied().collect();
+    assert_eq!(targets.len(), 5);
+    assert_eq!(history.faces[1].iter().filter(|(_, j)| targets.contains(j)).count(), 4);
+}

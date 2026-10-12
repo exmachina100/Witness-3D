@@ -61,13 +61,114 @@ export function box(min, max) {
 
 /** Union, difference or intersection, followed by merging coplanar faces like a CAD kernel would. */
 export function boolean(a, b, op) {
+    return booleanWithHistory(a, b, op).shape;
+}
+
+/**
+ * {@link boolean} with its history, shaped like the Rust kernel's `History`: `faces[k]` and
+ * `edges[k]` hold [number in input k, number in the result] pairs, input 0 being `a`.
+ */
+export function booleanWithHistory(a, b, op) {
     const o = oc();
     const Op = { union: o.BRepAlgoAPI_Fuse, difference: o.BRepAlgoAPI_Cut, intersection: o.BRepAlgoAPI_Common }[op];
     const algo = new Op(a, b, new o.Message_ProgressRange());
     if (!algo.IsDone() || algo.HasErrors()) throw new Error(`Boolean ${op} failed`);
     const unify = new o.ShapeUpgrade_UnifySameDomain(algo.Shape(), true, true, false);
     unify.Build();
-    return unify.Shape();
+    const shape = unify.Shape();
+    return { shape, history: trace([a, b], shape, s => successors(algo, s)) };
+}
+
+const KINDS = { faces: 'TopAbs_FACE', edges: 'TopAbs_EDGE' };
+
+/** The shape's faces or edges, each once, in TopExp::MapShapes order (see numberedEdges). */
+function numbered(shape, kind) {
+    const o = oc(), out = [];
+    for (const ex = new o.TopExp_Explorer(shape, o.TopAbs_ShapeEnum[kind], o.TopAbs_ShapeEnum.TopAbs_SHAPE); ex.More(); ex.Next()) {
+        const s = ex.Current();
+        if (!out.some(t => t.IsSame(s))) out.push(s);
+    }
+    return out;
+}
+
+function listOf(list) {
+    const copy = new (oc().NCollection_List_TopoDS_Shape)(list), out = [];
+    while (!copy.IsEmpty()) { out.push(copy.First()); copy.RemoveFirst(); }
+    return out;
+}
+
+/** What `s` became through one builder: nothing if deleted, its pieces if modified, else itself. */
+function successors(mk, s) {
+    if (mk.IsDeleted(s)) return [];
+    const m = listOf(mk.Modified(s));
+    return m.length ? m : [s];
+}
+
+/** A point strictly inside a face or edge, for finding what it was merged into. */
+function innerPoint(s) {
+    const o = oc();
+    if (s.ShapeType() === o.TopAbs_ShapeEnum.TopAbs_EDGE) {
+        const c = new o.BRepAdaptor_Curve(o.TopoDS.Edge(s));
+        return c.Value((c.FirstParameter() + c.LastParameter()) / 2);
+    }
+    const face = o.TopoDS.Face(s), loc = new o.TopLoc_Location();
+    new o.BRepMesh_IncrementalMesh(face, 0.01, false, 0.25, false);
+    const tri = o.BRep_Tool.Triangulation(face, loc, 0);
+    if (!tri || !tri.NbTriangles?.()) return null;
+    const t = tri.Triangle(1), trsf = loc.Transformation();
+    const [p, q, r] = [1, 2, 3].map(i => tri.Node(t.Value(i)).Transformed(trsf));
+    return new o.gp_Pnt((p.X() + q.X() + r.X()) / 3, (p.Y() + q.Y() + r.Y()) / 3, (p.Z() + q.Z() + r.Z()) / 3);
+}
+
+/**
+ * Where each face and edge of `inputs` ended up in `result`, through `step` (a builder's own
+ * history). The coplanar-face merge that follows a boolean has no history in this build, so a
+ * piece it merged away is found by the result face or edge it lies on.
+ */
+function trace(inputs, result, step) {
+    const o = oc();
+    const history = { faces: [[], []], edges: [[], []], generatedFaces: [] };
+    for (const [key, kind] of Object.entries(KINDS)) {
+        const out = numbered(result, kind);
+        const merged = new Map();
+        const find = s => {
+            const j = out.findIndex(t => t.IsSame(s));
+            if (j >= 0) return j;
+            if (merged.has(s)) return merged.get(s);
+            const p = innerPoint(s);
+            let best = -1, bestD = 0.05;
+            if (p) {
+                const v = new o.BRepBuilderAPI_MakeVertex(p).Shape();
+                out.forEach((t, i) => {
+                    const d = new o.BRepExtrema_DistShapeShape(v, t);
+                    if (d.IsDone() && d.Value() < bestD) { bestD = d.Value(); best = i; }
+                });
+            }
+            merged.set(s, best);
+            return best;
+        };
+        inputs.forEach((input, k) => {
+            numbered(input, kind).forEach((s, i) => {
+                for (const t of step(s)) {
+                    if (t.ShapeType() !== s.ShapeType()) continue;
+                    const j = find(t);
+                    if (j >= 0 && !history[key][k].some(([a, b]) => a === i && b === j)) history[key][k].push([i, j]);
+                }
+            });
+        });
+    }
+    return history;
+}
+
+/** Rotate by `angle` radians about `axis` through `pivot`, then move by `offset` (arrays of 3). */
+export function transform(shape, { offset = [0, 0, 0], pivot = [0, 0, 0], axis = [0, 1, 0], angle = 0 }) {
+    const o = oc();
+    const t = new o.gp_Trsf();
+    if (angle) t.SetRotation(new o.gp_Ax1(new o.gp_Pnt(...pivot), new o.gp_Dir(...axis)), angle);
+    const move = new o.gp_Trsf();
+    move.SetTranslation(new o.gp_Vec(...offset));
+    move.Multiply(t);
+    return new o.BRepBuilderAPI_Transform(shape, move, true, false).Shape();
 }
 
 export function volume(shape) {
@@ -174,8 +275,9 @@ const STRIPE_REASONS = {
     ChFiDS_TwistedSurface: 'the rounding surface would twist on itself',
 };
 
-/** Round (or, with `chamfer`, bevel) the numbered edges by `size`. Throws BlendError. */
-export function blendEdges(shape, edgeIds, size, chamfer = false) {
+/** Round (or, with `chamfer`, bevel) the numbered edges by `size`. Throws BlendError. With
+ * `withHistory`, returns { shape, history } (see booleanWithHistory). */
+export function blendEdges(shape, edgeIds, size, chamfer = false, withHistory = false) {
     const o = oc();
     const edges = numberedEdges(shape);
     if (edgeIds.some(i => !(i >= 0 && i < edges.length))) throw new BlendError('an edge in the selection is not on this body; select the edges again');
@@ -203,7 +305,16 @@ export function blendEdges(shape, edgeIds, size, chamfer = false) {
     if (!new o.BRepCheck_Analyzer(result, true, false, false).IsValid()) {
         throw new BlendError(`the kernel built a ${chamfer ? 'chamfer' : 'round'} but the solid it produced is invalid; try a smaller ${chamfer ? 'distance' : 'radius'}`, edgeIds);
     }
-    return result;
+    if (!withHistory) return result;
+    const history = trace([shape], result, s => successors(mk, s));
+    const faces = numbered(result, 'TopAbs_FACE');
+    edges.forEach((e, i) => {
+        for (const f of listOf(mk.Generated(e))) {
+            const j = faces.findIndex(t => t.IsSame(f));
+            if (j >= 0) history.generatedFaces.push([i, j]);
+        }
+    });
+    return { shape: result, history };
 }
 
 /** The planar face of `shape` at `faceIndex` (as numbered by tessellate): a point on it and its outward normal. */
