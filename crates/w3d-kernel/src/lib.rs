@@ -7,12 +7,15 @@
 
 use glam::DVec3;
 
+pub mod blend;
 pub mod document;
 pub mod engine;
 pub mod extrude;
+pub mod file;
 #[cfg(feature = "occt")]
 pub mod occt;
 
+pub use blend::{blend, Blend, BlendParams};
 pub use extrude::{extrude, ExtrudeParams, ExtrudeResult, Operation};
 
 /// A closed 2D profile, drawn in a sketch plane.
@@ -58,6 +61,8 @@ pub struct Tessellation {
     pub face_ids: Vec<u32>,
     /// For each face, its plane when it is flat: the faces a sketch can be drawn on.
     pub face_planes: Vec<Option<Plane>>,
+    /// The true edges as polylines. The index is the edge's number: what a click on an edge
+    /// selects and what [`Kernel::blend`] takes.
     pub edges: Vec<Vec<[f64; 3]>>,
 }
 
@@ -86,6 +91,11 @@ pub enum KernelError {
     Invalid(&'static str),
     #[error("kernel failure: {0}")]
     Failed(String),
+    /// A fillet or chamfer the kernel could not build, with the edges it names (maybe none).
+    #[error("{reason}")]
+    Blend { edges: Vec<u32>, reason: String },
+    #[error("{0}")]
+    File(String),
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -103,6 +113,17 @@ pub trait Kernel {
     /// Number of disconnected solids in the shape.
     fn solid_count(&self, s: &Self::Solid) -> usize;
     fn face_count(&self, s: &Self::Solid) -> usize;
+    fn edge_count(&self, s: &Self::Solid) -> usize;
+    /// Round or bevel the numbered edges (see [`Tessellation::edges`]) by `size`.
+    fn blend(&self, s: &Self::Solid, edges: &[u32], size: f64, kind: Blend) -> Result<Self::Solid, KernelError>;
+    /// Whether the kernel's own checker accepts the shape.
+    fn is_valid(&self, s: &Self::Solid) -> bool;
     fn tessellate(&self, s: &Self::Solid, tolerance: f64) -> Result<Tessellation, KernelError>;
     fn write_step(&self, s: &Self::Solid, path: &std::path::Path) -> Result<(), KernelError>;
+    fn read_step(&self, path: &std::path::Path) -> Result<Self::Solid, KernelError>;
+    /// The exact shape in the kernel's own text format, for the native file.
+    /// Names the format [`Kernel::to_native`] writes, so a file is only read by a kernel that can.
+    fn native_format(&self) -> &'static str;
+    fn to_native(&self, s: &Self::Solid) -> Result<String, KernelError>;
+    fn from_native(&self, text: &str) -> Result<Self::Solid, KernelError>;
 }

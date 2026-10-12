@@ -1,12 +1,12 @@
 //! OpenCascade backend, through the opencascade-rs bindings (LGPL-2.1 OCCT underneath).
 
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::path::Path;
 
 use glam::DVec3;
 use opencascade::primitives::{Edge, Face, Shape, ShapeType, Wire};
 
-use crate::{BooleanOp, Frame, Kernel, KernelError, Plane, Profile, Tessellation};
+use crate::{Blend, BooleanOp, Frame, Kernel, KernelError, Plane, Profile, Tessellation};
 
 pub struct Occt;
 
@@ -94,6 +94,18 @@ impl Kernel for Occt {
 
     fn face_count(&self, s: &Shape) -> usize { s.faces().count() }
 
+    fn edge_count(&self, s: &Shape) -> usize { s.edge_count() }
+
+    fn blend(&self, s: &Shape, edges: &[u32], size: f64, kind: Blend) -> Result<Shape, KernelError> {
+        let edges: Vec<usize> = edges.iter().map(|&e| e as usize).collect();
+        s.blend_edges(&edges, size, kind == Blend::Chamfer).map_err(|e| KernelError::Blend {
+            edges: e.edges.iter().map(|&i| i as u32).collect(),
+            reason: e.reason,
+        })
+    }
+
+    fn is_valid(&self, s: &Shape) -> bool { s.is_valid() }
+
     fn tessellate(&self, s: &Shape, tolerance: f64) -> Result<Tessellation, KernelError> {
         // Mesh the whole solid once so neighbouring faces share edge points, then read it back
         // face by face to learn which triangles belong to which face.
@@ -108,16 +120,26 @@ impl Kernel for Occt {
             t.face_planes.push(plane_of(&mesh));
         }
 
-        // The explorer meets each edge once per adjacent face; keep the first.
-        let mut seen = HashSet::new();
-        for edge in s.edges() {
-            let (pts, key) = edge_points(&edge);
-            if seen.insert(key) { t.edges.push(pts) }
-        }
+        // Each edge once, in the kernel's numbering, so an index here is an edge a tool can name.
+        t.edges = s.numbered_edges().iter().map(|e| edge_points(e).0).collect();
         Ok(t)
     }
 
     fn write_step(&self, s: &Shape, path: &Path) -> Result<(), KernelError> {
         s.write_step(path).map_err(failed)
     }
+
+    fn read_step(&self, path: &Path) -> Result<Shape, KernelError> {
+        let shape = Shape::read_step(path).map_err(|_| KernelError::File("the STEP file could not be read".into()))?;
+        if shape.faces().next().is_none() {
+            return Err(KernelError::File("the STEP file holds no surfaces or solids".into()));
+        }
+        Ok(shape)
+    }
+
+    fn native_format(&self) -> &'static str { "occt-brep" }
+
+    fn to_native(&self, s: &Shape) -> Result<String, KernelError> { s.to_brep_text().map_err(failed) }
+
+    fn from_native(&self, text: &str) -> Result<Shape, KernelError> { Shape::from_brep_text(text).map_err(failed) }
 }

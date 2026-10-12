@@ -149,3 +149,10 @@ button:focus-visible, input:focus-visible { outline: 1px solid var(--accent); ou
 /* WebKit draws native spinners on number inputs; the arrow keys and the gizmo already step. */
 .field input::-webkit-inner-spin-button, .field input::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
 .field input { -moz-appearance: textfield; appearance: textfield; }
+
+/* fillet tool */
+.sec > .hint { color: var(--accent); font-size: 10px; line-height: 1.5; text-transform: uppercase; }
+.field output { padding: 8px 0; font-variant-numeric: tabular-nums; }
+.bar .export[hidden] { display: none; }
+.keys[hidden] { display: none; }
+.sec[hidden] { display: none; }

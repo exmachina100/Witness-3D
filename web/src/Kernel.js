@@ -129,10 +129,9 @@ export function tessellate(shape, { deflection = 0.01, angle = 0.25 } = {}) {
     mesh.computeVertexNormals();
     mesh.computeBoundingBox();
 
-    // Each edge is visited once per adjacent face; key on its sampled points to draw it once.
-    const segments = [], seen = new Set();
-    for (const ex = new o.TopExp_Explorer(shape, o.TopAbs_ShapeEnum.TopAbs_EDGE, o.TopAbs_ShapeEnum.TopAbs_SHAPE); ex.More(); ex.Next()) {
-        const edge = o.TopoDS.Edge(ex.Current());
+    // Each edge once, in the kernel's numbering (see numberedEdges), as a polyline per edge.
+    const segments = [], polylines = [];
+    for (const edge of numberedEdges(shape)) {
         const curve = new o.BRepAdaptor_Curve(edge);
         // Lines need only their ends; curves are sampled evenly in parameter, enough for display.
         const u0 = curve.FirstParameter(), u1 = curve.LastParameter();
@@ -142,14 +141,69 @@ export function tessellate(shape, { deflection = 0.01, angle = 0.25 } = {}) {
             const p = curve.Value(u0 + (u1 - u0) * i / n);
             pts.push([p.X(), p.Y(), p.Z()]);
         }
-        const key = pts.map(p => p.map(c => c.toFixed(5)).join(',')).sort().join('|');
-        if (seen.has(key)) continue;
-        seen.add(key);
+        polylines.push(pts.flat());
         for (let i = 0; i < pts.length - 1; i++) segments.push(...pts[i], ...pts[i + 1]);
     }
     const edges = new THREE.BufferGeometry();
     edges.setAttribute('position', new THREE.Float32BufferAttribute(segments, 3));
-    return { mesh, edges };
+    return { mesh, edges, polylines };
+}
+
+/**
+ * The shape's edges, each once, in the order OpenCascade's TopExp::MapShapes numbers them (first
+ * meeting in an explorer walk). The Rust kernel numbers edges the same way, so an edge number
+ * means the same edge on the web and on the desktop.
+ */
+export function numberedEdges(shape) {
+    const o = oc(), edges = [];
+    for (const ex = new o.TopExp_Explorer(shape, o.TopAbs_ShapeEnum.TopAbs_EDGE, o.TopAbs_ShapeEnum.TopAbs_SHAPE); ex.More(); ex.Next()) {
+        const e = o.TopoDS.Edge(ex.Current());
+        if (!edges.some(f => f.IsSame(e))) edges.push(e);
+    }
+    return edges;
+}
+
+/** A fillet or chamfer the kernel could not build: the edges it names (maybe none), and why. */
+export class BlendError extends Error {
+    constructor(message, edges = []) { super(message); this.edges = edges; }
+}
+
+const STRIPE_REASONS = {
+    ChFiDS_WalkingFailure: 'the round could not be traced along the edge; a neighbouring face is probably narrower than the radius',
+    ChFiDS_StartsolFailure: 'no starting point for the round was found; the radius is probably too large for the faces it joins',
+    ChFiDS_TwistedSurface: 'the rounding surface would twist on itself',
+};
+
+/** Round (or, with `chamfer`, bevel) the numbered edges by `size`. Throws BlendError. */
+export function blendEdges(shape, edgeIds, size, chamfer = false) {
+    const o = oc();
+    const edges = numberedEdges(shape);
+    if (edgeIds.some(i => !(i >= 0 && i < edges.length))) throw new BlendError('an edge in the selection is not on this body; select the edges again');
+    const mk = chamfer ? new o.BRepFilletAPI_MakeChamfer(shape) : new o.BRepFilletAPI_MakeFillet(shape, o.ChFi3d_FilletShape.ChFi3d_Rational);
+    for (const i of edgeIds) mk.Add(size, edges[i]);
+    try { mk.Build(new o.Message_ProgressRange()); }
+    catch { throw new BlendError(`the kernel could not build the ${chamfer ? 'chamfer' : 'round'}; try a smaller ${chamfer ? 'distance' : 'radius'}`); }
+    if (!mk.IsDone()) {
+        if (chamfer) throw new BlendError('the kernel could not build the chamfer; try a smaller distance');
+        const failed = [];
+        let reason;
+        for (let i = 1; i <= mk.NbFaultyContours(); i++) {
+            const ic = mk.FaultyContour(i);
+            for (let j = 1; j <= mk.NbEdges(ic); j++) {
+                const k = edges.findIndex(e => e.IsSame(mk.Edge(ic, j)));
+                if (k >= 0) failed.push(k);
+            }
+            const status = mk.StripeStatus(ic);
+            reason ??= Object.entries(STRIPE_REASONS).find(([name]) => o.ChFiDS_ErrorStatus?.[name] === status)?.[1];
+        }
+        if (!reason && mk.NbFaultyVertices() > 0) reason = 'the round could not be finished where it meets a corner; try a smaller radius';
+        throw new BlendError(reason ?? 'the kernel could not build the round', failed);
+    }
+    const result = mk.Shape();
+    if (!new o.BRepCheck_Analyzer(result, true, false, false).IsValid()) {
+        throw new BlendError(`the kernel built a ${chamfer ? 'chamfer' : 'round'} but the solid it produced is invalid; try a smaller ${chamfer ? 'distance' : 'radius'}`, edgeIds);
+    }
+    return result;
 }
 
 /** The planar face of `shape` at `faceIndex` (as numbered by tessellate): a point on it and its outward normal. */

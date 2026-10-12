@@ -5,8 +5,15 @@
 use std::collections::BTreeMap;
 use std::rc::Rc;
 
+use crate::blend::{blend, BlendParams};
 use crate::extrude::{extrude, ExtrudeParams, ExtrudeResult};
 use crate::{Kernel, KernelError};
+
+/// Length unit of every coordinate in a document. Fixed for now; stored in files so a later
+/// version can convert.
+pub const UNITS: &str = "mm";
+/// Distance under which two points count as the same, in [`UNITS`]. OpenCascade's own default.
+pub const TOLERANCE: f64 = 1e-7;
 
 pub type BodyId = u32;
 
@@ -58,6 +65,31 @@ impl<K: Kernel> Document<K> {
         self.checkpoint();
         self.state.bodies.remove(&id);
         true
+    }
+
+    /// The next id [`Document::add`] will hand out; saved so ids survive a reopen.
+    pub fn next_id(&self) -> BodyId { self.state.next_id }
+
+    /// Replace everything, e.g. when opening a file. History starts empty.
+    pub fn replace_all(&mut self, bodies: impl IntoIterator<Item = (BodyId, K::Solid)>, next_id: BodyId) {
+        let bodies: BTreeMap<_, _> = bodies.into_iter().map(|(id, s)| (id, Rc::new(s))).collect();
+        let next_id = next_id.max(bodies.keys().max().map_or(1, |m| m + 1));
+        self.state = Snapshot { bodies, next_id };
+        self.clear_history();
+    }
+
+    /// Compute a fillet or chamfer without changing the document.
+    pub fn preview_blend(&self, body: BodyId, p: &BlendParams) -> Result<K::Solid, KernelError> {
+        let solid = self.get(body).ok_or(KernelError::Invalid("that body no longer exists"))?;
+        blend(&self.kernel, solid, p)
+    }
+
+    /// Run a fillet or chamfer and record it as one undoable step.
+    pub fn commit_blend(&mut self, body: BodyId, p: &BlendParams) -> Result<BodyId, KernelError> {
+        let solid = self.preview_blend(body, p)?;
+        self.checkpoint();
+        self.state.bodies.insert(body, Rc::new(solid));
+        Ok(body)
     }
 
     /// Compute an extrude without changing the document: what a live preview shows.
