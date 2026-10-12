@@ -21,6 +21,7 @@ pub use document::{Ref, Refs};
 pub use extrude::{extrude, ExtrudeParams, ExtrudeResult, Operation};
 pub use form::{form, offset_faces, FormKind, FormParams};
 pub use document::{Curve, CurveId, CurveShape};
+pub mod join;
 
 /// A closed 2D profile, drawn in a sketch plane.
 #[derive(Clone, Debug, PartialEq)]
@@ -30,6 +31,21 @@ pub enum Profile {
     /// An exact circle around (x, y).
     Circle { center: (f64, f64), radius: f64 },
     /// A smooth closed curve through the points, in order (Plasticity's Spline Curve, closed).
+    Spline(Vec<(f64, f64)>),
+    /// An ellipse around `center` with radius `|major|` along `major` and `minor` across it.
+    Ellipse { center: (f64, f64), major: (f64, f64), minor: f64 },
+    /// Pieces joined end to end into a loop (Plasticity's Join Curves).
+    Contour(Vec<Segment>),
+}
+
+/// One open piece of a [`Profile::Contour`], in plane coordinates.
+#[derive(Clone, Debug, PartialEq)]
+pub enum Segment {
+    /// Straight lines through the points.
+    Line(Vec<(f64, f64)>),
+    /// A circular arc from the first point through the second to the third.
+    Arc((f64, f64), (f64, f64), (f64, f64)),
+    /// A smooth curve through the points.
     Spline(Vec<(f64, f64)>),
 }
 
@@ -49,6 +65,10 @@ pub enum Path {
     Spline { points: Vec<DVec3>, closed: bool },
     /// A circular arc from `start` through `mid` to `end`.
     Arc { start: DVec3, mid: DVec3, end: DVec3 },
+    /// An ellipse with radius `|major|` along `major` and `minor` across it.
+    Ellipse { center: DVec3, normal: DVec3, major: DVec3, minor: f64 },
+    /// Open pieces joined end to end.
+    Contour(Vec<Path>),
 }
 
 /// How far and in what form an extrude goes (Plasticity's Extrude options).
@@ -203,8 +223,9 @@ pub trait Kernel {
     fn blend(&self, s: &Self::Solid, edges: &[u32], size: f64, kind: Blend, angle: f64) -> Result<Traced<Self::Solid>, KernelError>;
     /// The solid moved rigidly. Faces and edges keep their numbers.
     fn transform(&self, s: &Self::Solid, m: &Motion) -> Self::Solid;
-    /// `profile` turned `angle` radians about the axis through `axis_point` along `axis_dir`.
-    fn revolve(&self, _profile: &Profile, _frame: &Frame, _axis_point: DVec3, _axis_dir: DVec3, _angle: f64) -> Result<Self::Solid, KernelError> {
+    /// `profile` turned `angle` radians about the axis through `axis_point` along `axis_dir`; with a
+    /// `thickness`, only walls that thick inside its outline.
+    fn revolve(&self, _profile: &Profile, _frame: &Frame, _axis_point: DVec3, _axis_dir: DVec3, _angle: f64, _thickness: f64) -> Result<Self::Solid, KernelError> {
         Err(KernelError::Invalid("this kernel cannot revolve"))
     }
     /// A solid through the profiles, in order.

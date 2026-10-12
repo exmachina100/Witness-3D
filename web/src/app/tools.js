@@ -39,7 +39,7 @@ export const TOOLS = [
         id: 'boolean', label: 'BOOLEAN', key: 'q', group: 'shape', selects: 'solids',
         summary: 'Join, cut or intersect a target solid with tool solids.',
         params: {
-            op: { type: 'enum', values: ['union', 'difference', 'intersect'], default: 'union', describe: 'what to do with the tools' },
+            op: { type: 'enum', values: ['union', 'difference', 'intersect', 'slice'], default: 'union', describe: 'what to do with the tools; slice splits the target where each tool cuts it into separate bodies' },
             keepTools: { type: 'boolean', default: false, describe: 'keep the tool bodies afterwards' },
         },
     },
@@ -65,6 +65,7 @@ export const TOOLS = [
             axisPoint: { type: 'vector', unit: 'mm', default: [0, 0, 0], describe: 'a point on the axis' },
             axisDir: { type: 'vector', default: [0, 0, 1], describe: 'the direction of the axis' },
             angle: { type: 'number', unit: 'deg', nonzero: true, default: 360, describe: 'how far to turn' },
+            thickness: { type: 'number', unit: 'mm', min: 0, default: 0, describe: 'leave walls this thick inside the outline instead of a filled solid; 0 for solid' },
             op: { type: 'enum', values: ['new', 'union', 'difference', 'intersect'], default: 'new', describe: 'a new body, or a boolean with the body the region lies on' },
         },
     },

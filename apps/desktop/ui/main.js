@@ -25,6 +25,7 @@ const rust = {
   duplicateBodies: ids => tauri.core.invoke('duplicate_bodies', { ids }),
   curves: () => tauri.core.invoke('curves'),
   addCurves: curves => tauri.core.invoke('add_curves', { curves }),
+  joinCurves: ids => tauri.core.invoke('join_curves', { ids }),
   deleteItems: (bodies, curves) => tauri.core.invoke('delete_items', { bodies, curves }),
   previewBoolean: req => tauri.core.invoke('preview_boolean', { req }),
   commitBoolean: req => tauri.core.invoke('commit_boolean', { req }),

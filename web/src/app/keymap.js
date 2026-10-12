@@ -41,6 +41,8 @@ export const VIEWPORT = {
     'shift-q': 'draw:rect', 'shift-w': 'draw:circle', 'shift-a': 'draw:line',
     'shift-x': 'delete', 'shift-delete': 'delete', 'shift-backspace': 'delete',
     'shift-d': 'duplicate',
+    // Curves (0.6.30's default keymap: J joins curves; 26.1 keeps it)
+    j: 'join',
     // Witness 3D's own: a command asked for in words (ai.js); Plasticity has no equivalent
     'ctrl-k': 'ask',
     h: 'hide', 'shift-h': 'hide-others', 'alt-h': 'unhide-all',
@@ -60,15 +62,15 @@ export const COMMAND = {
     // Extrude and Boolean (manual: Q union, W difference, Shift+E intersect, B new body, T keep tools)
     // (manual: A angle, Shift+T thickness, S lock both sides, Shift+Q slice)
     extrude: { d: 'distance', a: 'angle', 'shift-t': 'thickness', s: 'lock', q: 'union', w: 'difference', 'shift-e': 'intersect', 'shift-q': 'slice', b: 'new' },
-    boolean: { q: 'union', w: 'difference', 'shift-e': 'intersect', t: 'keep' },
+    boolean: { q: 'union', w: 'difference', 'shift-e': 'intersect', 'shift-q': 'slice', t: 'keep' },
     // Offset Face (manual: D distance; its A angle and Tab grow modes are not here yet)
     offset: { d: 'distance' },
-    // Revolve and Sweep (manual: A angle, D twist, Q W Shift+E B as in Extrude)
-    revolve: { a: 'angle', q: 'union', w: 'difference', 'shift-e': 'intersect', b: 'new' },
+    // Revolve and Sweep (manual: A angle, Shift+T thickness, D twist, Q W Shift+E B as in Extrude)
+    revolve: { a: 'angle', 'shift-t': 'thickness', q: 'union', w: 'difference', 'shift-e': 'intersect', b: 'new' },
     sweep: { d: 'twist', q: 'union', w: 'difference', 'shift-e': 'intersect', b: 'new' },
     // Drawing (manual: Tab types dimensions, S square and C centre for rectangles, Ctrl+Z drops a line's last point)
     rect: { tab: 'typed', s: 'square', c: 'centre' },
-    circle: { tab: 'typed' },
+    circle: { tab: 'typed', v: 'vertical' },
     line: { tab: 'typed', 'ctrl-z': 'back' },
     // The other curve tools (manual: Tab types dimensions; Regular Polygon's arrows and C; Spline
     // Curve's Ctrl+Z). They have no default keys in Plasticity either; F finds them.
@@ -78,8 +80,11 @@ export const COMMAND = {
     circle3: { tab: 'typed' },
     arc3: { tab: 'typed' },
     arc: { tab: 'typed' },
-    polygon: { tab: 'typed', arrowup: 'more', arrowdown: 'fewer', c: 'circumscribed' },
+    // V stands a circle or polygon up (0.6.30's gizmo:circle:mode and gizmo:polygon:mode).
+    polygon: { tab: 'typed', arrowup: 'more', arrowdown: 'fewer', c: 'circumscribed', v: 'vertical' },
     spline: { 'ctrl-z': 'back' },
+    ellipse: {},
+    ellipse3: {},
 };
 
 /** Everything the palette (F) lists, with its key for display. Tools come from tools.js. */
@@ -98,7 +103,8 @@ export const ACTIONS = {
     'draw:rect': 'Corner rectangle', 'draw:circle': 'Center circle', 'draw:line': 'Line',
     'draw:center-rect': 'Center rectangle', 'draw:rect3': 'Three point rectangle', 'draw:circle2': 'Two point circle',
     'draw:circle3': 'Three point circle', 'draw:arc3': 'Three point arc', 'draw:arc': 'Center point arc',
-    'draw:polygon': 'Regular polygon', 'draw:spline': 'Spline curve',
+    'draw:polygon': 'Regular polygon', 'draw:spline': 'Spline curve', 'draw:ellipse': 'Center ellipse',
+    'draw:ellipse3': 'Three point ellipse', 'join': 'Join curves',
     'undo': 'Undo', 'redo': 'Redo', 'file:new': 'New', 'file:open': 'Open…', 'file:save': 'Save',
     'export:step': 'Export STEP', 'import:step': 'Import STEP',
 };

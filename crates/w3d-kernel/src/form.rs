@@ -15,6 +15,8 @@ pub enum FormKind {
         axis_point: DVec3,
         axis_dir: DVec3,
         angle: f64,
+        /// Walls this thick inside the outline instead of a filled solid (Shift+T); zero for solid.
+        thickness: f64,
     },
     /// Pass a solid through the profile and then each of `more`, in selection order.
     Loft { more: Vec<(Profile, Frame)> },
@@ -37,6 +39,7 @@ pub fn tool<K: Kernel>(k: &K, p: &FormParams) -> Result<K::Solid, KernelError> {
             axis_point,
             axis_dir,
             angle,
+            thickness,
         } => {
             if !angle.is_finite() || angle.abs() < 1e-9 {
                 return Err(KernelError::NoOp);
@@ -46,6 +49,9 @@ pub fn tool<K: Kernel>(k: &K, p: &FormParams) -> Result<K::Solid, KernelError> {
                     "pick two different points for the axis",
                 ));
             }
+            if !thickness.is_finite() || *thickness < 0.0 {
+                return Err(KernelError::Invalid("the thickness can't be negative"));
+            }
             let angle = angle.clamp(-std::f64::consts::TAU, std::f64::consts::TAU);
             k.revolve(
                 &p.profile,
@@ -53,6 +59,7 @@ pub fn tool<K: Kernel>(k: &K, p: &FormParams) -> Result<K::Solid, KernelError> {
                 *axis_point,
                 axis_dir.normalize(),
                 angle,
+                *thickness,
             )
         }
         FormKind::Loft { more } => {

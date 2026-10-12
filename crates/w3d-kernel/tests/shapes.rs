@@ -282,7 +282,7 @@ fn bad_shapes_are_refused_in_words() {
         .err()
         .expect("an error");
     assert!(e.to_string().contains("on a line"), "{e}");
-    // A face with a hole can't take an angle yet.
+    // A face with a hole takes an angle (tests/round5.rs) until the walls swallow the outline.
     let body = enclosure(&k);
     let hole = k
         .extrude(
@@ -305,10 +305,10 @@ fn bad_shapes_are_refused_in_words() {
         .position(|p| p.is_some_and(|p| p.normal.y > 0.99))
         .unwrap() as u32;
     let e = k
-        .extrude_face(&holed, top, &extent(5.0, 0.0, 0.1, 0.0))
+        .extrude_face(&holed, top, &extent(5.0, 0.0, 0.0, 30.0))
         .err()
         .expect("an error");
-    assert!(e.to_string().contains("without holes"), "{e}");
+    assert!(e.to_string().contains("shrunk"), "{e}");
 }
 
 fn curve(origin: [f64; 3], normal: [f64; 3], shape: CurveShape) -> Curve {

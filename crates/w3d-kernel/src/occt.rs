@@ -6,7 +6,7 @@ use std::path::Path as FilePath;
 use glam::DVec3;
 use opencascade::primitives::{BooleanKind, Edge, Face, Shape, ShapeHistory, ShapeType, Wire};
 
-use crate::{Blend, BooleanOp, Extent, Frame, History, Kernel, KernelError, Motion, Path, Plane, Profile, Tessellation, Traced};
+use crate::{Blend, BooleanOp, Extent, Frame, History, Kernel, KernelError, Motion, Path, Plane, Profile, Segment, Tessellation, Traced};
 
 pub struct Occt;
 
@@ -54,7 +54,30 @@ fn section(profile: &Profile, frame: &Frame) -> Result<Vec<f64>, KernelError> {
             for p in pts { v.extend(frame.point(*p).to_array()) }
             v
         }
+        Profile::Ellipse { center, major, minor } => {
+            let (c, m) = (frame.point(*center), frame.point(*major) - frame.origin);
+            ellipse_numbers(c, frame.normal, m, *minor)?
+        }
+        Profile::Contour(segments) => {
+            let path = |pts: &Vec<(f64, f64)>| pts.iter().map(|p| frame.point(*p)).collect::<Vec<_>>();
+            path_numbers(&Path::Contour(segments.iter().map(|s| match s {
+                Segment::Line(pts) => Path::Polyline { points: path(pts), closed: false },
+                Segment::Spline(pts) => Path::Spline { points: path(pts), closed: false },
+                Segment::Arc(a, b, c) => Path::Arc { start: frame.point(*a), mid: frame.point(*b), end: frame.point(*c) },
+            }).collect()))?
+        }
     })
+}
+
+/// An ellipse as the shim reads it, with the longer radius first as OpenCascade needs.
+fn ellipse_numbers(c: DVec3, n: DVec3, major: DVec3, minor: f64) -> Result<Vec<f64>, KernelError> {
+    let r = major.length();
+    if !(r > 0.0) || !(minor > 0.0) || !r.is_finite() || !minor.is_finite() { return Err(KernelError::Invalid("an ellipse needs two radii greater than zero")) }
+    let (axis, big, small) = if r >= minor { (major / r, r, minor) } else { (n.normalize().cross(major / r), minor, r) };
+    let mut v = vec![5.0];
+    for p in [c, n, axis] { v.extend(p.to_array()) }
+    v.extend([big, small]);
+    Ok(v)
 }
 
 fn path_numbers(path: &Path) -> Result<Vec<f64>, KernelError> {
@@ -76,6 +99,13 @@ fn path_numbers(path: &Path) -> Result<Vec<f64>, KernelError> {
             v
         }
         Path::Arc { start, mid, end } => [4.0].into_iter().chain([start, mid, end].into_iter().flat_map(|p| p.to_array())).collect(),
+        Path::Ellipse { center, normal, major, minor } => ellipse_numbers(*center, *normal, *major, *minor)?,
+        Path::Contour(pieces) => {
+            if pieces.is_empty() { return Err(KernelError::Invalid("a contour needs a piece")) }
+            let mut v = vec![6.0, pieces.len() as f64];
+            for p in pieces { v.extend(path_numbers(p)?) }
+            v
+        }
     })
 }
 
@@ -118,7 +148,7 @@ impl Kernel for Occt {
                         .collect();
                     Wire::from_edges(&edges)
                 }
-                Profile::Spline(_) => unreachable!(),
+                _ => unreachable!(),
             };
             return Ok(Shape::from(Face::from_wire(&wire).extrude(frame.normal * e.distance)));
         }
@@ -187,9 +217,9 @@ impl Kernel for Occt {
         turned.translated(m.pivot + m.offset)
     }
 
-    fn revolve(&self, profile: &Profile, frame: &Frame, axis_point: DVec3, axis_dir: DVec3, angle: f64) -> Result<Shape, KernelError> {
+    fn revolve(&self, profile: &Profile, frame: &Frame, axis_point: DVec3, axis_dir: DVec3, angle: f64, thickness: f64) -> Result<Shape, KernelError> {
         let axis = [axis_point.x, axis_point.y, axis_point.z, axis_dir.x, axis_dir.y, axis_dir.z];
-        Shape::revolve_section(&section(profile, frame)?, axis, angle).map_err(shim)
+        Shape::revolve_section(&section(profile, frame)?, axis, angle, thickness).map_err(shim)
     }
 
     fn loft(&self, sections: &[(Profile, Frame)]) -> Result<Shape, KernelError> {

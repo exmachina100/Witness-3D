@@ -189,6 +189,7 @@ fn revolve_turns_a_rectangle_into_a_ring() {
                 axis_point: DVec3::ZERO,
                 axis_dir: DVec3::Z,
                 angle: 2.0 * PI,
+                thickness: 0.0,
             },
             operation: Operation::NewBody,
         },
@@ -205,6 +206,7 @@ fn revolve_turns_a_rectangle_into_a_ring() {
                 axis_point: DVec3::ZERO,
                 axis_dir: DVec3::Z,
                 angle: PI / 2.0,
+                thickness: 0.0,
             },
             operation: Operation::NewBody,
         },
@@ -225,6 +227,7 @@ fn revolve_through_its_own_profile_is_refused() {
             axis_point: DVec3::new(15.0, 0.0, 0.0),
             axis_dir: DVec3::Z,
             angle: 2.0 * PI,
+            thickness: 0.0,
         },
         operation: Operation::NewBody,
     };
@@ -415,6 +418,7 @@ fn forms_from_drawn_regions_join_or_cut_the_body_they_sit_on() {
                 axis_point: DVec3::new(5.0, 30.0, 0.0),
                 axis_dir: DVec3::Z,
                 angle: PI,
+                thickness: 0.0,
             },
             Operation::Difference,
         )

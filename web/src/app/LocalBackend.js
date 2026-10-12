@@ -6,6 +6,7 @@ import { ExtrudeFactory } from '../ExtrudeFactory.js';
 import { NoOpError } from '../GeometryFactory.js';
 import { blendEdges, booleanWithHistory, box, count, exportSTEP, facePlane, numberedEdges, oc, tessellate, transform, volume } from '../Kernel.js';
 import { loft, offsetFlatFaces, regionFace, revolve, splineSamples, sweep } from '../Forms.js';
+import { ends, join, loops, MEET } from '../curves.js';
 
 const v3 = a => new THREE.Vector3(...a);
 
@@ -23,8 +24,8 @@ export class LocalBackend {
         this.redoStack = [];
         this.pending = null;
         this.running = false;
-        // Drawn curves by id: { origin, x, normal, kind: 'polyline' | 'circle' | 'spline' | 'arc', points,
-        // closed, center, radius, start, mid, end }.
+        // Drawn curves by id: { origin, x, normal, kind: 'polyline' | 'circle' | 'spline' | 'arc' | 'ellipse'
+        // | 'contour', points, closed, center, radius, start, mid, end, major, minor, pieces }.
         this.curveMap = new Map();
         this.nextCurve = 1;
         // The product-enclosure blank, in millimetres, as on the desktop.
@@ -95,7 +96,7 @@ export class LocalBackend {
     }
 
     /** Drawn curves, as { id, ...curve }. */
-    curves() { return [...this.curveMap].map(([id, c]) => ({ id, ...structuredClone(c), ...(c.kind === 'spline' && { samples: splineSamples(c) }) })) }
+    curves() { return [...this.curveMap].map(([id, c]) => ({ id, ...structuredClone(c), ...((c.kind === 'spline' || c.kind === 'contour') && { samples: splineSamples(c) }) })) }
 
     /** Add drawn curves, as one undo step. */
     async addCurves(list) {
@@ -103,6 +104,16 @@ export class LocalBackend {
         for (const c of list) checkCurve(c);
         this.checkpoint();
         return { ids: list.map(c => { const id = this.nextCurve++; this.curveMap.set(id, structuredClone(c)); return id; }) };
+    }
+
+    /** Join Curves (J): the curves replaced by their joined runs, as one undo step. */
+    async joinCurves(ids) {
+        if (ids.some(id => !this.curveMap.has(id))) throw new Error('that curve no longer exists');
+        const joined = join(ids.map(id => this.curveMap.get(id)));
+        for (const c of joined) checkCurve(c);
+        this.checkpoint();
+        for (const id of ids) this.curveMap.delete(id);
+        return { ids: joined.map(c => { const id = this.nextCurve++; this.curveMap.set(id, c); return id; }) };
     }
 
     /** Delete bodies and curves together, as one undo step. */
@@ -133,16 +144,32 @@ export class LocalBackend {
         return { shape, history };
     }
 
-    previewBoolean(req) {
-        return this.latest(async () => this.body(req.target, this.booleanResult(req).shape));
+    /** Shift+Q: the target with the tools cut away, and for each tool the piece of the target inside it. */
+    sliceResult(req) {
+        const rest = this.booleanResult({ ...req, op: 'difference' }), body = this.shapes.get(req.target);
+        const pieces = req.tools.map(t => {
+            const piece = booleanWithHistory(body, this.shapes.get(t), 'intersection').shape;
+            if (count(piece, 'TopAbs_FACE') === 0) throw new Error('a tool does not meet the body');
+            return piece;
+        });
+        return { ...rest, pieces };
     }
 
-    /** Plasticity's Boolean: the target changes and the tools go unless kept, as one undo step. */
+    previewBoolean(req) {
+        return this.latest(async () => {
+            if (req.op !== 'slice') return this.body(req.target, this.booleanResult(req).shape);
+            const r = this.sliceResult(req);
+            return { ...this.body(req.target, r.shape), pieces: r.pieces.map(p => this.body(0, p)) };
+        });
+    }
+
+    /** Plasticity's Boolean: the target changes and the tools go unless kept, as one undo step; a slice adds its pieces. */
     async commitBoolean(req) {
-        const { shape, history } = this.booleanResult(req);
+        const { shape, history, pieces = [] } = req.op === 'slice' ? this.sliceResult(req) : this.booleanResult(req);
         this.checkpoint();
         this.put(req.target, shape, history);
         if (!req.keepTools) for (const id of req.tools) { this.shapes.delete(id); this.refs.delete(id); }
+        for (const p of pieces) this.put(this.nextId++, p);
         return { id: req.target, scene: this.bodies() };
     }
 
@@ -154,7 +181,7 @@ export class LocalBackend {
         const c = id => { const x = this.curveMap.get(id); if (!x) throw new Error('that curve no longer exists'); return x; };
         if (!req.regions?.length) throw new Error('select a region first');
         let tool;
-        if (req.kind === 'revolve') tool = revolve(c(req.regions[0]), req.axisPoint ?? [0, 0, 0], req.axisDir ?? [0, 1, 0], req.angle ?? 2 * Math.PI);
+        if (req.kind === 'revolve') tool = revolve(c(req.regions[0]), req.axisPoint ?? [0, 0, 0], req.axisDir ?? [0, 1, 0], req.angle ?? 2 * Math.PI, req.thickness ?? 0);
         else if (req.kind === 'loft') tool = loft(req.regions.map(c));
         else if (req.kind === 'sweep') {
             if (req.path === undefined || req.path === null) throw new Error('pick the path to sweep along');
@@ -340,13 +367,31 @@ export class LocalBackend {
 }
 
 /** Whether the curve encloses a region. */
-const isClosed = c => c.kind === 'circle' || (['polyline', 'spline'].includes(c.kind) && c.closed && c.points.length >= 3);
+const isClosed = c => c.kind === 'circle' || c.kind === 'ellipse' || (['polyline', 'spline'].includes(c.kind) && c.closed && c.points.length >= 3) || (c.kind === 'contour' && loops(c.pieces));
 
 function checkCurve(c) {
     const finite = a => Array.isArray(a) && a.every(Number.isFinite);
     const x = v3(c.x ?? []), n = v3(c.normal ?? []);
     if (!finite(c.origin) || !finite(c.x) || !finite(c.normal) || n.length() < 1e-9 || x.clone().cross(n).length() < 1e-9) throw new Error("the curve's plane is not valid");
-    if (c.kind === 'circle') { if (!finite(c.center) || !(c.radius > 0)) throw new Error("the circle's radius must be greater than zero"); }
+    checkShape(c);
+}
+
+function checkShape(c) {
+    const finite = a => Array.isArray(a) && a.every(Number.isFinite);
+    if (c.kind === 'ellipse') {
+        if (!finite(c.center) || !finite(c.major)) throw new Error('a point is not a number');
+        if (!(Math.hypot(...c.major) > 1e-9) || !(c.minor > 1e-9) || !Number.isFinite(c.minor)) throw new Error('an ellipse needs two radii greater than zero');
+    } else if (c.kind === 'contour') {
+        if (!c.pieces?.length) throw new Error('a contour needs a piece');
+        for (const p of c.pieces) {
+            if (!ends(p)) throw new Error('a contour is made of lines, arcs and splines with two ends');
+            checkShape(p);
+        }
+        for (let i = 1; i < c.pieces.length; i++) {
+            const a = ends(c.pieces[i - 1])[1], b = ends(c.pieces[i])[0];
+            if (Math.hypot(a[0] - b[0], a[1] - b[1]) > MEET) throw new Error('the pieces of a contour must meet end to end');
+        }
+    } else if (c.kind === 'circle') { if (!finite(c.center) || !(c.radius > 0)) throw new Error("the circle's radius must be greater than zero"); }
     else if (c.kind === 'polyline') {
         if (!Array.isArray(c.points) || c.points.length < 2 || (c.closed && c.points.length < 3)) throw new Error('a line needs two points, a closed one three');
         if (!c.points.every(finite)) throw new Error('a point is not a number');
@@ -358,7 +403,7 @@ function checkCurve(c) {
         if (![c.start, c.mid, c.end].every(finite)) throw new Error('a point is not a number');
         const cross = (c.mid[0] - c.start[0]) * (c.end[1] - c.start[1]) - (c.mid[1] - c.start[1]) * (c.end[0] - c.start[0]);
         if (Math.abs(cross) < 1e-9) throw new Error('the three points of an arc must not lie on a line');
-    } else throw new Error('a curve is a line, circle, spline or arc');
+    } else throw new Error('a curve is a line, circle, spline, arc, ellipse or contour');
 }
 
 /** The history of doing `a` then `b`, for the body being changed (input 0). */

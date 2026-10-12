@@ -222,7 +222,7 @@ fn boolean_cuts_the_target_with_a_duplicate_and_removes_it() {
     let moved = api::commit_motion(&m, MotionRequest { bodies: d.ids.clone(), offset: [40.0, 0.0, 0.0], pivot: [0.0; 3], axis: [0.0, 1.0, 0.0], angle: 0.0, scale: 1.0 }).unwrap();
     assert_eq!(moved.scene.len(), 2);
     let req: BooleanRequest = serde_json::from_str(r#"{"target":1,"tools":[2],"op":"difference"}"#).unwrap();
-    close(api::preview_boolean(&m, req.clone()).unwrap().unwrap().volume, 60_000.0);
+    close(api::preview_boolean(&m, req.clone()).unwrap().unwrap().body.volume, 60_000.0);
     let c = api::commit_boolean(&m, req).unwrap();
     assert_eq!(c.scene.len(), 1);
     close(c.scene[0].volume, 60_000.0);
@@ -257,4 +257,39 @@ fn splines_come_with_samples_and_extrudes_take_their_options_from_json() {
     let c = api::commit(&m, req).unwrap();
     assert_eq!(c.scene.len(), 2);
     close(c.scene[0].volume, 114_000.0);
+}
+
+#[test]
+fn boolean_slices_join_takes_curve_ids_and_contours_come_with_samples() {
+    let m = api::start();
+    let d = api::duplicate_bodies(&m, vec![1]).unwrap();
+    api::commit_motion(&m, MotionRequest { bodies: d.ids.clone(), offset: [60.0, 0.0, 0.0], pivot: [0.0; 3], axis: [0.0, 1.0, 0.0], angle: 0.0, scale: 1.0 }).unwrap();
+    // Shift+Q: the target loses the 20 mm the copy overlaps, which becomes a body of its own.
+    let req: BooleanRequest = serde_json::from_str(r#"{"target":1,"tools":[2],"op":"slice"}"#).unwrap();
+    let p = api::preview_boolean(&m, req.clone()).unwrap().unwrap();
+    close(p.body.volume, 90_000.0);
+    assert_eq!(p.pieces.len(), 1);
+    close(p.pieces[0].volume, 30_000.0);
+    let c = api::commit_boolean(&m, req).unwrap();
+    assert_eq!(c.scene.len(), 2);
+    close(c.scene.iter().map(|b| b.volume).sum(), 120_000.0);
+
+    let curves: Vec<w3d_kernel::Curve> = serde_json::from_str(r#"[
+        {"origin":[0,30,0],"x":[1,0,0],"normal":[0,1,0],"kind":"polyline","points":[[0,-5],[0,5]],"closed":false},
+        {"origin":[0,30,0],"x":[1,0,0],"normal":[0,1,0],"kind":"arc","start":[0,5],"mid":[5,0],"end":[0,-5]},
+        {"origin":[0,30,0],"x":[1,0,0],"normal":[0,1,0],"kind":"ellipse","center":[20,0],"major":[6,0],"minor":3}]"#).unwrap();
+    let ids = api::add_curves(&m, curves).unwrap().ids;
+    let joined = api::join_curves(&m, ids[..2].to_vec()).unwrap().ids;
+    assert_eq!(joined.len(), 1);
+    let json = serde_json::to_value(api::curves(&m)).unwrap();
+    let contour = json.as_array().unwrap().iter().find(|c| c["id"] == joined[0]).unwrap();
+    assert_eq!(contour["kind"], "contour");
+    assert_eq!(contour["pieces"].as_array().unwrap().len(), 2);
+    assert_eq!(contour["samples"].as_array().unwrap().len(), 2 + 32);
+    let ellipse = json.as_array().unwrap().iter().find(|c| c["kind"] == "ellipse").unwrap();
+    assert!(ellipse.get("samples").is_none());
+    let x: ExtrudeRequest = serde_json::from_str(&format!(r#"{{"region":{},"distance":2,"op":"new"}}"#, joined[0])).unwrap();
+    // Curved volumes come from the display mesh, which runs a little small.
+    let v = api::preview(&m, x).unwrap().unwrap().tool.unwrap().volume;
+    assert!((v - 12.5 * std::f64::consts::PI * 2.0).abs() < 1.0, "{v}");
 }

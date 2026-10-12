@@ -38,7 +38,7 @@ mod inner {
         pub fn w3d_result_shape(r: &W3dResult) -> UniquePtr<TopoDS_Shape>;
         pub fn w3d_result_pairs(r: &W3dResult, input: i32, kind: i32) -> Vec<i32>;
 
-        pub fn w3d_revolve(section: &[f64], axis: &[f64], angle: f64) -> Result<UniquePtr<TopoDS_Shape>>;
+        pub fn w3d_revolve(section: &[f64], axis: &[f64], angle: f64, thickness: f64) -> Result<UniquePtr<TopoDS_Shape>>;
         pub fn w3d_loft(sections: &[f64]) -> Result<UniquePtr<TopoDS_Shape>>;
         pub fn w3d_sweep(section: &[f64], path: &[f64], twist: f64, scale: f64) -> Result<UniquePtr<TopoDS_Shape>>;
         pub fn w3d_extrude(section: &[f64], dir: &[f64], distance: f64, back: f64, angle: f64, thickness: f64) -> Result<UniquePtr<TopoDS_Shape>>;

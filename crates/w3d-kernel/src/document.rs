@@ -17,7 +17,7 @@ use serde::{Deserialize, Serialize};
 use crate::blend::{blend, BlendParams};
 use crate::extrude::{extrude, ExtrudeParams, ExtrudeResult, Operation};
 use crate::form::{form, offset_faces, FormKind, FormParams};
-use crate::{BooleanOp, Frame, History, Kernel, KernelError, Motion, Path, Profile, Traced};
+use crate::{BooleanOp, Frame, History, Kernel, KernelError, Motion, Path, Profile, Segment, Traced};
 
 /// Length unit of every coordinate in a document. Fixed for now; stored in files so a later
 /// version can convert.
@@ -53,7 +53,7 @@ pub type CurveId = u32;
 /// What a Revolve, Loft or Sweep needs besides its regions.
 #[derive(Clone, Copy, Debug)]
 pub enum FormRequest {
-    Revolve { axis_point: DVec3, axis_dir: DVec3, angle: f64 },
+    Revolve { axis_point: DVec3, axis_dir: DVec3, angle: f64, thickness: f64 },
     Loft,
     /// Sweep along the curve `path`.
     Sweep { path: CurveId, twist: f64, scale: f64 },
@@ -79,6 +79,11 @@ pub enum CurveShape {
     Spline { points: Vec<[f64; 2]>, closed: bool },
     /// A circular arc from `start` through `mid` to `end` (Three Point and Center Point Arc).
     Arc { start: [f64; 2], mid: [f64; 2], end: [f64; 2] },
+    /// An ellipse around `center`, its radius along `major` the length of `major` and `minor` across
+    /// it (Plasticity's Center and Three Point Ellipse).
+    Ellipse { center: [f64; 2], major: [f64; 2], minor: f64 },
+    /// Open lines, arcs and splines joined end to end (Plasticity's Join Curves).
+    Contour { pieces: Vec<CurveShape> },
 }
 
 impl Curve {
@@ -90,18 +95,32 @@ impl Curve {
             CurveShape::Polyline { points, closed: true } if points.len() >= 3 => Some(Profile::Polygon(points.iter().map(|p| (p[0], p[1])).collect())),
             CurveShape::Circle { center, radius } => Some(Profile::Circle { center: (center[0], center[1]), radius: *radius }),
             CurveShape::Spline { points, closed: true } if points.len() >= 3 => Some(Profile::Spline(points.iter().map(|p| (p[0], p[1])).collect())),
+            CurveShape::Ellipse { center, major, minor } => Some(Profile::Ellipse { center: (center[0], center[1]), major: (major[0], major[1]), minor: *minor }),
+            CurveShape::Contour { pieces } if crate::join::loops(pieces) => {
+                let pts = |p: &Vec<[f64; 2]>| p.iter().map(|q| (q[0], q[1])).collect();
+                Some(Profile::Contour(pieces.iter().map(|p| match p {
+                    CurveShape::Polyline { points, .. } => Segment::Line(pts(points)),
+                    CurveShape::Spline { points, .. } => Segment::Spline(pts(points)),
+                    CurveShape::Arc { start, mid, end } => Segment::Arc((start[0], start[1]), (mid[0], mid[1]), (end[0], end[1])),
+                    _ => unreachable!("checked when the contour was added"),
+                }).collect()))
+            }
             _ => None,
         }
     }
 
     /// The curve in model space, as a path to sweep along.
-    pub fn path(&self) -> Path {
-        let f = self.frame();
-        match &self.shape {
+    pub fn path(&self) -> Path { Self::path_of(&self.frame(), &self.shape) }
+
+    fn path_of(f: &Frame, shape: &CurveShape) -> Path {
+        let f = *f;
+        match shape {
             CurveShape::Polyline { points, closed } => Path::Polyline { points: points.iter().map(|p| f.point((p[0], p[1]))).collect(), closed: *closed },
             CurveShape::Circle { center, radius } => Path::Circle { center: f.point((center[0], center[1])), normal: f.normal, radius: *radius },
             CurveShape::Spline { points, closed } => Path::Spline { points: points.iter().map(|p| f.point((p[0], p[1]))).collect(), closed: *closed },
             CurveShape::Arc { start, mid, end } => Path::Arc { start: f.point((start[0], start[1])), mid: f.point((mid[0], mid[1])), end: f.point((end[0], end[1])) },
+            CurveShape::Ellipse { center, major, minor } => Path::Ellipse { center: f.point((center[0], center[1])), normal: f.normal, major: f.point((major[0], major[1])) - f.origin, minor: *minor },
+            CurveShape::Contour { pieces } => Path::Contour(pieces.iter().map(|p| Self::path_of(&f, p)).collect()),
         }
     }
 
@@ -110,7 +129,12 @@ impl Curve {
         if !finite(&self.origin) || !finite(&self.x) || !finite(&self.normal) { return Err(KernelError::Invalid("the curve's plane is not valid")) }
         let (x, n) = (DVec3::from_array(self.x), DVec3::from_array(self.normal));
         if n.length() < 1e-9 || x.cross(n).length() < 1e-9 { return Err(KernelError::Invalid("the curve's plane is not valid")) }
-        match &self.shape {
+        Self::check_shape(&self.shape)
+    }
+
+    fn check_shape(shape: &CurveShape) -> Result<(), KernelError> {
+        let finite = |a: &[f64]| a.iter().all(|v| v.is_finite());
+        match shape {
             CurveShape::Polyline { points, closed } => {
                 if points.len() < 2 || (*closed && points.len() < 3) { return Err(KernelError::Invalid("a line needs two points, a closed one three")) }
                 if !points.iter().all(|p| finite(p)) { return Err(KernelError::Invalid("a point is not a number")) }
@@ -127,6 +151,21 @@ impl Curve {
                 if !finite(start) || !finite(mid) || !finite(end) { return Err(KernelError::Invalid("a point is not a number")) }
                 let cross = (mid[0] - start[0]) * (end[1] - start[1]) - (mid[1] - start[1]) * (end[0] - start[0]);
                 if cross.abs() < 1e-9 { return Err(KernelError::Invalid("the three points of an arc must not lie on a line")) }
+            }
+            CurveShape::Ellipse { center, major, minor } => {
+                if !finite(center) || !finite(major) { return Err(KernelError::Invalid("a point is not a number")) }
+                if !(major[0].hypot(major[1]) > 1e-9) || !(*minor > 1e-9) || !minor.is_finite() { return Err(KernelError::Invalid("an ellipse needs two radii greater than zero")) }
+            }
+            CurveShape::Contour { pieces } => {
+                if pieces.is_empty() { return Err(KernelError::Invalid("a contour needs a piece")) }
+                for p in pieces {
+                    if crate::join::ends(p).is_none() { return Err(KernelError::Invalid("a contour is made of lines, arcs and splines with two ends")) }
+                    Self::check_shape(p)?;
+                }
+                for w in pieces.windows(2) {
+                    let (a, b) = (crate::join::ends(&w[0]).unwrap().1, crate::join::ends(&w[1]).unwrap().0);
+                    if (a[0] - b[0]).hypot(a[1] - b[1]) > crate::join::MEET { return Err(KernelError::Invalid("the pieces of a contour must meet end to end")) }
+                }
             }
         }
         Ok(())
@@ -332,6 +371,22 @@ impl<K: Kernel> Document<K> {
         }).collect())
     }
 
+    /// Join Curves (J): the curves replaced by their joined runs, as one undoable step. Returns the
+    /// new curves' ids.
+    pub fn commit_join(&mut self, ids: &[CurveId]) -> Result<Vec<CurveId>, KernelError> {
+        let curves = ids.iter().map(|id| self.curve(*id).cloned().ok_or(KernelError::Invalid("that curve no longer exists"))).collect::<Result<Vec<_>, _>>()?;
+        let joined = crate::join::join(&curves)?;
+        for c in &joined { c.check()?; }
+        self.checkpoint();
+        for id in ids { self.state.curves.remove(id); }
+        Ok(joined.into_iter().map(|c| {
+            let id = self.state.next_curve;
+            self.state.next_curve += 1;
+            self.state.curves.insert(id, Rc::new(c));
+            id
+        }).collect())
+    }
+
     /// The target as it would be after a boolean with each tool in turn.
     pub fn preview_boolean(&self, target: BodyId, tools: &[BodyId], op: BooleanOp) -> Result<Traced<K::Solid>, KernelError> {
         if tools.is_empty() { return Err(KernelError::Invalid("select a tool body as well as the target")) }
@@ -360,6 +415,38 @@ impl<K: Kernel> Document<K> {
         self.replace_traced(target, t);
         if !keep_tools { for id in tools { self.state.bodies.remove(id); } }
         Ok(target)
+    }
+
+    /// Boolean's Shift+Q slice: the target with the tools cut away, and for each tool the piece of
+    /// the target inside it.
+    pub fn preview_boolean_slice(&self, target: BodyId, tools: &[BodyId]) -> Result<(Traced<K::Solid>, Vec<K::Solid>), KernelError> {
+        let rest = self.preview_boolean(target, tools, BooleanOp::Difference)?;
+        let body = self.get(target).ok_or(KernelError::Invalid("that body no longer exists"))?;
+        let pieces = tools.iter().map(|t| {
+            let tool = self.get(*t).ok_or(KernelError::Invalid("that body no longer exists"))?;
+            let piece = self.kernel.boolean(body, tool, BooleanOp::Intersection)?.solid;
+            if self.kernel.face_count(&piece) == 0 { return Err(KernelError::Invalid("a tool does not meet the body")) }
+            Ok(piece)
+        }).collect::<Result<Vec<_>, KernelError>>()?;
+        Ok((rest, pieces))
+    }
+
+    /// Run a slice as one undoable step: the target keeps its id and the pieces become new bodies,
+    /// returned in tool order. The tools go unless kept.
+    pub fn commit_boolean_slice(&mut self, target: BodyId, tools: &[BodyId], keep_tools: bool) -> Result<Vec<BodyId>, KernelError> {
+        let (rest, pieces) = self.preview_boolean_slice(target, tools)?;
+        self.checkpoint();
+        self.replace_traced(target, rest);
+        if !keep_tools { for id in tools { self.state.bodies.remove(id); } }
+        Ok(pieces.into_iter().map(|solid| self.add_unrecorded(solid)).collect())
+    }
+
+    fn add_unrecorded(&mut self, solid: K::Solid) -> BodyId {
+        let id = self.state.next_id;
+        self.state.next_id += 1;
+        let refs = self.new_refs(&solid);
+        self.state.bodies.insert(id, Rc::new(Body { solid, refs }));
+        id
     }
 
     /// Copy bodies in place, as one undoable step. Returns the new ids, in order. The copies get
@@ -404,10 +491,7 @@ impl<K: Kernel> Document<K> {
                 let id = target.expect("a slice always has a target");
                 self.checkpoint();
                 self.replace_traced(id, Traced { solid, history });
-                let new = self.state.next_id;
-                self.state.next_id += 1;
-                let refs = self.new_refs(&piece);
-                self.state.bodies.insert(new, Rc::new(Body { solid: piece, refs }));
+                self.add_unrecorded(piece);
                 id
             }
         }
@@ -425,7 +509,7 @@ impl<K: Kernel> Document<K> {
         let (first, rest) = regions.split_first().ok_or(KernelError::Invalid("select a region first"))?;
         let (profile, frame) = self.region(*first)?;
         let kind = match kind {
-            FormRequest::Revolve { axis_point, axis_dir, angle } => FormKind::Revolve { axis_point, axis_dir, angle },
+            FormRequest::Revolve { axis_point, axis_dir, angle, thickness } => FormKind::Revolve { axis_point, axis_dir, angle, thickness },
             FormRequest::Loft => FormKind::Loft { more: rest.iter().map(|&id| self.region(id)).collect::<Result<_, _>>()? },
             FormRequest::Sweep { path, twist, scale } => {
                 if regions.contains(&path) { return Err(KernelError::Invalid("pick a path other than the profile")) }
