@@ -24,6 +24,7 @@
 #include <TColgp_HArray1OfPnt.hxx>
 #include <BRepOffsetAPI_ThruSections.hxx>
 #include <BRepOffset_MakeOffset.hxx>
+#include <BRepOffsetAPI_MakeThickSolid.hxx>
 #include <BRepPrimAPI_MakeRevol.hxx>
 #include <GProp_GProps.hxx>
 #include <gp_Ax1.hxx>
@@ -831,6 +832,55 @@ inline rust::Vec<double> w3d_sample(rust::Slice<const double> section, int32_t n
       out.push_back(p.Z());
     }
     return out;
+  } catch (const Standard_Failure &f) {
+    throw w3d_kernel_error(f);
+  }
+}
+
+// --- Shell and Mirror (Round 6) ------------------------------------------------------------------
+
+// Plasticity's Shell (Thin Solid): hollow the solid to walls `thickness` thick inside its outer
+// surface, opening the numbered faces. The outer faces keep their numbers' history; the inner
+// walls are new.
+inline std::unique_ptr<W3dResult> w3d_shell(const TopoDS_Shape &shape, rust::Slice<const int32_t> faces,
+                                            double thickness) {
+  TopTools_IndexedMapOfShape map;
+  TopExp::MapShapes(shape, TopAbs_FACE, map);
+  if (faces.empty()) throw std::runtime_error("select the faces to open");
+  if (!(thickness > 0.0) || !std::isfinite(thickness)) throw std::runtime_error("the wall thickness must be greater than zero");
+  TopTools_ListOfShape closing;
+  for (int32_t f : faces) {
+    if (f < 0 || f >= map.Extent()) throw std::out_of_range("no such face");
+    closing.Append(map(f + 1));
+  }
+  try {
+    BRepOffsetAPI_MakeThickSolid mk;
+    mk.MakeThickSolidByJoin(shape, closing, -thickness, 1e-6, BRepOffset_Skin, Standard_False, Standard_False,
+                            GeomAbs_Intersection, Standard_False);
+    if (!mk.IsDone() || mk.Shape().IsNull())
+      throw std::runtime_error("the walls can't be that thick here; try a thinner shell");
+    std::unique_ptr<W3dResult> r(new W3dResult());
+    r->shape = mk.Shape();
+    if (!w3d_is_valid(r->shape)) throw std::runtime_error("a shell that thick breaks the body; try a thinner one");
+    w3d_record(*r, 0, shape, {w3d_step(mk)});
+    return r;
+  } catch (const Standard_Failure &f) {
+    throw w3d_kernel_error(f);
+  }
+}
+
+// The shape reflected in the plane through plane[0..3] with normal plane[3..6], as a new copy.
+inline std::unique_ptr<TopoDS_Shape> w3d_mirror(const TopoDS_Shape &shape, rust::Slice<const double> plane) {
+  if (plane.size() != 6) throw std::runtime_error("a mirror plane is a point and a normal");
+  for (double v : plane) if (!std::isfinite(v)) throw std::runtime_error("the mirror plane is not a number");
+  gp_Vec n(plane[3], plane[4], plane[5]);
+  if (n.Magnitude() < 1e-12) throw std::runtime_error("the mirror plane has no direction");
+  try {
+    gp_Trsf t;
+    t.SetMirror(gp_Ax2(gp_Pnt(plane[0], plane[1], plane[2]), gp_Dir(n)));
+    BRepBuilderAPI_Transform mk(shape, t, Standard_True);
+    if (!mk.IsDone()) throw std::runtime_error("the body could not be mirrored");
+    return std::unique_ptr<TopoDS_Shape>(new TopoDS_Shape(mk.Shape()));
   } catch (const Standard_Failure &f) {
     throw w3d_kernel_error(f);
   }

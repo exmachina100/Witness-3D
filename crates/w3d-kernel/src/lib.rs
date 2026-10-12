@@ -13,6 +13,7 @@ pub mod engine;
 pub mod extrude;
 pub mod file;
 pub mod form;
+pub mod solids;
 #[cfg(feature = "occt")]
 pub mod occt;
 
@@ -20,6 +21,7 @@ pub use blend::{blend, Blend, BlendParams};
 pub use document::{Ref, Refs};
 pub use extrude::{extrude, ExtrudeParams, ExtrudeResult, Operation};
 pub use form::{form, offset_faces, FormKind, FormParams};
+pub use solids::{ArraySpec, Primitive};
 pub use document::{Curve, CurveId, CurveShape};
 pub mod join;
 
@@ -243,6 +245,19 @@ pub trait Kernel {
     /// stretching to meet them (Plasticity's Offset Face).
     fn offset_faces(&self, _s: &Self::Solid, _faces: &[u32], _distance: f64, _angle: f64) -> Result<Traced<Self::Solid>, KernelError> {
         Err(KernelError::Invalid("this kernel cannot offset faces"))
+    }
+    /// Hollowed to walls `thickness` thick inside the outer surface, open at the numbered faces
+    /// (Plasticity's Shell). The outer faces and edges are traced; the inner walls are new.
+    fn shell(&self, _s: &Self::Solid, _faces: &[u32], _thickness: f64) -> Result<Traced<Self::Solid>, KernelError> {
+        Err(KernelError::Invalid("this kernel cannot shell"))
+    }
+    /// A copy reflected in the plane through `origin` with normal `normal`.
+    fn mirror(&self, _s: &Self::Solid, _origin: DVec3, _normal: DVec3) -> Result<Self::Solid, KernelError> {
+        Err(KernelError::Invalid("this kernel cannot mirror"))
+    }
+    /// A ball of `radius` around `center`.
+    fn sphere(&self, _center: DVec3, _radius: f64) -> Result<Self::Solid, KernelError> {
+        Err(KernelError::Invalid("this kernel cannot make spheres"))
     }
     /// `n + 1` points along the path, for drawing curves like splines that only the kernel knows.
     fn sample(&self, _path: &Path, _n: usize) -> Result<Vec<DVec3>, KernelError> {

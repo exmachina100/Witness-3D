@@ -17,6 +17,7 @@ use serde::{Deserialize, Serialize};
 use crate::blend::{blend, BlendParams};
 use crate::extrude::{extrude, ExtrudeParams, ExtrudeResult, Operation};
 use crate::form::{form, offset_faces, FormKind, FormParams};
+use crate::solids::{ArraySpec, Primitive};
 use crate::{BooleanOp, Frame, History, Kernel, KernelError, Motion, Path, Profile, Segment, Traced};
 
 /// Length unit of every coordinate in a document. Fixed for now; stored in files so a later
@@ -551,6 +552,84 @@ impl<K: Kernel> Document<K> {
         self.checkpoint();
         self.replace_traced(body, t);
         Ok(body)
+    }
+
+    /// Box, Cylinder or Sphere as a new body, one undoable step.
+    pub fn commit_primitive(&mut self, p: &Primitive) -> Result<BodyId, KernelError> {
+        let solid = crate::solids::primitive(&self.kernel, p)?;
+        Ok(self.add(solid))
+    }
+
+    /// Compute a Shell without changing the document.
+    pub fn preview_shell(&self, body: BodyId, faces: &[u32], thickness: f64) -> Result<K::Solid, KernelError> {
+        let solid = self.get(body).ok_or(KernelError::Invalid("that body no longer exists"))?;
+        Ok(crate::solids::shell(&self.kernel, solid, faces, thickness)?.solid)
+    }
+
+    /// Run a Shell as one undoable step; the outer faces and edges keep their refs.
+    pub fn commit_shell(&mut self, body: BodyId, faces: &[u32], thickness: f64) -> Result<BodyId, KernelError> {
+        let solid = self.get(body).ok_or(KernelError::Invalid("that body no longer exists"))?;
+        let t = crate::solids::shell(&self.kernel, solid, faces, thickness)?;
+        self.checkpoint();
+        self.replace_traced(body, t);
+        Ok(body)
+    }
+
+    /// The copies Mirror or Array would make, per body in `bodies` order, without changing anything.
+    fn copies(&self, bodies: &[BodyId], make: impl Fn(&K::Solid) -> Result<Vec<K::Solid>, KernelError>) -> Result<Vec<(BodyId, Vec<K::Solid>)>, KernelError> {
+        if bodies.is_empty() { return Err(KernelError::Invalid("select a solid first")) }
+        bodies.iter().map(|&id| {
+            let s = self.get(id).ok_or(KernelError::Invalid("that body no longer exists"))?;
+            Ok((id, make(s)?))
+        }).collect()
+    }
+
+    /// Each body with its copies fused in; refs trace back to the body.
+    fn fused(&self, body: BodyId, copies: Vec<K::Solid>) -> Result<Traced<K::Solid>, KernelError> {
+        let mut cur: Option<Traced<K::Solid>> = None;
+        for c in copies {
+            let base = match &cur { Some(t) => &t.solid, None => self.get(body).expect("checked by copies") };
+            let next = self.kernel.boolean(base, &c, BooleanOp::Union)?;
+            cur = Some(match cur { Some(prev) => Traced { solid: next.solid, history: chain(&prev.history, &next.history) }, None => next });
+        }
+        cur.ok_or(KernelError::NoOp)
+    }
+
+    /// Put copies in the document: fused into their bodies when `join`, else as new bodies. Returns
+    /// the new bodies' ids, or the joined bodies' ids.
+    fn place_copies(&mut self, all: Vec<(BodyId, Vec<K::Solid>)>, join: bool) -> Result<Vec<BodyId>, KernelError> {
+        if join {
+            let fused = all.into_iter().map(|(id, c)| Ok((id, self.fused(id, c)?))).collect::<Result<Vec<_>, KernelError>>()?;
+            self.checkpoint();
+            Ok(fused.into_iter().map(|(id, t)| { self.replace_traced(id, t); id }).collect())
+        } else {
+            self.checkpoint();
+            Ok(all.into_iter().flat_map(|(_, c)| c).map(|s| self.add_unrecorded(s)).collect())
+        }
+    }
+
+    /// Mirror's copies, one per body, for a preview.
+    pub fn preview_mirror(&self, bodies: &[BodyId], origin: DVec3, normal: DVec3) -> Result<Vec<K::Solid>, KernelError> {
+        Ok(self.copies(bodies, |s| Ok(vec![crate::solids::mirror(&self.kernel, s, origin, normal)?]))?.into_iter().flat_map(|(_, c)| c).collect())
+    }
+
+    /// Mirror bodies in a plane as one undoable step: as new bodies, or joined to the originals.
+    pub fn commit_mirror(&mut self, bodies: &[BodyId], origin: DVec3, normal: DVec3, join: bool) -> Result<Vec<BodyId>, KernelError> {
+        let all = self.copies(bodies, |s| Ok(vec![crate::solids::mirror(&self.kernel, s, origin, normal)?]))?;
+        self.place_copies(all, join)
+    }
+
+    /// An array's copies, for a preview.
+    pub fn preview_array(&self, bodies: &[BodyId], spec: &ArraySpec) -> Result<Vec<K::Solid>, KernelError> {
+        let motions = spec.motions()?;
+        Ok(self.copies(bodies, |s| Ok(motions.iter().map(|m| self.kernel.transform(s, m)).collect()))?.into_iter().flat_map(|(_, c)| c).collect())
+    }
+
+    /// Rectangular or Radial Array as one undoable step: copies as new bodies, or joined.
+    pub fn commit_array(&mut self, bodies: &[BodyId], spec: &ArraySpec, join: bool) -> Result<Vec<BodyId>, KernelError> {
+        let motions = spec.motions()?;
+        let all = self.copies(bodies, |s| Ok(motions.iter().map(|m| self.kernel.transform(s, m)).collect()))?;
+        self.place_copies(all, join)
     }
 
     /// Extrude a closed curve's region (Plasticity's Extrude on a region).

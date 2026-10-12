@@ -247,6 +247,20 @@ impl Kernel for Occt {
         Ok(Traced { solid, history: history(h) })
     }
 
+    fn shell(&self, s: &Shape, faces: &[u32], thickness: f64) -> Result<Traced<Shape>, KernelError> {
+        let faces: Vec<usize> = faces.iter().map(|&f| f as usize).collect();
+        let (solid, h) = s.shell_with_history(&faces, thickness).map_err(shim)?;
+        Ok(Traced { solid, history: history(h) })
+    }
+
+    fn mirror(&self, s: &Shape, origin: DVec3, normal: DVec3) -> Result<Shape, KernelError> {
+        s.mirrored(origin, normal).map_err(shim)
+    }
+
+    fn sphere(&self, center: DVec3, radius: f64) -> Result<Shape, KernelError> {
+        Ok(Shape::sphere(radius).at(center).build())
+    }
+
     fn is_valid(&self, s: &Shape) -> bool { s.is_valid() }
 
     fn tessellate(&self, s: &Shape, tolerance: f64) -> Result<Tessellation, KernelError> {
