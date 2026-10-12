@@ -1,8 +1,7 @@
 # Witness 3D
 
-A direct modeler in the spirit of Plasticity: exact B-rep solids, live push/pull previews, edge
-fillets and chamfers, and whole-document undo, on the OpenCascade kernel. Documents are in
-millimetres and save as `.w3d` files (exact geometry); STEP is for exchange.
+A direct modeler in the OpenCascade kernel. Documents are in millimetres and save as `.w3d` files
+(exact geometry); STEP is for exchange.
 
 | Folder | What it is |
 |---|---|
