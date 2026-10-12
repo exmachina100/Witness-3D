@@ -134,3 +134,57 @@ export function join(curves) {
     }
     return out;
 }
+
+// --- Spiral and Tangent Arc ------------------------------------------------------------------------
+
+/**
+ * Points along a spiral (Plasticity's Spiral) as [u, v, h]: round the plane's origin in its
+ * coordinates, `h` up its normal. `perTurn` points a turn.
+ */
+export function helixPoints(c, perTurn = 48) {
+    const n = Math.max(2, Math.ceil(c.turns * perTurn)), s = c.left ? -1 : 1;
+    return Array.from({ length: n + 1 }, (_, i) => {
+        const f = i / n, t = 2 * Math.PI * c.turns * f;
+        return [c.radius * Math.cos(s * t), c.radius * Math.sin(s * t), c.length * f];
+    });
+}
+
+/** A spiral's pitch angle: how steeply it climbs, in radians (Plasticity's Angle, tied to Pitch). */
+export const spiralAngle = c => Math.atan2(c.length / c.turns, 2 * Math.PI * c.radius);
+
+/**
+ * Tangent Arc: the arc leaving `a` along `t` (a direction) and ending at `q`, as { start, mid, end,
+ * radius }, or null when `q` is straight ahead or behind.
+ */
+export function tangentArc(a, t, q) {
+    const l = Math.hypot(...t), T = [t[0] / l, t[1] / l], N = [-T[1], T[0]];
+    const d = [q[0] - a[0], q[1] - a[1]], across = d[0] * N[0] + d[1] * N[1];
+    if (Math.abs(across) < 1e-9 * Math.max(1, Math.hypot(...d))) return null;
+    const k = (d[0] * d[0] + d[1] * d[1]) / (2 * across), c = [a[0] + N[0] * k, a[1] + N[1] * k], r = Math.abs(k);
+    const ang = p => Math.atan2(p[1] - c[1], p[0] - c[0]), turn = Math.sign(k);
+    let sweep = ang(q) - ang(a);
+    while (turn * sweep <= 0) sweep += turn * 2 * Math.PI;
+    while (turn * sweep > 2 * Math.PI) sweep -= turn * 2 * Math.PI;
+    const m = ang(a) + sweep / 2;
+    return { start: a, mid: [c[0] + r * Math.cos(m), c[1] + r * Math.sin(m)], end: q, radius: r };
+}
+
+/**
+ * Where an open curve ends and the way it leaves there, in its plane: `[point, direction]` for the
+ * first end (`last` false, heading back out of the curve) or the last. Null for closed curves.
+ */
+export function endTangent(c, last) {
+    if (c.kind === 'contour') return c.pieces.length ? endTangent(last ? c.pieces.at(-1) : c.pieces[0], last) : null;
+    if (!ends(c)) return null;
+    if (c.kind === 'arc') {
+        const t = circleThrough(c.start, c.mid, c.end);
+        if (!t) return null;
+        const p = last ? c.end : c.start, r = [p[0] - t.center[0], p[1] - t.center[1]];
+        const ccw = (c.start[0] - t.center[0]) * (c.mid[1] - t.center[1]) - (c.start[1] - t.center[1]) * (c.mid[0] - t.center[0]) > 0;
+        const along = ccw ? [-r[1], r[0]] : [r[1], -r[0]];
+        return [p, last ? along : [-along[0], -along[1]]];
+    }
+    const pts = c.samples ?? c.points;
+    const [p, q] = last ? [pts.at(-1), pts.at(-2)] : [pts[0], pts[1]];
+    return [c.points[last ? c.points.length - 1 : 0], [p[0] - q[0], p[1] - q[1]]];
+}

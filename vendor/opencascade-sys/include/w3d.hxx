@@ -43,6 +43,13 @@
 #include <BRepFilletAPI_MakeChamfer.hxx>
 #include <BRepFilletAPI_MakeFillet.hxx>
 #include <BRepTools.hxx>
+#include <BRepLib.hxx>
+#include <BRepOffsetAPI_DraftAngle.hxx>
+#include <Geom_CylindricalSurface.hxx>
+#include <Geom2d_Line.hxx>
+#include <BRepBndLib.hxx>
+#include <Bnd_Box.hxx>
+#include <gp_Pln.hxx>
 #include <BRep_Builder.hxx>
 #include <ChFiDS_ErrorStatus.hxx>
 #include <Standard_Failure.hxx>
@@ -399,6 +406,23 @@ inline TopoDS_Wire w3d_section(const double *&p, const double *end) {
     }
     return mk.Wire();
   }
+  if (kind == 7) {
+    // A helix: a straight line unrolled on the cylinder through its start.
+    need(13);
+    gp_Pnt o(p[0], p[1], p[2]);
+    gp_Dir n(p[3], p[4], p[5]), x(p[6], p[7], p[8]);
+    double r = p[9], length = p[10], turns = p[11];
+    bool left = p[12] != 0;
+    p += 13;
+    if (!(r > 0 && length > 0 && turns > 0)) throw std::runtime_error("a spiral needs a radius, a length and turns greater than zero");
+    Handle(Geom_CylindricalSurface) cyl = new Geom_CylindricalSurface(gp_Ax3(o, n, x), r);
+    double pitch = length / turns;
+    gp_Vec2d d((left ? -1 : 1) * 2 * M_PI, pitch);
+    Handle(Geom2d_Line) line = new Geom2d_Line(gp_Pnt2d(0, 0), gp_Dir2d(d));
+    TopoDS_Edge e = BRepBuilderAPI_MakeEdge(line, cyl, 0, turns * d.Magnitude()).Edge();
+    BRepLib::BuildCurves3d(e);
+    return BRepBuilderAPI_MakeWire(e).Wire();
+  }
   if (kind == 4) {
     need(9);
     gp_Pnt a(p[0], p[1], p[2]), b(p[3], p[4], p[5]), c(p[6], p[7], p[8]);
@@ -531,7 +555,8 @@ inline std::unique_ptr<TopoDS_Shape> w3d_sweep(rust::Slice<const double> section
     }
 
     BRepOffsetAPI_MakePipeShell mk(spine);
-    mk.SetMode(Standard_False);
+    // Along a spiral the profile follows the Frenet frame, so it stays upright to the axis.
+    mk.SetMode(path.size() > 0 && int(path[0]) == 7 ? Standard_True : Standard_False);
     mk.SetTransitionMode(BRepBuilderAPI_RightCorner);
     mk.Add(profile, Standard_False, Standard_False);
     if (!plain) {
@@ -549,31 +574,100 @@ inline std::unique_ptr<TopoDS_Shape> w3d_sweep(rust::Slice<const double> section
 }
 
 // Plasticity's Offset Face: the numbered faces move `distance` along their normals and their
-// neighbours stretch or shrink to meet them. Faces and edges are traced into the result.
+// neighbours stretch or shrink to meet them. With an `angle` (A, "Angle Adjacent") the faces
+// sharing a sharp edge with them then lean by that many radians, pivoting where they end away from
+// the moved face, so that face shrinks (positive) or grows. Faces and edges are traced through.
 inline std::unique_ptr<W3dResult> w3d_offset_faces(const TopoDS_Shape &shape, rust::Slice<const int32_t> faces,
-                                                   double distance) {
+                                                   double distance, double angle) {
   TopTools_IndexedMapOfShape map;
   TopExp::MapShapes(shape, TopAbs_FACE, map);
   for (int32_t f : faces)
     if (f < 0 || f >= map.Extent()) throw std::out_of_range("no such face");
   try {
-    BRepOffset_MakeOffset mk;
-    mk.Initialize(shape, 0.0, 1e-6, BRepOffset_Skin, Standard_False, Standard_False, GeomAbs_Intersection,
-                  Standard_False, Standard_True);
-    for (int32_t f : faces) mk.SetOffsetOnFace(TopoDS::Face(map(f + 1)), distance);
-    mk.MakeOffsetShape();
-    if (!mk.IsDone() || mk.Shape().IsNull())
-      throw std::runtime_error("the faces could not be offset that far; try a smaller distance");
+    std::vector<W3dSuccessors> steps;
+    TopoDS_Shape now = shape;
+    std::vector<TopoDS_Face> moved;
+    for (int32_t f : faces) moved.push_back(TopoDS::Face(map(f + 1)));
+    std::shared_ptr<BRepOffset_MakeOffset> mk;
+    if (std::fabs(distance) > 1e-12) {
+      mk.reset(new BRepOffset_MakeOffset());
+      mk->Initialize(shape, 0.0, 1e-6, BRepOffset_Skin, Standard_False, Standard_False, GeomAbs_Intersection,
+                     Standard_False, Standard_True);
+      for (const auto &f : moved) mk->SetOffsetOnFace(f, distance);
+      mk->MakeOffsetShape();
+      if (!mk->IsDone() || mk->Shape().IsNull())
+        throw std::runtime_error("the faces could not be offset that far; try a smaller distance");
+      now = mk->Shape();
+      // MakeOffset reports each face's and edge's offset image as "generated" from it.
+      W3dSuccessors step = [mk](const TopoDS_Shape &s, TopTools_ListOfShape &out) {
+        const TopTools_ListOfShape &g = mk->Generated(s);
+        if (!g.IsEmpty()) { for (TopTools_ListOfShape::Iterator it(g); it.More(); it.Next()) out.Append(it.Value()); return; }
+        if (!mk->IsDeleted(s)) out.Append(s);
+      };
+      steps.push_back(step);
+      std::vector<TopoDS_Face> images;
+      for (const auto &f : moved) {
+        TopTools_ListOfShape l;
+        step(f, l);
+        for (TopTools_ListOfShape::Iterator it(l); it.More(); it.Next())
+          if (it.Value().ShapeType() == TopAbs_FACE) images.push_back(TopoDS::Face(it.Value()));
+      }
+      moved = images;
+    }
+    if (std::fabs(angle) > 1e-12) {
+      TopTools_IndexedDataMapOfShapeListOfShape owners;
+      TopExp::MapShapesAndAncestors(now, TopAbs_EDGE, TopAbs_FACE, owners);
+      TopTools_IndexedMapOfShape picked;
+      for (const auto &f : moved) picked.Add(f);
+      std::shared_ptr<BRepOffsetAPI_DraftAngle> draft(new BRepOffsetAPI_DraftAngle(now));
+      TopTools_IndexedMapOfShape done;
+      for (const auto &f : moved) {
+        BRepAdaptor_Surface surf(f);
+        if (surf.GetType() != GeomAbs_Plane) throw std::runtime_error("an angle needs flat faces");
+        gp_Dir n = surf.Plane().Axis().Direction();
+        if (f.Orientation() == TopAbs_REVERSED) n.Reverse();
+        gp_Pnt o = surf.Plane().Location();
+        // The neighbours across sharp edges, and how far they reach back from the face.
+        std::vector<TopoDS_Face> slopes;
+        double reach = 0;
+        for (TopExp_Explorer ex(f, TopAbs_EDGE); ex.More(); ex.Next()) {
+          const TopTools_ListOfShape &l = owners.FindFromKey(ex.Current());
+          for (TopTools_ListOfShape::Iterator it(l); it.More(); it.Next()) {
+            const TopoDS_Face &g = TopoDS::Face(it.Value());
+            if (picked.Contains(g) || done.Contains(g)) continue;
+            if (BRep_Tool::Continuity(TopoDS::Edge(ex.Current()), f, g) > GeomAbs_C0) continue;
+            done.Add(g);
+            slopes.push_back(g);
+            Bnd_Box b;
+            BRepBndLib::Add(g, b);
+            double x0, y0, z0, x1, y1, z1;
+            b.Get(x0, y0, z0, x1, y1, z1);
+            for (int k = 0; k < 8; k++) {
+              gp_Vec v(o, gp_Pnt(k & 1 ? x1 : x0, k & 2 ? y1 : y0, k & 4 ? z1 : z0));
+              reach = std::min(reach, v.Dot(gp_Vec(n)));
+            }
+          }
+        }
+        gp_Pln neutral(o.Translated(gp_Vec(n) * reach), n);
+        for (const auto &g : slopes) {
+          draft->Add(g, n, angle, neutral);
+          if (!draft->AddDone()) throw std::runtime_error("the faces next to it cannot lean that far");
+        }
+      }
+      if (done.IsEmpty()) throw std::runtime_error("no faces meet it at a sharp edge to lean");
+      draft->Build();
+      if (!draft->IsDone()) throw std::runtime_error("the faces next to it cannot lean that far; try a smaller angle");
+      now = draft->Shape();
+      steps.push_back([draft](const TopoDS_Shape &s, TopTools_ListOfShape &out) {
+        // DraftAngle reports nothing as Modified; ModifiedShape gives each image.
+        try { out.Append(draft->ModifiedShape(s)); } catch (const Standard_Failure &) { out.Append(s); }
+      });
+    }
+    if (steps.empty()) throw std::runtime_error("nothing to change");
     std::unique_ptr<W3dResult> r(new W3dResult());
-    r->shape = mk.Shape();
+    r->shape = now;
     if (!w3d_is_valid(r->shape)) throw std::runtime_error("offsetting that far breaks the body; try a smaller distance");
-    // MakeOffset reports each face's and edge's offset image as "generated" from it.
-    W3dSuccessors step = [&mk](const TopoDS_Shape &s, TopTools_ListOfShape &out) {
-      const TopTools_ListOfShape &g = mk.Generated(s);
-      if (!g.IsEmpty()) { for (TopTools_ListOfShape::Iterator it(g); it.More(); it.Next()) out.Append(it.Value()); return; }
-      if (!mk.IsDeleted(s)) out.Append(s);
-    };
-    w3d_record(*r, 0, shape, {step});
+    w3d_record(*r, 0, shape, steps);
     return r;
   } catch (const Standard_Failure &f) {
     throw w3d_kernel_error(f);

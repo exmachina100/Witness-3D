@@ -4,7 +4,7 @@
 // OpenCascade build leaves out the per-face offset algorithm.
 
 import * as THREE from 'three';
-import { arcPoints, ellipsePoints, loops } from './curves.js';
+import { arcPoints, ellipsePoints, helixPoints, loops } from './curves.js';
 import { boolean, count, extrudeFace, facePlane, oc } from './Kernel.js';
 
 const pnt = v => new (oc().gp_Pnt)(v.x, v.y, v.z);
@@ -54,6 +54,10 @@ function geometry(c) {
         const [axis, R, rr] = r >= c.minor ? [major.clone().normalize(), r, c.minor] : [across, c.minor, r];
         return { ellipse: { center: p.at(c.center), normal: p.n, axis, R, r: rr }, points: ellipsePoints(c.center, c.major, c.minor, 64).map(q => p.at(q)), closed: true };
     }
+    if (c.kind === 'spiral') {
+        if (![c.radius, c.length, c.turns].every(v => Number.isFinite(v) && v > 1e-9)) throw new Error('a spiral needs a radius, a length and turns greater than zero');
+        return { spiral: { o: p.o, n: p.n, x: p.x, radius: c.radius, length: c.length, turns: c.turns, left: !!c.left }, points: helixPoints(c, 32).map(([u, v, h]) => p.at([u, v]).addScaledVector(p.n, h)), closed: false };
+    }
     if (c.kind === 'contour') {
         const parts = c.pieces.map(q => geometry({ ...q, origin: c.origin, x: c.x, normal: c.normal }));
         return { pieces: parts, points: parts.flatMap((g, i) => i ? g.points.slice(1) : g.points), closed: loops(c.pieces) };
@@ -71,6 +75,16 @@ function wireOf(g) {
                 if (!mk.IsDone()) throw new Error('the curves do not meet end to end');
             }
         }
+        return mk;
+    }
+    if (g.spiral) {
+        // A straight line unrolled on the cylinder, as w3d_section's kind 7.
+        const h = g.spiral, pitch = h.length / h.turns, u = (h.left ? -1 : 1) * 2 * Math.PI;
+        const cyl = new o.Geom_CylindricalSurface(new o.gp_Ax3(pnt(h.o), dir(h.n), dir(h.x)), h.radius);
+        const line = new o.Geom2d_Line(new o.gp_Pnt2d(0, 0), new o.gp_Dir2d(u, pitch));
+        const e = new o.BRepBuilderAPI_MakeEdge(line, cyl, 0, h.turns * Math.hypot(u, pitch)).Edge();
+        o.BRepLib.BuildCurves3d(e);
+        mk.Add(e);
         return mk;
     }
     if (g.ellipse) {
@@ -198,7 +212,8 @@ export function sweep(c, path, twist = 0, scale = 1) {
     }
     const spine = wireOf(g);
     const mk = new o.BRepOffsetAPI_MakePipeShell(spine.Wire());
-    mk.SetMode(false);
+    // Along a spiral the profile follows the Frenet frame, so it stays upright to the axis.
+    mk.SetMode(!!g.spiral);
     mk.SetTransitionMode(o.BRepBuilderAPI_TransitionMode.BRepBuilderAPI_RightCorner);
     mk.Add(prof.wire, false, false);
     if (!plain) mk.Add(sectionAt(1, 64), spine.Vertex(), false, false);

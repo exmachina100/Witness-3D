@@ -64,14 +64,14 @@ export const COMMAND = {
     extrude: { d: 'distance', a: 'angle', 'shift-t': 'thickness', s: 'lock', q: 'union', w: 'difference', 'shift-e': 'intersect', 'shift-q': 'slice', b: 'new' },
     boolean: { q: 'union', w: 'difference', 'shift-e': 'intersect', 'shift-q': 'slice', t: 'keep' },
     // Offset Face (manual: D distance; its A angle and Tab grow modes are not here yet)
-    offset: { d: 'distance' },
+    offset: { d: 'distance', a: 'angle' },
     // Revolve and Sweep (manual: A angle, Shift+T thickness, D twist, Q W Shift+E B as in Extrude)
     revolve: { a: 'angle', 'shift-t': 'thickness', q: 'union', w: 'difference', 'shift-e': 'intersect', b: 'new' },
     sweep: { d: 'twist', q: 'union', w: 'difference', 'shift-e': 'intersect', b: 'new' },
     // Drawing (manual: Tab types dimensions, S square and C centre for rectangles, Ctrl+Z drops a line's last point)
     rect: { tab: 'typed', s: 'square', c: 'centre' },
     circle: { tab: 'typed', v: 'vertical' },
-    line: { tab: 'typed', 'ctrl-z': 'back' },
+    line: { tab: 'typed', 'ctrl-z': 'back', x: 'axis-x', y: 'axis-y', z: 'axis-z' },
     // The other curve tools (manual: Tab types dimensions; Regular Polygon's arrows and C; Spline
     // Curve's Ctrl+Z). They have no default keys in Plasticity either; F finds them.
     'center-rect': { tab: 'typed', s: 'square' },
@@ -82,7 +82,10 @@ export const COMMAND = {
     arc: { tab: 'typed' },
     // V stands a circle or polygon up (0.6.30's gizmo:circle:mode and gizmo:polygon:mode).
     polygon: { tab: 'typed', arrowup: 'more', arrowdown: 'fewer', c: 'circumscribed', v: 'vertical' },
-    spline: { 'ctrl-z': 'back' },
+    spline: { 'ctrl-z': 'back', x: 'axis-x', y: 'axis-y', z: 'axis-z' },
+    // Tangent Arc's D flips it; Spiral's A, D and R (manual), X/Y/Z while placing the axis end.
+    'tangent-arc': { d: 'flip' },
+    spiral: { x: 'axis-x', y: 'axis-y', z: 'axis-z', a: 'angle', d: 'length', r: 'radius' },
     ellipse: {},
     ellipse3: {},
 };
@@ -104,7 +107,7 @@ export const ACTIONS = {
     'draw:center-rect': 'Center rectangle', 'draw:rect3': 'Three point rectangle', 'draw:circle2': 'Two point circle',
     'draw:circle3': 'Three point circle', 'draw:arc3': 'Three point arc', 'draw:arc': 'Center point arc',
     'draw:polygon': 'Regular polygon', 'draw:spline': 'Spline curve', 'draw:ellipse': 'Center ellipse',
-    'draw:ellipse3': 'Three point ellipse', 'join': 'Join curves',
+    'draw:ellipse3': 'Three point ellipse', 'draw:tangent-arc': 'Tangent arc', 'draw:spiral': 'Spiral', 'join': 'Join curves',
     'undo': 'Undo', 'redo': 'Redo', 'file:new': 'New', 'file:open': 'Open…', 'file:save': 'Save',
     'export:step': 'Export STEP', 'import:step': 'Import STEP',
 };

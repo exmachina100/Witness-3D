@@ -58,7 +58,7 @@ import { TOOLS, check, tool as toolInfo, withDefaults } from './tools.js';
 import { ACTIONS, COMMAND, VIEWPORT, keyFor, keyOf } from './keymap.js';
 import { Selection } from './Selection.js';
 import { claude, describe, MODEL, reply, request } from './ai.js';
-import { arcPoints, circleThrough, ellipsePoints, loops, polygonCorners } from '../curves.js';
+import { arcPoints, circleThrough, ellipsePoints, endTangent, helixPoints, loops, polygonCorners, spiralAngle, tangentArc } from '../curves.js';
 
 const KEYS = {
   idle: [['CLICK', 'SELECT'], ['⇧ CLICK', 'ADD'], ['CTRL CLICK', 'REMOVE'], ['DRAG', 'BOX'], ['MMB', 'ORBIT'], ['RMB', 'PAN'], ['F', 'SEARCH']],
@@ -68,13 +68,13 @@ const KEYS = {
   scale: [['S', 'UNIFORM'], ['CTRL', '0.1'], ['⏎ / RMB', 'OK']],
   extrude: [['DRAG DOT', 'DISTANCE'], ['D', 'DISTANCE'], ['A', 'ANGLE'], ['⇧T', 'THICKNESS'], ['S', 'BOTH SIDES'], ['Q', 'UNION'], ['W', 'DIFFERENCE'], ['⇧E', 'INTERSECT'], ['⇧Q', 'SLICE'], ['B', 'NEW BODY'], ['⏎ / RMB', 'OK']],
   boolean: [['Q', 'UNION'], ['W', 'DIFFERENCE'], ['⇧E', 'INTERSECT'], ['⇧Q', 'SLICE'], ['T', 'KEEP TOOLS'], ['⏎ / RMB', 'OK']],
-  offset: [['DRAG DOT', 'DISTANCE'], ['D', 'DISTANCE'], ['⇧ CLICK', 'FACES'], ['⏎ / RMB', 'OK']],
+  offset: [['DRAG DOT', 'DISTANCE'], ['D', 'DISTANCE'], ['A', 'ANGLE ADJACENT'], ['⇧ CLICK', 'FACES'], ['⏎ / RMB', 'OK']],
   revolve: [['CLICK', 'AXIS START · END'], ['A', 'ANGLE'], ['⇧T', 'THICKNESS'], ['Q', 'UNION'], ['W', 'DIFFERENCE'], ['⇧E', 'INTERSECT'], ['B', 'NEW BODY'], ['⏎ / RMB', 'OK']],
   loft: [['⏎ / RMB', 'OK'], ['ESC', 'CANCEL']],
   sweep: [['CLICK', 'PATH'], ['D', 'TWIST'], ['Q', 'UNION'], ['W', 'DIFFERENCE'], ['⇧E', 'INTERSECT'], ['B', 'NEW BODY'], ['⏎ / RMB', 'OK']],
   rect: [['CLICK', 'CORNERS'], ['S', 'SQUARE'], ['C', 'FROM CENTRE'], ['TAB', 'TYPE SIZE'], ['ALT', 'NO SNAP'], ['ESC', 'CANCEL']],
   circle: [['CLICK', 'CENTRE · RADIUS'], ['V', 'VERTICAL'], ['TAB', 'TYPE DIAMETER'], ['ALT', 'NO SNAP'], ['ESC', 'CANCEL']],
-  line: [['CLICK', 'POINTS'], ['CLICK START', 'CLOSE'], ['CTRL Z', 'BACK'], ['TAB', 'TYPE LENGTH'], ['⏎ / RMB', 'DONE']],
+  line: [['CLICK', 'POINTS'], ['CLICK START', 'CLOSE'], ['X Y Z', 'AXIS'], ['CTRL Z', 'BACK'], ['TAB', 'TYPE LENGTH'], ['⏎ / RMB', 'DONE']],
   'center-rect': [['CLICK', 'CENTRE · CORNER'], ['S', 'SQUARE'], ['TAB', 'TYPE SIZE'], ['ALT', 'NO SNAP'], ['ESC', 'CANCEL']],
   rect3: [['CLICK', 'SIDE · WIDTH'], ['TAB', 'TYPE SIZE'], ['ALT', 'NO SNAP'], ['ESC', 'CANCEL']],
   circle2: [['CLICK', 'TWO ENDS'], ['TAB', 'TYPE DIAMETER'], ['ALT', 'NO SNAP'], ['ESC', 'CANCEL']],
@@ -84,7 +84,9 @@ const KEYS = {
   polygon: [['CLICK', 'CENTRE · SIZE'], ['↑ ↓', 'SIDES'], ['⇧ WHEEL', 'SIDES'], ['C', 'CIRCUMSCRIBED'], ['V', 'VERTICAL'], ['TAB', 'TYPE RADIUS'], ['ESC', 'CANCEL']],
   ellipse: [['CLICK', 'CENTRE · AXIS · WIDTH'], ['ALT', 'NO SNAP'], ['ESC', 'CANCEL']],
   ellipse3: [['CLICK', 'AXIS ENDS · WIDTH'], ['ALT', 'NO SNAP'], ['ESC', 'CANCEL']],
-  spline: [['CLICK', 'POINTS'], ['CLICK START', 'CLOSE'], ['CTRL Z', 'BACK'], ['⏎ / RMB', 'DONE']],
+  spline: [['CLICK', 'POINTS'], ['CLICK START', 'CLOSE'], ['X Y Z', 'AXIS'], ['CTRL Z', 'BACK'], ['⏎ / RMB', 'DONE']],
+  'tangent-arc': [['CLICK', 'CURVE END · SIZE'], ['D', 'FLIP'], ['ALT', 'NO SNAP'], ['ESC', 'CANCEL']],
+  spiral: [['CLICK', 'AXIS START · END · RADIUS'], ['X Y Z', 'AXIS'], ['A', 'ANGLE'], ['D', 'LENGTH'], ['R', 'RADIUS'], ['⏎ / RMB', 'OK']],
   pushpull: [['CLICK', 'PLACE'], ['DRAG DOT', 'DISTANCE'], ['Q', 'JOIN'], ['W', 'CUT'], ['B', 'NEW'], ['R C', 'SHAPE'], ['⏎ / RMB', 'OK']],
 };
 // Drawing commands: Plasticity's curve tools, which end in curves and the regions inside them.
@@ -92,9 +94,10 @@ const DRAW = {
   rect: 'RECTANGLE', circle: 'CIRCLE', line: 'LINE', 'center-rect': 'CENTER RECTANGLE', rect3: 'THREE POINT RECTANGLE',
   circle2: 'TWO POINT CIRCLE', circle3: 'THREE POINT CIRCLE', arc3: 'THREE POINT ARC', arc: 'CENTER POINT ARC',
   polygon: 'REGULAR POLYGON', spline: 'SPLINE CURVE', ellipse: 'CENTER ELLIPSE', ellipse3: 'THREE POINT ELLIPSE',
+  'tangent-arc': 'TANGENT ARC', spiral: 'SPIRAL',
 };
 // Clicks that finish each drawing; lines and splines go on until closed or finished.
-const CLICKS = { rect: 2, 'center-rect': 2, rect3: 3, circle: 2, circle2: 2, circle3: 3, arc3: 3, arc: 3, polygon: 2, ellipse: 3, ellipse3: 3 };
+const CLICKS = { rect: 2, 'center-rect': 2, rect3: 3, circle: 2, circle2: 2, circle3: 3, arc3: 3, arc: 3, polygon: 2, ellipse: 3, ellipse3: 3, 'tangent-arc': 2 };
 // Commands that grow a solid from drawn regions, sharing one panel.
 const FORMS = { revolve: true, loft: true, sweep: true };
 const keysHtml = id => KEYS[id].map(([k, v]) => `<kbd>${k}</kbd><span>${v}</span>`).join('');
@@ -175,6 +178,14 @@ const SHELL = `
       <div class="field"><label>SHAPE</label><output data-id="blend-kind">ROUND</output></div>
       <div class="field"><label>EDGES</label><output data-id="blend-count">0</output></div>
     </div>
+    <div class="sec" data-panel="spiral" hidden>
+      <span class="hint" data-id="spiral-hint">CLICK THE START OF THE AXIS</span>
+      <div class="field"><label for="w3d-spiral-turns">TURNS</label><input id="w3d-spiral-turns" data-id="spiral-turns" data-spiral-field="turns" type="number" step="0.5" min="0" value="4"></div>
+      <div class="field"><label for="w3d-spiral-radius">RADIUS</label><input id="w3d-spiral-radius" data-id="spiral-radius" data-spiral-field="radius" type="number" step="0.5" min="0" value="0"></div>
+      <div class="field"><label for="w3d-spiral-length">LENGTH</label><input id="w3d-spiral-length" data-id="spiral-length" data-spiral-field="length" type="number" step="0.5" min="0" value="0"></div>
+      <div class="field"><label for="w3d-spiral-angle">ANGLE °</label><input id="w3d-spiral-angle" data-id="spiral-angle" data-spiral-field="angle" type="number" step="1" value="0"></div>
+      <div class="chips"><button data-spiral="left" aria-pressed="false">LEFT HANDED</button></div>
+    </div>
     <div class="sec" data-panel="draw" hidden>
       <span class="hint" data-id="draw-hint">CLICK A FACE OR THE CONSTRUCTION PLANE</span>
       <div class="field"><label>SIZE</label><output data-id="draw-size">—</output></div>
@@ -224,6 +235,7 @@ const SHELL = `
     <div class="sec" data-panel="offset" hidden>
       <span class="hint" data-id="off-hint">DRAG THE DOT, OR D AND TYPE</span>
       <div class="field"><label for="w3d-off-distance">DISTANCE</label><input id="w3d-off-distance" data-id="off-distance" type="number" step="0.5" value="0"></div>
+      <div class="field"><label for="w3d-off-angle">ANGLE ADJACENT °</label><input id="w3d-off-angle" data-id="off-angle" type="number" step="1" value="0"></div>
       <div class="field"><label>FACES</label><output data-id="off-count">0</output></div>
     </div>
     <div class="sec" data-panel="form" hidden>
@@ -517,12 +529,14 @@ export async function mount(root, backend) {
     const x = new THREE.Vector3(...c.x).projectOnPlane(n).normalize();
     return { o: new THREE.Vector3(...c.origin), x, y: new THREE.Vector3().crossVectors(n, x), n };
   }
-  const lift = (f, p, h = 0) => f.o.clone().addScaledVector(f.x, p.x).addScaledVector(f.y, p.y).addScaledVector(f.n, h);
+  // A spiral's points carry their height up the normal as z.
+  const lift = (f, p, h = 0) => f.o.clone().addScaledVector(f.x, p.x).addScaledVector(f.y, p.y).addScaledVector(f.n, h + (p.z ?? 0));
   const curve2d = c => c.kind === 'circle' ? new THREE.Path().absarc(c.center[0], c.center[1], c.radius, 0, Math.PI * 2).getPoints(96).slice(0, -1)
     : c.kind === 'arc' ? (arcPoints(c.start, c.mid, c.end, 48) ?? [c.start, c.end]).map(p => new THREE.Vector2(...p))
     : c.kind === 'spline' ? (c.samples ?? splinePreview(c.points, c.closed)).slice(0, c.closed ? -1 : undefined).map(p => new THREE.Vector2(...p))
     : c.kind === 'ellipse' ? ellipsePoints(c.center, c.major, c.minor, 96).map(p => new THREE.Vector2(...p))
     : c.kind === 'contour' ? contour2d(c)
+    : c.kind === 'spiral' ? helixPoints(c, 48).map(p => new THREE.Vector3(...p))
     : c.points.map(p => new THREE.Vector2(...p));
   /** A joined contour's points: the kernel's samples, or its pieces one after another. */
   function contour2d(c) {
@@ -530,7 +544,7 @@ export async function mount(root, backend) {
     return isClosed(c) && pts.length > 1 && pts[0].distanceTo(pts.at(-1)) < 1e-6 ? pts.slice(0, -1) : pts;
   }
   const isClosed = c => c.kind === 'circle' || c.kind === 'ellipse' || (c.kind === 'contour' ? loops(c.pieces) : c.kind !== 'arc' && c.closed && c.points.length >= 3);
-  const curveName = c => ({ circle: 'CIRCLE', arc: 'ARC', spline: 'SPLINE', ellipse: 'ELLIPSE', contour: 'CONTOUR' })[c.kind] ?? (!c.closed ? 'LINE' : c.points.length === 4 ? 'RECTANGLE' : 'POLYGON');
+  const curveName = c => ({ circle: 'CIRCLE', arc: 'ARC', spline: 'SPLINE', ellipse: 'ELLIPSE', contour: 'CONTOUR', spiral: 'SPIRAL' })[c.kind] ?? (!c.closed ? 'LINE' : c.points.length === 4 ? 'RECTANGLE' : 'POLYGON');
   /** A spline through the points for drawing before the kernel has made it (the kernel's own fit
    * is close to this chordal Catmull-Rom curve, not the same). */
   function splinePreview(points, closed) {
@@ -979,7 +993,7 @@ export async function mount(root, backend) {
   }
   function showTool(id) {
     for (const b of $$('[data-tool]')) b.setAttribute('aria-pressed', b.dataset.tool === id);
-    for (const el of $$('[data-panel]')) el.hidden = el.dataset.panel !== (DRAW[id] ? 'draw' : FORMS[id] ? 'form' : id);
+    for (const el of $$('[data-panel]')) el.hidden = el.dataset.panel !== (id === 'spiral' ? 'spiral' : DRAW[id] ? 'draw' : FORMS[id] ? 'form' : id);
     $('keys').innerHTML = keysHtml(KEYS[id] ? id : 'idle');
     const name = !id ? 'SELECT' : DRAW[id] ?? toolInfo(id).label;
     $('tool-name').textContent = name;
@@ -1012,6 +1026,7 @@ export async function mount(root, backend) {
     if (id === 'boolean') return startBoolean();
     if (id === 'offset') return startOffset(opts);
     if (FORMS[id]) return startForm(id);
+    if (id === 'spiral') return startSpiral();
     if (DRAW[id]) return startDraw(id);
   }
 
@@ -1669,7 +1684,7 @@ export async function mount(root, backend) {
   scene.add(drawPreview);
 
   function startDraw(kind) {
-    const c = cmd = { id: kind, plane: null, pts: [], cursor: null, square: false, centre: kind === 'center-rect', entry: null, sides: polygonSides, circumscribed: false, vertical: false, sweep: 0, turn: null };
+    const c = cmd = { id: kind, plane: null, pts: [], cursor: null, square: false, centre: kind === 'center-rect', entry: null, sides: polygonSides, circumscribed: false, vertical: false, sweep: 0, turn: null, axis: null, tangent: null, flip: false };
     lastTool = kind;
     showTool(kind);
     setState('none');
@@ -1678,11 +1693,13 @@ export async function mount(root, backend) {
     $('draw-vertical').hidden = kind !== 'polygon' && kind !== 'circle';
     for (const b of $$('[data-draw]')) b.setAttribute('aria-pressed', false);
     c.move = e => {
+      if (c.id === 'tangent-arc' && !c.plane) return;
       const p = drawPoint(e);
       showSnap(p?.snap, e);
       if (p && !p.curved) { c.cursor = p; drawShape(); }
     };
     c.click = e => {
+      if (c.id === 'tangent-arc' && !c.plane) { tangentStart(e); return true; }
       const p = drawPoint(e);
       if (p?.curved) toast('DRAW ON A FLAT FACE OR THE CONSTRUCTION PLANE');
       else if (p) addPoint(p, e);
@@ -1715,6 +1732,16 @@ export async function mount(root, backend) {
         return true;
       }
       if (action === 'typed') { typeSize(); return true; }
+      if (action === 'flip' && c.id === 'tangent-arc') { c.flip = !c.flip; drawShape(); return true; }
+      if (action.startsWith('axis-')) {
+        // X, Y or Z keeps the next point on that axis through the last one (press again to free it).
+        const a = action.slice(5);
+        if (c.axis === a) c.axis = null;
+        else if (c.plane && Math.hypot(worldAxis(a).dot(c.plane.x), worldAxis(a).dot(c.plane.y)) < 1e-6) return toast(`${a.toUpperCase()} IS ACROSS THE DRAWING PLANE`), true;
+        else c.axis = a;
+        drawShape();
+        return true;
+      }
       return false;
     };
     c.entryDone = () => c.entry ? setHud(`${c.entry.label} ${c.entry.text}_`) : drawShape();
@@ -1752,7 +1779,33 @@ export async function mount(root, backend) {
     const d = (s ? s.point : at).clone().sub(o);
     const uv = new THREE.Vector2(d.dot(x), d.dot(y));
     if (!s && snapping(e)) uv.set(Math.round(uv.x / gridStep()) * gridStep(), Math.round(uv.y / gridStep()) * gridStep());
+    if (c.axis && c.pts.length) {
+      const d = worldAxis(c.axis), du = d.dot(x), dv = d.dot(y), l2 = du * du + dv * dv, last = c.pts.at(-1);
+      if (l2 > 1e-12) {
+        const t = ((uv.x - last.x) * du + (uv.y - last.y) * dv) / l2;
+        return { uv: new THREE.Vector2(last.x + t * du, last.y + t * dv), snap: null };
+      }
+    }
     return { uv, snap: s };
+  }
+
+  /** Tangent Arc's first click: the end of an open curve, which it leaves along. */
+  function tangentStart(e) {
+    const c = cmd;
+    ray(e);
+    raycaster.params.Line.threshold = unitsPerPixel(controls.target) * 6;
+    const hit = raycaster.intersectObjects(curveGroup.children.filter(o => o.userData.curve !== undefined), false)[0];
+    const src = hit && curveList.find(k => k.id === hit.object.userData.curve);
+    const ends = src ? [endTangent(src, false), endTangent(src, true)].filter(Boolean) : [];
+    if (!ends.length) return toast(src ? 'PICK AN OPEN CURVE NEAR ONE OF ITS ENDS' : 'CLICK NEAR THE END OF A CURVE');
+    const f = curveFrame(src), q = local(e);
+    const far = ([p]) => { const s = screenOf(lift(f, { x: p[0], y: p[1] })); return Math.hypot(s.x - q.x, s.y - q.y); };
+    const [p, dir] = ends.reduce((a, b) => far(b) < far(a) ? b : a);
+    c.plane = { o: f.o, n: f.n, x: f.x, y: f.y, target: null };
+    c.pts = [new THREE.Vector2(...p)];
+    c.tangent = dir;
+    c.cursor = { uv: c.pts[0].clone() };
+    drawShape();
   }
 
   /** A rectangle's corners from its first click and the cursor, with S and C applied. */
@@ -1821,6 +1874,12 @@ export async function mount(root, backend) {
         const ok = R > 1e-6 && minor > 1e-6;
         return { show: ok ? [...ellipsePoints(o, major, minor, 96), [o[0] + major[0], o[1] + major[1]]] : P, size: `${(2 * R).toFixed(2)} × ${(2 * minor).toFixed(2)}`, curve: ok ? { kind: 'ellipse', center: o, major, minor } : 'THE ELLIPSE NEEDS A LENGTH AND A WIDTH', text: `ELLIPSE ${(2 * R).toFixed(2)} × ${(2 * minor).toFixed(2)}` };
       }
+      case 'tangent-arc': {
+        if (n < 2) return line();
+        const t = c.flip ? [-c.tangent[0], -c.tangent[1]] : c.tangent, arc = tangentArc(a, t, b);
+        if (!arc) return { show: P, size: '—', curve: 'THE END CANNOT BE STRAIGHT AHEAD OF THE CURVE' };
+        return { show: arcPoints(arc.start, arc.mid, arc.end, 48), size: `R ${arc.radius.toFixed(2)}`, curve: { kind: 'arc', start: arc.start, mid: arc.mid, end: arc.end }, text: `TANGENT ARC R ${arc.radius.toFixed(2)}` };
+      }
       case 'spline':
         return { show: splinePreview(P, false), size: `×${c.pts.length}` };
       default:
@@ -1856,7 +1915,9 @@ export async function mount(root, backend) {
     const c = cmd, f = c.plane;
     $('draw-points').textContent = c.pts.length;
     const need = CLICKS[c.id], left = need ? need - c.pts.length : 0;
-    $('draw-hint').textContent = !f ? 'CLICK A FACE OR THE CONSTRUCTION PLANE'
+    $('draw-hint').textContent = c.id === 'tangent-arc' ? (!f ? 'CLICK NEAR THE END OF A CURVE' : `CLICK FOR THE SIZE · D FLIPS${c.flip ? ' (FLIPPED)' : ''}`)
+      : !f ? 'CLICK A FACE OR THE CONSTRUCTION PLANE'
+      : c.axis ? `CLICK THE NEXT POINT · ALONG ${c.axis.toUpperCase()} (${c.axis.toUpperCase()} AGAIN FREES IT)`
       : c.id === 'rect' || c.id === 'center-rect' ? 'CLICK THE OTHER CORNER · TAB TYPES'
       : c.id === 'circle' ? `CLICK FOR THE RADIUS · TAB TYPES · V ${c.vertical ? 'FLAT' : 'VERTICAL'}`
       : c.id === 'polygon' ? `CLICK FOR THE SIZE · ↑ ↓ SIDES · V ${c.vertical ? 'FLAT' : 'VERTICAL'}`
@@ -1866,7 +1927,7 @@ export async function mount(root, backend) {
       : c.id === 'ellipse3' ? (left === 2 ? 'CLICK THE OTHER END OF THE AXIS' : 'CLICK FOR THE WIDTH')
       : need ? `CLICK ${left} MORE`
       : 'CLICK THE NEXT POINT · CLICK THE FIRST TO CLOSE';
-    if (!f || !c.cursor?.uv) { drawPreview.visible = false; $('draw-size').textContent = '—'; return setHud(`${DRAW[c.id]} · CLICK TO START`); }
+    if (!f || !c.cursor?.uv) { drawPreview.visible = false; $('draw-size').textContent = '—'; return setHud(`${DRAW[c.id]} · ${c.id === 'tangent-arc' ? 'CLICK A CURVE END' : 'CLICK TO START'}`); }
     setTarget(f.target ? label(f.target) : cplane.name);
     trackSweep(c);
     const { show, size, frame } = drawn(c, [...c.pts, c.cursor.uv]);
@@ -1980,6 +2041,132 @@ export async function mount(root, backend) {
       record(text, ids[0], curveLabel(ids[0]));
       await loadCurves();
     } catch (e) { setState('failed'); toast(say(e)); }
+  }
+
+  // --- Spiral -------------------------------------------------------------------
+  // Plasticity's Spiral: click the start of the axis, its end (X, Y or Z keeps it on that axis),
+  // then the radius in the plane square to the axis at its end. The spiral then stays open to
+  // adjust: Turns, Radius, Length, Angle (how steeply it climbs, tied to the pitch) and
+  // handedness in the panel, A, D and R to type the angle, length and radius. Enter keeps it.
+  function startSpiral() {
+    const c = cmd = { id: 'spiral', step: 0, p1: null, p2: null, plane: null, axis: null, x: null, radius: 0, length: 0, turns: 4, left: false, at: null, entry: null };
+    lastTool = 'spiral';
+    showTool('spiral');
+    setState('none');
+    const hint = () => {
+      $('spiral-hint').textContent = ['CLICK THE START OF THE AXIS', `CLICK THE END OF THE AXIS · X Y Z${c.axis ? ` (ALONG ${c.axis.toUpperCase()})` : ''}`, 'CLICK FOR THE RADIUS', 'A ANGLE · D LENGTH · R RADIUS · ⏎ OK'][c.step];
+      for (const k of ['turns', 'radius', 'length']) if (document.activeElement !== $(`spiral-${k}`)) $(`spiral-${k}`).value = +c[k].toFixed(3);
+      if (document.activeElement !== $('spiral-angle')) $('spiral-angle').value = c.length && c.radius ? +(spiralAngle(c) / DEG).toFixed(2) : 0;
+      $$('[data-spiral="left"]')[0].setAttribute('aria-pressed', c.left);
+    };
+    /** The point for the click being made: on a face or the plane, then along the axis, then square to it. */
+    const pointAt = e => {
+      if (c.step === 0) return placeAt(e);
+      ray(e);
+      if (c.step === 1) {
+        if (c.axis) {
+          // The point on the axis line through the start nearest the pointer's ray.
+          const d = worldAxis(c.axis), w = c.p1.clone().sub(raycaster.ray.origin), r = raycaster.ray.direction;
+          const b = d.dot(r), den = 1 - b * b;
+          if (den < 1e-9) return null;
+          let t = (b * w.dot(r) - w.dot(d)) / den;
+          if (snapping(e)) t = Math.round(t / gridStep()) * gridStep();
+          return { origin: c.p1.clone().addScaledVector(d, t) };
+        }
+        const at = raycaster.ray.intersectPlane(new THREE.Plane().setFromNormalAndCoplanarPoint(c.plane.n, c.p1), new THREE.Vector3());
+        if (at && snapping(e)) at.set(...at.toArray().map(v => Math.round(v / gridStep()) * gridStep()));
+        return at && { origin: at };
+      }
+      const n = c.p2.clone().sub(c.p1).normalize();
+      const at = raycaster.ray.intersectPlane(new THREE.Plane().setFromNormalAndCoplanarPoint(n, c.p2), new THREE.Vector3());
+      if (!at) return null;
+      const off = at.clone().sub(c.p2);
+      let r = off.length();
+      if (snapping(e)) r = Math.round(r / gridStep()) * gridStep();
+      return { origin: at, radius: r, x: off.lengthSq() > 1e-12 ? off.normalize() : null };
+    };
+    const frame = () => { const n = c.p2.clone().sub(c.p1).normalize(); return { o: c.p1, x: c.x, y: new THREE.Vector3().crossVectors(n, c.x), n }; };
+    const show = () => {
+      hint();
+      $('draw-points').textContent = c.step;
+      let pts = [];
+      if (c.step === 1 && c.at) pts = [c.p1, c.at.origin];
+      if (c.step >= 2 && c.x && c.radius > 1e-9) { const f = frame(); pts = helixPoints(c, 48).map(([u, v, h]) => lift(f, { x: u, y: v }, h)); }
+      drawPreview.geometry.dispose();
+      drawPreview.geometry = new THREE.BufferGeometry().setFromPoints(pts);
+      drawPreview.visible = pts.length > 1;
+      setHud(c.step >= 2 ? `R ${c.radius.toFixed(2)} · L ${c.length.toFixed(2)} · ×${+c.turns.toFixed(3)}` : c.step === 1 && c.at ? `L ${c.at.origin.distanceTo(c.p1).toFixed(2)}` : 'SPIRAL · CLICK TO START');
+    };
+    c.move = e => {
+      if (c.step > 2) return;
+      const p = pointAt(e);
+      if (!p || p.curved) return;
+      c.at = p;
+      if (c.step === 2 && p.x) { c.x = p.x; c.radius = p.radius; }
+      show();
+    };
+    c.click = e => {
+      const p = pointAt(e);
+      if (c.step > 2) return true;
+      if (!p || p.curved) { toast('START ON A FLAT FACE OR THE CONSTRUCTION PLANE'); return true; }
+      if (c.step === 0) { c.p1 = p.origin.clone(); c.plane = { n: p.normal.clone() }; setTarget(p.target != null ? label(p.target) : cplane.name); }
+      else if (c.step === 1) {
+        if (p.origin.distanceTo(c.p1) < 1e-6) return true;
+        c.p2 = p.origin.clone();
+        c.length = c.p2.distanceTo(c.p1);
+        c.axis = null;
+      } else {
+        if (!p.x || !(p.radius > 1e-6)) return true;
+        c.x = p.x; c.radius = p.radius;
+        setState('updated');
+      }
+      c.step++;
+      c.at = null;
+      show();
+      return true;
+    };
+    const set = (k, v) => {
+      if (!(Number.isFinite(v) && v > 0)) return toast(`THE ${k.toUpperCase()} MUST BE GREATER THAN ZERO`);
+      if (k === 'length') c.p2 = c.p1.clone().add(c.p2.clone().sub(c.p1).setLength(v));
+      c[k] = v;
+      if (k === 'length' || k === 'radius' || k === 'turns') show();
+    };
+    c.set = (k, v) => {
+      if (c.step < 3) return toast('CLICK THE AXIS AND THE RADIUS FIRST');
+      // The angle is the climb: keeping the length and radius, it sets the turns.
+      if (k === 'angle') {
+        if (!(v > 0 && v < 90)) return toast('THE ANGLE MUST BE BETWEEN 0 AND 90');
+        return set('turns', c.length / (2 * Math.PI * c.radius * Math.tan(v * DEG)));
+      }
+      set(k, v);
+    };
+    c.key = action => {
+      if (action.startsWith('axis-')) {
+        if (c.step !== 1) return false;
+        const a = action.slice(5);
+        c.axis = c.axis === a ? null : a;
+        show();
+        return true;
+      }
+      if (['angle', 'length', 'radius'].includes(action)) {
+        if (c.step < 3) { toast('CLICK THE AXIS AND THE RADIUS FIRST'); return true; }
+        const name = { angle: 'ANGLE °', length: 'LENGTH', radius: 'RADIUS' }[action];
+        c.entry = { label: name, text: '', apply: v => c.set(action, Math.abs(v)) };
+        setHud(`${name} _`);
+        return true;
+      }
+      if (action === 'left') { c.left = !c.left; show(); return true; }
+      return false;
+    };
+    c.entryDone = () => { if (!c.entry) show(); };
+    c.finish = () => {
+      if (c.step < 3) return endCmd(c.step ? 'cancelled' : null);
+      const n = c.p2.clone().sub(c.p1).normalize();
+      return commitCurve({ origin: c.p1.toArray(), x: c.x.toArray(), normal: n.toArray(), kind: 'spiral', radius: c.radius, length: c.length, turns: c.turns, left: c.left }, `SPIRAL R ${c.radius.toFixed(2)} L ${c.length.toFixed(2)} ×${+c.turns.toFixed(3)}`);
+    };
+    c.abort = () => endCmd('cancelled');
+    c.cleanup = () => { drawPreview.visible = false; };
+    show();
   }
 
   // --- extrude (E) ------------------------------------------------------------
@@ -2239,7 +2426,7 @@ export async function mount(root, backend) {
     const body = faceBody();
     if (body === null) return auto ? null : toast(sel.list('face').length ? 'OFFSET THE FACES OF ONE SOLID AT A TIME' : 'SELECT FACES TO OFFSET');
     if (!backend.previewOffset) return auto ? null : toast('OFFSET FACE IS NOT IN THIS BUILD YET');
-    const c = cmd = { id: 'offset', auto, body, faces: [], distance: 0, sent: 0, shown: 0, gizmo: null };
+    const c = cmd = { id: 'offset', auto, body, faces: [], distance: 0, angle: 0, sent: 0, shown: 0, gizmo: null };
     lastTool = 'offset';
     showTool('offset');
     setState('none');
@@ -2266,6 +2453,13 @@ export async function mount(root, backend) {
     };
     c.key = action => {
       if (action === 'distance') { c.auto = false; c.gizmo?.activate(lastPointer); return true; }
+      if (action === 'angle') {
+        // A: Angle Adjacent, the faces around lean (positive narrows the face).
+        c.auto = false;
+        c.entry = { label: 'ANGLE ADJACENT °', text: '', apply: v => setOffsetAngle(v) };
+        setHud('ANGLE ADJACENT ° _');
+        return true;
+      }
       return false;
     };
     c.click = e => {
@@ -2280,6 +2474,7 @@ export async function mount(root, backend) {
     c.abort = () => endCmd('cancelled');
     c.cleanup = () => { c.gizmo?.dispose(); clearPreview(); };
     $('off-distance').value = 0;
+    $('off-angle').value = 0;
     c.onSelection();
     setHud(auto ? 'DRAG THE DOT · D' : 'DRAG THE DOT, OR D AND TYPE');
   }
@@ -2292,15 +2487,24 @@ export async function mount(root, backend) {
     if (document.activeElement !== $('off-distance')) $('off-distance').value = +d.toFixed(3);
     previewOffsetCmd();
   }
+  function setOffsetAngle(deg) {
+    const c = cmd;
+    if (c?.id !== 'offset') return;
+    if (!(Math.abs(deg) < 90)) return toast('THE ANGLE MUST BE BETWEEN -90 AND 90');
+    c.angle = deg;
+    if (document.activeElement !== $('off-angle')) $('off-angle').value = deg;
+    previewOffsetCmd();
+  }
+  const offsetText = c => `${fmt(c.distance)}${c.angle ? ` · ${c.angle}°` : ''}`;
   async function previewOffsetCmd() {
     const c = cmd;
     if (c?.id !== 'offset') return;
     const n = ++c.sent;
-    if (!c.distance) { clearPreview(); setState('none'); return; }
+    if (!c.distance && !c.angle) { clearPreview(); setState('none'); return; }
     setState('updating');
     const t0 = performance.now();
     let body;
-    try { body = await backend.previewOffset({ body: c.body, faces: c.faces, distance: c.distance }); }
+    try { body = await backend.previewOffset({ body: c.body, faces: c.faces, distance: c.distance, angle: c.angle * DEG }); }
     catch (e) {
       if (cmd !== c || n !== c.sent) return;
       clearPreview();
@@ -2313,16 +2517,16 @@ export async function mount(root, backend) {
     $('ms').textContent = Math.round(performance.now() - t0);
     clearPreview();
     showPreviewBody(body);
-    setHud(fmt(c.distance));
+    setHud(offsetText(c));
     if (n === c.sent) setState('updated');
   }
   async function commitOffsetCmd() {
     const c = cmd;
-    if (!c.distance || c.body === null) return endCmd(c.auto ? null : 'cancelled');
+    if ((!c.distance && !c.angle) || c.body === null) return endCmd(c.auto ? null : 'cancelled');
     try {
-      const { id, scene: list } = await backend.commitOffset({ body: c.body, faces: c.faces, distance: c.distance });
+      const { id, scene: list } = await backend.commitOffset({ body: c.body, faces: c.faces, distance: c.distance, angle: c.angle * DEG });
       endCmd('committed');
-      record(`OFFSET FACE ${fmt(c.distance)} ×${c.faces.length}`, id);
+      record(`OFFSET FACE ${offsetText(c)} ×${c.faces.length}`, id);
       await showScene(list);
       sel.replace({ kind: 'solid', body: id });
       selectionChanged({ quiet: true });
@@ -2902,6 +3106,9 @@ export async function mount(root, backend) {
   for (const b of $$('[data-mode]')) b.onclick = e => doAction(b.dataset.mode === 'all' ? 'mode:all' : `${e.shiftKey ? 'mode-toggle' : 'mode'}:${b.dataset.mode}`);
   for (const b of $$('[data-action]')) b.onclick = () => doAction(b.dataset.action);
   for (const b of $$('[data-tool]')) b.onclick = () => startTool(b.dataset.tool);
+  for (const el of $$('[data-spiral-field]')) el.addEventListener('change', e => { const v = parseFloat(e.target.value); if (!isNaN(v) && cmd?.id === 'spiral') cmd.set(e.target.dataset.spiralField, v); });
+  for (const b of $$('[data-spiral]')) b.onclick = () => cmd?.id === 'spiral' && cmd.key(b.dataset.spiral);
+  $('off-angle').addEventListener('input', e => { const v = parseFloat(e.target.value); if (!isNaN(v) && cmd?.id === 'offset') { cmd.auto = false; setOffsetAngle(v); } });
   $('off-distance').addEventListener('input', e => { const v = parseFloat(e.target.value); if (!isNaN(v) && cmd?.id === 'offset') { cmd.auto = false; setOffsetDistance(v, false); } });
   for (const k of ['angle', 'thickness', 'twist', 'scale']) $(`form-${k}`).addEventListener('input', e => { const v = parseFloat(e.target.value); if (!isNaN(v) && (k !== 'scale' || v > 0) && (k !== 'angle' || v !== 0) && (k !== 'thickness' || v >= 0)) setForm({ [k]: v }); });
   for (const b of $$('[data-fop]')) b.onclick = () => cmd?.key?.(b.dataset.fop);
@@ -3150,7 +3357,8 @@ export async function mount(root, backend) {
         await startTool('offset');
         if (cmd?.id !== 'offset') throw new Error('those faces cannot be offset');
         cmd.auto = false;
-        setOffsetDistance(p.distance, false);
+        if (p.angle) setOffsetAngle(p.angle);
+        setOffsetDistance(p.distance ?? 0, false);
       } else if (FORMS[id]) {
         const list = id === 'loft' ? regions ?? [] : [region];
         if (!list.length || !list.every(r => curveList.some(c => c.id === r && isClosed(c)))) throw new Error('that region is gone');
@@ -3189,9 +3397,10 @@ export async function mount(root, backend) {
       if (c.id === 'pushpull') Object.assign(out, { placed: !!c.at, distance: c.distance });
       if (c.id === 'extrude') Object.assign(out, { region: c.src.region ?? null, face: c.src.face ?? null, target: c.src.target, distance: c.distance, op: c.op, outcome: c.outcome, angle: c.angle, thickness: c.thickness, lock: c.lock });
       if (c.id === 'boolean') Object.assign(out, { target: c.target, tools: c.tools, op: c.op, keep: c.keep });
-      if (c.id === 'offset') Object.assign(out, { body: c.body, faces: c.faces, distance: c.distance });
+      if (c.id === 'offset') Object.assign(out, { body: c.body, faces: c.faces, distance: c.distance, angle: c.angle });
       if (FORMS[c.id]) Object.assign(out, { regions: c.regions, target: c.target, op: c.op, outcome: c.outcome, axis: c.p1 && c.p2 ? [c.p1.toArray(), c.p2.toArray()] : null, angle: c.angle, thickness: c.thickness, path: c.path, twist: c.twist, scale: c.scale });
-      if (DRAW[c.id]) Object.assign(out, { placed: !!c.plane, points: c.pts.length, square: c.square, centre: c.centre, vertical: c.vertical, entry: c.entry?.label ?? null });
+      if (c.id === 'spiral') Object.assign(out, { step: c.step, turns: c.turns, radius: c.radius, length: c.length, left: c.left, angle: c.length ? spiralAngle(c) / DEG : 0, axis: c.axis, entry: c.entry?.label ?? null });
+      else if (DRAW[c.id]) Object.assign(out, { placed: !!c.plane, points: c.pts.length, square: c.square, centre: c.centre, vertical: c.vertical, axis: c.axis, flip: c.flip, entry: c.entry?.label ?? null });
       return out;
     },
     get plane() { return { name: cplane.name, origin: cplane.origin.toArray(), normal: cplane.normal.toArray() } },

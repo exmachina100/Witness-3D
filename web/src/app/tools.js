@@ -55,7 +55,8 @@ export const TOOLS = [
         id: 'offset', label: 'OFFSET FACE', key: '', group: 'shape', selects: 'faces', toolbar: false,
         summary: 'Move faces of one solid along their normals; the faces around them stretch to meet them. Selecting faces starts it.',
         params: {
-            distance: { type: 'number', unit: 'mm', nonzero: true, default: 1, describe: 'how far to move the faces; positive moves them outward' },
+            distance: { type: 'number', unit: 'mm', default: 1, describe: 'how far to move the faces; positive moves them outward' },
+            angle: { type: 'number', unit: 'deg', above: -90, below: 90, default: 0, describe: 'Angle Adjacent: how far the faces around them lean; positive narrows the moved faces' },
         },
     },
     {

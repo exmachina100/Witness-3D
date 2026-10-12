@@ -84,6 +84,9 @@ pub enum CurveShape {
     Ellipse { center: [f64; 2], major: [f64; 2], minor: f64 },
     /// Open lines, arcs and splines joined end to end (Plasticity's Join Curves).
     Contour { pieces: Vec<CurveShape> },
+    /// A helix (Plasticity's Spiral) up the plane's normal from its origin: `turns` turns of
+    /// `radius` over `length`, starting along the plane's x; `left` turns it the other way.
+    Spiral { radius: f64, length: f64, turns: f64, #[serde(default)] left: bool },
 }
 
 impl Curve {
@@ -121,6 +124,7 @@ impl Curve {
             CurveShape::Arc { start, mid, end } => Path::Arc { start: f.point((start[0], start[1])), mid: f.point((mid[0], mid[1])), end: f.point((end[0], end[1])) },
             CurveShape::Ellipse { center, major, minor } => Path::Ellipse { center: f.point((center[0], center[1])), normal: f.normal, major: f.point((major[0], major[1])) - f.origin, minor: *minor },
             CurveShape::Contour { pieces } => Path::Contour(pieces.iter().map(|p| Self::path_of(&f, p)).collect()),
+            CurveShape::Spiral { radius, length, turns, left } => Path::Spiral { origin: f.origin, axis: f.normal, x: f.x, radius: *radius, length: *length, turns: *turns, left: *left },
         }
     }
 
@@ -166,6 +170,10 @@ impl Curve {
                     let (a, b) = (crate::join::ends(&w[0]).unwrap().1, crate::join::ends(&w[1]).unwrap().0);
                     if (a[0] - b[0]).hypot(a[1] - b[1]) > crate::join::MEET { return Err(KernelError::Invalid("the pieces of a contour must meet end to end")) }
                 }
+            }
+            CurveShape::Spiral { radius, length, turns, .. } => {
+                let ok = |v: f64| v.is_finite() && v > 1e-9;
+                if !ok(*radius) || !ok(*length) || !ok(*turns) { return Err(KernelError::Invalid("a spiral needs a radius, a length and turns greater than zero")) }
             }
         }
         Ok(())
@@ -531,15 +539,15 @@ impl<K: Kernel> Document<K> {
     }
 
     /// Compute an Offset Face without changing the document.
-    pub fn preview_offset(&self, body: BodyId, faces: &[u32], distance: f64) -> Result<K::Solid, KernelError> {
+    pub fn preview_offset(&self, body: BodyId, faces: &[u32], distance: f64, angle: f64) -> Result<K::Solid, KernelError> {
         let solid = self.get(body).ok_or(KernelError::Invalid("that body no longer exists"))?;
-        Ok(offset_faces(&self.kernel, solid, faces, distance)?.solid)
+        Ok(offset_faces(&self.kernel, solid, faces, distance, angle)?.solid)
     }
 
     /// Run an Offset Face as one undoable step; faces and edges keep their refs.
-    pub fn commit_offset(&mut self, body: BodyId, faces: &[u32], distance: f64) -> Result<BodyId, KernelError> {
+    pub fn commit_offset(&mut self, body: BodyId, faces: &[u32], distance: f64, angle: f64) -> Result<BodyId, KernelError> {
         let solid = self.get(body).ok_or(KernelError::Invalid("that body no longer exists"))?;
-        let t = offset_faces(&self.kernel, solid, faces, distance)?;
+        let t = offset_faces(&self.kernel, solid, faces, distance, angle)?;
         self.checkpoint();
         self.replace_traced(body, t);
         Ok(body)

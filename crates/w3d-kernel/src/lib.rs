@@ -69,6 +69,9 @@ pub enum Path {
     Ellipse { center: DVec3, normal: DVec3, major: DVec3, minor: f64 },
     /// Open pieces joined end to end.
     Contour(Vec<Path>),
+    /// A helix up `axis` from `origin`, starting towards `x`: `turns` turns of `radius` over
+    /// `length`, anticlockwise about the axis unless `left`.
+    Spiral { origin: DVec3, axis: DVec3, x: DVec3, radius: f64, length: f64, turns: f64, left: bool },
 }
 
 /// How far and in what form an extrude goes (Plasticity's Extrude options).
@@ -238,7 +241,7 @@ pub trait Kernel {
     }
     /// The numbered faces moved `distance` along their outward normals, the faces around them
     /// stretching to meet them (Plasticity's Offset Face).
-    fn offset_faces(&self, _s: &Self::Solid, _faces: &[u32], _distance: f64) -> Result<Traced<Self::Solid>, KernelError> {
+    fn offset_faces(&self, _s: &Self::Solid, _faces: &[u32], _distance: f64, _angle: f64) -> Result<Traced<Self::Solid>, KernelError> {
         Err(KernelError::Invalid("this kernel cannot offset faces"))
     }
     /// `n + 1` points along the path, for drawing curves like splines that only the kernel knows.

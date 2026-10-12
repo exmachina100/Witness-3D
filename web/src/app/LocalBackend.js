@@ -4,7 +4,7 @@
 import * as THREE from 'three';
 import { ExtrudeFactory } from '../ExtrudeFactory.js';
 import { NoOpError } from '../GeometryFactory.js';
-import { blendEdges, booleanWithHistory, box, count, exportSTEP, facePlane, numberedEdges, oc, tessellate, transform, volume } from '../Kernel.js';
+import { blendEdges, booleanWithHistory, box, count, draftWithHistory, exportSTEP, facePlane, numberedEdges, oc, tessellate, transform, volume } from '../Kernel.js';
 import { loft, offsetFlatFaces, regionFace, revolve, splineSamples, sweep } from '../Forms.js';
 import { ends, join, loops, MEET } from '../curves.js';
 
@@ -221,14 +221,21 @@ export class LocalBackend {
     }
 
     /** Offset Face. This build has no per-face offset, so flat faces are pushed by joining or cutting slabs. */
-    offset({ body, faces, distance }) {
+    offset({ body, faces, distance, angle = 0 }) {
         const shape = this.shapes.get(body);
         if (!shape) throw new Error('that body no longer exists');
         if (!faces?.length) throw new Error('select at least one face');
         if (!Number.isFinite(distance)) throw new Error('the distance is not a number');
-        if (Math.abs(distance) < 1e-9) return null;
+        if (!Number.isFinite(angle) || Math.abs(angle) >= Math.PI / 2) throw new Error('the angle must be between -90° and 90°');
+        if (Math.abs(distance) < 1e-9 && Math.abs(angle) < 1e-9) return null;
         if (faces.some(f => !facePlane(shape, f))) throw new Error('the browser demo offsets flat faces only; the desktop app offsets any face');
-        return offsetFlatFaces(shape, [...new Set(faces)], distance, booleanWithHistory, chain);
+        const picked = [...new Set(faces)];
+        let r = Math.abs(distance) < 1e-9 ? null : offsetFlatFaces(shape, picked, distance, booleanWithHistory, chain);
+        if (Math.abs(angle) < 1e-9) return r;
+        // Then the adjacent angle (A) on what the picked faces became.
+        const now = r ? picked.flatMap(f => r.history.faces[0].filter(([a]) => a === f).map(([, b]) => b)) : picked;
+        const d = draftWithHistory(r ? r.shape : shape, now, angle);
+        return { shape: d.shape, history: r ? chain(r.history, d.history) : d.history };
     }
 
     previewOffset(req) {
@@ -403,7 +410,10 @@ function checkShape(c) {
         if (![c.start, c.mid, c.end].every(finite)) throw new Error('a point is not a number');
         const cross = (c.mid[0] - c.start[0]) * (c.end[1] - c.start[1]) - (c.mid[1] - c.start[1]) * (c.end[0] - c.start[0]);
         if (Math.abs(cross) < 1e-9) throw new Error('the three points of an arc must not lie on a line');
-    } else throw new Error('a curve is a line, circle, spline, arc, ellipse or contour');
+    } else if (c.kind === 'spiral') {
+        const ok = v => Number.isFinite(v) && v > 1e-9;
+        if (!ok(c.radius) || !ok(c.length) || !ok(c.turns)) throw new Error('a spiral needs a radius, a length and turns greater than zero');
+    } else throw new Error('a curve is a line, circle, spline, arc, ellipse, contour or spiral');
 }
 
 /** The history of doing `a` then `b`, for the body being changed (input 0). */

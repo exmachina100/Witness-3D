@@ -108,6 +108,7 @@ pub fn offset_faces<K: Kernel>(
     body: &K::Solid,
     faces: &[u32],
     distance: f64,
+    angle: f64,
 ) -> Result<Traced<K::Solid>, KernelError> {
     if faces.is_empty() {
         return Err(KernelError::Invalid("select at least one face"));
@@ -115,7 +116,10 @@ pub fn offset_faces<K: Kernel>(
     if !distance.is_finite() {
         return Err(KernelError::Invalid("the distance is not a number"));
     }
-    if distance.abs() < 1e-9 {
+    if !angle.is_finite() || angle.abs() >= std::f64::consts::FRAC_PI_2 {
+        return Err(KernelError::Invalid("the angle must be between -90° and 90°"));
+    }
+    if distance.abs() < 1e-9 && angle.abs() < 1e-9 {
         return Err(KernelError::NoOp);
     }
     let count = k.face_count(body);
@@ -127,7 +131,7 @@ pub fn offset_faces<K: Kernel>(
     let mut faces = faces.to_vec();
     faces.sort_unstable();
     faces.dedup();
-    let traced = k.offset_faces(body, &faces, distance)?;
+    let traced = k.offset_faces(body, &faces, distance, angle)?;
     if !k.is_valid(&traced.solid) || k.solid_count(&traced.solid) != k.solid_count(body) {
         return Err(KernelError::Invalid(
             "offsetting that far breaks the body; try a smaller distance",
