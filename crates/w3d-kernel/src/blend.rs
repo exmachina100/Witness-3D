@@ -19,7 +19,12 @@ pub struct BlendParams {
     /// Fillet radius or chamfer distance, in document units.
     pub size: f64,
     pub kind: Blend,
+    /// Chamfer angle from each edge's first face, in radians; π/4 is an equal-distance chamfer.
+    pub angle: f64,
 }
+
+/// The equal-distance chamfer angle.
+pub const EQUAL: f64 = std::f64::consts::FRAC_PI_4;
 
 impl Blend {
     pub fn noun(self) -> &'static str {
@@ -45,7 +50,10 @@ pub fn blend<K: Kernel>(k: &K, body: &K::Solid, p: &BlendParams) -> Result<Trace
     edges.sort_unstable();
     edges.dedup();
 
-    let traced = k.blend(body, &edges, p.size, p.kind)?;
+    if p.kind == Blend::Chamfer && !(p.angle > 0.0 && p.angle < std::f64::consts::FRAC_PI_2) {
+        return Err(KernelError::Invalid("the chamfer angle must be between 0 and 90 degrees"));
+    }
+    let traced = k.blend(body, &edges, p.size, p.kind, p.angle)?;
     let result = &traced.solid;
     if !k.is_valid(result) {
         return Err(KernelError::Blend {

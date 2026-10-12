@@ -22,6 +22,8 @@
 #include <ChFiDS_ErrorStatus.hxx>
 #include <Standard_Failure.hxx>
 #include <TopExp.hxx>
+#include <TopTools_IndexedDataMapOfShapeListOfShape.hxx>
+#include <cmath>
 #include <TopTools_IndexedMapOfShape.hxx>
 #include <TopoDS.hxx>
 #include <TopoDS_Edge.hxx>
@@ -72,10 +74,22 @@ inline const char *w3d_stripe_reason(ChFiDS_ErrorStatus status) {
   }
 }
 
+// Add one edge to a chamfer: equal distances, or `size` on the edge's first face and an angle
+// (radians) from it when `angle` is not 45 degrees.
+inline void w3d_add_chamfer(BRepFilletAPI_MakeChamfer &c, const TopoDS_Shape &shape, double size, double angle,
+                            const TopoDS_Edge &edge) {
+  if (!(angle > 0) || std::fabs(angle - M_PI / 4) < 1e-9) { c.Add(size, edge); return; }
+  TopTools_IndexedDataMapOfShapeListOfShape faces;
+  TopExp::MapShapesAndAncestors(shape, TopAbs_EDGE, TopAbs_FACE, faces);
+  const TopTools_ListOfShape &around = faces.FindFromKey(edge);
+  if (around.IsEmpty()) { c.Add(size, edge); return; }
+  c.AddDA(size, angle, edge, TopoDS::Face(around.First()));
+}
+
 // Round (fillet) or bevel (chamfer) the given edges by `size`. On failure throws a message of the
 // form "BLEND|<failed edge numbers, comma separated>|<reason>" so the caller can point at the edges.
 inline std::unique_ptr<TopoDS_Shape> w3d_blend_edges(const TopoDS_Shape &shape, rust::Slice<const int32_t> edges,
-                                                     double size, bool chamfer) {
+                                                     double size, bool chamfer, double angle) {
   TopTools_IndexedMapOfShape map;
   TopExp::MapShapes(shape, TopAbs_EDGE, map);
   for (int32_t e : edges)
@@ -83,7 +97,7 @@ inline std::unique_ptr<TopoDS_Shape> w3d_blend_edges(const TopoDS_Shape &shape, 
   try {
     if (chamfer) {
       BRepFilletAPI_MakeChamfer mk(shape);
-      for (int32_t e : edges) mk.Add(size, TopoDS::Edge(map(e + 1)));
+      for (int32_t e : edges) w3d_add_chamfer(mk, shape, size, angle, TopoDS::Edge(map(e + 1)));
       mk.Build();
       if (!mk.IsDone()) throw std::runtime_error("BLEND||the kernel could not build the chamfer; try a smaller distance");
       return std::unique_ptr<TopoDS_Shape>(new TopoDS_Shape(mk.Shape()));
@@ -249,7 +263,7 @@ inline std::unique_ptr<W3dResult> w3d_boolean(const TopoDS_Shape &a, const TopoD
 
 // w3d_blend_edges with history: the body's faces and edges, plus the faces each edge became.
 inline std::unique_ptr<W3dResult> w3d_blend_edges_history(const TopoDS_Shape &shape, rust::Slice<const int32_t> edges,
-                                                          double size, bool chamfer) {
+                                                          double size, bool chamfer, double angle) {
   TopTools_IndexedMapOfShape map;
   TopExp::MapShapes(shape, TopAbs_EDGE, map);
   for (int32_t e : edges)
@@ -260,7 +274,7 @@ inline std::unique_ptr<W3dResult> w3d_blend_edges_history(const TopoDS_Shape &sh
     if (chamfer) {
       BRepFilletAPI_MakeChamfer *c = new BRepFilletAPI_MakeChamfer(shape);
       mk.reset(c);
-      for (int32_t e : edges) c->Add(size, TopoDS::Edge(map(e + 1)));
+      for (int32_t e : edges) w3d_add_chamfer(*c, shape, size, angle, TopoDS::Edge(map(e + 1)));
     } else {
       BRepFilletAPI_MakeFillet *f = new BRepFilletAPI_MakeFillet(shape);
       mk.reset(f);
@@ -269,7 +283,7 @@ inline std::unique_ptr<W3dResult> w3d_blend_edges_history(const TopoDS_Shape &sh
     mk->Build();
     if (!mk->IsDone()) {
       // Run the reporting version for the reason and the edges.
-      w3d_blend_edges(shape, edges, size, chamfer);
+      w3d_blend_edges(shape, edges, size, chamfer, angle);
       throw std::runtime_error("BLEND||the kernel could not build the blend");
     }
     r->shape = mk->Shape();

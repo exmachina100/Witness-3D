@@ -160,11 +160,16 @@ function trace(inputs, result, step) {
     return history;
 }
 
-/** Rotate by `angle` radians about `axis` through `pivot`, then move by `offset` (arrays of 3). */
-export function transform(shape, { offset = [0, 0, 0], pivot = [0, 0, 0], axis = [0, 1, 0], angle = 0 }) {
+/** Scale by `scale` and rotate by `angle` radians about `axis`, both about `pivot`, then move by `offset`. */
+export function transform(shape, { offset = [0, 0, 0], pivot = [0, 0, 0], axis = [0, 1, 0], angle = 0, scale = 1 }) {
     const o = oc();
     const t = new o.gp_Trsf();
     if (angle) t.SetRotation(new o.gp_Ax1(new o.gp_Pnt(...pivot), new o.gp_Dir(...axis)), angle);
+    if (scale !== 1) {
+        const s = new o.gp_Trsf();
+        s.SetScale(new o.gp_Pnt(...pivot), scale);
+        t.Multiply(s);
+    }
     const move = new o.gp_Trsf();
     move.SetTranslation(new o.gp_Vec(...offset));
     move.Multiply(t);
@@ -277,12 +282,17 @@ const STRIPE_REASONS = {
 
 /** Round (or, with `chamfer`, bevel) the numbered edges by `size`. Throws BlendError. With
  * `withHistory`, returns { shape, history } (see booleanWithHistory). */
-export function blendEdges(shape, edgeIds, size, chamfer = false, withHistory = false) {
+export function blendEdges(shape, edgeIds, size, chamfer = false, withHistory = false, angle = Math.PI / 4) {
     const o = oc();
     const edges = numberedEdges(shape);
     if (edgeIds.some(i => !(i >= 0 && i < edges.length))) throw new BlendError('an edge in the selection is not on this body; select the edges again');
     const mk = chamfer ? new o.BRepFilletAPI_MakeChamfer(shape) : new o.BRepFilletAPI_MakeFillet(shape, o.ChFi3d_FilletShape.ChFi3d_Rational);
-    for (const i of edgeIds) mk.Add(size, edges[i]);
+    for (const i of edgeIds) {
+        // A chamfer at an angle is `size` on the edge's first face, at `angle` from it.
+        const face = chamfer && Math.abs(angle - Math.PI / 4) > 1e-9 && numbered(shape, 'TopAbs_FACE').find(f => numberedEdges(f).some(e => e.IsSame(edges[i])));
+        if (face) mk.AddDA(size, angle, edges[i], o.TopoDS.Face(face));
+        else mk.Add(size, edges[i]);
+    }
     try { mk.Build(new o.Message_ProgressRange()); }
     catch { throw new BlendError(`the kernel could not build the ${chamfer ? 'chamfer' : 'round'}; try a smaller ${chamfer ? 'distance' : 'radius'}`); }
     if (!mk.IsDone()) {

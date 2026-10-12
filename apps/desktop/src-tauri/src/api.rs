@@ -216,7 +216,12 @@ pub struct BlendRequest {
     /// Radius or distance, in millimetres.
     pub size: f64,
     pub kind: BlendKind,
+    /// Chamfer angle from each edge's first face, in radians; π/4 (the default) is equal distances.
+    #[serde(default = "equal")]
+    pub angle: f64,
 }
+
+fn equal() -> f64 { w3d_kernel::blend::EQUAL }
 
 impl BlendRequest {
     fn params(&self) -> BlendParams {
@@ -224,6 +229,7 @@ impl BlendRequest {
             edges: self.edges.clone(),
             size: self.size,
             kind: if self.kind == BlendKind::Chamfer { Blend::Chamfer } else { Blend::Fillet },
+            angle: self.angle,
         }
     }
 }
@@ -269,38 +275,57 @@ pub fn import_step(m: &Model, path: PathBuf) -> Result<Committed, String> {
 #[derive(Deserialize, Debug, Clone)]
 #[serde(rename_all = "camelCase")]
 pub struct MotionRequest {
-    pub body: BodyId,
+    pub bodies: Vec<BodyId>,
     /// Moved by this much after the turn, in millimetres.
     #[serde(default)]
     pub offset: [f64; 3],
-    /// Turned by `angle` radians about `axis` through `pivot`.
+    /// Scaled by `scale`, then turned by `angle` radians about `axis`, both about `pivot`.
     #[serde(default)]
     pub pivot: [f64; 3],
     #[serde(default = "up")]
     pub axis: [f64; 3],
     #[serde(default)]
     pub angle: f64,
+    #[serde(default = "one")]
+    pub scale: f64,
 }
 
 fn up() -> [f64; 3] { [0.0, 1.0, 0.0] }
+fn one() -> f64 { 1.0 }
 
 impl MotionRequest {
     fn motion(&self) -> Result<Motion, ApiError> {
         let axis = DVec3::from_array(self.axis);
-        let all = self.offset.iter().chain(&self.pivot).chain(&self.axis).chain([&self.angle]);
+        let all = self.offset.iter().chain(&self.pivot).chain(&self.axis).chain([&self.angle, &self.scale]);
         if all.into_iter().any(|v| !v.is_finite()) || (self.angle != 0.0 && axis.length() < 1e-9) {
-            return Err(String::from("the move or turn is not a valid number").into());
+            return Err(String::from("the move, turn or scale is not a valid number").into());
         }
-        Ok(Motion { offset: DVec3::from_array(self.offset), pivot: DVec3::from_array(self.pivot), axis, angle: self.angle })
+        Ok(Motion { offset: DVec3::from_array(self.offset), pivot: DVec3::from_array(self.pivot), axis, angle: self.angle, scale: self.scale })
     }
 }
 
-/// Move or turn a body rigidly, as one undoable step. The viewport previews this itself, since a
-/// rigid motion needs no geometry work; its faces and edges keep their refs.
+/// Move, turn or scale bodies, as one undoable step. The viewport previews this itself, since it
+/// needs no geometry work; the bodies' faces and edges keep their refs.
 pub fn commit_motion(m: &Model, req: MotionRequest) -> Result<Committed, ApiError> {
     let motion = req.motion()?;
     m.call(move |doc| {
-        let id = doc.commit_motion(req.body, &motion)?;
-        Ok(Committed { id, scene: bodies(doc)? })
+        doc.commit_motion(&req.bodies, &motion)?;
+        Ok(Committed { id: req.bodies[0], scene: bodies(doc)? })
     })
+}
+
+/// Delete bodies, as one undoable step.
+pub fn delete_bodies(m: &Model, ids: Vec<BodyId>) -> Result<Vec<Body>, ApiError> {
+    m.call(move |doc| { doc.commit_delete(&ids)?; Ok(bodies(doc)?) })
+}
+
+#[derive(Serialize, Debug)]
+pub struct Duplicated {
+    pub ids: Vec<BodyId>,
+    pub scene: Vec<Body>,
+}
+
+/// Copy bodies in place, as one undoable step.
+pub fn duplicate_bodies(m: &Model, ids: Vec<BodyId>) -> Result<Duplicated, ApiError> {
+    m.call(move |doc| { let ids = doc.commit_duplicate(&ids)?; Ok(Duplicated { ids, scene: bodies(doc)? }) })
 }

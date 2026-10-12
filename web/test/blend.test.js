@@ -42,3 +42,9 @@ test('a round too big for its faces fails with a reason instead of crashing', ()
     assert.throws(() => blendEdges(s, vertical(s), 30), e => e instanceof BlendError && e.message.length > 0);
     assert.throws(() => blendEdges(s, [99], 1), BlendError);
 });
+
+test('a chamfer at an angle cuts a right triangle of that shape', () => {
+    const s = enclosure();
+    const top = tessellate(s).polylines.findIndex(p => p[1] === 30 && p[4] === 30 && p[2] === 25 && p[5] === 25);
+    close(volume(blendEdges(s, [top], 3, true, false, Math.PI / 6)), 120000 - 0.5 * 9 * Math.tan(Math.PI / 6) * 80, 1e-6);
+});

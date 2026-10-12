@@ -104,9 +104,9 @@ impl Kernel for Occt {
 
     fn edge_count(&self, s: &Shape) -> usize { s.edge_count() }
 
-    fn blend(&self, s: &Shape, edges: &[u32], size: f64, kind: Blend) -> Result<Traced<Shape>, KernelError> {
+    fn blend(&self, s: &Shape, edges: &[u32], size: f64, kind: Blend, angle: f64) -> Result<Traced<Shape>, KernelError> {
         let edges: Vec<usize> = edges.iter().map(|&e| e as usize).collect();
-        let (solid, h) = s.blend_edges_with_history(&edges, size, kind == Blend::Chamfer).map_err(|e| KernelError::Blend {
+        let (solid, h) = s.blend_edges_with_history(&edges, size, kind == Blend::Chamfer, angle).map_err(|e| KernelError::Blend {
             edges: e.edges.iter().map(|&i| i as u32).collect(),
             reason: e.reason,
         })?;
@@ -115,10 +115,10 @@ impl Kernel for Occt {
 
     fn transform(&self, s: &Shape, m: &Motion) -> Shape {
         // opencascade-rs shapes are not Clone; every step below copies.
-        let turned = if m.angle == 0.0 { None } else {
-            Some(s.translated(-m.pivot).rotated(m.axis.normalize(), m.angle).translated(m.pivot))
-        };
-        turned.as_ref().unwrap_or(s).translated(m.offset)
+        let at_origin = s.translated(-m.pivot);
+        let scaled = if m.scale == 1.0 { at_origin } else { at_origin.scaled(DVec3::ZERO, m.scale) };
+        let turned = if m.angle == 0.0 { scaled } else { scaled.rotated(m.axis.normalize(), m.angle) };
+        turned.translated(m.pivot + m.offset)
     }
 
     fn is_valid(&self, s: &Shape) -> bool { s.is_valid() }

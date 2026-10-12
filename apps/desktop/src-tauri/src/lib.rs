@@ -57,6 +57,16 @@ async fn commit_motion(model: State<'_, Model>, req: api::MotionRequest) -> Resu
 }
 
 #[tauri::command]
+async fn delete_bodies(model: State<'_, Model>, ids: Vec<u32>) -> Result<Vec<api::Body>, api::ApiError> {
+    on_model(&model, move |m| api::delete_bodies(m, ids)).await?
+}
+
+#[tauri::command]
+async fn duplicate_bodies(model: State<'_, Model>, ids: Vec<u32>) -> Result<api::Duplicated, api::ApiError> {
+    on_model(&model, move |m| api::duplicate_bodies(m, ids)).await?
+}
+
+#[tauri::command]
 async fn new_document(model: State<'_, Model>) -> Result<Vec<api::Body>, String> {
     on_model(&model, api::new_document).await?
 }
@@ -86,7 +96,7 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .manage(Model(Arc::new(api::start())))
         .invoke_handler(tauri::generate_handler![
-            scene, preview_extrude, commit_extrude, preview_blend, commit_blend, commit_motion,
+            scene, preview_extrude, commit_extrude, preview_blend, commit_blend, commit_motion, delete_bodies, duplicate_bodies,
             undo, redo, new_document, save, open, import_step, export_step,
         ])
         .run(tauri::generate_context!())

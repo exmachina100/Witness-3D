@@ -19,6 +19,7 @@ mod inner {
             edges: &[i32],
             size: f64,
             chamfer: bool,
+            angle: f64,
         ) -> Result<UniquePtr<TopoDS_Shape>>;
         pub fn w3d_is_valid(shape: &TopoDS_Shape) -> bool;
         pub fn w3d_heal(shape: &TopoDS_Shape) -> Result<UniquePtr<TopoDS_Shape>>;
@@ -32,6 +33,7 @@ mod inner {
             edges: &[i32],
             size: f64,
             chamfer: bool,
+            angle: f64,
         ) -> Result<UniquePtr<W3dResult>>;
         pub fn w3d_result_shape(r: &W3dResult) -> UniquePtr<TopoDS_Shape>;
         pub fn w3d_result_pairs(r: &W3dResult, input: i32, kind: i32) -> Vec<i32>;

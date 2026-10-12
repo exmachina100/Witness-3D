@@ -120,25 +120,29 @@ pub struct Traced<S> {
     pub history: History,
 }
 
-/// A rigid motion: rotate by `angle` radians about `axis` through `pivot`, then move by `offset`.
+/// A similarity motion about `pivot`: scale by `scale`, rotate by `angle` radians about `axis`,
+/// then move by `offset`.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Motion {
     pub offset: DVec3,
     pub pivot: DVec3,
     pub axis: DVec3,
     pub angle: f64,
+    pub scale: f64,
 }
 
 impl Motion {
-    pub fn translation(offset: DVec3) -> Self { Motion { offset, pivot: DVec3::ZERO, axis: DVec3::Y, angle: 0.0 } }
-    pub fn rotation(pivot: DVec3, axis: DVec3, angle: f64) -> Self { Motion { offset: DVec3::ZERO, pivot, axis, angle } }
-    pub fn is_identity(&self) -> bool { self.offset.length() < 1e-12 && self.angle.abs() < 1e-12 }
+    pub fn translation(offset: DVec3) -> Self { Motion { offset, pivot: DVec3::ZERO, axis: DVec3::Y, angle: 0.0, scale: 1.0 } }
+    pub fn rotation(pivot: DVec3, axis: DVec3, angle: f64) -> Self { Motion { offset: DVec3::ZERO, pivot, axis, angle, scale: 1.0 } }
+    pub fn scaling(pivot: DVec3, scale: f64) -> Self { Motion { offset: DVec3::ZERO, pivot, axis: DVec3::Y, angle: 0.0, scale } }
+    pub fn is_identity(&self) -> bool {
+        self.offset.length() < 1e-12 && self.angle.abs() < 1e-12 && (self.scale - 1.0).abs() < 1e-12
+    }
     /// Where the motion takes point `p`.
     pub fn apply(&self, p: DVec3) -> DVec3 {
-        let q = if self.angle == 0.0 { p } else {
-            glam::DQuat::from_axis_angle(self.axis.normalize(), self.angle) * (p - self.pivot) + self.pivot
-        };
-        q + self.offset
+        let mut q = (p - self.pivot) * self.scale;
+        if self.angle != 0.0 { q = glam::DQuat::from_axis_angle(self.axis.normalize(), self.angle) * q }
+        q + self.pivot + self.offset
     }
 }
 
@@ -155,8 +159,9 @@ pub trait Kernel {
     fn solid_count(&self, s: &Self::Solid) -> usize;
     fn face_count(&self, s: &Self::Solid) -> usize;
     fn edge_count(&self, s: &Self::Solid) -> usize;
-    /// Round or bevel the numbered edges (see [`Tessellation::edges`]) by `size`.
-    fn blend(&self, s: &Self::Solid, edges: &[u32], size: f64, kind: Blend) -> Result<Traced<Self::Solid>, KernelError>;
+    /// Round or bevel the numbered edges (see [`Tessellation::edges`]) by `size`. A chamfer's
+    /// `angle` (radians) is measured from each edge's first face; π/4 gives equal distances.
+    fn blend(&self, s: &Self::Solid, edges: &[u32], size: f64, kind: Blend, angle: f64) -> Result<Traced<Self::Solid>, KernelError>;
     /// The solid moved rigidly. Faces and edges keep their numbers.
     fn transform(&self, s: &Self::Solid, m: &Motion) -> Self::Solid;
     /// Whether the kernel's own checker accepts the shape.

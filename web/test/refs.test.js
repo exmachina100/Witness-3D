@@ -53,13 +53,18 @@ test('a fillet keeps trimmed edges and gives its rounds new face refs; undo rest
 test('a move keeps refs and moves the geometry', async () => {
     const be = new LocalBackend();
     const [b] = be.scene();
-    const { scene: [after] } = await be.commitMotion({ body: b.id, offset: [10, 0, 0], angle: Math.PI / 2 });
+    const { scene: [after] } = await be.commitMotion({ bodies: [b.id], offset: [10, 0, 0], angle: Math.PI / 2 });
     assert.deepEqual(after.edgeRefs, b.edgeRefs);
     const xs = [];
     for (let i = 0; i < after.positions.length; i += 3) xs.push(after.positions[i]);
     close(Math.min(...xs), -15, 1e-4);
     close(Math.max(...xs), 35, 1e-4);
-    await assert.rejects(be.commitMotion({ body: b.id }), /nothing to do/);
+    await assert.rejects(be.commitMotion({ bodies: [b.id] }), /nothing to do/);
+    const { scene: [half] } = await be.commitMotion({ bodies: [b.id], scale: 0.5, pivot: [0, 0, 0] });
+    close(half.volume, 120000 / 8, 1e-3);
+    const d = await be.duplicateBodies([b.id]);
+    assert.equal(d.scene.length, 2);
+    assert.equal((await be.deleteBodies(d.ids)).length, 1);
 });
 
 test('faces merged after a boolean inherit from the faces merged into them', async () => {

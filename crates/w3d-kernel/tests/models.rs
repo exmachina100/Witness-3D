@@ -36,7 +36,7 @@ fn vertical(k: &Occt, s: &Shape) -> Vec<u32> {
         .collect()
 }
 
-fn fillet(edges: Vec<u32>, size: f64) -> BlendParams { BlendParams { edges, size, kind: Blend::Fillet } }
+fn fillet(edges: Vec<u32>, size: f64) -> BlendParams { BlendParams { edges, size, kind: Blend::Fillet, angle: w3d_kernel::blend::EQUAL } }
 
 #[test]
 fn edges_are_numbered_once_each() {
@@ -72,7 +72,7 @@ fn chamfer_cuts_a_triangular_prism() {
     let body = enclosure(&k);
     let edge = edges_where(&k, &body, |p| (p.y - 30.0).abs() < 1e-6 && (p.z - 25.0).abs() < 1e-6);
     assert_eq!(edge.len(), 1);
-    let cut = blend(&k, &body, &BlendParams { edges: edge, size: 3.0, kind: Blend::Chamfer }).unwrap().solid;
+    let cut = blend(&k, &body, &BlendParams { edges: edge, size: 3.0, kind: Blend::Chamfer, angle: w3d_kernel::blend::EQUAL }).unwrap().solid;
     close(volume(&k, &cut), 120_000.0 - 0.5 * 3.0 * 3.0 * 80.0, 1e-3);
     assert_eq!(k.face_count(&cut), 7);
 }
@@ -235,9 +235,9 @@ fn moving_a_body_keeps_its_refs_and_moves_its_geometry() {
     let mut doc = Document::new(Occt);
     let id = doc.add(enclosure(&doc.kernel));
     let old = doc.refs(id).unwrap().clone();
-    let m = Motion { offset: DVec3::new(10.0, 0.0, 0.0), pivot: DVec3::ZERO, axis: DVec3::Y, angle: PI / 2.0 };
-    assert!(matches!(doc.commit_motion(id, &Motion::translation(DVec3::ZERO)), Err(KernelError::NoOp)));
-    doc.commit_motion(id, &m).unwrap();
+    let m = Motion { offset: DVec3::new(10.0, 0.0, 0.0), pivot: DVec3::ZERO, axis: DVec3::Y, angle: PI / 2.0, scale: 1.0 };
+    assert!(matches!(doc.commit_motion(&[id], &Motion::translation(DVec3::ZERO)), Err(KernelError::NoOp)));
+    doc.commit_motion(&[id], &m).unwrap();
     assert_eq!(doc.refs(id).unwrap(), &old);
     // A quarter turn about y swaps the footprint: 50 wide in x, 80 deep in z, then 10 along x.
     let t = doc.kernel.tessellate(doc.get(id).unwrap(), 0.01).unwrap();
@@ -290,4 +290,34 @@ fn faces_merged_after_a_boolean_inherit_from_the_faces_merged_into_them() {
     let targets: std::collections::HashSet<u32> = from_a.values().copied().collect();
     assert_eq!(targets.len(), 5);
     assert_eq!(history.faces[1].iter().filter(|(_, j)| targets.contains(j)).count(), 4);
+}
+
+#[test]
+fn a_chamfer_at_an_angle_cuts_a_right_triangle_of_that_shape() {
+    let k = Occt;
+    let body = enclosure(&k);
+    let edge = top_front(&k, &body);
+    // 3 mm along the first face, at 30° from it: the other leg is 3·tan 30°.
+    let p = BlendParams { edges: edge, size: 3.0, kind: Blend::Chamfer, angle: PI / 6.0 };
+    let cut = blend(&k, &body, &p).unwrap().solid;
+    close(volume(&k, &cut), 120_000.0 - 0.5 * 3.0 * 3.0 * (PI / 6.0).tan() * 80.0, 1e-3);
+    let bad = BlendParams { angle: PI / 2.0, ..p };
+    assert!(matches!(blend(&k, &body, &bad), Err(KernelError::Invalid(_))));
+}
+
+#[test]
+fn bodies_scale_duplicate_and_delete_as_single_steps() {
+    let mut doc = Document::new(Occt);
+    let a = doc.add(enclosure(&doc.kernel));
+    let refs = doc.refs(a).unwrap().clone();
+    doc.commit_motion(&[a], &Motion::scaling(DVec3::new(0.0, 15.0, 0.0), 0.5)).unwrap();
+    close(volume(&doc.kernel, doc.get(a).unwrap()), 120_000.0 / 8.0, 1e-3);
+    assert_eq!(doc.refs(a).unwrap(), &refs);
+    let copies = doc.commit_duplicate(&[a]).unwrap();
+    assert_eq!(doc.ids(), vec![a, copies[0]]);
+    assert_ne!(doc.refs(copies[0]).unwrap(), &refs);
+    doc.commit_delete(&[a, copies[0]]).unwrap();
+    assert!(doc.ids().is_empty());
+    assert!(doc.undo());
+    assert_eq!(doc.ids().len(), 2);
 }

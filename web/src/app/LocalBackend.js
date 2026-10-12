@@ -98,12 +98,13 @@ export class LocalBackend {
         return this.latest(async () => this.body(req.body, this.blend(req)));
     }
 
-    blend({ body, edges, size, kind }, withHistory = false) {
+    blend({ body, edges, size, kind, angle = Math.PI / 4 }, withHistory = false) {
         const shape = this.shapes.get(body);
         if (!shape) throw new Error('that body no longer exists');
         if (!edges.length) throw new Error('select at least one edge');
         if (!(size > 0)) throw new Error(`the ${kind === 'chamfer' ? 'distance' : 'radius'} must be greater than zero`);
-        return blendEdges(shape, [...new Set(edges)], size, kind === 'chamfer', withHistory);
+        if (kind === 'chamfer' && !(angle > 0 && angle < Math.PI / 2)) throw new Error('the chamfer angle must be between 0 and 90 degrees');
+        return blendEdges(shape, [...new Set(edges)], size, kind === 'chamfer', withHistory, angle);
     }
 
     async commitBlend(req) {
@@ -113,15 +114,34 @@ export class LocalBackend {
         return { id: req.body, scene: this.bodies() };
     }
 
-    /** Move or turn a body rigidly. Faces and edges keep their numbers and refs. */
-    async commitMotion({ body, offset = [0, 0, 0], pivot = [0, 0, 0], axis = [0, 1, 0], angle = 0 }) {
-        const shape = this.shapes.get(body);
-        if (!shape) throw new Error('that body no longer exists');
-        if ([...offset, ...pivot, ...axis, angle].some(v => !Number.isFinite(v))) throw new Error('the move or turn is not a valid number');
-        if (Math.hypot(...offset) < 1e-12 && Math.abs(angle) < 1e-12) throw new Error('nothing to do');
+    /** Move, turn or scale bodies about one pivot. Faces and edges keep their numbers and refs. */
+    async commitMotion({ bodies, offset = [0, 0, 0], pivot = [0, 0, 0], axis = [0, 1, 0], angle = 0, scale = 1 }) {
+        if (!bodies?.length) throw new Error('select something to transform');
+        if (bodies.some(id => !this.shapes.has(id))) throw new Error('that body no longer exists');
+        if ([...offset, ...pivot, ...axis, angle, scale].some(v => !Number.isFinite(v))) throw new Error('the move, turn or scale is not a valid number');
+        if (!(scale > 0)) throw new Error('the scale must be greater than zero');
+        if (Math.hypot(...offset) < 1e-12 && Math.abs(angle) < 1e-12 && Math.abs(scale - 1) < 1e-12) throw new Error('nothing to do');
         this.checkpoint();
-        this.shapes.set(body, transform(shape, { offset, pivot, axis, angle }));
-        return { id: body, scene: this.bodies() };
+        for (const id of bodies) this.shapes.set(id, transform(this.shapes.get(id), { offset, pivot, axis, angle, scale }));
+        return { id: bodies[0], scene: this.bodies() };
+    }
+
+    /** Delete bodies, as one undo step. */
+    async deleteBodies(ids) {
+        if (!ids.length) throw new Error('nothing to do');
+        if (ids.some(id => !this.shapes.has(id))) throw new Error('that body no longer exists');
+        this.checkpoint();
+        for (const id of ids) { this.shapes.delete(id); this.refs.delete(id); }
+        return this.bodies();
+    }
+
+    /** Copy bodies in place, as one undo step; the copies get new ids and refs. */
+    async duplicateBodies(ids) {
+        if (!ids.length) throw new Error('nothing to do');
+        if (ids.some(id => !this.shapes.has(id))) throw new Error('that body no longer exists');
+        this.checkpoint();
+        const out = ids.map(id => { const n = this.nextId++; this.put(n, transform(this.shapes.get(id), {})); return n; });
+        return { ids: out, scene: this.bodies() };
     }
 
     latest(job) {

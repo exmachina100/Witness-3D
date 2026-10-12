@@ -11,6 +11,8 @@
 use std::collections::BTreeMap;
 use std::rc::Rc;
 
+use glam::DVec3;
+
 use crate::blend::{blend, BlendParams};
 use crate::extrude::{extrude, ExtrudeParams, ExtrudeResult};
 use crate::{History, Kernel, KernelError, Motion, Traced};
@@ -180,14 +182,47 @@ impl<K: Kernel> Document<K> {
         Ok(body)
     }
 
-    /// Move a body rigidly, as one undoable step. Its faces and edges keep their refs.
-    pub fn commit_motion(&mut self, body: BodyId, m: &Motion) -> Result<BodyId, KernelError> {
-        let b = self.state.bodies.get(&body).ok_or(KernelError::Invalid("that body no longer exists"))?;
+    /// Move, turn or scale bodies about one pivot, as one undoable step. Their faces and edges keep
+    /// their refs.
+    pub fn commit_motion(&mut self, bodies: &[BodyId], m: &Motion) -> Result<(), KernelError> {
+        if bodies.is_empty() { return Err(KernelError::Invalid("select something to transform")) }
+        if !(m.scale > 0.0) || !m.scale.is_finite() { return Err(KernelError::Invalid("the scale must be greater than zero")) }
         if m.is_identity() { return Err(KernelError::NoOp) }
-        let moved = Body { solid: self.kernel.transform(&b.solid, m), refs: b.refs.clone() };
+        let mut moved = Vec::with_capacity(bodies.len());
+        for id in bodies {
+            let b = self.state.bodies.get(id).ok_or(KernelError::Invalid("that body no longer exists"))?;
+            moved.push((*id, Body { solid: self.kernel.transform(&b.solid, m), refs: b.refs.clone() }));
+        }
         self.checkpoint();
-        self.state.bodies.insert(body, Rc::new(moved));
-        Ok(body)
+        for (id, b) in moved { self.state.bodies.insert(id, Rc::new(b)); }
+        Ok(())
+    }
+
+    /// Delete bodies, as one undoable step.
+    pub fn commit_delete(&mut self, bodies: &[BodyId]) -> Result<(), KernelError> {
+        if bodies.is_empty() { return Err(KernelError::NoOp) }
+        if bodies.iter().any(|id| !self.state.bodies.contains_key(id)) { return Err(KernelError::Invalid("that body no longer exists")) }
+        self.checkpoint();
+        for id in bodies { self.state.bodies.remove(id); }
+        Ok(())
+    }
+
+    /// Copy bodies in place, as one undoable step. Returns the new ids, in order. The copies get
+    /// their own refs.
+    pub fn commit_duplicate(&mut self, bodies: &[BodyId]) -> Result<Vec<BodyId>, KernelError> {
+        if bodies.is_empty() { return Err(KernelError::NoOp) }
+        let copies = bodies.iter().map(|id| {
+            let b = self.state.bodies.get(id).ok_or(KernelError::Invalid("that body no longer exists"))?;
+            Ok(self.kernel.transform(&b.solid, &Motion::translation(DVec3::ZERO)))
+        }).collect::<Result<Vec<_>, KernelError>>()?;
+        self.checkpoint();
+        Ok(copies.into_iter().map(|solid| {
+            let id = self.state.next_id;
+            self.state.next_id += 1;
+            let refs = self.new_refs(&solid);
+            self.state.bodies.insert(id, Rc::new(Body { solid, refs }));
+            id
+        }).collect())
     }
 
     /// Compute an extrude without changing the document: what a live preview shows.

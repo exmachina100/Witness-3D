@@ -42,10 +42,11 @@ impl Shape {
         (0..self.edge_count()).filter_map(|i| self.edge_at(i)).collect()
     }
 
-    /// Round (`chamfer == false`) or bevel the numbered edges by `size`.
-    pub fn blend_edges(&self, edges: &[usize], size: f64, chamfer: bool) -> Result<Shape, BlendError> {
+    /// Round (`chamfer == false`) or bevel the numbered edges by `size`. A chamfer with an `angle`
+    /// other than 45° (radians; 0 means 45°) is `size` on each edge's first face, at that angle.
+    pub fn blend_edges(&self, edges: &[usize], size: f64, chamfer: bool, angle: f64) -> Result<Shape, BlendError> {
         let ids: Vec<i32> = edges.iter().map(|&e| e as i32).collect();
-        match ffi::w3d::w3d_blend_edges(&self.inner, &ids, size, chamfer) {
+        match ffi::w3d::w3d_blend_edges(&self.inner, &ids, size, chamfer, angle) {
             Ok(shape) => Ok(Shape::from_shape(&shape)),
             Err(e) => Err(parse_blend_error(e.what())),
         }
@@ -118,9 +119,9 @@ impl Shape {
     }
 
     /// [`Shape::blend_edges`] with its history.
-    pub fn blend_edges_with_history(&self, edges: &[usize], size: f64, chamfer: bool) -> Result<(Shape, ShapeHistory), BlendError> {
+    pub fn blend_edges_with_history(&self, edges: &[usize], size: f64, chamfer: bool, angle: f64) -> Result<(Shape, ShapeHistory), BlendError> {
         let ids: Vec<i32> = edges.iter().map(|&e| e as i32).collect();
-        match ffi::w3d::w3d_blend_edges_history(&self.inner, &ids, size, chamfer) {
+        match ffi::w3d::w3d_blend_edges_history(&self.inner, &ids, size, chamfer, angle) {
             Ok(r) => Ok((Shape::from_shape(&ffi::w3d::w3d_result_shape(&r)), history(&r, 1))),
             Err(e) => Err(parse_blend_error(e.what())),
         }

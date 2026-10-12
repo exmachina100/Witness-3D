@@ -86,7 +86,7 @@ fn fillet_previews_commits_and_undoes() {
     let b = &api::scene(&m).unwrap()[0];
     let edges = vertical_edges(b);
     assert_eq!(edges.len(), 4);
-    let req = BlendRequest { body: b.id, edges, size: 4.0, kind: BlendKind::Fillet };
+    let req = BlendRequest { body: b.id, edges, size: 4.0, kind: BlendKind::Fillet, angle: std::f64::consts::FRAC_PI_4 };
 
     let preview = api::preview_blend(&m, req.clone()).expect("not superseded").unwrap();
     let rounded = 120_000.0 - 4.0 * (16.0 - std::f64::consts::PI * 4.0) * 30.0;
@@ -103,7 +103,7 @@ fn fillet_previews_commits_and_undoes() {
 fn a_failed_fillet_says_why_and_changes_nothing() {
     let m = api::start();
     let b = &api::scene(&m).unwrap()[0];
-    let req = BlendRequest { body: b.id, edges: vertical_edges(b), size: 30.0, kind: BlendKind::Fillet };
+    let req = BlendRequest { body: b.id, edges: vertical_edges(b), size: 30.0, kind: BlendKind::Fillet, angle: std::f64::consts::FRAC_PI_4 };
     let err = api::commit_blend(&m, req).unwrap_err();
     assert!(!err.message.is_empty());
     close(api::scene(&m).unwrap()[0].volume, 120_000.0);
@@ -152,7 +152,7 @@ fn bodies_carry_refs_that_survive_a_fillet() {
     assert_eq!(before.edge_refs.len(), before.edges.len());
     assert_eq!(before.face_refs.len(), before.face_planes.len());
     let r = before.edge_refs[top_front(&before)[0] as usize];
-    let done = api::commit_blend(&m, BlendRequest { body: before.id, edges: vertical_edges(&before), size: 4.0, kind: BlendKind::Fillet }).unwrap();
+    let done = api::commit_blend(&m, BlendRequest { body: before.id, edges: vertical_edges(&before), size: 4.0, kind: BlendKind::Fillet, angle: std::f64::consts::FRAC_PI_4 }).unwrap();
     let after = &done.scene[0];
     assert!(after.revision > before.revision);
     let found: Vec<u32> = (0..after.edge_refs.len() as u32).filter(|&i| after.edge_refs[i as usize] == r).collect();
@@ -163,7 +163,7 @@ fn bodies_carry_refs_that_survive_a_fillet() {
 fn a_body_moves_and_turns_as_one_undoable_step() {
     let m = api::start();
     let before = api::scene(&m).unwrap().remove(0);
-    let req: MotionRequest = serde_json::from_str(r#"{"body":1,"offset":[10,0,0],"pivot":[0,0,0],"axis":[0,1,0],"angle":1.5707963267948966}"#).unwrap();
+    let req: MotionRequest = serde_json::from_str(r#"{"bodies":[1],"offset":[10,0,0],"pivot":[0,0,0],"axis":[0,1,0],"angle":1.5707963267948966}"#).unwrap();
     let after = api::commit_motion(&m, req).unwrap().scene.remove(0);
     assert_eq!(after.edge_refs, before.edge_refs);
     close(after.volume, before.volume);
@@ -172,8 +172,18 @@ fn a_body_moves_and_turns_as_one_undoable_step() {
     close(lo, -15.0);
     close(hi, 35.0);
     // Nothing to do, and nonsense, are refused without a step.
-    assert!(api::commit_motion(&m, serde_json::from_str(r#"{"body":1}"#).unwrap()).is_err());
-    assert!(api::commit_motion(&m, MotionRequest { body: 1, offset: [f64::NAN, 0.0, 0.0], pivot: [0.0; 3], axis: [0.0, 1.0, 0.0], angle: 0.0 }).is_err());
+    assert!(api::commit_motion(&m, serde_json::from_str(r#"{"bodies":[1]}"#).unwrap()).is_err());
+    assert!(api::commit_motion(&m, MotionRequest { bodies: vec![1], offset: [f64::NAN, 0.0, 0.0], pivot: [0.0; 3], axis: [0.0, 1.0, 0.0], angle: 0.0, scale: 1.0 }).is_err());
     let undone = api::undo(&m).unwrap().remove(0);
     close(undone.positions.chunks(3).map(|p| p[0] as f64).fold(f64::MAX, f64::min), -40.0);
+}
+
+#[test]
+fn bodies_duplicate_and_delete_as_one_step_each() {
+    let m = api::start();
+    let d = api::duplicate_bodies(&m, vec![1]).unwrap();
+    assert_eq!(d.ids, vec![2]);
+    assert_eq!(d.scene.len(), 2);
+    assert!(api::delete_bodies(&m, vec![1, 2]).unwrap().is_empty());
+    assert_eq!(api::undo(&m).unwrap().len(), 2);
 }
