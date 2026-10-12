@@ -1,12 +1,12 @@
 //! OpenCascade backend, through the opencascade-rs bindings (LGPL-2.1 OCCT underneath).
 
 use std::collections::HashMap;
-use std::path::Path;
+use std::path::Path as FilePath;
 
 use glam::DVec3;
 use opencascade::primitives::{BooleanKind, Edge, Face, Shape, ShapeHistory, ShapeType, Wire};
 
-use crate::{Blend, BooleanOp, Frame, History, Kernel, KernelError, Motion, Plane, Profile, Tessellation, Traced};
+use crate::{Blend, BooleanOp, Frame, History, Kernel, KernelError, Motion, Path, Plane, Profile, Tessellation, Traced};
 
 pub struct Occt;
 
@@ -32,6 +32,43 @@ fn plane_of(mesh: &opencascade::mesh::Mesh) -> Option<Plane> {
     if normals.iter().any(|n| n.dot(normal) < 1.0 - 1e-9) { return None }
     let origin = mesh.vertices.iter().copied().sum::<DVec3>() / mesh.vertices.len() as f64;
     Some(Plane { origin, normal })
+}
+
+/// A profile as the numbers the shim reads (vendor/opencascade-sys/include/w3d.hxx).
+fn section(profile: &Profile, frame: &Frame) -> Result<Vec<f64>, KernelError> {
+    Ok(match profile {
+        Profile::Circle { center, radius } => {
+            if *radius <= 0.0 { return Err(KernelError::Invalid("radius must be positive")) }
+            let c = frame.point(*center);
+            vec![1.0, c.x, c.y, c.z, frame.normal.x, frame.normal.y, frame.normal.z, *radius]
+        }
+        Profile::Polygon(pts) => {
+            if pts.len() < 3 { return Err(KernelError::Invalid("a polygon needs three corners")) }
+            let mut v = vec![0.0, pts.len() as f64];
+            for p in pts { v.extend(frame.point(*p).to_array()) }
+            v
+        }
+    })
+}
+
+fn path_numbers(path: &Path) -> Result<Vec<f64>, KernelError> {
+    Ok(match path {
+        Path::Circle { center, normal, radius } => {
+            if *radius <= 0.0 { return Err(KernelError::Invalid("radius must be positive")) }
+            vec![1.0, center.x, center.y, center.z, normal.x, normal.y, normal.z, *radius]
+        }
+        Path::Polyline { points, closed } => {
+            if points.len() < 2 { return Err(KernelError::Invalid("a path needs two points")) }
+            let mut v = vec![if *closed { 0.0 } else { 2.0 }, points.len() as f64];
+            for p in points { v.extend(p.to_array()) }
+            v
+        }
+    })
+}
+
+/// Our own sentences from the shim go to the user as they are; OpenCascade's are kernel failures.
+fn shim(e: String) -> KernelError {
+    if e.starts_with("kernel:") { KernelError::Failed(e) } else { KernelError::Refused(e) }
 }
 
 fn history(h: ShapeHistory) -> History {
@@ -128,6 +165,27 @@ impl Kernel for Occt {
         turned.translated(m.pivot + m.offset)
     }
 
+    fn revolve(&self, profile: &Profile, frame: &Frame, axis_point: DVec3, axis_dir: DVec3, angle: f64) -> Result<Shape, KernelError> {
+        let axis = [axis_point.x, axis_point.y, axis_point.z, axis_dir.x, axis_dir.y, axis_dir.z];
+        Shape::revolve_section(&section(profile, frame)?, axis, angle).map_err(shim)
+    }
+
+    fn loft(&self, sections: &[(Profile, Frame)]) -> Result<Shape, KernelError> {
+        let mut all = Vec::new();
+        for (p, f) in sections { all.extend(section(p, f)?) }
+        Shape::loft_sections(&all).map_err(shim)
+    }
+
+    fn sweep(&self, profile: &Profile, frame: &Frame, path: &Path, twist: f64, scale: f64) -> Result<Shape, KernelError> {
+        Shape::sweep_section(&section(profile, frame)?, &path_numbers(path)?, twist, scale).map_err(shim)
+    }
+
+    fn offset_faces(&self, s: &Shape, faces: &[u32], distance: f64) -> Result<Traced<Shape>, KernelError> {
+        let faces: Vec<usize> = faces.iter().map(|&f| f as usize).collect();
+        let (solid, h) = s.offset_faces_with_history(&faces, distance).map_err(shim)?;
+        Ok(Traced { solid, history: history(h) })
+    }
+
     fn is_valid(&self, s: &Shape) -> bool { s.is_valid() }
 
     fn tessellate(&self, s: &Shape, tolerance: f64) -> Result<Tessellation, KernelError> {
@@ -149,11 +207,11 @@ impl Kernel for Occt {
         Ok(t)
     }
 
-    fn write_step(&self, s: &Shape, path: &Path) -> Result<(), KernelError> {
+    fn write_step(&self, s: &Shape, path: &FilePath) -> Result<(), KernelError> {
         s.write_step(path).map_err(failed)
     }
 
-    fn read_step(&self, path: &Path) -> Result<Shape, KernelError> {
+    fn read_step(&self, path: &FilePath) -> Result<Shape, KernelError> {
         let shape = Shape::read_step(path).map_err(|_| KernelError::File("the STEP file could not be read".into()))?;
         // Exported files often carry small gaps and loose tolerances; repair them on the way in,
         // as Plasticity 26 does with its repair library (see the teardown), so later fillets and

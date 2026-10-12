@@ -67,6 +67,10 @@ const KEYS = {
   scale: [['S', 'UNIFORM'], ['CTRL', '0.1'], ['⏎ / RMB', 'OK']],
   extrude: [['DRAG DOT', 'DISTANCE'], ['D', 'DISTANCE'], ['Q', 'UNION'], ['W', 'DIFFERENCE'], ['⇧E', 'INTERSECT'], ['B', 'NEW BODY'], ['⏎ / RMB', 'OK']],
   boolean: [['Q', 'UNION'], ['W', 'DIFFERENCE'], ['⇧E', 'INTERSECT'], ['T', 'KEEP TOOLS'], ['⏎ / RMB', 'OK']],
+  offset: [['DRAG DOT', 'DISTANCE'], ['D', 'DISTANCE'], ['⇧ CLICK', 'FACES'], ['⏎ / RMB', 'OK']],
+  revolve: [['CLICK', 'AXIS START · END'], ['A', 'ANGLE'], ['Q', 'UNION'], ['W', 'DIFFERENCE'], ['⇧E', 'INTERSECT'], ['B', 'NEW BODY'], ['⏎ / RMB', 'OK']],
+  loft: [['⏎ / RMB', 'OK'], ['ESC', 'CANCEL']],
+  sweep: [['CLICK', 'PATH'], ['D', 'TWIST'], ['Q', 'UNION'], ['W', 'DIFFERENCE'], ['⇧E', 'INTERSECT'], ['B', 'NEW BODY'], ['⏎ / RMB', 'OK']],
   rect: [['CLICK', 'CORNERS'], ['S', 'SQUARE'], ['C', 'FROM CENTRE'], ['TAB', 'TYPE SIZE'], ['ALT', 'NO SNAP'], ['ESC', 'CANCEL']],
   circle: [['CLICK', 'CENTRE · RADIUS'], ['TAB', 'TYPE DIAMETER'], ['ALT', 'NO SNAP'], ['ESC', 'CANCEL']],
   line: [['CLICK', 'POINTS'], ['CLICK START', 'CLOSE'], ['CTRL Z', 'BACK'], ['TAB', 'TYPE LENGTH'], ['⏎ / RMB', 'DONE']],
@@ -74,6 +78,8 @@ const KEYS = {
 };
 // Drawing commands: Plasticity's curve tools, which end in curves and the regions inside them.
 const DRAW = { rect: 'RECTANGLE', circle: 'CIRCLE', line: 'LINE' };
+// Commands that grow a solid from drawn regions, sharing one panel.
+const FORMS = { revolve: true, loft: true, sweep: true };
 const keysHtml = id => KEYS[id].map(([k, v]) => `<kbd>${k}</kbd><span>${v}</span>`).join('');
 const BAR = [['palette', 'F', 'SEARCH'], ['tool:extrude', 'E', 'EXTRUDE'], ['tool:boolean', 'Q', 'BOOLEAN'], ['tool:fillet', 'B', 'FILLET'], ['tool:move', 'G', 'MOVE'], ['tool:rotate', 'R', 'ROTATE'], ['tool:scale', 'S', 'SCALE'], ['duplicate', '⇧D', 'DUPLICATE'], ['delete', '⇧X', 'DELETE']];
 
@@ -183,6 +189,27 @@ const SHELL = `
         <button data-bop="intersect" aria-pressed="false"><kbd>⇧E</kbd>INTER</button>
       </div>
       <div class="chips"><button data-id="bool-keep" aria-pressed="false"><kbd>T</kbd>KEEP TOOLS</button></div>
+    </div>
+    <div class="sec" data-panel="offset" hidden>
+      <span class="hint" data-id="off-hint">DRAG THE DOT, OR D AND TYPE</span>
+      <div class="field"><label for="w3d-off-distance">DISTANCE</label><input id="w3d-off-distance" data-id="off-distance" type="number" step="0.5" value="0"></div>
+      <div class="field"><label>FACES</label><output data-id="off-count">0</output></div>
+    </div>
+    <div class="sec" data-panel="form" hidden>
+      <span class="hint" data-id="form-hint">—</span>
+      <div class="field" data-id="form-angle-row"><label for="w3d-form-angle">ANGLE °</label><input id="w3d-form-angle" data-id="form-angle" type="number" step="15" value="360"></div>
+      <div class="field" data-id="form-twist-row"><label for="w3d-form-twist">TWIST °</label><input id="w3d-form-twist" data-id="form-twist" type="number" step="15" value="0"></div>
+      <div class="field" data-id="form-scale-row"><label for="w3d-form-scale">SCALE</label><input id="w3d-form-scale" data-id="form-scale" type="number" step="0.1" min="0.01" value="1"></div>
+      <div class="field"><label>RESULT</label><output data-id="form-outcome">—</output></div>
+      <div data-id="form-ops">
+        <span class="label">OPERATION</span>
+        <div class="seg" role="group" aria-label="Operation">
+          <button data-fop="union" aria-pressed="false"><kbd>Q</kbd>UNION</button>
+          <button data-fop="difference" aria-pressed="false"><kbd>W</kbd>DIFF</button>
+          <button data-fop="intersect" aria-pressed="false"><kbd>⇧E</kbd>INTER</button>
+          <button data-fop="new" aria-pressed="true"><kbd>B</kbd>NEW</button>
+        </div>
+      </div>
     </div>
     <div class="sec" data-panel="move" hidden>
       <span class="hint" data-id="move-hint">DRAG AN ARROW, PRESS X Y Z, OR TYPE</span>
@@ -812,11 +839,19 @@ export async function mount(root, backend) {
     // Plasticity's default command: with edges selected the fillet's dot is already there to drag.
     defaultCommand();
   }
-  /** Plasticity's default commands: the fillet's dot with edges selected, the extrude's with regions. */
+  /** Plasticity's default commands: the fillet's dot with edges selected, the extrude's with regions, Offset Face's with faces. */
   function defaultCommand() {
     if (cmd) return;
     if (edgeBody()) startFillet({ auto: true });
     else if (regionsOnly()) startExtrude({ auto: true });
+    else if (faceBody() !== null) startOffset({ auto: true });
+  }
+  /** The one body all selected faces are on, and only faces are selected; else null. */
+  function faceBody() {
+    const items = sel.list();
+    if (!items.length || items.some(it => it.kind !== 'face')) return null;
+    const ids = new Set(items.map(it => it.body));
+    return ids.size === 1 ? [...ids][0] : null;
   }
   const regionsOnly = () => sel.size > 0 && sel.list().every(it => it.kind === 'region');
   /** The one body all selected edges are on, and only edges are selected; else null. */
@@ -890,7 +925,7 @@ export async function mount(root, backend) {
   }
   function showTool(id) {
     for (const b of $$('[data-tool]')) b.setAttribute('aria-pressed', b.dataset.tool === id);
-    for (const el of $$('[data-panel]')) el.hidden = el.dataset.panel !== (DRAW[id] ? 'draw' : id);
+    for (const el of $$('[data-panel]')) el.hidden = el.dataset.panel !== (DRAW[id] ? 'draw' : FORMS[id] ? 'form' : id);
     $('keys').innerHTML = keysHtml(KEYS[id] ? id : 'idle');
     const name = !id ? 'SELECT' : DRAW[id] ?? toolInfo(id).label;
     $('tool-name').textContent = name;
@@ -921,6 +956,8 @@ export async function mount(root, backend) {
     if (id === 'pushpull') return startPushPull(opts);
     if (id === 'extrude') return startExtrude(opts);
     if (id === 'boolean') return startBoolean();
+    if (id === 'offset') return startOffset(opts);
+    if (FORMS[id]) return startForm(id);
     if (DRAW[id]) return startDraw(id);
   }
 
@@ -1944,6 +1981,301 @@ export async function mount(root, backend) {
     } catch (e) { setState('failed'); toast(say(e)); }
   }
 
+  // --- offset face ------------------------------------------------------------
+  // Plasticity's Offset Face (Push Face): select faces of one solid and the yellow dot is there at
+  // once, the default command for faces. Drag it, or press D and type. The faces move along their
+  // normals and the faces around them stretch to meet them; Shift or Ctrl+click adds or removes
+  // faces. Enter, right-click or OK finishes. (Its A angle and Tab grow modes are not here yet.)
+  function faceFrame(b, n) {
+    const p = b.facePlanes[n];
+    if (p) return { at: faceCentre(b, n), normal: new THREE.Vector3(...p.normal) };
+    // A curved face: the display triangle nearest its centre, and that triangle's outward normal.
+    const centre = faceCentre(b, n);
+    if (!centre) return null;
+    const { positions: pos, indices: ix, faceIds } = b;
+    const a = new THREE.Vector3(), q = new THREE.Vector3(), r = new THREE.Vector3();
+    let best = null;
+    for (let t = 0; t < faceIds.length; t++) {
+      if (faceIds[t] !== n) continue;
+      a.fromArray(pos, ix[3 * t] * 3); q.fromArray(pos, ix[3 * t + 1] * 3); r.fromArray(pos, ix[3 * t + 2] * 3);
+      const mid = a.clone().add(q).add(r).divideScalar(3), d = mid.distanceToSquared(centre);
+      if (!best || d < best.d) best = { d, at: mid, normal: q.clone().sub(a).cross(r.clone().sub(a)).normalize() };
+    }
+    return best;
+  }
+  function startOffset({ auto = false } = {}) {
+    const body = faceBody();
+    if (body === null) return auto ? null : toast(sel.list('face').length ? 'OFFSET THE FACES OF ONE SOLID AT A TIME' : 'SELECT FACES TO OFFSET');
+    if (!backend.previewOffset) return auto ? null : toast('OFFSET FACE IS NOT IN THIS BUILD YET');
+    const c = cmd = { id: 'offset', auto, body, faces: [], distance: 0, sent: 0, shown: 0, gizmo: null };
+    lastTool = 'offset';
+    showTool('offset');
+    setState('none');
+    c.onSelection = () => {
+      drawOverlays();
+      const b = faceBody();
+      if (b === null) {
+        if (c.auto && c.distance === 0) { endCmd(null); return defaultCommand(); }
+        return setHud('SELECT FACES');
+      }
+      const faces = sel.list('face').map(it => it.n).sort((x, y) => x - y);
+      const moved = b !== c.body || String(faces) !== String(c.faces);
+      c.body = b; c.faces = faces;
+      setTarget(label(b));
+      $('off-count').textContent = faces.length;
+      $('off-hint').textContent = `${faces.length} FACE${faces.length > 1 ? 'S' : ''} ON ${label(b)}`;
+      if (moved || !c.gizmo) {
+        c.gizmo?.dispose();
+        const f = faceFrame(bodyOf(b), faces.at(-1));
+        c.gizmo = f && dot(f.at, f.normal, v => setOffsetDistance(snapping(lastPointer) ? Math.round(v / gridStep()) * gridStep() : v));
+        if (c.gizmo) { c.gizmo.onStart = () => { controls.enabled = false; c.auto = false; }; c.gizmo.render(c.distance); }
+      }
+      previewOffsetCmd();
+    };
+    c.key = action => {
+      if (action === 'distance') { c.auto = false; c.gizmo?.activate(lastPointer); return true; }
+      return false;
+    };
+    c.click = e => {
+      const hit = pickAt(e);
+      if (hit?.kind !== 'face' || !(e.ctrlKey || e.metaKey || e.shiftKey)) return !c.auto;
+      sel.toggle({ kind: 'face', body: hit.body, n: hit.n });
+      for (const x of sel.list('solid')) sel.remove(x);
+      selectionChanged();
+      return true;
+    };
+    c.finish = () => commitOffsetCmd();
+    c.abort = () => endCmd('cancelled');
+    c.cleanup = () => { c.gizmo?.dispose(); clearPreview(); };
+    $('off-distance').value = 0;
+    c.onSelection();
+    setHud(auto ? 'DRAG THE DOT · D' : 'DRAG THE DOT, OR D AND TYPE');
+  }
+  function setOffsetDistance(d, fromGizmo = true) {
+    const c = cmd;
+    if (c?.id !== 'offset') return;
+    c.distance = d;
+    c.auto = c.auto && d === 0;
+    if (!fromGizmo) c.gizmo?.render(d);
+    if (document.activeElement !== $('off-distance')) $('off-distance').value = +d.toFixed(3);
+    previewOffsetCmd();
+  }
+  async function previewOffsetCmd() {
+    const c = cmd;
+    if (c?.id !== 'offset') return;
+    const n = ++c.sent;
+    if (!c.distance) { clearPreview(); setState('none'); return; }
+    setState('updating');
+    const t0 = performance.now();
+    let body;
+    try { body = await backend.previewOffset({ body: c.body, faces: c.faces, distance: c.distance }); }
+    catch (e) {
+      if (cmd !== c || n !== c.sent) return;
+      clearPreview();
+      setState('failed');
+      $('off-hint').textContent = say(e);
+      return setHud('OFFSET FAILED');
+    }
+    if (!body || cmd !== c || n < c.shown) return;
+    c.shown = n;
+    $('ms').textContent = Math.round(performance.now() - t0);
+    clearPreview();
+    showPreviewBody(body);
+    setHud(fmt(c.distance));
+    if (n === c.sent) setState('updated');
+  }
+  async function commitOffsetCmd() {
+    const c = cmd;
+    if (!c.distance || c.body === null) return endCmd(c.auto ? null : 'cancelled');
+    try {
+      const { id, scene: list } = await backend.commitOffset({ body: c.body, faces: c.faces, distance: c.distance });
+      endCmd('committed');
+      record(`OFFSET FACE ${fmt(c.distance)} ×${c.faces.length}`, id);
+      await showScene(list);
+      sel.replace({ kind: 'solid', body: id });
+      selectionChanged({ quiet: true });
+    } catch (e) { setState('failed'); toast(say(e)); }
+  }
+
+  // --- revolve, loft (L) and sweep (⇧P) ------------------------------------------
+  // Plasticity's Revolve: select a region, start Revolve (Suggested Commands or F), click the
+  // axis's start and end; A sets the angle (360° to begin with). Loft: select two regions or more
+  // in the order the solid flows through them and press L. Sweep: select the region, press Shift+P,
+  // then click the curve to follow; D sets the twist and the panel the end scale. Revolve and
+  // Sweep take Q union, W difference, Shift+E intersect with the body the region lies on, and B a
+  // new body (the start). Enter, right-click or OK finishes and selects the result.
+  const FOPS = ['union', 'difference', 'intersect', 'new'];
+  function startForm(id) {
+    const regions = sel.list('region').map(it => it.id).filter(rid => curveList.some(c => c.id === rid && isClosed(c)));
+    if (!backend.previewForm) return toast(`${toolInfo(id).label} IS NOT IN THIS BUILD YET`);
+    if (!regions.length || (id === 'loft' && regions.length < 2)) return toast(id === 'loft' ? 'SELECT TWO REGIONS OR MORE, IN ORDER, TO LOFT' : `SELECT A REGION TO ${toolInfo(id).label}`);
+    const first = curveList.find(c => c.id === regions[0]);
+    const target = bodyAt(regionCentre(first), curveFrame(first).n);
+    const c = cmd = { id, regions: id === 'loft' ? regions : regions.slice(0, 1), target, op: 'new', angle: 360, twist: 0, scale: 1, p1: null, p2: null, path: null, outcome: null, sent: 0, shown: 0, line: null };
+    lastTool = id;
+    showTool(id);
+    setState('none');
+    setTarget(target ? label(target) : 'NEW BODY');
+    $('form-angle-row').hidden = id !== 'revolve';
+    $('form-twist-row').hidden = $('form-scale-row').hidden = id !== 'sweep';
+    $('form-ops').hidden = id === 'loft';
+    $('form-angle').value = c.angle; $('form-twist').value = c.twist; $('form-scale').value = c.scale;
+    $('form-outcome').textContent = '—';
+    setFormOps();
+    const hint = () => {
+      const text = id === 'loft' ? `${c.regions.map(r => curveLabel(r)).join(' → ')}`
+        : id === 'revolve' ? (!c.p1 ? 'CLICK THE AXIS START' : !c.p2 ? 'CLICK THE AXIS END' : `${c.angle}° ABOUT THE AXIS`)
+        : !c.path ? 'CLICK THE CURVE TO SWEEP ALONG' : `ALONG ${curveLabel(c.path)}`;
+      $('form-hint').textContent = text;
+      setHud(text);
+    };
+    c.hint = hint;
+    c.onSelection = () => drawOverlays();
+    c.key = action => {
+      if (action === 'angle' && id === 'revolve') {
+        c.entry = { label: 'ANGLE °', text: '', apply: v => { if (v !== 0) setForm({ angle: v }); } };
+        setHud('ANGLE ° _');
+        return true;
+      }
+      if (action === 'twist' && id === 'sweep') {
+        c.entry = { label: 'TWIST °', text: '', apply: v => setForm({ twist: v }) };
+        setHud('TWIST ° _');
+        return true;
+      }
+      if (!FOPS.includes(action) || id === 'loft') return false;
+      c.op = action === c.op || action === 'new' ? 'new' : action;
+      setFormOps();
+      previewFormCmd();
+      return true;
+    };
+    c.entryDone = () => { if (!c.entry) previewFormCmd(); };
+    c.click = e => {
+      if (id === 'revolve' && !c.p2) {
+        const p = axisPointAt(e);
+        if (!p) return true;
+        if (!c.p1) { c.p1 = p; c.line = axisLine(); }
+        else if (p.distanceTo(c.p1) > 1e-6) { c.p2 = p; c.move = null; updateAxisLine(c.p2); }
+        hint();
+        previewFormCmd();
+        return true;
+      }
+      if (id === 'sweep') {
+        const path = curveAt(e);
+        if (path !== null && !c.regions.includes(path)) { c.path = path; hint(); previewFormCmd(); }
+        return true;
+      }
+      return true;
+    };
+    if (id === 'revolve') c.move = e => {
+      if (!c.p1 || c.p2) return;
+      const p = axisPointAt(e);
+      if (!p || p.distanceTo(c.p1) < 1e-6) return;
+      updateAxisLine(p);
+      c.moving = p;
+      previewFormCmd();
+    };
+    c.finish = () => commitFormCmd();
+    c.abort = () => endCmd('cancelled');
+    c.cleanup = () => { if (c.line) dispose(c.line); clearPreview(); };
+    hint();
+    if (id === 'loft') previewFormCmd();
+  }
+  function setFormOps() { for (const b of $$('[data-fop]')) b.setAttribute('aria-pressed', !!FORMS[cmd?.id] && cmd.op === b.dataset.fop); }
+  function setForm(values) {
+    const c = cmd;
+    if (!FORMS[c?.id]) return;
+    Object.assign(c, values);
+    for (const k of ['angle', 'twist', 'scale']) if (document.activeElement !== $(`form-${k}`)) $(`form-${k}`).value = c[k];
+    c.hint();
+    previewFormCmd();
+  }
+  /** A point for the revolve axis: on a face or the construction plane, snapping like a sketch. */
+  function axisPointAt(e) {
+    const h = placeAt(e);
+    if (h && !h.curved) return h.origin.clone();
+    return pickAt(e)?.point?.clone() ?? null;
+  }
+  function axisLine() {
+    const l = new THREE.Line(new THREE.BufferGeometry().setFromPoints([cmd.p1, cmd.p1]), new THREE.LineBasicMaterial({ color: COLORS.accent, depthTest: false }));
+    l.renderOrder = 20;
+    scene.add(l);
+    return l;
+  }
+  function updateAxisLine(p) {
+    const c = cmd;
+    if (!c.line) return;
+    // Drawn a little past both ends, like an axis.
+    const d = p.clone().sub(c.p1), ext = Math.max(d.length() * 0.25, 5);
+    d.normalize();
+    c.line.geometry.setFromPoints([c.p1.clone().addScaledVector(d, -ext), p.clone().addScaledVector(d, ext)]);
+  }
+  /** The drawn curve under the pointer, whatever the selection modes, or null. */
+  function curveAt(e) {
+    ray(e);
+    raycaster.params.Line.threshold = unitsPerPixel(controls.target) * 6;
+    const h = raycaster.intersectObjects(curveGroup.children.filter(o => o.userData.curve !== undefined), false)[0];
+    return h ? h.object.userData.curve : null;
+  }
+  function formRequest(c) {
+    const req = { target: c.target, regions: c.regions, kind: c.id, op: c.op };
+    if (c.id === 'revolve') {
+      const p2 = c.p2 ?? c.moving;
+      if (!c.p1 || !p2) return null;
+      Object.assign(req, { axisPoint: c.p1.toArray(), axisDir: p2.clone().sub(c.p1).toArray(), angle: c.angle * DEG });
+    }
+    if (c.id === 'sweep') {
+      if (c.path === null) return null;
+      Object.assign(req, { path: c.path, twist: c.twist * DEG, scale: c.scale });
+    }
+    return req;
+  }
+  async function previewFormCmd() {
+    const c = cmd;
+    if (!FORMS[c?.id]) return;
+    const req = formRequest(c);
+    const n = ++c.sent;
+    if (!req) { clearPreview(); setState('none'); return; }
+    setState('updating');
+    const t0 = performance.now();
+    let p;
+    try { p = await backend.previewForm(req); }
+    catch (e) {
+      if (cmd !== c || n !== c.sent) return;
+      clearPreview();
+      setState('failed');
+      $('form-outcome').textContent = 'FAILED';
+      return setHud(say(e));
+    }
+    if (!p || cmd !== c || n < c.shown) return;
+    c.shown = n;
+    c.outcome = p.outcome;
+    $('ms').textContent = Math.round(performance.now() - t0);
+    clearPreview();
+    if (p.result) showPreviewBody(p.result);
+    if (p.tool) {
+      const look = phantom[p.outcome === 'cut' ? 'cut' : 'add'];
+      const m = meshOf(p.tool, look.face, look.edge);
+      m.renderOrder = 5;
+      previewGroup.add(m);
+    }
+    $('form-outcome').textContent = p.outcome.toUpperCase();
+    if (n === c.sent) setState('updated');
+  }
+  async function commitFormCmd() {
+    const c = cmd;
+    const req = formRequest(c);
+    if (!req) return endCmd('cancelled');
+    try {
+      const { id, scene: list } = await backend.commitForm(req);
+      endCmd('committed');
+      const what = c.id === 'revolve' ? `REVOLVE ${c.angle}°` : c.id === 'loft' ? `LOFT ×${c.regions.length}` : `SWEEP${c.twist ? ` ${c.twist}°` : ''}${c.scale !== 1 ? ` ×${c.scale}` : ''}`;
+      record(`${what}${req.op === 'new' ? '' : ` ${req.op.toUpperCase()}`}`, id);
+      await showScene(list);
+      sel.replace({ kind: 'solid', body: id });
+      selectionChanged({ quiet: true });
+    } catch (e) { setState('failed'); toast(say(e)); }
+  }
+
   // --- actions without a command --------------------------------------------
   async function step(dir) {
     if (cmd) abort();
@@ -2050,7 +2382,7 @@ export async function mount(root, backend) {
 
   // --- command palette (F) and suggestions (Shift+F) --------------------------
   const ENTRIES = [
-    ...TOOLS.map(t => ({ action: `tool:${t.id}`, label: t.label, key: t.key.toUpperCase() })),
+    ...TOOLS.map(t => ({ action: `tool:${t.id}`, label: t.label, key: t.key.toUpperCase().replaceAll('-', ' ') })),
     ...Object.entries(ACTIONS).map(([action, l]) => ({ action, label: l.toUpperCase(), key: keyFor(action) })),
   ];
   /** Commands that fit what is selected (Plasticity's Shift+F). */
@@ -2316,6 +2648,9 @@ export async function mount(root, backend) {
   for (const b of $$('[data-mode]')) b.onclick = e => doAction(b.dataset.mode === 'all' ? 'mode:all' : `${e.shiftKey ? 'mode-toggle' : 'mode'}:${b.dataset.mode}`);
   for (const b of $$('[data-action]')) b.onclick = () => doAction(b.dataset.action);
   for (const b of $$('[data-tool]')) b.onclick = () => startTool(b.dataset.tool);
+  $('off-distance').addEventListener('input', e => { const v = parseFloat(e.target.value); if (!isNaN(v) && cmd?.id === 'offset') { cmd.auto = false; setOffsetDistance(v, false); } });
+  for (const k of ['angle', 'twist', 'scale']) $(`form-${k}`).addEventListener('input', e => { const v = parseFloat(e.target.value); if (!isNaN(v) && (k !== 'scale' || v > 0) && (k !== 'angle' || v !== 0)) setForm({ [k]: v }); });
+  for (const b of $$('[data-fop]')) b.onclick = () => cmd?.key?.(b.dataset.fop);
   function setGrid(dir) {
     const i = Math.max(0, Math.min(GRID_STEPS.length - 1, GRID_STEPS.indexOf(gridStep()) + dir));
     $('grid').value = GRID_STEPS[i];
@@ -2493,7 +2828,7 @@ export async function mount(root, backend) {
      * The selection is named by ref: `edges` (fillet), `body` (move, rotate, scale) or `face` (push/pull).
      */
     async run(id, args = {}) {
-      const { edges, body, bodies: ids, face, region, target, tools, ...rest } = args;
+      const { edges, body, bodies: ids, face, faces, region, regions, path, target, tools, ...rest } = args;
       const errors = check(id, rest);
       if (errors.length) throw new Error(errors.join('; '));
       const p = withDefaults(id, rest);
@@ -2547,6 +2882,36 @@ export async function mount(root, backend) {
         cmd.op = p.op;
         cmd.keep = p.keepTools;
         await previewBooleanCmd();
+      } else if (id === 'offset') {
+        const b = current.find(x => (faces ?? []).every(r => x.faceRefs?.includes(r)));
+        if (!b || !faces?.length) throw new Error('give faces of one body to offset');
+        sel.clear();
+        for (const r of faces) sel.add({ kind: 'face', body: b.id, n: b.faceRefs.indexOf(r) });
+        selectionChanged({ quiet: true });
+        await startTool('offset');
+        if (cmd?.id !== 'offset') throw new Error('those faces cannot be offset');
+        cmd.auto = false;
+        setOffsetDistance(p.distance, false);
+      } else if (FORMS[id]) {
+        const list = id === 'loft' ? regions ?? [] : [region];
+        if (!list.length || !list.every(r => curveList.some(c => c.id === r && isClosed(c)))) throw new Error('that region is gone');
+        if (id === 'sweep' && !curveList.some(c => c.id === path)) throw new Error('that path is gone');
+        sel.clear();
+        for (const r of list) sel.add({ kind: 'region', id: r });
+        selectionChanged({ quiet: true });
+        await startTool(id);
+        if (cmd?.id !== id) throw new Error(`those regions cannot be used for ${id}`);
+        const fromUser = ([x, y, z]) => new THREE.Vector3(x, z, -y);
+        if (id === 'revolve') {
+          cmd.p1 = fromUser(p.axisPoint);
+          cmd.p2 = cmd.p1.clone().add(fromUser(p.axisDir));
+          if (cmd.p2.distanceTo(cmd.p1) < 1e-9) throw new Error('the axis needs a direction');
+          cmd.line = axisLine();
+          updateAxisLine(cmd.p2);
+        }
+        if (id === 'sweep') cmd.path = path;
+        if (id !== 'loft') { cmd.op = p.op; setFormOps(); }
+        setForm(id === 'revolve' ? { angle: p.angle } : id === 'sweep' ? { twist: p.twist, scale: p.scale } : {});
       }
     },
     /** Where a point (viewport coordinates) is on the page, in CSS pixels. */
@@ -2565,6 +2930,8 @@ export async function mount(root, backend) {
       if (c.id === 'pushpull') Object.assign(out, { placed: !!c.at, distance: c.distance });
       if (c.id === 'extrude') Object.assign(out, { region: c.src.region ?? null, face: c.src.face ?? null, target: c.src.target, distance: c.distance, op: c.op, outcome: c.outcome });
       if (c.id === 'boolean') Object.assign(out, { target: c.target, tools: c.tools, op: c.op, keep: c.keep });
+      if (c.id === 'offset') Object.assign(out, { body: c.body, faces: c.faces, distance: c.distance });
+      if (FORMS[c.id]) Object.assign(out, { regions: c.regions, target: c.target, op: c.op, outcome: c.outcome, axis: c.p1 && c.p2 ? [c.p1.toArray(), c.p2.toArray()] : null, angle: c.angle, path: c.path, twist: c.twist, scale: c.scale });
       if (DRAW[c.id]) Object.assign(out, { placed: !!c.plane, points: c.pts.length, square: c.square, centre: c.centre, entry: c.entry?.label ?? null });
       return out;
     },

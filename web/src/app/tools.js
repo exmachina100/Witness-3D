@@ -8,8 +8,9 @@
 // (Enter, right-click or OK) or abort (Escape). Nothing changes the document until it finishes, and
 // a finish is one undo step. Keys follow Plasticity's defaults (see keymap.js).
 //
-// `selects` is what the tool acts on: 'face' (a point on a flat face, or the work plane), 'edge'
-// (one or more edges of one body) or 'solid' (one body). Lengths are millimetres, angles degrees,
+// `selects` is what the tool acts on: 'face' (a point on a flat face, or the work plane), 'faces'
+// (faces of one body), 'edge' (one or more edges of one body), 'region' (one drawn region),
+// 'regions' (several, in order) or 'solid' (one body). `key` is '' where Plasticity binds none. Lengths are millimetres, angles degrees,
 // and coordinates are the user's: x right, y back, z up (the viewport's own y is up).
 
 export const TOOLS = [
@@ -45,6 +46,37 @@ export const TOOLS = [
         params: {
             distance: { type: 'number', unit: 'mm', nonzero: true, default: 2, describe: 'radius of the round; a negative value makes a chamfer of that distance instead' },
             angle: { type: 'number', unit: 'deg', above: 0, below: 90, default: 45, describe: 'for a chamfer, its angle from the first face; 45 gives equal distances' },
+        },
+    },
+    {
+        id: 'offset', label: 'OFFSET FACE', key: '', group: 'shape', selects: 'faces', toolbar: false,
+        summary: 'Move faces of one solid along their normals; the faces around them stretch to meet them. Selecting faces starts it.',
+        params: {
+            distance: { type: 'number', unit: 'mm', nonzero: true, default: 1, describe: 'how far to move the faces; positive moves them outward' },
+        },
+    },
+    {
+        id: 'revolve', label: 'REVOLVE', key: '', group: 'shape', selects: 'region', toolbar: false,
+        summary: 'Turn the region inside a closed curve about an axis into a solid.',
+        params: {
+            axisPoint: { type: 'vector', unit: 'mm', default: [0, 0, 0], describe: 'a point on the axis' },
+            axisDir: { type: 'vector', default: [0, 0, 1], describe: 'the direction of the axis' },
+            angle: { type: 'number', unit: 'deg', nonzero: true, default: 360, describe: 'how far to turn' },
+            op: { type: 'enum', values: ['new', 'union', 'difference', 'intersect'], default: 'new', describe: 'a new body, or a boolean with the body the region lies on' },
+        },
+    },
+    {
+        id: 'loft', label: 'LOFT', key: 'l', group: 'shape', selects: 'regions', toolbar: false,
+        summary: 'Pass a solid through two regions or more, in the order given.',
+        params: {},
+    },
+    {
+        id: 'sweep', label: 'SWEEP', key: 'shift-p', group: 'shape', selects: 'region', toolbar: false,
+        summary: 'Sweep the region inside a closed curve along another curve into a solid.',
+        params: {
+            twist: { type: 'number', unit: 'deg', default: 0, describe: 'how far the far end turns about the profile' },
+            scale: { type: 'number', above: 0, default: 1, describe: 'the far end\'s size relative to the profile' },
+            op: { type: 'enum', values: ['new', 'union', 'difference', 'intersect'], default: 'new', describe: 'a new body, or a boolean with the body the region lies on' },
         },
     },
     {
@@ -115,12 +147,16 @@ const SELECTION_PARAM = {
     face: ['face', { type: 'integer', description: 'the flat face to sketch on, by ref; leave out to use the work plane' }],
     region: ['region', { type: 'integer', description: 'the closed curve whose region to extrude, by id; or give face instead' }],
     solids: ['target', { type: 'integer', description: 'the body to change, by id' }],
+    faces: ['faces', { type: 'array', items: { type: 'integer' }, minItems: 1, description: 'the faces to act on, by ref, all on one body' }],
+    regions: ['regions', { type: 'array', items: { type: 'integer' }, minItems: 2, description: 'the closed curves whose regions to pass through, by id, in order' }],
 };
 const EXTRA_PARAMS = {
     extrude: { face: { type: 'integer', description: 'a flat face to extrude instead of a region, by ref' } },
     boolean: { tools: { type: 'array', items: { type: 'integer' }, minItems: 1, description: 'the tool bodies, by id' } },
+    sweep: { path: { type: 'integer', description: 'the curve to sweep along, by id' } },
 };
-const REQUIRED = { edge: true, solid: true, solids: true };
+const REQUIRED = { edge: true, solid: true, solids: true, faces: true, regions: true };
+const REQUIRED_EXTRA = { boolean: ['tools'], revolve: ['region'], sweep: ['region', 'path'] };
 
 /**
  * The tools as JSON Schema tool definitions ({ name, description, input_schema }), for a model
@@ -133,7 +169,7 @@ export function schema() {
         properties[selName] = selSchema;
         if (REQUIRED[t.selects]) required.push(selName);
         Object.assign(properties, EXTRA_PARAMS[t.id]);
-        if (t.id === 'boolean') required.push('tools');
+        required.push(...(REQUIRED_EXTRA[t.id] ?? []));
         for (const [name, p] of Object.entries(t.params)) {
             const description = p.describe + (p.unit ? `, in ${p.unit}` : '');
             if (p.type === 'number') properties[name] = { type: 'number', description, ...(p.min !== undefined && { minimum: p.min }), ...(p.above !== undefined && { exclusiveMinimum: p.above }), ...(p.below !== undefined && { exclusiveMaximum: p.below }), ...(p.nonzero && { not: { const: 0 } }) };

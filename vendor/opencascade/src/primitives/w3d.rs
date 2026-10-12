@@ -128,6 +128,37 @@ impl Shape {
     }
 }
 
+/// Strip the "kernel: " wrapper the shim puts on OpenCascade's own failures; keep our sentences.
+fn reason(e: cxx::Exception) -> String { e.what().to_string() }
+
+impl Shape {
+    /// The profile (see `w3d.hxx` for the number layout) turned `angle` radians about `axis`
+    /// (a point then a direction).
+    pub fn revolve_section(section: &[f64], axis: [f64; 6], angle: f64) -> Result<Shape, String> {
+        let s = ffi::w3d::w3d_revolve(section, &axis, angle).map_err(reason)?;
+        Ok(Shape::from_shape(&s))
+    }
+
+    /// A solid through the profiles, given one after another.
+    pub fn loft_sections(sections: &[f64]) -> Result<Shape, String> {
+        let s = ffi::w3d::w3d_loft(sections).map_err(reason)?;
+        Ok(Shape::from_shape(&s))
+    }
+
+    /// The profile swept along `path`, its far end turned by `twist` radians and scaled by `scale`.
+    pub fn sweep_section(section: &[f64], path: &[f64], twist: f64, scale: f64) -> Result<Shape, String> {
+        let s = ffi::w3d::w3d_sweep(section, path, twist, scale).map_err(reason)?;
+        Ok(Shape::from_shape(&s))
+    }
+
+    /// The numbered faces moved `distance` along their normals, neighbours following, with history.
+    pub fn offset_faces_with_history(&self, faces: &[usize], distance: f64) -> Result<(Shape, ShapeHistory), String> {
+        let ids: Vec<i32> = faces.iter().map(|&f| f as i32).collect();
+        let r = ffi::w3d::w3d_offset_faces(&self.inner, &ids, distance).map_err(reason)?;
+        Ok((Shape::from_shape(&ffi::w3d::w3d_result_shape(&r)), history(&r, 1)))
+    }
+}
+
 fn parse_blend_error(msg: &str) -> BlendError {
     match msg.strip_prefix("BLEND|").and_then(|m| m.split_once('|')) {
         Some((list, reason)) => BlendError {

@@ -12,12 +12,14 @@ pub mod document;
 pub mod engine;
 pub mod extrude;
 pub mod file;
+pub mod form;
 #[cfg(feature = "occt")]
 pub mod occt;
 
 pub use blend::{blend, Blend, BlendParams};
 pub use document::{Ref, Refs};
 pub use extrude::{extrude, ExtrudeParams, ExtrudeResult, Operation};
+pub use form::{form, offset_faces, FormKind, FormParams};
 pub use document::{Curve, CurveId, CurveShape};
 
 /// A closed 2D profile, drawn in a sketch plane.
@@ -34,6 +36,13 @@ impl Profile {
         let (w, h) = (width / 2.0, height / 2.0);
         Profile::Polygon(vec![(-w, -h), (w, -h), (w, h), (-w, h)])
     }
+}
+
+/// A path to sweep along, in model coordinates.
+#[derive(Clone, Debug, PartialEq)]
+pub enum Path {
+    Polyline { points: Vec<DVec3>, closed: bool },
+    Circle { center: DVec3, normal: DVec3, radius: f64 },
 }
 
 /// A sketch plane: origin, in-plane x axis, and normal (the extrude direction).
@@ -98,6 +107,9 @@ pub enum KernelError {
     Blend { edges: Vec<u32>, reason: String },
     #[error("{0}")]
     File(String),
+    /// The kernel could not build the shape, in a sentence for the user.
+    #[error("{0}")]
+    Refused(String),
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -167,6 +179,23 @@ pub trait Kernel {
     fn blend(&self, s: &Self::Solid, edges: &[u32], size: f64, kind: Blend, angle: f64) -> Result<Traced<Self::Solid>, KernelError>;
     /// The solid moved rigidly. Faces and edges keep their numbers.
     fn transform(&self, s: &Self::Solid, m: &Motion) -> Self::Solid;
+    /// `profile` turned `angle` radians about the axis through `axis_point` along `axis_dir`.
+    fn revolve(&self, _profile: &Profile, _frame: &Frame, _axis_point: DVec3, _axis_dir: DVec3, _angle: f64) -> Result<Self::Solid, KernelError> {
+        Err(KernelError::Invalid("this kernel cannot revolve"))
+    }
+    /// A solid through the profiles, in order.
+    fn loft(&self, _sections: &[(Profile, Frame)]) -> Result<Self::Solid, KernelError> {
+        Err(KernelError::Invalid("this kernel cannot loft"))
+    }
+    /// `profile` swept along `path`; the far end turned by `twist` radians and scaled by `scale`.
+    fn sweep(&self, _profile: &Profile, _frame: &Frame, _path: &Path, _twist: f64, _scale: f64) -> Result<Self::Solid, KernelError> {
+        Err(KernelError::Invalid("this kernel cannot sweep"))
+    }
+    /// The numbered faces moved `distance` along their outward normals, the faces around them
+    /// stretching to meet them (Plasticity's Offset Face).
+    fn offset_faces(&self, _s: &Self::Solid, _faces: &[u32], _distance: f64) -> Result<Traced<Self::Solid>, KernelError> {
+        Err(KernelError::Invalid("this kernel cannot offset faces"))
+    }
     /// Whether the kernel's own checker accepts the shape.
     fn is_valid(&self, s: &Self::Solid) -> bool;
     fn tessellate(&self, s: &Self::Solid, tolerance: f64) -> Result<Tessellation, KernelError>;

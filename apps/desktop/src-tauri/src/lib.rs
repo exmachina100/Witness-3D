@@ -74,6 +74,42 @@ async fn commit_blend(
 }
 
 #[tauri::command]
+async fn preview_form(
+    model: State<'_, Model>,
+    req: api::FormRequest,
+) -> Result<Option<api::Preview>, api::ApiError> {
+    on_model(&model, move |m| api::preview_form(m, req))
+        .await?
+        .transpose()
+}
+
+#[tauri::command]
+async fn commit_form(
+    model: State<'_, Model>,
+    req: api::FormRequest,
+) -> Result<api::Committed, api::ApiError> {
+    on_model(&model, move |m| api::commit_form(m, req)).await?
+}
+
+#[tauri::command]
+async fn preview_offset(
+    model: State<'_, Model>,
+    req: api::OffsetRequest,
+) -> Result<Option<api::Body>, api::ApiError> {
+    on_model(&model, move |m| api::preview_offset(m, req))
+        .await?
+        .transpose()
+}
+
+#[tauri::command]
+async fn commit_offset(
+    model: State<'_, Model>,
+    req: api::OffsetRequest,
+) -> Result<api::Committed, api::ApiError> {
+    on_model(&model, move |m| api::commit_offset(m, req)).await?
+}
+
+#[tauri::command]
 async fn commit_motion(
     model: State<'_, Model>,
     req: api::MotionRequest,
@@ -248,6 +284,10 @@ pub fn run() {
             commit_extrude,
             preview_blend,
             commit_blend,
+            preview_form,
+            commit_form,
+            preview_offset,
+            commit_offset,
             commit_motion,
             delete_bodies,
             duplicate_bodies,

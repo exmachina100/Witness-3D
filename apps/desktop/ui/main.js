@@ -28,6 +28,10 @@ const rust = {
   deleteItems: (bodies, curves) => tauri.core.invoke('delete_items', { bodies, curves }),
   previewBoolean: req => tauri.core.invoke('preview_boolean', { req }),
   commitBoolean: req => tauri.core.invoke('commit_boolean', { req }),
+  previewForm: req => tauri.core.invoke('preview_form', { req }),
+  commitForm: req => tauri.core.invoke('commit_form', { req }),
+  previewOffset: req => tauri.core.invoke('preview_offset', { req }),
+  commitOffset: req => tauri.core.invoke('commit_offset', { req }),
   // The Anthropic key for AI commands lives in the app's config folder (or ANTHROPIC_API_KEY).
   aiKey: () => tauri.core.invoke('ai_key'),
   setAiKey: key => tauri.core.invoke('set_ai_key', { key }),

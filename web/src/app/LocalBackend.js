@@ -4,7 +4,8 @@
 import * as THREE from 'three';
 import { ExtrudeFactory } from '../ExtrudeFactory.js';
 import { NoOpError } from '../GeometryFactory.js';
-import { blendEdges, booleanWithHistory, box, count, exportSTEP, facePlane, numberedEdges, tessellate, transform, volume } from '../Kernel.js';
+import { blendEdges, booleanWithHistory, box, count, exportSTEP, facePlane, numberedEdges, oc, tessellate, transform, volume } from '../Kernel.js';
+import { loft, offsetFlatFaces, revolve, sweep } from '../Forms.js';
 
 const v3 = a => new THREE.Vector3(...a);
 
@@ -142,6 +143,76 @@ export class LocalBackend {
         this.put(req.target, shape, history);
         if (!req.keepTools) for (const id of req.tools) { this.shapes.delete(id); this.refs.delete(id); }
         return { id: req.target, scene: this.bodies() };
+    }
+
+    /**
+     * Revolve, Loft or Sweep of drawn regions: the new shape, and the target after the boolean when
+     * Q, W or Shift+E asked for one (as the desktop's form.rs). Null when there is nothing to make.
+     */
+    form(req) {
+        const c = id => { const x = this.curveMap.get(id); if (!x) throw new Error('that curve no longer exists'); return x; };
+        if (!req.regions?.length) throw new Error('select a region first');
+        let tool;
+        if (req.kind === 'revolve') tool = revolve(c(req.regions[0]), req.axisPoint ?? [0, 0, 0], req.axisDir ?? [0, 1, 0], req.angle ?? 2 * Math.PI);
+        else if (req.kind === 'loft') tool = loft(req.regions.map(c));
+        else if (req.kind === 'sweep') {
+            if (req.path === undefined || req.path === null) throw new Error('pick the path to sweep along');
+            if (req.regions.includes(req.path)) throw new Error('pick a path other than the profile');
+            tool = sweep(c(req.regions[0]), c(req.path), req.twist ?? 0, req.scale ?? 1);
+        } else throw new Error('a form is a revolve, a loft or a sweep');
+        if (!tool) return null;
+        const o = oc();
+        if (!new o.BRepCheck_Analyzer(tool, true, false, false).IsValid() || count(tool, 'TopAbs_SOLID') === 0) throw new Error('the shape crosses itself; change the axis, path or profiles');
+        const kind = { union: 'union', difference: 'difference', intersect: 'intersection' }[req.op];
+        if (!kind || !this.shapes.has(req.target)) return { tool, outcome: 'new' };
+        const body = this.shapes.get(req.target);
+        const r = booleanWithHistory(body, tool, kind);
+        const met = kind === 'union' ? count(r.shape, 'TopAbs_SOLID') === count(body, 'TopAbs_SOLID')
+            : kind === 'difference' ? r.history.faces[1].length > 0 || count(r.shape, 'TopAbs_FACE') !== count(body, 'TopAbs_FACE')
+            : count(r.shape, 'TopAbs_FACE') > 0;
+        if (!met) { if (kind === 'union') return { tool, outcome: 'new' }; throw new Error('the shape does not meet the body'); }
+        return { tool, result: r, outcome: { union: 'join', difference: 'cut', intersection: 'intersect' }[kind] };
+    }
+
+    previewForm(req) {
+        return this.latest(async () => {
+            const f = this.form(req);
+            if (!f) return { outcome: 'none', tool: null, result: null };
+            return { outcome: f.outcome, tool: this.body(0, f.tool), result: f.result ? this.body(req.target, f.result.shape) : null };
+        });
+    }
+
+    async commitForm(req) {
+        const f = this.form(req);
+        if (!f) throw new Error('nothing to do');
+        this.checkpoint();
+        if (f.result) { this.put(req.target, f.result.shape, f.result.history); return { id: req.target, scene: this.bodies() }; }
+        const id = this.nextId++;
+        this.put(id, f.tool);
+        return { id, scene: this.bodies() };
+    }
+
+    /** Offset Face. This build has no per-face offset, so flat faces are pushed by joining or cutting slabs. */
+    offset({ body, faces, distance }) {
+        const shape = this.shapes.get(body);
+        if (!shape) throw new Error('that body no longer exists');
+        if (!faces?.length) throw new Error('select at least one face');
+        if (!Number.isFinite(distance)) throw new Error('the distance is not a number');
+        if (Math.abs(distance) < 1e-9) return null;
+        if (faces.some(f => !facePlane(shape, f))) throw new Error('the browser demo offsets flat faces only; the desktop app offsets any face');
+        return offsetFlatFaces(shape, [...new Set(faces)], distance, booleanWithHistory, chain);
+    }
+
+    previewOffset(req) {
+        return this.latest(async () => { const r = this.offset(req); return this.body(req.body, (r ?? { shape: this.shapes.get(req.body) }).shape); });
+    }
+
+    async commitOffset(req) {
+        const r = this.offset(req);
+        if (!r) throw new Error('nothing to do');
+        this.checkpoint();
+        this.put(req.body, r.shape, r.history);
+        return { id: req.body, scene: this.bodies() };
     }
 
     scene() { return this.bodies() }
