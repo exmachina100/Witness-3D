@@ -141,3 +141,28 @@ opencascade.js (which lacks IGES).
 | File association | registered by the app at run time | `.w3d` through the bundler's `fileAssociations`, so it's there from install | Missing |
 | Explorer thumbnails | `thumbnail_provider.dll` COM handler, registered with regsvr32 | A small thumbnail handler that reads the preview PNG a `.w3d` file stores | Missing |
 | Graphics fallback | ANGLE, then SwiftShader | WebView2 brings its own GPU fallback; the browser build needs WebGL2 | Covered by the platform |
+
+## 7. Licensed-kernel equivalents (kernel strategy, adopted 2026-10-13)
+
+Plasticity 26.1.4 gets its hardest features from commercial SDKs (Parasolid, xNURBS, PolySplines,
+HOOPS Exchange, ODA; see the teardown). Witness 3D builds open equivalents on OpenCascade behind the
+`Kernel` trait, so a licensed kernel can slot in later. The reasoning, access routes and difficulty
+are in [kernel-strategy.md](kernel-strategy.md); the feature-by-feature table is in
+[licensed-features-status.md](licensed-features-status.md).
+
+Order of work:
+
+1. Imprint, Cut and Project, which also gives **K knife mode** on every drawing tool
+2. Patch fill (xNURBS-style Boundary and Quad-sided) and Bridge Surface
+3. Thicken, Draft Face, Pipe, Loft and Sweep guide curves
+4. Zebra and curvature display
+5. DXF and Rhino `.3dm` (openNURBS)
+6. PolySplines on OpenSubdiv, variable-radius fillet and Fillet Shell, Match Face, Unwrap Face
+
+Quality bar for every feature, reported with numbers when missed:
+- Steps, keys and options as in Plasticity's manual
+- G0 gap under 0.01 mm and G1 within 0.5° at joins, checked with Measure Continuity and zebra
+- Every operation in the three test workflows (enclosure, mirror housing, handle) succeeds on the
+  benchmark models; a failure shows a message and leaves the model as it was
+
+Also still open from earlier rounds: Extrude I/F/V, Offset Face Tab, and Spline Tab.
