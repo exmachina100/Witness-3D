@@ -100,6 +100,8 @@ export const COMMAND = {
     'fillet-curve': { d: 'radius' },
     bridge: { t: 'tension' },
     hole: { t: 'through' },
+    // Tangent Circle (manual): F freezes the circle, Tab types its radius.
+    'tangent-circle': { f: 'freeze', tab: 'typed' },
     // Round 6: Shell's D types the thickness; Mirror and Radial Array take X/Y/Z for the axis and J to join.
     shell: { d: 'thickness' },
     mirror: { x: 'x', y: 'y', z: 'z', j: 'join' },
@@ -127,7 +129,7 @@ export const ACTIONS = {
     'draw:center-rect': 'Center rectangle', 'draw:rect3': 'Three point rectangle', 'draw:circle2': 'Two point circle',
     'draw:circle3': 'Three point circle', 'draw:arc3': 'Three point arc', 'draw:arc': 'Center point arc',
     'draw:polygon': 'Regular polygon', 'draw:spline': 'Spline curve', 'draw:ellipse': 'Center ellipse',
-    'draw:ellipse3': 'Three point ellipse', 'draw:tangent-arc': 'Tangent arc', 'draw:spiral': 'Spiral', 'draw:cv': 'Control point curve', 'join': 'Join curves', 'trim': 'Trim curves', 'explode': 'Explode curve', 'extend': 'Extend curve',
+    'draw:ellipse3': 'Three point ellipse', 'draw:tangent-arc': 'Tangent arc', 'draw:spiral': 'Spiral', 'draw:cv': 'Control point curve', 'draw:tangent-circle': 'Tangent circle', 'join': 'Join curves', 'trim': 'Trim curves', 'explode': 'Explode curve', 'extend': 'Extend curve',
     'undo': 'Undo', 'redo': 'Redo', 'file:new': 'New', 'file:open': 'Open…', 'file:save': 'Save',
     'export:step': 'Export STEP', 'import:step': 'Import STEP',
 };

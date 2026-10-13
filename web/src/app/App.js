@@ -59,7 +59,7 @@ import { ACTIONS, COMMAND, VIEWPORT, keyFor, keyOf } from './keymap.js';
 import { Selection } from './Selection.js';
 import { claude, describe, MODEL, reply, request } from './ai.js';
 import { icon } from './icons.js';
-import { bridgeCurves, explode, extendCurve, filletCurve, nearestEnd, offsetCurve, trim } from '../curveEdit.js';
+import { bridgeCurves, explode, extendCurve, filletCurve, nearestEnd, offsetCurve, tangentCircle, trim } from '../curveEdit.js';
 import { ViewGizmo } from './ViewGizmo.js';
 import { arcPoints, circleThrough, cvPoints, ellipsePoints, endTangent, helixPoints, loops, polygonCorners, spiralAngle, tangentArc } from '../curves.js';
 
@@ -95,6 +95,7 @@ const KEYS = {
   'fillet-curve': [['D', 'RADIUS'], ['TYPE', 'IN PANEL'], ['⏎ / RMB', 'OK']],
   'remove-face': [['⇧ CLICK', 'FACES'], ['⏎ / RMB', 'OK']],
   hole: [['CLICK', 'A FLAT FACE'], ['T', 'THROUGH ALL'], ['TYPE', 'SIZE IN PANEL'], ['⏎ / RMB', 'OK']],
+  'tangent-circle': [['CLICK', 'FIRST · SECOND CURVE · SIZE'], ['F', 'FREEZE'], ['TAB', 'RADIUS'], ['ESC', 'CANCEL']],
   extend: [['CLICK', 'NEAR AN END'], ['TYPE', 'LENGTH IN PANEL'], ['ESC / ⏎', 'DONE']],
   bridge: [['T', 'TENSION'], ['⏎ / RMB', 'OK']],
   trim: [['CLICK', 'PIECE TO CUT AWAY'], ['CTRL Z', 'UNDO ONE'], ['ESC / ⏎', 'DONE']],
@@ -122,7 +123,7 @@ const CLICKS = { rect: 2, 'center-rect': 2, rect3: 3, circle: 2, circle2: 2, cir
 const FORMS = { revolve: true, loft: true, sweep: true };
 const PRIMS = { box: true, 'center-box': true, box3: true, cylinder: true, sphere: true };
 // Commands that aren't tools in the registry (they act on a click, not on settings).
-const EDITS = { trim: 'TRIM', extend: 'EXTEND CURVE' };
+const EDITS = { trim: 'TRIM', extend: 'EXTEND CURVE', 'tangent-circle': 'TANGENT CIRCLE' };
 const keysHtml = id => KEYS[id].map(([k, v]) => `<kbd>${k}</kbd><span>${v}</span>`).join('');
 const BAR = [['palette', 'F', 'SEARCH'], ['tool:extrude', 'E', 'EXTRUDE'], ['tool:boolean', 'Q', 'BOOLEAN'], ['tool:fillet', 'B', 'FILLET'], ['tool:move', 'G', 'MOVE'], ['tool:rotate', 'R', 'ROTATE'], ['tool:scale', 'S', 'SCALE'], ['duplicate', '⇧D', 'DUPLICATE'], ['delete', '⇧X', 'DELETE']];
 
@@ -1184,6 +1185,7 @@ export async function mount(root, backend) {
     if (id === 'hole') return startHole(opts);
     if (id === 'remove-face') return startRemoveFace();
     if (id === 'extend') return startExtend();
+    if (id === 'tangent-circle') return startTangentCircle();
     if (id === 'bridge') return startBridge();
     if (id === 'shell') return startShell();
     if (id === 'mirror') return startMirror();
@@ -2902,6 +2904,76 @@ export async function mount(root, backend) {
     c.cleanup = () => clearPreview();
     setHud('CLICK A FLAT FACE');
     if (at) c.place(at);
+  }
+
+  /**
+   * Plasticity's Tangent Circle: click two curves, then move the cursor to size a circle touching both
+   * (F freezes it while the cursor moves on; Tab types its radius); click to place it.
+   */
+  function startTangentCircle() {
+    if (!backend.addCurves) return toast('DRAWING IS NOT IN THIS BUILD YET');
+    const c = cmd = { id: 'tangent-circle', picks: [], radius: null, frozen: false, out: null, at: null };
+    lastTool = 'tangent-circle';
+    showTool('tangent-circle');
+    setState('none');
+    setHud('CLICK THE FIRST CURVE');
+    const planeHit = e => {
+      const f = curveFrame(c.picks[0]);
+      ray(e);
+      const p = raycaster.ray.intersectPlane(new THREE.Plane().setFromNormalAndCoplanarPoint(f.n, f.o), new THREE.Vector3());
+      if (!p) return null;
+      const d = p.sub(f.o);
+      return [d.dot(f.x), d.dot(f.y)];
+    };
+    const update = () => {
+      clearPreview();
+      if (!c.at) return;
+      try {
+        c.out = tangentCircle(c.picks[0], c.picks[1], c.at, c.radius);
+        showCurvePreview([c.out]);
+        setHud(`TANGENT CIRCLE R ${c.out.radius.toFixed(2)}${c.frozen ? ' · FROZEN' : ''}`);
+        setState('updated');
+      } catch (err) { c.out = null; setHud(say(err)); setState('failed'); }
+    };
+    c.move = e => {
+      if (c.picks.length < 2 || c.frozen) return;
+      c.at = planeHit(e);
+      update();
+    };
+    c.click = async e => {
+      if (c.picks.length < 2) {
+        const hit = pickAt(e);
+        const src = (hit?.kind === 'curve' || hit?.kind === 'region') && curveById(hit.id);
+        if (!src) { toast('CLICK A CURVE'); return true; }
+        if (c.picks.includes(src)) return true;
+        c.picks.push(src);
+        setTarget(c.picks.map(k => curveLabel(k.id)).join(' · '));
+        setHud(c.picks.length === 1 ? 'CLICK THE SECOND CURVE' : 'MOVE TO SIZE THE CIRCLE, THEN CLICK');
+        return true;
+      }
+      await c.finish();
+      return true;
+    };
+    c.key = action => {
+      if (action === 'freeze') { c.frozen = !c.frozen; update(); return true; }
+      if (action === 'typed') {
+        c.entry = { label: 'RADIUS', text: '', apply: v => { c.radius = Math.abs(v); update(); } };
+        setHud('RADIUS _');
+        return true;
+      }
+      return false;
+    };
+    c.finish = async () => {
+      if (!c.out) return endCmd('cancelled');
+      try {
+        const { ids: made } = await backend.addCurves([c.out]);
+        endCmd('committed');
+        record(`TANGENT CIRCLE R ${c.out.radius.toFixed(2)}`, made[0], curveLabel(made[0]));
+        await curvesChanged(made);
+      } catch (err) { setState('failed'); toast(say(err)); }
+    };
+    c.abort = () => endCmd('cancelled');
+    c.cleanup = () => clearPreview();
   }
 
   /** Plasticity's Extend Curve: click near an open end of a line or arc to lengthen it by the panel's length. */

@@ -395,3 +395,114 @@ export function bridgeCurves(a, endA, b, endB, tension = 1) {
     return withShape(a, { kind: 'spline', points: Array.from({ length: 9 }, (_, i) => at(i / 8)), closed: false });
 }
 const ends2 = c => (c.kind === 'arc' || ((c.kind === 'polyline' || c.kind === 'spline') && !c.closed) || (c.kind === 'contour' && !loops(c.pieces))) ? true : null;
+
+// --- Tangent Circle -------------------------------------------------------------------------------
+
+/** `other` mapped into `c`'s plane coordinates exactly, for lines, circles and arcs; null if not in that plane. */
+function exactIn(c, other) {
+    const a = planeAxes(c), b = planeAxes(other);
+    if (Math.abs(Math.abs(v3.dot(a.N, b.N)) - 1) > 1e-6 || Math.abs(v3.dot(v3.sub(b.O, a.O), a.N)) > 1e-4) return null;
+    const map = p => { const w = b.O.map((o, i) => o + b.X[i] * p[0] + b.Y[i] * p[1]), d = v3.sub(w, a.O); return [v3.dot(d, a.X), v3.dot(d, a.Y)]; };
+    if (other.kind === 'circle') { const e = map([other.center[0] + other.radius, other.center[1]]), m = map(other.center); return { kind: 'circle', center: m, radius: dist(e, m) }; }
+    if (other.kind === 'arc') return { kind: 'arc', start: map(other.start), mid: map(other.mid), end: map(other.end) };
+    if (other.kind === 'polyline') return { kind: 'polyline', points: other.points.map(map), closed: !!other.closed };
+    const s = inPlaneOf(c, other);
+    return s && { kind: 'polyline', points: s.points, closed: s.closed };
+}
+
+/** Distance from `q` to a shape in plane coordinates, and the unit direction from its nearest point to `q`. */
+function distTo(shape, q) {
+    if (shape.kind === 'circle') {
+        const v = sub(q, shape.center), on = add(shape.center, mul(norm(v), shape.radius));
+        return { d: Math.abs(len(v) - shape.radius), dir: norm(sub(q, on)) };
+    }
+    if (shape.kind === 'arc') {
+        const g = arcGeometry(shape.start, shape.mid, shape.end), v = sub(q, g.center);
+        // How far round from the start, in the arc's own direction.
+        const off = (((Math.atan2(v[1], v[0]) - g.start) * Math.sign(g.sweep)) % TAU + TAU) % TAU;
+        if (off <= Math.abs(g.sweep)) {
+            const on = add(g.center, mul(norm(v), g.radius));
+            return { d: Math.abs(len(v) - g.radius), dir: norm(sub(q, on)) };
+        }
+        const e = [arcAt(g, 0), arcAt(g, 1)].sort((x, y) => dist(x, q) - dist(y, q))[0];
+        return { d: dist(e, q), dir: norm(sub(q, e)) };
+    }
+    const segs = segmentsOf({ points: shape.points, closed: shape.closed });
+    let best = { d: Infinity, dir: [0, 0] };
+    for (const [a, b] of segs) {
+        const ab = sub(b, a), L = dot2(ab, ab), t = L < EPS ? 0 : Math.max(0, Math.min(1, dot2(sub(q, a), ab) / L));
+        const on = add(a, mul(ab, t)), d = dist(q, on);
+        if (d < best.d) best = { d, dir: norm(sub(q, on)) };
+    }
+    return best;
+}
+
+/** Where centres `r` away from a shape can be: offset segments and circles (plane coordinates). */
+function loci(shape, r) {
+    if (shape.kind === 'circle') return [{ c: shape.center, r: shape.radius + r }, ...(Math.abs(shape.radius - r) > 1e-12 ? [{ c: shape.center, r: Math.abs(shape.radius - r) }] : [])];
+    if (shape.kind === 'arc') {
+        const g = arcGeometry(shape.start, shape.mid, shape.end);
+        return [{ c: g.center, r: g.radius + r }, { c: g.center, r: Math.abs(g.radius - r) }, { c: shape.start, r }, { c: shape.end, r }];
+    }
+    const out = [];
+    for (const [a, b] of segmentsOf({ points: shape.points, closed: shape.closed })) {
+        const n = left(norm(sub(b, a)));
+        for (const s of [1, -1]) out.push({ a: add(a, mul(n, s * r)), b: add(b, mul(n, s * r)) });
+    }
+    for (const q of shape.points) out.push({ c: q, r });
+    return out;
+}
+
+/** The points where two loci (segments {a, b} or circles {c, r}) cross. */
+function meet(p, q) {
+    if (p.a && q.a) {
+        const r = sub(p.b, p.a), s = sub(q.b, q.a), den = cross2(r, s);
+        if (Math.abs(den) < 1e-12) return [];
+        const t = cross2(sub(q.a, p.a), s) / den, u = cross2(sub(q.a, p.a), r) / den;
+        return t >= -1e-9 && t <= 1 + 1e-9 && u >= -1e-9 && u <= 1 + 1e-9 ? [add(p.a, mul(r, t))] : [];
+    }
+    if (p.c && q.a) return meet(q, p);
+    if (p.a && q.c) {
+        const d = sub(p.b, p.a), f = sub(p.a, q.c), A = dot2(d, d), B = 2 * dot2(f, d), C = dot2(f, f) - q.r * q.r, disc = B * B - 4 * A * C;
+        if (A < 1e-18 || disc < 0) return [];
+        return [-1, 1].map(sg => (-B + sg * Math.sqrt(disc)) / (2 * A)).filter(t => t >= -1e-9 && t <= 1 + 1e-9).map(t => add(p.a, mul(d, t)));
+    }
+    const d = dist(p.c, q.c);
+    if (d < 1e-12 || d > p.r + q.r + 1e-12 || d < Math.abs(p.r - q.r) - 1e-12) return [];
+    const x = (d * d + p.r * p.r - q.r * q.r) / (2 * d), h = Math.sqrt(Math.max(0, p.r * p.r - x * x));
+    const u = mul(sub(q.c, p.c), 1 / d), base = add(p.c, mul(u, x));
+    return [add(base, mul(left(u), h)), add(base, mul(left(u), -h))];
+}
+
+/**
+ * Plasticity's Tangent Circle: a circle touching curves `a` and `b`, the one whose centre is nearest
+ * `at` (plane coordinates of `a`). With `radius` it has that radius; without, its size follows `at`:
+ * the centre is the point nearest `at` that is equally far from both curves. Lines, circles and arcs
+ * are measured exactly; other curves through their samples.
+ */
+export function tangentCircle(a, b, at, radius = null) {
+    const A = exactIn(a, a), B = exactIn(a, b);
+    if (!B) throw new Error('the two curves must lie in one plane');
+    if (radius !== null && !(Number.isFinite(radius) && radius > 1e-6)) throw new Error('the radius must be greater than zero');
+    let c = [...at];
+    if (radius !== null) {
+        // Every centre r away from a curve lies on one of its offset loci; the circles that touch both
+        // curves sit where A's loci cross B's. Keep the true tangents and take the one nearest `at`.
+        const hits = [];
+        for (const la of loci(A, radius)) for (const lb of loci(B, radius)) hits.push(...meet(la, lb));
+        const ok = hits.filter(h => Math.abs(distTo(A, h).d - radius) < 1e-7 * Math.max(1, radius) && Math.abs(distTo(B, h).d - radius) < 1e-7 * Math.max(1, radius));
+        if (!ok.length) throw new Error('no circle of that radius touches both curves');
+        c = ok.reduce((x, y) => dist(y, at) < dist(x, at) ? y : x);
+        return withShape(a, { kind: 'circle', center: c, radius });
+    }
+    for (let i = 0; i < 100; i++) {
+        // Slide along the difference's gradient onto the curve of points equally far from both.
+        const da = distTo(A, c), db = distTo(B, c);
+        const f = da.d - db.d, g = sub(da.dir, db.dir), gg = dot2(g, g);
+        if (Math.abs(f) < 1e-10 || gg < 1e-12) break;
+        c = sub(c, mul(g, f / gg));
+    }
+    const r = distTo(A, c).d;
+    if (!(r > 1e-6) || Math.abs(distTo(B, c).d - r) > 1e-6 * Math.max(1, r)) throw new Error('no circle touches both curves near there');
+    return withShape(a, { kind: 'circle', center: c, radius: r });
+}

@@ -12,6 +12,7 @@ const ICONS = {
     rect3: `<path d="M4 15l10-9 6 7-10 9z"/><path ${A} d="M4 15l10-9"/>`,
     circle: `<circle cx="12" cy="12" r="8"/><path ${A} d="M12 12h0M12 12h8"/>`,
     circle2: `<circle cx="12" cy="12" r="8"/><path ${A} d="M4 12h16"/>`,
+    'tangent-circle': `<path d="M2 20h20M4 4l16 0"/><circle ${A} cx="12" cy="12" r="8"/>`,
     circle3: `<circle cx="12" cy="12" r="8"/><path ${A} d="M4.5 9h0M15 4.6h0M17 18.2h0"/>`,
     line: `<path d="M4 18L20 6"/><path ${A} d="M4 18h0M20 6h0"/>`,
     arc3: `<path d="M4 17a9 9 0 0 1 16 0"/><path ${A} d="M4 17h0M12 9h0M20 17h0"/>`,

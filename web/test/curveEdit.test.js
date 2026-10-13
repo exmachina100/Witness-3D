@@ -130,3 +130,26 @@ test('bridge leaves each end along its own direction', () => {
     assert.throws(() => bridgeCurves(a, 1, line([10, 0], [20, 0]), 0), /already meet/);
     assert.throws(() => bridgeCurves(rect(2, 2), 0, b, 0), /open ends/);
 });
+
+test('a tangent circle touches both lines, sized by the cursor or by a radius', async () => {
+    const { tangentCircle } = await import('../src/curveEdit.js');
+    const floor = line([0, 0], [100, 0]), wall = line([0, 0], [0, 100]);
+    // Near (10, 4): the centre slides onto the bisector y = x.
+    const c = tangentCircle(floor, wall, [10, 4]);
+    close(c.center[0], c.center[1], 1e-9);
+    close(c.radius, c.center[0], 1e-9);
+    const r5 = tangentCircle(floor, wall, [10, 4], 5);
+    assert.deepEqual(r5.center.map(v => +v.toFixed(9)), [5, 5]);
+    close(r5.radius, 5, 1e-9);
+    // A circle tangent to a line and to another circle (outside it).
+    const round = { ...plane, kind: 'circle', center: [50, 20], radius: 10 };
+    const t = tangentCircle(floor, round, [30, 6], 6);
+    close(t.center[1], 6, 1e-9);
+    close(Math.hypot(t.center[0] - 50, t.center[1] - 20), 16, 1e-9);
+    assert.throws(() => tangentCircle(floor, { ...wall, origin: [0, 5, 0] }, [1, 1]), /one plane/);
+    // Inside a clockwise arc (top half of a radius 20 circle, drawn right to left over the top).
+    const arc = { ...plane, kind: 'arc', start: [-20, 0], mid: [0, 20], end: [20, 0] };
+    const inside = tangentCircle(floor, arc, [0, 5], 5);
+    close(inside.radius, 5, 1e-9);
+    close(Math.hypot(...inside.center), 15, 1e-9);
+});
