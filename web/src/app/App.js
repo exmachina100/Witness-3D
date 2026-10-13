@@ -132,7 +132,8 @@ const PRIMS = { box: true, 'center-box': true, box3: true, cylinder: true, spher
 // Commands that aren't tools in the registry (they act on a click, not on settings).
 const EDITS = { 'export-mesh': 'EXPORT MESH', 'measure-continuity': 'MEASURE CONTINUITY', trim: 'TRIM', extend: 'EXTEND CURVE', 'tangent-circle': 'TANGENT CIRCLE', split: 'SPLIT CURVE', 'measure-distance': 'MEASURE DISTANCE', 'measure-radius': 'MEASURE RADIUS' };
 const keysHtml = id => KEYS[id].map(([k, v]) => `<kbd>${k}</kbd><span>${v}</span>`).join('');
-const BAR = [['palette', 'F', 'SEARCH'], ['tool:extrude', 'E', 'EXTRUDE'], ['tool:boolean', 'Q', 'BOOLEAN'], ['tool:fillet', 'B', 'FILLET'], ['tool:move', 'G', 'MOVE'], ['tool:rotate', 'R', 'ROTATE'], ['tool:scale', 'S', 'SCALE'], ['duplicate', '⇧D', 'DUPLICATE'], ['delete', '⇧X', 'DELETE']];
+// The Command Bar, exactly the manual's list (Plasticity Essentials › Command Bar).
+const BAR = [['palette', 'F', 'SEARCH'], ['tool:move', 'G', 'MOVE'], ['tool:rotate', 'R', 'ROTATE'], ['tool:scale', 'S', 'SCALE'], ['duplicate', '⇧D', 'DUPLICATE'], ['tool:boolean', 'Q', 'BOOLEAN'], ['tool:rect-array', '', 'RECTANGULAR ARRAY'], ['tool:radial-array', '', 'RADIAL ARRAY'], ['suggest', '⇧F', 'SUGGESTED COMMANDS']];
 
 const SHELL = `
 <div class="w3d">
@@ -176,7 +177,7 @@ const SHELL = `
       <button data-mode="point" aria-pressed="true" title="1 · ⇧1 toggles">1 PT</button><button data-mode="edge" aria-pressed="true" title="2 · ⇧2 toggles">2 EDGE</button><button data-mode="face" aria-pressed="true" title="3 · ⇧3 toggles">3 FACE</button><button data-mode="solid" aria-pressed="true" title="4 · ⇧4 toggles">4 SOLID</button><button data-mode="all" aria-pressed="true" title="5">5 ALL</button>
     </div>
     <div class="cmdbar" role="toolbar" aria-label="Command bar">
-      ${BAR.map(([a, k, l]) => `<button data-action="${a}" aria-label="${l}" title="${l} (${k})">${icon(a === 'palette' ? 'search' : a.replace('tool:', ''))}<kbd>${k}</kbd></button>`).join('')}
+      ${BAR.map(([a, k, l]) => `<button data-action="${a}" aria-label="${l}" title="${l}${k ? ` (${k})` : ''}">${icon(a === 'palette' ? 'search' : a === 'suggest' ? 'suggest' : a.replace('tool:', ''))}${k ? `<kbd>${k}</kbd>` : ''}</button>`).join('')}
     </div>
     <div class="keys" data-id="keys">${keysHtml('idle')}</div>
     <span class="snap-tag" data-id="snap-tag" hidden></span>
@@ -3397,6 +3398,7 @@ export async function mount(root, backend) {
       const req = request();
       if (!req || (req.kind !== 'sphere' && !req.height)) return;
       drawPreview.visible = false;
+      if (c.stage === 'adjust') placeDots(req);
       livePreview(c, () => backend.previewPrimitive(req), p => {
         if (p.result) showPreviewBody(p.result);
         const look = phantom[p.outcome === 'cut' || p.outcome === 'slice' ? 'cut' : 'add'];
@@ -3405,11 +3407,46 @@ export async function mount(root, backend) {
         setHud(`${toolInfo(id).label} · ${({ new: 'NEW BODY', join: 'UNION', cut: 'DIFFERENCE', intersect: 'INTERSECT', slice: 'SLICE' })[p.outcome] ?? p.outcome.toUpperCase()}`);
       }, 'prim-hint');
     }
+    /**
+     * The manual's yellow dots: drag a box's height, width and length, a cylinder's height and radius,
+     * or a sphere's radius. Each is a distance along one direction from an anchor on the shape; they
+     * follow the shape as it changes.
+     */
+    c.dots = {};
+    function placeDots(req) {
+      const V = a => new THREE.Vector3(...a);
+      const want = {};
+      if (req.kind === 'sphere') want.r = { at: V(req.center), dir: c.plane.x, value: req.radius, set: v => setField('prim-r', 2 * Math.abs(v)) };
+      if (req.kind === 'cylinder') {
+        const o = V(req.frame.origin), n = V(req.frame.normal).normalize(), x = V(req.frame.x).normalize();
+        want.h = { at: o, dir: n, value: req.height, set: v => setField('prim-h', v) };
+        want.r = { at: o, dir: x, value: req.radius, set: v => setField('prim-r', 2 * Math.abs(v)) };
+      }
+      if (req.kind === 'box') {
+        const o = V(req.frame.origin), n = V(req.frame.normal).normalize(), u = V(req.frame.x).normalize(), w = n.clone().cross(u);
+        const centre = o.clone().addScaledVector(u, req.width / 2).addScaledVector(w, req.depth / 2);
+        want.h = { at: centre, dir: n, value: req.height, set: v => setField('prim-h', v) };
+        want.w = { at: o.clone().addScaledVector(w, req.depth / 2), dir: u.clone().multiplyScalar(Math.sign(req.width) || 1), value: Math.abs(req.width), set: v => setField('prim-w', Math.abs(v)) };
+        want.d = { at: o.clone().addScaledVector(u, req.width / 2), dir: w.clone().multiplyScalar(Math.sign(req.depth) || 1), value: Math.abs(req.depth), set: v => setField('prim-d', Math.abs(v)) };
+      }
+      for (const [k, d] of Object.entries(want)) {
+        let g = c.dots[k];
+        if (!g) {
+          g = c.dots[k] = dot(d.at, d.dir, v => { if (Math.abs(v) > 1e-6) c.dots[k].apply(v); });
+        }
+        g.apply = d.set;
+        if (g.state !== 'dragging' && g.state !== 'command') { g.setFrame(d.at, d.dir); g.render(d.value); }
+      }
+    }
+    /** A size from a dot or a typed value, through the panel so everything stays in step. */
+    function setField(id, v) { $(id).value = +v.toFixed(3); fromFields(id); }
     /** The height under the cursor: along the base's normal, on a plane through it facing the camera. */
     function heightAt(e) {
       ray(e);
       const pl = c.plane, b = base(), n = (id === 'cylinder' && c.vertical) ? pl.y : pl.n;
-      const o = pl.o.clone().addScaledVector(pl.x, (b.centre ?? b.corner).x).addScaledVector(pl.y, (b.centre ?? b.corner).y);
+      // Measured from the last base click, where the cursor was: moving up from there is up.
+      const last = c.pts[c.pts.length - 1];
+      const o = pl.o.clone().addScaledVector(pl.x, last.x).addScaledVector(pl.y, last.y);
       const view = camera.position.clone().sub(o), side = view.addScaledVector(n, -view.dot(n));
       if (side.lengthSq() < 1e-12) side.copy(pl.x);
       const hit = raycaster.ray.intersectPlane(new THREE.Plane().setFromNormalAndCoplanarPoint(side.normalize(), o), new THREE.Vector3());
@@ -3462,7 +3499,7 @@ export async function mount(root, backend) {
         advance();
         return true;
       }
-      if (c.stage === 'height' || c.dragging) { c.stage = 'adjust'; c.dragging = false; hint('Q W ⇧E ⇧Q B FOR THE TARGET · ⏎ TO FINISH'); return true; }
+      if (c.stage === 'height' || c.dragging) { c.stage = 'adjust'; c.dragging = false; solidPreview(); hint('DRAG THE DOTS · Q W ⇧E ⇧Q B FOR THE TARGET · ⏎ TO FINISH'); return true; }
       return true;
     };
     c.key = action => {
@@ -3524,7 +3561,7 @@ export async function mount(root, backend) {
       } catch (e) { setState('failed'); toast(say(e)); }
     };
     c.abort = () => endCmd('cancelled');
-    c.cleanup = () => { clearPreview(); drawPreview.visible = false; };
+    c.cleanup = () => { clearPreview(); drawPreview.visible = false; for (const g of Object.values(c.dots)) g.dispose(); };
     if (at) {
       // Placed by a command in words: the base at `at`, sizes from the panel, ready to finish.
       c.place(at);
@@ -3966,19 +4003,27 @@ export async function mount(root, backend) {
     ...TOOLS.map(t => ({ action: `tool:${t.id}`, label: t.label, key: t.key.toUpperCase().replaceAll('-', ' ') })),
     ...Object.entries(ACTIONS).map(([action, l]) => ({ action, label: l.toUpperCase(), key: keyFor(action) })),
   ];
-  /** Commands that fit what is selected (Plasticity's Shift+F). */
+  /**
+   * Commands that fit what is selected (Plasticity's Shift+F, Suggested Commands). With the toolbars
+   * holding only drawing tools and the Command Bar's common commands, this is where the rest of the
+   * modeling commands come up, by what they act on.
+   */
   function suggestions() {
     const kinds = new Set(sel.list().map(it => it.kind));
     const out = [];
-    if (kinds.has('edge')) out.push('tool:fillet');
-    if (kinds.has('region')) out.push('tool:extrude');
-    if (sel.curves.length > 1) out.push('join');
-    if (kinds.has('curve') || kinds.has('region')) out.push('delete');
-    if (kinds.has('face')) out.push('tool:extrude', 'plane:selection', 'plane:selection-keep-view');
     if (sel.solids.length > 1) out.push('tool:boolean');
-    if (kinds.has('solid')) out.push('tool:move', 'tool:rotate', 'tool:scale', 'duplicate', 'delete', 'hide', 'export:step');
+    if (kinds.has('solid')) out.push('tool:move', 'tool:rotate', 'tool:scale', 'duplicate', 'tool:mirror', 'tool:rect-array', 'tool:radial-array', 'delete', 'hide', 'export:step', 'export:mesh');
+    if (kinds.has('face')) out.push('tool:extrude', 'tool:offset', 'tool:shell', 'tool:hole', 'tool:remove-face', 'plane:selection', 'plane:selection-keep-view');
+    if (kinds.has('edge')) out.push('tool:fillet', 'measure:radius');
+    if (kinds.has('region')) out.push('tool:extrude', 'tool:revolve', 'tool:loft', 'tool:sweep');
+    if (kinds.has('curve') || kinds.has('region')) {
+      out.push('trim', 'split', 'extend', 'tool:offset-curve', 'tool:fillet-curve');
+      if (sel.curves.length === 2) out.push('tool:bridge');
+      if (sel.curves.length > 1) out.push('join');
+      out.push('explode', 'measure:continuity', 'delete');
+    }
     if (kinds.size) out.push('convert:solid', 'select:invert', 'view:focus');
-    else out.push('draw:rect', 'draw:circle', 'draw:line', 'select:all', 'unhide-all', 'plane:view');
+    else out.push('draw:line', 'draw:spline', 'draw:rect', 'draw:circle', 'draw:arc3', 'tool:box', 'tool:cylinder', 'tool:sphere', 'select:all', 'unhide-all', 'plane:view');
     return [...new Set(out)].map(a => ENTRIES.find(e => e.action === a)).filter(Boolean);
   }
   let palette = null;
@@ -4364,6 +4409,7 @@ export async function mount(root, backend) {
     if (!turning) controls.update();
     nav.update(camera, camera.isOrthographicCamera);
     if (cmd?.gizmo) cmd.gizmo.render(cmd.gizmo.value);
+    for (const g of Object.values(cmd?.dots ?? {})) g.render(g.value);
     renderer.render(scene, camera);
   });
 
@@ -4598,6 +4644,7 @@ export async function mount(root, backend) {
       if (c.id === 'fillet') Object.assign(out, { body: c.body, edges: c.edges, value: c.value, angle: c.angle, max: c.bad !== null ? c.good : null });
       if (c.tc) Object.assign(out, { bodies: c.ids, offset: toUser(c.offset.toArray()), angle: angleAbout(c.quat, c.axis), axis: c.axis, scale: c.scale, follow: c.follow?.name ?? null });
       if (c.id === 'pushpull') Object.assign(out, { placed: !!c.at, distance: c.distance });
+      if (c.dots) out.dots = Object.fromEntries(Object.entries(c.dots).map(([k, g]) => [k, { at: g.position.toArray(), dir: g.direction.toArray(), value: g.value, state: g.state }]));
       if (c.id === 'extrude') Object.assign(out, { region: c.src.region ?? null, face: c.src.face ?? null, target: c.src.target, distance: c.distance, op: c.op, outcome: c.outcome, angle: c.angle, thickness: c.thickness, lock: c.lock });
       if (c.id === 'boolean') Object.assign(out, { target: c.target, tools: c.tools, op: c.op, keep: c.keep });
       if (c.id === 'offset') Object.assign(out, { body: c.body, faces: c.faces, distance: c.distance, angle: c.angle });

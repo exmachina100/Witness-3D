@@ -3,7 +3,12 @@
 // opens from the ▾ next to it, by right-clicking the button, or by holding it down. Picking a variant
 // runs it and makes it the family's face; the choice is remembered on this browser.
 
-/** The families, in toolbar order. `items` are command ids; the first is the default face. */
+/**
+ * The families, in toolbar order: the manual's Sketching and Primitive Tools, and nothing else. The
+ * common commands live on the Command Bar at the bottom (App.js `BAR`); every other command is
+ * reached the way Plasticity reaches it, by its key, the F palette or Shift+F suggestions.
+ * `items` are command ids; the first is the default face.
+ */
 export const FAMILIES = [
     { id: 'line', items: ['line'] },
     { id: 'curve', label: 'CURVE', items: ['spline', 'cv'] },
@@ -11,21 +16,10 @@ export const FAMILIES = [
     { id: 'circle', label: 'CIRCLE', items: ['circle', 'circle2', 'circle3', 'tangent-circle'] },
     { id: 'arc', label: 'ARC', items: ['arc3', 'arc', 'tangent-arc'] },
     { id: 'ellipse', label: 'ELLIPSE', items: ['ellipse', 'ellipse3'] },
-    { id: 'polygon', items: ['polygon'] },
-    { id: 'spiral', items: ['spiral'] },
-    { id: 'edit-curve', label: 'EDIT CURVE', items: ['trim', 'split', 'extend', 'offset-curve', 'fillet-curve', 'bridge', 'explode'] },
+    { id: 'polygon', label: 'POLYGON · SPIRAL', items: ['polygon', 'spiral'] },
     { id: 'box', label: 'BOX', items: ['box', 'center-box', 'box3'] },
     { id: 'cylinder', items: ['cylinder'] },
     { id: 'sphere', items: ['sphere'] },
-    { id: 'extrude', items: ['extrude'] },
-    { id: 'form', label: 'REVOLVE · LOFT · SWEEP', items: ['revolve', 'loft', 'sweep'] },
-    { id: 'boolean', items: ['boolean'] },
-    { id: 'fillet', items: ['fillet'] },
-    { id: 'face', label: 'FACE', items: ['offset', 'shell', 'hole', 'remove-face'] },
-    { id: 'move', items: ['move'] },
-    { id: 'rotate', items: ['rotate'] },
-    { id: 'scale', items: ['scale'] },
-    { id: 'pattern', label: 'MIRROR · ARRAY', items: ['mirror', 'rect-array', 'radial-array'] },
     { id: 'measure', label: 'MEASURE', items: ['measure-distance', 'measure-radius', 'measure-continuity'] },
 ];
 

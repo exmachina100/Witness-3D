@@ -9,7 +9,8 @@ import { mount } from '../../../web/src/app/App.js';
 const tauri = window.__TAURI__;
 
 const W3D = [{ name: 'Witness 3D', extensions: ['w3d'] }];
-const STEP = [{ name: 'STEP', extensions: ['step', 'stp'] }];
+// STEP, and IGES on the desktop (the browser's OpenCascade build has no IGES).
+const STEP = [{ name: 'STEP', extensions: ['step', 'stp'] }, { name: 'IGES', extensions: ['igs', 'iges'] }];
 const baseName = p => p.split(/[\\/]/).pop();
 let filePath = null; // where Save writes without asking
 

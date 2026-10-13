@@ -47,7 +47,7 @@ splitting; see Solid › Imprint).
 | Cylinder | centre, drag radius, drag height; Tab, V vertical, X/Y/Z; Q W Shift+E B Shift+Q T; F radius, D height; dots | Partial: yellow dots, T |
 | Sphere | centre, drag size; Tab, X/Y/Z; boolean keys; D diameter; dot | Partial: yellow dot, T |
 | Measure Distance · Measure Radius | | Done |
-| Measure Continuity · Toggle Curvature | | Missing |
+| Measure Continuity · Toggle Curvature | | Done (combs on the convex side; G0/G1/G2 exact for lines and arcs) |
 
 ## 2. Common commands
 
@@ -111,7 +111,7 @@ splitting; see Solid › Imprint).
 |---|---|---|
 | Navigation | View Cube, Camera Settings, Operating the Viewport | Done (axis gizmo, zoom, pan, ortho, frame, home) |
 | Selection | Selection Mode, Selecting Objects, Group Objects, Toggle Object States, Focus and Isolate | Modes and hide done; groups, lock, isolate missing |
-| Menus | P-Menu, Radial Menu, Command Palette, Command Bar | Palette and bar done; P-Menu and radial missing |
+| Menus | P-Menu, Radial Menu, Command Palette, Command Bar | Palette and bar done; toolbar grouped in tool families with variant strips; P-Menu and radial missing |
 | Shader modes | Shader Mode, Render Mode, Curvature (REA: matcap, silhouette, isophotes, zebra stripes, reflection check, topographic, draft, face direction) | Missing |
 | Materials and lighting | Assets (REA: 22 PBR materials, 14 HDR environments) | Missing (use CC0 assets, not Plasticity's) |
 | Grid, units, snap, construction plane | | Done |
@@ -127,13 +127,13 @@ opencascade.js (which lacks IGES).
 | Format | Plasticity 26.1.4 | Witness 3D plan | Status |
 |---|---|---|---|
 | STEP | import, export | `STEPControl` in both builds | Done |
-| IGES | import, export | `IGESControl` (TKDEIGES, already linked) on the desktop | Missing |
+| IGES | import, export | `IGESControl` (TKDEIGES) on the desktop, through the STEP dialogs by extension | Done on the desktop |
 | ACIS SAT | import, export | No open implementation | Not planned |
 | Parasolid X_T | import, export | No open implementation | Not planned |
 | DWG / DXF | DWG import (ODA) | DXF read and write in-house; DWG needs the ODA SDK | Missing (DXF) |
-| OBJ | export (manual: Export OBJ; options angle tolerance, inflection, max width) | Browser: from the display mesh; desktop: `RWObj` (TKDEOBJ built, not yet linked) | Missing |
+| OBJ | export (manual: Export OBJ; options angle tolerance, inflection, max width) | Re-meshed at the chosen tolerance in each build; max width splits long edges; written by `web/src/meshExport.js` | Done (the desktop mesher takes no separate angle; inflection not yet) |
 | SVG, hidden line | export (manual) | Project edges and silhouettes to 2D | Missing |
-| STL, glTF, 3MF | not listed | `StlAPI_Writer` in both; glTF via `RWGltf` (desktop) or three.js `GLTFExporter` | Missing |
+| STL, glTF, 3MF | not listed | Binary STL done with OBJ; glTF and 3MF later | STL done |
 
 | Distribution | Plasticity 26.1.4 | Witness 3D plan | Status |
 |---|---|---|---|
