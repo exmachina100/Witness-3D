@@ -477,6 +477,30 @@ export class LocalBackend {
         return this.bodies();
     }
 
+    /**
+     * Triangle meshes of bodies for export, at `tolerance` mm from the true surface and `angle` radians
+     * between neighbouring normals (Plasticity's export-mesh angle tolerance). Any finer display mesh is
+     * cleared first, so a coarser export really is coarser.
+     */
+    async meshBodies(ids, { tolerance = 0.05, angle = 0.25 } = {}) {
+        if (!(tolerance > 0) || !(angle > 0)) throw new Error('the tolerance and angle must be greater than zero');
+        return ids.map(id => {
+            const s = this.shapes.get(id);
+            if (!s) throw new Error('that body no longer exists');
+            oc().BRepTools.Clean(s, true);
+            const { mesh } = tessellate(s, { deflection: tolerance, angle });
+            return { id, positions: Array.from(mesh.getAttribute('position').array), indices: Array.from(mesh.index.array) };
+        });
+    }
+
+    /** Hand the user a file: the browser downloads it. */
+    saveExport(name, data) {
+        const url = URL.createObjectURL(new Blob([data], { type: 'application/octet-stream' }));
+        Object.assign(document.createElement('a'), { href: url, download: name }).click();
+        setTimeout(() => URL.revokeObjectURL(url), 1000);
+        return `SAVED ${name.toUpperCase()}`;
+    }
+
     exportStep(id) {
         const name = `witness3d-body-${id}.step`;
         const url = URL.createObjectURL(new Blob([exportSTEP(this.shapes.get(id))], { type: 'application/step' }));

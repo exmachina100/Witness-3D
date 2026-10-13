@@ -838,3 +838,30 @@ pub fn commit_remove_faces(m: &Model, req: RemoveFacesRequest) -> Result<Committ
         Ok(Committed { id, scene: bodies(doc)? })
     })
 }
+
+/// A body's triangles for export, at `tolerance` mm from the true surface.
+#[derive(Serialize, Debug)]
+pub struct MeshOut {
+    pub id: BodyId,
+    pub positions: Vec<f32>,
+    pub indices: Vec<u32>,
+}
+
+pub fn mesh_bodies(m: &Model, ids: Vec<BodyId>, tolerance: f64) -> Result<Vec<MeshOut>, ApiError> {
+    if !(tolerance > 0.0) || !tolerance.is_finite() { return Err(KernelError::Invalid("the tolerance must be greater than zero").into()) }
+    m.call(move |doc| {
+        ids.iter().map(|&id| {
+            let solid = doc.get(id).ok_or(KernelError::Invalid("that body no longer exists"))?;
+            let t = doc.kernel.tessellate(solid, tolerance)?;
+            Ok(MeshOut { id, positions: t.positions.iter().flatten().map(|&c| c as f32).collect(), indices: t.indices })
+        }).collect()
+    })
+}
+
+/// Write an exported mesh the viewport made, to a path the user chose in the save dialog. Only mesh
+/// formats, so this can't be turned into writing anything anywhere.
+pub fn write_export(path: PathBuf, data: Vec<u8>) -> Result<(), ApiError> {
+    let ext = path.extension().and_then(|e| e.to_str()).map(|e| e.to_ascii_lowercase());
+    if !matches!(ext.as_deref(), Some("obj" | "stl")) { return Err(KernelError::Invalid("exports are .obj or .stl files").into()) }
+    std::fs::write(&path, data).map_err(|e| ApiError::from(e.to_string()))
+}

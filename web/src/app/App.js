@@ -59,6 +59,7 @@ import { ACTIONS, COMMAND, VIEWPORT, keyFor, keyOf } from './keymap.js';
 import { Selection } from './Selection.js';
 import { claude, describe, MODEL, reply, request } from './ai.js';
 import { icon } from './icons.js';
+import { limitEdges, toObj, toStl } from '../meshExport.js';
 import { bridgeCurves, continuity, curvatureComb, explode, extendCurve, filletCurve, nearestEnd, offsetCurve, splitCurve, tangentCircle, trim } from '../curveEdit.js';
 import { ViewGizmo } from './ViewGizmo.js';
 import { arcPoints, circleThrough, cvPoints, ellipsePoints, endTangent, helixPoints, loops, polygonCorners, spiralAngle, tangentArc } from '../curves.js';
@@ -99,6 +100,7 @@ const KEYS = {
   'measure-distance': [['CLICK', 'TWO POINTS'], ['CLICK', 'AGAIN TO RESTART'], ['ESC', 'DONE']],
   'measure-radius': [['CLICK', 'A ROUND EDGE OR CURVE'], ['ESC', 'DONE']],
   'measure-continuity': [['CLICK', 'NEAR TWO CURVE ENDS'], ['ESC', 'DONE']],
+  'export-mesh': [['TYPE', 'OPTIONS IN PANEL'], ['⏎ / RMB', 'SAVE'], ['ESC', 'CANCEL']],
   'tangent-circle': [['CLICK', 'FIRST · SECOND CURVE · SIZE'], ['F', 'FREEZE'], ['TAB', 'RADIUS'], ['ESC', 'CANCEL']],
   extend: [['CLICK', 'NEAR AN END'], ['TYPE', 'LENGTH IN PANEL'], ['ESC / ⏎', 'DONE']],
   bridge: [['T', 'TENSION'], ['⏎ / RMB', 'OK']],
@@ -127,7 +129,7 @@ const CLICKS = { rect: 2, 'center-rect': 2, rect3: 3, circle: 2, circle2: 2, cir
 const FORMS = { revolve: true, loft: true, sweep: true };
 const PRIMS = { box: true, 'center-box': true, box3: true, cylinder: true, sphere: true };
 // Commands that aren't tools in the registry (they act on a click, not on settings).
-const EDITS = { 'measure-continuity': 'MEASURE CONTINUITY', trim: 'TRIM', extend: 'EXTEND CURVE', 'tangent-circle': 'TANGENT CIRCLE', split: 'SPLIT CURVE', 'measure-distance': 'MEASURE DISTANCE', 'measure-radius': 'MEASURE RADIUS' };
+const EDITS = { 'export-mesh': 'EXPORT MESH', 'measure-continuity': 'MEASURE CONTINUITY', trim: 'TRIM', extend: 'EXTEND CURVE', 'tangent-circle': 'TANGENT CIRCLE', split: 'SPLIT CURVE', 'measure-distance': 'MEASURE DISTANCE', 'measure-radius': 'MEASURE RADIUS' };
 const keysHtml = id => KEYS[id].map(([k, v]) => `<kbd>${k}</kbd><span>${v}</span>`).join('');
 const BAR = [['palette', 'F', 'SEARCH'], ['tool:extrude', 'E', 'EXTRUDE'], ['tool:boolean', 'Q', 'BOOLEAN'], ['tool:fillet', 'B', 'FILLET'], ['tool:move', 'G', 'MOVE'], ['tool:rotate', 'R', 'ROTATE'], ['tool:scale', 'S', 'SCALE'], ['duplicate', '⇧D', 'DUPLICATE'], ['delete', '⇧X', 'DELETE']];
 
@@ -263,6 +265,14 @@ const SHELL = `
       <div class="field"><label for="w3d-off-distance">DISTANCE</label><input id="w3d-off-distance" data-id="off-distance" type="number" step="0.5" value="0"></div>
       <div class="field"><label for="w3d-off-angle">ANGLE ADJACENT °</label><input id="w3d-off-angle" data-id="off-angle" type="number" step="1" value="0"></div>
       <div class="field"><label>FACES</label><output data-id="off-count">0</output></div>
+    </div>
+    <div class="sec" data-panel="export-mesh" hidden>
+      <span class="hint" data-id="mx-hint">—</span>
+      <span class="label">FORMAT</span>
+      <div class="seg" role="group" aria-label="Mesh format"><button data-mxf="obj" aria-pressed="true">OBJ</button><button data-mxf="stl" aria-pressed="false">STL</button></div>
+      <div class="field"><label for="w3d-mx-tol">TOLERANCE</label><input id="w3d-mx-tol" data-id="mx-tol" type="number" step="0.01" min="0.001" value="0.05"></div>
+      <div class="field"><label for="w3d-mx-angle">ANGLE °</label><input id="w3d-mx-angle" data-id="mx-angle" type="number" step="1" min="0.5" value="15"></div>
+      <div class="field"><label for="w3d-mx-width">MAX WIDTH</label><input id="w3d-mx-width" data-id="mx-width" type="number" step="1" min="0" value="0"></div>
     </div>
     <div class="sec" data-panel="offset-curve" hidden>
       <span class="hint" data-id="oc-hint">—</span>
@@ -1224,6 +1234,7 @@ export async function mount(root, backend) {
     if (id === 'measure-distance') return startMeasureDistance();
     if (id === 'measure-radius') return startMeasureRadius();
     if (id === 'measure-continuity') return startMeasureContinuity();
+    if (id === 'export-mesh') return startExportMesh();
     if (id === 'bridge') return startBridge();
     if (id === 'shell') return startShell();
     if (id === 'mirror') return startMirror();
@@ -3077,6 +3088,38 @@ export async function mount(root, backend) {
     c.cleanup = () => { line.geometry.dispose(); line.removeFromParent(); };
   }
 
+  /**
+   * Plasticity's Export OBJ (and STL), with its export-mesh options: the tolerance from the true
+   * surface, the angle between neighbouring normals, and a max width that splits longer edges (0 is
+   * off). Exports the selected solids, or all of them.
+   */
+  function startExportMesh() {
+    if (!backend.meshBodies) return toast('MESH EXPORT IS NOT IN THIS BUILD YET');
+    const ids = (sel.bodies.length ? sel.bodies : current.map(b => b.id)).filter(id => !hidden.has(id));
+    if (!ids.length) return toast('NOTHING TO EXPORT');
+    const c = cmd = { id: 'export-mesh', format: 'obj' };
+    lastTool = 'export-mesh';
+    showTool('export-mesh');
+    setState('none');
+    $('mx-hint').textContent = `${ids.length} SOLID${ids.length > 1 ? 'S' : ''}`;
+    setHud('EXPORT MESH · ⏎ TO SAVE');
+    const sync = () => { for (const b of $$('[data-mxf]')) b.setAttribute('aria-pressed', b.dataset.mxf === c.format); };
+    c.key = action => { if (action === 'obj' || action === 'stl') { c.format = action; sync(); return true; } return false; };
+    c.finish = async () => {
+      const tolerance = num('mx-tol'), angle = num('mx-angle') * DEG, maxWidth = num('mx-width');
+      try {
+        const meshes = (await backend.meshBodies(ids, { tolerance, angle })).map(m => ({ name: label(m.id), ...limitEdges(m.positions, m.indices, maxWidth) }));
+        const triangles = meshes.reduce((n, m) => n + m.indices.length / 3, 0);
+        const name = `witness3d-${ids.length === 1 ? label(ids[0]).toLowerCase() : 'model'}.${c.format}`;
+        const msg = await backend.saveExport(name, c.format === 'obj' ? toObj(meshes) : toStl(meshes));
+        endCmd(msg ? 'committed' : 'cancelled');
+        if (msg) toast(`${msg} · ${triangles} TRIANGLES`);
+      } catch (e) { setState('failed'); toast(say(e)); }
+    };
+    c.abort = () => endCmd('cancelled');
+    sync();
+  }
+
   /** Plasticity's Measure Continuity: click near where two curves meet; G0, G1 or G2 with the numbers. */
   function startMeasureContinuity() {
     const c = cmd = { id: 'measure-continuity', first: null };
@@ -3886,7 +3929,7 @@ export async function mount(root, backend) {
         if (b.hidden) toast('NOT IN THE BROWSER YET'); else b.click();
         return true;
       }
-      case 'export': exportSelected(); return true;
+      case 'export': if (arg === 'mesh') await startTool('export-mesh'); else exportSelected(); return true;
       case 'import': $('import').hidden ? toast('NOT IN THE BROWSER YET') : $('import').click(); return true;
     }
     switch (a) {
@@ -4221,6 +4264,7 @@ export async function mount(root, backend) {
   for (const id of ['hole-d', 'hole-depth']) $(id).addEventListener('input', () => cmd?.id === 'hole' && cmd.preview());
   $('hole-through').onclick = () => cmd?.id === 'hole' && cmd.key('through');
   $('br-t').addEventListener('input', () => cmd?.id === 'bridge' && cmd.preview());
+  for (const b of $$('[data-mxf]')) b.onclick = () => cmd?.id === 'export-mesh' && cmd.key(b.dataset.mxf);
   for (const id of ['oc-d', 'fc-r']) $(id).addEventListener('input', () => (cmd?.id === 'offset-curve' || cmd?.id === 'fillet-curve') && cmd.preview());
   for (const id of ['prim-w', 'prim-d', 'prim-r', 'prim-h']) $(id).addEventListener('input', () => PRIMS[cmd?.id] && cmd.fromFields(id));
   for (const b of $$('[data-popt], [data-pop]')) b.onclick = () => PRIMS[cmd?.id] && cmd.key(b.dataset.popt ?? b.dataset.pop);

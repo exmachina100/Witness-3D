@@ -35,6 +35,15 @@ const rust = {
   commitOffset: req => tauri.core.invoke('commit_offset', { req }),
   previewRemoveFaces: req => tauri.core.invoke('preview_remove_faces', { req }),
   commitRemoveFaces: req => tauri.core.invoke('commit_remove_faces', { req }),
+  // The desktop meshes at the chord tolerance; OpenCascade's mesher here takes no separate angle.
+  meshBodies: (ids, { tolerance = 0.05 } = {}) => tauri.core.invoke('mesh_bodies', { ids, tolerance }),
+  async saveExport(name, data) {
+    const ext = name.split('.').pop();
+    const path = await tauri.dialog.save({ defaultPath: name, filters: [{ name: ext.toUpperCase(), extensions: [ext] }] });
+    if (!path) return null;
+    await tauri.core.invoke('write_export', { path, data: Array.from(typeof data === 'string' ? new TextEncoder().encode(data) : data) });
+    return `SAVED ${path}`;
+  },
   replaceCurves: (ids, curves) => tauri.core.invoke('replace_curves', { req: { ids, curves } }),
   previewPrimitive: req => tauri.core.invoke('preview_primitive', { req }),
   commitPrimitive: req => tauri.core.invoke('commit_primitive', { req }),
