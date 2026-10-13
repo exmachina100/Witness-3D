@@ -92,6 +92,7 @@ const KEYS = {
   spiral: [['CLICK', 'AXIS START · END · RADIUS'], ['X Y Z', 'AXIS'], ['A', 'ANGLE'], ['D', 'LENGTH'], ['R', 'RADIUS'], ['⏎ / RMB', 'OK']],
   'offset-curve': [['D', 'DISTANCE'], ['TYPE', 'IN PANEL'], ['⏎ / RMB', 'OK']],
   'fillet-curve': [['D', 'RADIUS'], ['TYPE', 'IN PANEL'], ['⏎ / RMB', 'OK']],
+  hole: [['CLICK', 'A FLAT FACE'], ['T', 'THROUGH ALL'], ['TYPE', 'SIZE IN PANEL'], ['⏎ / RMB', 'OK']],
   extend: [['CLICK', 'NEAR AN END'], ['TYPE', 'LENGTH IN PANEL'], ['ESC / ⏎', 'DONE']],
   bridge: [['T', 'TENSION'], ['⏎ / RMB', 'OK']],
   trim: [['CLICK', 'PIECE TO CUT AWAY'], ['CTRL Z', 'UNDO ONE'], ['ESC / ⏎', 'DONE']],
@@ -261,6 +262,12 @@ const SHELL = `
     <div class="sec" data-panel="fillet-curve" hidden>
       <span class="hint" data-id="fc-hint">—</span>
       <div class="field"><label for="w3d-fc-r">RADIUS</label><input id="w3d-fc-r" data-id="fc-r" type="number" step="0.5" min="0.01" value="2"></div>
+    </div>
+    <div class="sec" data-panel="hole" hidden>
+      <span class="hint" data-id="hole-hint">CLICK A FLAT FACE</span>
+      <div class="field"><label for="w3d-hole-d">DIAMETER</label><input id="w3d-hole-d" data-id="hole-d" type="number" step="0.5" min="0.01" value="6"></div>
+      <div class="field" data-id="hole-depth-row"><label for="w3d-hole-depth">DEPTH</label><input id="w3d-hole-depth" data-id="hole-depth" type="number" step="1" min="0.01" value="10"></div>
+      <div class="chips"><button data-id="hole-through" aria-pressed="false"><kbd>T</kbd>THROUGH ALL</button></div>
     </div>
     <div class="sec" data-panel="extend" hidden>
       <span class="hint" data-id="ext-hint">CLICK NEAR THE END OF A LINE OR ARC</span>
@@ -1155,6 +1162,7 @@ export async function mount(root, backend) {
     if (PRIMS[id]) return startPrimitive(id, opts);
     if (id === 'offset-curve' || id === 'fillet-curve') return startCurveEdit(id);
     if (id === 'trim') return startTrim();
+    if (id === 'hole') return startHole(opts);
     if (id === 'extend') return startExtend();
     if (id === 'bridge') return startBridge();
     if (id === 'shell') return startShell();
@@ -2756,6 +2764,71 @@ export async function mount(root, backend) {
     c.abort = () => endCmd(c.count ? 'committed' : 'cancelled');
   }
 
+  /** Hole: click a flat face; a round cut of the panel's diameter goes in to its depth, or through. */
+  function startHole({ at = null } = {}) {
+    if (!backend.preview) return toast('HOLE IS NOT IN THIS BUILD YET');
+    const c = cmd = { id: 'hole', at: null, through: false, sent: 0, shown: 0 };
+    lastTool = 'hole';
+    showTool('hole');
+    setState('none');
+    $('hole-through').setAttribute('aria-pressed', 'false');
+    $('hole-depth-row').hidden = false;
+    $('hole-hint').textContent = 'CLICK A FLAT FACE';
+    c.request = () => {
+      if (!c.at) return null;
+      // Through all: deeper than the body is across.
+      const box = new THREE.Box3().expandByObject(bodyMesh(c.at.target));
+      const depth = c.through ? box.getSize(new THREE.Vector3()).length() * 1.5 : num('hole-depth');
+      return { target: c.at.target, origin: c.at.origin.toArray(), normal: c.at.normal.toArray(), xAxis: frameFor(c.at.normal).toArray(), profile: { kind: 'circle', radius: num('hole-d') / 2 }, distance: -depth, op: 'difference' };
+    };
+    c.preview = () => {
+      const req = c.request();
+      if (!req) return;
+      livePreview(c, async () => {
+        const p = await backend.preview(req);
+        if (p && p.outcome !== 'cut') throw new Error('the hole does not go into the body');
+        return p;
+      }, p => { if (p.result) showPreviewBody(p.result); if (p.tool) { const m = meshOf(p.tool, phantom.cut.face, phantom.cut.edge); m.renderOrder = 5; previewGroup.add(m); } setHud(`HOLE ⌀${num('hole-d')} ${c.through ? 'THROUGH' : `× ${num('hole-depth')}`}`); }, 'hole-hint');
+    };
+    c.place = p => {
+      if (!p.target) { toast('CLICK A FLAT FACE OF A SOLID'); return; }
+      c.at = p;
+      setTarget(label(p.target));
+      $('hole-hint').textContent = `ON ${label(p.target)} · ⏎ TO DRILL`;
+      c.preview();
+    };
+    c.click = e => {
+      const p = placeAt(e);
+      if (p?.curved) { toast('HOLES GO INTO FLAT FACES'); return true; }
+      if (p) c.place(p);
+      return true;
+    };
+    c.key = action => {
+      if (action !== 'through') return false;
+      c.through = !c.through;
+      $('hole-through').setAttribute('aria-pressed', c.through);
+      $('hole-depth-row').hidden = c.through;
+      c.preview();
+      return true;
+    };
+    c.finish = async () => {
+      const req = c.request();
+      if (!req) return endCmd('cancelled');
+      try {
+        const { id, scene: list } = await backend.commit(req);
+        endCmd('committed');
+        record(`HOLE ⌀${num('hole-d')} ${c.through ? 'THROUGH' : `× ${num('hole-depth')}`}`, id);
+        await showScene(list);
+        sel.replace({ kind: 'solid', body: id });
+        selectionChanged({ quiet: true });
+      } catch (e) { setState('failed'); toast(say(e)); }
+    };
+    c.abort = () => endCmd('cancelled');
+    c.cleanup = () => clearPreview();
+    setHud('CLICK A FLAT FACE');
+    if (at) c.place(at);
+  }
+
   /** Plasticity's Extend Curve: click near an open end of a line or arc to lengthen it by the panel's length. */
   function startExtend() {
     if (!backend.replaceCurves) return toast('EXTEND IS NOT IN THIS BUILD YET');
@@ -3657,6 +3730,8 @@ export async function mount(root, backend) {
   $('ex-angle').addEventListener('input', e => { const v = parseFloat(e.target.value); if (!isNaN(v)) setExtrudeShape({ angle: v }); });
   $('ex-thickness').addEventListener('input', e => { const v = parseFloat(e.target.value); if (!isNaN(v) && v >= 0) setExtrudeShape({ thickness: v }); });
   for (const b of $$('[data-bop]')) b.onclick = () => cmd?.id === 'boolean' && cmd.key(b.dataset.bop);
+  for (const id of ['hole-d', 'hole-depth']) $(id).addEventListener('input', () => cmd?.id === 'hole' && cmd.preview());
+  $('hole-through').onclick = () => cmd?.id === 'hole' && cmd.key('through');
   $('br-t').addEventListener('input', () => cmd?.id === 'bridge' && cmd.preview());
   for (const id of ['oc-d', 'fc-r']) $(id).addEventListener('input', () => (cmd?.id === 'offset-curve' || cmd?.id === 'fillet-curve') && cmd.preview());
   for (const id of ['prim-w', 'prim-d', 'prim-r', 'prim-h']) $(id).addEventListener('input', () => PRIMS[cmd?.id] && cmd.preview());
@@ -3889,6 +3964,14 @@ export async function mount(root, backend) {
         cmd.auto = false;
         if (p.angle) setOffsetAngle(p.angle);
         setOffsetDistance(p.distance ?? 0, false);
+      } else if (id === 'hole') {
+        const b = current.find(x => x.faceRefs?.includes(face));
+        const n = b ? b.faceRefs.indexOf(face) : -1, plane = b?.facePlanes[n];
+        if (!plane) throw new Error('give a flat face of a solid for the hole');
+        $('hole-d').value = p.diameter;
+        $('hole-depth').value = p.depth;
+        await startTool('hole', { at: { origin: faceCentre(b, n), normal: new THREE.Vector3(...plane.normal), target: b.id } });
+        if (p.through) cmd.key('through');
       } else if (id === 'bridge') {
         const ids = (curveIds ?? []).filter(cid => curveList.some(c => c.id === cid));
         if (ids.length !== 2) throw new Error('give two open curves by id');

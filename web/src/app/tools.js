@@ -145,6 +145,16 @@ export const TOOLS = [
             join: { type: 'boolean', default: false, describe: 'fuse the copies into each original instead of making new bodies' },
         },
     },
+    // Round 8: Hole is a round cut into a flat face, through Extrude's forced difference.
+    {
+        id: 'hole', label: 'HOLE', key: '', group: 'shape', selects: 'face', toolbar: false,
+        summary: 'Drill a round hole into a flat face, to a depth or right through the body.',
+        params: {
+            diameter: { type: 'number', unit: 'mm', above: 0, default: 6, describe: 'the hole\'s diameter' },
+            depth: { type: 'number', unit: 'mm', above: 0, default: 10, describe: 'how deep; ignored when through is on' },
+            through: { type: 'boolean', default: false, describe: 'cut right through the body' },
+        },
+    },
     // Round 7: curve editing. Trim and Explode are actions (a click, or none), not tools.
     {
         id: 'offset-curve', label: 'OFFSET CURVE', key: '', group: 'curve', selects: 'curves', toolbar: false,

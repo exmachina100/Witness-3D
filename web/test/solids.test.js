@@ -120,3 +120,16 @@ test('mirror and arrays make copies, or join them, in one undo step', async () =
     await assert.rejects(async () => be.commitArray({ bodies: [seed.id], spec: { kind: 'radial', pivot: [0, 0, 0], axis: [0, 1, 0], angle: 1, count: 1 } }), /nothing to do/);
     assert.equal(be.undoStack.length, 0, 'failed or empty requests add no undo step');
 });
+
+test('a hole is a round cut: to a depth, or through, as one undo step', async () => {
+    const be = new LocalBackend();
+    const seed = be.scene()[0]; // 80 × 30 × 50, top face at y = 30
+    const hole = depth => ({ target: seed.id, origin: [10, 30, 5], normal: [0, 1, 0], xAxis: [1, 0, 0], profile: { kind: 'circle', radius: 3 }, distance: -depth, op: 'difference' });
+    const p = await be.preview(hole(10));
+    assert.equal(p.outcome, 'cut');
+    close(p.result.volume, seed.volume - Math.PI * 9 * 10, 0.5);
+    await be.commit(hole(200));
+    close(be.scene()[0].volume, seed.volume - Math.PI * 9 * 30, 0.5);
+    be.undo();
+    close(be.scene()[0].volume, seed.volume, 1e-3);
+});
