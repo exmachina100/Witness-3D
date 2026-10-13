@@ -85,6 +85,11 @@ export const COMMAND = {
     spline: { 'ctrl-z': 'back', x: 'axis-x', y: 'axis-y', z: 'axis-z' },
     // Tangent Arc's D flips it; Spiral's A, D and R (manual), X/Y/Z while placing the axis end.
     'tangent-arc': { d: 'flip' },
+    // Round 6: Shell's D types the thickness; Mirror and Radial Array take X/Y/Z for the axis and J to join.
+    shell: { d: 'thickness' },
+    mirror: { x: 'x', y: 'y', z: 'z', j: 'join' },
+    'rect-array': { j: 'join' },
+    'radial-array': { x: 'x', y: 'y', z: 'z', j: 'join' },
     spiral: { x: 'axis-x', y: 'axis-y', z: 'axis-z', a: 'angle', d: 'length', r: 'radius' },
     ellipse: {},
     ellipse3: {},

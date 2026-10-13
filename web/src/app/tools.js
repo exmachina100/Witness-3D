@@ -84,6 +84,67 @@ export const TOOLS = [
             op: { type: 'enum', values: ['new', 'union', 'difference', 'intersect'], default: 'new', describe: 'a new body, or a boolean with the body the region lies on' },
         },
     },
+    // Round 6. Box, Cylinder and Sphere take a point on a face or the construction plane (click it);
+    // Shell takes faces of one solid; Mirror and the arrays take the selected solids.
+    {
+        id: 'box', label: 'BOX', key: '', group: 'shape', selects: 'face', toolbar: false,
+        summary: 'Make a box from a point on a face or the construction plane: width and depth along the plane, height up from it.',
+        params: {
+            width: { type: 'number', unit: 'mm', nonzero: true, default: 20, describe: "size along the plane's first direction; negative goes the other way" },
+            depth: { type: 'number', unit: 'mm', nonzero: true, default: 20, describe: "size along the plane's second direction; negative goes the other way" },
+            height: { type: 'number', unit: 'mm', nonzero: true, default: 20, describe: 'height off the plane; negative goes below it' },
+        },
+    },
+    {
+        id: 'cylinder', label: 'CYLINDER', key: '', group: 'shape', selects: 'face', toolbar: false,
+        summary: 'Make a cylinder standing on a point of a face or the construction plane.',
+        params: {
+            radius: { type: 'number', unit: 'mm', above: 0, default: 10, describe: 'radius of the base circle' },
+            height: { type: 'number', unit: 'mm', nonzero: true, default: 20, describe: 'height off the plane; negative goes below it' },
+        },
+    },
+    {
+        id: 'sphere', label: 'SPHERE', key: '', group: 'shape', selects: 'face', toolbar: false,
+        summary: 'Make a sphere centred on a point of a face or the construction plane.',
+        params: {
+            radius: { type: 'number', unit: 'mm', above: 0, default: 10, describe: 'radius of the sphere' },
+        },
+    },
+    {
+        id: 'shell', label: 'SHELL', key: '', group: 'shape', selects: 'faces', toolbar: false,
+        summary: 'Hollow a solid to walls of one thickness, leaving the selected faces open.',
+        params: {
+            thickness: { type: 'number', unit: 'mm', above: 0, default: 2, describe: 'wall thickness, measured inward from the outside' },
+        },
+    },
+    {
+        id: 'mirror', label: 'MIRROR', key: '', group: 'organise', selects: 'solid', toolbar: false,
+        summary: 'Reflect the selected solids in a plane across an axis, as copies or joined to the originals.',
+        params: {
+            axis: { type: 'enum', values: ['x', 'y', 'z'], default: 'x', describe: 'the axis the plane is square to; x reflects left to right' },
+            position: { type: 'number', unit: 'mm', default: 0, describe: 'where the plane crosses that axis' },
+            join: { type: 'boolean', default: false, describe: 'fuse each reflection into its original instead of making a new body' },
+        },
+    },
+    {
+        id: 'rect-array', label: 'RECTANGULAR ARRAY', key: '', group: 'organise', selects: 'solid', toolbar: false,
+        summary: 'Repeat the selected solids in a grid along x, y and z.',
+        params: {
+            counts: { type: 'vector', default: [3, 1, 1], describe: 'how many along x, y and z, the original included (whole numbers, at least 1)' },
+            spacing: { type: 'vector', unit: 'mm', default: [30, 30, 30], describe: 'distance between neighbours along x, y and z' },
+            join: { type: 'boolean', default: false, describe: 'fuse the copies into each original instead of making new bodies' },
+        },
+    },
+    {
+        id: 'radial-array', label: 'RADIAL ARRAY', key: '', group: 'organise', selects: 'solid', toolbar: false,
+        summary: "Repeat the selected solids around an axis through the construction plane's origin.",
+        params: {
+            count: { type: 'number', min: 1, default: 6, describe: 'how many, the original included (a whole number)' },
+            angle: { type: 'number', unit: 'deg', nonzero: true, default: 360, describe: 'how far round the copies spread; 360 spaces them evenly round a full turn' },
+            axis: { type: 'enum', values: ['x', 'y', 'z'], default: 'z', describe: 'the axis to turn about; z is up' },
+            join: { type: 'boolean', default: false, describe: 'fuse the copies into each original instead of making new bodies' },
+        },
+    },
     {
         id: 'move', label: 'MOVE', key: 'g', group: 'organise', selects: 'solid',
         summary: 'Move the selected bodies.',

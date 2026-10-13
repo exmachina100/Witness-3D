@@ -88,6 +88,13 @@ const KEYS = {
   spline: [['CLICK', 'POINTS'], ['CLICK START', 'CLOSE'], ['X Y Z', 'AXIS'], ['CTRL Z', 'BACK'], ['⏎ / RMB', 'DONE']],
   'tangent-arc': [['CLICK', 'CURVE END · SIZE'], ['D', 'FLIP'], ['ALT', 'NO SNAP'], ['ESC', 'CANCEL']],
   spiral: [['CLICK', 'AXIS START · END · RADIUS'], ['X Y Z', 'AXIS'], ['A', 'ANGLE'], ['D', 'LENGTH'], ['R', 'RADIUS'], ['⏎ / RMB', 'OK']],
+  box: [['CLICK', 'BASE POINT'], ['TYPE', 'SIZE IN PANEL'], ['⏎ / RMB', 'OK']],
+  cylinder: [['CLICK', 'BASE CENTRE'], ['TYPE', 'SIZE IN PANEL'], ['⏎ / RMB', 'OK']],
+  sphere: [['CLICK', 'CENTRE'], ['TYPE', 'RADIUS IN PANEL'], ['⏎ / RMB', 'OK']],
+  shell: [['D', 'THICKNESS'], ['⇧ CLICK', 'FACES'], ['⏎ / RMB', 'OK']],
+  mirror: [['X Y Z', 'PLANE'], ['J', 'JOIN'], ['⏎ / RMB', 'OK']],
+  'rect-array': [['TYPE', 'COUNTS · SPACING'], ['J', 'JOIN'], ['⏎ / RMB', 'OK']],
+  'radial-array': [['X Y Z', 'AXIS'], ['J', 'JOIN'], ['⏎ / RMB', 'OK']],
   pushpull: [['CLICK', 'PLACE'], ['DRAG DOT', 'DISTANCE'], ['Q', 'JOIN'], ['W', 'CUT'], ['B', 'NEW'], ['R C', 'SHAPE'], ['⏎ / RMB', 'OK']],
 };
 // Drawing commands: Plasticity's curve tools, which end in curves and the regions inside them.
@@ -101,6 +108,7 @@ const DRAW = {
 const CLICKS = { rect: 2, 'center-rect': 2, rect3: 3, circle: 2, circle2: 2, circle3: 3, arc3: 3, arc: 3, polygon: 2, ellipse: 3, ellipse3: 3, 'tangent-arc': 2 };
 // Commands that grow a solid from drawn regions, sharing one panel.
 const FORMS = { revolve: true, loft: true, sweep: true };
+const PRIMS = { box: true, cylinder: true, sphere: true };
 const keysHtml = id => KEYS[id].map(([k, v]) => `<kbd>${k}</kbd><span>${v}</span>`).join('');
 const BAR = [['palette', 'F', 'SEARCH'], ['tool:extrude', 'E', 'EXTRUDE'], ['tool:boolean', 'Q', 'BOOLEAN'], ['tool:fillet', 'B', 'FILLET'], ['tool:move', 'G', 'MOVE'], ['tool:rotate', 'R', 'ROTATE'], ['tool:scale', 'S', 'SCALE'], ['duplicate', '⇧D', 'DUPLICATE'], ['delete', '⇧X', 'DELETE']];
 
@@ -238,6 +246,39 @@ const SHELL = `
       <div class="field"><label for="w3d-off-distance">DISTANCE</label><input id="w3d-off-distance" data-id="off-distance" type="number" step="0.5" value="0"></div>
       <div class="field"><label for="w3d-off-angle">ANGLE ADJACENT °</label><input id="w3d-off-angle" data-id="off-angle" type="number" step="1" value="0"></div>
       <div class="field"><label>FACES</label><output data-id="off-count">0</output></div>
+    </div>
+    <div class="sec" data-panel="primitive" hidden>
+      <span class="hint" data-id="prim-hint">CLICK THE BASE POINT</span>
+      <div class="field" data-id="prim-w-row"><label for="w3d-prim-w">WIDTH</label><input id="w3d-prim-w" data-id="prim-w" type="number" step="1" value="20"></div>
+      <div class="field" data-id="prim-d-row"><label for="w3d-prim-d">DEPTH</label><input id="w3d-prim-d" data-id="prim-d" type="number" step="1" value="20"></div>
+      <div class="field" data-id="prim-r-row"><label for="w3d-prim-r">RADIUS</label><input id="w3d-prim-r" data-id="prim-r" type="number" step="1" min="0.01" value="10"></div>
+      <div class="field" data-id="prim-h-row"><label for="w3d-prim-h">HEIGHT</label><input id="w3d-prim-h" data-id="prim-h" type="number" step="1" value="20"></div>
+    </div>
+    <div class="sec" data-panel="shell" hidden>
+      <span class="hint" data-id="shell-hint">FACES TO OPEN</span>
+      <div class="field"><label for="w3d-shell-t">THICKNESS</label><input id="w3d-shell-t" data-id="shell-t" type="number" step="0.5" min="0.01" value="2"></div>
+      <div class="field"><label>OPEN FACES</label><output data-id="shell-count">0</output></div>
+    </div>
+    <div class="sec" data-panel="mirror" hidden>
+      <span class="hint" data-id="mirror-hint">—</span>
+      <span class="label">PLANE SQUARE TO</span>
+      <div class="seg" role="group" aria-label="Mirror axis"><button data-mx="x" aria-pressed="true"><kbd>X</kbd>X</button><button data-mx="y" aria-pressed="false"><kbd>Y</kbd>Y</button><button data-mx="z" aria-pressed="false"><kbd>Z</kbd>Z</button></div>
+      <div class="field"><label for="w3d-mirror-at">AT</label><input id="w3d-mirror-at" data-id="mirror-at" type="number" step="1" value="0"></div>
+      <div class="chips"><button data-id="mirror-join" aria-pressed="false"><kbd>J</kbd>JOIN</button></div>
+    </div>
+    <div class="sec" data-panel="rect-array" hidden>
+      <span class="hint" data-id="ra-hint">—</span>
+      <div class="field"><label>COUNT X · Y · Z</label><span class="trio"><input data-id="ra-cx" type="number" step="1" min="1" value="3" aria-label="Count along x"><input data-id="ra-cy" type="number" step="1" min="1" value="1" aria-label="Count along y"><input data-id="ra-cz" type="number" step="1" min="1" value="1" aria-label="Count along z"></span></div>
+      <div class="field"><label>SPACING X · Y · Z</label><span class="trio"><input data-id="ra-sx" type="number" step="1" value="30" aria-label="Spacing along x"><input data-id="ra-sy" type="number" step="1" value="30" aria-label="Spacing along y"><input data-id="ra-sz" type="number" step="1" value="30" aria-label="Spacing along z"></span></div>
+      <div class="chips"><button data-id="ra-join" aria-pressed="false"><kbd>J</kbd>JOIN</button></div>
+    </div>
+    <div class="sec" data-panel="radial-array" hidden>
+      <span class="hint" data-id="rr-hint">—</span>
+      <div class="field"><label for="w3d-rr-count">COUNT</label><input id="w3d-rr-count" data-id="rr-count" type="number" step="1" min="1" value="6"></div>
+      <div class="field"><label for="w3d-rr-angle">ANGLE °</label><input id="w3d-rr-angle" data-id="rr-angle" type="number" step="15" value="360"></div>
+      <span class="label">AXIS</span>
+      <div class="seg" role="group" aria-label="Radial array axis"><button data-rx="x" aria-pressed="false"><kbd>X</kbd>X</button><button data-rx="y" aria-pressed="false"><kbd>Y</kbd>Y</button><button data-rx="z" aria-pressed="true"><kbd>Z</kbd>Z</button></div>
+      <div class="chips"><button data-id="rr-join" aria-pressed="false"><kbd>J</kbd>JOIN</button></div>
     </div>
     <div class="sec" data-panel="form" hidden>
       <span class="hint" data-id="form-hint">—</span>
@@ -1000,7 +1041,7 @@ export async function mount(root, backend) {
   }
   function showTool(id) {
     for (const b of $$('[data-tool]')) b.setAttribute('aria-pressed', b.dataset.tool === id);
-    for (const el of $$('[data-panel]')) el.hidden = el.dataset.panel !== (id === 'spiral' ? 'spiral' : DRAW[id] ? 'draw' : FORMS[id] ? 'form' : id);
+    for (const el of $$('[data-panel]')) el.hidden = el.dataset.panel !== (id === 'spiral' ? 'spiral' : DRAW[id] ? 'draw' : FORMS[id] ? 'form' : PRIMS[id] ? 'primitive' : id);
     $('keys').innerHTML = keysHtml(KEYS[id] ? id : 'idle');
     const name = !id ? 'SELECT' : DRAW[id] ?? toolInfo(id).label;
     $('tool-name').textContent = name;
@@ -1033,6 +1074,10 @@ export async function mount(root, backend) {
     if (id === 'boolean') return startBoolean();
     if (id === 'offset') return startOffset(opts);
     if (FORMS[id]) return startForm(id);
+    if (PRIMS[id]) return startPrimitive(id, opts);
+    if (id === 'shell') return startShell();
+    if (id === 'mirror') return startMirror();
+    if (id === 'rect-array' || id === 'radial-array') return startArray(id);
     if (id === 'spiral') return startSpiral();
     if (DRAW[id]) return startDraw(id);
   }
@@ -2540,6 +2585,203 @@ export async function mount(root, backend) {
     } catch (e) { setState('failed'); toast(say(e)); }
   }
 
+  // --- Round 6: Box, Cylinder, Sphere, Shell, Mirror and arrays ---------------------
+  // Box, Cylinder and Sphere: click a point on a face or the construction plane, then set sizes in
+  // the panel; the solid previews as you type. Shell: select faces of one solid to open, set the wall
+  // thickness. Mirror, Rectangular and Radial Array act on the selected solids and preview their
+  // copies; J joins the copies to the originals instead of making new bodies. Each finishes as one
+  // undo step. Values in the panel are in the user's axes (x right, y back, z up).
+
+  /** Run `compute` for command `c` and draw what it returns, keeping only the newest answer. */
+  async function livePreview(c, compute, show, hintId) {
+    const n = ++c.sent;
+    setState('updating');
+    const t0 = performance.now();
+    let r;
+    try { r = await compute(); }
+    catch (e) {
+      if (cmd !== c || n !== c.sent) return;
+      clearPreview();
+      setState('failed');
+      if (hintId) $(hintId).textContent = say(e);
+      return setHud(`${toolInfo(c.id).label} FAILED`);
+    }
+    if (r == null || cmd !== c || n < c.shown) return;
+    c.shown = n;
+    $('ms').textContent = Math.round(performance.now() - t0);
+    clearPreview();
+    show(r);
+    if (n === c.sent) setState('updated');
+  }
+  const showCopies = list => { for (const b of list) { const m = meshOf(b, phantom.add.face, phantom.add.edge); m.renderOrder = 5; previewGroup.add(m); } };
+  const num = id => parseFloat($(id).value);
+  const userAxis = a => ({ x: [1, 0, 0], y: [0, 1, 0], z: [0, 0, 1] })[a];
+
+  function startPrimitive(id, { at = null } = {}) {
+    if (!backend.previewPrimitive) return toast(`${toolInfo(id).label} IS NOT IN THIS BUILD YET`);
+    const c = cmd = { id, at: null, sent: 0, shown: 0 };
+    lastTool = id;
+    showTool(id);
+    setState('none');
+    for (const [row, on] of [['prim-w-row', id === 'box'], ['prim-d-row', id === 'box'], ['prim-r-row', id !== 'box'], ['prim-h-row', id !== 'sphere']]) $(row).hidden = !on;
+    $('prim-hint').textContent = id === 'sphere' ? 'CLICK THE CENTRE' : id === 'cylinder' ? 'CLICK THE BASE CENTRE' : 'CLICK THE FIRST CORNER';
+    c.request = () => {
+      if (!c.at) return null;
+      const frame = { origin: c.at.origin.toArray(), x: frameFor(c.at.normal).toArray(), normal: c.at.normal.toArray() };
+      if (id === 'box') return { kind: 'box', frame, width: num('prim-w'), depth: num('prim-d'), height: num('prim-h') };
+      if (id === 'cylinder') return { kind: 'cylinder', frame, radius: num('prim-r'), height: num('prim-h') };
+      return { kind: 'sphere', center: c.at.origin.toArray(), radius: num('prim-r') };
+    };
+    c.preview = () => {
+      const req = c.request();
+      if (!req) return;
+      livePreview(c, () => backend.previewPrimitive(req), b => previewGroup.add(meshOf(b, phantom.add.face, phantom.add.edge)), 'prim-hint');
+      setHud(toolInfo(id).label);
+    };
+    c.place = p => {
+      c.at = { origin: p.origin.clone(), normal: p.normal.clone() };
+      setTarget(p.target ? label(p.target) : cplane.name);
+      $('prim-hint').textContent = 'SET THE SIZE · ⏎ TO FINISH';
+      c.preview();
+    };
+    c.click = e => {
+      const p = placeAt(e);
+      if (!p) return true;
+      if (p.curved) { toast('PICK A FLAT FACE OR THE PLANE'); return true; }
+      c.place(p);
+      return true;
+    };
+    c.finish = async () => {
+      const req = c.request();
+      if (!req) return endCmd('cancelled');
+      try {
+        const { id: made, scene: list } = await backend.commitPrimitive(req);
+        endCmd('committed');
+        record(toolInfo(id).label, made);
+        await showScene(list);
+        sel.replace({ kind: 'solid', body: made });
+        selectionChanged({ quiet: true });
+      } catch (e) { setState('failed'); toast(say(e)); }
+    };
+    c.abort = () => endCmd('cancelled');
+    c.cleanup = () => clearPreview();
+    setHud($('prim-hint').textContent);
+    if (at) c.place(at);
+  }
+
+  function startShell() {
+    const body = faceBody();
+    if (body === null) return toast(sel.list('face').length ? 'SHELL THE FACES OF ONE SOLID AT A TIME' : 'SELECT THE FACES TO LEAVE OPEN');
+    if (!backend.previewShell) return toast('SHELL IS NOT IN THIS BUILD YET');
+    const c = cmd = { id: 'shell', body, faces: [], sent: 0, shown: 0 };
+    lastTool = 'shell';
+    showTool('shell');
+    setState('none');
+    c.request = () => ({ body: c.body, faces: c.faces, thickness: num('shell-t') });
+    c.preview = () => livePreview(c, () => backend.previewShell(c.request()), b => { showPreviewBody(b); setHud(`SHELL ${num('shell-t')} MM`); }, 'shell-hint');
+    c.onSelection = () => {
+      drawOverlays();
+      const b = faceBody();
+      if (b === null) return setHud('SELECT FACES TO OPEN');
+      c.body = b;
+      c.faces = sel.list('face').map(it => it.n).sort((x, y) => x - y);
+      setTarget(label(b));
+      $('shell-count').textContent = c.faces.length;
+      $('shell-hint').textContent = `${c.faces.length} FACE${c.faces.length > 1 ? 'S' : ''} OPEN ON ${label(b)}`;
+      c.preview();
+    };
+    c.key = action => {
+      if (action !== 'thickness') return false;
+      c.entry = { label: 'THICKNESS', text: '', apply: v => { $('shell-t').value = v; c.preview(); } };
+      setHud('THICKNESS _');
+      return true;
+    };
+    c.click = e => {
+      const hit = pickAt(e);
+      if (hit?.kind !== 'face' || !(e.ctrlKey || e.metaKey || e.shiftKey)) return true;
+      sel.toggle({ kind: 'face', body: hit.body, n: hit.n });
+      selectionChanged();
+      return true;
+    };
+    c.finish = async () => {
+      try {
+        const { id, scene: list } = await backend.commitShell(c.request());
+        endCmd('committed');
+        record(`SHELL ${num('shell-t')} MM ×${c.faces.length}`, id);
+        await showScene(list);
+        sel.replace({ kind: 'solid', body: id });
+        selectionChanged({ quiet: true });
+      } catch (e) { setState('failed'); toast(say(e)); }
+    };
+    c.abort = () => endCmd('cancelled');
+    c.cleanup = () => clearPreview();
+    c.onSelection();
+  }
+
+  /** The commands that copy the selected solids: Mirror and the two arrays. */
+  function startCopies(id, request, describe) {
+    const ids = targetBodies().filter(b => !hidden.has(b));
+    if (!ids.length) { toast(`SELECT A SOLID TO ${toolInfo(id).label}`); return null; }
+    const preview = id === 'mirror' ? 'previewMirror' : 'previewArray', commit = id === 'mirror' ? 'commitMirror' : 'commitArray';
+    if (!backend[preview]) { toast(`${toolInfo(id).label} IS NOT IN THIS BUILD YET`); return null; }
+    const hint = { mirror: 'mirror-hint', 'rect-array': 'ra-hint', 'radial-array': 'rr-hint' }[id];
+    const joinBtn = { mirror: 'mirror-join', 'rect-array': 'ra-join', 'radial-array': 'rr-join' }[id];
+    const c = cmd = { id, ids, join: false, sent: 0, shown: 0 };
+    lastTool = id;
+    showTool(id);
+    setState('none');
+    setTarget(ids.length === 1 ? label(ids[0]) : `${ids.length} SOLIDS`);
+    $(hint).textContent = `${ids.length} SOLID${ids.length > 1 ? 'S' : ''}`;
+    $(joinBtn).setAttribute('aria-pressed', 'false');
+    c.preview = () => livePreview(c, () => backend[preview]({ bodies: c.ids, ...request(c) }), list => { showCopies(list); setHud(describe(c, list.length)); }, hint);
+    c.key = action => {
+      if (action === 'join') { c.join = !c.join; $(joinBtn).setAttribute('aria-pressed', c.join); return true; }
+      if (['x', 'y', 'z'].includes(action) && id !== 'rect-array') { c.axis = action; syncAxis(c); c.preview(); return true; }
+      return false;
+    };
+    c.finish = async () => {
+      try {
+        const { ids: made, scene: list } = await backend[commit]({ bodies: c.ids, ...request(c), join: c.join });
+        endCmd('committed');
+        record(`${toolInfo(id).label}${c.join ? ' · JOINED' : ''}`, made[0], c.join ? label(made[0]) : `${made.length} NEW`);
+        await showScene(list);
+        sel.clear();
+        for (const b of made) sel.add({ kind: 'solid', body: b });
+        selectionChanged({ quiet: true });
+      } catch (e) { setState('failed'); toast(say(e)); }
+    };
+    c.abort = () => endCmd('cancelled');
+    c.cleanup = () => clearPreview();
+    return c;
+  }
+  function syncAxis(c) {
+    const attr = c.id === 'mirror' ? 'mx' : 'rx';
+    for (const b of $$(`[data-${attr}]`)) b.setAttribute('aria-pressed', b.dataset[attr] === c.axis);
+  }
+
+  function startMirror() {
+    const c = startCopies('mirror', c => {
+      const n = userAxis(c.axis), at = num('mirror-at');
+      return { origin: toWorld(n.map(v => v * at)), normal: toWorld(n) };
+    }, c => `MIRROR ACROSS ${c.axis.toUpperCase()} = ${num('mirror-at')}`);
+    if (!c) return;
+    c.axis = 'x';
+    syncAxis(c);
+    c.preview();
+  }
+
+  function startArray(id) {
+    const radial = id === 'radial-array';
+    const c = startCopies(id, c => radial
+      ? { spec: { kind: 'radial', pivot: cplane.origin.toArray(), axis: toWorld(userAxis(c.axis)), angle: num('rr-angle') * DEG, count: Math.round(num('rr-count')) } }
+      : { spec: { kind: 'rectangular', steps: ['x', 'y', 'z'].map(a => toWorld(userAxis(a).map(v => v * num(`ra-s${a}`)))), counts: ['x', 'y', 'z'].map(a => Math.round(num(`ra-c${a}`))) } },
+    (c, n) => `${n} ${n === 1 ? 'COPY' : 'COPIES'}`);
+    if (!c) return;
+    c.axis = 'z';
+    if (radial) syncAxis(c);
+    c.preview();
+  }
+
   // --- revolve, loft (L) and sweep (⇧P) ------------------------------------------
   // Plasticity's Revolve: select a region, start Revolve (Suggested Commands or F), click the
   // axis's start and end; A sets the angle (360° to begin with). Loft: select two regions or more
@@ -3144,6 +3386,11 @@ export async function mount(root, backend) {
   $('ex-angle').addEventListener('input', e => { const v = parseFloat(e.target.value); if (!isNaN(v)) setExtrudeShape({ angle: v }); });
   $('ex-thickness').addEventListener('input', e => { const v = parseFloat(e.target.value); if (!isNaN(v) && v >= 0) setExtrudeShape({ thickness: v }); });
   for (const b of $$('[data-bop]')) b.onclick = () => cmd?.id === 'boolean' && cmd.key(b.dataset.bop);
+  for (const id of ['prim-w', 'prim-d', 'prim-r', 'prim-h']) $(id).addEventListener('input', () => PRIMS[cmd?.id] && cmd.preview());
+  $('shell-t').addEventListener('input', () => cmd?.id === 'shell' && cmd.preview());
+  for (const id of ['mirror-at', 'ra-cx', 'ra-cy', 'ra-cz', 'ra-sx', 'ra-sy', 'ra-sz', 'rr-count', 'rr-angle']) $(id).addEventListener('input', () => cmd?.preview?.());
+  for (const b of $$('[data-mx], [data-rx]')) b.onclick = () => cmd?.key?.(b.dataset.mx ?? b.dataset.rx);
+  for (const id of ['mirror-join', 'ra-join', 'rr-join']) $(id).onclick = () => cmd?.key?.('join');
   $('bool-keep').onclick = () => cmd?.id === 'boolean' && cmd.key('keep');
   for (const b of $$('[data-draw]')) b.onclick = () => DRAW[cmd?.id] && cmd.key(b.dataset.draw);
   $('commit').onclick = () => finish();
@@ -3367,6 +3614,34 @@ export async function mount(root, backend) {
         cmd.auto = false;
         if (p.angle) setOffsetAngle(p.angle);
         setOffsetDistance(p.distance ?? 0, false);
+      } else if (PRIMS[id]) {
+        const b = face !== undefined && current.find(x => x.faceRefs?.includes(face));
+        const n = b ? b.faceRefs.indexOf(face) : -1, plane = b?.facePlanes[n];
+        if (face !== undefined && !plane) throw new Error('that face is gone or not flat');
+        const at = plane ? { origin: faceCentre(b, n), normal: new THREE.Vector3(...plane.normal), target: b.id }
+          : { origin: cplane.origin.clone(), normal: cplane.normal.clone(), target: null };
+        if (id === 'box') { $('prim-w').value = p.width; $('prim-d').value = p.depth; $('prim-h').value = p.height; }
+        if (id === 'cylinder') { $('prim-r').value = p.radius; $('prim-h').value = p.height; }
+        if (id === 'sphere') $('prim-r').value = p.radius;
+        await startTool(id, { at });
+      } else if (id === 'shell') {
+        const b = current.find(x => (faces ?? []).every(r => x.faceRefs?.includes(r)));
+        if (!b || !faces?.length) throw new Error('give faces of one body to leave open');
+        sel.clear();
+        for (const r of faces) sel.add({ kind: 'face', body: b.id, n: b.faceRefs.indexOf(r) });
+        $('shell-t').value = p.thickness;
+        selectionChanged({ quiet: true });
+        await startTool('shell');
+      } else if (id === 'mirror' || id === 'rect-array' || id === 'radial-array') {
+        selectSolids(ids ?? [body]);
+        selectionChanged({ quiet: true });
+        if (id === 'mirror') $('mirror-at').value = p.position;
+        if (id === 'rect-array') ['x', 'y', 'z'].forEach((a, i) => { $(`ra-c${a}`).value = Math.max(1, Math.round(p.counts[i])); $(`ra-s${a}`).value = p.spacing[i]; });
+        if (id === 'radial-array') { $('rr-count').value = Math.max(1, Math.round(p.count)); $('rr-angle').value = p.angle; }
+        await startTool(id);
+        if (cmd?.id !== id) throw new Error(`select a solid to ${toolInfo(id).label.toLowerCase()}`);
+        if (p.axis && id !== 'rect-array') cmd.key(p.axis);
+        if (p.join) cmd.key('join');
       } else if (FORMS[id]) {
         const list = id === 'loft' ? regions ?? [] : [region];
         if (!list.length || !list.every(r => curveList.some(c => c.id === r && isClosed(c)))) throw new Error('that region is gone');

@@ -203,3 +203,4 @@ button:focus-visible, input:focus-visible { outline: 1px solid var(--accent); ou
 .palette li span { display: flex; align-items: center; gap: 10px; }
 .palette li .ico { width: 14px; height: 14px; }
 .row-item .ico { width: 14px; height: 14px; }
+.trio { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 4px; min-width: 0; }
