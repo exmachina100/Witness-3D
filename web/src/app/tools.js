@@ -161,6 +161,13 @@ export const TOOLS = [
         },
     },
     {
+        id: 'bridge', label: 'BRIDGE CURVES', key: '', group: 'curve', selects: 'curves', toolbar: false,
+        summary: 'Join the nearest ends of two open curves with a smooth curve that leaves each along its own direction.',
+        params: {
+            tension: { type: 'number', above: 0, default: 1, describe: 'how long the bridge holds each end\'s direction; 1 is a natural blend' },
+        },
+    },
+    {
         id: 'move', label: 'MOVE', key: 'g', group: 'organise', selects: 'solid',
         summary: 'Move the selected bodies.',
         params: {

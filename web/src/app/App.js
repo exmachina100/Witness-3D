@@ -59,7 +59,7 @@ import { ACTIONS, COMMAND, VIEWPORT, keyFor, keyOf } from './keymap.js';
 import { Selection } from './Selection.js';
 import { claude, describe, MODEL, reply, request } from './ai.js';
 import { icon } from './icons.js';
-import { explode, filletCurve, offsetCurve, trim } from '../curveEdit.js';
+import { bridgeCurves, explode, extendCurve, filletCurve, nearestEnd, offsetCurve, trim } from '../curveEdit.js';
 import { ViewGizmo } from './ViewGizmo.js';
 import { arcPoints, circleThrough, ellipsePoints, endTangent, helixPoints, loops, polygonCorners, spiralAngle, tangentArc } from '../curves.js';
 
@@ -92,6 +92,8 @@ const KEYS = {
   spiral: [['CLICK', 'AXIS START · END · RADIUS'], ['X Y Z', 'AXIS'], ['A', 'ANGLE'], ['D', 'LENGTH'], ['R', 'RADIUS'], ['⏎ / RMB', 'OK']],
   'offset-curve': [['D', 'DISTANCE'], ['TYPE', 'IN PANEL'], ['⏎ / RMB', 'OK']],
   'fillet-curve': [['D', 'RADIUS'], ['TYPE', 'IN PANEL'], ['⏎ / RMB', 'OK']],
+  extend: [['CLICK', 'NEAR AN END'], ['TYPE', 'LENGTH IN PANEL'], ['ESC / ⏎', 'DONE']],
+  bridge: [['T', 'TENSION'], ['⏎ / RMB', 'OK']],
   trim: [['CLICK', 'PIECE TO CUT AWAY'], ['CTRL Z', 'UNDO ONE'], ['ESC / ⏎', 'DONE']],
   box: [['CLICK', 'BASE POINT'], ['TYPE', 'SIZE IN PANEL'], ['⏎ / RMB', 'OK']],
   cylinder: [['CLICK', 'BASE CENTRE'], ['TYPE', 'SIZE IN PANEL'], ['⏎ / RMB', 'OK']],
@@ -115,7 +117,7 @@ const CLICKS = { rect: 2, 'center-rect': 2, rect3: 3, circle: 2, circle2: 2, cir
 const FORMS = { revolve: true, loft: true, sweep: true };
 const PRIMS = { box: true, cylinder: true, sphere: true };
 // Commands that aren't tools in the registry (they act on a click, not on settings).
-const EDITS = { trim: 'TRIM' };
+const EDITS = { trim: 'TRIM', extend: 'EXTEND CURVE' };
 const keysHtml = id => KEYS[id].map(([k, v]) => `<kbd>${k}</kbd><span>${v}</span>`).join('');
 const BAR = [['palette', 'F', 'SEARCH'], ['tool:extrude', 'E', 'EXTRUDE'], ['tool:boolean', 'Q', 'BOOLEAN'], ['tool:fillet', 'B', 'FILLET'], ['tool:move', 'G', 'MOVE'], ['tool:rotate', 'R', 'ROTATE'], ['tool:scale', 'S', 'SCALE'], ['duplicate', '⇧D', 'DUPLICATE'], ['delete', '⇧X', 'DELETE']];
 
@@ -259,6 +261,14 @@ const SHELL = `
     <div class="sec" data-panel="fillet-curve" hidden>
       <span class="hint" data-id="fc-hint">—</span>
       <div class="field"><label for="w3d-fc-r">RADIUS</label><input id="w3d-fc-r" data-id="fc-r" type="number" step="0.5" min="0.01" value="2"></div>
+    </div>
+    <div class="sec" data-panel="extend" hidden>
+      <span class="hint" data-id="ext-hint">CLICK NEAR THE END OF A LINE OR ARC</span>
+      <div class="field"><label for="w3d-ext-len">LENGTH</label><input id="w3d-ext-len" data-id="ext-len" type="number" step="1" min="0.01" value="10"></div>
+    </div>
+    <div class="sec" data-panel="bridge" hidden>
+      <span class="hint" data-id="br-hint">—</span>
+      <div class="field"><label for="w3d-br-t">TENSION</label><input id="w3d-br-t" data-id="br-t" type="number" step="0.1" min="0.05" value="1"></div>
     </div>
     <div class="sec" data-panel="trim" hidden>
       <span class="hint" data-id="trim-hint">CLICK THE PIECE OF A CURVE TO CUT AWAY; IT ENDS WHERE OTHER CURVES CROSS IT</span>
@@ -1145,6 +1155,8 @@ export async function mount(root, backend) {
     if (PRIMS[id]) return startPrimitive(id, opts);
     if (id === 'offset-curve' || id === 'fillet-curve') return startCurveEdit(id);
     if (id === 'trim') return startTrim();
+    if (id === 'extend') return startExtend();
+    if (id === 'bridge') return startBridge();
     if (id === 'shell') return startShell();
     if (id === 'mirror') return startMirror();
     if (id === 'rect-array' || id === 'radial-array') return startArray(id);
@@ -2744,6 +2756,82 @@ export async function mount(root, backend) {
     c.abort = () => endCmd(c.count ? 'committed' : 'cancelled');
   }
 
+  /** Plasticity's Extend Curve: click near an open end of a line or arc to lengthen it by the panel's length. */
+  function startExtend() {
+    if (!backend.replaceCurves) return toast('EXTEND IS NOT IN THIS BUILD YET');
+    const c = cmd = { id: 'extend', count: 0 };
+    lastTool = 'extend';
+    showTool('extend');
+    setState('none');
+    setHud('CLICK NEAR AN END');
+    c.click = async e => {
+      const hit = pickAt(e);
+      const src = (hit?.kind === 'curve' || hit?.kind === 'region') && curveById(hit.id);
+      if (!src || !hit.point) return true;
+      const f = curveFrame(src), d = hit.point.clone().sub(f.o), at = [d.dot(f.x), d.dot(f.y)];
+      try {
+        const out = extendCurve(src, nearestEnd(src, at), num('ext-len'));
+        const { ids: made } = await backend.replaceCurves([src.id], [out]);
+        c.count++;
+        record(`EXTEND ${curveLabel(src.id)} ${num('ext-len')} MM`, made[0], curveLabel(made[0]));
+        await loadCurves();
+        setHud(`${c.count} EXTENDED · CLICK ANOTHER, OR ⏎`);
+        setState('committed');
+      } catch (err) { setState('failed'); toast(say(err)); }
+      return true;
+    };
+    c.finish = () => endCmd(c.count ? 'committed' : 'cancelled');
+    c.abort = () => endCmd(c.count ? 'committed' : 'cancelled');
+  }
+
+  /** Plasticity's Bridge Curves: a smooth curve between the nearest ends of two selected open curves. */
+  function startBridge() {
+    const ids = sel.curves.filter(curveById);
+    if (ids.length !== 2) return toast('SELECT TWO OPEN CURVES TO BRIDGE');
+    if (!backend.addCurves) return toast('BRIDGE IS NOT IN THIS BUILD YET');
+    const [a, b] = ids.map(curveById);
+    // The nearest pair of ends, measured in the viewport.
+    const endPoint = (cv, w) => { const f = curveFrame(cv), p = curve2d(cv), q = w ? p[p.length - 1] : p[0]; return lift(f, q); };
+    let pick = null;
+    for (const ea of [0, 1]) for (const eb of [0, 1]) {
+      const d = endPoint(a, ea).distanceTo(endPoint(b, eb));
+      if (!pick || d < pick.d) pick = { d, ea, eb };
+    }
+    const c = cmd = { id: 'bridge', out: null };
+    lastTool = 'bridge';
+    showTool('bridge');
+    setState('none');
+    setTarget(`${curveLabel(a.id)} · ${curveLabel(b.id)}`);
+    c.preview = () => {
+      clearPreview();
+      try {
+        c.out = bridgeCurves(a, pick.ea, b, pick.eb, num('br-t'));
+        showCurvePreview([c.out]);
+        $('br-hint').textContent = `${curveLabel(a.id)} TO ${curveLabel(b.id)}`;
+        setHud(`BRIDGE · TENSION ${num('br-t')}`);
+        setState('updated');
+      } catch (e) { c.out = null; $('br-hint').textContent = say(e); setHud('BRIDGE FAILED'); setState('failed'); }
+    };
+    c.key = action => {
+      if (action !== 'tension') return false;
+      c.entry = { label: 'TENSION', text: '', apply: v => { $('br-t').value = v; c.preview(); } };
+      setHud('TENSION _');
+      return true;
+    };
+    c.finish = async () => {
+      if (!c.out) return toast($('br-hint').textContent);
+      try {
+        const { ids: made } = await backend.addCurves([c.out]);
+        endCmd('committed');
+        record('BRIDGE CURVES', made[0], curveLabel(made[0]));
+        await curvesChanged(made);
+      } catch (e) { setState('failed'); toast(say(e)); }
+    };
+    c.abort = () => endCmd('cancelled');
+    c.cleanup = () => clearPreview();
+    c.preview();
+  }
+
   /** Plasticity's Explode: split the selected lines and joined curves into their pieces, one undo step. */
   async function explodeSelected() {
     if (cmd) await finish();
@@ -3251,6 +3339,7 @@ export async function mount(root, backend) {
       case 'duplicate': await duplicateSelected(); return true;
       case 'join': await joinSelected(); return true;
       case 'trim': await startTool('trim'); return true;
+      case 'extend': await startTool('extend'); return true;
       case 'explode': await explodeSelected(); return true;
       case 'hide': setHidden(sel.bodies, true); return true;
       case 'hide-others': setHidden(current.map(b => b.id).filter(id => !sel.bodies.includes(id)), true); return true;
@@ -3568,6 +3657,7 @@ export async function mount(root, backend) {
   $('ex-angle').addEventListener('input', e => { const v = parseFloat(e.target.value); if (!isNaN(v)) setExtrudeShape({ angle: v }); });
   $('ex-thickness').addEventListener('input', e => { const v = parseFloat(e.target.value); if (!isNaN(v) && v >= 0) setExtrudeShape({ thickness: v }); });
   for (const b of $$('[data-bop]')) b.onclick = () => cmd?.id === 'boolean' && cmd.key(b.dataset.bop);
+  $('br-t').addEventListener('input', () => cmd?.id === 'bridge' && cmd.preview());
   for (const id of ['oc-d', 'fc-r']) $(id).addEventListener('input', () => (cmd?.id === 'offset-curve' || cmd?.id === 'fillet-curve') && cmd.preview());
   for (const id of ['prim-w', 'prim-d', 'prim-r', 'prim-h']) $(id).addEventListener('input', () => PRIMS[cmd?.id] && cmd.preview());
   $('shell-t').addEventListener('input', () => cmd?.id === 'shell' && cmd.preview());
@@ -3799,6 +3889,14 @@ export async function mount(root, backend) {
         cmd.auto = false;
         if (p.angle) setOffsetAngle(p.angle);
         setOffsetDistance(p.distance ?? 0, false);
+      } else if (id === 'bridge') {
+        const ids = (curveIds ?? []).filter(cid => curveList.some(c => c.id === cid));
+        if (ids.length !== 2) throw new Error('give two open curves by id');
+        sel.clear();
+        for (const cid of ids) sel.add({ kind: 'curve', id: cid });
+        selectionChanged({ quiet: true });
+        $('br-t').value = p.tension;
+        await startTool('bridge');
       } else if (id === 'offset-curve' || id === 'fillet-curve') {
         const ids = (curveIds ?? []).filter(cid => curveList.some(c => c.id === cid));
         if (!ids.length) throw new Error('give the curves by id');

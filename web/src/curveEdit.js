@@ -330,3 +330,67 @@ export function trim(c, others, at) {
     }
     throw new Error('trim lines, rectangles, polygons, circles and arcs');
 }
+
+// --- Extend and Bridge ----------------------------------------------------------------------------
+
+/** The end of an open line or arc nearest `at`: 0 for its start, 1 for its end. */
+export function nearestEnd(c, at) {
+    const [a, b] = c.kind === 'arc' ? [c.start, c.end] : c.kind === 'polyline' && !c.closed ? [c.points[0], c.points[c.points.length - 1]] : [null, null];
+    if (!a) throw new Error('extend the open end of a line or an arc');
+    return dist(at, a) <= dist(at, b) ? 0 : 1;
+}
+
+/**
+ * Plasticity's Extend Curve: lengthen an open line or arc by `length` mm at end `which` (0 start,
+ * 1 end), carrying on in the same direction or round the same circle.
+ */
+export function extendCurve(c, which, length) {
+    if (!(Number.isFinite(length) && length > 1e-6)) throw new Error('the length must be greater than zero');
+    if (c.kind === 'polyline' && !c.closed) {
+        const pts = dedupe(c.points).map(p => [...p]);
+        if (pts.length < 2) throw new Error('the line is too short to extend');
+        const [i, j] = which ? [pts.length - 1, pts.length - 2] : [0, 1];
+        const dir = norm(sub(pts[i], pts[j]));
+        pts[i] = add(pts[i], mul(dir, length));
+        return withShape(c, { kind: 'polyline', points: pts, closed: false });
+    }
+    if (c.kind === 'arc') {
+        const g = arcGeometry(c.start, c.mid, c.end);
+        if (!g) throw new Error('the arc is a straight line');
+        const extra = Math.sign(g.sweep) * length / g.radius, sweep = g.sweep + extra;
+        if (Math.abs(sweep) >= TAU - 1e-6) throw new Error('the arc would close on itself; use a circle');
+        const h = which ? { ...g, sweep } : { ...g, start: g.start - extra, sweep };
+        return withShape(c, arcPiece(h, 0, 1));
+    }
+    throw new Error('extend the open end of a line or an arc');
+}
+
+/** The end point and outward direction of an open curve at end `which` (0 start, 1 end). */
+function endOf(c, which) {
+    const { points } = samples(c);
+    if (points.length < 2) throw new Error('the curve is too short');
+    const [p, q] = which ? [points[points.length - 1], points[points.length - 2]] : [points[0], points[1]];
+    return { at: p, out: norm(sub(p, q)) };
+}
+
+/**
+ * Plasticity's Bridge Curves: a smooth curve from an end of `a` to an end of `b`, leaving each along
+ * its own direction. `tension` scales how far the bridge holds each tangent (1 is a natural blend).
+ * Both curves must lie in one plane; the bridge is drawn in `a`'s plane coordinates.
+ */
+export function bridgeCurves(a, endA, b, endB, tension = 1) {
+    if (!(Number.isFinite(tension) && tension > 0)) throw new Error('the tension must be greater than zero');
+    if (ends2(a) === null || ends2(b) === null) throw new Error('bridge the open ends of two curves');
+    const bInA = inPlaneOf(a, b);
+    if (!bInA) throw new Error('the two curves must lie in one plane');
+    const A = endOf(a, endA);
+    const Bpts = bInA.points, B = endB ? { at: Bpts[Bpts.length - 1], out: norm(sub(Bpts[Bpts.length - 1], Bpts[Bpts.length - 2])) } : { at: Bpts[0], out: norm(sub(Bpts[0], Bpts[1])) };
+    const gap = dist(A.at, B.at);
+    if (gap < 1e-6) throw new Error('those ends already meet; join them instead');
+    // A cubic Bézier leaving A along its direction and arriving at B against its own.
+    const k = gap * tension / 3;
+    const P = [A.at, add(A.at, mul(A.out, k)), add(B.at, mul(B.out, k)), B.at];
+    const at = t => { const u = 1 - t; return [0, 1].map(i => u * u * u * P[0][i] + 3 * u * u * t * P[1][i] + 3 * u * t * t * P[2][i] + t * t * t * P[3][i]); };
+    return withShape(a, { kind: 'spline', points: Array.from({ length: 9 }, (_, i) => at(i / 8)), closed: false });
+}
+const ends2 = c => (c.kind === 'arc' || ((c.kind === 'polyline' || c.kind === 'spline') && !c.closed) || (c.kind === 'contour' && !loops(c.pieces))) ? true : null;

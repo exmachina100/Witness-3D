@@ -55,6 +55,8 @@ const ICONS = {
     'fillet-curve': `<path d="M4 20V4h16" stroke-dasharray="2 2"/><path ${A} d="M4 20v-9a7 7 0 0 1 7-7h9"/>`,
     trim: `<path d="M3 12h7M16 12h5M12 3v18"/><path ${A} d="M10 12h6" stroke-dasharray="2 2"/><path ${A} d="M8 8l8 8M16 8l-8 8"/>`,
     explode: `<path d="M5 5h5M14 5h5M19 10v4M5 10v4M5 19h5M14 19h5"/><path ${A} d="M12 12h0M10 10L8 8M14 10l2-2M10 14l-2 2M14 14l2 2"/>`,
+    extend: `<path d="M3 17L12 8"/><path ${A} d="M12 8l6-6" stroke-dasharray="2 2"/><path ${A} d="M15 2h3v3"/>`,
+    bridge: `<path d="M2 18h6M16 6h6"/><path ${A} d="M8 18c5 0 3-12 8-12"/>`,
     undo: `<path d="M9 5L4 10l5 5"/><path ${A} d="M4 10h10a6 6 0 0 1 0 12h-3"/>`,
     redo: `<path d="M15 5l5 5-5 5"/><path ${A} d="M20 10H10a6 6 0 0 0 0 12h3"/>`,
     ask: `<path ${A} d="M12 3l2 7 7 2-7 2-2 7-2-7-7-2 7-2z"/>`,

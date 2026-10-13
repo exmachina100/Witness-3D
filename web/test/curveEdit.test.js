@@ -1,7 +1,7 @@
 // Round 7: Offset Curve, Fillet Curve, Explode and Trim, as plain geometry (no kernel needed).
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { arcGeometry, explode, filletCurve, offsetCurve, samples, trim } from '../src/curveEdit.js';
+import { arcGeometry, bridgeCurves, explode, extendCurve, filletCurve, nearestEnd, offsetCurve, samples, trim } from '../src/curveEdit.js';
 import { loops } from '../src/curves.js';
 
 const close = (a, b, eps = 1e-9) => assert.ok(Math.abs(a - b) < eps, `${a} != ${b}`);
@@ -101,4 +101,32 @@ test('samples close loops without repeating the first point', () => {
     const s = samples({ kind: 'ellipse', center: [0, 0], major: [4, 0], minor: 2 }, 16);
     assert.equal(s.points.length, 16);
     assert.equal(s.closed, true);
+});
+
+
+test('extend lengthens a line straight on and an arc round its circle', () => {
+    const l = line([0, 0], [10, 0]);
+    assert.equal(nearestEnd(l, [9, 1]), 1);
+    assert.deepEqual(extendCurve(l, 1, 5).points, [[0, 0], [15, 0]]);
+    assert.deepEqual(extendCurve(l, 0, 5).points, [[-5, 0], [10, 0]]);
+    const quarter = { ...plane, kind: 'arc', start: [5, 0], mid: [5 * Math.SQRT1_2, 5 * Math.SQRT1_2], end: [0, 5] };
+    const e = extendCurve(quarter, 1, 5 * Math.PI / 2);
+    const g = arcGeometry(e.start, e.mid, e.end);
+    close(Math.abs(g.sweep), Math.PI, 1e-9);
+    close(e.end[0], -5, 1e-9);
+    assert.throws(() => extendCurve(rect(2, 2), 1, 1), /open end/);
+    assert.throws(() => extendCurve(quarter, 1, 100), /close on itself/);
+});
+
+test('bridge leaves each end along its own direction', () => {
+    const a = line([0, 0], [10, 0]), b = line([20, 10], [30, 10]);
+    const br = bridgeCurves(a, 1, b, 0);
+    assert.equal(br.kind, 'spline');
+    assert.deepEqual(br.points[0], [10, 0]);
+    assert.deepEqual(br.points[br.points.length - 1], [20, 10]);
+    // Just past the start it still heads along +x, and just before the end it arrives along +x.
+    close(br.points[1][1] / br.points[1][0], 0, 0.1);
+    assert.ok(br.points[1][0] > 10 && br.points[7][0] < 20);
+    assert.throws(() => bridgeCurves(a, 1, line([10, 0], [20, 0]), 0), /already meet/);
+    assert.throws(() => bridgeCurves(rect(2, 2), 0, b, 0), /open ends/);
 });
