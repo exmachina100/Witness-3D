@@ -253,3 +253,5 @@ button:focus-visible, input:focus-visible { outline: 1px solid var(--accent); ou
 .flyout .ico { width: 18px; height: 18px; }
 .family .tool kbd { display: none; } /* keys live in the tooltip and the strip, as Plasticity shows icons only */
 .family .tool { padding: 0 9px; }
+.modes button { display: grid; place-items: center; padding: 5px 8px; }
+.modes .ico { width: 20px; height: 20px; }
