@@ -58,6 +58,7 @@ import { TOOLS, check, tool as toolInfo, withDefaults } from './tools.js';
 import { ACTIONS, COMMAND, VIEWPORT, keyFor, keyOf } from './keymap.js';
 import { Selection } from './Selection.js';
 import { claude, describe, MODEL, reply, request } from './ai.js';
+import { icon } from './icons.js';
 import { arcPoints, circleThrough, ellipsePoints, endTangent, helixPoints, loops, polygonCorners, spiralAngle, tangentArc } from '../curves.js';
 
 const KEYS = {
@@ -108,16 +109,16 @@ const SHELL = `
   <header class="bar">
     <div class="brand">WITNESS 3D</div>
     <nav class="tools" aria-label="Tools">
-      ${[['rect', '⇧Q', 'RECT'], ['circle', '⇧W', 'CIRCLE'], ['line', '⇧A', 'LINE']].map(([id, k, l]) => `<button class="tool" data-tool="${id}" aria-pressed="false" title="Draw a ${DRAW[id].toLowerCase()}"><kbd>${k}</kbd>${l}</button>`).join('')}
-      ${TOOLS.filter(t => t.toolbar !== false).map(t => `<button class="tool" data-tool="${t.id}" aria-pressed="false" title="${t.summary}"><kbd>${t.key.toUpperCase()}</kbd>${t.label}</button>`).join('\n      ')}
+      ${[['rect', '⇧Q', 'RECT'], ['circle', '⇧W', 'CIRCLE'], ['line', '⇧A', 'LINE']].map(([id, k, l]) => `<button class="tool" data-tool="${id}" aria-pressed="false" aria-label="${l}" title="${l} (${k}): draw a ${DRAW[id].toLowerCase()}">${icon(id)}<kbd>${k}</kbd><span class="lbl">${l}</span></button>`).join('')}
+      ${TOOLS.filter(t => t.toolbar !== false).map(t => `<button class="tool" data-tool="${t.id}" aria-pressed="false" aria-label="${t.label}" title="${t.label} (${t.key.toUpperCase()}): ${t.summary}">${icon(t.id)}<kbd>${t.key.toUpperCase()}</kbd><span class="lbl">${t.label}</span></button>`).join('\n      ')}
     </nav>
     <span class="spacer"></span>
-    <button class="export" data-action="ask" title="Ask for a command in words (Ctrl+K)">✦ ASK</button>
-    <button class="export" data-id="file-new" hidden>NEW</button>
-    <button class="export" data-id="file-open" hidden>OPEN</button>
-    <button class="export" data-id="file-save" hidden>SAVE</button>
-    <button class="export" data-id="import" hidden title="Import a STEP file">⇩ STEP</button>
-    <button class="export" data-id="export" disabled title="Export STEP">⇪ STEP</button>
+    <button class="export" data-action="ask" title="Ask for a command in words (Ctrl+K)">${icon('ask')}ASK</button>
+    <button class="export" data-id="file-new" hidden>${icon('file-new')}NEW</button>
+    <button class="export" data-id="file-open" hidden>${icon('file-open')}OPEN</button>
+    <button class="export" data-id="file-save" hidden>${icon('file-save')}SAVE</button>
+    <button class="export" data-id="import" hidden title="Import a STEP file">${icon('import')}STEP</button>
+    <button class="export" data-id="export" disabled title="Export STEP">${icon('export')}STEP</button>
     <span class="file" data-id="file-name">UNTITLED.W3D</span>
   </header>
 
@@ -134,8 +135,8 @@ const SHELL = `
       <dt>FACES</dt><dd data-id="faces">—</dd>
     </dl>
     <div class="pair">
-      <button data-id="undo">⌘Z UNDO</button>
-      <button data-id="redo">⇧⌘Z REDO</button>
+      <button data-id="undo" title="Undo (Ctrl+Z)">${icon('undo')}UNDO</button>
+      <button data-id="redo" title="Redo (Ctrl+Shift+Z)">${icon('redo')}REDO</button>
     </div>
   </aside>
 
@@ -150,7 +151,7 @@ const SHELL = `
       <button data-mode="point" aria-pressed="true" title="1 · ⇧1 toggles">1 PT</button><button data-mode="edge" aria-pressed="true" title="2 · ⇧2 toggles">2 EDGE</button><button data-mode="face" aria-pressed="true" title="3 · ⇧3 toggles">3 FACE</button><button data-mode="solid" aria-pressed="true" title="4 · ⇧4 toggles">4 SOLID</button><button data-mode="all" aria-pressed="true" title="5">5 ALL</button>
     </div>
     <div class="cmdbar" role="toolbar" aria-label="Command bar">
-      ${BAR.map(([a, k, l]) => `<button data-action="${a}"><kbd>${k}</kbd>${l}</button>`).join('')}
+      ${BAR.map(([a, k, l]) => `<button data-action="${a}" aria-label="${l}" title="${l} (${k})">${icon(a === 'palette' ? 'search' : a.replace('tool:', ''))}<kbd>${k}</kbd></button>`).join('')}
     </div>
     <div class="keys" data-id="keys">${keysHtml('idle')}</div>
     <span class="snap-tag" data-id="snap-tag" hidden></span>
@@ -359,6 +360,11 @@ const VIEWS = {
 
 export async function mount(root, backend) {
   root.innerHTML = SHELL;
+  // Panel options carry their icon ahead of the key and name.
+  for (const b of root.querySelectorAll('[data-draw],[data-bop],[data-xop],[data-fop],[data-spiral],[data-id="ex-lock"],[data-id="bool-keep"]')) {
+    const name = b.dataset.draw ?? b.dataset.bop ?? b.dataset.xop ?? b.dataset.fop ?? b.dataset.spiral ?? { 'ex-lock': 'lock', 'bool-keep': 'keep' }[b.dataset.id];
+    b.insertAdjacentHTML('afterbegin', icon(name));
+  }
   const $ = id => root.querySelector(`[data-id="${id}"]`);
   const $$ = sel => [...root.querySelectorAll(sel)];
   const say = e => String(e?.message ?? e).toUpperCase();
@@ -640,7 +646,8 @@ export async function mount(root, backend) {
       const row = document.createElement('div');
       row.className = 'row-item curve';
       row.setAttribute('aria-current', sel.has({ kind: 'curve', id: c.id }) || sel.has({ kind: 'region', id: c.id }));
-      row.innerHTML = `<span class="ln"></span><span class="name">${curveName(c)}</span><span class="tag">${curveLabel(c.id)}</span>`;
+      const look = { circle: 'circle', arc: 'arc3', spline: 'spline', ellipse: 'ellipse', contour: 'join', spiral: 'spiral' }[c.kind] ?? (!c.closed ? 'line' : c.points.length === 4 ? 'rect' : 'polygon');
+      row.innerHTML = `${icon(look)}<span class="name">${curveName(c)}</span><span class="tag">${curveLabel(c.id)}</span>`;
       row.onclick = e => { applySelect({ kind: 'curve', id: c.id }, modOf(e)); selectionChanged(); };
       out.append(row);
     }
@@ -2886,7 +2893,8 @@ export async function mount(root, backend) {
       const li = document.createElement('li');
       li.setAttribute('role', 'option');
       li.setAttribute('aria-selected', i === palette.index);
-      li.innerHTML = `<span>${e.label}</span><kbd>${e.key}</kbd>`;
+      const [kind, id] = e.action.split(':');
+      li.innerHTML = `<span>${icon(kind === 'tool' || kind === 'draw' ? id : kind === 'palette' ? 'search' : kind)}${e.label}</span><kbd>${e.key}</kbd>`;
       li.onmousedown = ev => { ev.preventDefault(); runPalette(i); };
       ul.append(li);
     });
