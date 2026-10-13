@@ -4,7 +4,7 @@
 import * as THREE from 'three';
 import { ExtrudeFactory } from '../ExtrudeFactory.js';
 import { NoOpError } from '../GeometryFactory.js';
-import { blendEdges, booleanWithHistory, box, count, draftWithHistory, exportSTEP, facePlane, numberedEdges, oc, tessellate, transform, volume } from '../Kernel.js';
+import { arrayMotions, blendEdges, booleanWithHistory, box, count, draftWithHistory, exportSTEP, facePlane, mirror, numberedEdges, oc, primitive, shellFaces, tessellate, transform, volume } from '../Kernel.js';
 import { loft, offsetFlatFaces, regionFace, revolve, splineSamples, sweep } from '../Forms.js';
 import { ends, join, loops, MEET } from '../curves.js';
 
@@ -249,6 +249,78 @@ export class LocalBackend {
         this.put(req.body, r.shape, r.history);
         return { id: req.body, scene: this.bodies() };
     }
+
+    // --- Round 6: Box, Cylinder, Sphere, Shell, Mirror and arrays (as document.rs) ---------------
+
+    /** The solid a Box, Cylinder or Sphere request describes (see Kernel.primitive). */
+    previewPrimitive(req) { return this.latest(async () => this.body(0, primitive(req))) }
+
+    /** Box, Cylinder or Sphere as a new body, one undo step. */
+    async commitPrimitive(req) {
+        const shape = primitive(req);
+        this.checkpoint();
+        const id = this.nextId++;
+        this.put(id, shape);
+        return { id, scene: this.bodies() };
+    }
+
+    shell({ body, faces, thickness }) {
+        const shape = this.shapes.get(body);
+        if (!shape) throw new Error('that body no longer exists');
+        return shellFaces(shape, faces, thickness);
+    }
+
+    previewShell(req) { return this.latest(async () => this.body(req.body, this.shell(req).shape)) }
+
+    /** Shell as one undo step; the outer faces and edges keep their refs. */
+    async commitShell(req) {
+        const { shape, history } = this.shell(req);
+        this.checkpoint();
+        this.put(req.body, shape, history);
+        return { id: req.body, scene: this.bodies() };
+    }
+
+    /** Per body, the copies `make` returns for it. */
+    copies(bodies, make) {
+        if (!bodies?.length) throw new Error('select a solid first');
+        if (bodies.some(id => !this.shapes.has(id))) throw new Error('that body no longer exists');
+        return bodies.map(id => [id, make(this.shapes.get(id))]);
+    }
+
+    /** Copies fused into their bodies when `join`, else added as new bodies; one undo step. */
+    placeCopies(all, join) {
+        if (join) {
+            const fused = all.map(([id, cs]) => {
+                let shape = this.shapes.get(id), history = null;
+                for (const c of cs) {
+                    const r = booleanWithHistory(shape, c, 'union');
+                    history = history ? chain(history, r.history) : r.history;
+                    shape = r.shape;
+                }
+                if (!history) throw new Error('nothing to do');
+                return [id, shape, history];
+            });
+            this.checkpoint();
+            for (const [id, shape, history] of fused) this.put(id, shape, history);
+            return { ids: fused.map(([id]) => id), scene: this.bodies() };
+        }
+        const shapes = all.flatMap(([, cs]) => cs);
+        if (!shapes.length) throw new Error('nothing to do');
+        this.checkpoint();
+        const ids = shapes.map(sh => { const id = this.nextId++; this.put(id, sh); return id; });
+        return { ids, scene: this.bodies() };
+    }
+
+    mirrorCopies({ bodies, origin, normal }) { return this.copies(bodies, s => [mirror(s, origin, normal)]) }
+    previewMirror(req) { return this.latest(async () => this.mirrorCopies(req).flatMap(([, cs]) => cs.map(c => this.body(0, c)))) }
+    async commitMirror(req) { return this.placeCopies(this.mirrorCopies(req), !!req.join) }
+
+    arrayCopies({ bodies, spec }) {
+        const motions = arrayMotions(spec);
+        return this.copies(bodies, s => motions.map(m => transform(s, m)));
+    }
+    previewArray(req) { return this.latest(async () => this.arrayCopies(req).flatMap(([, cs]) => cs.map(c => this.body(0, c)))) }
+    async commitArray(req) { return this.placeCopies(this.arrayCopies(req), !!req.join) }
 
     scene() { return this.bodies() }
 
