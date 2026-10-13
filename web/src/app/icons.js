@@ -37,6 +37,8 @@ const ICONS = {
     sweep: `<circle cx="5" cy="17" r="3"/><path ${A} d="M5 14c3-9 9-11 15-8"/>`,
     // Round 6 solids and patterns: the accent is the base point, the opening, or the copies made.
     box: `<path d="M4 8l8-4 8 4v9l-8 4-8-4z"/><path d="M4 8l8 4 8-4M12 12v9"/><path ${A} d="M4 17h0"/>`,
+    'center-box': `<path d="M4 8l8-4 8 4v9l-8 4-8-4z"/><path d="M4 8l8 4 8-4M12 12v9"/><path ${A} d="M12 8h0M10 7l4 2"/>`,
+    box3: `<path d="M4 8l8-4 8 4v9l-8 4-8-4z"/><path d="M4 8l8 4 8-4M12 12v9"/><path ${A} d="M4 17h0M12 21h0M20 17h0"/>`,
     cylinder: `<ellipse cx="12" cy="6" rx="7" ry="2.5"/><path d="M5 6v12c0 1.4 3.1 2.5 7 2.5s7-1.1 7-2.5V6"/><path ${A} d="M12 18h0M12 18h7"/>`,
     sphere: `<circle cx="12" cy="12" r="8"/><ellipse cx="12" cy="12" rx="8" ry="3"/><path ${A} d="M12 12h0"/>`,
     shell: `<path d="M4 8l8-4 8 4v9l-8 4-8-4z"/><path d="M7 9.5v6l5 2.5 5-2.5v-6"/><path ${A} d="M4 8l8 4 8-4-8-4z"/>`,

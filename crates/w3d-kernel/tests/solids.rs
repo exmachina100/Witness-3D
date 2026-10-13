@@ -105,7 +105,7 @@ fn document_runs_each_as_one_undo_step() {
     doc.clear_history();
     let vol = |doc: &Document<Occt>, id| volume(&doc.kernel, doc.get(id).unwrap());
 
-    let s = doc.commit_primitive(&Primitive::Sphere { center: DVec3::new(0.0, 100.0, 0.0), radius: 5.0 }).unwrap();
+    let s = doc.commit_primitive(&Primitive::Sphere { center: DVec3::new(0.0, 100.0, 0.0), radius: 5.0 }, None, Operation::NewBody).unwrap();
     assert_eq!(doc.ids().len(), 2);
     assert!(doc.undo());
     assert!(doc.get(s).is_none());
@@ -133,6 +133,15 @@ fn document_runs_each_as_one_undo_step() {
     assert!(doc.undo());
     assert_eq!(doc.ids().len(), 1);
     assert!(!doc.undo(), "every step above undid in one");
+
+    // A cylinder drawn on the top face cuts a pocket with W, as one step.
+    let top = Frame::new(DVec3::new(0.0, 30.0, 0.0), DVec3::X, DVec3::Y);
+    let pocket = Primitive::Cylinder { frame: top, radius: 5.0, height: -10.0 };
+    doc.commit_primitive(&pocket, Some(seed), Operation::Difference).unwrap();
+    close(vol(&doc, seed), before - std::f64::consts::PI * 250.0, 0.5);
+    assert_eq!(doc.ids().len(), 1);
+    assert!(doc.undo());
+    assert!(matches!(doc.preview_primitive(&Primitive::Sphere { center: DVec3::new(0.0, 500.0, 0.0), radius: 1.0 }, Some(seed), Operation::Difference), Err(KernelError::Invalid(_))));
 }
 
 #[test]

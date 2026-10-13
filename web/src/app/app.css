@@ -88,7 +88,7 @@ button:focus-visible, input:focus-visible { outline: 1px solid var(--accent); ou
 .modes button { padding: 5px 10px; color: var(--muted); }
 .modes button[aria-pressed="true"] { background: var(--ink); color: var(--on-accent); }
 .modes button:disabled { color: var(--dim); }
-.keys { position: absolute; right: 14px; top: 44px; display: grid; grid-template-columns: auto auto; gap: 5px 10px; font-size: 10px; pointer-events: none; }
+.keys { position: absolute; right: 118px; top: 44px; display: grid; grid-template-columns: auto auto; gap: 5px 10px; font-size: 10px; pointer-events: none; }
 .keys kbd { font: inherit; text-align: right; padding: 0 5px; border: 1px solid rgba(239, 235, 224, 0.6); }
 .keys span { color: var(--muted); }
 .toast { position: absolute; left: 50%; top: 12px; transform: translateX(-50%); padding: 4px 8px; border: 1px solid var(--accent); color: var(--accent); background: var(--ground); white-space: nowrap; }

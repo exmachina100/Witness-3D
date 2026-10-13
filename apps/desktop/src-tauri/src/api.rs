@@ -673,33 +673,59 @@ impl FrameIn {
 /// Plasticity's Box, Cylinder or Sphere.
 #[derive(Deserialize, Debug, Clone)]
 #[serde(tag = "kind", rename_all = "lowercase")]
-pub enum PrimitiveRequest {
+pub enum PrimitiveShape {
     Box { frame: FrameIn, width: f64, depth: f64, height: f64 },
     Cylinder { frame: FrameIn, radius: f64, height: f64 },
     Sphere { center: [f64; 3], radius: f64 },
 }
 
+/// A primitive and what to do with the body it was drawn on: Q, W, Shift+E, Shift+Q or B (new).
+#[derive(Deserialize, Debug, Clone)]
+pub struct PrimitiveRequest {
+    #[serde(flatten)]
+    pub shape: PrimitiveShape,
+    #[serde(default)]
+    pub target: Option<BodyId>,
+    #[serde(default = "new_op")]
+    pub op: OpChoice,
+}
+
+fn new_op() -> OpChoice { OpChoice::New }
+
 impl PrimitiveRequest {
     fn primitive(&self) -> Result<Primitive, ApiError> {
-        Ok(match *self {
-            PrimitiveRequest::Box { frame, width, depth, height } => Primitive::Box { frame: frame.frame()?, width, depth, height },
-            PrimitiveRequest::Cylinder { frame, radius, height } => Primitive::Cylinder { frame: frame.frame()?, radius, height },
-            PrimitiveRequest::Sphere { center, radius } => Primitive::Sphere { center: DVec3::from_array(center), radius },
+        Ok(match self.shape {
+            PrimitiveShape::Box { frame, width, depth, height } => Primitive::Box { frame: frame.frame()?, width, depth, height },
+            PrimitiveShape::Cylinder { frame, radius, height } => Primitive::Cylinder { frame: frame.frame()?, radius, height },
+            PrimitiveShape::Sphere { center, radius } => Primitive::Sphere { center: DVec3::from_array(center), radius },
         })
+    }
+    fn operation(&self) -> Operation {
+        match self.op {
+            OpChoice::Union => Operation::Union,
+            OpChoice::Difference => Operation::Difference,
+            OpChoice::Intersect => Operation::Intersect,
+            OpChoice::Slice => Operation::Slice,
+            OpChoice::New | OpChoice::Auto => Operation::NewBody,
+        }
     }
 }
 
-/// The solid a primitive request makes, drawn as a phantom; nothing changes.
-pub fn preview_primitive(m: &Model, req: PrimitiveRequest) -> Option<Result<Body, ApiError>> {
+/// What the primitive would make or change; nothing changes. `None` means a newer request came first.
+pub fn preview_primitive(m: &Model, req: PrimitiveRequest) -> Option<Result<Preview, ApiError>> {
     m.preview(move |doc| {
-        let solid = w3d_kernel::solids::primitive(&doc.kernel, &req.primitive()?)?;
-        Ok(body(&doc.kernel, 0, &solid)?)
+        let p = req.primitive()?;
+        let tool = Some(body(&doc.kernel, 0, &w3d_kernel::solids::primitive(&doc.kernel, &p)?)?);
+        let target = req.target.filter(|_| req.operation() != Operation::NewBody);
+        let result = doc.preview_primitive(&p, target, req.operation())?;
+        Ok(preview_of(doc, target, result, tool)?)
     })
 }
 
 pub fn commit_primitive(m: &Model, req: PrimitiveRequest) -> Result<Committed, ApiError> {
     m.call(move |doc| {
-        let id = doc.commit_primitive(&req.primitive()?)?;
+        let target = req.target.filter(|_| req.operation() != Operation::NewBody);
+        let id = doc.commit_primitive(&req.primitive()?, target, req.operation())?;
         Ok(Committed { id, scene: bodies(doc)? })
     })
 }

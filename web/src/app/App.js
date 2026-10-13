@@ -97,9 +97,11 @@ const KEYS = {
   extend: [['CLICK', 'NEAR AN END'], ['TYPE', 'LENGTH IN PANEL'], ['ESC / ⏎', 'DONE']],
   bridge: [['T', 'TENSION'], ['⏎ / RMB', 'OK']],
   trim: [['CLICK', 'PIECE TO CUT AWAY'], ['CTRL Z', 'UNDO ONE'], ['ESC / ⏎', 'DONE']],
-  box: [['CLICK', 'BASE POINT'], ['TYPE', 'SIZE IN PANEL'], ['⏎ / RMB', 'OK']],
-  cylinder: [['CLICK', 'BASE CENTRE'], ['TYPE', 'SIZE IN PANEL'], ['⏎ / RMB', 'OK']],
-  sphere: [['CLICK', 'CENTRE'], ['TYPE', 'RADIUS IN PANEL'], ['⏎ / RMB', 'OK']],
+  box: [['CLICK', 'CORNER · CORNER · HEIGHT'], ['C', 'FROM CENTRE'], ['S', 'SQUARE'], ['TAB', 'TYPE'], ['H', 'HEIGHT'], ['Q W ⇧E ⇧Q', 'BOOLEAN'], ['B', 'NEW BODY'], ['⏎ / RMB', 'OK']],
+  'center-box': [['CLICK', 'CENTRE · CORNER · HEIGHT'], ['C', 'FROM CORNER'], ['S', 'SQUARE'], ['TAB', 'TYPE'], ['H', 'HEIGHT'], ['Q W ⇧E ⇧Q', 'BOOLEAN'], ['B', 'NEW BODY'], ['⏎ / RMB', 'OK']],
+  box3: [['CLICK', 'CORNER · SIDE · WIDTH · HEIGHT'], ['X Y Z', 'AXIS'], ['TAB', 'TYPE'], ['Q W ⇧E ⇧Q', 'BOOLEAN'], ['B', 'NEW BODY'], ['⏎ / RMB', 'OK']],
+  cylinder: [['CLICK', 'CENTRE · RADIUS · HEIGHT'], ['V', 'VERTICAL'], ['TAB', 'TYPE'], ['F', 'RADIUS'], ['D', 'HEIGHT'], ['Q W ⇧E ⇧Q', 'BOOLEAN'], ['B', 'NEW BODY'], ['⏎ / RMB', 'OK']],
+  sphere: [['CLICK', 'CENTRE · SIZE'], ['TAB', 'TYPE'], ['D', 'DIAMETER'], ['Q W ⇧E ⇧Q', 'BOOLEAN'], ['B', 'NEW BODY'], ['⏎ / RMB', 'OK']],
   shell: [['D', 'THICKNESS'], ['⇧ CLICK', 'FACES'], ['⏎ / RMB', 'OK']],
   mirror: [['X Y Z', 'PLANE'], ['J', 'JOIN'], ['⏎ / RMB', 'OK']],
   'rect-array': [['TYPE', 'COUNTS · SPACING'], ['J', 'JOIN'], ['⏎ / RMB', 'OK']],
@@ -117,7 +119,7 @@ const DRAW = {
 const CLICKS = { rect: 2, 'center-rect': 2, rect3: 3, circle: 2, circle2: 2, circle3: 3, arc3: 3, arc: 3, polygon: 2, ellipse: 3, ellipse3: 3, 'tangent-arc': 2 };
 // Commands that grow a solid from drawn regions, sharing one panel.
 const FORMS = { revolve: true, loft: true, sweep: true };
-const PRIMS = { box: true, cylinder: true, sphere: true };
+const PRIMS = { box: true, 'center-box': true, box3: true, cylinder: true, sphere: true };
 // Commands that aren't tools in the registry (they act on a click, not on settings).
 const EDITS = { trim: 'TRIM', extend: 'EXTEND CURVE' };
 const keysHtml = id => KEYS[id].map(([k, v]) => `<kbd>${k}</kbd><span>${v}</span>`).join('');
@@ -286,11 +288,20 @@ const SHELL = `
       <span class="hint" data-id="trim-hint">CLICK THE PIECE OF A CURVE TO CUT AWAY; IT ENDS WHERE OTHER CURVES CROSS IT</span>
     </div>
     <div class="sec" data-panel="primitive" hidden>
-      <span class="hint" data-id="prim-hint">CLICK THE BASE POINT</span>
+      <span class="hint" data-id="prim-hint">CLICK THE FIRST CORNER</span>
       <div class="field" data-id="prim-w-row"><label for="w3d-prim-w">WIDTH</label><input id="w3d-prim-w" data-id="prim-w" type="number" step="1" value="20"></div>
-      <div class="field" data-id="prim-d-row"><label for="w3d-prim-d">DEPTH</label><input id="w3d-prim-d" data-id="prim-d" type="number" step="1" value="20"></div>
-      <div class="field" data-id="prim-r-row"><label for="w3d-prim-r">RADIUS</label><input id="w3d-prim-r" data-id="prim-r" type="number" step="1" min="0.01" value="10"></div>
+      <div class="field" data-id="prim-d-row"><label for="w3d-prim-d">LENGTH</label><input id="w3d-prim-d" data-id="prim-d" type="number" step="1" value="20"></div>
+      <div class="field" data-id="prim-r-row"><label for="w3d-prim-r">DIAMETER</label><input id="w3d-prim-r" data-id="prim-r" type="number" step="1" min="0.01" value="20"></div>
       <div class="field" data-id="prim-h-row"><label for="w3d-prim-h">HEIGHT</label><input id="w3d-prim-h" data-id="prim-h" type="number" step="1" value="20"></div>
+      <div class="chips" data-id="prim-opts"><button data-popt="centre" aria-pressed="false"><kbd>C</kbd>CENTRE</button><button data-popt="square" aria-pressed="false"><kbd>S</kbd>SQUARE</button><button data-popt="vertical" aria-pressed="false"><kbd>V</kbd>VERTICAL</button></div>
+      <span class="label">TARGET</span>
+      <div class="seg" role="group" aria-label="Boolean with the body underneath">
+        <button data-pop="union" aria-pressed="false"><kbd>Q</kbd>UNION</button>
+        <button data-pop="difference" aria-pressed="false"><kbd>W</kbd>DIFF</button>
+        <button data-pop="intersect" aria-pressed="false"><kbd>⇧E</kbd>INTER</button>
+        <button data-pop="slice" aria-pressed="false"><kbd>⇧Q</kbd>SLICE</button>
+        <button data-pop="new" aria-pressed="true"><kbd>B</kbd>NEW</button>
+      </div>
     </div>
     <div class="sec" data-panel="shell" hidden>
       <span class="hint" data-id="shell-hint">FACES TO OPEN</span>
@@ -3001,56 +3012,229 @@ export async function mount(root, backend) {
   const num = id => parseFloat($(id).value);
   const userAxis = a => ({ x: [1, 0, 0], y: [0, 1, 0], z: [0, 0, 1] })[a];
 
+  /**
+   * Plasticity's Corner Box, Center Box, Three Point Box, Cylinder and Sphere, step by step as the
+   * manual gives them. A box: click the base's corners (or centre and corner, or corner, side and
+   * width), then move the cursor up for the height and click. A cylinder: centre, radius, height. A
+   * sphere: centre, size. The base snaps and takes X/Y/Z like any sketch; Tab types the size of the
+   * current step. While sizing the height, Q W Shift+E Shift+Q join, cut, intersect or slice the body
+   * the base sits on, and B keeps it separate (the start). The last click leaves the panel open to
+   * adjust; Enter or right-click finishes as one undo step.
+   */
   function startPrimitive(id, { at = null } = {}) {
     if (!backend.previewPrimitive) return toast(`${toolInfo(id).label} IS NOT IN THIS BUILD YET`);
-    const c = cmd = { id, at: null, sent: 0, shown: 0 };
+    const box = id === 'box' || id === 'center-box' || id === 'box3';
+    const c = cmd = { id, box, plane: null, pts: [], cursor: null, axis: null, centre: id === 'center-box', square: false, vertical: false,
+      stage: 'base', size: null, height: null, drive: 'height', op: 'new', target: null, sent: 0, shown: 0, entry: null };
     lastTool = id;
     showTool(id);
     setState('none');
-    for (const [row, on] of [['prim-w-row', id === 'box'], ['prim-d-row', id === 'box'], ['prim-r-row', id !== 'box'], ['prim-h-row', id !== 'sphere']]) $(row).hidden = !on;
-    $('prim-hint').textContent = id === 'sphere' ? 'CLICK THE CENTRE' : id === 'cylinder' ? 'CLICK THE BASE CENTRE' : 'CLICK THE FIRST CORNER';
-    c.request = () => {
-      if (!c.at) return null;
-      const frame = { origin: c.at.origin.toArray(), x: frameFor(c.at.normal).toArray(), normal: c.at.normal.toArray() };
-      if (id === 'box') return { kind: 'box', frame, width: num('prim-w'), depth: num('prim-d'), height: num('prim-h') };
-      if (id === 'cylinder') return { kind: 'cylinder', frame, radius: num('prim-r'), height: num('prim-h') };
-      return { kind: 'sphere', center: c.at.origin.toArray(), radius: num('prim-r') };
-    };
-    c.preview = () => {
-      const req = c.request();
-      if (!req) return;
-      livePreview(c, () => backend.previewPrimitive(req), b => previewGroup.add(meshOf(b, phantom.add.face, phantom.add.edge)), 'prim-hint');
-      setHud(toolInfo(id).label);
-    };
+    const rows = { 'prim-w-row': box, 'prim-d-row': box, 'prim-r-row': !box, 'prim-h-row': id !== 'sphere' };
+    for (const [row, on] of Object.entries(rows)) $(row).hidden = !on;
+    for (const b of $$('[data-popt]')) b.hidden = b.dataset.popt === 'vertical' ? id !== 'cylinder' : !(id === 'box' || id === 'center-box');
+    const say1 = () => ({ box: 'CLICK THE FIRST CORNER', 'center-box': 'CLICK THE CENTRE OF THE BASE', box3: 'CLICK THE FIRST CORNER', cylinder: 'CLICK THE CENTRE OF THE BASE', sphere: 'CLICK THE CENTRE' })[id];
+    syncOpts();
+    hint(say1());
+
+    function hint(text) { $('prim-hint').textContent = text; setHud(text); }
+    function syncOpts() {
+      for (const b of $$('[data-popt]')) b.setAttribute('aria-pressed', !!c[b.dataset.popt]);
+      for (const b of $$('[data-pop]')) b.setAttribute('aria-pressed', b.dataset.pop === c.op);
+      $('prim-hint').dataset.op = c.op;
+    }
+    /** The base in plane coordinates: a box's corner, its side along u and its extent along v; a circle's centre and radius. */
+    function base() {
+      const P = [...c.pts, ...(c.stage === 'base' && c.cursor ? [c.cursor.uv] : [])];
+      if (!P.length) return null;
+      if (!box) return P.length < 2 ? null : { centre: P[0], radius: P[0].distanceTo(P[1]) };
+      if (id === 'box3') {
+        if (P.length < 2) return null;
+        const u = P[1].clone().sub(P[0]), w = u.length();
+        if (w < 1e-9) return null;
+        u.divideScalar(w);
+        const v = new THREE.Vector2(-u.y, u.x), d = P.length > 2 ? P[2].clone().sub(P[0]).dot(v) : 0;
+        return { corner: P[0], u, v, width: w, depth: d };
+      }
+      if (P.length < 2) return null;
+      let dx = P[1].x - P[0].x, dy = P[1].y - P[0].y;
+      if (c.square) { const m = Math.max(Math.abs(dx), Math.abs(dy)); dx = (Math.sign(dx) || 1) * m; dy = (Math.sign(dy) || 1) * m; }
+      return c.centre ? { corner: new THREE.Vector2(P[0].x - dx, P[0].y - dy), u: new THREE.Vector2(1, 0), v: new THREE.Vector2(0, 1), width: 2 * dx, depth: 2 * dy }
+        : { corner: P[0].clone(), u: new THREE.Vector2(1, 0), v: new THREE.Vector2(0, 1), width: dx, depth: dy };
+    }
+    /** Turn the base and a height into a backend request (viewport coordinates). */
+    function request() {
+      const b = base(), pl = c.plane;
+      if (!b || !pl) return null;
+      const at2 = q => pl.o.clone().addScaledVector(pl.x, q.x).addScaledVector(pl.y, q.y);
+      const extra = { target: pl.target ?? null, op: c.op };
+      if (id === 'sphere') return { kind: 'sphere', center: at2(b.centre).toArray(), radius: b.radius, ...extra };
+      if (id === 'cylinder') {
+        // V stands the base circle up: its axis runs along the plane instead of off it.
+        const n = c.vertical ? pl.y.clone() : pl.n.clone(), x = c.vertical ? pl.x.clone() : pl.x.clone();
+        return { kind: 'cylinder', frame: { origin: at2(b.centre).toArray(), x: x.toArray(), normal: n.toArray() }, radius: b.radius, height: c.height ?? 0, ...extra };
+      }
+      const x = pl.x.clone().multiplyScalar(b.u.x).addScaledVector(pl.y, b.u.y);
+      return { kind: 'box', frame: { origin: at2(b.corner).toArray(), x: x.toArray(), normal: pl.n.toArray() }, width: b.width, depth: b.depth, height: c.height ?? 0, ...extra };
+    }
+    function syncFields() {
+      const r = request();
+      if (!r) return;
+      if (r.kind === 'box') { $('prim-w').value = +Math.abs(r.width).toFixed(3); $('prim-d').value = +Math.abs(r.depth).toFixed(3); }
+      if (r.kind !== 'box') $('prim-r').value = +(2 * r.radius).toFixed(3);
+      if (r.kind !== 'sphere') $('prim-h').value = +(r.height ?? 0).toFixed(3);
+    }
+    function outline() {
+      const b = base(), pl = c.plane;
+      if (!b || !pl) { drawPreview.visible = false; return; }
+      let pts;
+      if (!box) pts = Array.from({ length: 64 }, (_, i) => new THREE.Vector2(b.centre.x + b.radius * Math.cos(i / 32 * Math.PI), b.centre.y + b.radius * Math.sin(i / 32 * Math.PI)));
+      else pts = [b.corner, b.corner.clone().addScaledVector(b.u, b.width), b.corner.clone().addScaledVector(b.u, b.width).addScaledVector(b.v, b.depth), b.corner.clone().addScaledVector(b.v, b.depth)];
+      drawPreview.geometry.setFromPoints([...pts, pts[0]].map(q => pl.o.clone().addScaledVector(pl.x, q.x).addScaledVector(pl.y, q.y).addScaledVector(pl.n, 0.03)));
+      drawPreview.visible = true;
+    }
+    function solidPreview() {
+      const req = request();
+      if (!req || (req.kind !== 'sphere' && !req.height)) return;
+      drawPreview.visible = false;
+      livePreview(c, () => backend.previewPrimitive(req), p => {
+        if (p.result) showPreviewBody(p.result);
+        const look = phantom[p.outcome === 'cut' || p.outcome === 'slice' ? 'cut' : 'add'];
+        if (p.tool) { const m = meshOf(p.tool, look.face, look.edge); m.renderOrder = 5; previewGroup.add(m); }
+        if (p.piece) { const m = meshOf(p.piece, phantom.add.face, phantom.add.edge); m.renderOrder = 6; previewGroup.add(m); }
+        setHud(`${toolInfo(id).label} · ${({ new: 'NEW BODY', join: 'UNION', cut: 'DIFFERENCE', intersect: 'INTERSECT', slice: 'SLICE' })[p.outcome] ?? p.outcome.toUpperCase()}`);
+      }, 'prim-hint');
+    }
+    /** The height under the cursor: along the base's normal, on a plane through it facing the camera. */
+    function heightAt(e) {
+      ray(e);
+      const pl = c.plane, b = base(), n = (id === 'cylinder' && c.vertical) ? pl.y : pl.n;
+      const o = pl.o.clone().addScaledVector(pl.x, (b.centre ?? b.corner).x).addScaledVector(pl.y, (b.centre ?? b.corner).y);
+      const view = camera.position.clone().sub(o), side = view.addScaledVector(n, -view.dot(n));
+      if (side.lengthSq() < 1e-12) side.copy(pl.x);
+      const hit = raycaster.ray.intersectPlane(new THREE.Plane().setFromNormalAndCoplanarPoint(side.normalize(), o), new THREE.Vector3());
+      if (!hit) return null;
+      let h = hit.sub(o).dot(n);
+      if (snapping(e)) h = Math.round(h / gridStep()) * gridStep();
+      return h;
+    }
+    const steps = { box: 2, 'center-box': 2, box3: 3, cylinder: 2, sphere: 2 }[id];
+    function advance() {
+      if (c.stage === 'base' && c.pts.length >= steps) {
+        if (id === 'sphere') { c.stage = 'adjust'; syncFields(); solidPreview(); hint('⏎ OR RIGHT-CLICK TO FINISH'); return; }
+        c.stage = 'height'; c.drive = 'height'; c.height = 0;
+        hint('MOVE UP FOR THE HEIGHT, THEN CLICK');
+      }
+    }
     c.place = p => {
-      c.at = { origin: p.origin.clone(), normal: p.normal.clone() };
+      const x = frameFor(p.normal);
+      c.plane = { o: p.origin.clone(), n: p.normal.clone(), x, y: new THREE.Vector3().crossVectors(p.normal, x), target: p.target ?? null };
+      c.pts = [new THREE.Vector2()];
       setTarget(p.target ? label(p.target) : cplane.name);
-      $('prim-hint').textContent = 'SET THE SIZE · ⏎ TO FINISH';
-      c.preview();
+    };
+    c.move = e => {
+      if (c.stage === 'base') {
+        const p = drawPoint(e);
+        showSnap(p?.snap, e);
+        if (p && !p.curved) { c.cursor = p; if (c.plane) { outline(); syncFields(); } }
+        return;
+      }
+      if (c.stage === 'height' || (c.stage === 'adjust' && c.dragging)) {
+        if (c.drive === 'height') { const h = heightAt(e); if (h !== null) c.height = h; }
+        else if (c.drive === 'radius') {
+          const p = drawPoint(e);
+          if (p?.uv && c.pts.length > 1) { const b0 = c.pts[0]; c.pts[1] = b0.clone().add(p.uv.clone().sub(b0)); }
+        }
+        syncFields();
+        solidPreview();
+      }
     };
     c.click = e => {
-      const p = placeAt(e);
-      if (!p) return true;
-      if (p.curved) { toast('PICK A FLAT FACE OR THE PLANE'); return true; }
-      c.place(p);
+      if (c.stage === 'base') {
+        const p = drawPoint(e);
+        if (p?.curved) { toast('START ON A FLAT FACE OR THE CONSTRUCTION PLANE'); return true; }
+        if (!p) return true;
+        if (!c.plane) { c.plane = p.plane; setTarget(p.plane.target ? label(p.plane.target) : cplane.name); }
+        c.pts.push(p.uv.clone());
+        c.cursor = null;
+        if (c.pts.length === 1) hint(id === 'box3' ? 'CLICK ALONG THE FIRST SIDE' : id === 'cylinder' ? 'CLICK FOR THE RADIUS' : id === 'sphere' ? 'CLICK FOR THE SIZE' : 'CLICK THE OPPOSITE CORNER');
+        else if (id === 'box3' && c.pts.length === 2) hint('CLICK FOR THE WIDTH');
+        advance();
+        return true;
+      }
+      if (c.stage === 'height' || c.dragging) { c.stage = 'adjust'; c.dragging = false; hint('Q W ⇧E ⇧Q B FOR THE TARGET · ⏎ TO FINISH'); return true; }
       return true;
     };
+    c.key = action => {
+      if (action === 'centre' || action === 'square') { if (!(id === 'box' || id === 'center-box')) return false; c[action] = !c[action]; syncOpts(); outline(); syncFields(); solidPreview(); return true; }
+      if (action === 'vertical') { if (id !== 'cylinder') return false; c.vertical = !c.vertical; syncOpts(); solidPreview(); return true; }
+      if (['union', 'difference', 'intersect', 'slice', 'new'].includes(action)) {
+        if (action !== 'new' && !c.plane?.target) { toast('START ON A FACE OF A SOLID TO COMBINE WITH IT'); return true; }
+        c.op = action; syncOpts(); solidPreview(); return true;
+      }
+      if (action === 'height' || action === 'radius') {
+        if (c.stage === 'base') return true;
+        c.drive = id === 'sphere' ? 'radius' : action; c.dragging = true; c.stage = 'adjust';
+        hint(`MOVE FOR THE ${action === 'radius' ? (id === 'sphere' ? 'DIAMETER' : 'RADIUS') : 'HEIGHT'}, THEN CLICK`);
+        return true;
+      }
+      if (action.startsWith('axis-')) { const a = action.slice(5); c.axis = c.axis === a ? null : a; return true; }
+      if (action === 'typed') {
+        // Tab types the size of the step in hand, in the order the manual's dialog lists them.
+        const field = c.stage !== 'base' ? (id === 'sphere' ? 'prim-r' : 'prim-h') : box ? 'prim-w' : 'prim-r';
+        const name = { 'prim-w': 'WIDTH', 'prim-d': 'LENGTH', 'prim-r': 'DIAMETER', 'prim-h': 'HEIGHT' }[field];
+        c.entry = { label: name, text: '', apply: v => { $(field).value = v; fromFields(field); } };
+        setHud(`${name} _`);
+        return true;
+      }
+      return false;
+    };
+    c.entryDone = () => { if (c.entry) setHud(`${c.entry.label} ${c.entry.text}_`); };
+    /** Panel and typed values drive the shape: rebuild the clicks from the fields. */
+    function fromFields(changed) {
+      if (!c.plane) return;
+      const w = +$('prim-w').value, d = +$('prim-d').value, r = +$('prim-r').value / 2, h = +$('prim-h').value;
+      const b = base();
+      if (box) {
+        const o = b?.corner ?? c.pts[0], u = b?.u ?? new THREE.Vector2(1, 0), v = b?.v ?? new THREE.Vector2(0, 1);
+        const sw = Math.sign(b?.width || 1), sd = Math.sign(b?.depth || 1);
+        if (id === 'box3') c.pts = [o.clone(), o.clone().addScaledVector(u, Math.abs(w) * sw), o.clone().addScaledVector(v, Math.abs(d) * sd)];
+        else if (c.centre) { const ctr = o.clone().addScaledVector(u, (b?.width ?? 0) / 2).addScaledVector(v, (b?.depth ?? 0) / 2); c.pts = [ctr, ctr.clone().add(new THREE.Vector2(sw * Math.abs(w) / 2, sd * Math.abs(d) / 2))]; }
+        else c.pts = [o.clone(), o.clone().add(new THREE.Vector2(sw * Math.abs(w), sd * Math.abs(d)))];
+      } else c.pts = [c.pts[0], c.pts[0].clone().add(new THREE.Vector2(r, 0))];
+      if (id !== 'sphere') c.height = h;
+      if (c.stage === 'base' && (changed === 'prim-w' || changed === 'prim-d' || changed === 'prim-r')) {
+        if (id === 'sphere') { c.stage = 'adjust'; } else { c.stage = 'height'; c.drive = 'height'; }
+      }
+      if (c.stage === 'height' && changed === 'prim-h') c.stage = 'adjust';
+      outline();
+      solidPreview();
+    }
+    c.fromFields = fromFields;
     c.finish = async () => {
-      const req = c.request();
-      if (!req) return endCmd('cancelled');
+      const req = request();
+      if (!req || (req.kind !== 'sphere' && !req.height)) return endCmd('cancelled');
       try {
         const { id: made, scene: list } = await backend.commitPrimitive(req);
         endCmd('committed');
-        record(toolInfo(id).label, made);
+        record(`${toolInfo(id).label}${c.op !== 'new' ? ` · ${c.op.toUpperCase()}` : ''}`, made);
         await showScene(list);
         sel.replace({ kind: 'solid', body: made });
         selectionChanged({ quiet: true });
       } catch (e) { setState('failed'); toast(say(e)); }
     };
     c.abort = () => endCmd('cancelled');
-    c.cleanup = () => clearPreview();
-    setHud($('prim-hint').textContent);
-    if (at) c.place(at);
+    c.cleanup = () => { clearPreview(); drawPreview.visible = false; };
+    if (at) {
+      // Placed by a command in words: the base at `at`, sizes from the panel, ready to finish.
+      c.place(at);
+      if (box) c.pts.push(new THREE.Vector2(+$('prim-w').value, +$('prim-d').value));
+      else c.pts.push(new THREE.Vector2(+$('prim-r').value / 2, 0));
+      if (id === 'box3') c.pts[2] = new THREE.Vector2(0, +$('prim-d').value);
+      c.height = +$('prim-h').value;
+      c.stage = 'adjust';
+      solidPreview();
+      hint('⏎ OR RIGHT-CLICK TO FINISH');
+    }
   }
 
   function startShell() {
@@ -3784,7 +3968,8 @@ export async function mount(root, backend) {
   $('hole-through').onclick = () => cmd?.id === 'hole' && cmd.key('through');
   $('br-t').addEventListener('input', () => cmd?.id === 'bridge' && cmd.preview());
   for (const id of ['oc-d', 'fc-r']) $(id).addEventListener('input', () => (cmd?.id === 'offset-curve' || cmd?.id === 'fillet-curve') && cmd.preview());
-  for (const id of ['prim-w', 'prim-d', 'prim-r', 'prim-h']) $(id).addEventListener('input', () => PRIMS[cmd?.id] && cmd.preview());
+  for (const id of ['prim-w', 'prim-d', 'prim-r', 'prim-h']) $(id).addEventListener('input', () => PRIMS[cmd?.id] && cmd.fromFields(id));
+  for (const b of $$('[data-popt], [data-pop]')) b.onclick = () => PRIMS[cmd?.id] && cmd.key(b.dataset.popt ?? b.dataset.pop);
   $('shell-t').addEventListener('input', () => cmd?.id === 'shell' && cmd.preview());
   for (const id of ['mirror-at', 'ra-cx', 'ra-cy', 'ra-cz', 'ra-sx', 'ra-sy', 'ra-sz', 'rr-count', 'rr-angle']) $(id).addEventListener('input', () => cmd?.preview?.());
   for (const b of $$('[data-mx], [data-rx]')) b.onclick = () => cmd?.key?.(b.dataset.mx ?? b.dataset.rx);
@@ -3969,7 +4154,7 @@ export async function mount(root, backend) {
         else setFactor(p.factor);
       } else if (id === 'pushpull') {
         const b = face !== undefined && current.find(x => x.faceRefs?.includes(face));
-        const n = b ? b.faceRefs.indexOf(face) : -1, plane = b?.facePlanes[n];
+        const n = b ? b.faceRefs.indexOf(face) : -1, plane = b ? b.facePlanes[n] : null;
         if (face !== undefined && !plane) throw new Error('that face is gone or not flat');
         const at = plane ? { origin: faceCentre(b, n), normal: new THREE.Vector3(...plane.normal), target: b.id }
           : { origin: cplane.origin.clone(), normal: cplane.normal.clone(), target: null };
@@ -4023,7 +4208,7 @@ export async function mount(root, backend) {
         await startTool('remove-face');
       } else if (id === 'hole') {
         const b = current.find(x => x.faceRefs?.includes(face));
-        const n = b ? b.faceRefs.indexOf(face) : -1, plane = b?.facePlanes[n];
+        const n = b ? b.faceRefs.indexOf(face) : -1, plane = b ? b.facePlanes[n] : null;
         if (!plane) throw new Error('give a flat face of a solid for the hole');
         $('hole-d').value = p.diameter;
         $('hole-depth').value = p.depth;
@@ -4047,13 +4232,13 @@ export async function mount(root, backend) {
         await startTool(id);
       } else if (PRIMS[id]) {
         const b = face !== undefined && current.find(x => x.faceRefs?.includes(face));
-        const n = b ? b.faceRefs.indexOf(face) : -1, plane = b?.facePlanes[n];
+        const n = b ? b.faceRefs.indexOf(face) : -1, plane = b ? b.facePlanes[n] : null;
         if (face !== undefined && !plane) throw new Error('that face is gone or not flat');
         const at = plane ? { origin: faceCentre(b, n), normal: new THREE.Vector3(...plane.normal), target: b.id }
           : { origin: cplane.origin.clone(), normal: cplane.normal.clone(), target: null };
-        if (id === 'box') { $('prim-w').value = p.width; $('prim-d').value = p.depth; $('prim-h').value = p.height; }
-        if (id === 'cylinder') { $('prim-r').value = p.radius; $('prim-h').value = p.height; }
-        if (id === 'sphere') $('prim-r').value = p.radius;
+        if (id === 'box' || id === 'center-box' || id === 'box3') { $('prim-w').value = p.width; $('prim-d').value = p.depth; $('prim-h').value = p.height; }
+        if (id === 'cylinder') { $('prim-r').value = 2 * p.radius; $('prim-h').value = p.height; }
+        if (id === 'sphere') $('prim-r').value = 2 * p.radius;
         await startTool(id, { at });
       } else if (id === 'shell') {
         const b = current.find(x => (faces ?? []).every(r => x.faceRefs?.includes(r)));

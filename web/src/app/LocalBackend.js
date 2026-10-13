@@ -262,16 +262,47 @@ export class LocalBackend {
 
     // --- Round 6: Box, Cylinder, Sphere, Shell, Mirror and arrays (as document.rs) ---------------
 
-    /** The solid a Box, Cylinder or Sphere request describes (see Kernel.primitive). */
-    previewPrimitive(req) { return this.latest(async () => this.body(0, primitive(req))) }
+    /**
+     * Box, Cylinder or Sphere (see Kernel.primitive), and with `op` union, difference, intersect or
+     * slice the body `target` it was drawn on, as Plasticity's Q, W, Shift+E and Shift+Q do; 'new' (B,
+     * the default) leaves it a separate body. Mirrors document.rs preview_primitive.
+     */
+    primitiveResult(req) {
+        const tool = primitive(req);
+        const op = req.op ?? 'new';
+        if (op === 'new' || req.target === undefined || req.target === null) return { tool, outcome: 'new' };
+        const body = this.shapes.get(req.target);
+        if (!body) throw new Error('that body no longer exists');
+        if (op === 'slice') {
+            const rest = booleanWithHistory(body, tool, 'difference'), piece = booleanWithHistory(body, tool, 'intersection').shape;
+            if (count(piece, 'TopAbs_FACE') === 0) throw new Error('the solid does not meet the body');
+            return { tool, result: rest, piece, outcome: 'slice' };
+        }
+        const kind = { union: 'union', difference: 'difference', intersect: 'intersection' }[op];
+        if (!kind) throw new Error('a primitive is new, or a union, difference, intersect or slice');
+        const r = booleanWithHistory(body, tool, kind);
+        const met = kind === 'union' ? count(r.shape, 'TopAbs_SOLID') === count(body, 'TopAbs_SOLID')
+            : kind === 'difference' ? r.history.faces[1].length > 0
+            : count(r.shape, 'TopAbs_FACE') > 0;
+        if (!met) throw new Error('the solid does not meet the body');
+        return { tool, result: r, outcome: { union: 'join', difference: 'cut', intersection: 'intersect' }[kind] };
+    }
 
-    /** Box, Cylinder or Sphere as a new body, one undo step. */
+    previewPrimitive(req) {
+        return this.latest(async () => {
+            const p = this.primitiveResult(req);
+            return { outcome: p.outcome, tool: this.body(0, p.tool), result: p.result ? this.body(req.target, p.result.shape) : null, ...(p.piece && { piece: this.body(this.nextId, p.piece) }) };
+        });
+    }
+
+    /** The primitive as one undo step: a new body, or the target changed (and a slice's piece added). */
     async commitPrimitive(req) {
-        const shape = primitive(req);
+        const p = this.primitiveResult(req);
         this.checkpoint();
-        const id = this.nextId++;
-        this.put(id, shape);
-        return { id, scene: this.bodies() };
+        if (!p.result) { const id = this.nextId++; this.put(id, p.tool); return { id, scene: this.bodies() }; }
+        this.put(req.target, p.result.shape, p.result.history);
+        if (p.piece) this.put(this.nextId++, p.piece);
+        return { id: req.target, scene: this.bodies() };
     }
 
     shell({ body, faces, thickness }) {

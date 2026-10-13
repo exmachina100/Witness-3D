@@ -95,7 +95,7 @@ async fn commit_form(
 async fn preview_primitive(
     model: State<'_, Model>,
     req: api::PrimitiveRequest,
-) -> Result<Option<api::Body>, api::ApiError> {
+) -> Result<Option<api::Preview>, api::ApiError> {
     on_model(&model, move |m| api::preview_primitive(m, req))
         .await?
         .transpose()

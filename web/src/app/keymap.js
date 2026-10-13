@@ -85,6 +85,14 @@ export const COMMAND = {
     spline: { 'ctrl-z': 'back', x: 'axis-x', y: 'axis-y', z: 'axis-z' },
     // Tangent Arc's D flips it; Spiral's A, D and R (manual), X/Y/Z while placing the axis end.
     'tangent-arc': { d: 'flip' },
+    // Primitives (manual: Corner / Center / Three Point Box, Cylinder, Sphere). Tab types sizes; C and S
+    // shape a box's base; H, F and D hand the cursor to the height, radius or diameter; V stands a
+    // cylinder up; X, Y and Z hold the base to an axis; Q W Shift+E Shift+Q B pick the boolean.
+    box: { tab: 'typed', c: 'centre', s: 'square', h: 'height', x: 'axis-x', y: 'axis-y', z: 'axis-z', q: 'union', w: 'difference', 'shift-e': 'intersect', 'shift-q': 'slice', b: 'new' },
+    'center-box': { tab: 'typed', c: 'centre', s: 'square', h: 'height', x: 'axis-x', y: 'axis-y', z: 'axis-z', q: 'union', w: 'difference', 'shift-e': 'intersect', 'shift-q': 'slice', b: 'new' },
+    box3: { tab: 'typed', h: 'height', x: 'axis-x', y: 'axis-y', z: 'axis-z', q: 'union', w: 'difference', 'shift-e': 'intersect', 'shift-q': 'slice', b: 'new' },
+    cylinder: { tab: 'typed', v: 'vertical', f: 'radius', d: 'height', x: 'axis-x', y: 'axis-y', z: 'axis-z', q: 'union', w: 'difference', 'shift-e': 'intersect', 'shift-q': 'slice', b: 'new' },
+    sphere: { tab: 'typed', d: 'radius', x: 'axis-x', y: 'axis-y', z: 'axis-z', q: 'union', w: 'difference', 'shift-e': 'intersect', 'shift-q': 'slice', b: 'new' },
     // Round 7: D types the distance or radius.
     'offset-curve': { d: 'distance' },
     'fillet-curve': { d: 'radius' },

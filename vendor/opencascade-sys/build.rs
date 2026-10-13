@@ -47,6 +47,8 @@ fn main() {
 
     if is_windows {
         println!("cargo:rustc-link-lib=dylib=user32");
+        // Witness 3D: OSD_File, OSD_Process and OSD_signal use security and registry calls.
+        println!("cargo:rustc-link-lib=dylib=advapi32");
     }
 
     // TODO(bschwind) - Iterate over the src/ directory to populate this.

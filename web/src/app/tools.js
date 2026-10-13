@@ -87,11 +87,29 @@ export const TOOLS = [
     // Round 6. Box, Cylinder and Sphere take a point on a face or the construction plane (click it);
     // Shell takes faces of one solid; Mirror and the arrays take the selected solids.
     {
-        id: 'box', label: 'BOX', key: '', group: 'shape', selects: 'face', toolbar: false,
-        summary: 'Make a box from a point on a face or the construction plane: width and depth along the plane, height up from it.',
+        id: 'box', label: 'CORNER BOX', key: '', group: 'shape', selects: 'face', toolbar: false,
+        summary: 'Make a box: click a corner, click the opposite corner, then move up for the height (C from the centre, S square, Tab to type).',
         params: {
             width: { type: 'number', unit: 'mm', nonzero: true, default: 20, describe: "size along the plane's first direction; negative goes the other way" },
             depth: { type: 'number', unit: 'mm', nonzero: true, default: 20, describe: "size along the plane's second direction; negative goes the other way" },
+            height: { type: 'number', unit: 'mm', nonzero: true, default: 20, describe: 'height off the plane; negative goes below it' },
+        },
+    },
+    {
+        id: 'center-box', label: 'CENTER BOX', key: '', group: 'shape', selects: 'face', toolbar: false,
+        summary: 'Make a box from the centre of its base: click the centre, a corner, then move up for the height.',
+        params: {
+            width: { type: 'number', unit: 'mm', above: 0, default: 20, describe: 'size along the plane\'s first direction' },
+            depth: { type: 'number', unit: 'mm', above: 0, default: 20, describe: 'size along the plane\'s second direction' },
+            height: { type: 'number', unit: 'mm', nonzero: true, default: 20, describe: 'height off the plane; negative goes below it' },
+        },
+    },
+    {
+        id: 'box3', label: 'THREE POINT BOX', key: '', group: 'shape', selects: 'face', toolbar: false,
+        summary: 'Make a box at any angle: click a corner, a point along one side, the width, then move up for the height.',
+        params: {
+            width: { type: 'number', unit: 'mm', nonzero: true, default: 20, describe: 'length of the first side' },
+            depth: { type: 'number', unit: 'mm', nonzero: true, default: 20, describe: 'length of the second side' },
             height: { type: 'number', unit: 'mm', nonzero: true, default: 20, describe: 'height off the plane; negative goes below it' },
         },
     },

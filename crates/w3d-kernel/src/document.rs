@@ -570,10 +570,19 @@ impl<K: Kernel> Document<K> {
         Ok(body)
     }
 
-    /// Box, Cylinder or Sphere as a new body, one undoable step.
-    pub fn commit_primitive(&mut self, p: &Primitive) -> Result<BodyId, KernelError> {
+    /// Box, Cylinder or Sphere, as a new body or combined with `target` by `operation` (Plasticity's
+    /// Q, W, Shift+E, Shift+Q and B while sizing a primitive), without changing the document.
+    pub fn preview_primitive(&self, p: &Primitive, target: Option<BodyId>, operation: Operation) -> Result<ExtrudeResult<K::Solid>, KernelError> {
         let solid = crate::solids::primitive(&self.kernel, p)?;
-        Ok(self.add(solid))
+        let body = target.map(|id| self.get(id).ok_or(KernelError::Invalid("that body no longer exists"))).transpose()?;
+        let operation = if operation == Operation::Auto { Operation::NewBody } else { operation };
+        crate::extrude::combine(&self.kernel, body, solid, operation, true, "the solid does not meet the body")
+    }
+
+    /// Run a primitive as one undoable step. Returns the body it created or changed.
+    pub fn commit_primitive(&mut self, p: &Primitive, target: Option<BodyId>, operation: Operation) -> Result<BodyId, KernelError> {
+        let r = self.preview_primitive(p, target, operation)?;
+        Ok(self.commit_result(target, r))
     }
 
     /// Compute a Shell without changing the document.
