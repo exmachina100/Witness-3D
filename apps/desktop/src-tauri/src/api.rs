@@ -354,19 +354,22 @@ pub struct OffsetRequest {
     pub body: BodyId,
     pub faces: Vec<u32>,
     pub distance: f64,
+    /// Radians the neighbouring faces lean (A, Angle Adjacent); positive shrinks the face.
+    #[serde(default)]
+    pub angle: f64,
 }
 
 /// The body as it would be after the offset. `None` means a newer request superseded it.
 pub fn preview_offset(m: &Model, req: OffsetRequest) -> Option<Result<Body, ApiError>> {
     m.preview(move |doc| {
-        let solid = doc.preview_offset(req.body, &req.faces, req.distance)?;
+        let solid = doc.preview_offset(req.body, &req.faces, req.distance, req.angle)?;
         Ok(body(&doc.kernel, req.body, &solid)?)
     })
 }
 
 pub fn commit_offset(m: &Model, req: OffsetRequest) -> Result<Committed, ApiError> {
     m.call(move |doc| {
-        let id = doc.commit_offset(req.body, &req.faces, req.distance)?;
+        let id = doc.commit_offset(req.body, &req.faces, req.distance, req.angle)?;
         Ok(Committed { id, scene: bodies(doc)? })
     })
 }

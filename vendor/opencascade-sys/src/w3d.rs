@@ -52,6 +52,6 @@ mod inner {
             thickness: f64,
         ) -> Result<UniquePtr<TopoDS_Shape>>;
         pub fn w3d_sample(section: &[f64], n: i32) -> Result<Vec<f64>>;
-        pub fn w3d_offset_faces(shape: &TopoDS_Shape, faces: &[i32], distance: f64) -> Result<UniquePtr<W3dResult>>;
+        pub fn w3d_offset_faces(shape: &TopoDS_Shape, faces: &[i32], distance: f64, angle: f64) -> Result<UniquePtr<W3dResult>>;
     }
 }

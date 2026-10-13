@@ -357,6 +357,53 @@ export function facePlane(shape, faceIndex) {
     return undefined;
 }
 
+/**
+ * Offset Face's adjacent angle (A), as w3d_offset_faces on the desktop: the faces meeting the
+ * numbered flat faces at sharp edges lean by `angle` radians, pivoting where they end away from the
+ * face, so it shrinks (positive) or grows.
+ */
+export function draftWithHistory(shape, faces, angle) {
+    const o = oc();
+    const all = numbered(shape, 'TopAbs_FACE').map(f => o.TopoDS.Face(f));
+    const edgesOf = f => numbered(f, 'TopAbs_EDGE');
+    const draft = new o.BRepOffsetAPI_DraftAngle(shape);
+    const done = new Set();
+    for (const i of faces) {
+        const p = facePlane(shape, i);
+        if (!p) throw new Error('an angle needs flat faces');
+        const f = all[i], fe = edgesOf(f), slopes = [];
+        let reach = 0;
+        all.forEach((g, j) => {
+            if (faces.includes(j) || done.has(j)) return;
+            const shared = edgesOf(g).find(e => fe.some(k => k.IsSame(e)));
+            if (!shared) return;
+            if (o.BRep_Tool.Continuity(o.TopoDS.Edge(shared), f, g) !== o.GeomAbs_Shape.GeomAbs_C0) return;
+            done.add(j);
+            slopes.push(g);
+            const b = new o.Bnd_Box();
+            o.BRepBndLib.Add(g, b, true);
+            const lo = b.CornerMin(), hi = b.CornerMax();
+            for (let k = 0; k < 8; k++) {
+                const c = new THREE.Vector3(k & 1 ? hi.X() : lo.X(), k & 2 ? hi.Y() : lo.Y(), k & 4 ? hi.Z() : lo.Z());
+                reach = Math.min(reach, c.sub(p.origin).dot(p.normal));
+            }
+        });
+        const at = p.origin.clone().addScaledVector(p.normal, reach), n = new o.gp_Dir(p.normal.x, p.normal.y, p.normal.z);
+        const neutral = new o.gp_Pln(new o.gp_Pnt(at.x, at.y, at.z), n);
+        for (const g of slopes) {
+            draft.Add(g, n, angle, neutral, true);
+            if (!draft.AddDone()) throw new Error('the faces next to it cannot lean that far');
+        }
+    }
+    if (!done.size) throw new Error('no faces meet it at a sharp edge to lean');
+    draft.Build(new o.Message_ProgressRange());
+    if (!draft.IsDone()) throw new Error('the faces next to it cannot lean that far; try a smaller angle');
+    const result = draft.Shape();
+    // This build's DraftAngle reports nothing as Modified; ModifiedShape gives each image.
+    const image = s => { try { return [draft.ModifiedShape(s)]; } catch { return [s]; } };
+    return { shape: result, history: trace([shape], result, image) };
+}
+
 /** Write a STEP file and return its bytes. */
 export function exportSTEP(shape) {
     const o = oc();

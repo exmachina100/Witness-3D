@@ -293,3 +293,24 @@ fn boolean_slices_join_takes_curve_ids_and_contours_come_with_samples() {
     let v = api::preview(&m, x).unwrap().unwrap().tool.unwrap().volume;
     assert!((v - 12.5 * std::f64::consts::PI * 2.0).abs() < 1.0, "{v}");
 }
+
+#[test]
+fn offset_face_takes_an_adjacent_angle_and_spirals_round_trip_as_json() {
+    let m = api::start();
+    let b = &api::scene(&m).unwrap()[0];
+    let top = b.face_planes.iter().position(|p| p.as_ref().is_some_and(|p| p.normal[1] > 0.99)).unwrap() as u32;
+    // A: the sides lean 5 in over the 30 height, about the bottom edges.
+    let req: api::OffsetRequest = serde_json::from_str(&format!(r#"{{"body":1,"faces":[{top}],"distance":0,"angle":{}}}"#, (5.0f64 / 30.0).atan())).unwrap();
+    let v = api::preview_offset(&m, req.clone()).unwrap().unwrap().volume;
+    assert!((v - 101_500.0).abs() < 0.5, "{v}");
+    api::commit_offset(&m, req).unwrap();
+    // Older requests without an angle still parse.
+    let plain: api::OffsetRequest = serde_json::from_str(&format!(r#"{{"body":1,"faces":[{top}],"distance":1}}"#)).unwrap();
+    assert_eq!(plain.angle, 0.0);
+
+    let curves: Vec<w3d_kernel::Curve> = serde_json::from_str(r#"[{"origin":[0,30,0],"x":[1,0,0],"normal":[0,1,0],"kind":"spiral","radius":10,"length":20,"turns":2}]"#).unwrap();
+    let ids = api::add_curves(&m, curves).unwrap().ids;
+    let json = serde_json::to_value(api::curves(&m)).unwrap();
+    let s = json.as_array().unwrap().iter().find(|c| c["id"] == ids[0]).unwrap();
+    assert_eq!((s["kind"].as_str(), s["turns"].as_f64(), s["left"].as_bool()), (Some("spiral"), Some(2.0), Some(false)));
+}

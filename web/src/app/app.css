@@ -189,3 +189,17 @@ button:focus-visible, input:focus-visible { outline: 1px solid var(--accent); ou
 .ask { width: min(560px, calc(100% - 32px)); }
 .ask-out { padding: 10px 14px; min-height: 18px; font-size: 11px; letter-spacing: 1px; line-height: 1.6; color: var(--muted); white-space: pre-wrap; }
 .ask-out:empty { display: none; }
+
+/* Icons (icons.js): thin square-ended line drawings in the text colour, the accent in orange. */
+.ico { width: 16px; height: 16px; flex: none; fill: none; stroke: currentColor; stroke-width: 1.4; stroke-linecap: square; stroke-linejoin: miter; vertical-align: -4px; }
+.ico .ac { stroke: var(--accent); }
+.tool .ico { width: 18px; height: 18px; }
+.tool .lbl { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+.cmdbar button { display: flex; align-items: center; gap: 6px; }
+.cmdbar .ico { width: 18px; height: 18px; }
+.bar .export .ico, .pair .ico { margin-right: -2px; }
+.pair button { display: flex; align-items: center; justify-content: center; gap: 8px; }
+.chips button .ico, .seg button .ico { margin-right: 6px; width: 14px; height: 14px; vertical-align: -3px; }
+.palette li span { display: flex; align-items: center; gap: 10px; }
+.palette li .ico { width: 14px; height: 14px; }
+.row-item .ico { width: 14px; height: 14px; }

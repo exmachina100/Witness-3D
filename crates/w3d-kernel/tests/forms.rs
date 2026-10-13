@@ -57,11 +57,11 @@ fn offset_face_moves_the_top_and_keeps_its_refs() {
     );
     let top_ref = doc.refs(a).unwrap().faces[top[0] as usize];
     close(
-        volume(&doc.kernel, &doc.preview_offset(a, &top, -5.0).unwrap()),
+        volume(&doc.kernel, &doc.preview_offset(a, &top, -5.0, 0.0).unwrap()),
         80.0 * 25.0 * 50.0,
         1e-3,
     );
-    doc.commit_offset(a, &top, 5.0).unwrap();
+    doc.commit_offset(a, &top, 5.0, 0.0).unwrap();
     let s = doc.get(a).unwrap();
     close(volume(&doc.kernel, s), 80.0 * 35.0 * 50.0, 1e-3);
     assert_eq!(doc.kernel.face_count(s), 6);
@@ -104,7 +104,7 @@ fn offset_face_stretches_slanted_neighbours() {
     .unwrap()
     .solid;
     let top = faces_facing(&k, &bevel, DVec3::new(0.0, 30.0, 0.0), DVec3::Y);
-    let raised = offset_faces(&k, &bevel, &top, 4.0).unwrap().solid;
+    let raised = offset_faces(&k, &bevel, &top, 4.0, 0.0).unwrap().solid;
     assert_eq!(k.face_count(&raised), 7, "no new faces");
     // The 40 deep top rises 4 while the 45° chamfer below its front edge climbs with it, taking a
     // 4 × 4 triangle off the new slab.
@@ -140,7 +140,7 @@ fn offset_face_widens_a_hole() {
         .position(|p| p.is_none())
         .unwrap() as u32;
     // The wall faces into the hole, so a positive offset closes it up to radius 4.
-    let smaller = offset_faces(&k, &body, &[wall], 1.0).unwrap().solid;
+    let smaller = offset_faces(&k, &body, &[wall], 1.0, 0.0).unwrap().solid;
     close(
         volume(&k, &smaller),
         volume(&k, &body) + PI * (25.0 - 16.0) * 30.0,
@@ -153,18 +153,18 @@ fn offset_face_refuses_nothing_and_strangers() {
     let k = Occt;
     let body = enclosure(&k);
     assert!(matches!(
-        offset_faces(&k, &body, &[], 1.0),
+        offset_faces(&k, &body, &[], 1.0, 0.0),
         Err(KernelError::Invalid(_))
     ));
     assert!(matches!(
-        offset_faces(&k, &body, &[0], 0.0),
+        offset_faces(&k, &body, &[0], 0.0, 0.0),
         Err(KernelError::NoOp)
     ));
     assert!(matches!(
-        offset_faces(&k, &body, &[99], 1.0),
+        offset_faces(&k, &body, &[99], 1.0, 0.0),
         Err(KernelError::Invalid(_))
     ));
-    assert!(offset_faces(&k, &body, &[0], f64::NAN).is_err());
+    assert!(offset_faces(&k, &body, &[0], f64::NAN, 0.0).is_err());
 }
 
 fn ring_profile() -> (Profile, Frame) {

@@ -106,6 +106,15 @@ fn path_numbers(path: &Path) -> Result<Vec<f64>, KernelError> {
             for p in pieces { v.extend(path_numbers(p)?) }
             v
         }
+        Path::Spiral { origin, axis, x, radius, length, turns, left } => {
+            let n = axis.normalize();
+            let x = (*x - n * x.dot(n)).normalize();
+            if !(*radius > 0.0 && *length > 0.0 && *turns > 0.0) || !x.is_finite() { return Err(KernelError::Invalid("a spiral needs a radius, a length and turns greater than zero")) }
+            let mut v = vec![7.0];
+            for a in [*origin, n, x] { v.extend(a.to_array()) }
+            v.extend([*radius, *length, *turns, if *left { 1.0 } else { 0.0 }]);
+            v
+        }
     })
 }
 
@@ -232,9 +241,9 @@ impl Kernel for Occt {
         Shape::sweep_section(&section(profile, frame)?, &path_numbers(path)?, twist, scale).map_err(shim)
     }
 
-    fn offset_faces(&self, s: &Shape, faces: &[u32], distance: f64) -> Result<Traced<Shape>, KernelError> {
+    fn offset_faces(&self, s: &Shape, faces: &[u32], distance: f64, angle: f64) -> Result<Traced<Shape>, KernelError> {
         let faces: Vec<usize> = faces.iter().map(|&f| f as usize).collect();
-        let (solid, h) = s.offset_faces_with_history(&faces, distance).map_err(shim)?;
+        let (solid, h) = s.offset_faces_with_history(&faces, distance, angle).map_err(shim)?;
         Ok(Traced { solid, history: history(h) })
     }
 
