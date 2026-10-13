@@ -194,7 +194,7 @@ impl Shape {
     }
 
     /// A copy reflected in the plane through `origin` with normal `normal`.
-    pub fn mirrored(&self, origin: DVec3, normal: DVec3) -> Result<Shape, String> {
+    pub fn mirrored_in_plane(&self, origin: DVec3, normal: DVec3) -> Result<Shape, String> {
         let plane = [origin.x, origin.y, origin.z, normal.x, normal.y, normal.z];
         let s = ffi::w3d::w3d_mirror(&self.inner, &plane).map_err(reason)?;
         Ok(Shape::from_shape(&s))

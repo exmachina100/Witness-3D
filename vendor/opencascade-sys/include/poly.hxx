@@ -4,7 +4,7 @@
 
 inline std::unique_ptr<Handle_Poly_Triangulation>
 Handle_Poly_Triangulation_new(std::unique_ptr<Poly_Triangulation> triangulation) {
-  return std::unique_ptr<Handle_Poly_Triangulation>(new Handle_Poly_Triangulation(triangulation.release()));
+  return std::unique_ptr<Handle_Poly_Triangulation>(new Handle_Poly_Triangulation(opencascade::handle<Poly_Triangulation>(triangulation.release())));
 }
 
 inline std::unique_ptr<gp_Dir> Poly_Triangulation_Normal(const Poly_Triangulation &triangulation,

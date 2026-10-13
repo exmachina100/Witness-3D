@@ -260,7 +260,7 @@ impl Kernel for Occt {
     }
 
     fn mirror(&self, s: &Shape, origin: DVec3, normal: DVec3) -> Result<Shape, KernelError> {
-        s.mirrored(origin, normal).map_err(shim)
+        s.mirrored_in_plane(origin, normal).map_err(shim)
     }
 
     fn sphere(&self, center: DVec3, radius: f64) -> Result<Shape, KernelError> {
