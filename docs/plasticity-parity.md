@@ -24,29 +24,30 @@ splitting; see Solid › Imprint).
 | Tool | Manual keys and steps | Status |
 |---|---|---|
 | Line (Shift+A) | points; Tab, K, Ctrl+Z, X/Y/Z | Partial: K |
-| Spline Curve | through points; Tab → Control Point Curve, K, Ctrl+Z, X/Y/Z | Partial: Tab switch, K |
-| Control Point Curve | clicked points are control points; Tab → Spline, K, Ctrl+Z, X/Y/Z | Missing |
+| Spline Curve | through points; Tab → Control Point Curve, K, Ctrl+Z, X/Y/Z | Partial: K |
+| Control Point Curve | clicked points are control points; Tab → Spline, K, Ctrl+Z, X/Y/Z | Partial: K (exact cubic B-spline in both kernels) |
 | Bridge Curve | | Done |
-| Split Curve At Point | | Missing |
+| Split Curve At Point | | Done for lines, arcs and open splines |
 | Insert CV At Point | | Missing (needs control-point curves) |
 | Trim | | Partial: splines, ellipses, joined curves |
-| Center Circle | centre, size; Tab, K, V, X/Y | Partial: K, X/Y |
+| Center Circle | centre, size; Tab, K, V, X/Y | Partial: K |
 | Two Point Circle | | Partial: K |
 | Three Point Circle | | Partial: K |
-| Tangent Circle | pick two curves (optional third edge), size; F freeze, Tab radius | Missing |
+| Tangent Circle | pick two curves (optional third edge), size; F freeze, Tab radius | Partial: third edge (exact for lines, circles, arcs) |
 | Ellipse (centre, three point) | | Partial: K |
 | Center Point Arc · Three Point Arc · Tangent Arc | | Partial: K |
 | Regular Polygon | | Partial: K |
 | Spiral | | Done |
 | Corner Rectangle | corner, corner; Tab, K, C → centre, S square | Partial: K |
 | Center Rectangle | centre, corner; Tab, K, C → corner, S square | Partial: K |
-| Three Point Rectangle | corner, edge point, size; Tab, K, X/Y/Z | Partial: K, X/Y/Z |
-| Corner Box | corner, corner, drag height; C → centre, S square, Tab; height step: Q W Shift+E B Shift+Q T (boolean with target bodies), H height; yellow dots; Width/Length/Height | Partial: today a click plus panel sizes; needs the drag steps, C/S, boolean keys, dots |
-| Center Box | as Corner Box from the centre | Missing |
-| Three Point Box | corner, edge point, size, height; X/Y/Z; target bodies | Missing |
-| Cylinder | centre, drag radius, drag height; Tab, V vertical, X/Y/Z; Q W Shift+E B Shift+Q T; F radius, D height; dots | Partial: click plus panel; needs drags, V, boolean keys |
-| Sphere | centre, drag size; Tab, X/Y/Z; boolean keys; D diameter; dot | Partial: click plus panel; needs drag, boolean keys |
-| Measure Continuity · Measure Distance · Measure Radius · Toggle Curvature | | Missing |
+| Three Point Rectangle | corner, edge point, size; Tab, K, X/Y/Z | Partial: K |
+| Corner Box | corner, corner, drag height; C → centre, S square, Tab; height step: Q W Shift+E B Shift+Q T (boolean with target bodies), H height; yellow dots; Width/Length/Height | Partial: yellow dots, T |
+| Center Box | as Corner Box from the centre | Partial: yellow dots, T |
+| Three Point Box | corner, edge point, size, height; X/Y/Z; target bodies | Done |
+| Cylinder | centre, drag radius, drag height; Tab, V vertical, X/Y/Z; Q W Shift+E B Shift+Q T; F radius, D height; dots | Partial: yellow dots, T |
+| Sphere | centre, drag size; Tab, X/Y/Z; boolean keys; D diameter; dot | Partial: yellow dot, T |
+| Measure Distance · Measure Radius | | Done |
+| Measure Continuity · Toggle Curvature | | Missing |
 
 ## 2. Common commands
 
