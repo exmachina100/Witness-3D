@@ -66,6 +66,7 @@ const ICONS = {
     hole: `<path d="M3 9l9-4 9 4-9 4z"/><path d="M3 9v8l9 4 9-4V9"/><ellipse ${A} cx="12" cy="9" rx="3" ry="1.4"/><path ${A} d="M9 9v6M15 9v6" stroke-dasharray="2 2"/>`,
     through: `<path d="M12 2v20" stroke-dasharray="2 2"/><path ${A} d="M8 8h8v8H8z"/>`,
     cut: `<path d="M3 9l6-3 6 3v9l-6 3-6-3z"/><path d="M3 9l6 3 6-3M9 12v9"/><path ${A} d="M17 10l4 2v8l-4 2"/><path ${A} d="M16 2v20" stroke-dasharray="2 2"/>`,
+    imprint: `<path d="M4 8l8-4 8 4v9l-8 4-8-4z"/><path d="M4 8l8 4 8-4M12 12v9"/><path ${A} d="M8 6l8 4"/>`,
     'remove-face': `<path d="M4 8l8-4 8 4v9l-8 4-8-4z"/><path d="M4 8l8 4 8-4M12 12v9"/><path ${A} d="M14 14l4 4M18 14l-4 4"/>`,
     suggest: `<circle cx="5" cy="12" r="1.5"/><circle cx="12" cy="12" r="1.5"/><circle ${A} cx="19" cy="12" r="1.5"/>`,
     // Selection modes (1–5): a cube with what each mode picks in the accent.
@@ -85,6 +86,14 @@ const ICONS = {
     // Panel options.
     square: `<rect x="5" y="5" width="14" height="14"/><path ${A} d="M5 19L19 5"/>`,
     centre: `<rect x="4" y="6" width="16" height="12"/><path ${A} d="M12 9v6M9 12h6"/>`,
+    knife: `<path d="M3 21L15 9l3 3L6 21z"/><path ${A} d="M15 9l4-4 2 2-3 5"/>`,
+    // The VIEW chips: what each shows, with the accent on what the toggle adds.
+    'view-edges': `<path d="M4 8l8-4 8 4v9l-8 4-8-4z"/><path ${A} d="M4 8l8 4 8-4M12 12v9"/>`,
+    'view-faces': `<path d="M4 8l8-4 8 4v9l-8 4-8-4z"/><path ${A} d="M12 12l8-4v9l-8 4zM4 8l8 4v9l-8-4z"/>`,
+    'view-xray': `<path d="M4 8l8-4 8 4v9l-8 4-8-4z"/><path ${A} d="M4 17l8-4 8 4M12 4v9" stroke-dasharray="2 2"/>`,
+    'view-snap': `<path d="M6 4v8a6 6 0 0 0 12 0V4"/><path d="M6 4h4M14 4h4"/><path ${A} d="M6 8h4M14 8h4"/>`,
+    'view-curvature': `<path d="M3 18c4-10 10-12 18-10"/><path ${A} d="M6 13l-2-3M9 10l-1-4M13 8.5l0-4M17 8l1-4"/>`,
+    'view-zebra': `<circle cx="12" cy="12" r="9"/><path ${A} d="M5 7.5c4 1.5 10 1.5 14 0M3.2 12c5 2 12.6 2 17.6 0M5 16.5c4 1.5 10 1.5 14 0"/>`,
     vertical: `<path d="M3 18l9-4 9 4"/><path ${A} d="M12 14V3M8 6h8"/>`,
     circumscribed: `<circle cx="12" cy="12" r="6.5"/><path ${A} d="M12 3.5l7.4 4.25v8.5L12 20.5l-7.4-4.25v-8.5z"/>`,
     fewer: `<path ${A} d="M6 9l6 6 6-6"/>`,

@@ -214,6 +214,24 @@ async fn commit_cut(
 }
 
 #[tauri::command]
+async fn preview_imprint(
+    model: State<'_, Model>,
+    req: api::ImprintRequest,
+) -> Result<Option<api::Body>, api::ApiError> {
+    on_model(&model, move |m| api::preview_imprint(m, req))
+        .await?
+        .transpose()
+}
+
+#[tauri::command]
+async fn commit_imprint(
+    model: State<'_, Model>,
+    req: api::ImprintRequest,
+) -> Result<api::Committed, api::ApiError> {
+    on_model(&model, move |m| api::commit_imprint(m, req)).await?
+}
+
+#[tauri::command]
 async fn replace_curves(
     model: State<'_, Model>,
     req: api::ReplaceCurvesRequest,
@@ -429,6 +447,8 @@ pub fn run() {
             replace_curves,
             preview_cut,
             commit_cut,
+            preview_imprint,
+            commit_imprint,
             mesh_bodies,
             write_export,
             preview_remove_faces,

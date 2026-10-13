@@ -47,6 +47,8 @@ const rust = {
   },
   previewCut: req => tauri.core.invoke('preview_cut', { req }),
   commitCut: req => tauri.core.invoke('commit_cut', { req }),
+  previewImprint: req => tauri.core.invoke('preview_imprint', { req }),
+  commitImprint: req => tauri.core.invoke('commit_imprint', { req }),
   replaceCurves: (ids, curves) => tauri.core.invoke('replace_curves', { req: { ids, curves } }),
   previewPrimitive: req => tauri.core.invoke('preview_primitive', { req }),
   commitPrimitive: req => tauri.core.invoke('commit_primitive', { req }),

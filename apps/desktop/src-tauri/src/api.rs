@@ -897,3 +897,29 @@ pub fn commit_cut(m: &Model, req: CutRequest) -> Result<Duplicated, ApiError> {
         Ok(Duplicated { ids, scene: bodies(doc)? })
     })
 }
+
+/// Plasticity's Imprint: curves projected onto a body's faces (all of them when `faces` is empty)
+/// and the faces split there. `consume` deletes the curves too (the knife, K).
+#[derive(Deserialize, Debug, Clone)]
+pub struct ImprintRequest {
+    pub body: BodyId,
+    #[serde(default)]
+    pub faces: Vec<u32>,
+    pub curves: Vec<CurveId>,
+    #[serde(default)]
+    pub consume: bool,
+}
+
+pub fn preview_imprint(m: &Model, req: ImprintRequest) -> Option<Result<Body, ApiError>> {
+    m.preview(move |doc| {
+        let t = doc.preview_imprint(req.body, &req.faces, &req.curves)?;
+        Ok(body(&doc.kernel, req.body, &t.solid)?)
+    })
+}
+
+pub fn commit_imprint(m: &Model, req: ImprintRequest) -> Result<Committed, ApiError> {
+    m.call(move |doc| {
+        let id = doc.commit_imprint(req.body, &req.faces, &req.curves, req.consume)?;
+        Ok(Committed { id, scene: bodies(doc)? })
+    })
+}

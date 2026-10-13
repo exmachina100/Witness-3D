@@ -260,6 +260,11 @@ pub trait Kernel {
     fn cut(&self, _s: &Self::Solid, _cutters: &[(Path, DVec3)], _length: f64) -> Result<(Traced<Self::Solid>, Vec<Self::Solid>), KernelError> {
         Err(KernelError::Invalid("this kernel cannot cut"))
     }
+    /// Plasticity's Imprint: the numbered faces (every face when empty) split where the sheets of
+    /// `cutters` (as for `cut`) cross them. The solid stays whole.
+    fn imprint(&self, _s: &Self::Solid, _faces: &[u32], _cutters: &[(Path, DVec3)], _length: f64) -> Result<Traced<Self::Solid>, KernelError> {
+        Err(KernelError::Invalid("this kernel cannot imprint"))
+    }
     /// The numbered faces deleted and the gap closed by the faces around them (Remove Face).
     fn remove_faces(&self, _s: &Self::Solid, _faces: &[u32]) -> Result<Traced<Self::Solid>, KernelError> {
         Err(KernelError::Invalid("this kernel cannot remove faces"))

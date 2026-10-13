@@ -559,3 +559,37 @@ export function splitWithHistory(shape, tools) {
     pieces.sort((a, b) => volume(b) - volume(a));
     return { pieces, history: trace([shape], pieces[0], s => successors(mk, s)) };
 }
+
+/**
+ * Plasticity's Imprint: the numbered faces of `shape` (every face when `faces` is empty) split where
+ * `sheets` cross them; the body stays whole. Returns { shape, history }. Throws when no face is divided.
+ */
+export function imprintWithHistory(shape, faces, sheets) {
+    const o = oc();
+    const all = numbered(shape, 'TopAbs_FACE');
+    for (const f of faces) if (!(f >= 0 && f < all.length)) throw new Error('that face no longer exists');
+    const targets = faces.length ? faces.map(f => all[f]) : all;
+    const tools = new o.NCollection_List_TopoDS_Shape();
+    let edges = 0;
+    for (const face of targets) for (const sheet of sheets) {
+        const sec = new o.BRepAlgoAPI_Section(face, sheet, false);
+        sec.ComputePCurveOn1(true);
+        sec.Approximation(true);
+        sec.Build(new o.Message_ProgressRange());
+        if (!sec.IsDone()) continue;
+        for (const e of numbered(sec.Shape(), 'TopAbs_EDGE')) { tools.Append(e); edges++; }
+    }
+    if (!edges) throw new Error('the curves do not cross those faces');
+    const args = new o.NCollection_List_TopoDS_Shape();
+    args.Append(shape);
+    const mk = new o.BRepAlgoAPI_Splitter();
+    mk.SetArguments(args);
+    mk.SetTools(tools);
+    mk.Build(new o.Message_ProgressRange());
+    if (!mk.IsDone() || mk.HasErrors()) throw new Error('the curves could not be imprinted there');
+    const solid = numbered(mk.Shape(), 'TopAbs_SOLID')[0];
+    if (!solid) throw new Error('the curves could not be imprinted there');
+    const result = o.TopoDS.Solid(solid);
+    if (count(result, 'TopAbs_FACE') <= all.length) throw new Error('the curves do not divide those faces; draw them across a face or as closed loops');
+    return { shape: result, history: trace([shape], result, s => successors(mk, s)) };
+}

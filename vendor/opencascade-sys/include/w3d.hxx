@@ -27,6 +27,7 @@
 #include <BRepOffsetAPI_MakeThickSolid.hxx>
 #include <BRepAlgoAPI_Defeaturing.hxx>
 #include <BRepAlgoAPI_Splitter.hxx>
+#include <BRepAlgoAPI_Section.hxx>
 #include <TopoDS_Compound.hxx>
 #include <algorithm>
 #include <Geom_BSplineCurve.hxx>
@@ -969,26 +970,32 @@ inline std::unique_ptr<TopoDS_Shape> w3d_result_others(const W3dResult &r) {
 // section's wire (see w3d_section) swept `length` both ways along its normal into a sheet, and the
 // shape split by the sheets. `shape` of the result is the biggest piece, with history; `others`
 // holds the rest.
-inline std::unique_ptr<W3dResult> w3d_cut(const TopoDS_Shape &shape, rust::Slice<const double> data, double length) {
+// The cutting sheets of `data` (see w3d_cut): each section's wire swept `length` both ways along its normal.
+inline TopTools_ListOfShape w3d_cut_sheets(rust::Slice<const double> data, double length) {
   const double *p = data.data(), *end = p + data.size();
   if (p >= end) throw std::runtime_error("select the curves to cut with");
   int m = int(*p++);
   if (m < 1) throw std::runtime_error("select the curves to cut with");
+  TopTools_ListOfShape sheets;
+  for (int i = 0; i < m; i++) {
+    if (p + 3 > end) throw std::runtime_error("a cutter is cut short");
+    gp_Vec n(p[0], p[1], p[2]);
+    p += 3;
+    if (n.Magnitude() < 1e-12) throw std::runtime_error("a cutting curve's plane has no direction");
+    n.Normalize();
+    TopoDS_Wire w = w3d_section(p, end);
+    gp_Trsf back;
+    back.SetTranslation(n * -length);
+    TopoDS_Shape start = BRepBuilderAPI_Transform(w, back, Standard_True).Shape();
+    sheets.Append(BRepPrimAPI_MakePrism(start, n * (2 * length)).Shape());
+  }
+  return sheets;
+}
+
+inline std::unique_ptr<W3dResult> w3d_cut(const TopoDS_Shape &shape, rust::Slice<const double> data, double length) {
+  TopTools_ListOfShape args, tools = w3d_cut_sheets(data, length);
+  args.Append(shape);
   try {
-    TopTools_ListOfShape args, tools;
-    args.Append(shape);
-    for (int i = 0; i < m; i++) {
-      if (p + 3 > end) throw std::runtime_error("a cutter is cut short");
-      gp_Vec n(p[0], p[1], p[2]);
-      p += 3;
-      if (n.Magnitude() < 1e-12) throw std::runtime_error("a cutting curve's plane has no direction");
-      n.Normalize();
-      TopoDS_Wire w = w3d_section(p, end);
-      gp_Trsf back;
-      back.SetTranslation(n * -length);
-      TopoDS_Shape start = BRepBuilderAPI_Transform(w, back, Standard_True).Shape();
-      tools.Append(BRepPrimAPI_MakePrism(start, n * (2 * length)).Shape());
-    }
     BRepAlgoAPI_Splitter mk;
     mk.SetArguments(args);
     mk.SetTools(tools);
@@ -1006,6 +1013,51 @@ inline std::unique_ptr<W3dResult> w3d_cut(const TopoDS_Shape &shape, rust::Slice
     bb.MakeCompound(rest);
     for (size_t i = 1; i < pieces.size(); i++) bb.Add(rest, pieces[i]);
     r->others = rest;
+    w3d_record(*r, 0, shape, {w3d_step(mk)});
+    return r;
+  } catch (const Standard_Failure &f) {
+    throw w3d_kernel_error(f);
+  }
+}
+
+// Plasticity's Imprint: the curves of `data` (see w3d_cut) projected along their normals onto the
+// numbered faces (all of them when `faces` is empty) and the faces split there. The solid stays whole.
+inline std::unique_ptr<W3dResult> w3d_imprint(const TopoDS_Shape &shape, rust::Slice<const int32_t> faces,
+                                              rust::Slice<const double> data, double length) {
+  TopTools_ListOfShape sheets = w3d_cut_sheets(data, length);
+  TopTools_IndexedMapOfShape map;
+  TopExp::MapShapes(shape, TopAbs_FACE, map);
+  std::vector<TopoDS_Shape> targets;
+  if (faces.empty()) for (int i = 1; i <= map.Extent(); i++) targets.push_back(map(i));
+  for (int32_t f : faces) {
+    if (f < 0 || f >= map.Extent()) throw std::out_of_range("no such face");
+    targets.push_back(map(f + 1));
+  }
+  try {
+    TopTools_ListOfShape args, tools;
+    args.Append(shape);
+    for (const auto &face : targets)
+      for (TopTools_ListOfShape::Iterator it(sheets); it.More(); it.Next()) {
+        BRepAlgoAPI_Section sec(face, it.Value(), Standard_False);
+        sec.ComputePCurveOn1(Standard_True);
+        sec.Approximation(Standard_True);
+        sec.Build();
+        if (!sec.IsDone()) continue;
+        for (TopExp_Explorer ex(sec.Shape(), TopAbs_EDGE); ex.More(); ex.Next()) tools.Append(ex.Current());
+      }
+    if (tools.IsEmpty()) throw std::runtime_error("the curves do not cross those faces");
+    BRepAlgoAPI_Splitter mk;
+    mk.SetArguments(args);
+    mk.SetTools(tools);
+    mk.Build();
+    if (!mk.IsDone() || mk.HasErrors()) throw std::runtime_error("the curves could not be imprinted there");
+    TopExp_Explorer solid(mk.Shape(), TopAbs_SOLID);
+    if (!solid.More()) throw std::runtime_error("the curves could not be imprinted there");
+    std::unique_ptr<W3dResult> r(new W3dResult());
+    r->shape = solid.Current();
+    TopTools_IndexedMapOfShape after;
+    TopExp::MapShapes(r->shape, TopAbs_FACE, after);
+    if (after.Extent() <= map.Extent()) throw std::runtime_error("the curves do not divide those faces; draw them across a face or as closed loops");
     w3d_record(*r, 0, shape, {w3d_step(mk)});
     return r;
   } catch (const Standard_Failure &f) {

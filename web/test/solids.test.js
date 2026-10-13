@@ -155,3 +155,25 @@ test('cut splits a body along a drawn line into separate solids, as one undo ste
     const { ids: [miss] } = await be.addCurves([{ origin: [0, 0, 0], x: [1, 0, 0], normal: [0, 1, 0], kind: 'polyline', points: [[300, -100], [300, 100]], closed: false }]);
     await assert.rejects(async () => be.commitCut({ bodies: [seed.id], curves: [miss] }), /does not cut/);
 });
+
+test('imprint splits faces where curves cross them and keeps the body whole', async () => {
+    const be = new LocalBackend();
+    const seed = be.scene()[0];
+    const faces = seed.faceRefs.length;
+    const { ids: [line] } = await be.addCurves([{ origin: [0, 0, 0], x: [1, 0, 0], normal: [0, 1, 0], kind: 'polyline', points: [[10, -100], [10, 100]], closed: false }]);
+    const preview = await be.previewImprint({ body: seed.id, curves: [line] });
+    assert.equal(preview.facePlanes.length, faces + 4, 'top, bottom, front and back are split');
+    close(preview.volume, seed.volume, 1e-3);
+    // One face, the knife's way: the curve is used up.
+    const top = [...Array(faces).keys()].find(f => { try { be.imprintResult({ body: seed.id, faces: [f], curves: [line] }); return true; } catch { return false; } });
+    const { id } = await be.commitImprint({ body: seed.id, faces: [top], curves: [line], consume: true });
+    assert.equal(id, seed.id);
+    assert.equal(be.scene().length, 1);
+    assert.equal(be.scene()[0].faceRefs.length, faces + 1);
+    assert.equal((await be.curves()).length, 0, 'the knife uses its curve up');
+    be.undo();
+    assert.equal(be.scene()[0].faceRefs.length, faces);
+    assert.equal((await be.curves()).length, 1);
+    const { ids: [miss] } = await be.addCurves([{ origin: [0, 0, 0], x: [1, 0, 0], normal: [0, 1, 0], kind: 'polyline', points: [[300, -100], [300, 100]], closed: false }]);
+    await assert.rejects(async () => be.commitImprint({ body: seed.id, curves: [miss] }), /do not cross/);
+});

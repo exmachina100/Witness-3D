@@ -4,7 +4,7 @@
 import * as THREE from 'three';
 import { ExtrudeFactory } from '../ExtrudeFactory.js';
 import { NoOpError } from '../GeometryFactory.js';
-import { arrayMotions, blendEdges, booleanWithHistory, bounds, box, count, splitWithHistory, draftWithHistory, exportSTEP, facePlane, mirror, numberedEdges, oc, primitive, shellFaces, tessellate, transform, volume } from '../Kernel.js';
+import { arrayMotions, blendEdges, booleanWithHistory, bounds, box, count, imprintWithHistory, splitWithHistory, draftWithHistory, exportSTEP, facePlane, mirror, numberedEdges, oc, primitive, shellFaces, tessellate, transform, volume } from '../Kernel.js';
 import { cutSheets, loft, offsetFlatFaces, regionFace, revolve, splineSamples, sweep } from '../Forms.js';
 import { ends, join, loops, MEET } from '../curves.js';
 
@@ -391,6 +391,27 @@ export class LocalBackend {
             for (const p of pieces.slice(1)) { const n = this.nextId++; this.put(n, p); ids.push(n); }
         }
         return { ids, scene: this.bodies() };
+    }
+
+    /** Plasticity's Imprint: the body's faces (all when `faces` is empty) split where the curves cross them. */
+    imprintResult({ body, faces = [], curves }) {
+        if (!curves?.length) throw new Error('select the curves to imprint');
+        const cs = curves.map(id => { const c = this.curveMap.get(id); if (!c) throw new Error('that curve no longer exists'); return c; });
+        const s = this.shapes.get(body);
+        if (!s) throw new Error('that body no longer exists');
+        const size = bounds(s).getSize(new THREE.Vector3()).length();
+        return imprintWithHistory(s, faces, cutSheets(cs, 4 * size + 1000));
+    }
+
+    previewImprint(req) { return this.latest(async () => this.body(req.body, this.imprintResult(req).shape)) }
+
+    /** Imprint as one undo step; `consume` deletes the curves as well (the knife, K). */
+    async commitImprint(req) {
+        const { shape, history } = this.imprintResult(req);
+        this.checkpoint();
+        this.put(req.body, shape, history);
+        if (req.consume) for (const id of req.curves) this.curveMap.delete(id);
+        return { id: req.body, scene: this.bodies() };
     }
 
     scene() { return this.bodies() }

@@ -266,13 +266,14 @@ impl Kernel for Occt {
     }
 
     fn cut(&self, s: &Shape, cutters: &[(Path, DVec3)], length: f64) -> Result<(Traced<Shape>, Vec<Shape>), KernelError> {
-        let mut data = vec![cutters.len() as f64];
-        for (path, n) in cutters {
-            data.extend(n.to_array());
-            data.extend(path_numbers(path)?);
-        }
-        let (solid, h, rest) = s.cut_with_history(&data, length).map_err(shim)?;
+        let (solid, h, rest) = s.cut_with_history(&cutter_numbers(cutters)?, length).map_err(shim)?;
         Ok((Traced { solid, history: history(h) }, rest))
+    }
+
+    fn imprint(&self, s: &Shape, faces: &[u32], cutters: &[(Path, DVec3)], length: f64) -> Result<Traced<Shape>, KernelError> {
+        let faces: Vec<usize> = faces.iter().map(|&f| f as usize).collect();
+        let (solid, h) = s.imprint_with_history(&faces, &cutter_numbers(cutters)?, length).map_err(shim)?;
+        Ok(Traced { solid, history: history(h) })
     }
 
     fn remove_faces(&self, s: &Shape, faces: &[u32]) -> Result<Traced<Shape>, KernelError> {
@@ -345,4 +346,14 @@ impl Kernel for Occt {
     fn to_native(&self, s: &Shape) -> Result<String, KernelError> { s.to_brep_text().map_err(failed) }
 
     fn from_native(&self, text: &str) -> Result<Shape, KernelError> { Shape::from_brep_text(text).map_err(failed) }
+}
+
+/// Cutting curves for the shim: [count, then per curve its plane normal and path numbers].
+fn cutter_numbers(cutters: &[(Path, DVec3)]) -> Result<Vec<f64>, KernelError> {
+    let mut data = vec![cutters.len() as f64];
+    for (path, n) in cutters {
+        data.extend(n.to_array());
+        data.extend(path_numbers(path)?);
+    }
+    Ok(data)
 }

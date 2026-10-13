@@ -97,6 +97,7 @@ const KEYS = {
   'fillet-curve': [['D', 'RADIUS'], ['TYPE', 'IN PANEL'], ['⏎ / RMB', 'OK']],
   'remove-face': [['⇧ CLICK', 'FACES'], ['⏎ / RMB', 'OK']],
   cut: [['⇧ CLICK', 'SOLIDS · CURVES'], ['⏎ / RMB', 'OK']],
+  imprint: [['⇧ CLICK', 'FACES · CURVES'], ['⏎ / RMB', 'OK']],
   hole: [['CLICK', 'A FLAT FACE'], ['T', 'THROUGH ALL'], ['TYPE', 'SIZE IN PANEL'], ['⏎ / RMB', 'OK']],
   split: [['CLICK', 'WHERE TO SPLIT'], ['ESC / ⏎', 'DONE']],
   'measure-distance': [['CLICK', 'TWO POINTS'], ['CLICK', 'AGAIN TO RESTART'], ['ESC', 'DONE']],
@@ -125,6 +126,7 @@ const DRAW = {
   polygon: 'REGULAR POLYGON', spline: 'SPLINE CURVE', ellipse: 'CENTER ELLIPSE', ellipse3: 'THREE POINT ELLIPSE',
   'tangent-arc': 'TANGENT ARC', spiral: 'SPIRAL', cv: 'CONTROL POINT CURVE',
 };
+for (const id of Object.keys(DRAW)) KEYS[id]?.splice(-1, 0, ['K', 'KNIFE']);
 // Clicks that finish each drawing; lines and splines go on until closed or finished.
 const CLICKS = { rect: 2, 'center-rect': 2, rect3: 3, circle: 2, circle2: 2, circle3: 3, arc3: 3, arc: 3, polygon: 2, ellipse: 3, ellipse3: 3, 'tangent-arc': 2 };
 // Commands that grow a solid from drawn regions, sharing one panel.
@@ -228,6 +230,7 @@ const SHELL = `
         <button data-draw="more" aria-pressed="false"><kbd>↑</kbd>MORE</button>
         <button data-draw="circumscribed" aria-pressed="false"><kbd>C</kbd>CIRCUMSCRIBED</button>
       </div>
+      <div class="chips"><button data-draw="knife" aria-pressed="false"><kbd>K</kbd>KNIFE</button></div>
       <div class="chips" data-id="draw-vertical" hidden>
         <button data-draw="vertical" aria-pressed="false"><kbd>V</kbd>VERTICAL</button>
       </div>
@@ -291,6 +294,11 @@ const SHELL = `
       <div class="field"><label>SOLIDS</label><output data-id="cut-solids">0</output></div>
       <div class="field"><label>CURVES</label><output data-id="cut-curves">0</output></div>
       <div class="field"><label>PIECES</label><output data-id="cut-pieces">—</output></div>
+    </div>
+    <div class="sec" data-panel="imprint" hidden>
+      <span class="hint" data-id="imp-hint">—</span>
+      <div class="field"><label>FACES</label><output data-id="imp-faces">ALL</output></div>
+      <div class="field"><label>CURVES</label><output data-id="imp-curves">0</output></div>
     </div>
     <div class="sec" data-panel="hole" hidden>
       <span class="hint" data-id="hole-hint">CLICK A FLAT FACE</span>
@@ -412,6 +420,7 @@ const SHELL = `
         <button data-toggle="xray" aria-pressed="false" title="Alt+Z">X-RAY</button>
         <button data-toggle="snap" aria-pressed="false" title="Snap without holding Ctrl">SNAP</button>
         <button data-toggle="curvature" aria-pressed="false" title="Curvature combs on curves (Toggle Curvature)">CURVATURE</button>
+        <button data-toggle="zebra" aria-pressed="false" title="Zebra stripes: reflection lines that kink or break where faces meet without G1 or G2 continuity">ZEBRA</button>
       </div>
       <div class="stepper"><span>GRID</span><button data-id="grid-dec" aria-label="Smaller grid step">−</button><output data-id="grid">2.5</output><button data-id="grid-inc" aria-label="Larger grid step">+</button></div>
     </div>
@@ -474,8 +483,8 @@ const VIEWS = {
 export async function mount(root, backend) {
   root.innerHTML = SHELL;
   // Panel options carry their icon ahead of the key and name.
-  for (const b of root.querySelectorAll('[data-draw],[data-bop],[data-xop],[data-fop],[data-spiral],[data-id="ex-lock"],[data-id="bool-keep"]')) {
-    const name = b.dataset.draw ?? b.dataset.bop ?? b.dataset.xop ?? b.dataset.fop ?? b.dataset.spiral ?? { 'ex-lock': 'lock', 'bool-keep': 'keep' }[b.dataset.id];
+  for (const b of root.querySelectorAll('[data-draw],[data-bop],[data-xop],[data-fop],[data-spiral],[data-toggle],[data-id="ex-lock"],[data-id="bool-keep"]')) {
+    const name = b.dataset.draw ?? b.dataset.bop ?? b.dataset.xop ?? b.dataset.fop ?? b.dataset.spiral ?? (b.dataset.toggle && `view-${b.dataset.toggle}`) ?? { 'ex-lock': 'lock', 'bool-keep': 'keep' }[b.dataset.id];
     b.insertAdjacentHTML('afterbegin', icon(name));
   }
   const $ = id => root.querySelector(`[data-id="${id}"]`);
@@ -625,14 +634,31 @@ export async function mount(root, backend) {
   }
 
   // --- drawing what the backend sends ---------------------------------------
-  const view = { edges: true, faces: true, xray: false, snap: false, curvature: false };
+  const view = { edges: true, faces: true, xray: false, snap: false, curvature: false, zebra: false };
+  const zebraOn = { value: 0 };
   const faceMat = new THREE.MeshStandardMaterial({ color: COLORS.face, roughness: 0.85, metalness: 0, polygonOffset: true, polygonOffsetFactor: 1, polygonOffsetUnits: 1 });
   const edgeMat = new THREE.LineBasicMaterial({ color: COLORS.ink, transparent: true, opacity: 0.8 });
   const phantom = {
     add: { face: new THREE.MeshBasicMaterial({ color: COLORS.ink, transparent: true, opacity: 0.1, depthWrite: false }), edge: new THREE.LineBasicMaterial({ color: COLORS.ink }) },
     cut: { face: new THREE.MeshBasicMaterial({ color: COLORS.accent, transparent: true, opacity: 0.16, depthWrite: false }), edge: new THREE.LineBasicMaterial({ color: COLORS.accent }) },
   };
+  // Zebra stripes: the faces mirror even bands that run up the screen, so the stripes stay smooth
+  // over G2 joins, kink at G1 ones and break where faces only touch (G0), as surface modelers check
+  // them. Flat faces mirror straight stripes; curved ones bend them.
+  faceMat.onBeforeCompile = shader => {
+    shader.uniforms.zebra = zebraOn;
+    shader.fragmentShader = 'uniform float zebra;\n' + shader.fragmentShader.replace('#include <dithering_fragment>', `
+      if (zebra > 0.5) {
+        vec3 r = reflect(normalize(-vViewPosition), normalize(normal));
+        float band = fract((asin(clamp(r.x, -1.0, 1.0)) / 3.14159265 + 0.5) * 24.0);
+        float aa = fwidth(band) * 1.5;
+        float s = smoothstep(0.5 - aa, 0.5 + aa, band) - smoothstep(1.0 - aa, 1.0, band);
+        gl_FragColor.rgb = mix(vec3(0.06), vec3(0.92), s);
+      }
+      #include <dithering_fragment>`);
+  };
   function applyView() {
+    zebraOn.value = view.zebra ? 1 : 0;
     faceMat.transparent = view.xray;
     faceMat.opacity = view.xray ? 0.25 : 1;
     faceMat.depthWrite = !view.xray;
@@ -1244,6 +1270,7 @@ export async function mount(root, backend) {
     if (id === 'hole') return startHole(opts);
     if (id === 'remove-face') return startRemoveFace();
     if (id === 'cut') return startCut();
+    if (id === 'imprint') return startImprint();
     if (id === 'extend') return startExtend();
     if (id === 'tangent-circle') return startTangentCircle();
     if (id === 'split') return startSplit();
@@ -1770,7 +1797,7 @@ export async function mount(root, backend) {
       const normal = new THREE.Vector3(...p.normal);
       const plane = new THREE.Plane().setFromNormalAndCoplanarPoint(normal, new THREE.Vector3(...p.origin));
       const s = e.altKey ? null : snapNear(e, [hit.object], plane);
-      return { origin: onPlane(s ? s.point : grid(hit.point.clone()), plane), normal, target: id, snap: s };
+      return { origin: onPlane(s ? s.point : grid(hit.point.clone()), plane), normal, target: id, face, snap: s };
     }
     const plane = planeOf();
     const at = raycaster.ray.intersectPlane(plane, new THREE.Vector3());
@@ -1921,6 +1948,7 @@ export async function mount(root, backend) {
     $('draw-polygon').hidden = kind !== 'polygon';
     $('draw-vertical').hidden = kind !== 'polygon' && kind !== 'circle';
     for (const b of $$('[data-draw]')) b.setAttribute('aria-pressed', false);
+    c.knife = false;
     c.move = e => {
       if (c.id === 'tangent-arc' && !c.plane) return;
       const p = drawPoint(e);
@@ -1935,6 +1963,12 @@ export async function mount(root, backend) {
       return true;
     };
     c.key = action => {
+      if (action === 'knife') {
+        c.knife = !c.knife;
+        $$('[data-draw="knife"]')[0].setAttribute('aria-pressed', c.knife);
+        setHud(c.knife ? 'KNIFE: THE CURVE CUTS THE FACE IT IS DRAWN ON' : 'KNIFE OFF');
+        return true;
+      }
       if (action === 'square' || action === 'centre') {
         c[action] = !c[action];
         $(`draw-rect`).querySelector(`[data-draw="${action}"]`).setAttribute('aria-pressed', c[action]);
@@ -2004,7 +2038,7 @@ export async function mount(root, backend) {
       const h = placeAt(e);
       if (!h || h.curved) return h;
       const x = frameFor(h.normal);
-      return { plane: { o: h.origin.clone(), n: h.normal.clone(), x, y: new THREE.Vector3().crossVectors(h.normal, x), target: h.target }, uv: new THREE.Vector2(), snap: h.snap };
+      return { plane: { o: h.origin.clone(), n: h.normal.clone(), x, y: new THREE.Vector3().crossVectors(h.normal, x), target: h.target, face: h.face }, uv: new THREE.Vector2(), snap: h.snap };
     }
     ray(e);
     const { o, n, x, y } = c.plane;
@@ -2275,12 +2309,24 @@ export async function mount(root, backend) {
   }
   async function commitCurve(curve, text) {
     if (!backend.addCurves) { endCmd('failed'); return toast('DRAWING IS NOT IN THIS BUILD YET'); }
+    const knife = cmd?.knife ? cmd.plane : null;
     endCmd('committed');
     try {
       const { ids } = await backend.addCurves([curve]);
       record(text, ids[0], curveLabel(ids[0]));
+      if (knife) await knifeCut(knife, ids[0]);
       await loadCurves();
     } catch (e) { setState('failed'); toast(say(e)); }
+  }
+  /** Knife (K): the curve just drawn imprints the face it was drawn on and is used up; it stays when it cannot. */
+  async function knifeCut(plane, curve) {
+    if (plane.target == null || plane.face == null) return toast('KNIFE CUTS FACES; THAT CURVE WAS DRAWN ON THE CONSTRUCTION PLANE');
+    if (!backend.commitImprint) return toast('KNIFE IS NOT IN THIS BUILD YET');
+    try {
+      const { id, scene: list } = await backend.commitImprint({ body: plane.target, faces: [plane.face], curves: [curve], consume: true });
+      record('KNIFE', id);
+      await showScene(list);
+    } catch (e) { toast(`KNIFE: ${say(e)}`); }
   }
 
   // --- Spiral -------------------------------------------------------------------
@@ -2954,6 +3000,61 @@ export async function mount(root, backend) {
         await showScene(list);
         sel.clear();
         for (const b of ids) sel.add({ kind: 'solid', body: b });
+        selectionChanged({ quiet: true });
+      } catch (e) { setState('failed'); toast(say(e)); }
+    };
+    c.abort = () => endCmd('cancelled');
+    c.cleanup = () => clearPreview();
+    c.onSelection();
+  }
+
+  /**
+   * Plasticity's Imprint: the selected curves projected along their planes' normals onto the
+   * selected faces of one solid (every face when the solid itself is selected), splitting them
+   * there. The body stays whole; the new edges can be filleted and the new faces pushed or pulled.
+   */
+  function startImprint() {
+    if (!backend.previewImprint) return toast('IMPRINT IS NOT IN THIS BUILD YET');
+    const c = cmd = { id: 'imprint', body: null, faces: [], curves: [], sent: 0, shown: 0 };
+    lastTool = 'imprint';
+    showTool('imprint');
+    setState('none');
+    c.request = () => ({ body: c.body, faces: c.faces, curves: c.curves });
+    c.preview = () => livePreview(c, () => backend.previewImprint(c.request()), b => {
+      showPreviewBody(b);
+      setHud(`IMPRINT ${c.curves.length} CURVE${c.curves.length > 1 ? 'S' : ''}`);
+    }, 'imp-hint');
+    c.onSelection = () => {
+      drawOverlays();
+      const fb = faceBody(), solids = sel.solids.filter(b => !hidden.has(b));
+      c.body = fb ?? (solids.length === 1 ? solids[0] : null);
+      c.faces = fb === null ? [] : sel.list('face').map(it => it.n).sort((x, y) => x - y);
+      c.curves = sel.curves.filter(curveById);
+      $('imp-faces').textContent = c.faces.length || 'ALL';
+      $('imp-curves').textContent = c.curves.length;
+      setTarget(c.body === null ? '—' : label(c.body));
+      const missing = c.body === null ? 'SELECT FACES OF ONE SOLID, OR THE SOLID' : !c.curves.length ? 'SELECT THE CURVES TO IMPRINT' : null;
+      $('imp-hint').textContent = missing ?? `${c.curves.length} CURVE${c.curves.length > 1 ? 'S' : ''} ON ${c.faces.length || 'ALL'} FACE${c.faces.length === 1 ? '' : 'S'} OF ${label(c.body)}`;
+      if (missing) { clearPreview(); return setHud(missing); }
+      c.preview();
+    };
+    c.click = e => {
+      if (!(e.ctrlKey || e.metaKey || e.shiftKey)) return true;
+      const hit = pickAt(e);
+      if (hit?.kind === 'curve') sel.toggle({ kind: 'curve', id: hit.id });
+      else if (hit?.kind === 'face') sel.toggle({ kind: 'face', body: hit.body, n: hit.n });
+      else return true;
+      selectionChanged();
+      return true;
+    };
+    c.finish = async () => {
+      if (c.body === null || !c.curves.length) { setState('failed'); return toast($('imp-hint').textContent); }
+      try {
+        const { id, scene: list } = await backend.commitImprint(c.request());
+        endCmd('committed');
+        record(`IMPRINT ×${c.curves.length}`, id);
+        await showScene(list);
+        sel.replace({ kind: 'solid', body: id });
         selectionChanged({ quiet: true });
       } catch (e) { setState('failed'); toast(say(e)); }
     };
@@ -4014,6 +4115,7 @@ export async function mount(root, backend) {
         else if (arg === 'focus') focus();
         else if (arg === 'xray') { view.xray = !view.xray; applyView(); }
         else if (arg === 'curvature') { view.curvature = !view.curvature; applyView(); }
+        else if (arg === 'zebra') { view.zebra = !view.zebra; applyView(); }
         else setView(arg);
         return true;
       case 'mode': sel.setMode(arg); renderModes(); hover = null; drawOverlays(); return true;
@@ -4081,7 +4183,8 @@ export async function mount(root, backend) {
     if (kinds.has('edge')) out.push('tool:fillet', 'measure:radius');
     if (kinds.has('region')) out.push('tool:extrude', 'tool:revolve', 'tool:loft', 'tool:sweep');
     if (kinds.has('curve') || kinds.has('region')) {
-      if (kinds.has('solid')) out.push('tool:cut');
+      if (kinds.has('solid')) out.push('tool:cut', 'tool:imprint');
+      if (kinds.has('face')) out.push('tool:imprint');
       out.push('trim', 'split', 'extend', 'tool:offset-curve', 'tool:fillet-curve');
       if (sel.curves.length === 2) out.push('tool:bridge');
       if (sel.curves.length > 1) out.push('join');
@@ -4646,6 +4749,16 @@ export async function mount(root, backend) {
         for (const cid of cs) sel.add({ kind: 'curve', id: cid });
         selectionChanged({ quiet: true });
         await startTool('cut');
+      } else if (id === 'imprint') {
+        const cs = (curveIds ?? []).filter(cid => curveList.some(c => c.id === cid));
+        const b = body !== undefined ? current.find(x => x.id === body) : current.find(x => (faces ?? []).length && faces.every(r => x.faceRefs?.includes(r)));
+        if (!cs.length || !b) throw new Error('give the curves by id, and the body or faces of one body to imprint on');
+        sel.clear();
+        if (faces?.length) for (const r of faces) sel.add({ kind: 'face', body: b.id, n: b.faceRefs.indexOf(r) });
+        else sel.add({ kind: 'solid', body: b.id });
+        for (const cid of cs) sel.add({ kind: 'curve', id: cid });
+        selectionChanged({ quiet: true });
+        await startTool('imprint');
       } else if (id === 'offset-curve' || id === 'fillet-curve') {
         const ids = (curveIds ?? []).filter(cid => curveList.some(c => c.id === cid));
         if (!ids.length) throw new Error('give the curves by id');

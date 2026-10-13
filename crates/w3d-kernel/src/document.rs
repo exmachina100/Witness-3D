@@ -626,17 +626,39 @@ impl<K: Kernel> Document<K> {
     /// Plasticity's Cut, without changing the document: per body, its biggest piece (traced) and the rest.
     pub fn preview_cut(&self, bodies: &[BodyId], curves: &[CurveId]) -> Result<Vec<(BodyId, Traced<K::Solid>, Vec<K::Solid>)>, KernelError> {
         if bodies.is_empty() { return Err(KernelError::Invalid("select a solid to cut")) }
-        if curves.is_empty() { return Err(KernelError::Invalid("select the curves to cut with")) }
-        let cutters = curves.iter().map(|id| {
-            let c = self.curve(*id).ok_or(KernelError::Invalid("that curve no longer exists"))?;
-            Ok((c.path(), c.frame().normal))
-        }).collect::<Result<Vec<_>, KernelError>>()?;
+        let cutters = self.cutters(curves)?;
         bodies.iter().map(|&id| {
             let s = self.get(id).ok_or(KernelError::Invalid("that body no longer exists"))?;
             // Sheets 100 m each way: past any body the document is likely to hold.
             let (piece, rest) = self.kernel.cut(s, &cutters, 1e5)?;
             Ok((id, piece, rest))
         }).collect()
+    }
+
+    /// The curves as cutting paths with their plane normals, for Cut and Imprint.
+    fn cutters(&self, curves: &[CurveId]) -> Result<Vec<(Path, DVec3)>, KernelError> {
+        if curves.is_empty() { return Err(KernelError::Invalid("select the curves to cut with")) }
+        curves.iter().map(|id| {
+            let c = self.curve(*id).ok_or(KernelError::Invalid("that curve no longer exists"))?;
+            Ok((c.path(), c.frame().normal))
+        }).collect()
+    }
+
+    /// Plasticity's Imprint, without changing the document: the body with the numbered faces (all
+    /// when `faces` is empty) split where the curves, projected along their normals, cross them.
+    pub fn preview_imprint(&self, body: BodyId, faces: &[u32], curves: &[CurveId]) -> Result<Traced<K::Solid>, KernelError> {
+        let cutters = self.cutters(curves)?;
+        let s = self.get(body).ok_or(KernelError::Invalid("that body no longer exists"))?;
+        self.kernel.imprint(s, faces, &cutters, 1e5)
+    }
+
+    /// Imprint as one undoable step; `consume` also deletes the curves (the knife).
+    pub fn commit_imprint(&mut self, body: BodyId, faces: &[u32], curves: &[CurveId], consume: bool) -> Result<BodyId, KernelError> {
+        let traced = self.preview_imprint(body, faces, curves)?;
+        self.checkpoint();
+        self.replace_traced(body, traced);
+        if consume { for id in curves { self.state.curves.remove(id); } }
+        Ok(body)
     }
 
     /// Run a Cut as one undoable step: each body keeps its biggest piece; the others become new

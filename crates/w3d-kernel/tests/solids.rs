@@ -199,3 +199,27 @@ fn cut_splits_a_block_along_a_drawn_line() {
     let miss = doc.commit_curves(vec![Curve { origin: ground, x: [1.0, 0.0, 0.0], normal: [0.0, 1.0, 0.0], shape: CurveShape::Polyline { points: vec![[300.0, -100.0], [300.0, 100.0]], closed: false } }]).unwrap()[0];
     assert!(doc.commit_cut(&[block], &[miss]).is_err());
 }
+
+#[test]
+fn imprint_splits_faces_and_keeps_the_body_whole() {
+    let mut doc = Document::new(Occt);
+    let block = doc.add(doc.kernel.box_from_corners(DVec3::new(-40.0, 0.0, -25.0), DVec3::new(40.0, 30.0, 25.0)));
+    doc.clear_history();
+    let ground = [0.0, 0.0, 0.0];
+    let line = doc.commit_curves(vec![Curve { origin: ground, x: [1.0, 0.0, 0.0], normal: [0.0, 1.0, 0.0], shape: CurveShape::Polyline { points: vec![[10.0, -100.0], [10.0, 100.0]], closed: false } }]).unwrap()[0];
+    // Every face the line's sheet crosses: top, bottom, front and back.
+    let id = doc.commit_imprint(block, &[], &[line], false).unwrap();
+    assert_eq!(id, block);
+    assert_eq!(doc.ids().len(), 1, "the body stays whole");
+    assert_eq!(doc.kernel.face_count(doc.get(block).unwrap()), 10);
+    close(volume(&doc.kernel, doc.get(block).unwrap()), 80.0 * 30.0 * 50.0, 1e-6);
+    assert!(doc.undo());
+    assert_eq!(doc.kernel.face_count(doc.get(block).unwrap()), 6);
+    // One face only, and the knife's way: the curve is used up.
+    let top = (0..6).find(|&f| doc.preview_imprint(block, &[f], &[line]).is_ok()).unwrap();
+    doc.commit_imprint(block, &[top], &[line], true).unwrap();
+    assert_eq!(doc.kernel.face_count(doc.get(block).unwrap()), 7);
+    assert!(doc.curve(line).is_none(), "the knife uses its curve up");
+    let miss = doc.commit_curves(vec![Curve { origin: ground, x: [1.0, 0.0, 0.0], normal: [0.0, 1.0, 0.0], shape: CurveShape::Polyline { points: vec![[300.0, -100.0], [300.0, 100.0]], closed: false } }]).unwrap()[0];
+    assert!(doc.commit_imprint(block, &[], &[miss], false).is_err());
+}

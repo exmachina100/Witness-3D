@@ -203,6 +203,13 @@ impl Shape {
         Ok((Shape::from_shape(&ffi::w3d::w3d_result_shape(&r)), history(&r, 1), rest))
     }
 
+    /// The numbered faces (all when empty) split where sheets swept from curves cross them (see `w3d_imprint`).
+    pub fn imprint_with_history(&self, faces: &[usize], data: &[f64], length: f64) -> Result<(Shape, ShapeHistory), String> {
+        let faces: Vec<i32> = faces.iter().map(|&f| f as i32).collect();
+        let r = ffi::w3d::w3d_imprint(&self.inner, &faces, data, length).map_err(reason)?;
+        Ok((Shape::from_shape(&ffi::w3d::w3d_result_shape(&r)), history(&r, 1)))
+    }
+
     /// A copy reflected in the plane through `origin` with normal `normal`.
     pub fn mirrored_in_plane(&self, origin: DVec3, normal: DVec3) -> Result<Shape, String> {
         let plane = [origin.x, origin.y, origin.z, normal.x, normal.y, normal.z];

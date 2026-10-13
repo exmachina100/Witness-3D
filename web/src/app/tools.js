@@ -184,6 +184,11 @@ export const TOOLS = [
         summary: 'Split the selected solids along curves drawn across them; each curve cuts straight through along the normal of its plane, and every piece becomes its own body.',
         params: {},
     },
+    {
+        id: 'imprint', label: 'IMPRINT', key: '', group: 'shape', selects: 'curves', toolbar: false,
+        summary: 'Draw the selected curves onto faces of a solid, splitting the faces there without cutting the body; each curve is projected along the normal of its plane.',
+        params: {},
+    },
     // Round 7: curve editing. Trim and Explode are actions (a click, or none), not tools.
     {
         id: 'offset-curve', label: 'OFFSET CURVE', key: '', group: 'curve', selects: 'curves', toolbar: false,
@@ -283,6 +288,10 @@ const EXTRA_PARAMS = {
     boolean: { tools: { type: 'array', items: { type: 'integer' }, minItems: 1, description: 'the tool bodies, by id' } },
     sweep: { path: { type: 'integer', description: 'the curve to sweep along, by id' } },
     cut: { bodies: { type: 'array', items: { type: 'integer' }, minItems: 1, description: 'the solids to cut, by id' } },
+    imprint: {
+        body: { type: 'integer', description: 'the body to imprint on, by id; every face it has unless faces are given' },
+        faces: { type: 'array', items: { type: 'integer' }, minItems: 1, description: 'only these faces, by ref, all on one body' },
+    },
 };
 const REQUIRED = { edge: true, solid: true, solids: true, faces: true, regions: true, curves: true };
 const REQUIRED_EXTRA = { boolean: ['tools'], revolve: ['region'], sweep: ['region', 'path'], cut: ['bodies'] };
