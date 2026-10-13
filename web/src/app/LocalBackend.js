@@ -4,7 +4,7 @@
 import * as THREE from 'three';
 import { ExtrudeFactory } from '../ExtrudeFactory.js';
 import { NoOpError } from '../GeometryFactory.js';
-import { arrayMotions, blendEdges, booleanWithHistory, bounds, box, count, imprintWithHistory, splitWithHistory, draftWithHistory, exportSTEP, facePlane, mirror, numberedEdges, oc, primitive, shellFaces, tessellate, transform, volume } from '../Kernel.js';
+import { arrayMotions, blendEdges, booleanWithHistory, bounds, box, count, draftFaces, faceSheet, imprintWithHistory, planeSheet, splitWithHistory, draftWithHistory, exportSTEP, facePlane, mirror, numberedEdges, oc, primitive, shellFaces, tessellate, transform, volume } from '../Kernel.js';
 import { cutSheets, loft, offsetFlatFaces, regionFace, revolve, splineSamples, sweep } from '../Forms.js';
 import { ends, join, loops, MEET } from '../curves.js';
 
@@ -364,16 +364,40 @@ export class LocalBackend {
     async commitArray(req) { return this.placeCopies(this.arrayCopies(req), !!req.join) }
 
     /** Plasticity's Cut: each body split by sheets grown from the curves. [[id, { pieces, history }]]. */
-    cutResult({ bodies, curves }) {
+    cutResult({ bodies, curves = [], tools = {} }) {
         if (!bodies?.length) throw new Error('select a solid to cut');
-        if (!curves?.length) throw new Error('select the curves to cut with');
-        const cs = curves.map(id => { const c = this.curveMap.get(id); if (!c) throw new Error('that curve no longer exists'); return c; });
+        const size = this.sheetSize(), sheets = this.toolSheets(curves, tools, size);
+        if (!sheets.length && !tools.bodies?.length) throw new Error('select curves, faces or a plane to cut with');
         return bodies.map(id => {
             const s = this.shapes.get(id);
             if (!s) throw new Error('that body no longer exists');
-            const size = bounds(s).getSize(new THREE.Vector3()).length();
-            return [id, splitWithHistory(s, cutSheets(cs, 4 * size + 1000))];
+            return [id, splitWithHistory(s, [...sheets, ...this.toolBodies(tools, id)])];
         });
+    }
+
+    /** How far cutting sheets reach: well past everything in the document. */
+    sheetSize() {
+        const box = new THREE.Box3();
+        for (const s of this.shapes.values()) box.union(bounds(s));
+        return 4 * box.getSize(new THREE.Vector3()).length() + 1000;
+    }
+
+    /** Cut and Imprint's sheets: the curves swept both ways, then faces grown past their body and the plane. */
+    toolSheets(curves, { faces = [], plane = null } = {}, size) {
+        const cs = curves.map(id => { const c = this.curveMap.get(id); if (!c) throw new Error('that curve no longer exists'); return c; });
+        const out = cs.length ? cutSheets(cs, size) : [];
+        for (const { body, face } of faces) {
+            const s = this.shapes.get(body);
+            if (!s) throw new Error('that body no longer exists');
+            out.push(faceSheet(s, face, size));
+        }
+        if (plane) out.push(planeSheet(plane.origin, plane.normal, size));
+        return out;
+    }
+
+    /** The tool bodies other than `target`. */
+    toolBodies({ bodies = [] } = {}, target) {
+        return bodies.filter(b => b !== target).map(b => { const s = this.shapes.get(b); if (!s) throw new Error('that body no longer exists'); return s; });
     }
 
     previewCut(req) {
@@ -394,13 +418,12 @@ export class LocalBackend {
     }
 
     /** Plasticity's Imprint: the body's faces (all when `faces` is empty) split where the curves cross them. */
-    imprintResult({ body, faces = [], curves }) {
-        if (!curves?.length) throw new Error('select the curves to imprint');
-        const cs = curves.map(id => { const c = this.curveMap.get(id); if (!c) throw new Error('that curve no longer exists'); return c; });
+    imprintResult({ body, faces = [], curves = [], tools = {} }) {
         const s = this.shapes.get(body);
         if (!s) throw new Error('that body no longer exists');
-        const size = bounds(s).getSize(new THREE.Vector3()).length();
-        return imprintWithHistory(s, faces, cutSheets(cs, 4 * size + 1000));
+        const all = [...this.toolSheets(curves, tools, this.sheetSize()), ...this.toolBodies(tools, body)];
+        if (!all.length) throw new Error('select curves or another body to imprint');
+        return imprintWithHistory(s, faces, all);
     }
 
     previewImprint(req) { return this.latest(async () => this.body(req.body, this.imprintResult(req).shape)) }
@@ -410,7 +433,23 @@ export class LocalBackend {
         const { shape, history } = this.imprintResult(req);
         this.checkpoint();
         this.put(req.body, shape, history);
-        if (req.consume) for (const id of req.curves) this.curveMap.delete(id);
+        if (req.consume) for (const id of req.curves ?? []) this.curveMap.delete(id);
+        return { id: req.body, scene: this.bodies() };
+    }
+
+    /** Plasticity's Draft Face: `faces` of `body` tilted by `angle` about the neutral plane through `origin` square to `pull`. */
+    draftResult({ body, faces = [], pull, origin, angle }) {
+        const s = this.shapes.get(body);
+        if (!s) throw new Error('that body no longer exists');
+        return draftFaces(s, faces, pull, origin, angle);
+    }
+
+    previewDraft(req) { return this.latest(async () => this.body(req.body, this.draftResult(req).shape)) }
+
+    async commitDraft(req) {
+        const { shape, history } = this.draftResult(req);
+        this.checkpoint();
+        this.put(req.body, shape, history);
         return { id: req.body, scene: this.bodies() };
     }
 

@@ -593,3 +593,74 @@ export function imprintWithHistory(shape, faces, sheets) {
     if (count(result, 'TopAbs_FACE') <= all.length) throw new Error('the curves do not divide those faces; draw them across a face or as closed loops');
     return { shape: result, history: trace([shape], result, s => successors(mk, s)) };
 }
+
+/** A square sheet `size` each way on the plane through `origin` with `normal`, for cutting. */
+export function planeSheet(origin, normal, size) {
+    const o = oc();
+    const n = new THREE.Vector3(...normal);
+    if (n.length() < 1e-12) throw new Error('the plane has no direction');
+    n.normalize();
+    const x = new THREE.Vector3(1, 0, 0);
+    if (Math.abs(n.dot(x)) > 0.9) x.set(0, 1, 0);
+    x.addScaledVector(n, -x.dot(n)).normalize();
+    const y = new THREE.Vector3().crossVectors(n, x);
+    const c = new THREE.Vector3(...origin);
+    const corners = [[-1, -1], [1, -1], [1, 1], [-1, 1]].map(([a, b]) => c.clone().addScaledVector(x, a * size).addScaledVector(y, b * size));
+    const wire = new o.BRepBuilderAPI_MakeWire();
+    for (let i = 0; i < 4; i++) wire.Add(new o.BRepBuilderAPI_MakeEdge(pnt(corners[i]), pnt(corners[(i + 1) % 4])).Edge());
+    return new o.BRepBuilderAPI_MakeFace(wire.Wire(), true).Face();
+}
+
+/**
+ * Face `index` of `shape` as a cutting tool grown past the body (w3d_face_sheet on the desktop):
+ * a plane becomes a square `size` each way, a cylinder its whole round `size` each way along the
+ * axis; other faces stay as they are.
+ */
+export function faceSheet(shape, index, size) {
+    const o = oc();
+    const face = numbered(shape, 'TopAbs_FACE')[index];
+    if (!face) throw new Error('that face no longer exists');
+    const surface = new o.BRepAdaptor_Surface(o.TopoDS.Face(face), true);
+    const type = surface.GetType();
+    if (type === o.GeomAbs_SurfaceType.GeomAbs_Plane) {
+        const pln = surface.Plane(), l = pln.Location(), d = pln.Axis().Direction();
+        return planeSheet([l.X(), l.Y(), l.Z()], [d.X(), d.Y(), d.Z()], size);
+    }
+    if (type === o.GeomAbs_SurfaceType.GeomAbs_Cylinder) {
+        const cyl = surface.Cylinder(), ax = cyl.Axis(), l = ax.Location(), d = ax.Direction();
+        const start = new o.gp_Pnt(l.X() - d.X() * size, l.Y() - d.Y() * size, l.Z() - d.Z() * size);
+        const circ = new o.gp_Circ(new o.gp_Ax2(start, d, cyl.XAxis().Direction()), cyl.Radius());
+        const edge = new o.BRepBuilderAPI_MakeEdge(circ).Edge();
+        return new o.BRepPrimAPI_MakePrism(edge, new o.gp_Vec(d.X() * 2 * size, d.Y() * 2 * size, d.Z() * 2 * size), false, true).Shape();
+    }
+    return face;
+}
+
+/**
+ * Plasticity's Draft Face: the numbered faces tilted by `angle` radians about the neutral plane
+ * through `origin`, square to `pull` (the direction the part leaves its mould). Positive angles
+ * open the faces out along `pull`. Flat, cylindrical and conical faces. Returns { shape, history }.
+ */
+export function draftFaces(shape, faces, pull, origin, angle) {
+    const o = oc();
+    if (!faces.length) throw new Error('select the faces to draft');
+    if (!(Math.abs(angle) > 1e-9) || !Number.isFinite(angle)) throw new Error('the draft angle must not be zero');
+    if (Math.abs(angle) >= Math.PI / 2) throw new Error('a draft is less than 90 degrees');
+    const all = numbered(shape, 'TopAbs_FACE');
+    const n = new THREE.Vector3(...pull);
+    if (n.length() < 1e-12) throw new Error('the pull direction has no length');
+    n.normalize();
+    const dirn = new o.gp_Dir(n.x, n.y, n.z);
+    const neutral = new o.gp_Pln(new o.gp_Pnt(...origin), dirn);
+    const draft = new o.BRepOffsetAPI_DraftAngle(shape);
+    for (const i of faces) {
+        if (!all[i]) throw new Error('that face no longer exists');
+        draft.Add(o.TopoDS.Face(all[i]), dirn, angle, neutral, true);
+        if (!draft.AddDone()) throw new Error('that face cannot be drafted; faces square to the pull, or free-form ones, cannot');
+    }
+    draft.Build(new o.Message_ProgressRange());
+    if (!draft.IsDone()) throw new Error('the faces cannot be drafted that far; try a smaller angle');
+    const result = draft.Shape();
+    const image = s => { try { return [draft.ModifiedShape(s)]; } catch { return [s]; } };
+    return { shape: result, history: trace([shape], result, image) };
+}

@@ -181,13 +181,23 @@ export const TOOLS = [
     // Round 10: Plasticity's Cut, solids split by curves drawn across them.
     {
         id: 'cut', label: 'CUT', key: '', group: 'shape', selects: 'curves', toolbar: false,
-        summary: 'Split the selected solids along curves drawn across them; each curve cuts straight through along the normal of its plane, and every piece becomes its own body.',
-        params: {},
+        summary: 'Split the selected solids along curves drawn across them, faces (a flat face cuts as its whole plane, a round one as its whole cylinder) or the construction plane; every piece becomes its own body.',
+        params: {
+            plane: { type: 'boolean', default: false, describe: 'cut with the construction plane as well' },
+        },
     },
     {
         id: 'imprint', label: 'IMPRINT', key: '', group: 'shape', selects: 'curves', toolbar: false,
-        summary: 'Draw the selected curves onto faces of a solid, splitting the faces there without cutting the body; each curve is projected along the normal of its plane.',
+        summary: 'Draw the selected curves, or the outline where other solids meet it, onto faces of a solid, splitting the faces there without cutting the body; each curve is projected along the normal of its plane.',
         params: {},
+    },
+    // Round 11: Draft Face, against the construction plane.
+    {
+        id: 'draft', label: 'DRAFT FACE', key: '', group: 'shape', selects: 'faces', toolbar: false,
+        summary: "Tilt the selected faces about the construction plane so the part leaves its mould along the plane's normal; positive angles close the faces in going along it.",
+        params: {
+            angle: { type: 'number', unit: 'deg', nonzero: true, default: 3, describe: 'the draft angle; positive closes the faces in along the pull' },
+        },
     },
     // Round 7: curve editing. Trim and Explode are actions (a click, or none), not tools.
     {
@@ -287,10 +297,14 @@ const EXTRA_PARAMS = {
     extrude: { face: { type: 'integer', description: 'a flat face to extrude instead of a region, by ref' } },
     boolean: { tools: { type: 'array', items: { type: 'integer' }, minItems: 1, description: 'the tool bodies, by id' } },
     sweep: { path: { type: 'integer', description: 'the curve to sweep along, by id' } },
-    cut: { bodies: { type: 'array', items: { type: 'integer' }, minItems: 1, description: 'the solids to cut, by id' } },
+    cut: {
+        bodies: { type: 'array', items: { type: 'integer' }, minItems: 1, description: 'the solids to cut, by id' },
+        faces: { type: 'array', items: { type: 'integer' }, minItems: 1, description: 'faces to cut with, by ref; flat ones cut as their whole plane' },
+    },
     imprint: {
         body: { type: 'integer', description: 'the body to imprint on, by id; every face it has unless faces are given' },
         faces: { type: 'array', items: { type: 'integer' }, minItems: 1, description: 'only these faces, by ref, all on one body' },
+        with: { type: 'array', items: { type: 'integer' }, minItems: 1, description: 'other solids whose outline where they meet the body is imprinted, by id' },
     },
 };
 const REQUIRED = { edge: true, solid: true, solids: true, faces: true, regions: true, curves: true };
@@ -305,7 +319,8 @@ export function schema() {
         const properties = {}, required = [];
         const [selName, selSchema] = SELECTION_PARAM[t.selects];
         properties[selName] = selSchema;
-        if (REQUIRED[t.selects]) required.push(selName);
+        // Cut and Imprint can work without curves (faces, a plane or other bodies instead).
+        if (REQUIRED[t.selects] && t.id !== 'cut' && t.id !== 'imprint') required.push(selName);
         Object.assign(properties, EXTRA_PARAMS[t.id]);
         required.push(...(REQUIRED_EXTRA[t.id] ?? []));
         for (const [name, p] of Object.entries(t.params)) {
