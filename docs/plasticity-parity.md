@@ -12,8 +12,8 @@ Plasticity first; Blender-style extras only where Plasticity has no equivalent.
 
 | Area | Tools |
 |---|---|
-| Curves | Line, Corner / Center / Three Point Rectangle, Center / Two Point / Three Point Circle, Three Point / Center Point / Tangent Arc, Regular Polygon, Spline Curve, Center / Three Point Ellipse, Spiral, Join Curves |
-| Solids | Push/Pull, Extrude (angle, thickness, both sides, slice, forced booleans), Boolean (union, difference, intersect, slice, keep tools), Fillet and Chamfer (angle), Offset Face (+ angle), Revolve, Loft, Sweep (twist, scale), Box, Cylinder, Sphere, Shell |
+| Curves | Line, Corner / Center / Three Point Rectangle, Center / Two Point / Three Point Circle, Three Point / Center Point / Tangent Arc, Regular Polygon, Spline Curve, Center / Three Point Ellipse, Spiral, Join Curves, **Offset Curve, Fillet Curve, Trim, Extend, Bridge, Explode** |
+| Solids | Push/Pull, Extrude (angle, thickness, both sides, slice, forced booleans), Boolean (union, difference, intersect, slice, keep tools), Fillet and Chamfer (angle), Offset Face (+ angle), Revolve, Loft, Sweep (twist, scale), Box, Cylinder, Sphere, Shell, **Hole (depth or through), Remove Face (desktop only)** |
 | Organise | Move, Rotate, Scale, Duplicate, Delete, Mirror (copy or join), Rectangular Array, Radial Array, Hide / Hide others / Unhide |
 | Selection | Point / edge / face / solid / all modes, box select, convert selection, invert, select all |
 | Views | Navigation gizmo (axis balls, orbit, zoom, pan, ortho, frame, home), numpad views, x-ray, construction planes (world, from face, from view) |
@@ -22,22 +22,21 @@ Plasticity first; Blender-style extras only where Plasticity has no equivalent.
 
 ## Left, in suggested order
 
-**Round 7: curve editing.** Plasticity's daily-use curve tools; most of them need nothing new from OCCT.
-- Trim (click a piece between intersections to delete it)
-- Offset Curve (`BRepOffsetAPI_MakeOffset`, in both builds)
-- Fillet Curve: round a corner of a polyline or contour
-- Bridge Curves (G1/G2 blend between two curve ends)
-- Extend Curve; Explode / Split curve; Duplicate curve
+**Round 7 remainder: curve editing.** Offset, Fillet, Trim, Extend, Bridge and Explode are done
+(web/src/curveEdit.js, shared by both builds). Still to do:
+- Trim of splines, ellipses and joined contours (lines, polylines, circles and arcs trim today)
+- Fillet Curve on chosen corners from the viewport (the geometry takes corner numbers already)
+- Split curve at a point; Duplicate curve
 - Control-point editing of splines (move / add / remove points)
 
 **Round 8: face and body editing.**
-- Remove Face (delete faces and heal: `BRepAlgoAPI_Defeaturing` on desktop; the browser build lacks it)
+- Remove Face in the browser build (desktop is done; opencascade.js lacks `BRepAlgoAPI_Defeaturing`)
 - Draft Face (`BRepOffsetAPI_DraftAngle`)
 - Cut / Split body by a curve or a face; Split face by a curve
 - Imprint and Project curve onto faces (26.1 options: bidirectional, hide occluded)
 - Place (drop a solid onto a face) and Align
 - Move / rotate faces, edges and vertices directly (26.1 "transform-face step")
-- Hole and Slot
+- Slot; counterbored and countersunk holes (plain holes are done)
 
 **Round 9: sheets and surfaces.**
 - Open sheets as first-class bodies: thicken, sew, extend sheet (26.1: extend sheet shapes)
