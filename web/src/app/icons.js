@@ -50,6 +50,11 @@ const ICONS = {
     'nav-ortho': `<path d="M5 6h14v12H5z"/><path ${A} d="M12 6v12"/>`,
     'nav-focus': `<path d="M4 9V4h5M15 4h5v5M20 15v5h-5M9 20H4v-5"/><path ${A} d="M9 9h6v6H9z"/>`,
     'nav-home': `<path d="M4 11l8-7 8 7"/><path d="M6 10v10h12V10"/><path ${A} d="M10 20v-6h4v6"/>`,
+    // Round 7 curve editing: the accent is the curve made, or the piece cut away.
+    'offset-curve': `<path d="M4 18V9a5 5 0 0 1 5-5h11"/><path ${A} d="M8 20v-9a3 3 0 0 1 3-3h9"/>`,
+    'fillet-curve': `<path d="M4 20V4h16" stroke-dasharray="2 2"/><path ${A} d="M4 20v-9a7 7 0 0 1 7-7h9"/>`,
+    trim: `<path d="M3 12h7M16 12h5M12 3v18"/><path ${A} d="M10 12h6" stroke-dasharray="2 2"/><path ${A} d="M8 8l8 8M16 8l-8 8"/>`,
+    explode: `<path d="M5 5h5M14 5h5M19 10v4M5 10v4M5 19h5M14 19h5"/><path ${A} d="M12 12h0M10 10L8 8M14 10l2-2M10 14l-2 2M14 14l2 2"/>`,
     undo: `<path d="M9 5L4 10l5 5"/><path ${A} d="M4 10h10a6 6 0 0 1 0 12h-3"/>`,
     redo: `<path d="M15 5l5 5-5 5"/><path ${A} d="M20 10H10a6 6 0 0 0 0 12h3"/>`,
     ask: `<path ${A} d="M12 3l2 7 7 2-7 2-2 7-2-7-7-2 7-2z"/>`,

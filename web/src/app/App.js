@@ -59,6 +59,7 @@ import { ACTIONS, COMMAND, VIEWPORT, keyFor, keyOf } from './keymap.js';
 import { Selection } from './Selection.js';
 import { claude, describe, MODEL, reply, request } from './ai.js';
 import { icon } from './icons.js';
+import { explode, filletCurve, offsetCurve, trim } from '../curveEdit.js';
 import { ViewGizmo } from './ViewGizmo.js';
 import { arcPoints, circleThrough, ellipsePoints, endTangent, helixPoints, loops, polygonCorners, spiralAngle, tangentArc } from '../curves.js';
 
@@ -89,6 +90,9 @@ const KEYS = {
   spline: [['CLICK', 'POINTS'], ['CLICK START', 'CLOSE'], ['X Y Z', 'AXIS'], ['CTRL Z', 'BACK'], ['⏎ / RMB', 'DONE']],
   'tangent-arc': [['CLICK', 'CURVE END · SIZE'], ['D', 'FLIP'], ['ALT', 'NO SNAP'], ['ESC', 'CANCEL']],
   spiral: [['CLICK', 'AXIS START · END · RADIUS'], ['X Y Z', 'AXIS'], ['A', 'ANGLE'], ['D', 'LENGTH'], ['R', 'RADIUS'], ['⏎ / RMB', 'OK']],
+  'offset-curve': [['D', 'DISTANCE'], ['TYPE', 'IN PANEL'], ['⏎ / RMB', 'OK']],
+  'fillet-curve': [['D', 'RADIUS'], ['TYPE', 'IN PANEL'], ['⏎ / RMB', 'OK']],
+  trim: [['CLICK', 'PIECE TO CUT AWAY'], ['CTRL Z', 'UNDO ONE'], ['ESC / ⏎', 'DONE']],
   box: [['CLICK', 'BASE POINT'], ['TYPE', 'SIZE IN PANEL'], ['⏎ / RMB', 'OK']],
   cylinder: [['CLICK', 'BASE CENTRE'], ['TYPE', 'SIZE IN PANEL'], ['⏎ / RMB', 'OK']],
   sphere: [['CLICK', 'CENTRE'], ['TYPE', 'RADIUS IN PANEL'], ['⏎ / RMB', 'OK']],
@@ -110,6 +114,8 @@ const CLICKS = { rect: 2, 'center-rect': 2, rect3: 3, circle: 2, circle2: 2, cir
 // Commands that grow a solid from drawn regions, sharing one panel.
 const FORMS = { revolve: true, loft: true, sweep: true };
 const PRIMS = { box: true, cylinder: true, sphere: true };
+// Commands that aren't tools in the registry (they act on a click, not on settings).
+const EDITS = { trim: 'TRIM' };
 const keysHtml = id => KEYS[id].map(([k, v]) => `<kbd>${k}</kbd><span>${v}</span>`).join('');
 const BAR = [['palette', 'F', 'SEARCH'], ['tool:extrude', 'E', 'EXTRUDE'], ['tool:boolean', 'Q', 'BOOLEAN'], ['tool:fillet', 'B', 'FILLET'], ['tool:move', 'G', 'MOVE'], ['tool:rotate', 'R', 'ROTATE'], ['tool:scale', 'S', 'SCALE'], ['duplicate', '⇧D', 'DUPLICATE'], ['delete', '⇧X', 'DELETE']];
 
@@ -245,6 +251,17 @@ const SHELL = `
       <div class="field"><label for="w3d-off-distance">DISTANCE</label><input id="w3d-off-distance" data-id="off-distance" type="number" step="0.5" value="0"></div>
       <div class="field"><label for="w3d-off-angle">ANGLE ADJACENT °</label><input id="w3d-off-angle" data-id="off-angle" type="number" step="1" value="0"></div>
       <div class="field"><label>FACES</label><output data-id="off-count">0</output></div>
+    </div>
+    <div class="sec" data-panel="offset-curve" hidden>
+      <span class="hint" data-id="oc-hint">—</span>
+      <div class="field"><label for="w3d-oc-d">DISTANCE</label><input id="w3d-oc-d" data-id="oc-d" type="number" step="0.5" value="5"></div>
+    </div>
+    <div class="sec" data-panel="fillet-curve" hidden>
+      <span class="hint" data-id="fc-hint">—</span>
+      <div class="field"><label for="w3d-fc-r">RADIUS</label><input id="w3d-fc-r" data-id="fc-r" type="number" step="0.5" min="0.01" value="2"></div>
+    </div>
+    <div class="sec" data-panel="trim" hidden>
+      <span class="hint" data-id="trim-hint">CLICK THE PIECE OF A CURVE TO CUT AWAY; IT ENDS WHERE OTHER CURVES CROSS IT</span>
     </div>
     <div class="sec" data-panel="primitive" hidden>
       <span class="hint" data-id="prim-hint">CLICK THE BASE POINT</span>
@@ -1094,7 +1111,7 @@ export async function mount(root, backend) {
     for (const b of $$('[data-tool]')) b.setAttribute('aria-pressed', b.dataset.tool === id);
     for (const el of $$('[data-panel]')) el.hidden = el.dataset.panel !== (id === 'spiral' ? 'spiral' : DRAW[id] ? 'draw' : FORMS[id] ? 'form' : PRIMS[id] ? 'primitive' : id);
     $('keys').innerHTML = keysHtml(KEYS[id] ? id : 'idle');
-    const name = !id ? 'SELECT' : DRAW[id] ?? toolInfo(id).label;
+    const name = !id ? 'SELECT' : EDITS[id] ?? DRAW[id] ?? toolInfo(id).label;
     $('tool-name').textContent = name;
     $('status-tool').textContent = name;
     $('commit').disabled = $('cancel').disabled = !id;
@@ -1126,6 +1143,8 @@ export async function mount(root, backend) {
     if (id === 'offset') return startOffset(opts);
     if (FORMS[id]) return startForm(id);
     if (PRIMS[id]) return startPrimitive(id, opts);
+    if (id === 'offset-curve' || id === 'fillet-curve') return startCurveEdit(id);
+    if (id === 'trim') return startTrim();
     if (id === 'shell') return startShell();
     if (id === 'mirror') return startMirror();
     if (id === 'rect-array' || id === 'radial-array') return startArray(id);
@@ -2636,6 +2655,109 @@ export async function mount(root, backend) {
     } catch (e) { setState('failed'); toast(say(e)); }
   }
 
+  // --- Round 7: Offset Curve, Fillet Curve, Trim and Explode ------------------------
+  // The geometry is curveEdit.js, shared by both builds; the backend only stores the curves that
+  // come out, so a preview here is exactly what OK makes. Each finish is one undo step.
+  function showCurvePreview(list) {
+    for (const c of list) {
+      const f = curveFrame(c), pts = curve2d(c);
+      const l = new (isClosed(c) ? THREE.LineLoop : THREE.Line)(new THREE.BufferGeometry().setFromPoints(pts.map(p => lift(f, p, 0.03))), curveMat.selected);
+      l.renderOrder = 10;
+      previewGroup.add(l);
+    }
+  }
+  const curveById = id => curveList.find(c => c.id === id);
+  async function curvesChanged(made) {
+    await loadCurves();
+    sel.clear();
+    for (const id of made) sel.add({ kind: curveList.find(c => c.id === id && isClosed(c)) ? 'region' : 'curve', id });
+    selectionChanged({ quiet: true });
+  }
+
+  function startCurveEdit(id) {
+    const ids = sel.curves.filter(curveById);
+    const offset = id === 'offset-curve';
+    if (!ids.length) return toast(`SELECT A CURVE TO ${offset ? 'OFFSET' : 'FILLET'}`);
+    if (!backend.addCurves || (!offset && !backend.replaceCurves)) return toast(`${toolInfo(id).label} IS NOT IN THIS BUILD YET`);
+    const field = offset ? 'oc-d' : 'fc-r', hint = offset ? 'oc-hint' : 'fc-hint';
+    const c = cmd = { id, ids, out: null };
+    lastTool = id;
+    showTool(id);
+    setState('none');
+    setTarget(ids.length === 1 ? curveLabel(ids[0]) : `${ids.length} CURVES`);
+    c.compute = () => ids.map(cid => { const src = curveById(cid); return offset ? offsetCurve(src, num(field)) : filletCurve(src, num(field)); });
+    c.preview = () => {
+      clearPreview();
+      try {
+        c.out = c.compute();
+        showCurvePreview(c.out);
+        $(hint).textContent = `${ids.length} CURVE${ids.length > 1 ? 'S' : ''}`;
+        setHud(`${toolInfo(id).label} ${num(field)} MM`);
+        setState('updated');
+      } catch (e) { c.out = null; $(hint).textContent = say(e); setHud(`${toolInfo(id).label} FAILED`); setState('failed'); }
+    };
+    c.key = action => {
+      if (action !== 'distance' && action !== 'radius') return false;
+      c.entry = { label: action.toUpperCase(), text: '', apply: v => { $(field).value = v; c.preview(); } };
+      setHud(`${action.toUpperCase()} _`);
+      return true;
+    };
+    c.finish = async () => {
+      if (!c.out) return toast($(hint).textContent);
+      try {
+        const { ids: made } = offset ? await backend.addCurves(c.out) : await backend.replaceCurves(ids, c.out);
+        endCmd('committed');
+        record(`${toolInfo(id).label} ${num(field)} MM`, made[0], curveLabel(made[0]));
+        await curvesChanged(made);
+      } catch (e) { setState('failed'); toast(say(e)); }
+    };
+    c.abort = () => endCmd('cancelled');
+    c.cleanup = () => clearPreview();
+    c.preview();
+  }
+
+  /** Plasticity's Trim: click pieces of curves to cut them away where other curves cross them. */
+  function startTrim() {
+    if (!backend.replaceCurves) return toast('TRIM IS NOT IN THIS BUILD YET');
+    const c = cmd = { id: 'trim', count: 0 };
+    lastTool = 'trim';
+    showTool('trim');
+    setState('none');
+    setHud('CLICK A PIECE TO CUT AWAY');
+    c.click = async e => {
+      const hit = pickAt(e);
+      const src = (hit?.kind === 'curve' || hit?.kind === 'region') && curveById(hit.id);
+      if (!src || !hit.point) return true;
+      const f = curveFrame(src), d = hit.point.clone().sub(f.o);
+      try {
+        const keep = trim(src, curveList.filter(o => o.id !== src.id), [d.dot(f.x), d.dot(f.y)]);
+        const { ids: made } = await backend.replaceCurves([src.id], keep);
+        c.count++;
+        record(`TRIM ${curveLabel(src.id)}`, made[0] ?? src.id, made.length ? curveLabel(made[0]) : '—');
+        await loadCurves();
+        setHud(`${c.count} CUT · CLICK ANOTHER, OR ⏎`);
+        setState('committed');
+      } catch (err) { setState('failed'); toast(say(err)); }
+      return true;
+    };
+    c.finish = () => endCmd(c.count ? 'committed' : 'cancelled');
+    c.abort = () => endCmd(c.count ? 'committed' : 'cancelled');
+  }
+
+  /** Plasticity's Explode: split the selected lines and joined curves into their pieces, one undo step. */
+  async function explodeSelected() {
+    if (cmd) await finish();
+    const ids = sel.curves.filter(curveById);
+    if (!ids.length) return toast('SELECT A CURVE TO EXPLODE');
+    if (!backend.replaceCurves) return toast('EXPLODE IS NOT IN THIS BUILD YET');
+    try {
+      const list = ids.flatMap(id => explode(curveById(id)));
+      const { ids: made } = await backend.replaceCurves(ids, list);
+      record(`EXPLODE ${ids.map(curveLabel).join(' ')}`, made[0], `${made.length} CURVES`);
+      await curvesChanged(made);
+    } catch (e) { toast(say(e)); }
+  }
+
   // --- Round 6: Box, Cylinder, Sphere, Shell, Mirror and arrays ---------------------
   // Box, Cylinder and Sphere: click a point on a face or the construction plane, then set sizes in
   // the panel; the solid previews as you type. Shell: select faces of one solid to open, set the wall
@@ -3128,6 +3250,8 @@ export async function mount(root, backend) {
       case 'delete': await deleteSelected(); return true;
       case 'duplicate': await duplicateSelected(); return true;
       case 'join': await joinSelected(); return true;
+      case 'trim': await startTool('trim'); return true;
+      case 'explode': await explodeSelected(); return true;
       case 'hide': setHidden(sel.bodies, true); return true;
       case 'hide-others': setHidden(current.map(b => b.id).filter(id => !sel.bodies.includes(id)), true); return true;
       case 'unhide-all': setHidden([...hidden], false); return true;
@@ -3444,6 +3568,7 @@ export async function mount(root, backend) {
   $('ex-angle').addEventListener('input', e => { const v = parseFloat(e.target.value); if (!isNaN(v)) setExtrudeShape({ angle: v }); });
   $('ex-thickness').addEventListener('input', e => { const v = parseFloat(e.target.value); if (!isNaN(v) && v >= 0) setExtrudeShape({ thickness: v }); });
   for (const b of $$('[data-bop]')) b.onclick = () => cmd?.id === 'boolean' && cmd.key(b.dataset.bop);
+  for (const id of ['oc-d', 'fc-r']) $(id).addEventListener('input', () => (cmd?.id === 'offset-curve' || cmd?.id === 'fillet-curve') && cmd.preview());
   for (const id of ['prim-w', 'prim-d', 'prim-r', 'prim-h']) $(id).addEventListener('input', () => PRIMS[cmd?.id] && cmd.preview());
   $('shell-t').addEventListener('input', () => cmd?.id === 'shell' && cmd.preview());
   for (const id of ['mirror-at', 'ra-cx', 'ra-cy', 'ra-cz', 'ra-sx', 'ra-sy', 'ra-sz', 'rr-count', 'rr-angle']) $(id).addEventListener('input', () => cmd?.preview?.());
@@ -3607,7 +3732,7 @@ export async function mount(root, backend) {
      * The selection is named by ref: `edges` (fillet), `body` (move, rotate, scale) or `face` (push/pull).
      */
     async run(id, args = {}) {
-      const { edges, body, bodies: ids, face, faces, region, regions, path, target, tools, ...rest } = args;
+      const { edges, body, bodies: ids, face, faces, region, regions, path, target, tools, curves: curveIds, ...rest } = args;
       const errors = check(id, rest);
       if (errors.length) throw new Error(errors.join('; '));
       const p = withDefaults(id, rest);
@@ -3674,6 +3799,14 @@ export async function mount(root, backend) {
         cmd.auto = false;
         if (p.angle) setOffsetAngle(p.angle);
         setOffsetDistance(p.distance ?? 0, false);
+      } else if (id === 'offset-curve' || id === 'fillet-curve') {
+        const ids = (curveIds ?? []).filter(cid => curveList.some(c => c.id === cid));
+        if (!ids.length) throw new Error('give the curves by id');
+        sel.clear();
+        for (const cid of ids) sel.add({ kind: 'curve', id: cid });
+        selectionChanged({ quiet: true });
+        $(id === 'offset-curve' ? 'oc-d' : 'fc-r').value = id === 'offset-curve' ? p.distance : p.radius;
+        await startTool(id);
       } else if (PRIMS[id]) {
         const b = face !== undefined && current.find(x => x.faceRefs?.includes(face));
         const n = b ? b.faceRefs.indexOf(face) : -1, plane = b?.facePlanes[n];

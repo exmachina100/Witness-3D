@@ -164,6 +164,14 @@ async fn commit_array(
 }
 
 #[tauri::command]
+async fn replace_curves(
+    model: State<'_, Model>,
+    req: api::ReplaceCurvesRequest,
+) -> Result<api::AddedCurves, api::ApiError> {
+    on_model(&model, move |m| api::replace_curves(m, req)).await?
+}
+
+#[tauri::command]
 async fn preview_offset(
     model: State<'_, Model>,
     req: api::OffsetRequest,
@@ -368,6 +376,7 @@ pub fn run() {
             commit_form,
             preview_offset,
             commit_offset,
+            replace_curves,
             preview_primitive,
             commit_primitive,
             preview_shell,

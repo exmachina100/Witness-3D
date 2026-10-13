@@ -85,6 +85,9 @@ export const COMMAND = {
     spline: { 'ctrl-z': 'back', x: 'axis-x', y: 'axis-y', z: 'axis-z' },
     // Tangent Arc's D flips it; Spiral's A, D and R (manual), X/Y/Z while placing the axis end.
     'tangent-arc': { d: 'flip' },
+    // Round 7: D types the distance or radius.
+    'offset-curve': { d: 'distance' },
+    'fillet-curve': { d: 'radius' },
     // Round 6: Shell's D types the thickness; Mirror and Radial Array take X/Y/Z for the axis and J to join.
     shell: { d: 'thickness' },
     mirror: { x: 'x', y: 'y', z: 'z', j: 'join' },
@@ -112,7 +115,7 @@ export const ACTIONS = {
     'draw:center-rect': 'Center rectangle', 'draw:rect3': 'Three point rectangle', 'draw:circle2': 'Two point circle',
     'draw:circle3': 'Three point circle', 'draw:arc3': 'Three point arc', 'draw:arc': 'Center point arc',
     'draw:polygon': 'Regular polygon', 'draw:spline': 'Spline curve', 'draw:ellipse': 'Center ellipse',
-    'draw:ellipse3': 'Three point ellipse', 'draw:tangent-arc': 'Tangent arc', 'draw:spiral': 'Spiral', 'join': 'Join curves',
+    'draw:ellipse3': 'Three point ellipse', 'draw:tangent-arc': 'Tangent arc', 'draw:spiral': 'Spiral', 'join': 'Join curves', 'trim': 'Trim curves', 'explode': 'Explode curve',
     'undo': 'Undo', 'redo': 'Redo', 'file:new': 'New', 'file:open': 'Open…', 'file:save': 'Save',
     'export:step': 'Export STEP', 'import:step': 'Import STEP',
 };

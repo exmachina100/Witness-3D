@@ -432,6 +432,17 @@ pub fn join_curves(m: &Model, ids: Vec<CurveId>) -> Result<AddedCurves, ApiError
     m.call(move |doc| Ok(AddedCurves { ids: doc.commit_join(&ids)? }))
 }
 
+/// Curve edits: the curves `ids` replaced by `curves`, as one undoable step.
+#[derive(Deserialize, Debug, Clone)]
+pub struct ReplaceCurvesRequest {
+    pub ids: Vec<CurveId>,
+    pub curves: Vec<Curve>,
+}
+
+pub fn replace_curves(m: &Model, req: ReplaceCurvesRequest) -> Result<AddedCurves, ApiError> {
+    m.call(move |doc| Ok(AddedCurves { ids: doc.commit_replace_curves(&req.ids, req.curves)? }))
+}
+
 /// Delete bodies and curves together, as one undoable step.
 pub fn delete_items(m: &Model, bodies_: Vec<BodyId>, curves: Vec<CurveId>) -> Result<Vec<Body>, ApiError> {
     m.call(move |doc| { doc.commit_delete_items(&bodies_, &curves)?; Ok(bodies(doc)?) })

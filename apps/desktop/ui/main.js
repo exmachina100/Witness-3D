@@ -33,6 +33,7 @@ const rust = {
   commitForm: req => tauri.core.invoke('commit_form', { req }),
   previewOffset: req => tauri.core.invoke('preview_offset', { req }),
   commitOffset: req => tauri.core.invoke('commit_offset', { req }),
+  replaceCurves: (ids, curves) => tauri.core.invoke('replace_curves', { req: { ids, curves } }),
   previewPrimitive: req => tauri.core.invoke('preview_primitive', { req }),
   commitPrimitive: req => tauri.core.invoke('commit_primitive', { req }),
   previewShell: req => tauri.core.invoke('preview_shell', { req }),

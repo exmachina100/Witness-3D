@@ -396,6 +396,22 @@ impl<K: Kernel> Document<K> {
         }).collect())
     }
 
+    /// Curve edits (Trim, Fillet Curve, Explode): the curves `ids` replaced by `curves`, as one
+    /// undoable step. Returns the new curves' ids, in order.
+    pub fn commit_replace_curves(&mut self, ids: &[CurveId], curves: Vec<Curve>) -> Result<Vec<CurveId>, KernelError> {
+        if ids.is_empty() && curves.is_empty() { return Err(KernelError::NoOp) }
+        if ids.iter().any(|id| !self.state.curves.contains_key(id)) { return Err(KernelError::Invalid("that curve no longer exists")) }
+        for c in &curves { c.check()?; }
+        self.checkpoint();
+        for id in ids { self.state.curves.remove(id); }
+        Ok(curves.into_iter().map(|c| {
+            let id = self.state.next_curve;
+            self.state.next_curve += 1;
+            self.state.curves.insert(id, Rc::new(c));
+            id
+        }).collect())
+    }
+
     /// The target as it would be after a boolean with each tool in turn.
     pub fn preview_boolean(&self, target: BodyId, tools: &[BodyId], op: BooleanOp) -> Result<Traced<K::Solid>, KernelError> {
         if tools.is_empty() { return Err(KernelError::Invalid("select a tool body as well as the target")) }

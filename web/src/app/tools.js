@@ -10,7 +10,7 @@
 //
 // `selects` is what the tool acts on: 'face' (a point on a flat face, or the work plane), 'faces'
 // (faces of one body), 'edge' (one or more edges of one body), 'region' (one drawn region),
-// 'regions' (several, in order) or 'solid' (one body). `key` is '' where Plasticity binds none. Lengths are millimetres, angles degrees,
+// 'regions' (several, in order), 'curves' (drawn curves, open or closed) or 'solid' (one body). `key` is '' where Plasticity binds none. Lengths are millimetres, angles degrees,
 // and coordinates are the user's: x right, y back, z up (the viewport's own y is up).
 
 export const TOOLS = [
@@ -145,6 +145,21 @@ export const TOOLS = [
             join: { type: 'boolean', default: false, describe: 'fuse the copies into each original instead of making new bodies' },
         },
     },
+    // Round 7: curve editing. Trim and Explode are actions (a click, or none), not tools.
+    {
+        id: 'offset-curve', label: 'OFFSET CURVE', key: '', group: 'curve', selects: 'curves', toolbar: false,
+        summary: 'Copy the selected curves a set distance away: closed curves grow or shrink, open ones move sideways.',
+        params: {
+            distance: { type: 'number', unit: 'mm', nonzero: true, default: 5, describe: 'how far; positive grows a closed curve or moves an open one to its left' },
+        },
+    },
+    {
+        id: 'fillet-curve', label: 'FILLET CURVE', key: '', group: 'curve', selects: 'curves', toolbar: false,
+        summary: 'Round the corners of the selected lines, rectangles and polygons with arcs.',
+        params: {
+            radius: { type: 'number', unit: 'mm', above: 0, default: 2, describe: 'radius of the rounds' },
+        },
+    },
     {
         id: 'move', label: 'MOVE', key: 'g', group: 'organise', selects: 'solid',
         summary: 'Move the selected bodies.',
@@ -214,6 +229,7 @@ const SELECTION_PARAM = {
     region: ['region', { type: 'integer', description: 'the closed curve whose region to extrude, by id; or give face instead' }],
     solids: ['target', { type: 'integer', description: 'the body to change, by id' }],
     faces: ['faces', { type: 'array', items: { type: 'integer' }, minItems: 1, description: 'the faces to act on, by ref, all on one body' }],
+    curves: ['curves', { type: 'array', items: { type: 'integer' }, minItems: 1, description: 'the curves to act on, by id' }],
     regions: ['regions', { type: 'array', items: { type: 'integer' }, minItems: 2, description: 'the closed curves whose regions to pass through, by id, in order' }],
 };
 const EXTRA_PARAMS = {
@@ -221,7 +237,7 @@ const EXTRA_PARAMS = {
     boolean: { tools: { type: 'array', items: { type: 'integer' }, minItems: 1, description: 'the tool bodies, by id' } },
     sweep: { path: { type: 'integer', description: 'the curve to sweep along, by id' } },
 };
-const REQUIRED = { edge: true, solid: true, solids: true, faces: true, regions: true };
+const REQUIRED = { edge: true, solid: true, solids: true, faces: true, regions: true, curves: true };
 const REQUIRED_EXTRA = { boolean: ['tools'], revolve: ['region'], sweep: ['region', 'path'] };
 
 /**

@@ -116,6 +116,16 @@ export class LocalBackend {
         return { ids: joined.map(c => { const id = this.nextCurve++; this.curveMap.set(id, c); return id; }) };
     }
 
+    /** Curve edits (Trim, Fillet Curve, Explode): the curves `ids` replaced by `list`, as one undo step. */
+    async replaceCurves(ids, list) {
+        if (!ids?.length && !list?.length) throw new Error('nothing to do');
+        if (ids.some(id => !this.curveMap.has(id))) throw new Error('that curve no longer exists');
+        for (const c of list) checkCurve(c);
+        this.checkpoint();
+        for (const id of ids) this.curveMap.delete(id);
+        return { ids: list.map(c => { const id = this.nextCurve++; this.curveMap.set(id, structuredClone(c)); return id; }) };
+    }
+
     /** Delete bodies and curves together, as one undo step. */
     async deleteItems(bodies = [], curves = []) {
         if (!bodies.length && !curves.length) throw new Error('nothing to do');
