@@ -8,7 +8,7 @@ use serde::{Deserialize, Serialize};
 use w3d_kernel::document::{BodyId, Document, FormRequest as FormKindRequest};
 use w3d_kernel::engine::Engine;
 use w3d_kernel::occt::Occt;
-use w3d_kernel::{extrude, file, form, FormParams, Blend, BlendParams, BooleanOp, Curve, CurveId, CurveShape, ExtrudeParams, ExtrudeResult, Frame, Kernel, KernelError, Motion, Operation, Profile, Ref, Refs, Tessellation};
+use w3d_kernel::{extrude, file, form, ArraySpec, Primitive, FormParams, Blend, BlendParams, BooleanOp, Curve, CurveId, CurveShape, ExtrudeParams, ExtrudeResult, Frame, Kernel, KernelError, Motion, Operation, Profile, Ref, Refs, Tessellation};
 
 /// Chord tolerance for display meshes, in millimetres.
 const MESH_TOLERANCE: f64 = 0.05;
@@ -637,4 +637,146 @@ pub struct Duplicated {
 /// Copy bodies in place, as one undoable step.
 pub fn duplicate_bodies(m: &Model, ids: Vec<BodyId>) -> Result<Duplicated, ApiError> {
     m.call(move |doc| { let ids = doc.commit_duplicate(&ids)?; Ok(Duplicated { ids, scene: bodies(doc)? }) })
+}
+
+// --- Round 6: Box, Cylinder, Sphere, Shell, Mirror and arrays -------------------------------------
+// The requests mirror web/src/app/LocalBackend.js, so the shared UI sends the same JSON to both.
+
+#[derive(Deserialize, Debug, Clone, Copy)]
+pub struct FrameIn {
+    pub origin: [f64; 3],
+    pub x: [f64; 3],
+    pub normal: [f64; 3],
+}
+
+impl FrameIn {
+    fn frame(&self) -> Result<Frame, ApiError> {
+        let (o, x, n) = (DVec3::from_array(self.origin), DVec3::from_array(self.x), DVec3::from_array(self.normal));
+        if !(o.is_finite() && x.is_finite() && n.is_finite()) || x.cross(n).length() < 1e-9 {
+            return Err(KernelError::Invalid("the construction plane is not valid").into());
+        }
+        Ok(Frame::new(o, x, n))
+    }
+}
+
+/// Plasticity's Box, Cylinder or Sphere.
+#[derive(Deserialize, Debug, Clone)]
+#[serde(tag = "kind", rename_all = "lowercase")]
+pub enum PrimitiveRequest {
+    Box { frame: FrameIn, width: f64, depth: f64, height: f64 },
+    Cylinder { frame: FrameIn, radius: f64, height: f64 },
+    Sphere { center: [f64; 3], radius: f64 },
+}
+
+impl PrimitiveRequest {
+    fn primitive(&self) -> Result<Primitive, ApiError> {
+        Ok(match *self {
+            PrimitiveRequest::Box { frame, width, depth, height } => Primitive::Box { frame: frame.frame()?, width, depth, height },
+            PrimitiveRequest::Cylinder { frame, radius, height } => Primitive::Cylinder { frame: frame.frame()?, radius, height },
+            PrimitiveRequest::Sphere { center, radius } => Primitive::Sphere { center: DVec3::from_array(center), radius },
+        })
+    }
+}
+
+/// The solid a primitive request makes, drawn as a phantom; nothing changes.
+pub fn preview_primitive(m: &Model, req: PrimitiveRequest) -> Option<Result<Body, ApiError>> {
+    m.preview(move |doc| {
+        let solid = w3d_kernel::solids::primitive(&doc.kernel, &req.primitive()?)?;
+        Ok(body(&doc.kernel, 0, &solid)?)
+    })
+}
+
+pub fn commit_primitive(m: &Model, req: PrimitiveRequest) -> Result<Committed, ApiError> {
+    m.call(move |doc| {
+        let id = doc.commit_primitive(&req.primitive()?)?;
+        Ok(Committed { id, scene: bodies(doc)? })
+    })
+}
+
+/// Shell: hollow one body, open at the given faces.
+#[derive(Deserialize, Debug, Clone)]
+pub struct ShellRequest {
+    pub body: BodyId,
+    pub faces: Vec<u32>,
+    pub thickness: f64,
+}
+
+pub fn preview_shell(m: &Model, req: ShellRequest) -> Option<Result<Body, ApiError>> {
+    m.preview(move |doc| {
+        let solid = doc.preview_shell(req.body, &req.faces, req.thickness)?;
+        Ok(body(&doc.kernel, req.body, &solid)?)
+    })
+}
+
+pub fn commit_shell(m: &Model, req: ShellRequest) -> Result<Committed, ApiError> {
+    m.call(move |doc| {
+        let id = doc.commit_shell(req.body, &req.faces, req.thickness)?;
+        Ok(Committed { id, scene: bodies(doc)? })
+    })
+}
+
+/// Mirror bodies in the plane through `origin` with normal `normal`; `join` fuses each copy into its body.
+#[derive(Deserialize, Debug, Clone)]
+pub struct MirrorRequest {
+    pub bodies: Vec<BodyId>,
+    pub origin: [f64; 3],
+    pub normal: [f64; 3],
+    #[serde(default)]
+    pub join: bool,
+}
+
+/// The copies, drawn as phantoms; nothing changes.
+pub fn preview_mirror(m: &Model, req: MirrorRequest) -> Option<Result<Vec<Body>, ApiError>> {
+    m.preview(move |doc| {
+        let copies = doc.preview_mirror(&req.bodies, DVec3::from_array(req.origin), DVec3::from_array(req.normal))?;
+        Ok(copies.iter().map(|s| body(&doc.kernel, 0, s)).collect::<Result<Vec<_>, _>>()?)
+    })
+}
+
+pub fn commit_mirror(m: &Model, req: MirrorRequest) -> Result<Duplicated, ApiError> {
+    m.call(move |doc| {
+        let ids = doc.commit_mirror(&req.bodies, DVec3::from_array(req.origin), DVec3::from_array(req.normal), req.join)?;
+        Ok(Duplicated { ids, scene: bodies(doc)? })
+    })
+}
+
+#[derive(Deserialize, Debug, Clone, Copy)]
+#[serde(tag = "kind", rename_all = "lowercase")]
+pub enum ArraySpecIn {
+    Rectangular { steps: [[f64; 3]; 3], counts: [u32; 3] },
+    /// `angle` in radians.
+    Radial { pivot: [f64; 3], axis: [f64; 3], angle: f64, count: u32 },
+}
+
+impl From<ArraySpecIn> for ArraySpec {
+    fn from(s: ArraySpecIn) -> Self {
+        match s {
+            ArraySpecIn::Rectangular { steps, counts } => ArraySpec::Rectangular { steps: steps.map(DVec3::from_array), counts },
+            ArraySpecIn::Radial { pivot, axis, angle, count } => ArraySpec::Radial { pivot: DVec3::from_array(pivot), axis: DVec3::from_array(axis), angle, count },
+        }
+    }
+}
+
+/// Rectangular or Radial Array of bodies; `join` fuses the copies into each body.
+#[derive(Deserialize, Debug, Clone)]
+pub struct ArrayRequest {
+    pub bodies: Vec<BodyId>,
+    pub spec: ArraySpecIn,
+    #[serde(default)]
+    pub join: bool,
+}
+
+pub fn preview_array(m: &Model, req: ArrayRequest) -> Option<Result<Vec<Body>, ApiError>> {
+    m.preview(move |doc| {
+        let copies = doc.preview_array(&req.bodies, &req.spec.into())?;
+        Ok(copies.iter().map(|s| body(&doc.kernel, 0, s)).collect::<Result<Vec<_>, _>>()?)
+    })
+}
+
+pub fn commit_array(m: &Model, req: ArrayRequest) -> Result<Duplicated, ApiError> {
+    m.call(move |doc| {
+        let ids = doc.commit_array(&req.bodies, &req.spec.into(), req.join)?;
+        if ids.is_empty() { return Err(KernelError::NoOp.into()) }
+        Ok(Duplicated { ids, scene: bodies(doc)? })
+    })
 }
