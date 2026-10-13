@@ -565,21 +565,22 @@ function curvature3(a, b, q) {
 }
 
 /**
- * Points along `c` with the curvature there and the direction a comb tooth points (into the turn):
+ * Points along `c` with the curvature there and the direction a comb tooth points (out of the turn,
+ * on the convex side, as Plasticity and Alias draw it):
  * [{ at, k, dir }] in plane coordinates. Circles and arcs are exact; other curves use dense samples.
  */
 export function curvatureComb(c, n = 160) {
     if (c.kind === 'circle') {
         return Array.from({ length: n }, (_, i) => {
             const t = TAU * i / n, u = [Math.cos(t), Math.sin(t)];
-            return { at: add(c.center, mul(u, c.radius)), k: 1 / c.radius, dir: mul(u, -1) };
+            return { at: add(c.center, mul(u, c.radius)), k: 1 / c.radius, dir: u };
         });
     }
     if (c.kind === 'arc') {
         const g = arcGeometry(c.start, c.mid, c.end);
         return Array.from({ length: n + 1 }, (_, i) => {
             const at = arcAt(g, i / n);
-            return { at, k: 1 / g.radius, dir: norm(sub(g.center, at)) };
+            return { at, k: 1 / g.radius, dir: norm(sub(at, g.center)) };
         });
     }
     const { points, closed } = samples(c, n);
@@ -588,7 +589,7 @@ export function curvatureComb(c, n = 160) {
         const a = points[closed ? (i - 1 + m) % m : Math.max(0, i - 1)], q = points[closed ? (i + 1) % m : Math.min(m - 1, i + 1)];
         if (a === p || q === p) return { at: p, k: 0, dir: [0, 0] };
         const k = curvature3(a, p, q), t = norm(sub(q, a));
-        return { at: p, k: Math.abs(k), dir: mul(left(t), Math.sign(k) || 1) };
+        return { at: p, k: Math.abs(k), dir: mul(left(t), -(Math.sign(k) || 1)) };
     });
 }
 

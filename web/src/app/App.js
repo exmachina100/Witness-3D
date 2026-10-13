@@ -710,7 +710,7 @@ export async function mount(root, backend) {
     const c = new THREE.CatmullRomCurve3(points.map(([u, v]) => new THREE.Vector3(u, v, 0)), closed, 'chordal');
     return c.getPoints(16 * points.length).map(p => [p.x, p.y]);
   }
-  // Plasticity's Toggle Curvature: a comb on every curve, teeth pointing into the turn and as long as
+  // Plasticity's Toggle Curvature: a comb on every curve, teeth on the outside of each bend and as long as
   // the curvature is strong, joined by an envelope. One scale for all curves, so they compare.
   const combGroup = new THREE.Group();
   scene.add(combGroup);
