@@ -554,3 +554,72 @@ export function splitCurve(c, at) {
     }
     throw new Error('split lines, arcs and open splines');
 }
+
+// --- Curvature and continuity (Plasticity's Toggle Curvature and Measure Continuity) -----------------
+
+/** Signed curvature of the circle through three points (positive turning left), 0 on a line. */
+function curvature3(a, b, q) {
+    const ab = dist(a, b), bq = dist(b, q), aq = dist(a, q);
+    if (ab * bq * aq < 1e-18) return 0;
+    return 2 * cross2(sub(b, a), sub(q, a)) / (ab * bq * aq);
+}
+
+/**
+ * Points along `c` with the curvature there and the direction a comb tooth points (into the turn):
+ * [{ at, k, dir }] in plane coordinates. Circles and arcs are exact; other curves use dense samples.
+ */
+export function curvatureComb(c, n = 160) {
+    if (c.kind === 'circle') {
+        return Array.from({ length: n }, (_, i) => {
+            const t = TAU * i / n, u = [Math.cos(t), Math.sin(t)];
+            return { at: add(c.center, mul(u, c.radius)), k: 1 / c.radius, dir: mul(u, -1) };
+        });
+    }
+    if (c.kind === 'arc') {
+        const g = arcGeometry(c.start, c.mid, c.end);
+        return Array.from({ length: n + 1 }, (_, i) => {
+            const at = arcAt(g, i / n);
+            return { at, k: 1 / g.radius, dir: norm(sub(g.center, at)) };
+        });
+    }
+    const { points, closed } = samples(c, n);
+    const m = points.length;
+    return points.map((p, i) => {
+        const a = points[closed ? (i - 1 + m) % m : Math.max(0, i - 1)], q = points[closed ? (i + 1) % m : Math.min(m - 1, i + 1)];
+        if (a === p || q === p) return { at: p, k: 0, dir: [0, 0] };
+        const k = curvature3(a, p, q), t = norm(sub(q, a));
+        return { at: p, k: Math.abs(k), dir: mul(left(t), Math.sign(k) || 1) };
+    });
+}
+
+/**
+ * Plasticity's Measure Continuity where end `endA` of `a` meets end `endB` of `b` (0 start, 1 end):
+ * the gap, the angle between the tangents, both curvatures, and the class: G0 when the ends touch,
+ * G1 when the tangents also line up, G2 when the curvatures match too.
+ */
+export function continuity(a, endA, b, endB) {
+    const A = exactIn(a, a), B = exactIn(a, b);
+    if (!B) throw new Error('the two curves must lie in one plane');
+    const ea = endInfo(A, endA), eb = endInfo(B, endB);
+    const gap = dist(ea.at, eb.at);
+    // Across the joint, A leaves along its direction and B arrives against its own.
+    const angle = Math.acos(Math.max(-1, Math.min(1, -dot2(ea.out, eb.out)))) * 180 / Math.PI;
+    const g = gap > 1e-4 ? 'NONE' : angle > 0.1 ? 'G0' : Math.abs(ea.k - eb.k) > 1e-3 * Math.max(1, ea.k, eb.k) ? 'G1' : 'G2';
+    return { gap, angle, ka: ea.k, kb: eb.k, continuity: g };
+}
+
+/** The end point of a shape (0 start, 1 end), its outward direction there, and its curvature. Exact for lines and arcs. */
+function endInfo(shape, which) {
+    if (shape.kind === 'arc') {
+        const g = arcGeometry(shape.start, shape.mid, shape.end), t = g.start + g.sweep * which;
+        const along = mul([-Math.sin(t), Math.cos(t)], Math.sign(g.sweep));
+        return { at: arcAt(g, which), out: which ? along : mul(along, -1), k: 1 / g.radius };
+    }
+    if (shape.kind === 'circle') throw new Error('a circle has no ends');
+    const pts = shape.kind === 'polyline' ? dedupe(shape.points) : samples(shape, 1000).points;
+    const n = pts.length;
+    if (n < 2) throw new Error('the curve is too short to measure');
+    const [p, q] = which ? [pts[n - 1], pts[n - 2]] : [pts[0], pts[1]];
+    const k = shape.kind === 'polyline' || n < 3 ? 0 : Math.abs(curvature3(which ? pts[n - 3] : pts[2], q, p));
+    return { at: p, out: norm(sub(p, q)), k };
+}

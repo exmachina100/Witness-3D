@@ -59,7 +59,7 @@ import { ACTIONS, COMMAND, VIEWPORT, keyFor, keyOf } from './keymap.js';
 import { Selection } from './Selection.js';
 import { claude, describe, MODEL, reply, request } from './ai.js';
 import { icon } from './icons.js';
-import { bridgeCurves, explode, extendCurve, filletCurve, nearestEnd, offsetCurve, splitCurve, tangentCircle, trim } from '../curveEdit.js';
+import { bridgeCurves, continuity, curvatureComb, explode, extendCurve, filletCurve, nearestEnd, offsetCurve, splitCurve, tangentCircle, trim } from '../curveEdit.js';
 import { ViewGizmo } from './ViewGizmo.js';
 import { arcPoints, circleThrough, cvPoints, ellipsePoints, endTangent, helixPoints, loops, polygonCorners, spiralAngle, tangentArc } from '../curves.js';
 
@@ -98,6 +98,7 @@ const KEYS = {
   split: [['CLICK', 'WHERE TO SPLIT'], ['ESC / ⏎', 'DONE']],
   'measure-distance': [['CLICK', 'TWO POINTS'], ['CLICK', 'AGAIN TO RESTART'], ['ESC', 'DONE']],
   'measure-radius': [['CLICK', 'A ROUND EDGE OR CURVE'], ['ESC', 'DONE']],
+  'measure-continuity': [['CLICK', 'NEAR TWO CURVE ENDS'], ['ESC', 'DONE']],
   'tangent-circle': [['CLICK', 'FIRST · SECOND CURVE · SIZE'], ['F', 'FREEZE'], ['TAB', 'RADIUS'], ['ESC', 'CANCEL']],
   extend: [['CLICK', 'NEAR AN END'], ['TYPE', 'LENGTH IN PANEL'], ['ESC / ⏎', 'DONE']],
   bridge: [['T', 'TENSION'], ['⏎ / RMB', 'OK']],
@@ -126,7 +127,7 @@ const CLICKS = { rect: 2, 'center-rect': 2, rect3: 3, circle: 2, circle2: 2, cir
 const FORMS = { revolve: true, loft: true, sweep: true };
 const PRIMS = { box: true, 'center-box': true, box3: true, cylinder: true, sphere: true };
 // Commands that aren't tools in the registry (they act on a click, not on settings).
-const EDITS = { trim: 'TRIM', extend: 'EXTEND CURVE', 'tangent-circle': 'TANGENT CIRCLE', split: 'SPLIT CURVE', 'measure-distance': 'MEASURE DISTANCE', 'measure-radius': 'MEASURE RADIUS' };
+const EDITS = { 'measure-continuity': 'MEASURE CONTINUITY', trim: 'TRIM', extend: 'EXTEND CURVE', 'tangent-circle': 'TANGENT CIRCLE', split: 'SPLIT CURVE', 'measure-distance': 'MEASURE DISTANCE', 'measure-radius': 'MEASURE RADIUS' };
 const keysHtml = id => KEYS[id].map(([k, v]) => `<kbd>${k}</kbd><span>${v}</span>`).join('');
 const BAR = [['palette', 'F', 'SEARCH'], ['tool:extrude', 'E', 'EXTRUDE'], ['tool:boolean', 'Q', 'BOOLEAN'], ['tool:fillet', 'B', 'FILLET'], ['tool:move', 'G', 'MOVE'], ['tool:rotate', 'R', 'ROTATE'], ['tool:scale', 'S', 'SCALE'], ['duplicate', '⇧D', 'DUPLICATE'], ['delete', '⇧X', 'DELETE']];
 
@@ -394,6 +395,7 @@ const SHELL = `
         <button data-toggle="faces" aria-pressed="true">FACES</button>
         <button data-toggle="xray" aria-pressed="false" title="Alt+Z">X-RAY</button>
         <button data-toggle="snap" aria-pressed="false" title="Snap without holding Ctrl">SNAP</button>
+        <button data-toggle="curvature" aria-pressed="false" title="Curvature combs on curves (Toggle Curvature)">CURVATURE</button>
       </div>
       <div class="stepper"><span>GRID</span><button data-id="grid-dec" aria-label="Smaller grid step">−</button><output data-id="grid">2.5</output><button data-id="grid-inc" aria-label="Larger grid step">+</button></div>
     </div>
@@ -598,7 +600,7 @@ export async function mount(root, backend) {
   }
 
   // --- drawing what the backend sends ---------------------------------------
-  const view = { edges: true, faces: true, xray: false, snap: false };
+  const view = { edges: true, faces: true, xray: false, snap: false, curvature: false };
   const faceMat = new THREE.MeshStandardMaterial({ color: COLORS.face, roughness: 0.85, metalness: 0, polygonOffset: true, polygonOffsetFactor: 1, polygonOffsetUnits: 1 });
   const edgeMat = new THREE.LineBasicMaterial({ color: COLORS.ink, transparent: true, opacity: 0.8 });
   const phantom = {
@@ -613,6 +615,7 @@ export async function mount(root, backend) {
     faceMat.needsUpdate = true;
     for (const b of $$('[data-toggle]')) b.setAttribute('aria-pressed', view[b.dataset.toggle]);
     scene.traverse(o => { if (o.userData.bodyEdges) o.visible = view.edges; });
+    drawCombs();
   }
 
   function meshOf(body, faces = faceMat, edges = edgeMat) {
@@ -707,6 +710,33 @@ export async function mount(root, backend) {
     const c = new THREE.CatmullRomCurve3(points.map(([u, v]) => new THREE.Vector3(u, v, 0)), closed, 'chordal');
     return c.getPoints(16 * points.length).map(p => [p.x, p.y]);
   }
+  // Plasticity's Toggle Curvature: a comb on every curve, teeth pointing into the turn and as long as
+  // the curvature is strong, joined by an envelope. One scale for all curves, so they compare.
+  const combGroup = new THREE.Group();
+  scene.add(combGroup);
+  const combMat = new THREE.LineBasicMaterial({ color: 0x6cbf5f, transparent: true, opacity: 0.7, depthTest: false });
+  function drawCombs() {
+    for (const o of [...combGroup.children]) dispose(o);
+    if (!view.curvature || !curveList.length) return;
+    const combs = curveList.filter(c => c.kind !== 'spiral').map(c => { try { return { c, comb: curvatureComb(c) }; } catch { return null; } }).filter(Boolean);
+    const kMax = Math.max(1e-12, ...combs.flatMap(x => x.comb.map(t => t.k)));
+    const box = new THREE.Box3();
+    for (const o of curveGroup.children) box.expandByObject(o);
+    const scale = 0.25 * box.getSize(new THREE.Vector3()).length() / kMax;
+    for (const { c, comb } of combs) {
+      const f = curveFrame(c), at = (p, h = 0.04) => lift(f, { x: p[0], y: p[1] }, h);
+      const teeth = [], envelope = [];
+      for (const t of comb) {
+        const tip = [t.at[0] + t.dir[0] * t.k * scale, t.at[1] + t.dir[1] * t.k * scale];
+        teeth.push(at(t.at), at(tip));
+        envelope.push(at(tip));
+      }
+      const tl = new THREE.LineSegments(new THREE.BufferGeometry().setFromPoints(teeth), combMat), el = new THREE.Line(new THREE.BufferGeometry().setFromPoints(envelope), combMat);
+      tl.renderOrder = el.renderOrder = 11;
+      combGroup.add(tl, el);
+    }
+  }
+
   async function loadCurves() {
     curveList = backend.curves ? await backend.curves() : [];
     sel.keepCurves(curveList.map(c => c.id));
@@ -727,6 +757,7 @@ export async function mount(root, backend) {
     }
     drawOverlays();
     renderOutliner();
+    drawCombs();
   }
   /** Colour curves and regions for hover and selection. */
   function paintCurves() {
@@ -1192,6 +1223,7 @@ export async function mount(root, backend) {
     if (id === 'split') return startSplit();
     if (id === 'measure-distance') return startMeasureDistance();
     if (id === 'measure-radius') return startMeasureRadius();
+    if (id === 'measure-continuity') return startMeasureContinuity();
     if (id === 'bridge') return startBridge();
     if (id === 'shell') return startShell();
     if (id === 'mirror') return startMirror();
@@ -3045,6 +3077,37 @@ export async function mount(root, backend) {
     c.cleanup = () => { line.geometry.dispose(); line.removeFromParent(); };
   }
 
+  /** Plasticity's Measure Continuity: click near where two curves meet; G0, G1 or G2 with the numbers. */
+  function startMeasureContinuity() {
+    const c = cmd = { id: 'measure-continuity', first: null };
+    lastTool = 'measure-continuity';
+    showTool('measure-continuity');
+    setState('none');
+    setHud('CLICK THE FIRST CURVE NEAR ITS END');
+    const endPick = e => {
+      const hit = pickAt(e);
+      const src = (hit?.kind === 'curve' || hit?.kind === 'region') && curveById(hit.id);
+      if (!src || !hit.point) return null;
+      const f = curveFrame(src), p = curve2d(src);
+      const s = lift(f, p[0]), t = lift(f, p[p.length - 1]);
+      return { src, end: hit.point.distanceTo(s) <= hit.point.distanceTo(t) ? 0 : 1 };
+    };
+    c.click = e => {
+      const pick = endPick(e);
+      if (!pick) { toast('CLICK A CURVE NEAR ONE OF ITS ENDS'); return true; }
+      if (!c.first || c.done) { c.first = pick; c.done = false; setHud('CLICK THE SECOND CURVE NEAR ITS END'); return true; }
+      try {
+        const r = continuity(c.first.src, c.first.end, pick.src, pick.end);
+        setHud(`${r.continuity} · GAP ${r.gap.toFixed(4)} MM · ANGLE ${r.angle.toFixed(3)}° · K ${r.ka.toFixed(4)} / ${r.kb.toFixed(4)}`);
+        setState('updated');
+      } catch (err) { setHud(say(err)); setState('failed'); }
+      c.done = true;
+      return true;
+    };
+    c.finish = () => endCmd(null);
+    c.abort = () => endCmd(null);
+  }
+
   /** Plasticity's Measure Radius: click a circle or arc, or a round edge of a solid. */
   function startMeasureRadius() {
     const c = cmd = { id: 'measure-radius' };
@@ -3799,6 +3862,7 @@ export async function mount(root, backend) {
         if (arg === 'ortho') setOrtho(!camera.isOrthographicCamera);
         else if (arg === 'focus') focus();
         else if (arg === 'xray') { view.xray = !view.xray; applyView(); }
+        else if (arg === 'curvature') { view.curvature = !view.curvature; applyView(); }
         else setView(arg);
         return true;
       case 'mode': sel.setMode(arg); renderModes(); hover = null; drawOverlays(); return true;
@@ -3836,7 +3900,7 @@ export async function mount(root, backend) {
       case 'trim': await startTool('trim'); return true;
       case 'extend': await startTool('extend'); return true;
       case 'split': await startTool('split'); return true;
-      case 'measure': await startTool(arg === 'radius' ? 'measure-radius' : 'measure-distance'); return true;
+      case 'measure': await startTool(arg === 'radius' ? 'measure-radius' : arg === 'continuity' ? 'measure-continuity' : 'measure-distance'); return true;
       case 'explode': await explodeSelected(); return true;
       case 'hide': setHidden(sel.bodies, true); return true;
       case 'hide-others': setHidden(current.map(b => b.id).filter(id => !sel.bodies.includes(id)), true); return true;
