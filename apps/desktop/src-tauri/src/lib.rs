@@ -182,6 +182,20 @@ async fn commit_remove_faces(
 }
 
 #[tauri::command]
+async fn mesh_bodies(
+    model: State<'_, Model>,
+    ids: Vec<u32>,
+    tolerance: f64,
+) -> Result<Vec<api::MeshOut>, api::ApiError> {
+    on_model(&model, move |m| api::mesh_bodies(m, ids, tolerance)).await?
+}
+
+#[tauri::command]
+async fn write_export(path: std::path::PathBuf, data: Vec<u8>) -> Result<(), api::ApiError> {
+    api::write_export(path, data)
+}
+
+#[tauri::command]
 async fn replace_curves(
     model: State<'_, Model>,
     req: api::ReplaceCurvesRequest,
@@ -395,6 +409,8 @@ pub fn run() {
             preview_offset,
             commit_offset,
             replace_curves,
+            mesh_bodies,
+            write_export,
             preview_remove_faces,
             commit_remove_faces,
             preview_primitive,

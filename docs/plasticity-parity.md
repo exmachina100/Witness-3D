@@ -4,7 +4,7 @@ Rebuilt 2026-10-13 from two sources, so nothing is left out by memory:
 
 1. **The official manual** (doc.plasticity.xyz, v26.1): its navigation lists every command, and each
    tool page gives its click steps and option keys. The tables below follow the manual's sections.
-2. **The REA package listing** of Plasticity 26.1.4 (`Plasticity-26.1.4-full.nupkg`, sha256
+2. **The REA package listings** of Plasticity 26.1.4 (the `.nupkg`, and the machine-wide `Plasticity.msi`) (`Plasticity-26.1.4-full.nupkg`, sha256
    `f5b34e8b…`): file names only, as in [plasticity-26-teardown.md](plasticity-26-teardown.md). Its
    `renderer/img/` holds one illustration per command option; those names are the "26.1 options"
    column. Nothing was decompiled; the JavaScript ships as V8 bytecode and stays unread.
@@ -47,7 +47,7 @@ splitting; see Solid › Imprint).
 | Cylinder | centre, drag radius, drag height; Tab, V vertical, X/Y/Z; Q W Shift+E B Shift+Q T; F radius, D height; dots | Partial: yellow dots, T |
 | Sphere | centre, drag size; Tab, X/Y/Z; boolean keys; D diameter; dot | Partial: yellow dot, T |
 | Measure Distance · Measure Radius | | Done |
-| Measure Continuity · Toggle Curvature | | Missing |
+| Measure Continuity · Toggle Curvature | | Done (combs on the convex side; G0/G1/G2 exact for lines and arcs) |
 
 ## 2. Common commands
 
@@ -111,9 +111,33 @@ splitting; see Solid › Imprint).
 |---|---|---|
 | Navigation | View Cube, Camera Settings, Operating the Viewport | Done (axis gizmo, zoom, pan, ortho, frame, home) |
 | Selection | Selection Mode, Selecting Objects, Group Objects, Toggle Object States, Focus and Isolate | Modes and hide done; groups, lock, isolate missing |
-| Menus | P-Menu, Radial Menu, Command Palette, Command Bar | Palette and bar done; P-Menu and radial missing |
+| Menus | P-Menu, Radial Menu, Command Palette, Command Bar | Palette and bar done; toolbar grouped in tool families with variant strips; P-Menu and radial missing |
 | Shader modes | Shader Mode, Render Mode, Curvature (REA: matcap, silhouette, isophotes, zebra stripes, reflection check, topographic, draft, face direction) | Missing |
 | Materials and lighting | Assets (REA: 22 PBR materials, 14 HDR environments) | Missing (use CC0 assets, not Plasticity's) |
 | Grid, units, snap, construction plane | | Done |
 | Import / export | STEP in/out done; OBJ export (REA: angle tolerance, inflection, max width), SVG export, hidden-line export, reference images | Missing except STEP |
 | Integrations | Blender bridge done; Cinema 4D bridge missing | Partial |
+
+## 6. Exchange and distribution (from the 26.1.4 MSI)
+
+Plasticity imports five CAD formats and exports four through HOOPS Exchange; Witness 3D maps each to
+OpenCascade where an open path exists. "Desktop" means OCCT on the Rust side; "browser" means
+opencascade.js (which lacks IGES).
+
+| Format | Plasticity 26.1.4 | Witness 3D plan | Status |
+|---|---|---|---|
+| STEP | import, export | `STEPControl` in both builds | Done |
+| IGES | import, export | `IGESControl` (TKDEIGES) on the desktop, through the STEP dialogs by extension | Done on the desktop |
+| ACIS SAT | import, export | No open implementation | Not planned |
+| Parasolid X_T | import, export | No open implementation | Not planned |
+| DWG / DXF | DWG import (ODA) | DXF read and write in-house; DWG needs the ODA SDK | Missing (DXF) |
+| OBJ | export (manual: Export OBJ; options angle tolerance, inflection, max width) | Re-meshed at the chosen tolerance in each build; max width splits long edges; written by `web/src/meshExport.js` | Done (the desktop mesher takes no separate angle; inflection not yet) |
+| SVG, hidden line | export (manual) | Project edges and silhouettes to 2D | Missing |
+| STL, glTF, 3MF | not listed | Binary STL done with OBJ; glTF and 3MF later | STL done |
+
+| Distribution | Plasticity 26.1.4 | Witness 3D plan | Status |
+|---|---|---|---|
+| Installers | per-user Squirrel `Setup.exe` with auto-update; machine-wide WiX MSI wrapping it | Tauri bundler: NSIS per-user and WiX MSI per-machine; Tauri updater plugin | Missing |
+| File association | registered by the app at run time | `.w3d` through the bundler's `fileAssociations`, so it's there from install | Missing |
+| Explorer thumbnails | `thumbnail_provider.dll` COM handler, registered with regsvr32 | A small thumbnail handler that reads the preview PNG a `.w3d` file stores | Missing |
+| Graphics fallback | ANGLE, then SwiftShader | WebView2 brings its own GPU fallback; the browser build needs WebGL2 | Covered by the platform |

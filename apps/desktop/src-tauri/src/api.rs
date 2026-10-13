@@ -520,7 +520,7 @@ pub fn redo(m: &Model) -> Result<Vec<Body>, String> {
 pub fn export_step(m: &Model, id: BodyId, path: PathBuf) -> Result<(), String> {
     m.call(move |doc| {
         let solid = doc.get(id).ok_or("no such body")?;
-        doc.kernel.write_step(solid, &path).map_err(|e| e.to_string())
+        if is_iges(&path) { doc.kernel.write_iges(solid, &path) } else { doc.kernel.write_step(solid, &path) }.map_err(|e| e.to_string())
     })
 }
 
@@ -584,9 +584,15 @@ pub fn open(m: &Model, path: PathBuf) -> Result<Vec<Body>, String> {
 }
 
 /// Add the STEP file's geometry as one new body, as an undoable step.
+/// Whether a path names an IGES file; anything else is read and written as STEP.
+fn is_iges(path: &std::path::Path) -> bool {
+    matches!(path.extension().and_then(|e| e.to_str()).map(|e| e.to_ascii_lowercase()).as_deref(), Some("igs" | "iges"))
+}
+
+/// Import a STEP or IGES file (by its extension) as a new body.
 pub fn import_step(m: &Model, path: PathBuf) -> Result<Committed, String> {
     m.call(move |doc| {
-        let solid = doc.kernel.read_step(&path).map_err(|e| e.to_string())?;
+        let solid = if is_iges(&path) { doc.kernel.read_iges(&path) } else { doc.kernel.read_step(&path) }.map_err(|e| e.to_string())?;
         let id = doc.add(solid);
         Ok(Committed { id, scene: bodies(doc)? })
     })
@@ -686,11 +692,11 @@ pub struct PrimitiveRequest {
     pub shape: PrimitiveShape,
     #[serde(default)]
     pub target: Option<BodyId>,
-    #[serde(default = "new_op")]
+    #[serde(default = "primitive_new_op")]
     pub op: OpChoice,
 }
 
-fn new_op() -> OpChoice { OpChoice::New }
+fn primitive_new_op() -> OpChoice { OpChoice::New }
 
 impl PrimitiveRequest {
     fn primitive(&self) -> Result<Primitive, ApiError> {
@@ -837,4 +843,31 @@ pub fn commit_remove_faces(m: &Model, req: RemoveFacesRequest) -> Result<Committ
         let id = doc.commit_remove_faces(req.body, &req.faces)?;
         Ok(Committed { id, scene: bodies(doc)? })
     })
+}
+
+/// A body's triangles for export, at `tolerance` mm from the true surface.
+#[derive(Serialize, Debug)]
+pub struct MeshOut {
+    pub id: BodyId,
+    pub positions: Vec<f32>,
+    pub indices: Vec<u32>,
+}
+
+pub fn mesh_bodies(m: &Model, ids: Vec<BodyId>, tolerance: f64) -> Result<Vec<MeshOut>, ApiError> {
+    if !(tolerance > 0.0) || !tolerance.is_finite() { return Err(KernelError::Invalid("the tolerance must be greater than zero").into()) }
+    m.call(move |doc| {
+        ids.iter().map(|&id| {
+            let solid = doc.get(id).ok_or(KernelError::Invalid("that body no longer exists"))?;
+            let t = doc.kernel.tessellate(solid, tolerance)?;
+            Ok(MeshOut { id, positions: t.positions.iter().flatten().map(|&c| c as f32).collect(), indices: t.indices })
+        }).collect()
+    })
+}
+
+/// Write an exported mesh the viewport made, to a path the user chose in the save dialog. Only mesh
+/// formats, so this can't be turned into writing anything anywhere.
+pub fn write_export(path: PathBuf, data: Vec<u8>) -> Result<(), ApiError> {
+    let ext = path.extension().and_then(|e| e.to_str()).map(|e| e.to_ascii_lowercase());
+    if !matches!(ext.as_deref(), Some("obj" | "stl")) { return Err(KernelError::Invalid("exports are .obj or .stl files").into()) }
+    std::fs::write(&path, data).map_err(|e| ApiError::from(e.to_string()))
 }

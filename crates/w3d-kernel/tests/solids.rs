@@ -168,3 +168,16 @@ fn a_closed_control_point_curve_extrudes() {
     assert!(v > 5.0 * PI * 25.0 && v < 5.0 * 400.0, "volume {v}");
     assert!(k.is_valid(&s));
 }
+
+#[test]
+fn iges_round_trip_keeps_the_solid() {
+    let k = Occt;
+    let path = std::env::temp_dir().join("w3d-round-trip.igs");
+    let original = k.extrude(&Profile::Circle { center: (0.0, 0.0), radius: 5.0 }, &ground(), &Extent::to(10.0)).unwrap();
+    k.write_iges(&original, &path).unwrap();
+    assert!(std::fs::read_to_string(&path).unwrap().lines().next().unwrap().len() >= 72, "IGES is fixed-width 80-column text");
+    let back = k.read_iges(&path).unwrap();
+    // IGES carries surfaces; after repair the cylinder's faces come back.
+    assert!(k.face_count(&back) >= 3);
+    assert!(k.read_iges(&std::env::temp_dir().join("w3d-missing.igs")).is_err());
+}

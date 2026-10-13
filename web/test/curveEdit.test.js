@@ -170,3 +170,24 @@ test('split cuts lines and arcs exactly where clicked', async () => {
     assert.throws(() => splitCurve(line([0, 0], [1, 0]), [0, 0]), /end of the line/);
     assert.throws(() => splitCurve({ ...plane, kind: 'circle', center: [0, 0], radius: 1 }, [1, 0]), /split lines/);
 });
+
+test('curvature: a circle is 1/r everywhere, a line 0; continuity grades a joint G0, G1 or G2', async () => {
+    const { curvatureComb, continuity } = await import('../src/curveEdit.js');
+    const circle = { ...plane, kind: 'circle', center: [0, 0], radius: 4 };
+    assert.ok(curvatureComb(circle).every(t => Math.abs(t.k - 0.25) < 1e-12));
+    assert.ok(curvatureComb(line([0, 0], [10, 0])).every(t => t.k === 0));
+    const arcComb = curvatureComb({ ...plane, kind: 'arc', start: [5, 0], mid: [0, 5], end: [-5, 0] });
+    assert.ok(arcComb.every(t => Math.abs(t.k - 0.2) < 1e-12 && Math.abs(Math.hypot(...t.at) - 5) < 1e-9));
+
+    // A line into a tangent arc: G1 (curvature jumps from 0 to 1/5).
+    const l = line([-10, 5], [0, 5]), arc = { ...plane, kind: 'arc', start: [0, 5], mid: [5 * Math.SQRT1_2, 5 * Math.SQRT1_2], end: [5, 0] };
+    const r = continuity(l, 1, arc, 0);
+    assert.equal(r.continuity, 'G1');
+    close(r.gap, 0, 1e-9);
+    assert.ok(r.angle < 0.1);
+    // A corner: G0. Apart: none.
+    assert.equal(continuity(line([0, 0], [10, 0]), 1, line([10, 0], [10, 10]), 0).continuity, 'G0');
+    assert.equal(continuity(line([0, 0], [10, 0]), 1, line([11, 0], [20, 0]), 0).continuity, 'NONE');
+    // Straight on: G2 (both curvatures 0).
+    assert.equal(continuity(line([0, 0], [10, 0]), 1, line([10, 0], [20, 0]), 0).continuity, 'G2');
+});

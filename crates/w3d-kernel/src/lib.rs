@@ -276,6 +276,13 @@ pub trait Kernel {
     fn tessellate(&self, s: &Self::Solid, tolerance: f64) -> Result<Tessellation, KernelError>;
     fn write_step(&self, s: &Self::Solid, path: &std::path::Path) -> Result<(), KernelError>;
     fn read_step(&self, path: &std::path::Path) -> Result<Self::Solid, KernelError>;
+    /// IGES out and in (Plasticity 26 reads and writes it through HOOPS Exchange; see the teardown).
+    fn write_iges(&self, _s: &Self::Solid, _path: &std::path::Path) -> Result<(), KernelError> {
+        Err(KernelError::Invalid("this kernel cannot write IGES"))
+    }
+    fn read_iges(&self, _path: &std::path::Path) -> Result<Self::Solid, KernelError> {
+        Err(KernelError::Invalid("this kernel cannot read IGES"))
+    }
     /// The exact shape in the kernel's own text format, for the native file.
     /// Names the format [`Kernel::to_native`] writes, so a file is only read by a kernel that can.
     fn native_format(&self) -> &'static str;

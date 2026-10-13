@@ -49,6 +49,24 @@ The option-illustration asset names also list command options that 26.1 has and 
 - export-mesh angle tolerance, inflection and max width;
 - transform-face step.
 
+## The machine-wide MSI (added 2026-10-13)
+
+`Plasticity.msi` from the same v26.1.4 release, 293,920,768 bytes, sha256
+`dfd7b2517b9cf79c878b9fc8400a350924515f5a30e8e1644abbc38f115a2f70` (matches GitHub's digest for the
+release asset). Read with Windows Installer's read-only database API: tables only, nothing installed
+or run. The dump is in [rea/plasticity-26.1.4-msi-tables.txt](rea/plasticity-26.1.4-msi-tables.txt).
+
+| Finding | Evidence |
+|---|---|
+| A WiX MSI wraps the per-user Squirrel app for machine-wide installs, with auto-update on | `ProductName` "Plasticity (Machine - MSI)", `ALLUSERS=1`, `AUTOUPDATEENABLED=1`, `UPDATERUSERGROUP=Users`; `Squirrel.exe` 2.0.1.1 in the File table |
+| Windows Explorer thumbnails for `.plasticity` files | Custom actions run `regsvr32 /s …\.webpack\main	humbnail_provider.dll` (and `/u` on uninstall) |
+| No file association in the installer | No Extension, ProgId or Verb tables; the app must register `.plasticity` itself |
+| CAD import through HOOPS Exchange 25.8: STEP, IGES, ACIS SAT, Parasolid X_T, DWG, plus `rdmstep30` | Readers `stepstep30`, `igestep30`, `satstep31`, `xtstep30`, `dwgstep30`, `rdmstep30` (all 25.8.0.19) |
+| CAD export: IGES, SAT, STEP, X_T | Writers `wiges`, `wsat`, `wstp`, `wxt` (25.8.0.19); `hepb` / `HEPBMP` bridge them to Parasolid |
+| Graphics fallbacks: ANGLE on Direct3D, then SwiftShader Vulkan | `libEGL`, `libGLESv2` 2.1.21343, `d3dcompiler_47`, `vk_swiftshader`, `vulkan-1` |
+| Threading: oneTBB and OpenMP | `tbb12` / `tbbmalloc` 2022.2, `vcomp140` |
+| Release line | 26.1.0 (Apr 16), 26.1.1, 26.1.2, 26.1.3 (Apr 21) and 26.1.4 (Aug 14, 2026) on GitHub |
+
 ## What it means for Witness 3D
 
 Every geometry SDK in 26.1.4 is commercial and licensed per seat. Witness 3D stays on OpenCascade (LGPL), with the kernel behind the `Kernel` trait as before. Here is how each 26.1.4 capability maps onto open pieces:

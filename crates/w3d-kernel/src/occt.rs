@@ -304,6 +304,20 @@ impl Kernel for Occt {
         s.write_step(path).map_err(failed)
     }
 
+    fn write_iges(&self, s: &Shape, path: &FilePath) -> Result<(), KernelError> {
+        s.write_iges(path).map_err(failed)
+    }
+
+    fn read_iges(&self, path: &FilePath) -> Result<Shape, KernelError> {
+        let shape = Shape::read_iges(path).map_err(|_| KernelError::File("the IGES file could not be read".into()))?;
+        // IGES often arrives as loose faces with gaps; repair as STEP is repaired.
+        let shape = shape.healed().map_err(|e| KernelError::File(format!("the IGES geometry could not be repaired: {e}")))?;
+        if shape.faces().next().is_none() {
+            return Err(KernelError::File("the IGES file has no surfaces".into()));
+        }
+        Ok(shape)
+    }
+
     fn read_step(&self, path: &FilePath) -> Result<Shape, KernelError> {
         let shape = Shape::read_step(path).map_err(|_| KernelError::File("the STEP file could not be read".into()))?;
         // Exported files often carry small gaps and loose tolerances; repair them on the way in,

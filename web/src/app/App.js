@@ -59,8 +59,10 @@ import { ACTIONS, COMMAND, VIEWPORT, keyFor, keyOf } from './keymap.js';
 import { Selection } from './Selection.js';
 import { claude, describe, MODEL, reply, request } from './ai.js';
 import { icon } from './icons.js';
-import { bridgeCurves, explode, extendCurve, filletCurve, nearestEnd, offsetCurve, splitCurve, tangentCircle, trim } from '../curveEdit.js';
+import { limitEdges, toObj, toStl } from '../meshExport.js';
+import { bridgeCurves, continuity, curvatureComb, explode, extendCurve, filletCurve, nearestEnd, offsetCurve, splitCurve, tangentCircle, trim } from '../curveEdit.js';
 import { ViewGizmo } from './ViewGizmo.js';
+import { Toolbar } from './Toolbar.js';
 import { arcPoints, circleThrough, cvPoints, ellipsePoints, endTangent, helixPoints, loops, polygonCorners, spiralAngle, tangentArc } from '../curves.js';
 
 const KEYS = {
@@ -98,6 +100,8 @@ const KEYS = {
   split: [['CLICK', 'WHERE TO SPLIT'], ['ESC / ⏎', 'DONE']],
   'measure-distance': [['CLICK', 'TWO POINTS'], ['CLICK', 'AGAIN TO RESTART'], ['ESC', 'DONE']],
   'measure-radius': [['CLICK', 'A ROUND EDGE OR CURVE'], ['ESC', 'DONE']],
+  'measure-continuity': [['CLICK', 'NEAR TWO CURVE ENDS'], ['ESC', 'DONE']],
+  'export-mesh': [['TYPE', 'OPTIONS IN PANEL'], ['⏎ / RMB', 'SAVE'], ['ESC', 'CANCEL']],
   'tangent-circle': [['CLICK', 'FIRST · SECOND CURVE · SIZE'], ['F', 'FREEZE'], ['TAB', 'RADIUS'], ['ESC', 'CANCEL']],
   extend: [['CLICK', 'NEAR AN END'], ['TYPE', 'LENGTH IN PANEL'], ['ESC / ⏎', 'DONE']],
   bridge: [['T', 'TENSION'], ['⏎ / RMB', 'OK']],
@@ -126,18 +130,16 @@ const CLICKS = { rect: 2, 'center-rect': 2, rect3: 3, circle: 2, circle2: 2, cir
 const FORMS = { revolve: true, loft: true, sweep: true };
 const PRIMS = { box: true, 'center-box': true, box3: true, cylinder: true, sphere: true };
 // Commands that aren't tools in the registry (they act on a click, not on settings).
-const EDITS = { trim: 'TRIM', extend: 'EXTEND CURVE', 'tangent-circle': 'TANGENT CIRCLE', split: 'SPLIT CURVE', 'measure-distance': 'MEASURE DISTANCE', 'measure-radius': 'MEASURE RADIUS' };
+const EDITS = { 'export-mesh': 'EXPORT MESH', 'measure-continuity': 'MEASURE CONTINUITY', trim: 'TRIM', extend: 'EXTEND CURVE', 'tangent-circle': 'TANGENT CIRCLE', split: 'SPLIT CURVE', 'measure-distance': 'MEASURE DISTANCE', 'measure-radius': 'MEASURE RADIUS' };
 const keysHtml = id => KEYS[id].map(([k, v]) => `<kbd>${k}</kbd><span>${v}</span>`).join('');
-const BAR = [['palette', 'F', 'SEARCH'], ['tool:extrude', 'E', 'EXTRUDE'], ['tool:boolean', 'Q', 'BOOLEAN'], ['tool:fillet', 'B', 'FILLET'], ['tool:move', 'G', 'MOVE'], ['tool:rotate', 'R', 'ROTATE'], ['tool:scale', 'S', 'SCALE'], ['duplicate', '⇧D', 'DUPLICATE'], ['delete', '⇧X', 'DELETE']];
+// The Command Bar, exactly the manual's list (Plasticity Essentials › Command Bar).
+const BAR = [['palette', 'F', 'SEARCH'], ['tool:move', 'G', 'MOVE'], ['tool:rotate', 'R', 'ROTATE'], ['tool:scale', 'S', 'SCALE'], ['duplicate', '⇧D', 'DUPLICATE'], ['tool:boolean', 'Q', 'BOOLEAN'], ['tool:rect-array', '', 'RECTANGULAR ARRAY'], ['tool:radial-array', '', 'RADIAL ARRAY'], ['suggest', '⇧F', 'SUGGESTED COMMANDS']];
 
 const SHELL = `
 <div class="w3d">
   <header class="bar">
     <div class="brand">WITNESS 3D</div>
-    <nav class="tools" aria-label="Tools">
-      ${[['rect', '⇧Q', 'RECT'], ['circle', '⇧W', 'CIRCLE'], ['line', '⇧A', 'LINE']].map(([id, k, l]) => `<button class="tool" data-tool="${id}" aria-pressed="false" aria-label="${l}" title="${l} (${k}): draw a ${DRAW[id].toLowerCase()}">${icon(id)}<kbd>${k}</kbd><span class="lbl">${l}</span></button>`).join('')}
-      ${TOOLS.filter(t => t.toolbar !== false).map(t => `<button class="tool" data-tool="${t.id}" aria-pressed="false" aria-label="${t.label}" title="${t.label} (${t.key.toUpperCase()}): ${t.summary}">${icon(t.id)}<kbd>${t.key.toUpperCase()}</kbd><span class="lbl">${t.label}</span></button>`).join('\n      ')}
-    </nav>
+    <nav class="tools" data-id="tools" aria-label="Tools"></nav>
     <span class="spacer"></span>
     <button class="export" data-action="ask" title="Ask for a command in words (Ctrl+K)">${icon('ask')}ASK</button>
     <button class="export" data-id="file-new" hidden>${icon('file-new')}NEW</button>
@@ -172,10 +174,10 @@ const SHELL = `
     <span class="hud" data-id="hud" data-idle>SELECT · F SEARCH</span>
     <div class="nav" data-id="nav" aria-label="View navigation"></div>
     <div class="modes" role="group" aria-label="Selection mode">
-      <button data-mode="point" aria-pressed="true" title="1 · ⇧1 toggles">1 PT</button><button data-mode="edge" aria-pressed="true" title="2 · ⇧2 toggles">2 EDGE</button><button data-mode="face" aria-pressed="true" title="3 · ⇧3 toggles">3 FACE</button><button data-mode="solid" aria-pressed="true" title="4 · ⇧4 toggles">4 SOLID</button><button data-mode="all" aria-pressed="true" title="5">5 ALL</button>
+      ${[['point', 'POINTS', '1'], ['edge', 'EDGES', '2'], ['face', 'FACES', '3'], ['solid', 'SOLIDS', '4'], ['all', 'ALL', '5']].map(([m, name, k]) => `<button data-mode="${m}" aria-pressed="true" aria-label="Select ${name.toLowerCase()}" title="${name} (${k}${m === 'all' ? '' : ` · ⇧${k} toggles`})">${icon(`mode-${m}`)}</button>`).join('')}
     </div>
     <div class="cmdbar" role="toolbar" aria-label="Command bar">
-      ${BAR.map(([a, k, l]) => `<button data-action="${a}" aria-label="${l}" title="${l} (${k})">${icon(a === 'palette' ? 'search' : a.replace('tool:', ''))}<kbd>${k}</kbd></button>`).join('')}
+      ${BAR.map(([a, k, l]) => `<button data-action="${a}" aria-label="${l}" title="${l}${k ? ` (${k})` : ''}">${icon(a === 'palette' ? 'search' : a === 'suggest' ? 'suggest' : a.replace('tool:', ''))}${k ? `<kbd>${k}</kbd>` : ''}</button>`).join('')}
     </div>
     <div class="keys" data-id="keys">${keysHtml('idle')}</div>
     <span class="snap-tag" data-id="snap-tag" hidden></span>
@@ -262,6 +264,14 @@ const SHELL = `
       <div class="field"><label for="w3d-off-distance">DISTANCE</label><input id="w3d-off-distance" data-id="off-distance" type="number" step="0.5" value="0"></div>
       <div class="field"><label for="w3d-off-angle">ANGLE ADJACENT °</label><input id="w3d-off-angle" data-id="off-angle" type="number" step="1" value="0"></div>
       <div class="field"><label>FACES</label><output data-id="off-count">0</output></div>
+    </div>
+    <div class="sec" data-panel="export-mesh" hidden>
+      <span class="hint" data-id="mx-hint">—</span>
+      <span class="label">FORMAT</span>
+      <div class="seg" role="group" aria-label="Mesh format"><button data-mxf="obj" aria-pressed="true">OBJ</button><button data-mxf="stl" aria-pressed="false">STL</button></div>
+      <div class="field"><label for="w3d-mx-tol">TOLERANCE</label><input id="w3d-mx-tol" data-id="mx-tol" type="number" step="0.01" min="0.001" value="0.05"></div>
+      <div class="field"><label for="w3d-mx-angle">ANGLE °</label><input id="w3d-mx-angle" data-id="mx-angle" type="number" step="1" min="0.5" value="15"></div>
+      <div class="field"><label for="w3d-mx-width">MAX WIDTH</label><input id="w3d-mx-width" data-id="mx-width" type="number" step="1" min="0" value="0"></div>
     </div>
     <div class="sec" data-panel="offset-curve" hidden>
       <span class="hint" data-id="oc-hint">—</span>
@@ -394,6 +404,7 @@ const SHELL = `
         <button data-toggle="faces" aria-pressed="true">FACES</button>
         <button data-toggle="xray" aria-pressed="false" title="Alt+Z">X-RAY</button>
         <button data-toggle="snap" aria-pressed="false" title="Snap without holding Ctrl">SNAP</button>
+        <button data-toggle="curvature" aria-pressed="false" title="Curvature combs on curves (Toggle Curvature)">CURVATURE</button>
       </div>
       <div class="stepper"><span>GRID</span><button data-id="grid-dec" aria-label="Smaller grid step">−</button><output data-id="grid">2.5</output><button data-id="grid-inc" aria-label="Larger grid step">+</button></div>
     </div>
@@ -462,6 +473,15 @@ export async function mount(root, backend) {
   }
   const $ = id => root.querySelector(`[data-id="${id}"]`);
   const $$ = sel => [...root.querySelectorAll(sel)];
+
+  // The toolbar: Plasticity's families of tools, each one button with its variants a click away.
+  const NAMES = { rect: 'CORNER RECTANGLE', circle: 'CENTER CIRCLE', line: 'LINE', explode: 'EXPLODE', 'offset-curve': 'OFFSET CURVE', 'fillet-curve': 'FILLET CURVE', bridge: 'BRIDGE CURVES' };
+  const ICON_OF = { 'measure-distance': 'measure', 'measure-radius': 'measure', 'measure-continuity': 'measure' };
+  const toolbar = new Toolbar(root.querySelector('[data-id="tools"]'), root, id => ({
+    name: NAMES[id] ?? EDITS[id] ?? DRAW[id] ?? toolInfo(id)?.label ?? id.toUpperCase(),
+    key: keyFor(`draw:${id}`) || keyFor(`tool:${id}`) || (toolInfo(id)?.key ?? '').toUpperCase().replaceAll('-', ' '),
+    icon: icon(ICON_OF[id] ?? id),
+  }), id => (id === 'explode' ? explodeSelected() : startTool(id)));
   const say = e => String(e?.message ?? e).toUpperCase();
 
   const toast = msg => {
@@ -598,7 +618,7 @@ export async function mount(root, backend) {
   }
 
   // --- drawing what the backend sends ---------------------------------------
-  const view = { edges: true, faces: true, xray: false, snap: false };
+  const view = { edges: true, faces: true, xray: false, snap: false, curvature: false };
   const faceMat = new THREE.MeshStandardMaterial({ color: COLORS.face, roughness: 0.85, metalness: 0, polygonOffset: true, polygonOffsetFactor: 1, polygonOffsetUnits: 1 });
   const edgeMat = new THREE.LineBasicMaterial({ color: COLORS.ink, transparent: true, opacity: 0.8 });
   const phantom = {
@@ -613,6 +633,7 @@ export async function mount(root, backend) {
     faceMat.needsUpdate = true;
     for (const b of $$('[data-toggle]')) b.setAttribute('aria-pressed', view[b.dataset.toggle]);
     scene.traverse(o => { if (o.userData.bodyEdges) o.visible = view.edges; });
+    drawCombs();
   }
 
   function meshOf(body, faces = faceMat, edges = edgeMat) {
@@ -707,6 +728,33 @@ export async function mount(root, backend) {
     const c = new THREE.CatmullRomCurve3(points.map(([u, v]) => new THREE.Vector3(u, v, 0)), closed, 'chordal');
     return c.getPoints(16 * points.length).map(p => [p.x, p.y]);
   }
+  // Plasticity's Toggle Curvature: a comb on every curve, teeth on the outside of each bend and as long as
+  // the curvature is strong, joined by an envelope. One scale for all curves, so they compare.
+  const combGroup = new THREE.Group();
+  scene.add(combGroup);
+  const combMat = new THREE.LineBasicMaterial({ color: 0x6cbf5f, transparent: true, opacity: 0.7, depthTest: false });
+  function drawCombs() {
+    for (const o of [...combGroup.children]) dispose(o);
+    if (!view.curvature || !curveList.length) return;
+    const combs = curveList.filter(c => c.kind !== 'spiral').map(c => { try { return { c, comb: curvatureComb(c) }; } catch { return null; } }).filter(Boolean);
+    const kMax = Math.max(1e-12, ...combs.flatMap(x => x.comb.map(t => t.k)));
+    const box = new THREE.Box3();
+    for (const o of curveGroup.children) box.expandByObject(o);
+    const scale = 0.25 * box.getSize(new THREE.Vector3()).length() / kMax;
+    for (const { c, comb } of combs) {
+      const f = curveFrame(c), at = (p, h = 0.04) => lift(f, { x: p[0], y: p[1] }, h);
+      const teeth = [], envelope = [];
+      for (const t of comb) {
+        const tip = [t.at[0] + t.dir[0] * t.k * scale, t.at[1] + t.dir[1] * t.k * scale];
+        teeth.push(at(t.at), at(tip));
+        envelope.push(at(tip));
+      }
+      const tl = new THREE.LineSegments(new THREE.BufferGeometry().setFromPoints(teeth), combMat), el = new THREE.Line(new THREE.BufferGeometry().setFromPoints(envelope), combMat);
+      tl.renderOrder = el.renderOrder = 11;
+      combGroup.add(tl, el);
+    }
+  }
+
   async function loadCurves() {
     curveList = backend.curves ? await backend.curves() : [];
     sel.keepCurves(curveList.map(c => c.id));
@@ -727,6 +775,7 @@ export async function mount(root, backend) {
     }
     drawOverlays();
     renderOutliner();
+    drawCombs();
   }
   /** Colour curves and regions for hover and selection. */
   function paintCurves() {
@@ -1148,7 +1197,7 @@ export async function mount(root, backend) {
     else { h.textContent = 'SELECT · F SEARCH'; h.dataset.idle = ''; }
   }
   function showTool(id) {
-    for (const b of $$('[data-tool]')) b.setAttribute('aria-pressed', b.dataset.tool === id);
+    toolbar.setActive(id);
     for (const el of $$('[data-panel]')) el.hidden = el.dataset.panel !== (id === 'spiral' ? 'spiral' : DRAW[id] ? 'draw' : FORMS[id] ? 'form' : PRIMS[id] ? 'primitive' : id);
     $('keys').innerHTML = keysHtml(KEYS[id] ? id : 'idle');
     const name = !id ? 'SELECT' : EDITS[id] ?? DRAW[id] ?? toolInfo(id).label;
@@ -1192,6 +1241,8 @@ export async function mount(root, backend) {
     if (id === 'split') return startSplit();
     if (id === 'measure-distance') return startMeasureDistance();
     if (id === 'measure-radius') return startMeasureRadius();
+    if (id === 'measure-continuity') return startMeasureContinuity();
+    if (id === 'export-mesh') return startExportMesh();
     if (id === 'bridge') return startBridge();
     if (id === 'shell') return startShell();
     if (id === 'mirror') return startMirror();
@@ -3045,6 +3096,69 @@ export async function mount(root, backend) {
     c.cleanup = () => { line.geometry.dispose(); line.removeFromParent(); };
   }
 
+  /**
+   * Plasticity's Export OBJ (and STL), with its export-mesh options: the tolerance from the true
+   * surface, the angle between neighbouring normals, and a max width that splits longer edges (0 is
+   * off). Exports the selected solids, or all of them.
+   */
+  function startExportMesh() {
+    if (!backend.meshBodies) return toast('MESH EXPORT IS NOT IN THIS BUILD YET');
+    const ids = (sel.bodies.length ? sel.bodies : current.map(b => b.id)).filter(id => !hidden.has(id));
+    if (!ids.length) return toast('NOTHING TO EXPORT');
+    const c = cmd = { id: 'export-mesh', format: 'obj' };
+    lastTool = 'export-mesh';
+    showTool('export-mesh');
+    setState('none');
+    $('mx-hint').textContent = `${ids.length} SOLID${ids.length > 1 ? 'S' : ''}`;
+    setHud('EXPORT MESH · ⏎ TO SAVE');
+    const sync = () => { for (const b of $$('[data-mxf]')) b.setAttribute('aria-pressed', b.dataset.mxf === c.format); };
+    c.key = action => { if (action === 'obj' || action === 'stl') { c.format = action; sync(); return true; } return false; };
+    c.finish = async () => {
+      const tolerance = num('mx-tol'), angle = num('mx-angle') * DEG, maxWidth = num('mx-width');
+      try {
+        const meshes = (await backend.meshBodies(ids, { tolerance, angle })).map(m => ({ name: label(m.id), ...limitEdges(m.positions, m.indices, maxWidth) }));
+        const triangles = meshes.reduce((n, m) => n + m.indices.length / 3, 0);
+        const name = `witness3d-${ids.length === 1 ? label(ids[0]).toLowerCase() : 'model'}.${c.format}`;
+        const msg = await backend.saveExport(name, c.format === 'obj' ? toObj(meshes) : toStl(meshes));
+        endCmd(msg ? 'committed' : 'cancelled');
+        if (msg) toast(`${msg} · ${triangles} TRIANGLES`);
+      } catch (e) { setState('failed'); toast(say(e)); }
+    };
+    c.abort = () => endCmd('cancelled');
+    sync();
+  }
+
+  /** Plasticity's Measure Continuity: click near where two curves meet; G0, G1 or G2 with the numbers. */
+  function startMeasureContinuity() {
+    const c = cmd = { id: 'measure-continuity', first: null };
+    lastTool = 'measure-continuity';
+    showTool('measure-continuity');
+    setState('none');
+    setHud('CLICK THE FIRST CURVE NEAR ITS END');
+    const endPick = e => {
+      const hit = pickAt(e);
+      const src = (hit?.kind === 'curve' || hit?.kind === 'region') && curveById(hit.id);
+      if (!src || !hit.point) return null;
+      const f = curveFrame(src), p = curve2d(src);
+      const s = lift(f, p[0]), t = lift(f, p[p.length - 1]);
+      return { src, end: hit.point.distanceTo(s) <= hit.point.distanceTo(t) ? 0 : 1 };
+    };
+    c.click = e => {
+      const pick = endPick(e);
+      if (!pick) { toast('CLICK A CURVE NEAR ONE OF ITS ENDS'); return true; }
+      if (!c.first || c.done) { c.first = pick; c.done = false; setHud('CLICK THE SECOND CURVE NEAR ITS END'); return true; }
+      try {
+        const r = continuity(c.first.src, c.first.end, pick.src, pick.end);
+        setHud(`${r.continuity} · GAP ${r.gap.toFixed(4)} MM · ANGLE ${r.angle.toFixed(3)}° · K ${r.ka.toFixed(4)} / ${r.kb.toFixed(4)}`);
+        setState('updated');
+      } catch (err) { setHud(say(err)); setState('failed'); }
+      c.done = true;
+      return true;
+    };
+    c.finish = () => endCmd(null);
+    c.abort = () => endCmd(null);
+  }
+
   /** Plasticity's Measure Radius: click a circle or arc, or a round edge of a solid. */
   function startMeasureRadius() {
     const c = cmd = { id: 'measure-radius' };
@@ -3284,6 +3398,7 @@ export async function mount(root, backend) {
       const req = request();
       if (!req || (req.kind !== 'sphere' && !req.height)) return;
       drawPreview.visible = false;
+      if (c.stage === 'adjust') placeDots(req);
       livePreview(c, () => backend.previewPrimitive(req), p => {
         if (p.result) showPreviewBody(p.result);
         const look = phantom[p.outcome === 'cut' || p.outcome === 'slice' ? 'cut' : 'add'];
@@ -3292,11 +3407,46 @@ export async function mount(root, backend) {
         setHud(`${toolInfo(id).label} · ${({ new: 'NEW BODY', join: 'UNION', cut: 'DIFFERENCE', intersect: 'INTERSECT', slice: 'SLICE' })[p.outcome] ?? p.outcome.toUpperCase()}`);
       }, 'prim-hint');
     }
+    /**
+     * The manual's yellow dots: drag a box's height, width and length, a cylinder's height and radius,
+     * or a sphere's radius. Each is a distance along one direction from an anchor on the shape; they
+     * follow the shape as it changes.
+     */
+    c.dots = {};
+    function placeDots(req) {
+      const V = a => new THREE.Vector3(...a);
+      const want = {};
+      if (req.kind === 'sphere') want.r = { at: V(req.center), dir: c.plane.x, value: req.radius, set: v => setField('prim-r', 2 * Math.abs(v)) };
+      if (req.kind === 'cylinder') {
+        const o = V(req.frame.origin), n = V(req.frame.normal).normalize(), x = V(req.frame.x).normalize();
+        want.h = { at: o, dir: n, value: req.height, set: v => setField('prim-h', v) };
+        want.r = { at: o, dir: x, value: req.radius, set: v => setField('prim-r', 2 * Math.abs(v)) };
+      }
+      if (req.kind === 'box') {
+        const o = V(req.frame.origin), n = V(req.frame.normal).normalize(), u = V(req.frame.x).normalize(), w = n.clone().cross(u);
+        const centre = o.clone().addScaledVector(u, req.width / 2).addScaledVector(w, req.depth / 2);
+        want.h = { at: centre, dir: n, value: req.height, set: v => setField('prim-h', v) };
+        want.w = { at: o.clone().addScaledVector(w, req.depth / 2), dir: u.clone().multiplyScalar(Math.sign(req.width) || 1), value: Math.abs(req.width), set: v => setField('prim-w', Math.abs(v)) };
+        want.d = { at: o.clone().addScaledVector(u, req.width / 2), dir: w.clone().multiplyScalar(Math.sign(req.depth) || 1), value: Math.abs(req.depth), set: v => setField('prim-d', Math.abs(v)) };
+      }
+      for (const [k, d] of Object.entries(want)) {
+        let g = c.dots[k];
+        if (!g) {
+          g = c.dots[k] = dot(d.at, d.dir, v => { if (Math.abs(v) > 1e-6) c.dots[k].apply(v); });
+        }
+        g.apply = d.set;
+        if (g.state !== 'dragging' && g.state !== 'command') { g.setFrame(d.at, d.dir); g.render(d.value); }
+      }
+    }
+    /** A size from a dot or a typed value, through the panel so everything stays in step. */
+    function setField(id, v) { $(id).value = +v.toFixed(3); fromFields(id); }
     /** The height under the cursor: along the base's normal, on a plane through it facing the camera. */
     function heightAt(e) {
       ray(e);
       const pl = c.plane, b = base(), n = (id === 'cylinder' && c.vertical) ? pl.y : pl.n;
-      const o = pl.o.clone().addScaledVector(pl.x, (b.centre ?? b.corner).x).addScaledVector(pl.y, (b.centre ?? b.corner).y);
+      // Measured from the last base click, where the cursor was: moving up from there is up.
+      const last = c.pts[c.pts.length - 1];
+      const o = pl.o.clone().addScaledVector(pl.x, last.x).addScaledVector(pl.y, last.y);
       const view = camera.position.clone().sub(o), side = view.addScaledVector(n, -view.dot(n));
       if (side.lengthSq() < 1e-12) side.copy(pl.x);
       const hit = raycaster.ray.intersectPlane(new THREE.Plane().setFromNormalAndCoplanarPoint(side.normalize(), o), new THREE.Vector3());
@@ -3349,7 +3499,7 @@ export async function mount(root, backend) {
         advance();
         return true;
       }
-      if (c.stage === 'height' || c.dragging) { c.stage = 'adjust'; c.dragging = false; hint('Q W ⇧E ⇧Q B FOR THE TARGET · ⏎ TO FINISH'); return true; }
+      if (c.stage === 'height' || c.dragging) { c.stage = 'adjust'; c.dragging = false; solidPreview(); hint('DRAG THE DOTS · Q W ⇧E ⇧Q B FOR THE TARGET · ⏎ TO FINISH'); return true; }
       return true;
     };
     c.key = action => {
@@ -3411,7 +3561,7 @@ export async function mount(root, backend) {
       } catch (e) { setState('failed'); toast(say(e)); }
     };
     c.abort = () => endCmd('cancelled');
-    c.cleanup = () => { clearPreview(); drawPreview.visible = false; };
+    c.cleanup = () => { clearPreview(); drawPreview.visible = false; for (const g of Object.values(c.dots)) g.dispose(); };
     if (at) {
       // Placed by a command in words: the base at `at`, sizes from the panel, ready to finish.
       c.place(at);
@@ -3799,6 +3949,7 @@ export async function mount(root, backend) {
         if (arg === 'ortho') setOrtho(!camera.isOrthographicCamera);
         else if (arg === 'focus') focus();
         else if (arg === 'xray') { view.xray = !view.xray; applyView(); }
+        else if (arg === 'curvature') { view.curvature = !view.curvature; applyView(); }
         else setView(arg);
         return true;
       case 'mode': sel.setMode(arg); renderModes(); hover = null; drawOverlays(); return true;
@@ -3822,7 +3973,7 @@ export async function mount(root, backend) {
         if (b.hidden) toast('NOT IN THE BROWSER YET'); else b.click();
         return true;
       }
-      case 'export': exportSelected(); return true;
+      case 'export': if (arg === 'mesh') await startTool('export-mesh'); else exportSelected(); return true;
       case 'import': $('import').hidden ? toast('NOT IN THE BROWSER YET') : $('import').click(); return true;
     }
     switch (a) {
@@ -3836,7 +3987,7 @@ export async function mount(root, backend) {
       case 'trim': await startTool('trim'); return true;
       case 'extend': await startTool('extend'); return true;
       case 'split': await startTool('split'); return true;
-      case 'measure': await startTool(arg === 'radius' ? 'measure-radius' : 'measure-distance'); return true;
+      case 'measure': await startTool(arg === 'radius' ? 'measure-radius' : arg === 'continuity' ? 'measure-continuity' : 'measure-distance'); return true;
       case 'explode': await explodeSelected(); return true;
       case 'hide': setHidden(sel.bodies, true); return true;
       case 'hide-others': setHidden(current.map(b => b.id).filter(id => !sel.bodies.includes(id)), true); return true;
@@ -3852,19 +4003,27 @@ export async function mount(root, backend) {
     ...TOOLS.map(t => ({ action: `tool:${t.id}`, label: t.label, key: t.key.toUpperCase().replaceAll('-', ' ') })),
     ...Object.entries(ACTIONS).map(([action, l]) => ({ action, label: l.toUpperCase(), key: keyFor(action) })),
   ];
-  /** Commands that fit what is selected (Plasticity's Shift+F). */
+  /**
+   * Commands that fit what is selected (Plasticity's Shift+F, Suggested Commands). With the toolbars
+   * holding only drawing tools and the Command Bar's common commands, this is where the rest of the
+   * modeling commands come up, by what they act on.
+   */
   function suggestions() {
     const kinds = new Set(sel.list().map(it => it.kind));
     const out = [];
-    if (kinds.has('edge')) out.push('tool:fillet');
-    if (kinds.has('region')) out.push('tool:extrude');
-    if (sel.curves.length > 1) out.push('join');
-    if (kinds.has('curve') || kinds.has('region')) out.push('delete');
-    if (kinds.has('face')) out.push('tool:extrude', 'plane:selection', 'plane:selection-keep-view');
     if (sel.solids.length > 1) out.push('tool:boolean');
-    if (kinds.has('solid')) out.push('tool:move', 'tool:rotate', 'tool:scale', 'duplicate', 'delete', 'hide', 'export:step');
+    if (kinds.has('solid')) out.push('tool:move', 'tool:rotate', 'tool:scale', 'duplicate', 'tool:mirror', 'tool:rect-array', 'tool:radial-array', 'delete', 'hide', 'export:step', 'export:mesh');
+    if (kinds.has('face')) out.push('tool:extrude', 'tool:offset', 'tool:shell', 'tool:hole', 'tool:remove-face', 'plane:selection', 'plane:selection-keep-view');
+    if (kinds.has('edge')) out.push('tool:fillet', 'measure:radius');
+    if (kinds.has('region')) out.push('tool:extrude', 'tool:revolve', 'tool:loft', 'tool:sweep');
+    if (kinds.has('curve') || kinds.has('region')) {
+      out.push('trim', 'split', 'extend', 'tool:offset-curve', 'tool:fillet-curve');
+      if (sel.curves.length === 2) out.push('tool:bridge');
+      if (sel.curves.length > 1) out.push('join');
+      out.push('explode', 'measure:continuity', 'delete');
+    }
     if (kinds.size) out.push('convert:solid', 'select:invert', 'view:focus');
-    else out.push('draw:rect', 'draw:circle', 'draw:line', 'select:all', 'unhide-all', 'plane:view');
+    else out.push('draw:line', 'draw:spline', 'draw:rect', 'draw:circle', 'draw:arc3', 'tool:box', 'tool:cylinder', 'tool:sphere', 'select:all', 'unhide-all', 'plane:view');
     return [...new Set(out)].map(a => ENTRIES.find(e => e.action === a)).filter(Boolean);
   }
   let palette = null;
@@ -4123,7 +4282,6 @@ export async function mount(root, backend) {
   });
   for (const b of $$('[data-mode]')) b.onclick = e => doAction(b.dataset.mode === 'all' ? 'mode:all' : `${e.shiftKey ? 'mode-toggle' : 'mode'}:${b.dataset.mode}`);
   for (const b of $$('[data-action]')) b.onclick = () => doAction(b.dataset.action);
-  for (const b of $$('[data-tool]')) b.onclick = () => startTool(b.dataset.tool);
   for (const el of $$('[data-spiral-field]')) el.addEventListener('change', e => { const v = parseFloat(e.target.value); if (!isNaN(v) && cmd?.id === 'spiral') cmd.set(e.target.dataset.spiralField, v); });
   for (const b of $$('[data-spiral]')) b.onclick = () => cmd?.id === 'spiral' && cmd.key(b.dataset.spiral);
   $('off-angle').addEventListener('input', e => { const v = parseFloat(e.target.value); if (!isNaN(v) && cmd?.id === 'offset') { cmd.auto = false; setOffsetAngle(v); } });
@@ -4157,6 +4315,7 @@ export async function mount(root, backend) {
   for (const id of ['hole-d', 'hole-depth']) $(id).addEventListener('input', () => cmd?.id === 'hole' && cmd.preview());
   $('hole-through').onclick = () => cmd?.id === 'hole' && cmd.key('through');
   $('br-t').addEventListener('input', () => cmd?.id === 'bridge' && cmd.preview());
+  for (const b of $$('[data-mxf]')) b.onclick = () => cmd?.id === 'export-mesh' && cmd.key(b.dataset.mxf);
   for (const id of ['oc-d', 'fc-r']) $(id).addEventListener('input', () => (cmd?.id === 'offset-curve' || cmd?.id === 'fillet-curve') && cmd.preview());
   for (const id of ['prim-w', 'prim-d', 'prim-r', 'prim-h']) $(id).addEventListener('input', () => PRIMS[cmd?.id] && cmd.fromFields(id));
   for (const b of $$('[data-popt], [data-pop]')) b.onclick = () => PRIMS[cmd?.id] && cmd.key(b.dataset.popt ?? b.dataset.pop);
@@ -4250,6 +4409,7 @@ export async function mount(root, backend) {
     if (!turning) controls.update();
     nav.update(camera, camera.isOrthographicCamera);
     if (cmd?.gizmo) cmd.gizmo.render(cmd.gizmo.value);
+    for (const g of Object.values(cmd?.dots ?? {})) g.render(g.value);
     renderer.render(scene, camera);
   });
 
@@ -4484,6 +4644,7 @@ export async function mount(root, backend) {
       if (c.id === 'fillet') Object.assign(out, { body: c.body, edges: c.edges, value: c.value, angle: c.angle, max: c.bad !== null ? c.good : null });
       if (c.tc) Object.assign(out, { bodies: c.ids, offset: toUser(c.offset.toArray()), angle: angleAbout(c.quat, c.axis), axis: c.axis, scale: c.scale, follow: c.follow?.name ?? null });
       if (c.id === 'pushpull') Object.assign(out, { placed: !!c.at, distance: c.distance });
+      if (c.dots) out.dots = Object.fromEntries(Object.entries(c.dots).map(([k, g]) => [k, { at: g.position.toArray(), dir: g.direction.toArray(), value: g.value, state: g.state }]));
       if (c.id === 'extrude') Object.assign(out, { region: c.src.region ?? null, face: c.src.face ?? null, target: c.src.target, distance: c.distance, op: c.op, outcome: c.outcome, angle: c.angle, thickness: c.thickness, lock: c.lock });
       if (c.id === 'boolean') Object.assign(out, { target: c.target, tools: c.tools, op: c.op, keep: c.keep });
       if (c.id === 'offset') Object.assign(out, { body: c.body, faces: c.faces, distance: c.distance, angle: c.angle });
