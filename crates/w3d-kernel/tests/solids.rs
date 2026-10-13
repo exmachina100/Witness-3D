@@ -134,3 +134,17 @@ fn document_runs_each_as_one_undo_step() {
     assert_eq!(doc.ids().len(), 1);
     assert!(!doc.undo(), "every step above undid in one");
 }
+
+#[test]
+fn remove_face_takes_a_round_back_off() {
+    let k = Occt;
+    let c = cube(&k);
+    let rounded = k.blend(&c, &[0], 2.0, Blend::Fillet, 0.0).unwrap();
+    let round = rounded.history.generated_faces.first().expect("the round grew from edge 0").1;
+    assert!(volume(&k, &rounded.solid) < 1000.0);
+    let back = w3d_kernel::solids::remove_faces(&k, &rounded.solid, &[round]).unwrap();
+    close(volume(&k, &back.solid), 1000.0, 1e-6);
+    assert_eq!(k.face_count(&back.solid), 6);
+    assert!(matches!(w3d_kernel::solids::remove_faces(&k, &c, &[]), Err(KernelError::Invalid(_))));
+    assert!(matches!(w3d_kernel::solids::remove_faces(&k, &c, &[0, 1, 2, 3, 4, 5]), Err(KernelError::Invalid(_))));
+}

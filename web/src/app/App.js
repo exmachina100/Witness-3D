@@ -92,6 +92,7 @@ const KEYS = {
   spiral: [['CLICK', 'AXIS START · END · RADIUS'], ['X Y Z', 'AXIS'], ['A', 'ANGLE'], ['D', 'LENGTH'], ['R', 'RADIUS'], ['⏎ / RMB', 'OK']],
   'offset-curve': [['D', 'DISTANCE'], ['TYPE', 'IN PANEL'], ['⏎ / RMB', 'OK']],
   'fillet-curve': [['D', 'RADIUS'], ['TYPE', 'IN PANEL'], ['⏎ / RMB', 'OK']],
+  'remove-face': [['⇧ CLICK', 'FACES'], ['⏎ / RMB', 'OK']],
   hole: [['CLICK', 'A FLAT FACE'], ['T', 'THROUGH ALL'], ['TYPE', 'SIZE IN PANEL'], ['⏎ / RMB', 'OK']],
   extend: [['CLICK', 'NEAR AN END'], ['TYPE', 'LENGTH IN PANEL'], ['ESC / ⏎', 'DONE']],
   bridge: [['T', 'TENSION'], ['⏎ / RMB', 'OK']],
@@ -262,6 +263,10 @@ const SHELL = `
     <div class="sec" data-panel="fillet-curve" hidden>
       <span class="hint" data-id="fc-hint">—</span>
       <div class="field"><label for="w3d-fc-r">RADIUS</label><input id="w3d-fc-r" data-id="fc-r" type="number" step="0.5" min="0.01" value="2"></div>
+    </div>
+    <div class="sec" data-panel="remove-face" hidden>
+      <span class="hint" data-id="rf-hint">—</span>
+      <div class="field"><label>FACES</label><output data-id="rf-count">0</output></div>
     </div>
     <div class="sec" data-panel="hole" hidden>
       <span class="hint" data-id="hole-hint">CLICK A FLAT FACE</span>
@@ -1163,6 +1168,7 @@ export async function mount(root, backend) {
     if (id === 'offset-curve' || id === 'fillet-curve') return startCurveEdit(id);
     if (id === 'trim') return startTrim();
     if (id === 'hole') return startHole(opts);
+    if (id === 'remove-face') return startRemoveFace();
     if (id === 'extend') return startExtend();
     if (id === 'bridge') return startBridge();
     if (id === 'shell') return startShell();
@@ -2764,6 +2770,50 @@ export async function mount(root, backend) {
     c.abort = () => endCmd(c.count ? 'committed' : 'cancelled');
   }
 
+  /** Plasticity's Remove Face: the selected faces go and their neighbours close the gap. */
+  function startRemoveFace() {
+    const body = faceBody();
+    if (body === null) return toast(sel.list('face').length ? 'REMOVE FACES OF ONE SOLID AT A TIME' : 'SELECT THE FACES TO REMOVE');
+    if (!backend.previewRemoveFaces) return toast('REMOVE FACE NEEDS THE DESKTOP APP; THE BROWSER KERNEL CANNOT DO IT YET');
+    const c = cmd = { id: 'remove-face', body, faces: [], sent: 0, shown: 0 };
+    lastTool = 'remove-face';
+    showTool('remove-face');
+    setState('none');
+    c.request = () => ({ body: c.body, faces: c.faces });
+    c.preview = () => livePreview(c, () => backend.previewRemoveFaces(c.request()), b => { showPreviewBody(b); setHud(`REMOVE ${c.faces.length} FACE${c.faces.length > 1 ? 'S' : ''}`); }, 'rf-hint');
+    c.onSelection = () => {
+      drawOverlays();
+      const b = faceBody();
+      if (b === null) return setHud('SELECT FACES TO REMOVE');
+      c.body = b;
+      c.faces = sel.list('face').map(it => it.n).sort((x, y) => x - y);
+      setTarget(label(b));
+      $('rf-count').textContent = c.faces.length;
+      $('rf-hint').textContent = `${c.faces.length} FACE${c.faces.length > 1 ? 'S' : ''} ON ${label(b)}`;
+      c.preview();
+    };
+    c.click = e => {
+      const hit = pickAt(e);
+      if (hit?.kind !== 'face' || !(e.ctrlKey || e.metaKey || e.shiftKey)) return true;
+      sel.toggle({ kind: 'face', body: hit.body, n: hit.n });
+      selectionChanged();
+      return true;
+    };
+    c.finish = async () => {
+      try {
+        const { id, scene: list } = await backend.commitRemoveFaces(c.request());
+        endCmd('committed');
+        record(`REMOVE FACE ×${c.faces.length}`, id);
+        await showScene(list);
+        sel.replace({ kind: 'solid', body: id });
+        selectionChanged({ quiet: true });
+      } catch (e) { setState('failed'); toast(say(e)); }
+    };
+    c.abort = () => endCmd('cancelled');
+    c.cleanup = () => clearPreview();
+    c.onSelection();
+  }
+
   /** Hole: click a flat face; a round cut of the panel's diameter goes in to its depth, or through. */
   function startHole({ at = null } = {}) {
     if (!backend.preview) return toast('HOLE IS NOT IN THIS BUILD YET');
@@ -3964,6 +4014,13 @@ export async function mount(root, backend) {
         cmd.auto = false;
         if (p.angle) setOffsetAngle(p.angle);
         setOffsetDistance(p.distance ?? 0, false);
+      } else if (id === 'remove-face') {
+        const b = current.find(x => (faces ?? []).every(r => x.faceRefs?.includes(r)));
+        if (!b || !faces?.length) throw new Error('give faces of one body to remove');
+        sel.clear();
+        for (const r of faces) sel.add({ kind: 'face', body: b.id, n: b.faceRefs.indexOf(r) });
+        selectionChanged({ quiet: true });
+        await startTool('remove-face');
       } else if (id === 'hole') {
         const b = current.find(x => x.faceRefs?.includes(face));
         const n = b ? b.faceRefs.indexOf(face) : -1, plane = b?.facePlanes[n];

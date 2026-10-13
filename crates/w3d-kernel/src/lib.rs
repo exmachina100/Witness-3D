@@ -251,6 +251,10 @@ pub trait Kernel {
     fn shell(&self, _s: &Self::Solid, _faces: &[u32], _thickness: f64) -> Result<Traced<Self::Solid>, KernelError> {
         Err(KernelError::Invalid("this kernel cannot shell"))
     }
+    /// The numbered faces deleted and the gap closed by the faces around them (Remove Face).
+    fn remove_faces(&self, _s: &Self::Solid, _faces: &[u32]) -> Result<Traced<Self::Solid>, KernelError> {
+        Err(KernelError::Invalid("this kernel cannot remove faces"))
+    }
     /// A copy reflected in the plane through `origin` with normal `normal`.
     fn mirror(&self, _s: &Self::Solid, _origin: DVec3, _normal: DVec3) -> Result<Self::Solid, KernelError> {
         Err(KernelError::Invalid("this kernel cannot mirror"))

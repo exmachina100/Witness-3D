@@ -791,3 +791,24 @@ pub fn commit_array(m: &Model, req: ArrayRequest) -> Result<Duplicated, ApiError
         Ok(Duplicated { ids, scene: bodies(doc)? })
     })
 }
+
+/// Remove Face: delete faces of one body and close the gap.
+#[derive(Deserialize, Debug, Clone)]
+pub struct RemoveFacesRequest {
+    pub body: BodyId,
+    pub faces: Vec<u32>,
+}
+
+pub fn preview_remove_faces(m: &Model, req: RemoveFacesRequest) -> Option<Result<Body, ApiError>> {
+    m.preview(move |doc| {
+        let solid = doc.preview_remove_faces(req.body, &req.faces)?;
+        Ok(body(&doc.kernel, req.body, &solid)?)
+    })
+}
+
+pub fn commit_remove_faces(m: &Model, req: RemoveFacesRequest) -> Result<Committed, ApiError> {
+    m.call(move |doc| {
+        let id = doc.commit_remove_faces(req.body, &req.faces)?;
+        Ok(Committed { id, scene: bodies(doc)? })
+    })
+}

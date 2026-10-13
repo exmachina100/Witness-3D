@@ -155,6 +155,11 @@ export const TOOLS = [
             through: { type: 'boolean', default: false, describe: 'cut right through the body' },
         },
     },
+    {
+        id: 'remove-face', label: 'REMOVE FACE', key: '', group: 'shape', selects: 'faces', toolbar: false,
+        summary: 'Delete the selected faces of a solid and let the faces around them grow to close the gap, such as a fillet, hole or boss.',
+        params: {},
+    },
     // Round 7: curve editing. Trim and Explode are actions (a click, or none), not tools.
     {
         id: 'offset-curve', label: 'OFFSET CURVE', key: '', group: 'curve', selects: 'curves', toolbar: false,

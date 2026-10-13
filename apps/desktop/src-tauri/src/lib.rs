@@ -164,6 +164,24 @@ async fn commit_array(
 }
 
 #[tauri::command]
+async fn preview_remove_faces(
+    model: State<'_, Model>,
+    req: api::RemoveFacesRequest,
+) -> Result<Option<api::Body>, api::ApiError> {
+    on_model(&model, move |m| api::preview_remove_faces(m, req))
+        .await?
+        .transpose()
+}
+
+#[tauri::command]
+async fn commit_remove_faces(
+    model: State<'_, Model>,
+    req: api::RemoveFacesRequest,
+) -> Result<api::Committed, api::ApiError> {
+    on_model(&model, move |m| api::commit_remove_faces(m, req)).await?
+}
+
+#[tauri::command]
 async fn replace_curves(
     model: State<'_, Model>,
     req: api::ReplaceCurvesRequest,
@@ -377,6 +395,8 @@ pub fn run() {
             preview_offset,
             commit_offset,
             replace_curves,
+            preview_remove_faces,
+            commit_remove_faces,
             preview_primitive,
             commit_primitive,
             preview_shell,

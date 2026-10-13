@@ -120,3 +120,21 @@ impl ArraySpec {
         }
     }
 }
+
+/// Remove Face: checked inputs, then a check that the result is still one valid solid.
+pub fn remove_faces<K: Kernel>(k: &K, body: &K::Solid, faces: &[u32]) -> Result<Traced<K::Solid>, KernelError> {
+    if faces.is_empty() { return Err(KernelError::Invalid("select the faces to remove")) }
+    let count = k.face_count(body);
+    if faces.iter().any(|&f| f as usize >= count) {
+        return Err(KernelError::Invalid("a face in the selection is not on this body; select the faces again"));
+    }
+    let mut faces = faces.to_vec();
+    faces.sort_unstable();
+    faces.dedup();
+    if faces.len() == count { return Err(KernelError::Invalid("that would remove the whole body; delete it instead")) }
+    let traced = k.remove_faces(body, &faces)?;
+    if !k.is_valid(&traced.solid) || k.solid_count(&traced.solid) != k.solid_count(body) {
+        return Err(KernelError::Invalid("removing those faces breaks the body"));
+    }
+    Ok(traced)
+}

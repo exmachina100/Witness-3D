@@ -253,6 +253,12 @@ impl Kernel for Occt {
         Ok(Traced { solid, history: history(h) })
     }
 
+    fn remove_faces(&self, s: &Shape, faces: &[u32]) -> Result<Traced<Shape>, KernelError> {
+        let faces: Vec<usize> = faces.iter().map(|&f| f as usize).collect();
+        let (solid, h) = s.remove_faces_with_history(&faces).map_err(shim)?;
+        Ok(Traced { solid, history: history(h) })
+    }
+
     fn mirror(&self, s: &Shape, origin: DVec3, normal: DVec3) -> Result<Shape, KernelError> {
         s.mirrored(origin, normal).map_err(shim)
     }

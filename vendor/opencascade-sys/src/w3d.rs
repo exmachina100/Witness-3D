@@ -55,5 +55,6 @@ mod inner {
         pub fn w3d_offset_faces(shape: &TopoDS_Shape, faces: &[i32], distance: f64, angle: f64) -> Result<UniquePtr<W3dResult>>;
         pub fn w3d_shell(shape: &TopoDS_Shape, faces: &[i32], thickness: f64) -> Result<UniquePtr<W3dResult>>;
         pub fn w3d_mirror(shape: &TopoDS_Shape, plane: &[f64]) -> Result<UniquePtr<TopoDS_Shape>>;
+        pub fn w3d_remove_faces(shape: &TopoDS_Shape, faces: &[i32]) -> Result<UniquePtr<W3dResult>>;
     }
 }

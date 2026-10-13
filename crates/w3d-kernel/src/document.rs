@@ -591,6 +591,21 @@ impl<K: Kernel> Document<K> {
         Ok(body)
     }
 
+    /// Compute a Remove Face without changing the document.
+    pub fn preview_remove_faces(&self, body: BodyId, faces: &[u32]) -> Result<K::Solid, KernelError> {
+        let solid = self.get(body).ok_or(KernelError::Invalid("that body no longer exists"))?;
+        Ok(crate::solids::remove_faces(&self.kernel, solid, faces)?.solid)
+    }
+
+    /// Run a Remove Face as one undoable step; the faces that stay keep their refs.
+    pub fn commit_remove_faces(&mut self, body: BodyId, faces: &[u32]) -> Result<BodyId, KernelError> {
+        let solid = self.get(body).ok_or(KernelError::Invalid("that body no longer exists"))?;
+        let t = crate::solids::remove_faces(&self.kernel, solid, faces)?;
+        self.checkpoint();
+        self.replace_traced(body, t);
+        Ok(body)
+    }
+
     /// The copies Mirror or Array would make, per body in `bodies` order, without changing anything.
     fn copies(&self, bodies: &[BodyId], make: impl Fn(&K::Solid) -> Result<Vec<K::Solid>, KernelError>) -> Result<Vec<(BodyId, Vec<K::Solid>)>, KernelError> {
         if bodies.is_empty() { return Err(KernelError::Invalid("select a solid first")) }

@@ -25,6 +25,7 @@
 #include <BRepOffsetAPI_ThruSections.hxx>
 #include <BRepOffset_MakeOffset.hxx>
 #include <BRepOffsetAPI_MakeThickSolid.hxx>
+#include <BRepAlgoAPI_Defeaturing.hxx>
 #include <BRepPrimAPI_MakeRevol.hxx>
 #include <GProp_GProps.hxx>
 #include <gp_Ax1.hxx>
@@ -881,6 +882,33 @@ inline std::unique_ptr<TopoDS_Shape> w3d_mirror(const TopoDS_Shape &shape, rust:
     BRepBuilderAPI_Transform mk(shape, t, Standard_True);
     if (!mk.IsDone()) throw std::runtime_error("the body could not be mirrored");
     return std::unique_ptr<TopoDS_Shape>(new TopoDS_Shape(mk.Shape()));
+  } catch (const Standard_Failure &f) {
+    throw w3d_kernel_error(f);
+  }
+}
+
+// Plasticity's Remove Face: delete the numbered faces and let the faces around them grow to close
+// the gap (a fillet, hole or boss gone). The faces that remain keep their history.
+inline std::unique_ptr<W3dResult> w3d_remove_faces(const TopoDS_Shape &shape, rust::Slice<const int32_t> faces) {
+  TopTools_IndexedMapOfShape map;
+  TopExp::MapShapes(shape, TopAbs_FACE, map);
+  if (faces.empty()) throw std::runtime_error("select the faces to remove");
+  try {
+    BRepAlgoAPI_Defeaturing df;
+    df.SetShape(shape);
+    for (int32_t f : faces) {
+      if (f < 0 || f >= map.Extent()) throw std::out_of_range("no such face");
+      df.AddFaceToRemove(map(f + 1));
+    }
+    df.SetToFillHistory(Standard_True);
+    df.Build();
+    if (!df.IsDone() || df.HasErrors() || df.Shape().IsNull())
+      throw std::runtime_error("the faces around those can't grow to close the gap; remove a whole feature at once");
+    std::unique_ptr<W3dResult> r(new W3dResult());
+    r->shape = df.Shape();
+    if (!w3d_is_valid(r->shape)) throw std::runtime_error("removing those faces breaks the body");
+    w3d_record(*r, 0, shape, {w3d_step(df)});
+    return r;
   } catch (const Standard_Failure &f) {
     throw w3d_kernel_error(f);
   }
