@@ -7,7 +7,7 @@
 
 inline std::unique_ptr<Handle_TopTools_HSequenceOfShape> new_Handle_TopTools_HSequenceOfShape() {
   auto sequence = new TopTools_HSequenceOfShape();
-  auto handle = new opencascade::handle<TopTools_HSequenceOfShape>(sequence);
+  auto handle = new Handle_TopTools_HSequenceOfShape(sequence);
 
   return std::unique_ptr<Handle_TopTools_HSequenceOfShape>(handle);
 }
