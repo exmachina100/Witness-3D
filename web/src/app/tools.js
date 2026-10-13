@@ -10,7 +10,7 @@
 //
 // `selects` is what the tool acts on: 'face' (a point on a flat face, or the work plane), 'faces'
 // (faces of one body), 'edge' (one or more edges of one body), 'region' (one drawn region),
-// 'regions' (several, in order) or 'solid' (one body). `key` is '' where Plasticity binds none. Lengths are millimetres, angles degrees,
+// 'regions' (several, in order), 'curves' (drawn curves, open or closed) or 'solid' (one body). `key` is '' where Plasticity binds none. Lengths are millimetres, angles degrees,
 // and coordinates are the user's: x right, y back, z up (the viewport's own y is up).
 
 export const TOOLS = [
@@ -84,6 +84,122 @@ export const TOOLS = [
             op: { type: 'enum', values: ['new', 'union', 'difference', 'intersect'], default: 'new', describe: 'a new body, or a boolean with the body the region lies on' },
         },
     },
+    // Round 6. Box, Cylinder and Sphere take a point on a face or the construction plane (click it);
+    // Shell takes faces of one solid; Mirror and the arrays take the selected solids.
+    {
+        id: 'box', label: 'CORNER BOX', key: '', group: 'shape', selects: 'face', toolbar: false,
+        summary: 'Make a box: click a corner, click the opposite corner, then move up for the height (C from the centre, S square, Tab to type).',
+        params: {
+            width: { type: 'number', unit: 'mm', nonzero: true, default: 20, describe: "size along the plane's first direction; negative goes the other way" },
+            depth: { type: 'number', unit: 'mm', nonzero: true, default: 20, describe: "size along the plane's second direction; negative goes the other way" },
+            height: { type: 'number', unit: 'mm', nonzero: true, default: 20, describe: 'height off the plane; negative goes below it' },
+        },
+    },
+    {
+        id: 'center-box', label: 'CENTER BOX', key: '', group: 'shape', selects: 'face', toolbar: false,
+        summary: 'Make a box from the centre of its base: click the centre, a corner, then move up for the height.',
+        params: {
+            width: { type: 'number', unit: 'mm', above: 0, default: 20, describe: 'size along the plane\'s first direction' },
+            depth: { type: 'number', unit: 'mm', above: 0, default: 20, describe: 'size along the plane\'s second direction' },
+            height: { type: 'number', unit: 'mm', nonzero: true, default: 20, describe: 'height off the plane; negative goes below it' },
+        },
+    },
+    {
+        id: 'box3', label: 'THREE POINT BOX', key: '', group: 'shape', selects: 'face', toolbar: false,
+        summary: 'Make a box at any angle: click a corner, a point along one side, the width, then move up for the height.',
+        params: {
+            width: { type: 'number', unit: 'mm', nonzero: true, default: 20, describe: 'length of the first side' },
+            depth: { type: 'number', unit: 'mm', nonzero: true, default: 20, describe: 'length of the second side' },
+            height: { type: 'number', unit: 'mm', nonzero: true, default: 20, describe: 'height off the plane; negative goes below it' },
+        },
+    },
+    {
+        id: 'cylinder', label: 'CYLINDER', key: '', group: 'shape', selects: 'face', toolbar: false,
+        summary: 'Make a cylinder standing on a point of a face or the construction plane.',
+        params: {
+            radius: { type: 'number', unit: 'mm', above: 0, default: 10, describe: 'radius of the base circle' },
+            height: { type: 'number', unit: 'mm', nonzero: true, default: 20, describe: 'height off the plane; negative goes below it' },
+        },
+    },
+    {
+        id: 'sphere', label: 'SPHERE', key: '', group: 'shape', selects: 'face', toolbar: false,
+        summary: 'Make a sphere centred on a point of a face or the construction plane.',
+        params: {
+            radius: { type: 'number', unit: 'mm', above: 0, default: 10, describe: 'radius of the sphere' },
+        },
+    },
+    {
+        id: 'shell', label: 'SHELL', key: '', group: 'shape', selects: 'faces', toolbar: false,
+        summary: 'Hollow a solid to walls of one thickness, leaving the selected faces open.',
+        params: {
+            thickness: { type: 'number', unit: 'mm', above: 0, default: 2, describe: 'wall thickness, measured inward from the outside' },
+        },
+    },
+    {
+        id: 'mirror', label: 'MIRROR', key: '', group: 'organise', selects: 'solid', toolbar: false,
+        summary: 'Reflect the selected solids in a plane across an axis, as copies or joined to the originals.',
+        params: {
+            axis: { type: 'enum', values: ['x', 'y', 'z'], default: 'x', describe: 'the axis the plane is square to; x reflects left to right' },
+            position: { type: 'number', unit: 'mm', default: 0, describe: 'where the plane crosses that axis' },
+            join: { type: 'boolean', default: false, describe: 'fuse each reflection into its original instead of making a new body' },
+        },
+    },
+    {
+        id: 'rect-array', label: 'RECTANGULAR ARRAY', key: '', group: 'organise', selects: 'solid', toolbar: false,
+        summary: 'Repeat the selected solids in a grid along x, y and z.',
+        params: {
+            counts: { type: 'vector', default: [3, 1, 1], describe: 'how many along x, y and z, the original included (whole numbers, at least 1)' },
+            spacing: { type: 'vector', unit: 'mm', default: [30, 30, 30], describe: 'distance between neighbours along x, y and z' },
+            join: { type: 'boolean', default: false, describe: 'fuse the copies into each original instead of making new bodies' },
+        },
+    },
+    {
+        id: 'radial-array', label: 'RADIAL ARRAY', key: '', group: 'organise', selects: 'solid', toolbar: false,
+        summary: "Repeat the selected solids around an axis through the construction plane's origin.",
+        params: {
+            count: { type: 'number', min: 1, default: 6, describe: 'how many, the original included (a whole number)' },
+            angle: { type: 'number', unit: 'deg', nonzero: true, default: 360, describe: 'how far round the copies spread; 360 spaces them evenly round a full turn' },
+            axis: { type: 'enum', values: ['x', 'y', 'z'], default: 'z', describe: 'the axis to turn about; z is up' },
+            join: { type: 'boolean', default: false, describe: 'fuse the copies into each original instead of making new bodies' },
+        },
+    },
+    // Round 8: Hole is a round cut into a flat face, through Extrude's forced difference.
+    {
+        id: 'hole', label: 'HOLE', key: '', group: 'shape', selects: 'face', toolbar: false,
+        summary: 'Drill a round hole into a flat face, to a depth or right through the body.',
+        params: {
+            diameter: { type: 'number', unit: 'mm', above: 0, default: 6, describe: 'the hole\'s diameter' },
+            depth: { type: 'number', unit: 'mm', above: 0, default: 10, describe: 'how deep; ignored when through is on' },
+            through: { type: 'boolean', default: false, describe: 'cut right through the body' },
+        },
+    },
+    {
+        id: 'remove-face', label: 'REMOVE FACE', key: '', group: 'shape', selects: 'faces', toolbar: false,
+        summary: 'Delete the selected faces of a solid and let the faces around them grow to close the gap, such as a fillet, hole or boss.',
+        params: {},
+    },
+    // Round 7: curve editing. Trim and Explode are actions (a click, or none), not tools.
+    {
+        id: 'offset-curve', label: 'OFFSET CURVE', key: '', group: 'curve', selects: 'curves', toolbar: false,
+        summary: 'Copy the selected curves a set distance away: closed curves grow or shrink, open ones move sideways.',
+        params: {
+            distance: { type: 'number', unit: 'mm', nonzero: true, default: 5, describe: 'how far; positive grows a closed curve or moves an open one to its left' },
+        },
+    },
+    {
+        id: 'fillet-curve', label: 'FILLET CURVE', key: '', group: 'curve', selects: 'curves', toolbar: false,
+        summary: 'Round the corners of the selected lines, rectangles and polygons with arcs.',
+        params: {
+            radius: { type: 'number', unit: 'mm', above: 0, default: 2, describe: 'radius of the rounds' },
+        },
+    },
+    {
+        id: 'bridge', label: 'BRIDGE CURVES', key: '', group: 'curve', selects: 'curves', toolbar: false,
+        summary: 'Join the nearest ends of two open curves with a smooth curve that leaves each along its own direction.',
+        params: {
+            tension: { type: 'number', above: 0, default: 1, describe: 'how long the bridge holds each end\'s direction; 1 is a natural blend' },
+        },
+    },
     {
         id: 'move', label: 'MOVE', key: 'g', group: 'organise', selects: 'solid',
         summary: 'Move the selected bodies.',
@@ -153,6 +269,7 @@ const SELECTION_PARAM = {
     region: ['region', { type: 'integer', description: 'the closed curve whose region to extrude, by id; or give face instead' }],
     solids: ['target', { type: 'integer', description: 'the body to change, by id' }],
     faces: ['faces', { type: 'array', items: { type: 'integer' }, minItems: 1, description: 'the faces to act on, by ref, all on one body' }],
+    curves: ['curves', { type: 'array', items: { type: 'integer' }, minItems: 1, description: 'the curves to act on, by id' }],
     regions: ['regions', { type: 'array', items: { type: 'integer' }, minItems: 2, description: 'the closed curves whose regions to pass through, by id, in order' }],
 };
 const EXTRA_PARAMS = {
@@ -160,7 +277,7 @@ const EXTRA_PARAMS = {
     boolean: { tools: { type: 'array', items: { type: 'integer' }, minItems: 1, description: 'the tool bodies, by id' } },
     sweep: { path: { type: 'integer', description: 'the curve to sweep along, by id' } },
 };
-const REQUIRED = { edge: true, solid: true, solids: true, faces: true, regions: true };
+const REQUIRED = { edge: true, solid: true, solids: true, faces: true, regions: true, curves: true };
 const REQUIRED_EXTRA = { boolean: ['tools'], revolve: ['region'], sweep: ['region', 'path'] };
 
 /**

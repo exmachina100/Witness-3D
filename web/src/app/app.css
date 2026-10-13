@@ -7,6 +7,10 @@
   --muted: #8e949e;
   --dim: rgba(239, 235, 224, 0.3);
   --accent: #ff4d00;
+  /* The axes, as Plasticity and Blender colour them: x red, y green, z blue. */
+  --axis-x: #e5534b;
+  --axis-y: #6cbf5f;
+  --axis-z: #4f8fe0;
   --on-accent: #17160f;
   --rule: rgba(239, 235, 224, 0.25);
   --rule-soft: rgba(239, 235, 224, 0.15);
@@ -80,15 +84,11 @@ button:focus-visible, input:focus-visible { outline: 1px solid var(--accent); ou
 .corner.br { right: 10px; bottom: 10px; border-right-width: 1px; border-bottom-width: 1px; }
 .hud { position: absolute; left: 14px; top: 12px; padding: 4px 8px; background: var(--accent); color: var(--on-accent); font-weight: 700; white-space: nowrap; pointer-events: none; }
 .hud[data-idle] { background: var(--ground); color: var(--muted); border: 1px solid var(--rule); font-weight: 400; }
-.views { position: absolute; right: 14px; top: 12px; display: flex; border: 1px solid rgba(239, 235, 224, 0.35); background: var(--ground); font-size: 10px; }
-.views button { padding: 4px 8px; color: var(--muted); }
-.views button:hover { color: var(--ink); }
-.views button[aria-pressed="true"] { color: var(--accent); }
 .modes { position: absolute; left: 14px; top: 44px; display: flex; border: 1px solid rgba(239, 235, 224, 0.35); background: var(--ground); }
 .modes button { padding: 5px 10px; color: var(--muted); }
 .modes button[aria-pressed="true"] { background: var(--ink); color: var(--on-accent); }
 .modes button:disabled { color: var(--dim); }
-.keys { position: absolute; right: 14px; top: 44px; display: grid; grid-template-columns: auto auto; gap: 5px 10px; font-size: 10px; pointer-events: none; }
+.keys { position: absolute; right: 118px; top: 44px; display: grid; grid-template-columns: auto auto; gap: 5px 10px; font-size: 10px; pointer-events: none; }
 .keys kbd { font: inherit; text-align: right; padding: 0 5px; border: 1px solid rgba(239, 235, 224, 0.6); }
 .keys span { color: var(--muted); }
 .toast { position: absolute; left: 50%; top: 12px; transform: translateX(-50%); padding: 4px 8px; border: 1px solid var(--accent); color: var(--accent); background: var(--ground); white-space: nowrap; }
@@ -203,3 +203,35 @@ button:focus-visible, input:focus-visible { outline: 1px solid var(--accent); ou
 .palette li span { display: flex; align-items: center; gap: 10px; }
 .palette li .ico { width: 14px; height: 14px; }
 .row-item .ico { width: 14px; height: 14px; }
+.trio { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 4px; min-width: 0; }
+
+/* Navigation gizmo (top right): axis balls that turn with the camera, then a column of view controls. */
+.nav { position: absolute; right: 10px; top: 10px; display: flex; flex-direction: column; align-items: center; gap: 6px; z-index: 3; user-select: none; }
+.nav-ball { width: 96px; height: 96px; cursor: grab; touch-action: none; }
+.nav-ball:active { cursor: grabbing; }
+.nav-bg { fill: transparent; transition: fill 120ms; }
+.nav-ball:hover .nav-bg { fill: rgba(239, 235, 224, 0.07); }
+.nav-line { stroke-width: 2; }
+.nav-line.x, .nav-axis.x circle { stroke: var(--axis-x); }
+.nav-line.y, .nav-axis.y circle { stroke: var(--axis-y); }
+.nav-line.z, .nav-axis.z circle { stroke: var(--axis-z); }
+.nav-axis { cursor: pointer; }
+.nav-axis circle { stroke-width: 1.5; }
+.nav-axis.x circle { fill: var(--axis-x); }
+.nav-axis.y circle { fill: var(--axis-y); }
+.nav-axis.z circle { fill: var(--axis-z); }
+.nav-axis.neg circle { fill: var(--ground); }
+.nav-axis.neg.x:hover circle { fill: var(--axis-x); }
+.nav-axis.neg.y:hover circle { fill: var(--axis-y); }
+.nav-axis.neg.z:hover circle { fill: var(--axis-z); }
+.nav-axis text { font: 700 10px var(--font-data); fill: var(--ground); text-anchor: middle; pointer-events: none; letter-spacing: 0; }
+.nav-axis:hover circle { stroke: var(--ink); }
+.nav-axis.far, .nav-line.far { opacity: 0.55; }
+.nav-buttons { display: flex; flex-direction: column; border: 1px solid rgba(239, 235, 224, 0.25); background: var(--ground); }
+.nav-buttons button { width: 30px; height: 30px; display: grid; place-items: center; color: var(--muted); touch-action: none; }
+.nav-buttons button + button { border-top: 1px solid var(--rule-soft); }
+.nav-buttons button:hover, .nav-buttons button[aria-pressed="true"] { color: var(--ink); }
+.nav-buttons .ico { width: 16px; height: 16px; }
+.nav-buttons [data-nav="zoom"], .nav-buttons [data-nav="pan"] { cursor: ns-resize; }
+.nav-buttons [data-nav="pan"] { cursor: move; }
+.seg[aria-label="Boolean with the body underneath"] { grid-auto-flow: row; grid-template-columns: repeat(3, minmax(0, 1fr)); }

@@ -188,3 +188,40 @@ export function endTangent(c, last) {
     const [p, q] = last ? [pts.at(-1), pts.at(-2)] : [pts[0], pts[1]];
     return [c.points[last ? c.points.length - 1 : 0], [p[0] - q[0], p[1] - q[1]]];
 }
+
+// --- Control Point Curve (Plasticity's CV curve), as w3d_section's kind 8 ----------------------------
+
+/** The curve's degree: cubic, or lower when there are too few control points for it. */
+export const cvDegree = (n, closed) => Math.min(3, closed ? n - 1 : n - 1);
+
+/**
+ * `n + 1` points (`n` when closed) along the uniform B-spline with control points `points`: clamped
+ * to its end points when open, periodic when closed. The same curve the kernels build.
+ */
+export function cvPoints(points, closed, n = 64) {
+    const m = points.length, p = cvDegree(m, closed);
+    if (m < 2 || p < 1) return points.map(q => [...q]);
+    // Control points and knots of the equivalent non-periodic curve: a closed curve wraps p points.
+    const P = closed ? [...points, ...points.slice(0, p)] : points;
+    const count = P.length, knots = [];
+    if (closed) for (let i = 0; i <= count + p; i++) knots.push(i);
+    else {
+        const inner = count - p;
+        for (let i = 0; i <= p; i++) knots.push(0);
+        for (let i = 1; i < inner; i++) knots.push(i / inner);
+        for (let i = 0; i <= p; i++) knots.push(1);
+    }
+    const t0 = knots[p], t1 = knots[count];
+    const at = t => {
+        let k = p;
+        while (k < count - 1 && t >= knots[k + 1]) k++;
+        const d = Array.from({ length: p + 1 }, (_, j) => [...P[k - p + j]]);
+        for (let r = 1; r <= p; r++) for (let j = p; j >= r; j--) {
+            const i = k - p + j, a = (t - knots[i]) / (knots[i + p - r + 1] - knots[i]);
+            d[j] = [(1 - a) * d[j - 1][0] + a * d[j][0], (1 - a) * d[j - 1][1] + a * d[j][1]];
+        }
+        return d[p];
+    };
+    const steps = closed ? n : n + 1;
+    return Array.from({ length: steps }, (_, i) => at(i === n ? t1 - 1e-12 * (t1 - t0) : t0 + (t1 - t0) * i / n));
+}

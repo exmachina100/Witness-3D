@@ -59,7 +59,9 @@ import { ACTIONS, COMMAND, VIEWPORT, keyFor, keyOf } from './keymap.js';
 import { Selection } from './Selection.js';
 import { claude, describe, MODEL, reply, request } from './ai.js';
 import { icon } from './icons.js';
-import { arcPoints, circleThrough, ellipsePoints, endTangent, helixPoints, loops, polygonCorners, spiralAngle, tangentArc } from '../curves.js';
+import { bridgeCurves, explode, extendCurve, filletCurve, nearestEnd, offsetCurve, splitCurve, tangentCircle, trim } from '../curveEdit.js';
+import { ViewGizmo } from './ViewGizmo.js';
+import { arcPoints, circleThrough, cvPoints, ellipsePoints, endTangent, helixPoints, loops, polygonCorners, spiralAngle, tangentArc } from '../curves.js';
 
 const KEYS = {
   idle: [['CLICK', 'SELECT'], ['⇧ CLICK', 'ADD'], ['CTRL CLICK', 'REMOVE'], ['DRAG', 'BOX'], ['MMB', 'ORBIT'], ['RMB', 'PAN'], ['F', 'SEARCH']],
@@ -85,9 +87,30 @@ const KEYS = {
   polygon: [['CLICK', 'CENTRE · SIZE'], ['↑ ↓', 'SIDES'], ['⇧ WHEEL', 'SIDES'], ['C', 'CIRCUMSCRIBED'], ['V', 'VERTICAL'], ['TAB', 'TYPE RADIUS'], ['ESC', 'CANCEL']],
   ellipse: [['CLICK', 'CENTRE · AXIS · WIDTH'], ['ALT', 'NO SNAP'], ['ESC', 'CANCEL']],
   ellipse3: [['CLICK', 'AXIS ENDS · WIDTH'], ['ALT', 'NO SNAP'], ['ESC', 'CANCEL']],
-  spline: [['CLICK', 'POINTS'], ['CLICK START', 'CLOSE'], ['X Y Z', 'AXIS'], ['CTRL Z', 'BACK'], ['⏎ / RMB', 'DONE']],
+  cv: [['CLICK', 'CONTROL POINTS'], ['CLICK START', 'CLOSE'], ['TAB', 'THROUGH POINTS'], ['X Y Z', 'AXIS'], ['CTRL Z', 'BACK'], ['⏎ / RMB', 'DONE']],
+  spline: [['CLICK', 'POINTS'], ['CLICK START', 'CLOSE'], ['TAB', 'CONTROL POINTS'], ['X Y Z', 'AXIS'], ['CTRL Z', 'BACK'], ['⏎ / RMB', 'DONE']],
   'tangent-arc': [['CLICK', 'CURVE END · SIZE'], ['D', 'FLIP'], ['ALT', 'NO SNAP'], ['ESC', 'CANCEL']],
   spiral: [['CLICK', 'AXIS START · END · RADIUS'], ['X Y Z', 'AXIS'], ['A', 'ANGLE'], ['D', 'LENGTH'], ['R', 'RADIUS'], ['⏎ / RMB', 'OK']],
+  'offset-curve': [['D', 'DISTANCE'], ['TYPE', 'IN PANEL'], ['⏎ / RMB', 'OK']],
+  'fillet-curve': [['D', 'RADIUS'], ['TYPE', 'IN PANEL'], ['⏎ / RMB', 'OK']],
+  'remove-face': [['⇧ CLICK', 'FACES'], ['⏎ / RMB', 'OK']],
+  hole: [['CLICK', 'A FLAT FACE'], ['T', 'THROUGH ALL'], ['TYPE', 'SIZE IN PANEL'], ['⏎ / RMB', 'OK']],
+  split: [['CLICK', 'WHERE TO SPLIT'], ['ESC / ⏎', 'DONE']],
+  'measure-distance': [['CLICK', 'TWO POINTS'], ['CLICK', 'AGAIN TO RESTART'], ['ESC', 'DONE']],
+  'measure-radius': [['CLICK', 'A ROUND EDGE OR CURVE'], ['ESC', 'DONE']],
+  'tangent-circle': [['CLICK', 'FIRST · SECOND CURVE · SIZE'], ['F', 'FREEZE'], ['TAB', 'RADIUS'], ['ESC', 'CANCEL']],
+  extend: [['CLICK', 'NEAR AN END'], ['TYPE', 'LENGTH IN PANEL'], ['ESC / ⏎', 'DONE']],
+  bridge: [['T', 'TENSION'], ['⏎ / RMB', 'OK']],
+  trim: [['CLICK', 'PIECE TO CUT AWAY'], ['CTRL Z', 'UNDO ONE'], ['ESC / ⏎', 'DONE']],
+  box: [['CLICK', 'CORNER · CORNER · HEIGHT'], ['C', 'FROM CENTRE'], ['S', 'SQUARE'], ['TAB', 'TYPE'], ['H', 'HEIGHT'], ['Q W ⇧E ⇧Q', 'BOOLEAN'], ['B', 'NEW BODY'], ['⏎ / RMB', 'OK']],
+  'center-box': [['CLICK', 'CENTRE · CORNER · HEIGHT'], ['C', 'FROM CORNER'], ['S', 'SQUARE'], ['TAB', 'TYPE'], ['H', 'HEIGHT'], ['Q W ⇧E ⇧Q', 'BOOLEAN'], ['B', 'NEW BODY'], ['⏎ / RMB', 'OK']],
+  box3: [['CLICK', 'CORNER · SIDE · WIDTH · HEIGHT'], ['X Y Z', 'AXIS'], ['TAB', 'TYPE'], ['Q W ⇧E ⇧Q', 'BOOLEAN'], ['B', 'NEW BODY'], ['⏎ / RMB', 'OK']],
+  cylinder: [['CLICK', 'CENTRE · RADIUS · HEIGHT'], ['V', 'VERTICAL'], ['TAB', 'TYPE'], ['F', 'RADIUS'], ['D', 'HEIGHT'], ['Q W ⇧E ⇧Q', 'BOOLEAN'], ['B', 'NEW BODY'], ['⏎ / RMB', 'OK']],
+  sphere: [['CLICK', 'CENTRE · SIZE'], ['TAB', 'TYPE'], ['D', 'DIAMETER'], ['Q W ⇧E ⇧Q', 'BOOLEAN'], ['B', 'NEW BODY'], ['⏎ / RMB', 'OK']],
+  shell: [['D', 'THICKNESS'], ['⇧ CLICK', 'FACES'], ['⏎ / RMB', 'OK']],
+  mirror: [['X Y Z', 'PLANE'], ['J', 'JOIN'], ['⏎ / RMB', 'OK']],
+  'rect-array': [['TYPE', 'COUNTS · SPACING'], ['J', 'JOIN'], ['⏎ / RMB', 'OK']],
+  'radial-array': [['X Y Z', 'AXIS'], ['J', 'JOIN'], ['⏎ / RMB', 'OK']],
   pushpull: [['CLICK', 'PLACE'], ['DRAG DOT', 'DISTANCE'], ['Q', 'JOIN'], ['W', 'CUT'], ['B', 'NEW'], ['R C', 'SHAPE'], ['⏎ / RMB', 'OK']],
 };
 // Drawing commands: Plasticity's curve tools, which end in curves and the regions inside them.
@@ -95,12 +118,15 @@ const DRAW = {
   rect: 'RECTANGLE', circle: 'CIRCLE', line: 'LINE', 'center-rect': 'CENTER RECTANGLE', rect3: 'THREE POINT RECTANGLE',
   circle2: 'TWO POINT CIRCLE', circle3: 'THREE POINT CIRCLE', arc3: 'THREE POINT ARC', arc: 'CENTER POINT ARC',
   polygon: 'REGULAR POLYGON', spline: 'SPLINE CURVE', ellipse: 'CENTER ELLIPSE', ellipse3: 'THREE POINT ELLIPSE',
-  'tangent-arc': 'TANGENT ARC', spiral: 'SPIRAL',
+  'tangent-arc': 'TANGENT ARC', spiral: 'SPIRAL', cv: 'CONTROL POINT CURVE',
 };
 // Clicks that finish each drawing; lines and splines go on until closed or finished.
 const CLICKS = { rect: 2, 'center-rect': 2, rect3: 3, circle: 2, circle2: 2, circle3: 3, arc3: 3, arc: 3, polygon: 2, ellipse: 3, ellipse3: 3, 'tangent-arc': 2 };
 // Commands that grow a solid from drawn regions, sharing one panel.
 const FORMS = { revolve: true, loft: true, sweep: true };
+const PRIMS = { box: true, 'center-box': true, box3: true, cylinder: true, sphere: true };
+// Commands that aren't tools in the registry (they act on a click, not on settings).
+const EDITS = { trim: 'TRIM', extend: 'EXTEND CURVE', 'tangent-circle': 'TANGENT CIRCLE', split: 'SPLIT CURVE', 'measure-distance': 'MEASURE DISTANCE', 'measure-radius': 'MEASURE RADIUS' };
 const keysHtml = id => KEYS[id].map(([k, v]) => `<kbd>${k}</kbd><span>${v}</span>`).join('');
 const BAR = [['palette', 'F', 'SEARCH'], ['tool:extrude', 'E', 'EXTRUDE'], ['tool:boolean', 'Q', 'BOOLEAN'], ['tool:fillet', 'B', 'FILLET'], ['tool:move', 'G', 'MOVE'], ['tool:rotate', 'R', 'ROTATE'], ['tool:scale', 'S', 'SCALE'], ['duplicate', '⇧D', 'DUPLICATE'], ['delete', '⇧X', 'DELETE']];
 
@@ -144,9 +170,7 @@ const SHELL = `
     <canvas aria-label="3D modeling viewport"></canvas>
     <span class="corner tl"></span><span class="corner tr"></span><span class="corner bl"></span><span class="corner br"></span>
     <span class="hud" data-id="hud" data-idle>SELECT · F SEARCH</span>
-    <div class="views" role="group" aria-label="View">
-      <button data-view="top" title="Numpad 7">TOP</button><button data-view="front" title="Numpad 1">FRONT</button><button data-view="right" title="Numpad 3">RIGHT</button><button data-view="iso" aria-pressed="true">ISO</button><button data-id="ortho" aria-pressed="false" title="Numpad 5">ORTHO</button>
-    </div>
+    <div class="nav" data-id="nav" aria-label="View navigation"></div>
     <div class="modes" role="group" aria-label="Selection mode">
       <button data-mode="point" aria-pressed="true" title="1 · ⇧1 toggles">1 PT</button><button data-mode="edge" aria-pressed="true" title="2 · ⇧2 toggles">2 EDGE</button><button data-mode="face" aria-pressed="true" title="3 · ⇧3 toggles">3 FACE</button><button data-mode="solid" aria-pressed="true" title="4 · ⇧4 toggles">4 SOLID</button><button data-mode="all" aria-pressed="true" title="5">5 ALL</button>
     </div>
@@ -238,6 +262,77 @@ const SHELL = `
       <div class="field"><label for="w3d-off-distance">DISTANCE</label><input id="w3d-off-distance" data-id="off-distance" type="number" step="0.5" value="0"></div>
       <div class="field"><label for="w3d-off-angle">ANGLE ADJACENT °</label><input id="w3d-off-angle" data-id="off-angle" type="number" step="1" value="0"></div>
       <div class="field"><label>FACES</label><output data-id="off-count">0</output></div>
+    </div>
+    <div class="sec" data-panel="offset-curve" hidden>
+      <span class="hint" data-id="oc-hint">—</span>
+      <div class="field"><label for="w3d-oc-d">DISTANCE</label><input id="w3d-oc-d" data-id="oc-d" type="number" step="0.5" value="5"></div>
+    </div>
+    <div class="sec" data-panel="fillet-curve" hidden>
+      <span class="hint" data-id="fc-hint">—</span>
+      <div class="field"><label for="w3d-fc-r">RADIUS</label><input id="w3d-fc-r" data-id="fc-r" type="number" step="0.5" min="0.01" value="2"></div>
+    </div>
+    <div class="sec" data-panel="remove-face" hidden>
+      <span class="hint" data-id="rf-hint">—</span>
+      <div class="field"><label>FACES</label><output data-id="rf-count">0</output></div>
+    </div>
+    <div class="sec" data-panel="hole" hidden>
+      <span class="hint" data-id="hole-hint">CLICK A FLAT FACE</span>
+      <div class="field"><label for="w3d-hole-d">DIAMETER</label><input id="w3d-hole-d" data-id="hole-d" type="number" step="0.5" min="0.01" value="6"></div>
+      <div class="field" data-id="hole-depth-row"><label for="w3d-hole-depth">DEPTH</label><input id="w3d-hole-depth" data-id="hole-depth" type="number" step="1" min="0.01" value="10"></div>
+      <div class="chips"><button data-id="hole-through" aria-pressed="false"><kbd>T</kbd>THROUGH ALL</button></div>
+    </div>
+    <div class="sec" data-panel="extend" hidden>
+      <span class="hint" data-id="ext-hint">CLICK NEAR THE END OF A LINE OR ARC</span>
+      <div class="field"><label for="w3d-ext-len">LENGTH</label><input id="w3d-ext-len" data-id="ext-len" type="number" step="1" min="0.01" value="10"></div>
+    </div>
+    <div class="sec" data-panel="bridge" hidden>
+      <span class="hint" data-id="br-hint">—</span>
+      <div class="field"><label for="w3d-br-t">TENSION</label><input id="w3d-br-t" data-id="br-t" type="number" step="0.1" min="0.05" value="1"></div>
+    </div>
+    <div class="sec" data-panel="trim" hidden>
+      <span class="hint" data-id="trim-hint">CLICK THE PIECE OF A CURVE TO CUT AWAY; IT ENDS WHERE OTHER CURVES CROSS IT</span>
+    </div>
+    <div class="sec" data-panel="primitive" hidden>
+      <span class="hint" data-id="prim-hint">CLICK THE FIRST CORNER</span>
+      <div class="field" data-id="prim-w-row"><label for="w3d-prim-w">WIDTH</label><input id="w3d-prim-w" data-id="prim-w" type="number" step="1" value="20"></div>
+      <div class="field" data-id="prim-d-row"><label for="w3d-prim-d">LENGTH</label><input id="w3d-prim-d" data-id="prim-d" type="number" step="1" value="20"></div>
+      <div class="field" data-id="prim-r-row"><label for="w3d-prim-r">DIAMETER</label><input id="w3d-prim-r" data-id="prim-r" type="number" step="1" min="0.01" value="20"></div>
+      <div class="field" data-id="prim-h-row"><label for="w3d-prim-h">HEIGHT</label><input id="w3d-prim-h" data-id="prim-h" type="number" step="1" value="20"></div>
+      <div class="chips" data-id="prim-opts"><button data-popt="centre" aria-pressed="false"><kbd>C</kbd>CENTRE</button><button data-popt="square" aria-pressed="false"><kbd>S</kbd>SQUARE</button><button data-popt="vertical" aria-pressed="false"><kbd>V</kbd>VERTICAL</button></div>
+      <span class="label">TARGET</span>
+      <div class="seg" role="group" aria-label="Boolean with the body underneath">
+        <button data-pop="union" aria-pressed="false"><kbd>Q</kbd>UNION</button>
+        <button data-pop="difference" aria-pressed="false"><kbd>W</kbd>DIFF</button>
+        <button data-pop="intersect" aria-pressed="false"><kbd>⇧E</kbd>INTER</button>
+        <button data-pop="slice" aria-pressed="false"><kbd>⇧Q</kbd>SLICE</button>
+        <button data-pop="new" aria-pressed="true"><kbd>B</kbd>NEW</button>
+      </div>
+    </div>
+    <div class="sec" data-panel="shell" hidden>
+      <span class="hint" data-id="shell-hint">FACES TO OPEN</span>
+      <div class="field"><label for="w3d-shell-t">THICKNESS</label><input id="w3d-shell-t" data-id="shell-t" type="number" step="0.5" min="0.01" value="2"></div>
+      <div class="field"><label>OPEN FACES</label><output data-id="shell-count">0</output></div>
+    </div>
+    <div class="sec" data-panel="mirror" hidden>
+      <span class="hint" data-id="mirror-hint">—</span>
+      <span class="label">PLANE SQUARE TO</span>
+      <div class="seg" role="group" aria-label="Mirror axis"><button data-mx="x" aria-pressed="true"><kbd>X</kbd>X</button><button data-mx="y" aria-pressed="false"><kbd>Y</kbd>Y</button><button data-mx="z" aria-pressed="false"><kbd>Z</kbd>Z</button></div>
+      <div class="field"><label for="w3d-mirror-at">AT</label><input id="w3d-mirror-at" data-id="mirror-at" type="number" step="1" value="0"></div>
+      <div class="chips"><button data-id="mirror-join" aria-pressed="false"><kbd>J</kbd>JOIN</button></div>
+    </div>
+    <div class="sec" data-panel="rect-array" hidden>
+      <span class="hint" data-id="ra-hint">—</span>
+      <div class="field"><label>COUNT X · Y · Z</label><span class="trio"><input data-id="ra-cx" type="number" step="1" min="1" value="3" aria-label="Count along x"><input data-id="ra-cy" type="number" step="1" min="1" value="1" aria-label="Count along y"><input data-id="ra-cz" type="number" step="1" min="1" value="1" aria-label="Count along z"></span></div>
+      <div class="field"><label>SPACING X · Y · Z</label><span class="trio"><input data-id="ra-sx" type="number" step="1" value="30" aria-label="Spacing along x"><input data-id="ra-sy" type="number" step="1" value="30" aria-label="Spacing along y"><input data-id="ra-sz" type="number" step="1" value="30" aria-label="Spacing along z"></span></div>
+      <div class="chips"><button data-id="ra-join" aria-pressed="false"><kbd>J</kbd>JOIN</button></div>
+    </div>
+    <div class="sec" data-panel="radial-array" hidden>
+      <span class="hint" data-id="rr-hint">—</span>
+      <div class="field"><label for="w3d-rr-count">COUNT</label><input id="w3d-rr-count" data-id="rr-count" type="number" step="1" min="1" value="6"></div>
+      <div class="field"><label for="w3d-rr-angle">ANGLE °</label><input id="w3d-rr-angle" data-id="rr-angle" type="number" step="15" value="360"></div>
+      <span class="label">AXIS</span>
+      <div class="seg" role="group" aria-label="Radial array axis"><button data-rx="x" aria-pressed="false"><kbd>X</kbd>X</button><button data-rx="y" aria-pressed="false"><kbd>Y</kbd>Y</button><button data-rx="z" aria-pressed="true"><kbd>Z</kbd>Z</button></div>
+      <div class="chips"><button data-id="rr-join" aria-pressed="false"><kbd>J</kbd>JOIN</button></div>
     </div>
     <div class="sec" data-panel="form" hidden>
       <span class="hint" data-id="form-hint">—</span>
@@ -406,15 +501,67 @@ export async function mount(root, backend) {
   keyLight.position.set(5, 10, 7);
   scene.add(keyLight);
 
-  function setView(name) {
+  // Plasticity and Blender turn the camera to a new view rather than jumping; so does this, over
+  // `VIEW_MS`. A turn in progress is replaced by the next.
+  const VIEW_MS = 260;
+  let turning = null;
+  function turnTo(target, position, ms = VIEW_MS) {
+    if (!ms) { controls.target.copy(target); camera.position.copy(position); camera.lookAt(target); turning = null; return; }
+    const from = { target: controls.target.clone(), offset: camera.position.clone().sub(controls.target) };
+    const to = { target: target.clone(), offset: position.clone().sub(target) };
+    turning = { from, to, t0: performance.now(), ms };
+  }
+  function stepTurn(now) {
+    const t = turning;
+    if (!t) return;
+    const k = Math.min(1, (now - t.t0) / t.ms), e = k * k * (3 - 2 * k);
+    // Swing the direction on the sphere and blend the distance, so the view never passes through the target.
+    const a = t.from.offset.clone().normalize(), b = t.to.offset.clone().normalize();
+    const q = new THREE.Quaternion().setFromUnitVectors(a, b);
+    const dir = a.applyQuaternion(new THREE.Quaternion().slerp(q, e));
+    const len = THREE.MathUtils.lerp(t.from.offset.length(), t.to.offset.length(), e);
+    controls.target.lerpVectors(t.from.target, t.to.target, e);
+    camera.position.copy(controls.target).addScaledVector(dir, len);
+    camera.lookAt(controls.target);
+    if (k >= 1) turning = null;
+  }
+  function setView(name, { animate = true } = {}) {
     const v = VIEWS[name];
     const dist = name === 'iso' ? 225 : camera.position.distanceTo(controls.target);
-    if (name === 'iso') controls.target.set(0, 15, 0);
+    const target = name === 'iso' ? new THREE.Vector3(0, 15, 0) : controls.target.clone();
     const dir = new THREE.Vector3(...v.dir).normalize();
-    camera.position.copy(controls.target).addScaledVector(dir, dist);
-    camera.lookAt(controls.target);
-    for (const b of $$('[data-view]')) b.setAttribute('aria-pressed', b.dataset.view === name);
+    turnTo(target, target.clone().addScaledVector(dir, dist), animate ? VIEW_MS : 0);
     if (v.plane) setPlane({ origin: new THREE.Vector3(), normal: new THREE.Vector3(...v.dir).normalize().round(), name: v.plane });
+  }
+  /** Orbit about the target by `dx` (around up) and `dy` (over the top) radians, as a middle-drag does. */
+  function orbitBy(dx, dy) {
+    turning = null;
+    const offset = camera.position.clone().sub(controls.target);
+    const s = new THREE.Spherical().setFromVector3(offset);
+    s.theta += dx;
+    s.phi = THREE.MathUtils.clamp(s.phi + dy, 0.01, Math.PI - 0.01);
+    camera.position.copy(controls.target).add(new THREE.Vector3().setFromSpherical(s));
+    camera.lookAt(controls.target);
+  }
+  /** Slide the view by a screen drag of `dx`, `dy` pixels, as a right-drag does. */
+  function panBy(dx, dy) {
+    turning = null;
+    const h = canvas.clientHeight || 1;
+    const span = camera.isOrthographicCamera ? (camera.top - camera.bottom) / camera.zoom
+      : 2 * camera.position.distanceTo(controls.target) * Math.tan(persp.fov * DEG / 2);
+    const right = new THREE.Vector3().setFromMatrixColumn(camera.matrix, 0), up = new THREE.Vector3().setFromMatrixColumn(camera.matrix, 1);
+    const move = right.multiplyScalar(-dx * span / h).addScaledVector(up, dy * span / h);
+    camera.position.add(move);
+    controls.target.add(move);
+  }
+  /** Zoom by a vertical drag of `dy` pixels: up zooms in. */
+  function zoomBy(dy) {
+    turning = null;
+    const f = Math.exp(dy * 0.01);
+    if (camera.isOrthographicCamera) { camera.zoom = THREE.MathUtils.clamp(camera.zoom / f, 0.01, 1000); camera.updateProjectionMatrix(); return; }
+    const offset = camera.position.clone().sub(controls.target).multiplyScalar(f);
+    if (offset.length() < 1) return;
+    camera.position.copy(controls.target).add(offset);
   }
   function setOrtho(on) {
     if (on === camera.isOrthographicCamera) return;
@@ -433,11 +580,11 @@ export async function mount(root, backend) {
     camera = next;
     controls.object = camera;
     for (const g of [cmd?.gizmo, cmd?.tc]) if (g) g.camera = camera;
-    $('ortho').setAttribute('aria-pressed', on);
     resize(true);
   }
   /** Frame the selection, or everything (Plasticity 0.6.30's /). */
   function focus() {
+    turning = null;
     const ids = sel.size ? sel.bodies : current.map(b => b.id);
     const box = new THREE.Box3();
     for (const id of ids) { const m = bodyMesh(id); if (m) box.expandByObject(m); }
@@ -540,6 +687,7 @@ export async function mount(root, backend) {
   const curve2d = c => c.kind === 'circle' ? new THREE.Path().absarc(c.center[0], c.center[1], c.radius, 0, Math.PI * 2).getPoints(96).slice(0, -1)
     : c.kind === 'arc' ? (arcPoints(c.start, c.mid, c.end, 48) ?? [c.start, c.end]).map(p => new THREE.Vector2(...p))
     : c.kind === 'spline' ? (c.samples ?? splinePreview(c.points, c.closed)).slice(0, c.closed ? -1 : undefined).map(p => new THREE.Vector2(...p))
+    : c.kind === 'cv' ? cvPoints(c.points, !!c.closed, 96).map(p => new THREE.Vector2(...p))
     : c.kind === 'ellipse' ? ellipsePoints(c.center, c.major, c.minor, 96).map(p => new THREE.Vector2(...p))
     : c.kind === 'contour' ? contour2d(c)
     : c.kind === 'spiral' ? helixPoints(c, 48).map(p => new THREE.Vector3(...p))
@@ -550,7 +698,8 @@ export async function mount(root, backend) {
     return isClosed(c) && pts.length > 1 && pts[0].distanceTo(pts.at(-1)) < 1e-6 ? pts.slice(0, -1) : pts;
   }
   const isClosed = c => c.kind === 'circle' || c.kind === 'ellipse' || (c.kind === 'contour' ? loops(c.pieces) : c.kind !== 'arc' && c.closed && c.points.length >= 3);
-  const curveName = c => ({ circle: 'CIRCLE', arc: 'ARC', spline: 'SPLINE', ellipse: 'ELLIPSE', contour: 'CONTOUR', spiral: 'SPIRAL' })[c.kind] ?? (!c.closed ? 'LINE' : c.points.length === 4 ? 'RECTANGLE' : 'POLYGON');
+  // Control-point curves draw from their control points with the same B-spline the kernels make.
+  const curveName = c => ({ circle: 'CIRCLE', arc: 'ARC', spline: 'SPLINE', cv: 'CV CURVE', ellipse: 'ELLIPSE', contour: 'CONTOUR', spiral: 'SPIRAL' })[c.kind] ?? (!c.closed ? 'LINE' : c.points.length === 4 ? 'RECTANGLE' : 'POLYGON');
   /** A spline through the points for drawing before the kernel has made it (the kernel's own fit
    * is close to this chordal Catmull-Rom curve, not the same). */
   function splinePreview(points, closed) {
@@ -646,7 +795,7 @@ export async function mount(root, backend) {
       const row = document.createElement('div');
       row.className = 'row-item curve';
       row.setAttribute('aria-current', sel.has({ kind: 'curve', id: c.id }) || sel.has({ kind: 'region', id: c.id }));
-      const look = { circle: 'circle', arc: 'arc3', spline: 'spline', ellipse: 'ellipse', contour: 'join', spiral: 'spiral' }[c.kind] ?? (!c.closed ? 'line' : c.points.length === 4 ? 'rect' : 'polygon');
+      const look = { circle: 'circle', arc: 'arc3', spline: 'spline', cv: 'cv', ellipse: 'ellipse', contour: 'join', spiral: 'spiral' }[c.kind] ?? (!c.closed ? 'line' : c.points.length === 4 ? 'rect' : 'polygon');
       row.innerHTML = `${icon(look)}<span class="name">${curveName(c)}</span><span class="tag">${curveLabel(c.id)}</span>`;
       row.onclick = e => { applySelect({ kind: 'curve', id: c.id }, modOf(e)); selectionChanged(); };
       out.append(row);
@@ -1000,9 +1149,9 @@ export async function mount(root, backend) {
   }
   function showTool(id) {
     for (const b of $$('[data-tool]')) b.setAttribute('aria-pressed', b.dataset.tool === id);
-    for (const el of $$('[data-panel]')) el.hidden = el.dataset.panel !== (id === 'spiral' ? 'spiral' : DRAW[id] ? 'draw' : FORMS[id] ? 'form' : id);
+    for (const el of $$('[data-panel]')) el.hidden = el.dataset.panel !== (id === 'spiral' ? 'spiral' : DRAW[id] ? 'draw' : FORMS[id] ? 'form' : PRIMS[id] ? 'primitive' : id);
     $('keys').innerHTML = keysHtml(KEYS[id] ? id : 'idle');
-    const name = !id ? 'SELECT' : DRAW[id] ?? toolInfo(id).label;
+    const name = !id ? 'SELECT' : EDITS[id] ?? DRAW[id] ?? toolInfo(id).label;
     $('tool-name').textContent = name;
     $('status-tool').textContent = name;
     $('commit').disabled = $('cancel').disabled = !id;
@@ -1033,6 +1182,20 @@ export async function mount(root, backend) {
     if (id === 'boolean') return startBoolean();
     if (id === 'offset') return startOffset(opts);
     if (FORMS[id]) return startForm(id);
+    if (PRIMS[id]) return startPrimitive(id, opts);
+    if (id === 'offset-curve' || id === 'fillet-curve') return startCurveEdit(id);
+    if (id === 'trim') return startTrim();
+    if (id === 'hole') return startHole(opts);
+    if (id === 'remove-face') return startRemoveFace();
+    if (id === 'extend') return startExtend();
+    if (id === 'tangent-circle') return startTangentCircle();
+    if (id === 'split') return startSplit();
+    if (id === 'measure-distance') return startMeasureDistance();
+    if (id === 'measure-radius') return startMeasureRadius();
+    if (id === 'bridge') return startBridge();
+    if (id === 'shell') return startShell();
+    if (id === 'mirror') return startMirror();
+    if (id === 'rect-array' || id === 'radial-array') return startArray(id);
     if (id === 'spiral') return startSpiral();
     if (DRAW[id]) return startDraw(id);
   }
@@ -1740,6 +1903,13 @@ export async function mount(root, backend) {
       }
       if (action === 'typed') { typeSize(); return true; }
       if (action === 'flip' && c.id === 'tangent-arc') { c.flip = !c.flip; drawShape(); return true; }
+      if (action === 'switch' && (c.id === 'spline' || c.id === 'cv')) {
+        // Tab: through-points and control points, keeping what's been clicked (manual: Control / Through-point).
+        c.id = lastTool = c.id === 'spline' ? 'cv' : 'spline';
+        showTool(c.id);
+        drawShape();
+        return true;
+      }
       if (action.startsWith('axis-')) {
         // X, Y or Z keeps the next point on that axis through the last one (press again to free it).
         const a = action.slice(5);
@@ -1889,6 +2059,9 @@ export async function mount(root, backend) {
       }
       case 'spline':
         return { show: splinePreview(P, false), size: `×${c.pts.length}` };
+      case 'cv':
+        // The B-spline the kernels will make from these control points.
+        return { show: P.length > 1 ? cvPoints(P, false, 16 * P.length) : P, size: `×${c.pts.length}` };
       default:
         return { show: P, size: `L ${d(P.at(-2), P.at(-1)).toFixed(2)}` };
     }
@@ -2003,7 +2176,7 @@ export async function mount(root, backend) {
     } else if (c.id === 'arc') {
       if (c.pts.length === 1) c.entry = { label: 'RADIUS', text: '', apply: r => { c.pts.push(along(Math.abs(r))); c.sweep = 0; c.turn = null; } };
       else c.entry = { label: 'ANGLE °', text: '', apply: v => { c.sweep = Math.max(-359.9, Math.min(359.9, v)) * DEG; commitDrawn([...c.pts, c.pts[1]]); } };
-    } else if (CLICKS[c.id] || c.id === 'spline') {
+    } else if (CLICKS[c.id] || c.id === 'spline' || c.id === 'cv') {
       return toast('CLICK THE POINTS');
     } else {
       const last = c.pts.at(-1), dir = b.clone().sub(last);
@@ -2027,6 +2200,7 @@ export async function mount(root, backend) {
   function commitLine(closed) {
     const c = cmd, points = c.pts.map(p => [p.x, p.y]);
     if (c.id === 'spline') return commitCurve(curveOf({ kind: 'spline', points, closed }), `SPLINE ×${c.pts.length}${closed ? ' CLOSED' : ''}`);
+    if (c.id === 'cv') return commitCurve(curveOf({ kind: 'cv', points, closed }), `CV CURVE ×${c.pts.length}${closed ? ' CLOSED' : ''}`);
     return commitCurve(curveOf({ kind: 'polyline', points, closed }), `${closed ? 'POLYGON' : 'LINE'} ×${c.pts.length}`);
   }
   /** Finish a drawing with a fixed number of clicks, from all of them. */
@@ -2037,7 +2211,7 @@ export async function mount(root, backend) {
   }
   async function finishDraw() {
     const c = cmd;
-    if ((c.id === 'line' || c.id === 'spline') && c.pts.length >= 2) return commitLine(false);
+    if ((c.id === 'line' || c.id === 'spline' || c.id === 'cv') && c.pts.length >= 2) return commitLine(false);
     endCmd(c.plane ? 'cancelled' : null);
   }
   async function commitCurve(curve, text) {
@@ -2540,6 +2714,830 @@ export async function mount(root, backend) {
     } catch (e) { setState('failed'); toast(say(e)); }
   }
 
+  // --- Round 7: Offset Curve, Fillet Curve, Trim and Explode ------------------------
+  // The geometry is curveEdit.js, shared by both builds; the backend only stores the curves that
+  // come out, so a preview here is exactly what OK makes. Each finish is one undo step.
+  function showCurvePreview(list) {
+    for (const c of list) {
+      const f = curveFrame(c), pts = curve2d(c);
+      const l = new (isClosed(c) ? THREE.LineLoop : THREE.Line)(new THREE.BufferGeometry().setFromPoints(pts.map(p => lift(f, p, 0.03))), curveMat.selected);
+      l.renderOrder = 10;
+      previewGroup.add(l);
+    }
+  }
+  const curveById = id => curveList.find(c => c.id === id);
+  async function curvesChanged(made) {
+    await loadCurves();
+    sel.clear();
+    for (const id of made) sel.add({ kind: curveList.find(c => c.id === id && isClosed(c)) ? 'region' : 'curve', id });
+    selectionChanged({ quiet: true });
+  }
+
+  function startCurveEdit(id) {
+    const ids = sel.curves.filter(curveById);
+    const offset = id === 'offset-curve';
+    if (!ids.length) return toast(`SELECT A CURVE TO ${offset ? 'OFFSET' : 'FILLET'}`);
+    if (!backend.addCurves || (!offset && !backend.replaceCurves)) return toast(`${toolInfo(id).label} IS NOT IN THIS BUILD YET`);
+    const field = offset ? 'oc-d' : 'fc-r', hint = offset ? 'oc-hint' : 'fc-hint';
+    const c = cmd = { id, ids, out: null };
+    lastTool = id;
+    showTool(id);
+    setState('none');
+    setTarget(ids.length === 1 ? curveLabel(ids[0]) : `${ids.length} CURVES`);
+    c.compute = () => ids.map(cid => { const src = curveById(cid); return offset ? offsetCurve(src, num(field)) : filletCurve(src, num(field)); });
+    c.preview = () => {
+      clearPreview();
+      try {
+        c.out = c.compute();
+        showCurvePreview(c.out);
+        $(hint).textContent = `${ids.length} CURVE${ids.length > 1 ? 'S' : ''}`;
+        setHud(`${toolInfo(id).label} ${num(field)} MM`);
+        setState('updated');
+      } catch (e) { c.out = null; $(hint).textContent = say(e); setHud(`${toolInfo(id).label} FAILED`); setState('failed'); }
+    };
+    c.key = action => {
+      if (action !== 'distance' && action !== 'radius') return false;
+      c.entry = { label: action.toUpperCase(), text: '', apply: v => { $(field).value = v; c.preview(); } };
+      setHud(`${action.toUpperCase()} _`);
+      return true;
+    };
+    c.finish = async () => {
+      if (!c.out) return toast($(hint).textContent);
+      try {
+        const { ids: made } = offset ? await backend.addCurves(c.out) : await backend.replaceCurves(ids, c.out);
+        endCmd('committed');
+        record(`${toolInfo(id).label} ${num(field)} MM`, made[0], curveLabel(made[0]));
+        await curvesChanged(made);
+      } catch (e) { setState('failed'); toast(say(e)); }
+    };
+    c.abort = () => endCmd('cancelled');
+    c.cleanup = () => clearPreview();
+    c.preview();
+  }
+
+  /** Plasticity's Trim: click pieces of curves to cut them away where other curves cross them. */
+  function startTrim() {
+    if (!backend.replaceCurves) return toast('TRIM IS NOT IN THIS BUILD YET');
+    const c = cmd = { id: 'trim', count: 0 };
+    lastTool = 'trim';
+    showTool('trim');
+    setState('none');
+    setHud('CLICK A PIECE TO CUT AWAY');
+    c.click = async e => {
+      const hit = pickAt(e);
+      const src = (hit?.kind === 'curve' || hit?.kind === 'region') && curveById(hit.id);
+      if (!src || !hit.point) return true;
+      const f = curveFrame(src), d = hit.point.clone().sub(f.o);
+      try {
+        const keep = trim(src, curveList.filter(o => o.id !== src.id), [d.dot(f.x), d.dot(f.y)]);
+        const { ids: made } = await backend.replaceCurves([src.id], keep);
+        c.count++;
+        record(`TRIM ${curveLabel(src.id)}`, made[0] ?? src.id, made.length ? curveLabel(made[0]) : '—');
+        await loadCurves();
+        setHud(`${c.count} CUT · CLICK ANOTHER, OR ⏎`);
+        setState('committed');
+      } catch (err) { setState('failed'); toast(say(err)); }
+      return true;
+    };
+    c.finish = () => endCmd(c.count ? 'committed' : 'cancelled');
+    c.abort = () => endCmd(c.count ? 'committed' : 'cancelled');
+  }
+
+  /** Plasticity's Remove Face: the selected faces go and their neighbours close the gap. */
+  function startRemoveFace() {
+    const body = faceBody();
+    if (body === null) return toast(sel.list('face').length ? 'REMOVE FACES OF ONE SOLID AT A TIME' : 'SELECT THE FACES TO REMOVE');
+    if (!backend.previewRemoveFaces) return toast('REMOVE FACE NEEDS THE DESKTOP APP; THE BROWSER KERNEL CANNOT DO IT YET');
+    const c = cmd = { id: 'remove-face', body, faces: [], sent: 0, shown: 0 };
+    lastTool = 'remove-face';
+    showTool('remove-face');
+    setState('none');
+    c.request = () => ({ body: c.body, faces: c.faces });
+    c.preview = () => livePreview(c, () => backend.previewRemoveFaces(c.request()), b => { showPreviewBody(b); setHud(`REMOVE ${c.faces.length} FACE${c.faces.length > 1 ? 'S' : ''}`); }, 'rf-hint');
+    c.onSelection = () => {
+      drawOverlays();
+      const b = faceBody();
+      if (b === null) return setHud('SELECT FACES TO REMOVE');
+      c.body = b;
+      c.faces = sel.list('face').map(it => it.n).sort((x, y) => x - y);
+      setTarget(label(b));
+      $('rf-count').textContent = c.faces.length;
+      $('rf-hint').textContent = `${c.faces.length} FACE${c.faces.length > 1 ? 'S' : ''} ON ${label(b)}`;
+      c.preview();
+    };
+    c.click = e => {
+      const hit = pickAt(e);
+      if (hit?.kind !== 'face' || !(e.ctrlKey || e.metaKey || e.shiftKey)) return true;
+      sel.toggle({ kind: 'face', body: hit.body, n: hit.n });
+      selectionChanged();
+      return true;
+    };
+    c.finish = async () => {
+      try {
+        const { id, scene: list } = await backend.commitRemoveFaces(c.request());
+        endCmd('committed');
+        record(`REMOVE FACE ×${c.faces.length}`, id);
+        await showScene(list);
+        sel.replace({ kind: 'solid', body: id });
+        selectionChanged({ quiet: true });
+      } catch (e) { setState('failed'); toast(say(e)); }
+    };
+    c.abort = () => endCmd('cancelled');
+    c.cleanup = () => clearPreview();
+    c.onSelection();
+  }
+
+  /** Hole: click a flat face; a round cut of the panel's diameter goes in to its depth, or through. */
+  function startHole({ at = null } = {}) {
+    if (!backend.preview) return toast('HOLE IS NOT IN THIS BUILD YET');
+    const c = cmd = { id: 'hole', at: null, through: false, sent: 0, shown: 0 };
+    lastTool = 'hole';
+    showTool('hole');
+    setState('none');
+    $('hole-through').setAttribute('aria-pressed', 'false');
+    $('hole-depth-row').hidden = false;
+    $('hole-hint').textContent = 'CLICK A FLAT FACE';
+    c.request = () => {
+      if (!c.at) return null;
+      // Through all: deeper than the body is across.
+      const box = new THREE.Box3().expandByObject(bodyMesh(c.at.target));
+      const depth = c.through ? box.getSize(new THREE.Vector3()).length() * 1.5 : num('hole-depth');
+      return { target: c.at.target, origin: c.at.origin.toArray(), normal: c.at.normal.toArray(), xAxis: frameFor(c.at.normal).toArray(), profile: { kind: 'circle', radius: num('hole-d') / 2 }, distance: -depth, op: 'difference' };
+    };
+    c.preview = () => {
+      const req = c.request();
+      if (!req) return;
+      livePreview(c, async () => {
+        const p = await backend.preview(req);
+        if (p && p.outcome !== 'cut') throw new Error('the hole does not go into the body');
+        return p;
+      }, p => { if (p.result) showPreviewBody(p.result); if (p.tool) { const m = meshOf(p.tool, phantom.cut.face, phantom.cut.edge); m.renderOrder = 5; previewGroup.add(m); } setHud(`HOLE ⌀${num('hole-d')} ${c.through ? 'THROUGH' : `× ${num('hole-depth')}`}`); }, 'hole-hint');
+    };
+    c.place = p => {
+      if (!p.target) { toast('CLICK A FLAT FACE OF A SOLID'); return; }
+      c.at = p;
+      setTarget(label(p.target));
+      $('hole-hint').textContent = `ON ${label(p.target)} · ⏎ TO DRILL`;
+      c.preview();
+    };
+    c.click = e => {
+      const p = placeAt(e);
+      if (p?.curved) { toast('HOLES GO INTO FLAT FACES'); return true; }
+      if (p) c.place(p);
+      return true;
+    };
+    c.key = action => {
+      if (action !== 'through') return false;
+      c.through = !c.through;
+      $('hole-through').setAttribute('aria-pressed', c.through);
+      $('hole-depth-row').hidden = c.through;
+      c.preview();
+      return true;
+    };
+    c.finish = async () => {
+      const req = c.request();
+      if (!req) return endCmd('cancelled');
+      try {
+        const { id, scene: list } = await backend.commit(req);
+        endCmd('committed');
+        record(`HOLE ⌀${num('hole-d')} ${c.through ? 'THROUGH' : `× ${num('hole-depth')}`}`, id);
+        await showScene(list);
+        sel.replace({ kind: 'solid', body: id });
+        selectionChanged({ quiet: true });
+      } catch (e) { setState('failed'); toast(say(e)); }
+    };
+    c.abort = () => endCmd('cancelled');
+    c.cleanup = () => clearPreview();
+    setHud('CLICK A FLAT FACE');
+    if (at) c.place(at);
+  }
+
+  /**
+   * Plasticity's Tangent Circle: click two curves, then move the cursor to size a circle touching both
+   * (F freezes it while the cursor moves on; Tab types its radius); click to place it.
+   */
+  function startTangentCircle() {
+    if (!backend.addCurves) return toast('DRAWING IS NOT IN THIS BUILD YET');
+    const c = cmd = { id: 'tangent-circle', picks: [], radius: null, frozen: false, out: null, at: null };
+    lastTool = 'tangent-circle';
+    showTool('tangent-circle');
+    setState('none');
+    setHud('CLICK THE FIRST CURVE');
+    const planeHit = e => {
+      const f = curveFrame(c.picks[0]);
+      ray(e);
+      const p = raycaster.ray.intersectPlane(new THREE.Plane().setFromNormalAndCoplanarPoint(f.n, f.o), new THREE.Vector3());
+      if (!p) return null;
+      const d = p.sub(f.o);
+      return [d.dot(f.x), d.dot(f.y)];
+    };
+    const update = () => {
+      clearPreview();
+      if (!c.at) return;
+      try {
+        c.out = tangentCircle(c.picks[0], c.picks[1], c.at, c.radius);
+        showCurvePreview([c.out]);
+        setHud(`TANGENT CIRCLE R ${c.out.radius.toFixed(2)}${c.frozen ? ' · FROZEN' : ''}`);
+        setState('updated');
+      } catch (err) { c.out = null; setHud(say(err)); setState('failed'); }
+    };
+    c.move = e => {
+      if (c.picks.length < 2 || c.frozen) return;
+      c.at = planeHit(e);
+      update();
+    };
+    c.click = async e => {
+      if (c.picks.length < 2) {
+        const hit = pickAt(e);
+        const src = (hit?.kind === 'curve' || hit?.kind === 'region') && curveById(hit.id);
+        if (!src) { toast('CLICK A CURVE'); return true; }
+        if (c.picks.includes(src)) return true;
+        c.picks.push(src);
+        setTarget(c.picks.map(k => curveLabel(k.id)).join(' · '));
+        setHud(c.picks.length === 1 ? 'CLICK THE SECOND CURVE' : 'MOVE TO SIZE THE CIRCLE, THEN CLICK');
+        return true;
+      }
+      await c.finish();
+      return true;
+    };
+    c.key = action => {
+      if (action === 'freeze') { c.frozen = !c.frozen; update(); return true; }
+      if (action === 'typed') {
+        c.entry = { label: 'RADIUS', text: '', apply: v => { c.radius = Math.abs(v); update(); } };
+        setHud('RADIUS _');
+        return true;
+      }
+      return false;
+    };
+    c.finish = async () => {
+      if (!c.out) return endCmd('cancelled');
+      try {
+        const { ids: made } = await backend.addCurves([c.out]);
+        endCmd('committed');
+        record(`TANGENT CIRCLE R ${c.out.radius.toFixed(2)}`, made[0], curveLabel(made[0]));
+        await curvesChanged(made);
+      } catch (err) { setState('failed'); toast(say(err)); }
+    };
+    c.abort = () => endCmd('cancelled');
+    c.cleanup = () => clearPreview();
+  }
+
+  /** Plasticity's Split Curve At Point: click a curve where it should become two. */
+  function startSplit() {
+    if (!backend.replaceCurves) return toast('SPLIT IS NOT IN THIS BUILD YET');
+    const c = cmd = { id: 'split', count: 0 };
+    lastTool = 'split';
+    showTool('split');
+    setState('none');
+    setHud('CLICK A CURVE WHERE TO SPLIT IT');
+    c.click = async e => {
+      const hit = pickAt(e);
+      const src = (hit?.kind === 'curve' || hit?.kind === 'region') && curveById(hit.id);
+      if (!src || !hit.point) return true;
+      const f = curveFrame(src), d = hit.point.clone().sub(f.o);
+      try {
+        const { ids: made } = await backend.replaceCurves([src.id], splitCurve(src, [d.dot(f.x), d.dot(f.y)]));
+        c.count++;
+        record(`SPLIT ${curveLabel(src.id)}`, made[0], made.map(curveLabel).join(' '));
+        await loadCurves();
+        setHud(`${c.count} SPLIT · CLICK ANOTHER, OR ⏎`);
+        setState('committed');
+      } catch (err) { setState('failed'); toast(say(err)); }
+      return true;
+    };
+    c.finish = () => endCmd(c.count ? 'committed' : 'cancelled');
+    c.abort = () => endCmd(c.count ? 'committed' : 'cancelled');
+  }
+
+  /** Plasticity's Measure Distance: click two points (they snap); the distance and its x, y, z show. */
+  function startMeasureDistance() {
+    const c = cmd = { id: 'measure-distance', a: null };
+    lastTool = 'measure-distance';
+    showTool('measure-distance');
+    setState('none');
+    setHud('CLICK THE FIRST POINT');
+    const line = new THREE.Line(new THREE.BufferGeometry(), new THREE.LineBasicMaterial({ color: COLORS.accent, depthTest: false }));
+    line.renderOrder = 12;
+    scene.add(line);
+    const pointOf = e => {
+      const p = placeAt(e);
+      if (p && !p.curved) return p.origin.clone();
+      ray(e);
+      return raycaster.ray.intersectPlane(planeOf(), new THREE.Vector3());
+    };
+    const show = (a, b) => {
+      line.geometry.setFromPoints([a, b]);
+      const [dx, dy, dz] = toUser(b.clone().sub(a).toArray());
+      setHud(`DISTANCE ${a.distanceTo(b).toFixed(3)} MM · ΔX ${dx.toFixed(3)} ΔY ${dy.toFixed(3)} ΔZ ${dz.toFixed(3)}`);
+    };
+    c.move = e => { if (!c.a) return; const b = pointOf(e); if (b) show(c.a, b); };
+    c.click = e => {
+      const p = pointOf(e);
+      if (!p) return true;
+      if (!c.a || c.done) { c.a = p; c.done = false; line.geometry.setFromPoints([p, p]); setHud('CLICK THE SECOND POINT'); return true; }
+      show(c.a, p);
+      c.done = true;
+      setState('updated');
+      return true;
+    };
+    c.finish = () => endCmd(null);
+    c.abort = () => endCmd(null);
+    c.cleanup = () => { line.geometry.dispose(); line.removeFromParent(); };
+  }
+
+  /** Plasticity's Measure Radius: click a circle or arc, or a round edge of a solid. */
+  function startMeasureRadius() {
+    const c = cmd = { id: 'measure-radius' };
+    lastTool = 'measure-radius';
+    showTool('measure-radius');
+    setState('none');
+    setHud('CLICK A ROUND EDGE OR CURVE');
+    c.click = e => {
+      const hit = pickAt(e);
+      let r = null;
+      if (hit?.kind === 'curve' || hit?.kind === 'region') {
+        const k = curveById(hit.id);
+        if (k?.kind === 'circle') r = k.radius;
+        else if (k?.kind === 'arc') { const g = circleThrough(k.start, k.mid, k.end); r = g?.radius ?? null; }
+      } else if (hit?.kind === 'edge') {
+        // The circle through three points of the edge; a straight edge has none.
+        const e3 = bodyOf(hit.body)?.edges[hit.n] ?? [];
+        const pts = []; for (let i = 0; i < e3.length; i += 3) pts.push(new THREE.Vector3(e3[i], e3[i + 1], e3[i + 2]));
+        if (pts.length >= 3) {
+          const [a, b, q] = [pts[0], pts[Math.floor(pts.length / 2)], pts[pts.length - 1].distanceTo(pts[0]) < 1e-6 ? pts[Math.floor(pts.length / 4)] : pts[pts.length - 1]];
+          const ab = b.clone().sub(a), aq = q.clone().sub(a), n = ab.clone().cross(aq);
+          if (n.lengthSq() > 1e-12) r = ab.length() * aq.length() * q.clone().sub(b).length() / (2 * n.length());
+        }
+      }
+      if (r === null) { setHud('NO RADIUS THERE: PICK A CIRCLE, ARC OR ROUND EDGE'); return true; }
+      setHud(`RADIUS ${r.toFixed(3)} MM · DIAMETER ${(2 * r).toFixed(3)} MM`);
+      setState('updated');
+      return true;
+    };
+    c.finish = () => endCmd(null);
+    c.abort = () => endCmd(null);
+  }
+
+  /** Plasticity's Extend Curve: click near an open end of a line or arc to lengthen it by the panel's length. */
+  function startExtend() {
+    if (!backend.replaceCurves) return toast('EXTEND IS NOT IN THIS BUILD YET');
+    const c = cmd = { id: 'extend', count: 0 };
+    lastTool = 'extend';
+    showTool('extend');
+    setState('none');
+    setHud('CLICK NEAR AN END');
+    c.click = async e => {
+      const hit = pickAt(e);
+      const src = (hit?.kind === 'curve' || hit?.kind === 'region') && curveById(hit.id);
+      if (!src || !hit.point) return true;
+      const f = curveFrame(src), d = hit.point.clone().sub(f.o), at = [d.dot(f.x), d.dot(f.y)];
+      try {
+        const out = extendCurve(src, nearestEnd(src, at), num('ext-len'));
+        const { ids: made } = await backend.replaceCurves([src.id], [out]);
+        c.count++;
+        record(`EXTEND ${curveLabel(src.id)} ${num('ext-len')} MM`, made[0], curveLabel(made[0]));
+        await loadCurves();
+        setHud(`${c.count} EXTENDED · CLICK ANOTHER, OR ⏎`);
+        setState('committed');
+      } catch (err) { setState('failed'); toast(say(err)); }
+      return true;
+    };
+    c.finish = () => endCmd(c.count ? 'committed' : 'cancelled');
+    c.abort = () => endCmd(c.count ? 'committed' : 'cancelled');
+  }
+
+  /** Plasticity's Bridge Curves: a smooth curve between the nearest ends of two selected open curves. */
+  function startBridge() {
+    const ids = sel.curves.filter(curveById);
+    if (ids.length !== 2) return toast('SELECT TWO OPEN CURVES TO BRIDGE');
+    if (!backend.addCurves) return toast('BRIDGE IS NOT IN THIS BUILD YET');
+    const [a, b] = ids.map(curveById);
+    // The nearest pair of ends, measured in the viewport.
+    const endPoint = (cv, w) => { const f = curveFrame(cv), p = curve2d(cv), q = w ? p[p.length - 1] : p[0]; return lift(f, q); };
+    let pick = null;
+    for (const ea of [0, 1]) for (const eb of [0, 1]) {
+      const d = endPoint(a, ea).distanceTo(endPoint(b, eb));
+      if (!pick || d < pick.d) pick = { d, ea, eb };
+    }
+    const c = cmd = { id: 'bridge', out: null };
+    lastTool = 'bridge';
+    showTool('bridge');
+    setState('none');
+    setTarget(`${curveLabel(a.id)} · ${curveLabel(b.id)}`);
+    c.preview = () => {
+      clearPreview();
+      try {
+        c.out = bridgeCurves(a, pick.ea, b, pick.eb, num('br-t'));
+        showCurvePreview([c.out]);
+        $('br-hint').textContent = `${curveLabel(a.id)} TO ${curveLabel(b.id)}`;
+        setHud(`BRIDGE · TENSION ${num('br-t')}`);
+        setState('updated');
+      } catch (e) { c.out = null; $('br-hint').textContent = say(e); setHud('BRIDGE FAILED'); setState('failed'); }
+    };
+    c.key = action => {
+      if (action !== 'tension') return false;
+      c.entry = { label: 'TENSION', text: '', apply: v => { $('br-t').value = v; c.preview(); } };
+      setHud('TENSION _');
+      return true;
+    };
+    c.finish = async () => {
+      if (!c.out) return toast($('br-hint').textContent);
+      try {
+        const { ids: made } = await backend.addCurves([c.out]);
+        endCmd('committed');
+        record('BRIDGE CURVES', made[0], curveLabel(made[0]));
+        await curvesChanged(made);
+      } catch (e) { setState('failed'); toast(say(e)); }
+    };
+    c.abort = () => endCmd('cancelled');
+    c.cleanup = () => clearPreview();
+    c.preview();
+  }
+
+  /** Plasticity's Explode: split the selected lines and joined curves into their pieces, one undo step. */
+  async function explodeSelected() {
+    if (cmd) await finish();
+    const ids = sel.curves.filter(curveById);
+    if (!ids.length) return toast('SELECT A CURVE TO EXPLODE');
+    if (!backend.replaceCurves) return toast('EXPLODE IS NOT IN THIS BUILD YET');
+    try {
+      const list = ids.flatMap(id => explode(curveById(id)));
+      const { ids: made } = await backend.replaceCurves(ids, list);
+      record(`EXPLODE ${ids.map(curveLabel).join(' ')}`, made[0], `${made.length} CURVES`);
+      await curvesChanged(made);
+    } catch (e) { toast(say(e)); }
+  }
+
+  // --- Round 6: Box, Cylinder, Sphere, Shell, Mirror and arrays ---------------------
+  // Box, Cylinder and Sphere: click a point on a face or the construction plane, then set sizes in
+  // the panel; the solid previews as you type. Shell: select faces of one solid to open, set the wall
+  // thickness. Mirror, Rectangular and Radial Array act on the selected solids and preview their
+  // copies; J joins the copies to the originals instead of making new bodies. Each finishes as one
+  // undo step. Values in the panel are in the user's axes (x right, y back, z up).
+
+  /** Run `compute` for command `c` and draw what it returns, keeping only the newest answer. */
+  async function livePreview(c, compute, show, hintId) {
+    const n = ++c.sent;
+    setState('updating');
+    const t0 = performance.now();
+    let r;
+    try { r = await compute(); }
+    catch (e) {
+      if (cmd !== c || n !== c.sent) return;
+      clearPreview();
+      setState('failed');
+      if (hintId) $(hintId).textContent = say(e);
+      return setHud(`${toolInfo(c.id).label} FAILED`);
+    }
+    if (r == null || cmd !== c || n < c.shown) return;
+    c.shown = n;
+    $('ms').textContent = Math.round(performance.now() - t0);
+    clearPreview();
+    show(r);
+    if (n === c.sent) setState('updated');
+  }
+  const showCopies = list => { for (const b of list) { const m = meshOf(b, phantom.add.face, phantom.add.edge); m.renderOrder = 5; previewGroup.add(m); } };
+  const num = id => parseFloat($(id).value);
+  const userAxis = a => ({ x: [1, 0, 0], y: [0, 1, 0], z: [0, 0, 1] })[a];
+
+  /**
+   * Plasticity's Corner Box, Center Box, Three Point Box, Cylinder and Sphere, step by step as the
+   * manual gives them. A box: click the base's corners (or centre and corner, or corner, side and
+   * width), then move the cursor up for the height and click. A cylinder: centre, radius, height. A
+   * sphere: centre, size. The base snaps and takes X/Y/Z like any sketch; Tab types the size of the
+   * current step. While sizing the height, Q W Shift+E Shift+Q join, cut, intersect or slice the body
+   * the base sits on, and B keeps it separate (the start). The last click leaves the panel open to
+   * adjust; Enter or right-click finishes as one undo step.
+   */
+  function startPrimitive(id, { at = null } = {}) {
+    if (!backend.previewPrimitive) return toast(`${toolInfo(id).label} IS NOT IN THIS BUILD YET`);
+    const box = id === 'box' || id === 'center-box' || id === 'box3';
+    const c = cmd = { id, box, plane: null, pts: [], cursor: null, axis: null, centre: id === 'center-box', square: false, vertical: false,
+      stage: 'base', size: null, height: null, drive: 'height', op: 'new', target: null, sent: 0, shown: 0, entry: null };
+    lastTool = id;
+    showTool(id);
+    setState('none');
+    const rows = { 'prim-w-row': box, 'prim-d-row': box, 'prim-r-row': !box, 'prim-h-row': id !== 'sphere' };
+    for (const [row, on] of Object.entries(rows)) $(row).hidden = !on;
+    for (const b of $$('[data-popt]')) b.hidden = b.dataset.popt === 'vertical' ? id !== 'cylinder' : !(id === 'box' || id === 'center-box');
+    const say1 = () => ({ box: 'CLICK THE FIRST CORNER', 'center-box': 'CLICK THE CENTRE OF THE BASE', box3: 'CLICK THE FIRST CORNER', cylinder: 'CLICK THE CENTRE OF THE BASE', sphere: 'CLICK THE CENTRE' })[id];
+    syncOpts();
+    hint(say1());
+
+    function hint(text) { $('prim-hint').textContent = text; setHud(text); }
+    function syncOpts() {
+      for (const b of $$('[data-popt]')) b.setAttribute('aria-pressed', !!c[b.dataset.popt]);
+      for (const b of $$('[data-pop]')) b.setAttribute('aria-pressed', b.dataset.pop === c.op);
+      $('prim-hint').dataset.op = c.op;
+    }
+    /** The base in plane coordinates: a box's corner, its side along u and its extent along v; a circle's centre and radius. */
+    function base() {
+      const P = [...c.pts, ...(c.stage === 'base' && c.cursor ? [c.cursor.uv] : [])];
+      if (!P.length) return null;
+      if (!box) return P.length < 2 ? null : { centre: P[0], radius: P[0].distanceTo(P[1]) };
+      if (id === 'box3') {
+        if (P.length < 2) return null;
+        const u = P[1].clone().sub(P[0]), w = u.length();
+        if (w < 1e-9) return null;
+        u.divideScalar(w);
+        const v = new THREE.Vector2(-u.y, u.x), d = P.length > 2 ? P[2].clone().sub(P[0]).dot(v) : 0;
+        return { corner: P[0], u, v, width: w, depth: d };
+      }
+      if (P.length < 2) return null;
+      let dx = P[1].x - P[0].x, dy = P[1].y - P[0].y;
+      if (c.square) { const m = Math.max(Math.abs(dx), Math.abs(dy)); dx = (Math.sign(dx) || 1) * m; dy = (Math.sign(dy) || 1) * m; }
+      return c.centre ? { corner: new THREE.Vector2(P[0].x - dx, P[0].y - dy), u: new THREE.Vector2(1, 0), v: new THREE.Vector2(0, 1), width: 2 * dx, depth: 2 * dy }
+        : { corner: P[0].clone(), u: new THREE.Vector2(1, 0), v: new THREE.Vector2(0, 1), width: dx, depth: dy };
+    }
+    /** Turn the base and a height into a backend request (viewport coordinates). */
+    function request() {
+      const b = base(), pl = c.plane;
+      if (!b || !pl) return null;
+      const at2 = q => pl.o.clone().addScaledVector(pl.x, q.x).addScaledVector(pl.y, q.y);
+      const extra = { target: pl.target ?? null, op: c.op };
+      if (id === 'sphere') return { kind: 'sphere', center: at2(b.centre).toArray(), radius: b.radius, ...extra };
+      if (id === 'cylinder') {
+        // V stands the base circle up: its axis runs along the plane instead of off it.
+        const n = c.vertical ? pl.y.clone() : pl.n.clone(), x = c.vertical ? pl.x.clone() : pl.x.clone();
+        return { kind: 'cylinder', frame: { origin: at2(b.centre).toArray(), x: x.toArray(), normal: n.toArray() }, radius: b.radius, height: c.height ?? 0, ...extra };
+      }
+      const x = pl.x.clone().multiplyScalar(b.u.x).addScaledVector(pl.y, b.u.y);
+      return { kind: 'box', frame: { origin: at2(b.corner).toArray(), x: x.toArray(), normal: pl.n.toArray() }, width: b.width, depth: b.depth, height: c.height ?? 0, ...extra };
+    }
+    function syncFields() {
+      const r = request();
+      if (!r) return;
+      if (r.kind === 'box') { $('prim-w').value = +Math.abs(r.width).toFixed(3); $('prim-d').value = +Math.abs(r.depth).toFixed(3); }
+      if (r.kind !== 'box') $('prim-r').value = +(2 * r.radius).toFixed(3);
+      if (r.kind !== 'sphere') $('prim-h').value = +(r.height ?? 0).toFixed(3);
+    }
+    function outline() {
+      const b = base(), pl = c.plane;
+      if (!b || !pl) { drawPreview.visible = false; return; }
+      let pts;
+      if (!box) pts = Array.from({ length: 64 }, (_, i) => new THREE.Vector2(b.centre.x + b.radius * Math.cos(i / 32 * Math.PI), b.centre.y + b.radius * Math.sin(i / 32 * Math.PI)));
+      else pts = [b.corner, b.corner.clone().addScaledVector(b.u, b.width), b.corner.clone().addScaledVector(b.u, b.width).addScaledVector(b.v, b.depth), b.corner.clone().addScaledVector(b.v, b.depth)];
+      drawPreview.geometry.setFromPoints([...pts, pts[0]].map(q => pl.o.clone().addScaledVector(pl.x, q.x).addScaledVector(pl.y, q.y).addScaledVector(pl.n, 0.03)));
+      drawPreview.visible = true;
+    }
+    function solidPreview() {
+      const req = request();
+      if (!req || (req.kind !== 'sphere' && !req.height)) return;
+      drawPreview.visible = false;
+      livePreview(c, () => backend.previewPrimitive(req), p => {
+        if (p.result) showPreviewBody(p.result);
+        const look = phantom[p.outcome === 'cut' || p.outcome === 'slice' ? 'cut' : 'add'];
+        if (p.tool) { const m = meshOf(p.tool, look.face, look.edge); m.renderOrder = 5; previewGroup.add(m); }
+        if (p.piece) { const m = meshOf(p.piece, phantom.add.face, phantom.add.edge); m.renderOrder = 6; previewGroup.add(m); }
+        setHud(`${toolInfo(id).label} · ${({ new: 'NEW BODY', join: 'UNION', cut: 'DIFFERENCE', intersect: 'INTERSECT', slice: 'SLICE' })[p.outcome] ?? p.outcome.toUpperCase()}`);
+      }, 'prim-hint');
+    }
+    /** The height under the cursor: along the base's normal, on a plane through it facing the camera. */
+    function heightAt(e) {
+      ray(e);
+      const pl = c.plane, b = base(), n = (id === 'cylinder' && c.vertical) ? pl.y : pl.n;
+      const o = pl.o.clone().addScaledVector(pl.x, (b.centre ?? b.corner).x).addScaledVector(pl.y, (b.centre ?? b.corner).y);
+      const view = camera.position.clone().sub(o), side = view.addScaledVector(n, -view.dot(n));
+      if (side.lengthSq() < 1e-12) side.copy(pl.x);
+      const hit = raycaster.ray.intersectPlane(new THREE.Plane().setFromNormalAndCoplanarPoint(side.normalize(), o), new THREE.Vector3());
+      if (!hit) return null;
+      let h = hit.sub(o).dot(n);
+      if (snapping(e)) h = Math.round(h / gridStep()) * gridStep();
+      return h;
+    }
+    const steps = { box: 2, 'center-box': 2, box3: 3, cylinder: 2, sphere: 2 }[id];
+    function advance() {
+      if (c.stage === 'base' && c.pts.length >= steps) {
+        if (id === 'sphere') { c.stage = 'adjust'; syncFields(); solidPreview(); hint('⏎ OR RIGHT-CLICK TO FINISH'); return; }
+        c.stage = 'height'; c.drive = 'height'; c.height = 0;
+        hint('MOVE UP FOR THE HEIGHT, THEN CLICK');
+      }
+    }
+    c.place = p => {
+      const x = frameFor(p.normal);
+      c.plane = { o: p.origin.clone(), n: p.normal.clone(), x, y: new THREE.Vector3().crossVectors(p.normal, x), target: p.target ?? null };
+      c.pts = [new THREE.Vector2()];
+      setTarget(p.target ? label(p.target) : cplane.name);
+    };
+    c.move = e => {
+      if (c.stage === 'base') {
+        const p = drawPoint(e);
+        showSnap(p?.snap, e);
+        if (p && !p.curved) { c.cursor = p; if (c.plane) { outline(); syncFields(); } }
+        return;
+      }
+      if (c.stage === 'height' || (c.stage === 'adjust' && c.dragging)) {
+        if (c.drive === 'height') { const h = heightAt(e); if (h !== null) c.height = h; }
+        else if (c.drive === 'radius') {
+          const p = drawPoint(e);
+          if (p?.uv && c.pts.length > 1) { const b0 = c.pts[0]; c.pts[1] = b0.clone().add(p.uv.clone().sub(b0)); }
+        }
+        syncFields();
+        solidPreview();
+      }
+    };
+    c.click = e => {
+      if (c.stage === 'base') {
+        const p = drawPoint(e);
+        if (p?.curved) { toast('START ON A FLAT FACE OR THE CONSTRUCTION PLANE'); return true; }
+        if (!p) return true;
+        if (!c.plane) { c.plane = p.plane; setTarget(p.plane.target ? label(p.plane.target) : cplane.name); }
+        c.pts.push(p.uv.clone());
+        c.cursor = null;
+        if (c.pts.length === 1) hint(id === 'box3' ? 'CLICK ALONG THE FIRST SIDE' : id === 'cylinder' ? 'CLICK FOR THE RADIUS' : id === 'sphere' ? 'CLICK FOR THE SIZE' : 'CLICK THE OPPOSITE CORNER');
+        else if (id === 'box3' && c.pts.length === 2) hint('CLICK FOR THE WIDTH');
+        advance();
+        return true;
+      }
+      if (c.stage === 'height' || c.dragging) { c.stage = 'adjust'; c.dragging = false; hint('Q W ⇧E ⇧Q B FOR THE TARGET · ⏎ TO FINISH'); return true; }
+      return true;
+    };
+    c.key = action => {
+      if (action === 'centre' || action === 'square') { if (!(id === 'box' || id === 'center-box')) return false; c[action] = !c[action]; syncOpts(); outline(); syncFields(); solidPreview(); return true; }
+      if (action === 'vertical') { if (id !== 'cylinder') return false; c.vertical = !c.vertical; syncOpts(); solidPreview(); return true; }
+      if (['union', 'difference', 'intersect', 'slice', 'new'].includes(action)) {
+        if (action !== 'new' && !c.plane?.target) { toast('START ON A FACE OF A SOLID TO COMBINE WITH IT'); return true; }
+        c.op = action; syncOpts(); solidPreview(); return true;
+      }
+      if (action === 'height' || action === 'radius') {
+        if (c.stage === 'base') return true;
+        c.drive = id === 'sphere' ? 'radius' : action; c.dragging = true; c.stage = 'adjust';
+        hint(`MOVE FOR THE ${action === 'radius' ? (id === 'sphere' ? 'DIAMETER' : 'RADIUS') : 'HEIGHT'}, THEN CLICK`);
+        return true;
+      }
+      if (action.startsWith('axis-')) { const a = action.slice(5); c.axis = c.axis === a ? null : a; return true; }
+      if (action === 'typed') {
+        // Tab types the size of the step in hand, in the order the manual's dialog lists them.
+        const field = c.stage !== 'base' ? (id === 'sphere' ? 'prim-r' : 'prim-h') : box ? 'prim-w' : 'prim-r';
+        const name = { 'prim-w': 'WIDTH', 'prim-d': 'LENGTH', 'prim-r': 'DIAMETER', 'prim-h': 'HEIGHT' }[field];
+        c.entry = { label: name, text: '', apply: v => { $(field).value = v; fromFields(field); } };
+        setHud(`${name} _`);
+        return true;
+      }
+      return false;
+    };
+    c.entryDone = () => { if (c.entry) setHud(`${c.entry.label} ${c.entry.text}_`); };
+    /** Panel and typed values drive the shape: rebuild the clicks from the fields. */
+    function fromFields(changed) {
+      if (!c.plane) return;
+      const w = +$('prim-w').value, d = +$('prim-d').value, r = +$('prim-r').value / 2, h = +$('prim-h').value;
+      const b = base();
+      if (box) {
+        const o = b?.corner ?? c.pts[0], u = b?.u ?? new THREE.Vector2(1, 0), v = b?.v ?? new THREE.Vector2(0, 1);
+        const sw = Math.sign(b?.width || 1), sd = Math.sign(b?.depth || 1);
+        if (id === 'box3') c.pts = [o.clone(), o.clone().addScaledVector(u, Math.abs(w) * sw), o.clone().addScaledVector(v, Math.abs(d) * sd)];
+        else if (c.centre) { const ctr = o.clone().addScaledVector(u, (b?.width ?? 0) / 2).addScaledVector(v, (b?.depth ?? 0) / 2); c.pts = [ctr, ctr.clone().add(new THREE.Vector2(sw * Math.abs(w) / 2, sd * Math.abs(d) / 2))]; }
+        else c.pts = [o.clone(), o.clone().add(new THREE.Vector2(sw * Math.abs(w), sd * Math.abs(d)))];
+      } else c.pts = [c.pts[0], c.pts[0].clone().add(new THREE.Vector2(r, 0))];
+      if (id !== 'sphere') c.height = h;
+      if (c.stage === 'base' && (changed === 'prim-w' || changed === 'prim-d' || changed === 'prim-r')) {
+        if (id === 'sphere') { c.stage = 'adjust'; } else { c.stage = 'height'; c.drive = 'height'; }
+      }
+      if (c.stage === 'height' && changed === 'prim-h') c.stage = 'adjust';
+      outline();
+      solidPreview();
+    }
+    c.fromFields = fromFields;
+    c.finish = async () => {
+      const req = request();
+      if (!req || (req.kind !== 'sphere' && !req.height)) return endCmd('cancelled');
+      try {
+        const { id: made, scene: list } = await backend.commitPrimitive(req);
+        endCmd('committed');
+        record(`${toolInfo(id).label}${c.op !== 'new' ? ` · ${c.op.toUpperCase()}` : ''}`, made);
+        await showScene(list);
+        sel.replace({ kind: 'solid', body: made });
+        selectionChanged({ quiet: true });
+      } catch (e) { setState('failed'); toast(say(e)); }
+    };
+    c.abort = () => endCmd('cancelled');
+    c.cleanup = () => { clearPreview(); drawPreview.visible = false; };
+    if (at) {
+      // Placed by a command in words: the base at `at`, sizes from the panel, ready to finish.
+      c.place(at);
+      if (box) c.pts.push(new THREE.Vector2(+$('prim-w').value, +$('prim-d').value));
+      else c.pts.push(new THREE.Vector2(+$('prim-r').value / 2, 0));
+      if (id === 'box3') c.pts[2] = new THREE.Vector2(0, +$('prim-d').value);
+      c.height = +$('prim-h').value;
+      c.stage = 'adjust';
+      solidPreview();
+      hint('⏎ OR RIGHT-CLICK TO FINISH');
+    }
+  }
+
+  function startShell() {
+    const body = faceBody();
+    if (body === null) return toast(sel.list('face').length ? 'SHELL THE FACES OF ONE SOLID AT A TIME' : 'SELECT THE FACES TO LEAVE OPEN');
+    if (!backend.previewShell) return toast('SHELL IS NOT IN THIS BUILD YET');
+    const c = cmd = { id: 'shell', body, faces: [], sent: 0, shown: 0 };
+    lastTool = 'shell';
+    showTool('shell');
+    setState('none');
+    c.request = () => ({ body: c.body, faces: c.faces, thickness: num('shell-t') });
+    c.preview = () => livePreview(c, () => backend.previewShell(c.request()), b => { showPreviewBody(b); setHud(`SHELL ${num('shell-t')} MM`); }, 'shell-hint');
+    c.onSelection = () => {
+      drawOverlays();
+      const b = faceBody();
+      if (b === null) return setHud('SELECT FACES TO OPEN');
+      c.body = b;
+      c.faces = sel.list('face').map(it => it.n).sort((x, y) => x - y);
+      setTarget(label(b));
+      $('shell-count').textContent = c.faces.length;
+      $('shell-hint').textContent = `${c.faces.length} FACE${c.faces.length > 1 ? 'S' : ''} OPEN ON ${label(b)}`;
+      c.preview();
+    };
+    c.key = action => {
+      if (action !== 'thickness') return false;
+      c.entry = { label: 'THICKNESS', text: '', apply: v => { $('shell-t').value = v; c.preview(); } };
+      setHud('THICKNESS _');
+      return true;
+    };
+    c.click = e => {
+      const hit = pickAt(e);
+      if (hit?.kind !== 'face' || !(e.ctrlKey || e.metaKey || e.shiftKey)) return true;
+      sel.toggle({ kind: 'face', body: hit.body, n: hit.n });
+      selectionChanged();
+      return true;
+    };
+    c.finish = async () => {
+      try {
+        const { id, scene: list } = await backend.commitShell(c.request());
+        endCmd('committed');
+        record(`SHELL ${num('shell-t')} MM ×${c.faces.length}`, id);
+        await showScene(list);
+        sel.replace({ kind: 'solid', body: id });
+        selectionChanged({ quiet: true });
+      } catch (e) { setState('failed'); toast(say(e)); }
+    };
+    c.abort = () => endCmd('cancelled');
+    c.cleanup = () => clearPreview();
+    c.onSelection();
+  }
+
+  /** The commands that copy the selected solids: Mirror and the two arrays. */
+  function startCopies(id, request, describe) {
+    const ids = targetBodies().filter(b => !hidden.has(b));
+    if (!ids.length) { toast(`SELECT A SOLID TO ${toolInfo(id).label}`); return null; }
+    const preview = id === 'mirror' ? 'previewMirror' : 'previewArray', commit = id === 'mirror' ? 'commitMirror' : 'commitArray';
+    if (!backend[preview]) { toast(`${toolInfo(id).label} IS NOT IN THIS BUILD YET`); return null; }
+    const hint = { mirror: 'mirror-hint', 'rect-array': 'ra-hint', 'radial-array': 'rr-hint' }[id];
+    const joinBtn = { mirror: 'mirror-join', 'rect-array': 'ra-join', 'radial-array': 'rr-join' }[id];
+    const c = cmd = { id, ids, join: false, sent: 0, shown: 0 };
+    lastTool = id;
+    showTool(id);
+    setState('none');
+    setTarget(ids.length === 1 ? label(ids[0]) : `${ids.length} SOLIDS`);
+    $(hint).textContent = `${ids.length} SOLID${ids.length > 1 ? 'S' : ''}`;
+    $(joinBtn).setAttribute('aria-pressed', 'false');
+    c.preview = () => livePreview(c, () => backend[preview]({ bodies: c.ids, ...request(c) }), list => { showCopies(list); setHud(describe(c, list.length)); }, hint);
+    c.key = action => {
+      if (action === 'join') { c.join = !c.join; $(joinBtn).setAttribute('aria-pressed', c.join); return true; }
+      if (['x', 'y', 'z'].includes(action) && id !== 'rect-array') { c.axis = action; syncAxis(c); c.preview(); return true; }
+      return false;
+    };
+    c.finish = async () => {
+      try {
+        const { ids: made, scene: list } = await backend[commit]({ bodies: c.ids, ...request(c), join: c.join });
+        endCmd('committed');
+        record(`${toolInfo(id).label}${c.join ? ' · JOINED' : ''}`, made[0], c.join ? label(made[0]) : `${made.length} NEW`);
+        await showScene(list);
+        sel.clear();
+        for (const b of made) sel.add({ kind: 'solid', body: b });
+        selectionChanged({ quiet: true });
+      } catch (e) { setState('failed'); toast(say(e)); }
+    };
+    c.abort = () => endCmd('cancelled');
+    c.cleanup = () => clearPreview();
+    return c;
+  }
+  function syncAxis(c) {
+    const attr = c.id === 'mirror' ? 'mx' : 'rx';
+    for (const b of $$(`[data-${attr}]`)) b.setAttribute('aria-pressed', b.dataset[attr] === c.axis);
+  }
+
+  function startMirror() {
+    const c = startCopies('mirror', c => {
+      const n = userAxis(c.axis), at = num('mirror-at');
+      return { origin: toWorld(n.map(v => v * at)), normal: toWorld(n) };
+    }, c => `MIRROR ACROSS ${c.axis.toUpperCase()} = ${num('mirror-at')}`);
+    if (!c) return;
+    c.axis = 'x';
+    syncAxis(c);
+    c.preview();
+  }
+
+  function startArray(id) {
+    const radial = id === 'radial-array';
+    const c = startCopies(id, c => radial
+      ? { spec: { kind: 'radial', pivot: cplane.origin.toArray(), axis: toWorld(userAxis(c.axis)), angle: num('rr-angle') * DEG, count: Math.round(num('rr-count')) } }
+      : { spec: { kind: 'rectangular', steps: ['x', 'y', 'z'].map(a => toWorld(userAxis(a).map(v => v * num(`ra-s${a}`)))), counts: ['x', 'y', 'z'].map(a => Math.round(num(`ra-c${a}`))) } },
+    (c, n) => `${n} ${n === 1 ? 'COPY' : 'COPIES'}`);
+    if (!c) return;
+    c.axis = 'z';
+    if (radial) syncAxis(c);
+    c.preview();
+  }
+
   // --- revolve, loft (L) and sweep (⇧P) ------------------------------------------
   // Plasticity's Revolve: select a region, start Revolve (Suggested Commands or F), click the
   // axis's start and end; A sets the angle (360° to begin with). Loft: select two regions or more
@@ -2835,6 +3833,11 @@ export async function mount(root, backend) {
       case 'delete': await deleteSelected(); return true;
       case 'duplicate': await duplicateSelected(); return true;
       case 'join': await joinSelected(); return true;
+      case 'trim': await startTool('trim'); return true;
+      case 'extend': await startTool('extend'); return true;
+      case 'split': await startTool('split'); return true;
+      case 'measure': await startTool(arg === 'radius' ? 'measure-radius' : 'measure-distance'); return true;
+      case 'explode': await explodeSelected(); return true;
       case 'hide': setHidden(sel.bodies, true); return true;
       case 'hide-others': setHidden(current.map(b => b.id).filter(id => !sel.bodies.includes(id)), true); return true;
       case 'unhide-all': setHidden([...hidden], false); return true;
@@ -3109,8 +4112,15 @@ export async function mount(root, backend) {
   $('angle').addEventListener('input', e => { const v = parseFloat(e.target.value); if (!isNaN(v)) setAngle(v); });
   $('factor').addEventListener('input', e => setFactor(parseFloat(e.target.value)));
   for (const b of $$('[data-axis]')) b.onclick = () => setAxis(b.dataset.axis);
-  for (const b of $$('[data-view]')) b.onclick = () => setView(b.dataset.view);
-  $('ortho').onclick = () => setOrtho(!camera.isOrthographicCamera);
+  const nav = new ViewGizmo($('nav'), {
+    view: name => setView(name),
+    orbit: (dx, dy) => orbitBy(dx, dy),
+    pan: (dx, dy) => panBy(dx, dy),
+    zoom: dy => zoomBy(dy),
+    ortho: () => setOrtho(!camera.isOrthographicCamera),
+    focus: () => focus(),
+    home: () => setView('iso'),
+  });
   for (const b of $$('[data-mode]')) b.onclick = e => doAction(b.dataset.mode === 'all' ? 'mode:all' : `${e.shiftKey ? 'mode-toggle' : 'mode'}:${b.dataset.mode}`);
   for (const b of $$('[data-action]')) b.onclick = () => doAction(b.dataset.action);
   for (const b of $$('[data-tool]')) b.onclick = () => startTool(b.dataset.tool);
@@ -3144,6 +4154,16 @@ export async function mount(root, backend) {
   $('ex-angle').addEventListener('input', e => { const v = parseFloat(e.target.value); if (!isNaN(v)) setExtrudeShape({ angle: v }); });
   $('ex-thickness').addEventListener('input', e => { const v = parseFloat(e.target.value); if (!isNaN(v) && v >= 0) setExtrudeShape({ thickness: v }); });
   for (const b of $$('[data-bop]')) b.onclick = () => cmd?.id === 'boolean' && cmd.key(b.dataset.bop);
+  for (const id of ['hole-d', 'hole-depth']) $(id).addEventListener('input', () => cmd?.id === 'hole' && cmd.preview());
+  $('hole-through').onclick = () => cmd?.id === 'hole' && cmd.key('through');
+  $('br-t').addEventListener('input', () => cmd?.id === 'bridge' && cmd.preview());
+  for (const id of ['oc-d', 'fc-r']) $(id).addEventListener('input', () => (cmd?.id === 'offset-curve' || cmd?.id === 'fillet-curve') && cmd.preview());
+  for (const id of ['prim-w', 'prim-d', 'prim-r', 'prim-h']) $(id).addEventListener('input', () => PRIMS[cmd?.id] && cmd.fromFields(id));
+  for (const b of $$('[data-popt], [data-pop]')) b.onclick = () => PRIMS[cmd?.id] && cmd.key(b.dataset.popt ?? b.dataset.pop);
+  $('shell-t').addEventListener('input', () => cmd?.id === 'shell' && cmd.preview());
+  for (const id of ['mirror-at', 'ra-cx', 'ra-cy', 'ra-cz', 'ra-sx', 'ra-sy', 'ra-sz', 'rr-count', 'rr-angle']) $(id).addEventListener('input', () => cmd?.preview?.());
+  for (const b of $$('[data-mx], [data-rx]')) b.onclick = () => cmd?.key?.(b.dataset.mx ?? b.dataset.rx);
+  for (const id of ['mirror-join', 'ra-join', 'rr-join']) $(id).onclick = () => cmd?.key?.('join');
   $('bool-keep').onclick = () => cmd?.id === 'boolean' && cmd.key('keep');
   for (const b of $$('[data-draw]')) b.onclick = () => DRAW[cmd?.id] && cmd.key(b.dataset.draw);
   $('commit').onclick = () => finish();
@@ -3208,7 +4228,7 @@ export async function mount(root, backend) {
   // --- start --------------------------------------------------------------
   renderHistory();
   renderModes();
-  setView('iso');
+  setView('iso', { animate: false });
   setPlane({ origin: new THREE.Vector3(), normal: UP, name: 'XY' });
   showTool(null);
   showScene(await backend.scene());
@@ -3226,7 +4246,9 @@ export async function mount(root, backend) {
   }
   renderer.setAnimationLoop(() => {
     resize();
-    controls.update();
+    stepTurn(performance.now());
+    if (!turning) controls.update();
+    nav.update(camera, camera.isOrthographicCamera);
     if (cmd?.gizmo) cmd.gizmo.render(cmd.gizmo.value);
     renderer.render(scene, camera);
   });
@@ -3300,7 +4322,7 @@ export async function mount(root, backend) {
      * The selection is named by ref: `edges` (fillet), `body` (move, rotate, scale) or `face` (push/pull).
      */
     async run(id, args = {}) {
-      const { edges, body, bodies: ids, face, faces, region, regions, path, target, tools, ...rest } = args;
+      const { edges, body, bodies: ids, face, faces, region, regions, path, target, tools, curves: curveIds, ...rest } = args;
       const errors = check(id, rest);
       if (errors.length) throw new Error(errors.join('; '));
       const p = withDefaults(id, rest);
@@ -3322,7 +4344,7 @@ export async function mount(root, backend) {
         else setFactor(p.factor);
       } else if (id === 'pushpull') {
         const b = face !== undefined && current.find(x => x.faceRefs?.includes(face));
-        const n = b ? b.faceRefs.indexOf(face) : -1, plane = b?.facePlanes[n];
+        const n = b ? b.faceRefs.indexOf(face) : -1, plane = b ? b.facePlanes[n] : null;
         if (face !== undefined && !plane) throw new Error('that face is gone or not flat');
         const at = plane ? { origin: faceCentre(b, n), normal: new THREE.Vector3(...plane.normal), target: b.id }
           : { origin: cplane.origin.clone(), normal: cplane.normal.clone(), target: null };
@@ -3367,6 +4389,65 @@ export async function mount(root, backend) {
         cmd.auto = false;
         if (p.angle) setOffsetAngle(p.angle);
         setOffsetDistance(p.distance ?? 0, false);
+      } else if (id === 'remove-face') {
+        const b = current.find(x => (faces ?? []).every(r => x.faceRefs?.includes(r)));
+        if (!b || !faces?.length) throw new Error('give faces of one body to remove');
+        sel.clear();
+        for (const r of faces) sel.add({ kind: 'face', body: b.id, n: b.faceRefs.indexOf(r) });
+        selectionChanged({ quiet: true });
+        await startTool('remove-face');
+      } else if (id === 'hole') {
+        const b = current.find(x => x.faceRefs?.includes(face));
+        const n = b ? b.faceRefs.indexOf(face) : -1, plane = b ? b.facePlanes[n] : null;
+        if (!plane) throw new Error('give a flat face of a solid for the hole');
+        $('hole-d').value = p.diameter;
+        $('hole-depth').value = p.depth;
+        await startTool('hole', { at: { origin: faceCentre(b, n), normal: new THREE.Vector3(...plane.normal), target: b.id } });
+        if (p.through) cmd.key('through');
+      } else if (id === 'bridge') {
+        const ids = (curveIds ?? []).filter(cid => curveList.some(c => c.id === cid));
+        if (ids.length !== 2) throw new Error('give two open curves by id');
+        sel.clear();
+        for (const cid of ids) sel.add({ kind: 'curve', id: cid });
+        selectionChanged({ quiet: true });
+        $('br-t').value = p.tension;
+        await startTool('bridge');
+      } else if (id === 'offset-curve' || id === 'fillet-curve') {
+        const ids = (curveIds ?? []).filter(cid => curveList.some(c => c.id === cid));
+        if (!ids.length) throw new Error('give the curves by id');
+        sel.clear();
+        for (const cid of ids) sel.add({ kind: 'curve', id: cid });
+        selectionChanged({ quiet: true });
+        $(id === 'offset-curve' ? 'oc-d' : 'fc-r').value = id === 'offset-curve' ? p.distance : p.radius;
+        await startTool(id);
+      } else if (PRIMS[id]) {
+        const b = face !== undefined && current.find(x => x.faceRefs?.includes(face));
+        const n = b ? b.faceRefs.indexOf(face) : -1, plane = b ? b.facePlanes[n] : null;
+        if (face !== undefined && !plane) throw new Error('that face is gone or not flat');
+        const at = plane ? { origin: faceCentre(b, n), normal: new THREE.Vector3(...plane.normal), target: b.id }
+          : { origin: cplane.origin.clone(), normal: cplane.normal.clone(), target: null };
+        if (id === 'box' || id === 'center-box' || id === 'box3') { $('prim-w').value = p.width; $('prim-d').value = p.depth; $('prim-h').value = p.height; }
+        if (id === 'cylinder') { $('prim-r').value = 2 * p.radius; $('prim-h').value = p.height; }
+        if (id === 'sphere') $('prim-r').value = 2 * p.radius;
+        await startTool(id, { at });
+      } else if (id === 'shell') {
+        const b = current.find(x => (faces ?? []).every(r => x.faceRefs?.includes(r)));
+        if (!b || !faces?.length) throw new Error('give faces of one body to leave open');
+        sel.clear();
+        for (const r of faces) sel.add({ kind: 'face', body: b.id, n: b.faceRefs.indexOf(r) });
+        $('shell-t').value = p.thickness;
+        selectionChanged({ quiet: true });
+        await startTool('shell');
+      } else if (id === 'mirror' || id === 'rect-array' || id === 'radial-array') {
+        selectSolids(ids ?? [body]);
+        selectionChanged({ quiet: true });
+        if (id === 'mirror') $('mirror-at').value = p.position;
+        if (id === 'rect-array') ['x', 'y', 'z'].forEach((a, i) => { $(`ra-c${a}`).value = Math.max(1, Math.round(p.counts[i])); $(`ra-s${a}`).value = p.spacing[i]; });
+        if (id === 'radial-array') { $('rr-count').value = Math.max(1, Math.round(p.count)); $('rr-angle').value = p.angle; }
+        await startTool(id);
+        if (cmd?.id !== id) throw new Error(`select a solid to ${toolInfo(id).label.toLowerCase()}`);
+        if (p.axis && id !== 'rect-array') cmd.key(p.axis);
+        if (p.join) cmd.key('join');
       } else if (FORMS[id]) {
         const list = id === 'loft' ? regions ?? [] : [region];
         if (!list.length || !list.every(r => curveList.some(c => c.id === r && isClosed(c)))) throw new Error('that region is gone');

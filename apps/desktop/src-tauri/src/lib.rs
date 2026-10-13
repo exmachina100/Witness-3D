@@ -92,6 +92,104 @@ async fn commit_form(
 }
 
 #[tauri::command]
+async fn preview_primitive(
+    model: State<'_, Model>,
+    req: api::PrimitiveRequest,
+) -> Result<Option<api::Preview>, api::ApiError> {
+    on_model(&model, move |m| api::preview_primitive(m, req))
+        .await?
+        .transpose()
+}
+
+#[tauri::command]
+async fn commit_primitive(
+    model: State<'_, Model>,
+    req: api::PrimitiveRequest,
+) -> Result<api::Committed, api::ApiError> {
+    on_model(&model, move |m| api::commit_primitive(m, req)).await?
+}
+
+#[tauri::command]
+async fn preview_shell(
+    model: State<'_, Model>,
+    req: api::ShellRequest,
+) -> Result<Option<api::Body>, api::ApiError> {
+    on_model(&model, move |m| api::preview_shell(m, req))
+        .await?
+        .transpose()
+}
+
+#[tauri::command]
+async fn commit_shell(
+    model: State<'_, Model>,
+    req: api::ShellRequest,
+) -> Result<api::Committed, api::ApiError> {
+    on_model(&model, move |m| api::commit_shell(m, req)).await?
+}
+
+#[tauri::command]
+async fn preview_mirror(
+    model: State<'_, Model>,
+    req: api::MirrorRequest,
+) -> Result<Option<Vec<api::Body>>, api::ApiError> {
+    on_model(&model, move |m| api::preview_mirror(m, req))
+        .await?
+        .transpose()
+}
+
+#[tauri::command]
+async fn commit_mirror(
+    model: State<'_, Model>,
+    req: api::MirrorRequest,
+) -> Result<api::Duplicated, api::ApiError> {
+    on_model(&model, move |m| api::commit_mirror(m, req)).await?
+}
+
+#[tauri::command]
+async fn preview_array(
+    model: State<'_, Model>,
+    req: api::ArrayRequest,
+) -> Result<Option<Vec<api::Body>>, api::ApiError> {
+    on_model(&model, move |m| api::preview_array(m, req))
+        .await?
+        .transpose()
+}
+
+#[tauri::command]
+async fn commit_array(
+    model: State<'_, Model>,
+    req: api::ArrayRequest,
+) -> Result<api::Duplicated, api::ApiError> {
+    on_model(&model, move |m| api::commit_array(m, req)).await?
+}
+
+#[tauri::command]
+async fn preview_remove_faces(
+    model: State<'_, Model>,
+    req: api::RemoveFacesRequest,
+) -> Result<Option<api::Body>, api::ApiError> {
+    on_model(&model, move |m| api::preview_remove_faces(m, req))
+        .await?
+        .transpose()
+}
+
+#[tauri::command]
+async fn commit_remove_faces(
+    model: State<'_, Model>,
+    req: api::RemoveFacesRequest,
+) -> Result<api::Committed, api::ApiError> {
+    on_model(&model, move |m| api::commit_remove_faces(m, req)).await?
+}
+
+#[tauri::command]
+async fn replace_curves(
+    model: State<'_, Model>,
+    req: api::ReplaceCurvesRequest,
+) -> Result<api::AddedCurves, api::ApiError> {
+    on_model(&model, move |m| api::replace_curves(m, req)).await?
+}
+
+#[tauri::command]
 async fn preview_offset(
     model: State<'_, Model>,
     req: api::OffsetRequest,
@@ -296,6 +394,17 @@ pub fn run() {
             commit_form,
             preview_offset,
             commit_offset,
+            replace_curves,
+            preview_remove_faces,
+            commit_remove_faces,
+            preview_primitive,
+            commit_primitive,
+            preview_shell,
+            commit_shell,
+            preview_mirror,
+            commit_mirror,
+            preview_array,
+            commit_array,
             commit_motion,
             delete_bodies,
             duplicate_bodies,

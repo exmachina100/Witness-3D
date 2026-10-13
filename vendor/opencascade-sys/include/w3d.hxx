@@ -24,6 +24,12 @@
 #include <TColgp_HArray1OfPnt.hxx>
 #include <BRepOffsetAPI_ThruSections.hxx>
 #include <BRepOffset_MakeOffset.hxx>
+#include <BRepOffsetAPI_MakeThickSolid.hxx>
+#include <BRepAlgoAPI_Defeaturing.hxx>
+#include <Geom_BSplineCurve.hxx>
+#include <TColStd_Array1OfInteger.hxx>
+#include <TColStd_Array1OfReal.hxx>
+#include <TColgp_Array1OfPnt.hxx>
 #include <BRepPrimAPI_MakeRevol.hxx>
 #include <GProp_GProps.hxx>
 #include <gp_Ax1.hxx>
@@ -355,7 +361,9 @@ inline rust::Vec<int32_t> w3d_result_pairs(const W3dResult &r, int32_t input, in
 // [4, x, y, z, x, y, z, x, y, z] for an arc from its first point through its second to its third.
 // [5, cx, cy, cz, nx, ny, nz, ax, ay, az, R, r] is an ellipse with radius R along (ax, ay, az) and r
 // across it (R >= r), and [6, m, ...] is a contour: m open pieces of the kinds above joined end to
-// end (Plasticity's Join Curves), closed when its ends meet.
+// end (Plasticity's Join Curves), closed when its ends meet. [8, n, closed, x, y, z, ...] is a
+// control-point curve: a uniform B-spline, cubic where it has the points for it, clamped to its ends
+// when open and periodic when closed (Plasticity's Control Point Curve).
 
 inline TopoDS_Wire w3d_section(const double *&p, const double *end) {
   auto need = [&](size_t n) { if (p + n > end) throw std::runtime_error("a profile is cut short"); };
@@ -382,6 +390,30 @@ inline TopoDS_Wire w3d_section(const double *&p, const double *end) {
     fit.Perform();
     if (!fit.IsDone()) throw std::runtime_error("no smooth curve passes through those points");
     return BRepBuilderAPI_MakeWire(BRepBuilderAPI_MakeEdge(fit.Curve()).Edge()).Wire();
+  }
+  if (kind == 8) {
+    need(2);
+    int n = int(*p++);
+    bool closed = *p++ != 0;
+    need(size_t(n) * 3);
+    if (n < 2 || (closed && n < 3)) throw std::runtime_error("a curve needs more control points");
+    int deg = n - 1 < 3 ? n - 1 : 3;
+    TColgp_Array1OfPnt poles(1, n);
+    for (int i = 1; i <= n; i++, p += 3) poles.SetValue(i, gp_Pnt(p[0], p[1], p[2]));
+    Handle(Geom_BSplineCurve) curve;
+    if (closed) {
+      TColStd_Array1OfReal knots(1, n + 1);
+      TColStd_Array1OfInteger mults(1, n + 1);
+      for (int i = 1; i <= n + 1; i++) { knots.SetValue(i, i - 1); mults.SetValue(i, 1); }
+      curve = new Geom_BSplineCurve(poles, knots, mults, deg, Standard_True);
+    } else {
+      int k = n - deg + 1;
+      TColStd_Array1OfReal knots(1, k);
+      TColStd_Array1OfInteger mults(1, k);
+      for (int i = 1; i <= k; i++) { knots.SetValue(i, double(i - 1) / (k - 1)); mults.SetValue(i, i == 1 || i == k ? deg + 1 : 1); }
+      curve = new Geom_BSplineCurve(poles, knots, mults, deg, Standard_False);
+    }
+    return BRepBuilderAPI_MakeWire(BRepBuilderAPI_MakeEdge(curve).Edge()).Wire();
   }
   if (kind == 5) {
     need(11);
@@ -831,6 +863,82 @@ inline rust::Vec<double> w3d_sample(rust::Slice<const double> section, int32_t n
       out.push_back(p.Z());
     }
     return out;
+  } catch (const Standard_Failure &f) {
+    throw w3d_kernel_error(f);
+  }
+}
+
+// --- Shell and Mirror (Round 6) ------------------------------------------------------------------
+
+// Plasticity's Shell (Thin Solid): hollow the solid to walls `thickness` thick inside its outer
+// surface, opening the numbered faces. The outer faces keep their numbers' history; the inner
+// walls are new.
+inline std::unique_ptr<W3dResult> w3d_shell(const TopoDS_Shape &shape, rust::Slice<const int32_t> faces,
+                                            double thickness) {
+  TopTools_IndexedMapOfShape map;
+  TopExp::MapShapes(shape, TopAbs_FACE, map);
+  if (faces.empty()) throw std::runtime_error("select the faces to open");
+  if (!(thickness > 0.0) || !std::isfinite(thickness)) throw std::runtime_error("the wall thickness must be greater than zero");
+  TopTools_ListOfShape closing;
+  for (int32_t f : faces) {
+    if (f < 0 || f >= map.Extent()) throw std::out_of_range("no such face");
+    closing.Append(map(f + 1));
+  }
+  try {
+    BRepOffsetAPI_MakeThickSolid mk;
+    mk.MakeThickSolidByJoin(shape, closing, -thickness, 1e-6, BRepOffset_Skin, Standard_False, Standard_False,
+                            GeomAbs_Intersection, Standard_False);
+    if (!mk.IsDone() || mk.Shape().IsNull())
+      throw std::runtime_error("the walls can't be that thick here; try a thinner shell");
+    std::unique_ptr<W3dResult> r(new W3dResult());
+    r->shape = mk.Shape();
+    if (!w3d_is_valid(r->shape)) throw std::runtime_error("a shell that thick breaks the body; try a thinner one");
+    w3d_record(*r, 0, shape, {w3d_step(mk)});
+    return r;
+  } catch (const Standard_Failure &f) {
+    throw w3d_kernel_error(f);
+  }
+}
+
+// The shape reflected in the plane through plane[0..3] with normal plane[3..6], as a new copy.
+inline std::unique_ptr<TopoDS_Shape> w3d_mirror(const TopoDS_Shape &shape, rust::Slice<const double> plane) {
+  if (plane.size() != 6) throw std::runtime_error("a mirror plane is a point and a normal");
+  for (double v : plane) if (!std::isfinite(v)) throw std::runtime_error("the mirror plane is not a number");
+  gp_Vec n(plane[3], plane[4], plane[5]);
+  if (n.Magnitude() < 1e-12) throw std::runtime_error("the mirror plane has no direction");
+  try {
+    gp_Trsf t;
+    t.SetMirror(gp_Ax2(gp_Pnt(plane[0], plane[1], plane[2]), gp_Dir(n)));
+    BRepBuilderAPI_Transform mk(shape, t, Standard_True);
+    if (!mk.IsDone()) throw std::runtime_error("the body could not be mirrored");
+    return std::unique_ptr<TopoDS_Shape>(new TopoDS_Shape(mk.Shape()));
+  } catch (const Standard_Failure &f) {
+    throw w3d_kernel_error(f);
+  }
+}
+
+// Plasticity's Remove Face: delete the numbered faces and let the faces around them grow to close
+// the gap (a fillet, hole or boss gone). The faces that remain keep their history.
+inline std::unique_ptr<W3dResult> w3d_remove_faces(const TopoDS_Shape &shape, rust::Slice<const int32_t> faces) {
+  TopTools_IndexedMapOfShape map;
+  TopExp::MapShapes(shape, TopAbs_FACE, map);
+  if (faces.empty()) throw std::runtime_error("select the faces to remove");
+  try {
+    BRepAlgoAPI_Defeaturing df;
+    df.SetShape(shape);
+    for (int32_t f : faces) {
+      if (f < 0 || f >= map.Extent()) throw std::out_of_range("no such face");
+      df.AddFaceToRemove(map(f + 1));
+    }
+    df.SetToFillHistory(Standard_True);
+    df.Build();
+    if (!df.IsDone() || df.HasErrors() || df.Shape().IsNull())
+      throw std::runtime_error("the faces around those can't grow to close the gap; remove a whole feature at once");
+    std::unique_ptr<W3dResult> r(new W3dResult());
+    r->shape = df.Shape();
+    if (!w3d_is_valid(r->shape)) throw std::runtime_error("removing those faces breaks the body");
+    w3d_record(*r, 0, shape, {w3d_step(df)});
+    return r;
   } catch (const Standard_Failure &f) {
     throw w3d_kernel_error(f);
   }

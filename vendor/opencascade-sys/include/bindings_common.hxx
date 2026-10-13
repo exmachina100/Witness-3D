@@ -17,7 +17,9 @@ template <typename T> std::unique_ptr<std::vector<T>> list_to_vector(const NColl
   return std::unique_ptr<std::vector<T>>(new std::vector<T>(list.begin(), list.end()));
 }
 
-template <typename T> const T &handle_try_deref(const opencascade::handle<T> &handle) {
+// Witness 3D: generic over the handle type, so it also binds for MSVC's Handle_X classes (derived
+// from opencascade::handle<X>), not only for opencascade::handle<X> itself.
+template <typename H> const typename H::element_type &handle_try_deref(const H &handle) {
   if (handle.IsNull()) {
     throw std::runtime_error("null handle dereference");
   }

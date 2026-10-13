@@ -4,7 +4,7 @@
 import * as THREE from 'three';
 import { ExtrudeFactory } from '../ExtrudeFactory.js';
 import { NoOpError } from '../GeometryFactory.js';
-import { blendEdges, booleanWithHistory, box, count, draftWithHistory, exportSTEP, facePlane, numberedEdges, oc, tessellate, transform, volume } from '../Kernel.js';
+import { arrayMotions, blendEdges, booleanWithHistory, box, count, draftWithHistory, exportSTEP, facePlane, mirror, numberedEdges, oc, primitive, shellFaces, tessellate, transform, volume } from '../Kernel.js';
 import { loft, offsetFlatFaces, regionFace, revolve, splineSamples, sweep } from '../Forms.js';
 import { ends, join, loops, MEET } from '../curves.js';
 
@@ -114,6 +114,16 @@ export class LocalBackend {
         this.checkpoint();
         for (const id of ids) this.curveMap.delete(id);
         return { ids: joined.map(c => { const id = this.nextCurve++; this.curveMap.set(id, c); return id; }) };
+    }
+
+    /** Curve edits (Trim, Fillet Curve, Explode): the curves `ids` replaced by `list`, as one undo step. */
+    async replaceCurves(ids, list) {
+        if (!ids?.length && !list?.length) throw new Error('nothing to do');
+        if (ids.some(id => !this.curveMap.has(id))) throw new Error('that curve no longer exists');
+        for (const c of list) checkCurve(c);
+        this.checkpoint();
+        for (const id of ids) this.curveMap.delete(id);
+        return { ids: list.map(c => { const id = this.nextCurve++; this.curveMap.set(id, structuredClone(c)); return id; }) };
     }
 
     /** Delete bodies and curves together, as one undo step. */
@@ -250,6 +260,109 @@ export class LocalBackend {
         return { id: req.body, scene: this.bodies() };
     }
 
+    // --- Round 6: Box, Cylinder, Sphere, Shell, Mirror and arrays (as document.rs) ---------------
+
+    /**
+     * Box, Cylinder or Sphere (see Kernel.primitive), and with `op` union, difference, intersect or
+     * slice the body `target` it was drawn on, as Plasticity's Q, W, Shift+E and Shift+Q do; 'new' (B,
+     * the default) leaves it a separate body. Mirrors document.rs preview_primitive.
+     */
+    primitiveResult(req) {
+        const tool = primitive(req);
+        const op = req.op ?? 'new';
+        if (op === 'new' || req.target === undefined || req.target === null) return { tool, outcome: 'new' };
+        const body = this.shapes.get(req.target);
+        if (!body) throw new Error('that body no longer exists');
+        if (op === 'slice') {
+            const rest = booleanWithHistory(body, tool, 'difference'), piece = booleanWithHistory(body, tool, 'intersection').shape;
+            if (count(piece, 'TopAbs_FACE') === 0) throw new Error('the solid does not meet the body');
+            return { tool, result: rest, piece, outcome: 'slice' };
+        }
+        const kind = { union: 'union', difference: 'difference', intersect: 'intersection' }[op];
+        if (!kind) throw new Error('a primitive is new, or a union, difference, intersect or slice');
+        const r = booleanWithHistory(body, tool, kind);
+        const met = kind === 'union' ? count(r.shape, 'TopAbs_SOLID') === count(body, 'TopAbs_SOLID')
+            : kind === 'difference' ? r.history.faces[1].length > 0
+            : count(r.shape, 'TopAbs_FACE') > 0;
+        if (!met) throw new Error('the solid does not meet the body');
+        return { tool, result: r, outcome: { union: 'join', difference: 'cut', intersection: 'intersect' }[kind] };
+    }
+
+    previewPrimitive(req) {
+        return this.latest(async () => {
+            const p = this.primitiveResult(req);
+            return { outcome: p.outcome, tool: this.body(0, p.tool), result: p.result ? this.body(req.target, p.result.shape) : null, ...(p.piece && { piece: this.body(this.nextId, p.piece) }) };
+        });
+    }
+
+    /** The primitive as one undo step: a new body, or the target changed (and a slice's piece added). */
+    async commitPrimitive(req) {
+        const p = this.primitiveResult(req);
+        this.checkpoint();
+        if (!p.result) { const id = this.nextId++; this.put(id, p.tool); return { id, scene: this.bodies() }; }
+        this.put(req.target, p.result.shape, p.result.history);
+        if (p.piece) this.put(this.nextId++, p.piece);
+        return { id: req.target, scene: this.bodies() };
+    }
+
+    shell({ body, faces, thickness }) {
+        const shape = this.shapes.get(body);
+        if (!shape) throw new Error('that body no longer exists');
+        return shellFaces(shape, faces, thickness);
+    }
+
+    previewShell(req) { return this.latest(async () => this.body(req.body, this.shell(req).shape)) }
+
+    /** Shell as one undo step; the outer faces and edges keep their refs. */
+    async commitShell(req) {
+        const { shape, history } = this.shell(req);
+        this.checkpoint();
+        this.put(req.body, shape, history);
+        return { id: req.body, scene: this.bodies() };
+    }
+
+    /** Per body, the copies `make` returns for it. */
+    copies(bodies, make) {
+        if (!bodies?.length) throw new Error('select a solid first');
+        if (bodies.some(id => !this.shapes.has(id))) throw new Error('that body no longer exists');
+        return bodies.map(id => [id, make(this.shapes.get(id))]);
+    }
+
+    /** Copies fused into their bodies when `join`, else added as new bodies; one undo step. */
+    placeCopies(all, join) {
+        if (join) {
+            const fused = all.map(([id, cs]) => {
+                let shape = this.shapes.get(id), history = null;
+                for (const c of cs) {
+                    const r = booleanWithHistory(shape, c, 'union');
+                    history = history ? chain(history, r.history) : r.history;
+                    shape = r.shape;
+                }
+                if (!history) throw new Error('nothing to do');
+                return [id, shape, history];
+            });
+            this.checkpoint();
+            for (const [id, shape, history] of fused) this.put(id, shape, history);
+            return { ids: fused.map(([id]) => id), scene: this.bodies() };
+        }
+        const shapes = all.flatMap(([, cs]) => cs);
+        if (!shapes.length) throw new Error('nothing to do');
+        this.checkpoint();
+        const ids = shapes.map(sh => { const id = this.nextId++; this.put(id, sh); return id; });
+        return { ids, scene: this.bodies() };
+    }
+
+    mirrorCopies({ bodies, origin, normal }) { return this.copies(bodies, s => [mirror(s, origin, normal)]) }
+    previewMirror(req) { return this.latest(async () => this.mirrorCopies(req).flatMap(([, cs]) => cs.map(c => this.body(0, c)))) }
+    async commitMirror(req) { return this.placeCopies(this.mirrorCopies(req), !!req.join) }
+
+    arrayCopies({ bodies, spec }) {
+        const motions = arrayMotions(spec);
+        return this.copies(bodies, s => motions.map(m => transform(s, m)));
+    }
+    previewArray(req) { return this.latest(async () => this.arrayCopies(req).flatMap(([, cs]) => cs.map(c => this.body(0, c)))) }
+    async commitArray(req) { return this.placeCopies(this.arrayCopies(req), !!req.join) }
+
     scene() { return this.bodies() }
 
     /** Only the newest of the requests queued during a computation runs; the others resolve to null. */
@@ -374,7 +487,7 @@ export class LocalBackend {
 }
 
 /** Whether the curve encloses a region. */
-const isClosed = c => c.kind === 'circle' || c.kind === 'ellipse' || (['polyline', 'spline'].includes(c.kind) && c.closed && c.points.length >= 3) || (c.kind === 'contour' && loops(c.pieces));
+const isClosed = c => c.kind === 'circle' || c.kind === 'ellipse' || (['polyline', 'spline', 'cv'].includes(c.kind) && c.closed && c.points.length >= 3) || (c.kind === 'contour' && loops(c.pieces));
 
 function checkCurve(c) {
     const finite = a => Array.isArray(a) && a.every(Number.isFinite);
@@ -406,6 +519,9 @@ function checkShape(c) {
         if (!Array.isArray(c.points) || c.points.length < 2 || (c.closed && c.points.length < 3)) throw new Error('a curve needs two points, a closed one three');
         if (!c.points.every(finite)) throw new Error('a point is not a number');
         if (c.points.some((p, i) => i > 0 && Math.hypot(p[0] - c.points[i - 1][0], p[1] - c.points[i - 1][1]) < 1e-6)) throw new Error('two points of the curve are in the same place');
+    } else if (c.kind === 'cv') {
+        if (!Array.isArray(c.points) || c.points.length < 2 || (c.closed && c.points.length < 3)) throw new Error('a curve needs two control points, a closed one three');
+        if (!c.points.every(finite)) throw new Error('a point is not a number');
     } else if (c.kind === 'arc') {
         if (![c.start, c.mid, c.end].every(finite)) throw new Error('a point is not a number');
         const cross = (c.mid[0] - c.start[0]) * (c.end[1] - c.start[1]) - (c.mid[1] - c.start[1]) * (c.end[0] - c.start[0]);
@@ -413,7 +529,7 @@ function checkShape(c) {
     } else if (c.kind === 'spiral') {
         const ok = v => Number.isFinite(v) && v > 1e-9;
         if (!ok(c.radius) || !ok(c.length) || !ok(c.turns)) throw new Error('a spiral needs a radius, a length and turns greater than zero');
-    } else throw new Error('a curve is a line, circle, spline, arc, ellipse, contour or spiral');
+    } else throw new Error('a curve is a line, circle, spline, control-point curve, arc, ellipse, contour or spiral');
 }
 
 /** The history of doing `a` then `b`, for the body being changed (input 0). */

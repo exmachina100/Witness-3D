@@ -4,7 +4,7 @@
 // OpenCascade build leaves out the per-face offset algorithm.
 
 import * as THREE from 'three';
-import { arcPoints, ellipsePoints, helixPoints, loops } from './curves.js';
+import { arcPoints, cvDegree, cvPoints, ellipsePoints, helixPoints, loops } from './curves.js';
 import { boolean, count, extrudeFace, facePlane, oc } from './Kernel.js';
 
 const pnt = v => new (oc().gp_Pnt)(v.x, v.y, v.z);
@@ -40,6 +40,21 @@ function geometry(c) {
         const t0 = curve.FirstParameter(), t1 = curve.LastParameter(), n = 64;
         const pts = Array.from({ length: c.closed ? n : n + 1 }, (_, i) => { const v = curve.Value(t0 + (t1 - t0) * i / n); return new THREE.Vector3(v.X(), v.Y(), v.Z()); });
         return { spline: curve, points: pts, closed: !!c.closed };
+    }
+    if (c.kind === 'cv') {
+        // A uniform B-spline on its control points, as w3d_section's kind 8.
+        const o = oc(), n = c.points.length, deg = cvDegree(n, !!c.closed);
+        if (n < 2 || (c.closed && n < 3)) throw new Error('a curve needs more control points');
+        const poles = new o.NCollection_Array1_gp_Pnt(1, n);
+        c.points.forEach((q, i) => poles.SetValue(i + 1, pnt(p.at(q))));
+        const k = c.closed ? n + 1 : n - deg + 1;
+        const knots = new o.NCollection_Array1_double(1, k), mults = new o.NCollection_Array1_int(1, k);
+        for (let i = 1; i <= k; i++) {
+            knots.SetValue(i, c.closed ? i - 1 : (i - 1) / (k - 1));
+            mults.SetValue(i, !c.closed && (i === 1 || i === k) ? deg + 1 : 1);
+        }
+        const curve = new o.Geom_BSplineCurve(poles, knots, mults, deg, !!c.closed);
+        return { spline: curve, points: cvPoints(c.points, !!c.closed, 64).map(q => p.at(q)), closed: !!c.closed };
     }
     if (c.kind === 'arc') {
         const pts = arcPoints(c.start, c.mid, c.end, 48);

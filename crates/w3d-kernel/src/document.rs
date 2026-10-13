@@ -17,6 +17,7 @@ use serde::{Deserialize, Serialize};
 use crate::blend::{blend, BlendParams};
 use crate::extrude::{extrude, ExtrudeParams, ExtrudeResult, Operation};
 use crate::form::{form, offset_faces, FormKind, FormParams};
+use crate::solids::{ArraySpec, Primitive};
 use crate::{BooleanOp, Frame, History, Kernel, KernelError, Motion, Path, Profile, Segment, Traced};
 
 /// Length unit of every coordinate in a document. Fixed for now; stored in files so a later
@@ -87,6 +88,8 @@ pub enum CurveShape {
     /// A helix (Plasticity's Spiral) up the plane's normal from its origin: `turns` turns of
     /// `radius` over `length`, starting along the plane's x; `left` turns it the other way.
     Spiral { radius: f64, length: f64, turns: f64, #[serde(default)] left: bool },
+    /// A curve shaped by control points it need not pass through (Plasticity's Control Point Curve).
+    Cv { points: Vec<[f64; 2]>, closed: bool },
 }
 
 impl Curve {
@@ -98,6 +101,7 @@ impl Curve {
             CurveShape::Polyline { points, closed: true } if points.len() >= 3 => Some(Profile::Polygon(points.iter().map(|p| (p[0], p[1])).collect())),
             CurveShape::Circle { center, radius } => Some(Profile::Circle { center: (center[0], center[1]), radius: *radius }),
             CurveShape::Spline { points, closed: true } if points.len() >= 3 => Some(Profile::Spline(points.iter().map(|p| (p[0], p[1])).collect())),
+            CurveShape::Cv { points, closed: true } if points.len() >= 3 => Some(Profile::Cv(points.iter().map(|p| (p[0], p[1])).collect())),
             CurveShape::Ellipse { center, major, minor } => Some(Profile::Ellipse { center: (center[0], center[1]), major: (major[0], major[1]), minor: *minor }),
             CurveShape::Contour { pieces } if crate::join::loops(pieces) => {
                 let pts = |p: &Vec<[f64; 2]>| p.iter().map(|q| (q[0], q[1])).collect();
@@ -124,6 +128,7 @@ impl Curve {
             CurveShape::Arc { start, mid, end } => Path::Arc { start: f.point((start[0], start[1])), mid: f.point((mid[0], mid[1])), end: f.point((end[0], end[1])) },
             CurveShape::Ellipse { center, major, minor } => Path::Ellipse { center: f.point((center[0], center[1])), normal: f.normal, major: f.point((major[0], major[1])) - f.origin, minor: *minor },
             CurveShape::Contour { pieces } => Path::Contour(pieces.iter().map(|p| Self::path_of(&f, p)).collect()),
+            CurveShape::Cv { points, closed } => Path::Cv { points: points.iter().map(|p| f.point((p[0], p[1]))).collect(), closed: *closed },
             CurveShape::Spiral { radius, length, turns, left } => Path::Spiral { origin: f.origin, axis: f.normal, x: f.x, radius: *radius, length: *length, turns: *turns, left: *left },
         }
     }
@@ -159,6 +164,10 @@ impl Curve {
             CurveShape::Ellipse { center, major, minor } => {
                 if !finite(center) || !finite(major) { return Err(KernelError::Invalid("a point is not a number")) }
                 if !(major[0].hypot(major[1]) > 1e-9) || !(*minor > 1e-9) || !minor.is_finite() { return Err(KernelError::Invalid("an ellipse needs two radii greater than zero")) }
+            }
+            CurveShape::Cv { points, closed } => {
+                if points.len() < 2 || (*closed && points.len() < 3) { return Err(KernelError::Invalid("a curve needs two control points, a closed one three")) }
+                if !points.iter().all(|p| finite(p)) { return Err(KernelError::Invalid("a point is not a number")) }
             }
             CurveShape::Contour { pieces } => {
                 if pieces.is_empty() { return Err(KernelError::Invalid("a contour needs a piece")) }
@@ -395,6 +404,22 @@ impl<K: Kernel> Document<K> {
         }).collect())
     }
 
+    /// Curve edits (Trim, Fillet Curve, Explode): the curves `ids` replaced by `curves`, as one
+    /// undoable step. Returns the new curves' ids, in order.
+    pub fn commit_replace_curves(&mut self, ids: &[CurveId], curves: Vec<Curve>) -> Result<Vec<CurveId>, KernelError> {
+        if ids.is_empty() && curves.is_empty() { return Err(KernelError::NoOp) }
+        if ids.iter().any(|id| !self.state.curves.contains_key(id)) { return Err(KernelError::Invalid("that curve no longer exists")) }
+        for c in &curves { c.check()?; }
+        self.checkpoint();
+        for id in ids { self.state.curves.remove(id); }
+        Ok(curves.into_iter().map(|c| {
+            let id = self.state.next_curve;
+            self.state.next_curve += 1;
+            self.state.curves.insert(id, Rc::new(c));
+            id
+        }).collect())
+    }
+
     /// The target as it would be after a boolean with each tool in turn.
     pub fn preview_boolean(&self, target: BodyId, tools: &[BodyId], op: BooleanOp) -> Result<Traced<K::Solid>, KernelError> {
         if tools.is_empty() { return Err(KernelError::Invalid("select a tool body as well as the target")) }
@@ -551,6 +576,108 @@ impl<K: Kernel> Document<K> {
         self.checkpoint();
         self.replace_traced(body, t);
         Ok(body)
+    }
+
+    /// Box, Cylinder or Sphere, as a new body or combined with `target` by `operation` (Plasticity's
+    /// Q, W, Shift+E, Shift+Q and B while sizing a primitive), without changing the document.
+    pub fn preview_primitive(&self, p: &Primitive, target: Option<BodyId>, operation: Operation) -> Result<ExtrudeResult<K::Solid>, KernelError> {
+        let solid = crate::solids::primitive(&self.kernel, p)?;
+        let body = target.map(|id| self.get(id).ok_or(KernelError::Invalid("that body no longer exists"))).transpose()?;
+        let operation = if operation == Operation::Auto { Operation::NewBody } else { operation };
+        crate::extrude::combine(&self.kernel, body, solid, operation, true, "the solid does not meet the body")
+    }
+
+    /// Run a primitive as one undoable step. Returns the body it created or changed.
+    pub fn commit_primitive(&mut self, p: &Primitive, target: Option<BodyId>, operation: Operation) -> Result<BodyId, KernelError> {
+        let r = self.preview_primitive(p, target, operation)?;
+        Ok(self.commit_result(target, r))
+    }
+
+    /// Compute a Shell without changing the document.
+    pub fn preview_shell(&self, body: BodyId, faces: &[u32], thickness: f64) -> Result<K::Solid, KernelError> {
+        let solid = self.get(body).ok_or(KernelError::Invalid("that body no longer exists"))?;
+        Ok(crate::solids::shell(&self.kernel, solid, faces, thickness)?.solid)
+    }
+
+    /// Run a Shell as one undoable step; the outer faces and edges keep their refs.
+    pub fn commit_shell(&mut self, body: BodyId, faces: &[u32], thickness: f64) -> Result<BodyId, KernelError> {
+        let solid = self.get(body).ok_or(KernelError::Invalid("that body no longer exists"))?;
+        let t = crate::solids::shell(&self.kernel, solid, faces, thickness)?;
+        self.checkpoint();
+        self.replace_traced(body, t);
+        Ok(body)
+    }
+
+    /// Compute a Remove Face without changing the document.
+    pub fn preview_remove_faces(&self, body: BodyId, faces: &[u32]) -> Result<K::Solid, KernelError> {
+        let solid = self.get(body).ok_or(KernelError::Invalid("that body no longer exists"))?;
+        Ok(crate::solids::remove_faces(&self.kernel, solid, faces)?.solid)
+    }
+
+    /// Run a Remove Face as one undoable step; the faces that stay keep their refs.
+    pub fn commit_remove_faces(&mut self, body: BodyId, faces: &[u32]) -> Result<BodyId, KernelError> {
+        let solid = self.get(body).ok_or(KernelError::Invalid("that body no longer exists"))?;
+        let t = crate::solids::remove_faces(&self.kernel, solid, faces)?;
+        self.checkpoint();
+        self.replace_traced(body, t);
+        Ok(body)
+    }
+
+    /// The copies Mirror or Array would make, per body in `bodies` order, without changing anything.
+    fn copies(&self, bodies: &[BodyId], make: impl Fn(&K::Solid) -> Result<Vec<K::Solid>, KernelError>) -> Result<Vec<(BodyId, Vec<K::Solid>)>, KernelError> {
+        if bodies.is_empty() { return Err(KernelError::Invalid("select a solid first")) }
+        bodies.iter().map(|&id| {
+            let s = self.get(id).ok_or(KernelError::Invalid("that body no longer exists"))?;
+            Ok((id, make(s)?))
+        }).collect()
+    }
+
+    /// Each body with its copies fused in; refs trace back to the body.
+    fn fused(&self, body: BodyId, copies: Vec<K::Solid>) -> Result<Traced<K::Solid>, KernelError> {
+        let mut cur: Option<Traced<K::Solid>> = None;
+        for c in copies {
+            let base = match &cur { Some(t) => &t.solid, None => self.get(body).expect("checked by copies") };
+            let next = self.kernel.boolean(base, &c, BooleanOp::Union)?;
+            cur = Some(match cur { Some(prev) => Traced { solid: next.solid, history: chain(&prev.history, &next.history) }, None => next });
+        }
+        cur.ok_or(KernelError::NoOp)
+    }
+
+    /// Put copies in the document: fused into their bodies when `join`, else as new bodies. Returns
+    /// the new bodies' ids, or the joined bodies' ids.
+    fn place_copies(&mut self, all: Vec<(BodyId, Vec<K::Solid>)>, join: bool) -> Result<Vec<BodyId>, KernelError> {
+        if join {
+            let fused = all.into_iter().map(|(id, c)| Ok((id, self.fused(id, c)?))).collect::<Result<Vec<_>, KernelError>>()?;
+            self.checkpoint();
+            Ok(fused.into_iter().map(|(id, t)| { self.replace_traced(id, t); id }).collect())
+        } else {
+            self.checkpoint();
+            Ok(all.into_iter().flat_map(|(_, c)| c).map(|s| self.add_unrecorded(s)).collect())
+        }
+    }
+
+    /// Mirror's copies, one per body, for a preview.
+    pub fn preview_mirror(&self, bodies: &[BodyId], origin: DVec3, normal: DVec3) -> Result<Vec<K::Solid>, KernelError> {
+        Ok(self.copies(bodies, |s| Ok(vec![crate::solids::mirror(&self.kernel, s, origin, normal)?]))?.into_iter().flat_map(|(_, c)| c).collect())
+    }
+
+    /// Mirror bodies in a plane as one undoable step: as new bodies, or joined to the originals.
+    pub fn commit_mirror(&mut self, bodies: &[BodyId], origin: DVec3, normal: DVec3, join: bool) -> Result<Vec<BodyId>, KernelError> {
+        let all = self.copies(bodies, |s| Ok(vec![crate::solids::mirror(&self.kernel, s, origin, normal)?]))?;
+        self.place_copies(all, join)
+    }
+
+    /// An array's copies, for a preview.
+    pub fn preview_array(&self, bodies: &[BodyId], spec: &ArraySpec) -> Result<Vec<K::Solid>, KernelError> {
+        let motions = spec.motions()?;
+        Ok(self.copies(bodies, |s| Ok(motions.iter().map(|m| self.kernel.transform(s, m)).collect()))?.into_iter().flat_map(|(_, c)| c).collect())
+    }
+
+    /// Rectangular or Radial Array as one undoable step: copies as new bodies, or joined.
+    pub fn commit_array(&mut self, bodies: &[BodyId], spec: &ArraySpec, join: bool) -> Result<Vec<BodyId>, KernelError> {
+        let motions = spec.motions()?;
+        let all = self.copies(bodies, |s| Ok(motions.iter().map(|m| self.kernel.transform(s, m)).collect()))?;
+        self.place_copies(all, join)
     }
 
     /// Extrude a closed curve's region (Plasticity's Extrude on a region).

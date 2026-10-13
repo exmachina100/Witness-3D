@@ -70,21 +70,43 @@ export const COMMAND = {
     sweep: { d: 'twist', q: 'union', w: 'difference', 'shift-e': 'intersect', b: 'new' },
     // Drawing (manual: Tab types dimensions, S square and C centre for rectangles, Ctrl+Z drops a line's last point)
     rect: { tab: 'typed', s: 'square', c: 'centre' },
-    circle: { tab: 'typed', v: 'vertical' },
+    circle: { tab: 'typed', v: 'vertical', x: 'axis-x', y: 'axis-y' },
     line: { tab: 'typed', 'ctrl-z': 'back', x: 'axis-x', y: 'axis-y', z: 'axis-z' },
     // The other curve tools (manual: Tab types dimensions; Regular Polygon's arrows and C; Spline
     // Curve's Ctrl+Z). They have no default keys in Plasticity either; F finds them.
     'center-rect': { tab: 'typed', s: 'square' },
-    rect3: { tab: 'typed' },
+    rect3: { tab: 'typed', x: 'axis-x', y: 'axis-y', z: 'axis-z' },
     circle2: { tab: 'typed' },
     circle3: { tab: 'typed' },
     arc3: { tab: 'typed' },
     arc: { tab: 'typed' },
     // V stands a circle or polygon up (0.6.30's gizmo:circle:mode and gizmo:polygon:mode).
     polygon: { tab: 'typed', arrowup: 'more', arrowdown: 'fewer', c: 'circumscribed', v: 'vertical' },
-    spline: { 'ctrl-z': 'back', x: 'axis-x', y: 'axis-y', z: 'axis-z' },
+    // Tab swaps Spline Curve and Control Point Curve, keeping the points (manual: Control / Through-point).
+    spline: { 'ctrl-z': 'back', tab: 'switch', x: 'axis-x', y: 'axis-y', z: 'axis-z' },
+    cv: { 'ctrl-z': 'back', tab: 'switch', x: 'axis-x', y: 'axis-y', z: 'axis-z' },
     // Tangent Arc's D flips it; Spiral's A, D and R (manual), X/Y/Z while placing the axis end.
     'tangent-arc': { d: 'flip' },
+    // Primitives (manual: Corner / Center / Three Point Box, Cylinder, Sphere). Tab types sizes; C and S
+    // shape a box's base; H, F and D hand the cursor to the height, radius or diameter; V stands a
+    // cylinder up; X, Y and Z hold the base to an axis; Q W Shift+E Shift+Q B pick the boolean.
+    box: { tab: 'typed', c: 'centre', s: 'square', h: 'height', x: 'axis-x', y: 'axis-y', z: 'axis-z', q: 'union', w: 'difference', 'shift-e': 'intersect', 'shift-q': 'slice', b: 'new' },
+    'center-box': { tab: 'typed', c: 'centre', s: 'square', h: 'height', x: 'axis-x', y: 'axis-y', z: 'axis-z', q: 'union', w: 'difference', 'shift-e': 'intersect', 'shift-q': 'slice', b: 'new' },
+    box3: { tab: 'typed', h: 'height', x: 'axis-x', y: 'axis-y', z: 'axis-z', q: 'union', w: 'difference', 'shift-e': 'intersect', 'shift-q': 'slice', b: 'new' },
+    cylinder: { tab: 'typed', v: 'vertical', f: 'radius', d: 'height', x: 'axis-x', y: 'axis-y', z: 'axis-z', q: 'union', w: 'difference', 'shift-e': 'intersect', 'shift-q': 'slice', b: 'new' },
+    sphere: { tab: 'typed', d: 'radius', x: 'axis-x', y: 'axis-y', z: 'axis-z', q: 'union', w: 'difference', 'shift-e': 'intersect', 'shift-q': 'slice', b: 'new' },
+    // Round 7: D types the distance or radius.
+    'offset-curve': { d: 'distance' },
+    'fillet-curve': { d: 'radius' },
+    bridge: { t: 'tension' },
+    hole: { t: 'through' },
+    // Tangent Circle (manual): F freezes the circle, Tab types its radius.
+    'tangent-circle': { f: 'freeze', tab: 'typed' },
+    // Round 6: Shell's D types the thickness; Mirror and Radial Array take X/Y/Z for the axis and J to join.
+    shell: { d: 'thickness' },
+    mirror: { x: 'x', y: 'y', z: 'z', j: 'join' },
+    'rect-array': { j: 'join' },
+    'radial-array': { x: 'x', y: 'y', z: 'z', j: 'join' },
     spiral: { x: 'axis-x', y: 'axis-y', z: 'axis-z', a: 'angle', d: 'length', r: 'radius' },
     ellipse: {},
     ellipse3: {},
@@ -107,7 +129,7 @@ export const ACTIONS = {
     'draw:center-rect': 'Center rectangle', 'draw:rect3': 'Three point rectangle', 'draw:circle2': 'Two point circle',
     'draw:circle3': 'Three point circle', 'draw:arc3': 'Three point arc', 'draw:arc': 'Center point arc',
     'draw:polygon': 'Regular polygon', 'draw:spline': 'Spline curve', 'draw:ellipse': 'Center ellipse',
-    'draw:ellipse3': 'Three point ellipse', 'draw:tangent-arc': 'Tangent arc', 'draw:spiral': 'Spiral', 'join': 'Join curves',
+    'draw:ellipse3': 'Three point ellipse', 'draw:tangent-arc': 'Tangent arc', 'draw:spiral': 'Spiral', 'draw:cv': 'Control point curve', 'draw:tangent-circle': 'Tangent circle', 'split': 'Split curve at point', 'measure:distance': 'Measure distance', 'measure:radius': 'Measure radius', 'join': 'Join curves', 'trim': 'Trim curves', 'explode': 'Explode curve', 'extend': 'Extend curve',
     'undo': 'Undo', 'redo': 'Redo', 'file:new': 'New', 'file:open': 'Open…', 'file:save': 'Save',
     'export:step': 'Export STEP', 'import:step': 'Import STEP',
 };

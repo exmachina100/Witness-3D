@@ -10,7 +10,13 @@ Both are the crates.io 0.3.0 sources, patched in through `[patch.crates-io]` in 
 
 ## What Witness 3D changed
 
-Only additions; no upstream line was edited apart from registering the new modules.
+Additions, plus one portability fix to upstream lines:
+
+- **Windows (MSVC) fix:** OpenCascade defines `Handle_Geom_Surface` and friends as their own classes
+  under MSVC (a typedef elsewhere; see `Standard_Handle.hxx`), so upstream's
+  `std::unique_ptr<Handle_X>(new opencascade::handle<X>(...))` does not compile there. The headers in
+  `opencascade-sys/include/` construct `new Handle_X(...)` instead, which is the same type on every
+  other compiler.
 
 - `opencascade-sys/include/w3d.hxx`, `opencascade-sys/src/w3d.rs` (registered in `build.rs` and
   `src/lib.rs`): numbered edge and face access through `TopExp::MapShapes`; fillet and chamfer that

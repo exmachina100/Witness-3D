@@ -415,3 +415,124 @@ export function exportSTEP(shape) {
     o.FS.unlink(path);
     return bytes;
 }
+
+// --- Round 6: Box, Cylinder, Sphere, Shell and Mirror, matching crates/w3d-kernel/src/solids.rs ---
+
+const SMALL = 1e-6;
+const finite = a => a.every(Number.isFinite);
+const vec = a => new THREE.Vector3(...a);
+
+function checkFrame({ origin, x, normal }) {
+    if (![origin, x, normal].every(v => Array.isArray(v) && v.length === 3 && finite(v)) || vec(x).cross(vec(normal)).length() < 1e-9) throw new Error('the construction plane is not valid');
+    const n = vec(normal).normalize(), xa = vec(x).addScaledVector(n, -vec(x).dot(n)).normalize();
+    return { o: vec(origin), x: xa, y: new THREE.Vector3().crossVectors(n, xa), n };
+}
+
+/**
+ * Plasticity's Box, Cylinder and Sphere as a solid. `p` is { kind: 'box', frame, width, depth, height }
+ * (from the frame's origin along its x, y and normal; negative grows the other way),
+ * { kind: 'cylinder', frame, radius, height } or { kind: 'sphere', center, radius }.
+ */
+export function primitive(p) {
+    const o = oc();
+    if (p.kind === 'box') {
+        const { width: w, depth: d, height: h } = p;
+        if (!finite([w, d, h])) throw new Error("the box's size is not a number");
+        if (Math.abs(w) < SMALL || Math.abs(d) < SMALL || Math.abs(h) < SMALL) throw new Error('a box needs a width, a depth and a height');
+        const f = checkFrame(p.frame);
+        const at = (u, v) => f.o.clone().addScaledVector(f.x, u).addScaledVector(f.y, v);
+        let pts = [at(0, 0), at(w, 0), at(w, d), at(0, d)];
+        if (w * d < 0) pts = pts.reverse();
+        const wire = new o.BRepBuilderAPI_MakeWire();
+        pts.forEach((q, i) => wire.Add(new o.BRepBuilderAPI_MakeEdge(pnt(q), pnt(pts[(i + 1) % 4])).Edge()));
+        const face = new o.BRepBuilderAPI_MakeFace(wire.Wire(), true).Face();
+        return prism(face, f.n.clone().multiplyScalar(h));
+    }
+    if (p.kind === 'cylinder') {
+        const { radius: r, height: h } = p;
+        if (!finite([r, h])) throw new Error("the cylinder's size is not a number");
+        if (!(r > SMALL)) throw new Error("the cylinder's radius must be greater than zero");
+        if (Math.abs(h) < SMALL) throw new Error('a cylinder needs a height');
+        const f = checkFrame(p.frame);
+        const n = h < 0 ? f.n.clone().negate() : f.n;
+        return new o.BRepPrimAPI_MakeCylinder(new o.gp_Ax2(pnt(f.o), dir(n), dir(f.x)), r, Math.abs(h)).Shape();
+    }
+    if (p.kind === 'sphere') {
+        if (!Array.isArray(p.center) || !finite(p.center) || !Number.isFinite(p.radius)) throw new Error("the sphere's size is not a number");
+        if (!(p.radius > SMALL)) throw new Error("the sphere's radius must be greater than zero");
+        return new o.BRepPrimAPI_MakeSphere(pnt(vec(p.center)), p.radius).Shape();
+    }
+    throw new Error('a primitive is a box, a cylinder or a sphere');
+}
+
+/**
+ * Plasticity's Shell: hollow `shape` to walls `thickness` thick inside its outer surface, open at the
+ * numbered faces. Returns { shape, history }; the inner walls are new faces.
+ */
+export function shellFaces(shape, faces, thickness) {
+    const o = oc();
+    if (!faces?.length) throw new Error('select the faces to open');
+    if (!Number.isFinite(thickness)) throw new Error('the thickness is not a number');
+    if (!(thickness > SMALL)) throw new Error('the wall thickness must be greater than zero');
+    const all = numbered(shape, 'TopAbs_FACE');
+    const ids = [...new Set(faces)];
+    if (ids.some(i => !Number.isInteger(i) || !all[i])) throw new Error('a face in the selection is not on this body; select the faces again');
+    if (ids.length === all.length) throw new Error('leave at least one face closed');
+    const closing = new o.NCollection_List_TopoDS_Shape();
+    for (const i of ids) closing.Append(all[i]);
+    const mk = new o.BRepOffsetAPI_MakeThickSolid();
+    try {
+        mk.MakeThickSolidByJoin(shape, closing, -thickness, 1e-6, o.BRepOffset_Mode.BRepOffset_Skin, false, false, o.GeomAbs_JoinType.GeomAbs_Intersection, false, new o.Message_ProgressRange());
+    } catch { /* reported below */ }
+    if (!mk.IsDone()) throw new Error("the walls can't be that thick here; try a thinner shell");
+    const result = mk.Shape();
+    if (!new o.BRepCheck_Analyzer(result, true, false, false).IsValid() || count(result, 'TopAbs_SOLID') !== count(shape, 'TopAbs_SOLID')) throw new Error('a shell that thick breaks the body; try a thinner one');
+    return { shape: result, history: trace([shape], result, s => successors(mk, s)) };
+}
+
+/** A copy of `shape` reflected in the plane through `origin` with normal `normal`. */
+export function mirror(shape, origin, normal) {
+    const o = oc();
+    if (![origin, normal].every(v => Array.isArray(v) && v.length === 3 && finite(v))) throw new Error('the mirror plane is not a number');
+    if (Math.hypot(...normal) < 1e-9) throw new Error('the mirror plane has no direction');
+    const t = new o.gp_Trsf();
+    t.SetMirror(new o.gp_Ax2(new o.gp_Pnt(...origin), new o.gp_Dir(...normal)));
+    return new o.BRepBuilderAPI_Transform(shape, t, true, false).Shape();
+}
+
+/**
+ * The motions of an array's copies, the original excluded, as `transform` arguments. `spec` is
+ * { kind: 'rectangular', steps: [v, v, v], counts: [a, b, c] } or { kind: 'radial', pivot, axis,
+ * angle (radians), count }. Counts include the original; a full turn doesn't repeat the first.
+ */
+export function arrayMotions(spec) {
+    const MAX = 1000;
+    if (spec.kind === 'rectangular') {
+        const { steps, counts } = spec;
+        if (steps?.length !== 3 || !steps.every(s => Array.isArray(s) && s.length === 3 && finite(s))) throw new Error('an array step is not a number');
+        if (counts?.length !== 3 || !counts.every(c => Number.isInteger(c) && c >= 1)) throw new Error('each array count must be at least 1');
+        const total = counts[0] * counts[1] * counts[2];
+        if (total > MAX) throw new Error('that array makes more than 1000 bodies');
+        if (total < 2) return [];
+        if (counts.some((c, i) => c > 1 && Math.hypot(...steps[i]) < SMALL)) throw new Error('an array direction with more than one copy needs a spacing');
+        const out = [];
+        for (let a = 0; a < counts[0]; a++) for (let b = 0; b < counts[1]; b++) for (let c = 0; c < counts[2]; c++) {
+            if (a + b + c === 0) continue;
+            out.push({ offset: [0, 1, 2].map(k => steps[0][k] * a + steps[1][k] * b + steps[2][k] * c) });
+        }
+        return out;
+    }
+    if (spec.kind === 'radial') {
+        const { pivot, axis, angle, count: n } = spec;
+        if (![pivot, axis].every(v => Array.isArray(v) && v.length === 3 && finite(v)) || !Number.isFinite(angle)) throw new Error("the array's axis or angle is not a number");
+        if (Math.hypot(...axis) < 1e-9) throw new Error("the array's axis has no direction");
+        if (!Number.isInteger(n) || n < 1) throw new Error('the array count must be at least 1');
+        if (n > MAX) throw new Error('that array makes more than 1000 bodies');
+        if (n < 2 || Math.abs(angle) < 1e-9) return [];
+        const full = Math.abs(Math.abs(angle) - 2 * Math.PI) < 1e-9;
+        const step = full ? angle / n : angle / (n - 1);
+        const len = Math.hypot(...axis), unit = axis.map(c => c / len);
+        return Array.from({ length: n - 1 }, (_, i) => ({ pivot, axis: unit, angle: step * (i + 1) }));
+    }
+    throw new Error('an array is rectangular or radial');
+}

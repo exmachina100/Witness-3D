@@ -1,0 +1,172 @@
+// Round 7: Offset Curve, Fillet Curve, Explode and Trim, as plain geometry (no kernel needed).
+import assert from 'node:assert/strict';
+import { test } from 'node:test';
+import { arcGeometry, bridgeCurves, explode, extendCurve, filletCurve, nearestEnd, offsetCurve, samples, trim } from '../src/curveEdit.js';
+import { loops } from '../src/curves.js';
+
+const close = (a, b, eps = 1e-9) => assert.ok(Math.abs(a - b) < eps, `${a} != ${b}`);
+const plane = { origin: [0, 0, 0], x: [1, 0, 0], normal: [0, 1, 0] };
+const rect = (w, h, ccw = true) => ({ ...plane, kind: 'polyline', closed: true, points: ccw ? [[0, 0], [w, 0], [w, h], [0, h]] : [[0, 0], [0, h], [w, h], [w, 0]] });
+const line = (a, b) => ({ ...plane, kind: 'polyline', closed: false, points: [a, b] });
+const bounds = pts => ({ minX: Math.min(...pts.map(p => p[0])), maxX: Math.max(...pts.map(p => p[0])), minY: Math.min(...pts.map(p => p[1])), maxY: Math.max(...pts.map(p => p[1])) });
+
+test('offset grows a closed rectangle outward whichever way it was drawn', () => {
+    for (const ccw of [true, false]) {
+        const o = offsetCurve(rect(10, 6, ccw), 2);
+        assert.equal(o.kind, 'polyline');
+        assert.equal(o.closed, true);
+        const b = bounds(o.points);
+        close(b.minX, -2); close(b.maxX, 12); close(b.minY, -2); close(b.maxY, 8);
+        const s = bounds(offsetCurve(rect(10, 6, ccw), -1).points);
+        close(s.minX, 1); close(s.maxX, 9);
+    }
+    assert.throws(() => offsetCurve(rect(10, 6), -4), /inside out/);
+});
+
+test('offset keeps circles and arcs exact and moves open lines to their left', () => {
+    const c = offsetCurve({ ...plane, kind: 'circle', center: [1, 2], radius: 5 }, 1.5);
+    assert.deepEqual([c.kind, c.center, c.radius], ['circle', [1, 2], 6.5]);
+    assert.throws(() => offsetCurve({ ...plane, kind: 'circle', center: [0, 0], radius: 1 }, -1), /shrink/);
+    const a = offsetCurve({ ...plane, kind: 'arc', start: [5, 0], mid: [0, 5], end: [-5, 0] }, 2);
+    close(arcGeometry(a.start, a.mid, a.end).radius, 7);
+    const l = offsetCurve(line([0, 0], [10, 0]), 3);
+    assert.deepEqual(l.points, [[0, 3], [10, 3]]);
+    assert.equal(offsetCurve({ ...plane, kind: 'ellipse', center: [0, 0], major: [6, 0], minor: 3 }, 1).kind, 'spline');
+    assert.throws(() => offsetCurve(line([0, 0], [1, 0]), 0), /nothing to do/);
+});
+
+test('fillet curve rounds every corner of a rectangle with tangent arcs', () => {
+    const f = filletCurve(rect(10, 6), 1);
+    assert.equal(f.kind, 'contour');
+    assert.ok(loops(f.pieces), 'still closed');
+    const arcs = f.pieces.filter(p => p.kind === 'arc');
+    assert.equal(arcs.length, 4);
+    for (const a of arcs) close(arcGeometry(a.start, a.mid, a.end).radius, 1, 1e-9);
+    // The straight sides shorten by the radius at each end.
+    const lens = f.pieces.filter(p => p.kind === 'polyline').map(p => Math.hypot(p.points[1][0] - p.points[0][0], p.points[1][1] - p.points[0][1])).sort((x, y) => x - y);
+    assert.deepEqual(lens.map(v => +v.toFixed(9)), [4, 4, 8, 8]);
+    // Only the chosen corner, on an open polyline.
+    const open = filletCurve({ ...plane, kind: 'polyline', closed: false, points: [[0, 0], [10, 0], [10, 10]] }, 2);
+    assert.equal(open.pieces.filter(p => p.kind === 'arc').length, 1);
+    assert.throws(() => filletCurve(rect(10, 6), 4), /too large/);
+    assert.throws(() => filletCurve(line([0, 0], [5, 0]), 1), /no corner/);
+    assert.throws(() => filletCurve({ ...plane, kind: 'circle', center: [0, 0], radius: 1 }, 1), /corners/);
+});
+
+test('explode splits a rectangle into four lines and a contour into its pieces', () => {
+    const lines = explode(rect(10, 6));
+    assert.equal(lines.length, 4);
+    assert.ok(lines.every(l => l.kind === 'polyline' && !l.closed && l.points.length === 2));
+    assert.deepEqual(lines[3].points, [[0, 6], [0, 0]], 'the closing side too');
+    assert.equal(explode(filletCurve(rect(10, 6), 1)).length, 8);
+    assert.throws(() => explode(line([0, 0], [1, 0])), /single line/);
+    assert.throws(() => explode({ ...plane, kind: 'circle', center: [0, 0], radius: 1 }), /explode/);
+});
+
+test('trim drops the piece of a line between the crossings nearest the click', () => {
+    const target = line([0, 0], [10, 0]);
+    const cutters = [line([3, -1], [3, 1]), line([7, -1], [7, 1])];
+    const middle = trim(target, cutters, [5, 0.1]);
+    assert.deepEqual(middle.map(c => c.points), [[[0, 0], [3, 0]], [[7, 0], [10, 0]]]);
+    const end = trim(target, cutters, [9, 0]);
+    assert.deepEqual(end.map(c => c.points), [[[0, 0], [3, 0]], [[3, 0], [7, 0]]]);
+    assert.deepEqual(trim(target, [], [5, 0]), [], 'nothing crosses it: the whole line goes');
+    // A cutter in another plane doesn't count.
+    assert.deepEqual(trim(target, [{ ...line([5, -1], [5, 1]), origin: [0, 5, 0] }], [2, 0]), []);
+});
+
+test('trim opens a rectangle and cuts circles and arcs into arcs', () => {
+    const cross = line([5, -2], [5, 8]);
+    const box = trim(rect(10, 6), [cross], [8, 0]);
+    assert.equal(box.length, 1);
+    assert.equal(box[0].closed, false);
+    const b = bounds(box[0].points);
+    close(b.maxX, 5); close(b.minX, 0);
+
+    const circle = { ...plane, kind: 'circle', center: [0, 0], radius: 5 };
+    const half = trim(circle, [line([-10, 0], [10, 0])], [0, -5]);
+    assert.equal(half.length, 1);
+    assert.equal(half[0].kind, 'arc');
+    const g = arcGeometry(half[0].start, half[0].mid, half[0].end);
+    close(Math.abs(g.sweep), Math.PI, 1e-9);
+    assert.ok(half[0].mid[1] > 0, 'the top half stays');
+
+    const arc = { ...plane, kind: 'arc', start: [5, 0], mid: [0, 5], end: [-5, 0] };
+    const kept = trim(arc, [line([0, 0], [0, 10])], [3.5, 3.5]);
+    assert.equal(kept.length, 1);
+    assert.ok(kept[0].mid[0] < 0, 'the left part stays');
+});
+
+test('samples close loops without repeating the first point', () => {
+    const s = samples({ kind: 'ellipse', center: [0, 0], major: [4, 0], minor: 2 }, 16);
+    assert.equal(s.points.length, 16);
+    assert.equal(s.closed, true);
+});
+
+
+test('extend lengthens a line straight on and an arc round its circle', () => {
+    const l = line([0, 0], [10, 0]);
+    assert.equal(nearestEnd(l, [9, 1]), 1);
+    assert.deepEqual(extendCurve(l, 1, 5).points, [[0, 0], [15, 0]]);
+    assert.deepEqual(extendCurve(l, 0, 5).points, [[-5, 0], [10, 0]]);
+    const quarter = { ...plane, kind: 'arc', start: [5, 0], mid: [5 * Math.SQRT1_2, 5 * Math.SQRT1_2], end: [0, 5] };
+    const e = extendCurve(quarter, 1, 5 * Math.PI / 2);
+    const g = arcGeometry(e.start, e.mid, e.end);
+    close(Math.abs(g.sweep), Math.PI, 1e-9);
+    close(e.end[0], -5, 1e-9);
+    assert.throws(() => extendCurve(rect(2, 2), 1, 1), /open end/);
+    assert.throws(() => extendCurve(quarter, 1, 100), /close on itself/);
+});
+
+test('bridge leaves each end along its own direction', () => {
+    const a = line([0, 0], [10, 0]), b = line([20, 10], [30, 10]);
+    const br = bridgeCurves(a, 1, b, 0);
+    assert.equal(br.kind, 'spline');
+    assert.deepEqual(br.points[0], [10, 0]);
+    assert.deepEqual(br.points[br.points.length - 1], [20, 10]);
+    // Just past the start it still heads along +x, and just before the end it arrives along +x.
+    close(br.points[1][1] / br.points[1][0], 0, 0.1);
+    assert.ok(br.points[1][0] > 10 && br.points[7][0] < 20);
+    assert.throws(() => bridgeCurves(a, 1, line([10, 0], [20, 0]), 0), /already meet/);
+    assert.throws(() => bridgeCurves(rect(2, 2), 0, b, 0), /open ends/);
+});
+
+test('a tangent circle touches both lines, sized by the cursor or by a radius', async () => {
+    const { tangentCircle } = await import('../src/curveEdit.js');
+    const floor = line([0, 0], [100, 0]), wall = line([0, 0], [0, 100]);
+    // Near (10, 4): the centre slides onto the bisector y = x.
+    const c = tangentCircle(floor, wall, [10, 4]);
+    close(c.center[0], c.center[1], 1e-9);
+    close(c.radius, c.center[0], 1e-9);
+    const r5 = tangentCircle(floor, wall, [10, 4], 5);
+    assert.deepEqual(r5.center.map(v => +v.toFixed(9)), [5, 5]);
+    close(r5.radius, 5, 1e-9);
+    // A circle tangent to a line and to another circle (outside it).
+    const round = { ...plane, kind: 'circle', center: [50, 20], radius: 10 };
+    const t = tangentCircle(floor, round, [30, 6], 6);
+    close(t.center[1], 6, 1e-9);
+    close(Math.hypot(t.center[0] - 50, t.center[1] - 20), 16, 1e-9);
+    assert.throws(() => tangentCircle(floor, { ...wall, origin: [0, 5, 0] }, [1, 1]), /one plane/);
+    // Inside a clockwise arc (top half of a radius 20 circle, drawn right to left over the top).
+    const arc = { ...plane, kind: 'arc', start: [-20, 0], mid: [0, 20], end: [20, 0] };
+    const inside = tangentCircle(floor, arc, [0, 5], 5);
+    close(inside.radius, 5, 1e-9);
+    close(Math.hypot(...inside.center), 15, 1e-9);
+});
+
+test('split cuts lines and arcs exactly where clicked', async () => {
+    const { splitCurve } = await import('../src/curveEdit.js');
+    const [a, b] = splitCurve({ ...plane, kind: 'polyline', closed: false, points: [[0, 0], [10, 0], [10, 10]] }, [10, 4]);
+    assert.deepEqual(a.points, [[0, 0], [10, 0], [10, 4]]);
+    assert.deepEqual(b.points, [[10, 4], [10, 10]]);
+    const opened = splitCurve(rect(10, 6), [4, 0]);
+    assert.equal(opened.length, 1);
+    assert.equal(opened[0].closed, false);
+    assert.deepEqual(opened[0].points[0], [4, 0]);
+    assert.deepEqual(opened[0].points.at(-1), [4, 0]);
+    const [p, q] = splitCurve({ ...plane, kind: 'arc', start: [5, 0], mid: [0, 5], end: [-5, 0] }, [0, 7]);
+    close(p.end[0], 0, 1e-9); close(p.end[1], 5, 1e-9);
+    close(q.start[0], 0, 1e-9);
+    assert.throws(() => splitCurve(line([0, 0], [1, 0]), [0, 0]), /end of the line/);
+    assert.throws(() => splitCurve({ ...plane, kind: 'circle', center: [0, 0], radius: 1 }, [1, 0]), /split lines/);
+});

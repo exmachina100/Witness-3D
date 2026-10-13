@@ -54,6 +54,12 @@ fn section(profile: &Profile, frame: &Frame) -> Result<Vec<f64>, KernelError> {
             for p in pts { v.extend(frame.point(*p).to_array()) }
             v
         }
+        Profile::Cv(pts) => {
+            if pts.len() < 3 { return Err(KernelError::Invalid("a closed curve needs three control points")) }
+            let mut v = vec![8.0, pts.len() as f64, 1.0];
+            for p in pts { v.extend(frame.point(*p).to_array()) }
+            v
+        }
         Profile::Ellipse { center, major, minor } => {
             let (c, m) = (frame.point(*center), frame.point(*major) - frame.origin);
             ellipse_numbers(c, frame.normal, m, *minor)?
@@ -95,6 +101,12 @@ fn path_numbers(path: &Path) -> Result<Vec<f64>, KernelError> {
         Path::Spline { points, closed } => {
             if points.len() < 2 { return Err(KernelError::Invalid("a path needs two points")) }
             let mut v = vec![3.0, points.len() as f64, if *closed { 1.0 } else { 0.0 }];
+            for p in points { v.extend(p.to_array()) }
+            v
+        }
+        Path::Cv { points, closed } => {
+            if points.len() < 2 { return Err(KernelError::Invalid("a path needs two control points")) }
+            let mut v = vec![8.0, points.len() as f64, if *closed { 1.0 } else { 0.0 }];
             for p in points { v.extend(p.to_array()) }
             v
         }
@@ -245,6 +257,26 @@ impl Kernel for Occt {
         let faces: Vec<usize> = faces.iter().map(|&f| f as usize).collect();
         let (solid, h) = s.offset_faces_with_history(&faces, distance, angle).map_err(shim)?;
         Ok(Traced { solid, history: history(h) })
+    }
+
+    fn shell(&self, s: &Shape, faces: &[u32], thickness: f64) -> Result<Traced<Shape>, KernelError> {
+        let faces: Vec<usize> = faces.iter().map(|&f| f as usize).collect();
+        let (solid, h) = s.shell_with_history(&faces, thickness).map_err(shim)?;
+        Ok(Traced { solid, history: history(h) })
+    }
+
+    fn remove_faces(&self, s: &Shape, faces: &[u32]) -> Result<Traced<Shape>, KernelError> {
+        let faces: Vec<usize> = faces.iter().map(|&f| f as usize).collect();
+        let (solid, h) = s.remove_faces_with_history(&faces).map_err(shim)?;
+        Ok(Traced { solid, history: history(h) })
+    }
+
+    fn mirror(&self, s: &Shape, origin: DVec3, normal: DVec3) -> Result<Shape, KernelError> {
+        s.mirrored_in_plane(origin, normal).map_err(shim)
+    }
+
+    fn sphere(&self, center: DVec3, radius: f64) -> Result<Shape, KernelError> {
+        Ok(Shape::sphere(radius).at(center).build())
     }
 
     fn is_valid(&self, s: &Shape) -> bool { s.is_valid() }

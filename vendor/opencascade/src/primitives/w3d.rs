@@ -177,6 +177,28 @@ impl Shape {
         let r = ffi::w3d::w3d_offset_faces(&self.inner, &ids, distance, angle).map_err(reason)?;
         Ok((Shape::from_shape(&ffi::w3d::w3d_result_shape(&r)), history(&r, 1)))
     }
+
+    /// Hollowed to walls `thickness` thick inside the outer surface, open at the numbered faces
+    /// (Plasticity's Shell).
+    pub fn shell_with_history(&self, faces: &[usize], thickness: f64) -> Result<(Shape, ShapeHistory), String> {
+        let ids: Vec<i32> = faces.iter().map(|&f| f as i32).collect();
+        let r = ffi::w3d::w3d_shell(&self.inner, &ids, thickness).map_err(reason)?;
+        Ok((Shape::from_shape(&ffi::w3d::w3d_result_shape(&r)), history(&r, 1)))
+    }
+
+    /// The numbered faces deleted and the gap closed by their neighbours (Plasticity's Remove Face).
+    pub fn remove_faces_with_history(&self, faces: &[usize]) -> Result<(Shape, ShapeHistory), String> {
+        let ids: Vec<i32> = faces.iter().map(|&f| f as i32).collect();
+        let r = ffi::w3d::w3d_remove_faces(&self.inner, &ids).map_err(reason)?;
+        Ok((Shape::from_shape(&ffi::w3d::w3d_result_shape(&r)), history(&r, 1)))
+    }
+
+    /// A copy reflected in the plane through `origin` with normal `normal`.
+    pub fn mirrored_in_plane(&self, origin: DVec3, normal: DVec3) -> Result<Shape, String> {
+        let plane = [origin.x, origin.y, origin.z, normal.x, normal.y, normal.z];
+        let s = ffi::w3d::w3d_mirror(&self.inner, &plane).map_err(reason)?;
+        Ok(Shape::from_shape(&s))
+    }
 }
 
 fn parse_blend_error(msg: &str) -> BlendError {
