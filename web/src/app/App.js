@@ -62,6 +62,7 @@ import { icon } from './icons.js';
 import { limitEdges, toObj, toStl } from '../meshExport.js';
 import { bridgeCurves, continuity, curvatureComb, explode, extendCurve, filletCurve, nearestEnd, offsetCurve, splitCurve, tangentCircle, trim } from '../curveEdit.js';
 import { ViewGizmo } from './ViewGizmo.js';
+import { Toolbar } from './Toolbar.js';
 import { arcPoints, circleThrough, cvPoints, ellipsePoints, endTangent, helixPoints, loops, polygonCorners, spiralAngle, tangentArc } from '../curves.js';
 
 const KEYS = {
@@ -137,10 +138,7 @@ const SHELL = `
 <div class="w3d">
   <header class="bar">
     <div class="brand">WITNESS 3D</div>
-    <nav class="tools" aria-label="Tools">
-      ${[['rect', '⇧Q', 'RECT'], ['circle', '⇧W', 'CIRCLE'], ['line', '⇧A', 'LINE']].map(([id, k, l]) => `<button class="tool" data-tool="${id}" aria-pressed="false" aria-label="${l}" title="${l} (${k}): draw a ${DRAW[id].toLowerCase()}">${icon(id)}<kbd>${k}</kbd><span class="lbl">${l}</span></button>`).join('')}
-      ${TOOLS.filter(t => t.toolbar !== false).map(t => `<button class="tool" data-tool="${t.id}" aria-pressed="false" aria-label="${t.label}" title="${t.label} (${t.key.toUpperCase()}): ${t.summary}">${icon(t.id)}<kbd>${t.key.toUpperCase()}</kbd><span class="lbl">${t.label}</span></button>`).join('\n      ')}
-    </nav>
+    <nav class="tools" data-id="tools" aria-label="Tools"></nav>
     <span class="spacer"></span>
     <button class="export" data-action="ask" title="Ask for a command in words (Ctrl+K)">${icon('ask')}ASK</button>
     <button class="export" data-id="file-new" hidden>${icon('file-new')}NEW</button>
@@ -474,6 +472,15 @@ export async function mount(root, backend) {
   }
   const $ = id => root.querySelector(`[data-id="${id}"]`);
   const $$ = sel => [...root.querySelectorAll(sel)];
+
+  // The toolbar: Plasticity's families of tools, each one button with its variants a click away.
+  const NAMES = { rect: 'CORNER RECTANGLE', circle: 'CENTER CIRCLE', line: 'LINE', explode: 'EXPLODE', 'offset-curve': 'OFFSET CURVE', 'fillet-curve': 'FILLET CURVE', bridge: 'BRIDGE CURVES' };
+  const ICON_OF = { 'measure-distance': 'measure', 'measure-radius': 'measure', 'measure-continuity': 'measure' };
+  const toolbar = new Toolbar(root.querySelector('[data-id="tools"]'), root, id => ({
+    name: NAMES[id] ?? EDITS[id] ?? DRAW[id] ?? toolInfo(id)?.label ?? id.toUpperCase(),
+    key: keyFor(`draw:${id}`) || keyFor(`tool:${id}`) || (toolInfo(id)?.key ?? '').toUpperCase().replaceAll('-', ' '),
+    icon: icon(ICON_OF[id] ?? id),
+  }), id => (id === 'explode' ? explodeSelected() : startTool(id)));
   const say = e => String(e?.message ?? e).toUpperCase();
 
   const toast = msg => {
@@ -1189,7 +1196,7 @@ export async function mount(root, backend) {
     else { h.textContent = 'SELECT · F SEARCH'; h.dataset.idle = ''; }
   }
   function showTool(id) {
-    for (const b of $$('[data-tool]')) b.setAttribute('aria-pressed', b.dataset.tool === id);
+    toolbar.setActive(id);
     for (const el of $$('[data-panel]')) el.hidden = el.dataset.panel !== (id === 'spiral' ? 'spiral' : DRAW[id] ? 'draw' : FORMS[id] ? 'form' : PRIMS[id] ? 'primitive' : id);
     $('keys').innerHTML = keysHtml(KEYS[id] ? id : 'idle');
     const name = !id ? 'SELECT' : EDITS[id] ?? DRAW[id] ?? toolInfo(id).label;
@@ -4230,7 +4237,6 @@ export async function mount(root, backend) {
   });
   for (const b of $$('[data-mode]')) b.onclick = e => doAction(b.dataset.mode === 'all' ? 'mode:all' : `${e.shiftKey ? 'mode-toggle' : 'mode'}:${b.dataset.mode}`);
   for (const b of $$('[data-action]')) b.onclick = () => doAction(b.dataset.action);
-  for (const b of $$('[data-tool]')) b.onclick = () => startTool(b.dataset.tool);
   for (const el of $$('[data-spiral-field]')) el.addEventListener('change', e => { const v = parseFloat(e.target.value); if (!isNaN(v) && cmd?.id === 'spiral') cmd.set(e.target.dataset.spiralField, v); });
   for (const b of $$('[data-spiral]')) b.onclick = () => cmd?.id === 'spiral' && cmd.key(b.dataset.spiral);
   $('off-angle').addEventListener('input', e => { const v = parseFloat(e.target.value); if (!isNaN(v) && cmd?.id === 'offset') { cmd.auto = false; setOffsetAngle(v); } });
