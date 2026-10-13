@@ -59,6 +59,8 @@ const ICONS = {
     'fillet-curve': `<path d="M4 20V4h16" stroke-dasharray="2 2"/><path ${A} d="M4 20v-9a7 7 0 0 1 7-7h9"/>`,
     trim: `<path d="M3 12h7M16 12h5M12 3v18"/><path ${A} d="M10 12h6" stroke-dasharray="2 2"/><path ${A} d="M8 8l8 8M16 8l-8 8"/>`,
     explode: `<path d="M5 5h5M14 5h5M19 10v4M5 10v4M5 19h5M14 19h5"/><path ${A} d="M12 12h0M10 10L8 8M14 10l2-2M10 14l-2 2M14 14l2 2"/>`,
+    split: `<path d="M3 17L10 10"/><path d="M14 7l7-4"/><path ${A} d="M12 8.5h0M10 6l4 5"/>`,
+    measure: `<path d="M3 17L17 3l4 4L7 21z"/><path ${A} d="M7 13l2 2M10 10l2 2M13 7l2 2"/>`,
     extend: `<path d="M3 17L12 8"/><path ${A} d="M12 8l6-6" stroke-dasharray="2 2"/><path ${A} d="M15 2h3v3"/>`,
     bridge: `<path d="M2 18h6M16 6h6"/><path ${A} d="M8 18c5 0 3-12 8-12"/>`,
     hole: `<path d="M3 9l9-4 9 4-9 4z"/><path d="M3 9v8l9 4 9-4V9"/><ellipse ${A} cx="12" cy="9" rx="3" ry="1.4"/><path ${A} d="M9 9v6M15 9v6" stroke-dasharray="2 2"/>`,

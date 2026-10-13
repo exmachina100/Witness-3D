@@ -506,3 +506,51 @@ export function tangentCircle(a, b, at, radius = null) {
     if (!(r > 1e-6) || Math.abs(distTo(B, c).d - r) > 1e-6 * Math.max(1, r)) throw new Error('no circle touches both curves near there');
     return withShape(a, { kind: 'circle', center: c, radius: r });
 }
+
+// --- Split Curve At Point -------------------------------------------------------------------------
+
+/**
+ * Plasticity's Split Curve At Point: two curves meeting at the point of `c` nearest `at` (plane
+ * coordinates). Lines and arcs split exactly; a closed polyline opens there instead. Splines split
+ * at the nearest point of their samples, each half keeping its own through-points.
+ */
+export function splitCurve(c, at) {
+    if (c.kind === 'polyline') {
+        const pts = dedupe(c.points), n = pts.length, m = c.closed ? n : n - 1;
+        let best = { d: Infinity, i: 0, t: 0 };
+        for (let i = 0; i < m; i++) {
+            const a = pts[i], b = pts[(i + 1) % n], ab = sub(b, a), L = dot2(ab, ab);
+            const t = L < EPS ? 0 : Math.max(0, Math.min(1, dot2(sub(at, a), ab) / L)), d = dist(at, add(a, mul(ab, t)));
+            if (d < best.d) best = { d, i, t };
+        }
+        const q = add(pts[best.i], mul(sub(pts[(best.i + 1) % n], pts[best.i]), best.t));
+        const before = pts.slice(0, best.i + 1), after = pts.slice(best.i + 1);
+        if (c.closed) {
+            // Opened at the point: one line from there all the way round back to it.
+            const round = dedupe([q, ...after, ...before, q]);
+            return [withShape(c, { kind: 'polyline', points: round, closed: false })];
+        }
+        const first = dedupe([...before, q]), second = dedupe([q, ...after]);
+        if (first.length < 2 || second.length < 2) throw new Error('that is the end of the line; split it further in');
+        return [withShape(c, { kind: 'polyline', points: first, closed: false }), withShape(c, { kind: 'polyline', points: second, closed: false })];
+    }
+    if (c.kind === 'arc') {
+        const g = arcGeometry(c.start, c.mid, c.end), v = sub(at, g.center);
+        const off = (((Math.atan2(v[1], v[0]) - g.start) * Math.sign(g.sweep)) % TAU + TAU) % TAU;
+        const s = Math.min(1, off / Math.abs(g.sweep));
+        if (s < 1e-6 || s > 1 - 1e-6) throw new Error('that is the end of the arc; split it further in');
+        return [withShape(c, arcPiece(g, 0, s)), withShape(c, arcPiece(g, s, 1))];
+    }
+    if (c.kind === 'spline' && !c.closed) {
+        const { points } = samples(c);
+        let k = 0;
+        points.forEach((p, i) => { if (dist(p, at) < dist(points[k], at)) k = i; });
+        if (k === 0 || k === points.length - 1) throw new Error('that is the end of the curve; split it further in');
+        const q = points[k], tAt = k / (points.length - 1);
+        // Through-points before and after the split, by where they fall along the curve.
+        const place = c.points.map(p => { let j = 0; points.forEach((s, i) => { if (dist(s, p) < dist(points[j], p)) j = i; }); return j / (points.length - 1); });
+        const first = [...c.points.filter((_, i) => place[i] < tAt - 1e-9), q], second = [q, ...c.points.filter((_, i) => place[i] > tAt + 1e-9)];
+        return [first, second].map(pts => withShape(c, { kind: pts.length > 2 ? 'spline' : 'polyline', points: dedupe(pts), closed: false }));
+    }
+    throw new Error('split lines, arcs and open splines');
+}

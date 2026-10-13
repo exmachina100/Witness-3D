@@ -59,7 +59,7 @@ import { ACTIONS, COMMAND, VIEWPORT, keyFor, keyOf } from './keymap.js';
 import { Selection } from './Selection.js';
 import { claude, describe, MODEL, reply, request } from './ai.js';
 import { icon } from './icons.js';
-import { bridgeCurves, explode, extendCurve, filletCurve, nearestEnd, offsetCurve, tangentCircle, trim } from '../curveEdit.js';
+import { bridgeCurves, explode, extendCurve, filletCurve, nearestEnd, offsetCurve, splitCurve, tangentCircle, trim } from '../curveEdit.js';
 import { ViewGizmo } from './ViewGizmo.js';
 import { arcPoints, circleThrough, cvPoints, ellipsePoints, endTangent, helixPoints, loops, polygonCorners, spiralAngle, tangentArc } from '../curves.js';
 
@@ -95,6 +95,9 @@ const KEYS = {
   'fillet-curve': [['D', 'RADIUS'], ['TYPE', 'IN PANEL'], ['⏎ / RMB', 'OK']],
   'remove-face': [['⇧ CLICK', 'FACES'], ['⏎ / RMB', 'OK']],
   hole: [['CLICK', 'A FLAT FACE'], ['T', 'THROUGH ALL'], ['TYPE', 'SIZE IN PANEL'], ['⏎ / RMB', 'OK']],
+  split: [['CLICK', 'WHERE TO SPLIT'], ['ESC / ⏎', 'DONE']],
+  'measure-distance': [['CLICK', 'TWO POINTS'], ['CLICK', 'AGAIN TO RESTART'], ['ESC', 'DONE']],
+  'measure-radius': [['CLICK', 'A ROUND EDGE OR CURVE'], ['ESC', 'DONE']],
   'tangent-circle': [['CLICK', 'FIRST · SECOND CURVE · SIZE'], ['F', 'FREEZE'], ['TAB', 'RADIUS'], ['ESC', 'CANCEL']],
   extend: [['CLICK', 'NEAR AN END'], ['TYPE', 'LENGTH IN PANEL'], ['ESC / ⏎', 'DONE']],
   bridge: [['T', 'TENSION'], ['⏎ / RMB', 'OK']],
@@ -123,7 +126,7 @@ const CLICKS = { rect: 2, 'center-rect': 2, rect3: 3, circle: 2, circle2: 2, cir
 const FORMS = { revolve: true, loft: true, sweep: true };
 const PRIMS = { box: true, 'center-box': true, box3: true, cylinder: true, sphere: true };
 // Commands that aren't tools in the registry (they act on a click, not on settings).
-const EDITS = { trim: 'TRIM', extend: 'EXTEND CURVE', 'tangent-circle': 'TANGENT CIRCLE' };
+const EDITS = { trim: 'TRIM', extend: 'EXTEND CURVE', 'tangent-circle': 'TANGENT CIRCLE', split: 'SPLIT CURVE', 'measure-distance': 'MEASURE DISTANCE', 'measure-radius': 'MEASURE RADIUS' };
 const keysHtml = id => KEYS[id].map(([k, v]) => `<kbd>${k}</kbd><span>${v}</span>`).join('');
 const BAR = [['palette', 'F', 'SEARCH'], ['tool:extrude', 'E', 'EXTRUDE'], ['tool:boolean', 'Q', 'BOOLEAN'], ['tool:fillet', 'B', 'FILLET'], ['tool:move', 'G', 'MOVE'], ['tool:rotate', 'R', 'ROTATE'], ['tool:scale', 'S', 'SCALE'], ['duplicate', '⇧D', 'DUPLICATE'], ['delete', '⇧X', 'DELETE']];
 
@@ -1186,6 +1189,9 @@ export async function mount(root, backend) {
     if (id === 'remove-face') return startRemoveFace();
     if (id === 'extend') return startExtend();
     if (id === 'tangent-circle') return startTangentCircle();
+    if (id === 'split') return startSplit();
+    if (id === 'measure-distance') return startMeasureDistance();
+    if (id === 'measure-radius') return startMeasureRadius();
     if (id === 'bridge') return startBridge();
     if (id === 'shell') return startShell();
     if (id === 'mirror') return startMirror();
@@ -2976,6 +2982,102 @@ export async function mount(root, backend) {
     c.cleanup = () => clearPreview();
   }
 
+  /** Plasticity's Split Curve At Point: click a curve where it should become two. */
+  function startSplit() {
+    if (!backend.replaceCurves) return toast('SPLIT IS NOT IN THIS BUILD YET');
+    const c = cmd = { id: 'split', count: 0 };
+    lastTool = 'split';
+    showTool('split');
+    setState('none');
+    setHud('CLICK A CURVE WHERE TO SPLIT IT');
+    c.click = async e => {
+      const hit = pickAt(e);
+      const src = (hit?.kind === 'curve' || hit?.kind === 'region') && curveById(hit.id);
+      if (!src || !hit.point) return true;
+      const f = curveFrame(src), d = hit.point.clone().sub(f.o);
+      try {
+        const { ids: made } = await backend.replaceCurves([src.id], splitCurve(src, [d.dot(f.x), d.dot(f.y)]));
+        c.count++;
+        record(`SPLIT ${curveLabel(src.id)}`, made[0], made.map(curveLabel).join(' '));
+        await loadCurves();
+        setHud(`${c.count} SPLIT · CLICK ANOTHER, OR ⏎`);
+        setState('committed');
+      } catch (err) { setState('failed'); toast(say(err)); }
+      return true;
+    };
+    c.finish = () => endCmd(c.count ? 'committed' : 'cancelled');
+    c.abort = () => endCmd(c.count ? 'committed' : 'cancelled');
+  }
+
+  /** Plasticity's Measure Distance: click two points (they snap); the distance and its x, y, z show. */
+  function startMeasureDistance() {
+    const c = cmd = { id: 'measure-distance', a: null };
+    lastTool = 'measure-distance';
+    showTool('measure-distance');
+    setState('none');
+    setHud('CLICK THE FIRST POINT');
+    const line = new THREE.Line(new THREE.BufferGeometry(), new THREE.LineBasicMaterial({ color: COLORS.accent, depthTest: false }));
+    line.renderOrder = 12;
+    scene.add(line);
+    const pointOf = e => {
+      const p = placeAt(e);
+      if (p && !p.curved) return p.origin.clone();
+      ray(e);
+      return raycaster.ray.intersectPlane(planeOf(), new THREE.Vector3());
+    };
+    const show = (a, b) => {
+      line.geometry.setFromPoints([a, b]);
+      const [dx, dy, dz] = toUser(b.clone().sub(a).toArray());
+      setHud(`DISTANCE ${a.distanceTo(b).toFixed(3)} MM · ΔX ${dx.toFixed(3)} ΔY ${dy.toFixed(3)} ΔZ ${dz.toFixed(3)}`);
+    };
+    c.move = e => { if (!c.a) return; const b = pointOf(e); if (b) show(c.a, b); };
+    c.click = e => {
+      const p = pointOf(e);
+      if (!p) return true;
+      if (!c.a || c.done) { c.a = p; c.done = false; line.geometry.setFromPoints([p, p]); setHud('CLICK THE SECOND POINT'); return true; }
+      show(c.a, p);
+      c.done = true;
+      setState('updated');
+      return true;
+    };
+    c.finish = () => endCmd(null);
+    c.abort = () => endCmd(null);
+    c.cleanup = () => { line.geometry.dispose(); line.removeFromParent(); };
+  }
+
+  /** Plasticity's Measure Radius: click a circle or arc, or a round edge of a solid. */
+  function startMeasureRadius() {
+    const c = cmd = { id: 'measure-radius' };
+    lastTool = 'measure-radius';
+    showTool('measure-radius');
+    setState('none');
+    setHud('CLICK A ROUND EDGE OR CURVE');
+    c.click = e => {
+      const hit = pickAt(e);
+      let r = null;
+      if (hit?.kind === 'curve' || hit?.kind === 'region') {
+        const k = curveById(hit.id);
+        if (k?.kind === 'circle') r = k.radius;
+        else if (k?.kind === 'arc') { const g = circleThrough(k.start, k.mid, k.end); r = g?.radius ?? null; }
+      } else if (hit?.kind === 'edge') {
+        // The circle through three points of the edge; a straight edge has none.
+        const e3 = bodyOf(hit.body)?.edges[hit.n] ?? [];
+        const pts = []; for (let i = 0; i < e3.length; i += 3) pts.push(new THREE.Vector3(e3[i], e3[i + 1], e3[i + 2]));
+        if (pts.length >= 3) {
+          const [a, b, q] = [pts[0], pts[Math.floor(pts.length / 2)], pts[pts.length - 1].distanceTo(pts[0]) < 1e-6 ? pts[Math.floor(pts.length / 4)] : pts[pts.length - 1]];
+          const ab = b.clone().sub(a), aq = q.clone().sub(a), n = ab.clone().cross(aq);
+          if (n.lengthSq() > 1e-12) r = ab.length() * aq.length() * q.clone().sub(b).length() / (2 * n.length());
+        }
+      }
+      if (r === null) { setHud('NO RADIUS THERE: PICK A CIRCLE, ARC OR ROUND EDGE'); return true; }
+      setHud(`RADIUS ${r.toFixed(3)} MM · DIAMETER ${(2 * r).toFixed(3)} MM`);
+      setState('updated');
+      return true;
+    };
+    c.finish = () => endCmd(null);
+    c.abort = () => endCmd(null);
+  }
+
   /** Plasticity's Extend Curve: click near an open end of a line or arc to lengthen it by the panel's length. */
   function startExtend() {
     if (!backend.replaceCurves) return toast('EXTEND IS NOT IN THIS BUILD YET');
@@ -3733,6 +3835,8 @@ export async function mount(root, backend) {
       case 'join': await joinSelected(); return true;
       case 'trim': await startTool('trim'); return true;
       case 'extend': await startTool('extend'); return true;
+      case 'split': await startTool('split'); return true;
+      case 'measure': await startTool(arg === 'radius' ? 'measure-radius' : 'measure-distance'); return true;
       case 'explode': await explodeSelected(); return true;
       case 'hide': setHidden(sel.bodies, true); return true;
       case 'hide-others': setHidden(current.map(b => b.id).filter(id => !sel.bodies.includes(id)), true); return true;

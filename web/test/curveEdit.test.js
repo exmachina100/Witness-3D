@@ -153,3 +153,20 @@ test('a tangent circle touches both lines, sized by the cursor or by a radius', 
     close(inside.radius, 5, 1e-9);
     close(Math.hypot(...inside.center), 15, 1e-9);
 });
+
+test('split cuts lines and arcs exactly where clicked', async () => {
+    const { splitCurve } = await import('../src/curveEdit.js');
+    const [a, b] = splitCurve({ ...plane, kind: 'polyline', closed: false, points: [[0, 0], [10, 0], [10, 10]] }, [10, 4]);
+    assert.deepEqual(a.points, [[0, 0], [10, 0], [10, 4]]);
+    assert.deepEqual(b.points, [[10, 4], [10, 10]]);
+    const opened = splitCurve(rect(10, 6), [4, 0]);
+    assert.equal(opened.length, 1);
+    assert.equal(opened[0].closed, false);
+    assert.deepEqual(opened[0].points[0], [4, 0]);
+    assert.deepEqual(opened[0].points.at(-1), [4, 0]);
+    const [p, q] = splitCurve({ ...plane, kind: 'arc', start: [5, 0], mid: [0, 5], end: [-5, 0] }, [0, 7]);
+    close(p.end[0], 0, 1e-9); close(p.end[1], 5, 1e-9);
+    close(q.start[0], 0, 1e-9);
+    assert.throws(() => splitCurve(line([0, 0], [1, 0]), [0, 0]), /end of the line/);
+    assert.throws(() => splitCurve({ ...plane, kind: 'circle', center: [0, 0], radius: 1 }, [1, 0]), /split lines/);
+});
