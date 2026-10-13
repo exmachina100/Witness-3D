@@ -1,0 +1,131 @@
+== tables: _Validation, AdminExecuteSequence, AdminUISequence, AdvtExecuteSequence, Binary, CheckBox, Property, Component, Directory, Control, Dialog, ControlCondition, ControlEvent, CustomAction, EventMapping, Feature, FeatureComponents, File, InstallExecuteSequence, InstallUISequence, LaunchCondition, ListBox, Media, MsiFileHash, MsiShortcutProperty, Shortcut, RadioButton, Registry, RemoveFile, TextStyle, UIText, Upgrade
+== properties
+  UpgradeCode = {5AE1DFA4-C94A-4093-959D-310B85B13BAB}
+  WixUIRMOption = UseRM
+  ALLUSERS = 1
+  VisibleProductName = Plasticity (Machine)
+  ProductName = Plasticity (Machine - MSI)
+  ARPSYSTEMCOMPONENT = 1
+  MSIINSTALLPERUSER = 0
+  REINSTALLMODE = emus
+  REBOOT = ReallySuppress
+  INSTALLLEVEL = 2
+  UPDATERUSERGROUP = Users
+  AUTOUPDATEENABLED = 1
+  DefaultUIFont = WixUI_Font_Normal
+  WixUI_Mode = FeatureTree
+  Manufacturer = Plasticity
+  ProductCode = {A3459E38-BCA3-4A3B-966A-9201683BE5F9}
+  ProductLanguage = 1033
+  ProductVersion = 26.1.4.0
+  ErrorDialog = ErrorDlg
+  SecureCustomProperties = MSIINSTALLPERUSER;WIX_DOWNGRADE_DETECTED;WIX_UPGRADE_DETECTED
+== registry (root, key, name, value)
+   -1 | SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\{A3459E38-BCA3-4A3B-966A-9201683BE5F9}.msq | InstallPath | [APPLICATIONROOTDIRECTORY]
+   -1 | SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\{A3459E38-BCA3-4A3B-966A-9201683BE5F9}.msq | DisplayName | [VisibleProductName]
+   -1 | SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\{A3459E38-BCA3-4A3B-966A-9201683BE5F9}.msq | Publisher | Plasticity
+   -1 | SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\{A3459E38-BCA3-4A3B-966A-9201683BE5F9}.msq | DisplayVersion | 26.1.4
+   -1 | SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\{A3459E38-BCA3-4A3B-966A-9201683BE5F9}.msq | ModifyPath | #%MsiExec.exe /I {A3459E38-BCA3-4A3B-966A-9201683BE5F9}
+   -1 | SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\{A3459E38-BCA3-4A3B-966A-9201683BE5F9}.msq | UninstallString | #%MsiExec.exe /X {A3459E38-BCA3-4A3B-966A-9201683BE5F9}
+   -1 | SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\{A3459E38-BCA3-4A3B-966A-9201683BE5F9}.msq | DisplayIcon | #%[System64Folder]msiexec.exe
+   1 | Software\Microsoft\Plasticity | installed | #1
+   1 | Software\Microsoft\Plasticity | installed | #1
+   -1 | SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\{A3459E38-BCA3-4A3B-966A-9201683BE5F9}.msq | - | 
+   -1 | SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\{A3459E38-BCA3-4A3B-966A-9201683BE5F9}.msq | - | 
+   -1 | SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\{A3459E38-BCA3-4A3B-966A-9201683BE5F9}.msq | - | 
+   -1 | SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\{A3459E38-BCA3-4A3B-966A-9201683BE5F9}.msq | - | 
+   -1 | SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\{A3459E38-BCA3-4A3B-966A-9201683BE5F9}.msq | - | 
+   -1 | SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\{A3459E38-BCA3-4A3B-966A-9201683BE5F9}.msq | - | 
+   -1 | SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\{A3459E38-BCA3-4A3B-966A-9201683BE5F9}.msq | - | 
+== extensions / progids / verbs / mime
+== shortcuts
+   myuirkfo|Plasticity | [APPLICATIONROOTDIRECTORY]Plasticity.exe | 
+   4unwyq64|Plasticity | [APPLICATIONROOTDIRECTORY]Plasticity.exe | 
+== custom actions
+   SetVisibleProductName | 51 | VisibleProductName | Plasticity (User)
+   SetProductName | 51 | ProductName | Plasticity (User - MSI)
+   RegisterDLL | 3170 | APPLICATIONROOTDIRECTORY | regsvr32.exe /s "[APPLICATIONROOTDIRECTORY]app-26.1.4\resources\app\.webpack\main\thumbnail_provider.dll"
+   UnregisterDLL | 3170 | APPLICATIONROOTDIRECTORY | regsvr32.exe /s /u "[APPLICATIONROOTDIRECTORY]app-26.1.4\resources\app\.webpack\main\thumbnail_provider.dll"
+== files: 443
+   thumbnail_provider.dll                                  44544 
+   A3DLIBS.dll                                           4811096 25.8.0.19
+   ACCAMERA_26.8_16.tx                                     94464 26.8.0.0
+   ATEXT_26.8_16.tx                                       106240 26.8.0.0
+   AcIdViewObj_26.8_16.tx                                 140032 26.8.0.0
+   AcMPolygonObj15_26.8_16.tx                             195328 26.8.0.0
+   HEPBMP.dll                                             616280 25.8.0.19
+   ISM_26.8_16.tx                                         154880 26.8.0.0
+   ModelerGeometry_26.8_16.tx                            1139968 26.8.0.0
+   OdBrepModeler_26.8_16.dll                             3699456 26.8.0.0
+   OdConstraints_26.8_16.dll                              960256 26.8.0.0
+   OdOleSsItemHandler_26.8_16.tx                           72952 26.8.0.0
+   PolyhedralSplinesLib.dll                              3834880 
+   RText_26.8_16.tx                                       100088 26.8.0.0
+   RasterProcessor_26.8_16.tx                              49400 26.8.0.0
+   RecomputeDimBlock_26.8_16.tx                           460032 26.8.0.0
+   RxRasterServices_26.8_16.tx                           4735224 26.8.0.0
+   SCENEOE_26.8_16.tx                                     332544 26.8.0.0
+   TD_AcisBuilder_26.8_16.dll                            1172736 26.8.0.0
+   TD_Alloc_26.8_16.dll                                    22264 26.8.0.0
+   TD_AssetXMLParser_26.8_16.tx                            64760 26.8.0.0
+   TD_Br_26.8_16.dll                                      125184 26.8.0.0
+   TD_BrepBuilderFiller_26.8_16.dll                       206584 26.8.0.0
+   TD_BrepBuilder_26.8_16.dll                             139512 26.8.0.0
+   TD_BrepRenderer_26.8_16.dll                            622328 26.8.0.0
+   TD_DbCore_26.8_16.dll                                 5569784 26.8.0.0
+   TD_DbEntities_26.8_16.tx                              6931192 26.8.0.0
+   TD_DbIO_26.8_16.tx                                    1448704 26.8.0.0
+   TD_DbRoot_26.8_16.dll                                 1032448 26.8.0.0
+   TD_Db_26.8_16.dll                                       60152 26.8.0.0
+   TD_FtFontEngine_26.8_16.tx                             692472 26.8.0.0
+   TD_Ge_26.8_16.dll                                     5401336 26.8.0.0
+   TD_Gi_26.8_16.dll                                     2595576 26.8.0.0
+   TD_Gs_26.8_16.dll                                     1649408 26.8.0.0
+   TD_Root_26.8_16.dll                                   1273592 26.8.0.0
+   TD_SpatialIndex_26.8_16.dll                             63224 26.8.0.0
+   TD_TfCore_26.8_16.tx                                    90872 26.8.0.0
+   TD_Zlib.dll                                             95488 26.8.0.0
+   TFKGEOM.dll                                           3061088 25.8.0.19
+   TFUGEOM.dll                                            983384 25.8.0.19
+   TfFontMgr.dll                                          792928 25.8.0.19
+   TfKernel.dll                                         14397272 25.8.0.19
+   ThreadPool_26.8_16.tx                                   77048 26.8.0.0
+   WipeOut_26.8_16.tx                                      87296 26.8.0.0
+   dwgstep30.dll                                         1811288 25.8.0.19
+   emfrdr.dll                                              46944 25.8.0.19
+   hepb.dll                                               751448 25.8.0.19
+   igestep30.dll                                          875360 25.8.0.19
+   libBuffer.dll                                           37632 26.8.0.0
+   msvcp100.dll                                           608080 10.0.40219.1
+   msvcp140.dll                                           565640 14.29.30133.0
+   msvcp140_atomic_wait.dll                                50000 14.34.31931.0
+   msvcr100.dll                                           829264 10.0.40219.1
+   oless.dll                                               83200 26.8.0.0
+   pk.node                                              21909828 
+   psbodyshop.dll                                        4113248 0.34.1.94
+   pskernel.dll                                         73746432 0.38.1.167
+   rdmstep30.dll                                         2822496 25.8.0.19
+   satstep31.dll                                         1100640 25.8.0.19
+   stepstep30.dll                                        3507552 25.8.0.19
+   tbb12.dll                                              345448 2022.2.0.0
+   tbbmalloc.dll                                          139624 2022.2.0.0
+   tinyxml.dll                                             90880 26.8.0.0
+   vccorlib140.dll                                        334728 14.29.30133.0
+   vcomp140.dll                                           180616 14.29.30133.0
+   vcruntime140.dll                                        97160 14.29.30133.0
+   vcruntime140_1.dll                                      37256 14.29.30133.0
+   wiges.dll                                              241504 25.8.0.19
+   wsat.dll                                               934232 25.8.0.19
+   wstp.dll                                               874336 25.8.0.19
+   wxt.dll                                                826200 25.8.0.19
+   xnkernel.dll                                         52426752 2025.0.9.30
+   xtstep30.dll                                           757592 25.8.0.19
+   Plasticity.exe                                      165963264 26.1.4.0
+   Squirrel.exe                                          1899520 2.0.1.1
+   d3dcompiler_47.dll                                    4916840 10.0.22621.3233
+   ffmpeg.dll                                            2886144 
+   libEGL.dll                                             485376 2.1.21343.0
+   libGLESv2.dll                                         7500288 2.1.21343.0
+   vk_swiftshader.dll                                    5130752 5.0.0.1
+   vulkan-1.dll                                           943616 1.3.254.0
+   Plasticity.exe                                         559616 26.1.4.0
