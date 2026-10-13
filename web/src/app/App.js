@@ -59,6 +59,7 @@ import { ACTIONS, COMMAND, VIEWPORT, keyFor, keyOf } from './keymap.js';
 import { Selection } from './Selection.js';
 import { claude, describe, MODEL, reply, request } from './ai.js';
 import { icon } from './icons.js';
+import { ViewGizmo } from './ViewGizmo.js';
 import { arcPoints, circleThrough, ellipsePoints, endTangent, helixPoints, loops, polygonCorners, spiralAngle, tangentArc } from '../curves.js';
 
 const KEYS = {
@@ -152,9 +153,7 @@ const SHELL = `
     <canvas aria-label="3D modeling viewport"></canvas>
     <span class="corner tl"></span><span class="corner tr"></span><span class="corner bl"></span><span class="corner br"></span>
     <span class="hud" data-id="hud" data-idle>SELECT · F SEARCH</span>
-    <div class="views" role="group" aria-label="View">
-      <button data-view="top" title="Numpad 7">TOP</button><button data-view="front" title="Numpad 1">FRONT</button><button data-view="right" title="Numpad 3">RIGHT</button><button data-view="iso" aria-pressed="true">ISO</button><button data-id="ortho" aria-pressed="false" title="Numpad 5">ORTHO</button>
-    </div>
+    <div class="nav" data-id="nav" aria-label="View navigation"></div>
     <div class="modes" role="group" aria-label="Selection mode">
       <button data-mode="point" aria-pressed="true" title="1 · ⇧1 toggles">1 PT</button><button data-mode="edge" aria-pressed="true" title="2 · ⇧2 toggles">2 EDGE</button><button data-mode="face" aria-pressed="true" title="3 · ⇧3 toggles">3 FACE</button><button data-mode="solid" aria-pressed="true" title="4 · ⇧4 toggles">4 SOLID</button><button data-mode="all" aria-pressed="true" title="5">5 ALL</button>
     </div>
@@ -447,15 +446,67 @@ export async function mount(root, backend) {
   keyLight.position.set(5, 10, 7);
   scene.add(keyLight);
 
-  function setView(name) {
+  // Plasticity and Blender turn the camera to a new view rather than jumping; so does this, over
+  // `VIEW_MS`. A turn in progress is replaced by the next.
+  const VIEW_MS = 260;
+  let turning = null;
+  function turnTo(target, position, ms = VIEW_MS) {
+    if (!ms) { controls.target.copy(target); camera.position.copy(position); camera.lookAt(target); turning = null; return; }
+    const from = { target: controls.target.clone(), offset: camera.position.clone().sub(controls.target) };
+    const to = { target: target.clone(), offset: position.clone().sub(target) };
+    turning = { from, to, t0: performance.now(), ms };
+  }
+  function stepTurn(now) {
+    const t = turning;
+    if (!t) return;
+    const k = Math.min(1, (now - t.t0) / t.ms), e = k * k * (3 - 2 * k);
+    // Swing the direction on the sphere and blend the distance, so the view never passes through the target.
+    const a = t.from.offset.clone().normalize(), b = t.to.offset.clone().normalize();
+    const q = new THREE.Quaternion().setFromUnitVectors(a, b);
+    const dir = a.applyQuaternion(new THREE.Quaternion().slerp(q, e));
+    const len = THREE.MathUtils.lerp(t.from.offset.length(), t.to.offset.length(), e);
+    controls.target.lerpVectors(t.from.target, t.to.target, e);
+    camera.position.copy(controls.target).addScaledVector(dir, len);
+    camera.lookAt(controls.target);
+    if (k >= 1) turning = null;
+  }
+  function setView(name, { animate = true } = {}) {
     const v = VIEWS[name];
     const dist = name === 'iso' ? 225 : camera.position.distanceTo(controls.target);
-    if (name === 'iso') controls.target.set(0, 15, 0);
+    const target = name === 'iso' ? new THREE.Vector3(0, 15, 0) : controls.target.clone();
     const dir = new THREE.Vector3(...v.dir).normalize();
-    camera.position.copy(controls.target).addScaledVector(dir, dist);
-    camera.lookAt(controls.target);
-    for (const b of $$('[data-view]')) b.setAttribute('aria-pressed', b.dataset.view === name);
+    turnTo(target, target.clone().addScaledVector(dir, dist), animate ? VIEW_MS : 0);
     if (v.plane) setPlane({ origin: new THREE.Vector3(), normal: new THREE.Vector3(...v.dir).normalize().round(), name: v.plane });
+  }
+  /** Orbit about the target by `dx` (around up) and `dy` (over the top) radians, as a middle-drag does. */
+  function orbitBy(dx, dy) {
+    turning = null;
+    const offset = camera.position.clone().sub(controls.target);
+    const s = new THREE.Spherical().setFromVector3(offset);
+    s.theta += dx;
+    s.phi = THREE.MathUtils.clamp(s.phi + dy, 0.01, Math.PI - 0.01);
+    camera.position.copy(controls.target).add(new THREE.Vector3().setFromSpherical(s));
+    camera.lookAt(controls.target);
+  }
+  /** Slide the view by a screen drag of `dx`, `dy` pixels, as a right-drag does. */
+  function panBy(dx, dy) {
+    turning = null;
+    const h = canvas.clientHeight || 1;
+    const span = camera.isOrthographicCamera ? (camera.top - camera.bottom) / camera.zoom
+      : 2 * camera.position.distanceTo(controls.target) * Math.tan(persp.fov * DEG / 2);
+    const right = new THREE.Vector3().setFromMatrixColumn(camera.matrix, 0), up = new THREE.Vector3().setFromMatrixColumn(camera.matrix, 1);
+    const move = right.multiplyScalar(-dx * span / h).addScaledVector(up, dy * span / h);
+    camera.position.add(move);
+    controls.target.add(move);
+  }
+  /** Zoom by a vertical drag of `dy` pixels: up zooms in. */
+  function zoomBy(dy) {
+    turning = null;
+    const f = Math.exp(dy * 0.01);
+    if (camera.isOrthographicCamera) { camera.zoom = THREE.MathUtils.clamp(camera.zoom / f, 0.01, 1000); camera.updateProjectionMatrix(); return; }
+    const offset = camera.position.clone().sub(controls.target).multiplyScalar(f);
+    if (offset.length() < 1) return;
+    camera.position.copy(controls.target).add(offset);
   }
   function setOrtho(on) {
     if (on === camera.isOrthographicCamera) return;
@@ -474,11 +525,11 @@ export async function mount(root, backend) {
     camera = next;
     controls.object = camera;
     for (const g of [cmd?.gizmo, cmd?.tc]) if (g) g.camera = camera;
-    $('ortho').setAttribute('aria-pressed', on);
     resize(true);
   }
   /** Frame the selection, or everything (Plasticity 0.6.30's /). */
   function focus() {
+    turning = null;
     const ids = sel.size ? sel.bodies : current.map(b => b.id);
     const box = new THREE.Box3();
     for (const id of ids) { const m = bodyMesh(id); if (m) box.expandByObject(m); }
@@ -3351,8 +3402,15 @@ export async function mount(root, backend) {
   $('angle').addEventListener('input', e => { const v = parseFloat(e.target.value); if (!isNaN(v)) setAngle(v); });
   $('factor').addEventListener('input', e => setFactor(parseFloat(e.target.value)));
   for (const b of $$('[data-axis]')) b.onclick = () => setAxis(b.dataset.axis);
-  for (const b of $$('[data-view]')) b.onclick = () => setView(b.dataset.view);
-  $('ortho').onclick = () => setOrtho(!camera.isOrthographicCamera);
+  const nav = new ViewGizmo($('nav'), {
+    view: name => setView(name),
+    orbit: (dx, dy) => orbitBy(dx, dy),
+    pan: (dx, dy) => panBy(dx, dy),
+    zoom: dy => zoomBy(dy),
+    ortho: () => setOrtho(!camera.isOrthographicCamera),
+    focus: () => focus(),
+    home: () => setView('iso'),
+  });
   for (const b of $$('[data-mode]')) b.onclick = e => doAction(b.dataset.mode === 'all' ? 'mode:all' : `${e.shiftKey ? 'mode-toggle' : 'mode'}:${b.dataset.mode}`);
   for (const b of $$('[data-action]')) b.onclick = () => doAction(b.dataset.action);
   for (const b of $$('[data-tool]')) b.onclick = () => startTool(b.dataset.tool);
@@ -3455,7 +3513,7 @@ export async function mount(root, backend) {
   // --- start --------------------------------------------------------------
   renderHistory();
   renderModes();
-  setView('iso');
+  setView('iso', { animate: false });
   setPlane({ origin: new THREE.Vector3(), normal: UP, name: 'XY' });
   showTool(null);
   showScene(await backend.scene());
@@ -3473,7 +3531,9 @@ export async function mount(root, backend) {
   }
   renderer.setAnimationLoop(() => {
     resize();
-    controls.update();
+    stepTurn(performance.now());
+    if (!turning) controls.update();
+    nav.update(camera, camera.isOrthographicCamera);
     if (cmd?.gizmo) cmd.gizmo.render(cmd.gizmo.value);
     renderer.render(scene, camera);
   });

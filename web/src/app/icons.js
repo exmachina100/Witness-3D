@@ -43,6 +43,13 @@ const ICONS = {
     mirror: `<path d="M12 2v20" stroke-dasharray="2 2"/><path d="M9 6L3 9v8l6 2z"/><path ${A} d="M15 6l6 3v8l-6 2z"/>`,
     'rect-array': `<rect x="3" y="3" width="7" height="7"/><rect ${A} x="14" y="3" width="7" height="7"/><rect ${A} x="3" y="14" width="7" height="7"/><rect ${A} x="14" y="14" width="7" height="7"/>`,
     'radial-array': `<circle cx="12" cy="12" r="1" /><rect x="10" y="2" width="4" height="5"/><path ${A} d="M17 10h5v4h-5zM10 17h4v5h-4zM2 10h5v4H2z"/>`,
+    // Navigation (the viewport's top-right column).
+    'nav-zoom': `<circle cx="10" cy="10" r="6"/><path d="M14.5 14.5L20 20"/><path ${A} d="M10 7v6M7 10h6"/>`,
+    'nav-pan': `<path d="M12 3v18M3 12h18"/><path ${A} d="M9 6l3-3 3 3M9 18l3 3 3-3M6 9l-3 3 3 3M18 9l3 3-3 3"/>`,
+    'nav-persp': `<path d="M8 6h8l4 12H4z"/><path ${A} d="M12 6v12"/>`,
+    'nav-ortho': `<path d="M5 6h14v12H5z"/><path ${A} d="M12 6v12"/>`,
+    'nav-focus': `<path d="M4 9V4h5M15 4h5v5M20 15v5h-5M9 20H4v-5"/><path ${A} d="M9 9h6v6H9z"/>`,
+    'nav-home': `<path d="M4 11l8-7 8 7"/><path d="M6 10v10h12V10"/><path ${A} d="M10 20v-6h4v6"/>`,
     undo: `<path d="M9 5L4 10l5 5"/><path ${A} d="M4 10h10a6 6 0 0 1 0 12h-3"/>`,
     redo: `<path d="M15 5l5 5-5 5"/><path ${A} d="M20 10H10a6 6 0 0 0 0 12h3"/>`,
     ask: `<path ${A} d="M12 3l2 7 7 2-7 2-2 7-2-7-7-2 7-2z"/>`,
