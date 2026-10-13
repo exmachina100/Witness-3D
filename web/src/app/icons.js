@@ -18,6 +18,7 @@ const ICONS = {
     arc: `<path d="M20 12a8 8 0 0 1-8 8"/><path ${A} d="M12 12h0M12 12h8M12 12v8"/>`,
     'tangent-arc': `<path d="M3 16h8"/><path ${A} d="M11 16a5 5 0 0 0 5-5V6"/>`,
     polygon: `<path d="M12 4l7 4v8l-7 4-7-4V8z"/><path ${A} d="M12 12h0M12 12V4"/>`,
+    cv: `<path d="M3 18L8 5l8 14 5-12" stroke-dasharray="2 2"/><path ${A} d="M3 18c3-8 6-9 9-6s6 3 9-5"/>`,
     spline: `<path d="M3 16c3-9 6-9 9-4s6 5 9-4"/><path ${A} d="M3 16h0M12 12h0M21 8h0"/>`,
     ellipse: `<ellipse cx="12" cy="12" rx="9" ry="5"/><path ${A} d="M12 12h0M12 12h9"/>`,
     ellipse3: `<ellipse cx="12" cy="12" rx="9" ry="5"/><path ${A} d="M3 12h18"/>`,

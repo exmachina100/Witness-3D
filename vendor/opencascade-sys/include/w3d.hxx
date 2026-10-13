@@ -26,6 +26,10 @@
 #include <BRepOffset_MakeOffset.hxx>
 #include <BRepOffsetAPI_MakeThickSolid.hxx>
 #include <BRepAlgoAPI_Defeaturing.hxx>
+#include <Geom_BSplineCurve.hxx>
+#include <TColStd_Array1OfInteger.hxx>
+#include <TColStd_Array1OfReal.hxx>
+#include <TColgp_Array1OfPnt.hxx>
 #include <BRepPrimAPI_MakeRevol.hxx>
 #include <GProp_GProps.hxx>
 #include <gp_Ax1.hxx>
@@ -357,7 +361,9 @@ inline rust::Vec<int32_t> w3d_result_pairs(const W3dResult &r, int32_t input, in
 // [4, x, y, z, x, y, z, x, y, z] for an arc from its first point through its second to its third.
 // [5, cx, cy, cz, nx, ny, nz, ax, ay, az, R, r] is an ellipse with radius R along (ax, ay, az) and r
 // across it (R >= r), and [6, m, ...] is a contour: m open pieces of the kinds above joined end to
-// end (Plasticity's Join Curves), closed when its ends meet.
+// end (Plasticity's Join Curves), closed when its ends meet. [8, n, closed, x, y, z, ...] is a
+// control-point curve: a uniform B-spline, cubic where it has the points for it, clamped to its ends
+// when open and periodic when closed (Plasticity's Control Point Curve).
 
 inline TopoDS_Wire w3d_section(const double *&p, const double *end) {
   auto need = [&](size_t n) { if (p + n > end) throw std::runtime_error("a profile is cut short"); };
@@ -384,6 +390,30 @@ inline TopoDS_Wire w3d_section(const double *&p, const double *end) {
     fit.Perform();
     if (!fit.IsDone()) throw std::runtime_error("no smooth curve passes through those points");
     return BRepBuilderAPI_MakeWire(BRepBuilderAPI_MakeEdge(fit.Curve()).Edge()).Wire();
+  }
+  if (kind == 8) {
+    need(2);
+    int n = int(*p++);
+    bool closed = *p++ != 0;
+    need(size_t(n) * 3);
+    if (n < 2 || (closed && n < 3)) throw std::runtime_error("a curve needs more control points");
+    int deg = n - 1 < 3 ? n - 1 : 3;
+    TColgp_Array1OfPnt poles(1, n);
+    for (int i = 1; i <= n; i++, p += 3) poles.SetValue(i, gp_Pnt(p[0], p[1], p[2]));
+    Handle(Geom_BSplineCurve) curve;
+    if (closed) {
+      TColStd_Array1OfReal knots(1, n + 1);
+      TColStd_Array1OfInteger mults(1, n + 1);
+      for (int i = 1; i <= n + 1; i++) { knots.SetValue(i, i - 1); mults.SetValue(i, 1); }
+      curve = new Geom_BSplineCurve(poles, knots, mults, deg, Standard_True);
+    } else {
+      int k = n - deg + 1;
+      TColStd_Array1OfReal knots(1, k);
+      TColStd_Array1OfInteger mults(1, k);
+      for (int i = 1; i <= k; i++) { knots.SetValue(i, double(i - 1) / (k - 1)); mults.SetValue(i, i == 1 || i == k ? deg + 1 : 1); }
+      curve = new Geom_BSplineCurve(poles, knots, mults, deg, Standard_False);
+    }
+    return BRepBuilderAPI_MakeWire(BRepBuilderAPI_MakeEdge(curve).Edge()).Wire();
   }
   if (kind == 5) {
     need(11);

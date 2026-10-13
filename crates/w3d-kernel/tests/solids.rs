@@ -157,3 +157,14 @@ fn remove_face_takes_a_round_back_off() {
     assert!(matches!(w3d_kernel::solids::remove_faces(&k, &c, &[]), Err(KernelError::Invalid(_))));
     assert!(matches!(w3d_kernel::solids::remove_faces(&k, &c, &[0, 1, 2, 3, 4, 5]), Err(KernelError::Invalid(_))));
 }
+
+#[test]
+fn a_closed_control_point_curve_extrudes() {
+    let k = Occt;
+    let square = vec![(0.0, 0.0), (20.0, 0.0), (20.0, 20.0), (0.0, 20.0)];
+    let s = k.extrude(&Profile::Cv(square), &ground(), &Extent::to(5.0)).unwrap();
+    let v = volume(&k, &s);
+    // Inside the 20 × 20 control square, outside the circle inscribed in the inner square.
+    assert!(v > 5.0 * PI * 25.0 && v < 5.0 * 400.0, "volume {v}");
+    assert!(k.is_valid(&s));
+}

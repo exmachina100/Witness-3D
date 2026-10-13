@@ -5,7 +5,7 @@
 // A curve is { origin, x, normal, kind, ... } with points in its plane's coordinates (see
 // LocalBackend.checkCurve). Lengths are millimetres.
 
-import { arcPoints, circleThrough, ellipsePoints, loops } from './curves.js';
+import { arcPoints, circleThrough, cvPoints, ellipsePoints, loops } from './curves.js';
 
 const EPS = 1e-9, TAU = 2 * Math.PI;
 const sub = (a, b) => [a[0] - b[0], a[1] - b[1]], add = (a, b) => [a[0] + b[0], a[1] + b[1]];
@@ -42,6 +42,7 @@ export function samples(shape, n = 96) {
     switch (shape.kind) {
         case 'polyline': return { points: shape.points.map(p => [...p]), closed: !!shape.closed };
         case 'spline': return { points: (shape.samples ?? shape.points).map(p => [...p]), closed: !!shape.closed };
+        case 'cv': return { points: cvPoints(shape.points, !!shape.closed, n), closed: !!shape.closed };
         case 'circle': return { points: Array.from({ length: n }, (_, i) => add(shape.center, mul([Math.cos(TAU * i / n), Math.sin(TAU * i / n)], shape.radius))), closed: true };
         case 'arc': return { points: arcPoints(shape.start, shape.mid, shape.end, Math.max(8, n / 2)), closed: false };
         case 'ellipse': return { points: ellipsePoints(shape.center, shape.major, shape.minor, n), closed: true };

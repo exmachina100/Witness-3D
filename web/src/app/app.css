@@ -234,3 +234,4 @@ button:focus-visible, input:focus-visible { outline: 1px solid var(--accent); ou
 .nav-buttons .ico { width: 16px; height: 16px; }
 .nav-buttons [data-nav="zoom"], .nav-buttons [data-nav="pan"] { cursor: ns-resize; }
 .nav-buttons [data-nav="pan"] { cursor: move; }
+.seg[aria-label="Boolean with the body underneath"] { grid-auto-flow: row; grid-template-columns: repeat(3, minmax(0, 1fr)); }

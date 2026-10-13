@@ -61,7 +61,7 @@ import { claude, describe, MODEL, reply, request } from './ai.js';
 import { icon } from './icons.js';
 import { bridgeCurves, explode, extendCurve, filletCurve, nearestEnd, offsetCurve, trim } from '../curveEdit.js';
 import { ViewGizmo } from './ViewGizmo.js';
-import { arcPoints, circleThrough, ellipsePoints, endTangent, helixPoints, loops, polygonCorners, spiralAngle, tangentArc } from '../curves.js';
+import { arcPoints, circleThrough, cvPoints, ellipsePoints, endTangent, helixPoints, loops, polygonCorners, spiralAngle, tangentArc } from '../curves.js';
 
 const KEYS = {
   idle: [['CLICK', 'SELECT'], ['⇧ CLICK', 'ADD'], ['CTRL CLICK', 'REMOVE'], ['DRAG', 'BOX'], ['MMB', 'ORBIT'], ['RMB', 'PAN'], ['F', 'SEARCH']],
@@ -87,7 +87,8 @@ const KEYS = {
   polygon: [['CLICK', 'CENTRE · SIZE'], ['↑ ↓', 'SIDES'], ['⇧ WHEEL', 'SIDES'], ['C', 'CIRCUMSCRIBED'], ['V', 'VERTICAL'], ['TAB', 'TYPE RADIUS'], ['ESC', 'CANCEL']],
   ellipse: [['CLICK', 'CENTRE · AXIS · WIDTH'], ['ALT', 'NO SNAP'], ['ESC', 'CANCEL']],
   ellipse3: [['CLICK', 'AXIS ENDS · WIDTH'], ['ALT', 'NO SNAP'], ['ESC', 'CANCEL']],
-  spline: [['CLICK', 'POINTS'], ['CLICK START', 'CLOSE'], ['X Y Z', 'AXIS'], ['CTRL Z', 'BACK'], ['⏎ / RMB', 'DONE']],
+  cv: [['CLICK', 'CONTROL POINTS'], ['CLICK START', 'CLOSE'], ['TAB', 'THROUGH POINTS'], ['X Y Z', 'AXIS'], ['CTRL Z', 'BACK'], ['⏎ / RMB', 'DONE']],
+  spline: [['CLICK', 'POINTS'], ['CLICK START', 'CLOSE'], ['TAB', 'CONTROL POINTS'], ['X Y Z', 'AXIS'], ['CTRL Z', 'BACK'], ['⏎ / RMB', 'DONE']],
   'tangent-arc': [['CLICK', 'CURVE END · SIZE'], ['D', 'FLIP'], ['ALT', 'NO SNAP'], ['ESC', 'CANCEL']],
   spiral: [['CLICK', 'AXIS START · END · RADIUS'], ['X Y Z', 'AXIS'], ['A', 'ANGLE'], ['D', 'LENGTH'], ['R', 'RADIUS'], ['⏎ / RMB', 'OK']],
   'offset-curve': [['D', 'DISTANCE'], ['TYPE', 'IN PANEL'], ['⏎ / RMB', 'OK']],
@@ -113,7 +114,7 @@ const DRAW = {
   rect: 'RECTANGLE', circle: 'CIRCLE', line: 'LINE', 'center-rect': 'CENTER RECTANGLE', rect3: 'THREE POINT RECTANGLE',
   circle2: 'TWO POINT CIRCLE', circle3: 'THREE POINT CIRCLE', arc3: 'THREE POINT ARC', arc: 'CENTER POINT ARC',
   polygon: 'REGULAR POLYGON', spline: 'SPLINE CURVE', ellipse: 'CENTER ELLIPSE', ellipse3: 'THREE POINT ELLIPSE',
-  'tangent-arc': 'TANGENT ARC', spiral: 'SPIRAL',
+  'tangent-arc': 'TANGENT ARC', spiral: 'SPIRAL', cv: 'CONTROL POINT CURVE',
 };
 // Clicks that finish each drawing; lines and splines go on until closed or finished.
 const CLICKS = { rect: 2, 'center-rect': 2, rect3: 3, circle: 2, circle2: 2, circle3: 3, arc3: 3, arc: 3, polygon: 2, ellipse: 3, ellipse3: 3, 'tangent-arc': 2 };
@@ -682,6 +683,7 @@ export async function mount(root, backend) {
   const curve2d = c => c.kind === 'circle' ? new THREE.Path().absarc(c.center[0], c.center[1], c.radius, 0, Math.PI * 2).getPoints(96).slice(0, -1)
     : c.kind === 'arc' ? (arcPoints(c.start, c.mid, c.end, 48) ?? [c.start, c.end]).map(p => new THREE.Vector2(...p))
     : c.kind === 'spline' ? (c.samples ?? splinePreview(c.points, c.closed)).slice(0, c.closed ? -1 : undefined).map(p => new THREE.Vector2(...p))
+    : c.kind === 'cv' ? cvPoints(c.points, !!c.closed, 96).map(p => new THREE.Vector2(...p))
     : c.kind === 'ellipse' ? ellipsePoints(c.center, c.major, c.minor, 96).map(p => new THREE.Vector2(...p))
     : c.kind === 'contour' ? contour2d(c)
     : c.kind === 'spiral' ? helixPoints(c, 48).map(p => new THREE.Vector3(...p))
@@ -692,7 +694,8 @@ export async function mount(root, backend) {
     return isClosed(c) && pts.length > 1 && pts[0].distanceTo(pts.at(-1)) < 1e-6 ? pts.slice(0, -1) : pts;
   }
   const isClosed = c => c.kind === 'circle' || c.kind === 'ellipse' || (c.kind === 'contour' ? loops(c.pieces) : c.kind !== 'arc' && c.closed && c.points.length >= 3);
-  const curveName = c => ({ circle: 'CIRCLE', arc: 'ARC', spline: 'SPLINE', ellipse: 'ELLIPSE', contour: 'CONTOUR', spiral: 'SPIRAL' })[c.kind] ?? (!c.closed ? 'LINE' : c.points.length === 4 ? 'RECTANGLE' : 'POLYGON');
+  // Control-point curves draw from their control points with the same B-spline the kernels make.
+  const curveName = c => ({ circle: 'CIRCLE', arc: 'ARC', spline: 'SPLINE', cv: 'CV CURVE', ellipse: 'ELLIPSE', contour: 'CONTOUR', spiral: 'SPIRAL' })[c.kind] ?? (!c.closed ? 'LINE' : c.points.length === 4 ? 'RECTANGLE' : 'POLYGON');
   /** A spline through the points for drawing before the kernel has made it (the kernel's own fit
    * is close to this chordal Catmull-Rom curve, not the same). */
   function splinePreview(points, closed) {
@@ -788,7 +791,7 @@ export async function mount(root, backend) {
       const row = document.createElement('div');
       row.className = 'row-item curve';
       row.setAttribute('aria-current', sel.has({ kind: 'curve', id: c.id }) || sel.has({ kind: 'region', id: c.id }));
-      const look = { circle: 'circle', arc: 'arc3', spline: 'spline', ellipse: 'ellipse', contour: 'join', spiral: 'spiral' }[c.kind] ?? (!c.closed ? 'line' : c.points.length === 4 ? 'rect' : 'polygon');
+      const look = { circle: 'circle', arc: 'arc3', spline: 'spline', cv: 'cv', ellipse: 'ellipse', contour: 'join', spiral: 'spiral' }[c.kind] ?? (!c.closed ? 'line' : c.points.length === 4 ? 'rect' : 'polygon');
       row.innerHTML = `${icon(look)}<span class="name">${curveName(c)}</span><span class="tag">${curveLabel(c.id)}</span>`;
       row.onclick = e => { applySelect({ kind: 'curve', id: c.id }, modOf(e)); selectionChanged(); };
       out.append(row);
@@ -1892,6 +1895,13 @@ export async function mount(root, backend) {
       }
       if (action === 'typed') { typeSize(); return true; }
       if (action === 'flip' && c.id === 'tangent-arc') { c.flip = !c.flip; drawShape(); return true; }
+      if (action === 'switch' && (c.id === 'spline' || c.id === 'cv')) {
+        // Tab: through-points and control points, keeping what's been clicked (manual: Control / Through-point).
+        c.id = lastTool = c.id === 'spline' ? 'cv' : 'spline';
+        showTool(c.id);
+        drawShape();
+        return true;
+      }
       if (action.startsWith('axis-')) {
         // X, Y or Z keeps the next point on that axis through the last one (press again to free it).
         const a = action.slice(5);
@@ -2041,6 +2051,9 @@ export async function mount(root, backend) {
       }
       case 'spline':
         return { show: splinePreview(P, false), size: `×${c.pts.length}` };
+      case 'cv':
+        // The B-spline the kernels will make from these control points.
+        return { show: P.length > 1 ? cvPoints(P, false, 16 * P.length) : P, size: `×${c.pts.length}` };
       default:
         return { show: P, size: `L ${d(P.at(-2), P.at(-1)).toFixed(2)}` };
     }
@@ -2155,7 +2168,7 @@ export async function mount(root, backend) {
     } else if (c.id === 'arc') {
       if (c.pts.length === 1) c.entry = { label: 'RADIUS', text: '', apply: r => { c.pts.push(along(Math.abs(r))); c.sweep = 0; c.turn = null; } };
       else c.entry = { label: 'ANGLE °', text: '', apply: v => { c.sweep = Math.max(-359.9, Math.min(359.9, v)) * DEG; commitDrawn([...c.pts, c.pts[1]]); } };
-    } else if (CLICKS[c.id] || c.id === 'spline') {
+    } else if (CLICKS[c.id] || c.id === 'spline' || c.id === 'cv') {
       return toast('CLICK THE POINTS');
     } else {
       const last = c.pts.at(-1), dir = b.clone().sub(last);
@@ -2179,6 +2192,7 @@ export async function mount(root, backend) {
   function commitLine(closed) {
     const c = cmd, points = c.pts.map(p => [p.x, p.y]);
     if (c.id === 'spline') return commitCurve(curveOf({ kind: 'spline', points, closed }), `SPLINE ×${c.pts.length}${closed ? ' CLOSED' : ''}`);
+    if (c.id === 'cv') return commitCurve(curveOf({ kind: 'cv', points, closed }), `CV CURVE ×${c.pts.length}${closed ? ' CLOSED' : ''}`);
     return commitCurve(curveOf({ kind: 'polyline', points, closed }), `${closed ? 'POLYGON' : 'LINE'} ×${c.pts.length}`);
   }
   /** Finish a drawing with a fixed number of clicks, from all of them. */
@@ -2189,7 +2203,7 @@ export async function mount(root, backend) {
   }
   async function finishDraw() {
     const c = cmd;
-    if ((c.id === 'line' || c.id === 'spline') && c.pts.length >= 2) return commitLine(false);
+    if ((c.id === 'line' || c.id === 'spline' || c.id === 'cv') && c.pts.length >= 2) return commitLine(false);
     endCmd(c.plane ? 'cancelled' : null);
   }
   async function commitCurve(curve, text) {

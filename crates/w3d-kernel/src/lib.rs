@@ -38,6 +38,8 @@ pub enum Profile {
     Ellipse { center: (f64, f64), major: (f64, f64), minor: f64 },
     /// Pieces joined end to end into a loop (Plasticity's Join Curves).
     Contour(Vec<Segment>),
+    /// A closed control-point curve (Plasticity's Control Point Curve).
+    Cv(Vec<(f64, f64)>),
 }
 
 /// One open piece of a [`Profile::Contour`], in plane coordinates.
@@ -74,6 +76,8 @@ pub enum Path {
     /// A helix up `axis` from `origin`, starting towards `x`: `turns` turns of `radius` over
     /// `length`, anticlockwise about the axis unless `left`.
     Spiral { origin: DVec3, axis: DVec3, x: DVec3, radius: f64, length: f64, turns: f64, left: bool },
+    /// A control-point curve: a uniform B-spline shaped by these points, clamped to its ends when open.
+    Cv { points: Vec<DVec3>, closed: bool },
 }
 
 /// How far and in what form an extrude goes (Plasticity's Extrude options).

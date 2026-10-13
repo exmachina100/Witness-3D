@@ -487,7 +487,7 @@ export class LocalBackend {
 }
 
 /** Whether the curve encloses a region. */
-const isClosed = c => c.kind === 'circle' || c.kind === 'ellipse' || (['polyline', 'spline'].includes(c.kind) && c.closed && c.points.length >= 3) || (c.kind === 'contour' && loops(c.pieces));
+const isClosed = c => c.kind === 'circle' || c.kind === 'ellipse' || (['polyline', 'spline', 'cv'].includes(c.kind) && c.closed && c.points.length >= 3) || (c.kind === 'contour' && loops(c.pieces));
 
 function checkCurve(c) {
     const finite = a => Array.isArray(a) && a.every(Number.isFinite);
@@ -519,6 +519,9 @@ function checkShape(c) {
         if (!Array.isArray(c.points) || c.points.length < 2 || (c.closed && c.points.length < 3)) throw new Error('a curve needs two points, a closed one three');
         if (!c.points.every(finite)) throw new Error('a point is not a number');
         if (c.points.some((p, i) => i > 0 && Math.hypot(p[0] - c.points[i - 1][0], p[1] - c.points[i - 1][1]) < 1e-6)) throw new Error('two points of the curve are in the same place');
+    } else if (c.kind === 'cv') {
+        if (!Array.isArray(c.points) || c.points.length < 2 || (c.closed && c.points.length < 3)) throw new Error('a curve needs two control points, a closed one three');
+        if (!c.points.every(finite)) throw new Error('a point is not a number');
     } else if (c.kind === 'arc') {
         if (![c.start, c.mid, c.end].every(finite)) throw new Error('a point is not a number');
         const cross = (c.mid[0] - c.start[0]) * (c.end[1] - c.start[1]) - (c.mid[1] - c.start[1]) * (c.end[0] - c.start[0]);
@@ -526,7 +529,7 @@ function checkShape(c) {
     } else if (c.kind === 'spiral') {
         const ok = v => Number.isFinite(v) && v > 1e-9;
         if (!ok(c.radius) || !ok(c.length) || !ok(c.turns)) throw new Error('a spiral needs a radius, a length and turns greater than zero');
-    } else throw new Error('a curve is a line, circle, spline, arc, ellipse, contour or spiral');
+    } else throw new Error('a curve is a line, circle, spline, control-point curve, arc, ellipse, contour or spiral');
 }
 
 /** The history of doing `a` then `b`, for the body being changed (input 0). */

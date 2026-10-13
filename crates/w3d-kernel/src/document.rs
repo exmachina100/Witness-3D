@@ -88,6 +88,8 @@ pub enum CurveShape {
     /// A helix (Plasticity's Spiral) up the plane's normal from its origin: `turns` turns of
     /// `radius` over `length`, starting along the plane's x; `left` turns it the other way.
     Spiral { radius: f64, length: f64, turns: f64, #[serde(default)] left: bool },
+    /// A curve shaped by control points it need not pass through (Plasticity's Control Point Curve).
+    Cv { points: Vec<[f64; 2]>, closed: bool },
 }
 
 impl Curve {
@@ -99,6 +101,7 @@ impl Curve {
             CurveShape::Polyline { points, closed: true } if points.len() >= 3 => Some(Profile::Polygon(points.iter().map(|p| (p[0], p[1])).collect())),
             CurveShape::Circle { center, radius } => Some(Profile::Circle { center: (center[0], center[1]), radius: *radius }),
             CurveShape::Spline { points, closed: true } if points.len() >= 3 => Some(Profile::Spline(points.iter().map(|p| (p[0], p[1])).collect())),
+            CurveShape::Cv { points, closed: true } if points.len() >= 3 => Some(Profile::Cv(points.iter().map(|p| (p[0], p[1])).collect())),
             CurveShape::Ellipse { center, major, minor } => Some(Profile::Ellipse { center: (center[0], center[1]), major: (major[0], major[1]), minor: *minor }),
             CurveShape::Contour { pieces } if crate::join::loops(pieces) => {
                 let pts = |p: &Vec<[f64; 2]>| p.iter().map(|q| (q[0], q[1])).collect();
@@ -125,6 +128,7 @@ impl Curve {
             CurveShape::Arc { start, mid, end } => Path::Arc { start: f.point((start[0], start[1])), mid: f.point((mid[0], mid[1])), end: f.point((end[0], end[1])) },
             CurveShape::Ellipse { center, major, minor } => Path::Ellipse { center: f.point((center[0], center[1])), normal: f.normal, major: f.point((major[0], major[1])) - f.origin, minor: *minor },
             CurveShape::Contour { pieces } => Path::Contour(pieces.iter().map(|p| Self::path_of(&f, p)).collect()),
+            CurveShape::Cv { points, closed } => Path::Cv { points: points.iter().map(|p| f.point((p[0], p[1]))).collect(), closed: *closed },
             CurveShape::Spiral { radius, length, turns, left } => Path::Spiral { origin: f.origin, axis: f.normal, x: f.x, radius: *radius, length: *length, turns: *turns, left: *left },
         }
     }
@@ -160,6 +164,10 @@ impl Curve {
             CurveShape::Ellipse { center, major, minor } => {
                 if !finite(center) || !finite(major) { return Err(KernelError::Invalid("a point is not a number")) }
                 if !(major[0].hypot(major[1]) > 1e-9) || !(*minor > 1e-9) || !minor.is_finite() { return Err(KernelError::Invalid("an ellipse needs two radii greater than zero")) }
+            }
+            CurveShape::Cv { points, closed } => {
+                if points.len() < 2 || (*closed && points.len() < 3) { return Err(KernelError::Invalid("a curve needs two control points, a closed one three")) }
+                if !points.iter().all(|p| finite(p)) { return Err(KernelError::Invalid("a point is not a number")) }
             }
             CurveShape::Contour { pieces } => {
                 if pieces.is_empty() { return Err(KernelError::Invalid("a contour needs a piece")) }
