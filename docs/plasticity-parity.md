@@ -88,7 +88,7 @@ splitting; see Solid › Imprint).
 
 | Group | Commands (26.1 options from REA) | Status |
 |---|---|---|
-| Boolean and Cut | Boolean, Cut | Boolean done; Cut (by curve/surface) missing |
+| Boolean and Cut | Boolean, Cut | Boolean done; Cut by curves done (both builds); Cut by face or surface missing |
 | Create and Duplicate | Alternative Duplicate, instances | Missing |
 | Surface Creation | Extrude (Individual option), Revolve, Loft, Sweep (alignment, scale, twist), Pipe, Bridge Surface (tension, trim), Constrained Surface, Patch, PolySplines, Square, Xnurbs (boundary, quad-sided) | Extrude, Revolve, Loft, Sweep (scale, twist) done; Individual, sweep alignment, Pipe and all surface creation missing |
 | Deform and Slide | Deform, Deform Solid and Sheet, Slide, Slide Surface CV | Missing |

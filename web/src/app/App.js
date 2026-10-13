@@ -96,6 +96,7 @@ const KEYS = {
   'offset-curve': [['D', 'DISTANCE'], ['TYPE', 'IN PANEL'], ['⏎ / RMB', 'OK']],
   'fillet-curve': [['D', 'RADIUS'], ['TYPE', 'IN PANEL'], ['⏎ / RMB', 'OK']],
   'remove-face': [['⇧ CLICK', 'FACES'], ['⏎ / RMB', 'OK']],
+  cut: [['⇧ CLICK', 'SOLIDS · CURVES'], ['⏎ / RMB', 'OK']],
   hole: [['CLICK', 'A FLAT FACE'], ['T', 'THROUGH ALL'], ['TYPE', 'SIZE IN PANEL'], ['⏎ / RMB', 'OK']],
   split: [['CLICK', 'WHERE TO SPLIT'], ['ESC / ⏎', 'DONE']],
   'measure-distance': [['CLICK', 'TWO POINTS'], ['CLICK', 'AGAIN TO RESTART'], ['ESC', 'DONE']],
@@ -284,6 +285,12 @@ const SHELL = `
     <div class="sec" data-panel="remove-face" hidden>
       <span class="hint" data-id="rf-hint">—</span>
       <div class="field"><label>FACES</label><output data-id="rf-count">0</output></div>
+    </div>
+    <div class="sec" data-panel="cut" hidden>
+      <span class="hint" data-id="cut-hint">—</span>
+      <div class="field"><label>SOLIDS</label><output data-id="cut-solids">0</output></div>
+      <div class="field"><label>CURVES</label><output data-id="cut-curves">0</output></div>
+      <div class="field"><label>PIECES</label><output data-id="cut-pieces">—</output></div>
     </div>
     <div class="sec" data-panel="hole" hidden>
       <span class="hint" data-id="hole-hint">CLICK A FLAT FACE</span>
@@ -1236,6 +1243,7 @@ export async function mount(root, backend) {
     if (id === 'trim') return startTrim();
     if (id === 'hole') return startHole(opts);
     if (id === 'remove-face') return startRemoveFace();
+    if (id === 'cut') return startCut();
     if (id === 'extend') return startExtend();
     if (id === 'tangent-circle') return startTangentCircle();
     if (id === 'split') return startSplit();
@@ -2898,6 +2906,62 @@ export async function mount(root, backend) {
     c.onSelection();
   }
 
+  /**
+   * Plasticity's Cut: select the solids and the curves drawn across them, then Cut. Each curve
+   * cuts straight through along its plane's normal; every piece becomes its own body, the biggest
+   * keeping the solid's name. Shift+click adds or drops solids and curves while the preview shows.
+   */
+  function startCut() {
+    if (!backend.previewCut) return toast('CUT IS NOT IN THIS BUILD YET');
+    const c = cmd = { id: 'cut', bodies: [], curves: [], sent: 0, shown: 0 };
+    lastTool = 'cut';
+    showTool('cut');
+    setState('none');
+    c.request = () => ({ bodies: c.bodies, curves: c.curves });
+    c.preview = () => livePreview(c, () => backend.previewCut(c.request()), list => {
+      showCopies(list);
+      $('cut-pieces').textContent = list.length;
+      setHud(`CUT INTO ${list.length} PIECES`);
+    }, 'cut-hint');
+    c.onSelection = () => {
+      drawOverlays();
+      c.bodies = sel.solids.filter(b => !hidden.has(b));
+      c.curves = sel.curves.filter(curveById);
+      $('cut-solids').textContent = c.bodies.length;
+      $('cut-curves').textContent = c.curves.length;
+      $('cut-pieces').textContent = '—';
+      setTarget(c.bodies.length === 1 ? label(c.bodies[0]) : c.bodies.length ? `${c.bodies.length} SOLIDS` : '—');
+      const missing = !c.bodies.length ? 'SELECT THE SOLIDS TO CUT' : !c.curves.length ? 'SELECT THE CURVES TO CUT WITH' : null;
+      $('cut-hint').textContent = missing ?? `${c.bodies.length} SOLID${c.bodies.length > 1 ? 'S' : ''} · ${c.curves.length} CURVE${c.curves.length > 1 ? 'S' : ''}`;
+      if (missing) { clearPreview(); return setHud(missing); }
+      c.preview();
+    };
+    c.click = e => {
+      if (!(e.ctrlKey || e.metaKey || e.shiftKey)) return true;
+      const hit = pickAt(e);
+      if (hit?.kind === 'curve') sel.toggle({ kind: 'curve', id: hit.id });
+      else if (hit?.body !== undefined) sel.toggle({ kind: 'solid', body: hit.body });
+      else return true;
+      selectionChanged();
+      return true;
+    };
+    c.finish = async () => {
+      if (!c.bodies.length || !c.curves.length) { setState('failed'); return toast($('cut-hint').textContent); }
+      try {
+        const { ids, scene: list } = await backend.commitCut(c.request());
+        endCmd('committed');
+        record(`CUT ×${c.curves.length}`, ids[0], `${ids.length} PIECES`);
+        await showScene(list);
+        sel.clear();
+        for (const b of ids) sel.add({ kind: 'solid', body: b });
+        selectionChanged({ quiet: true });
+      } catch (e) { setState('failed'); toast(say(e)); }
+    };
+    c.abort = () => endCmd('cancelled');
+    c.cleanup = () => clearPreview();
+    c.onSelection();
+  }
+
   /** Hole: click a flat face; a round cut of the panel's diameter goes in to its depth, or through. */
   function startHole({ at = null } = {}) {
     if (!backend.preview) return toast('HOLE IS NOT IN THIS BUILD YET');
@@ -4017,6 +4081,7 @@ export async function mount(root, backend) {
     if (kinds.has('edge')) out.push('tool:fillet', 'measure:radius');
     if (kinds.has('region')) out.push('tool:extrude', 'tool:revolve', 'tool:loft', 'tool:sweep');
     if (kinds.has('curve') || kinds.has('region')) {
+      if (kinds.has('solid')) out.push('tool:cut');
       out.push('trim', 'split', 'extend', 'tool:offset-curve', 'tool:fillet-curve');
       if (sel.curves.length === 2) out.push('tool:bridge');
       if (sel.curves.length > 1) out.push('join');
@@ -4572,6 +4637,15 @@ export async function mount(root, backend) {
         selectionChanged({ quiet: true });
         $('br-t').value = p.tension;
         await startTool('bridge');
+      } else if (id === 'cut') {
+        const cs = (curveIds ?? []).filter(cid => curveList.some(c => c.id === cid));
+        const bs = (ids ?? []).filter(b => current.some(x => x.id === b));
+        if (!cs.length || !bs.length) throw new Error('give the solids to cut and the curves to cut with, by id');
+        sel.clear();
+        for (const b of bs) sel.add({ kind: 'solid', body: b });
+        for (const cid of cs) sel.add({ kind: 'curve', id: cid });
+        selectionChanged({ quiet: true });
+        await startTool('cut');
       } else if (id === 'offset-curve' || id === 'fillet-curve') {
         const ids = (curveIds ?? []).filter(cid => curveList.some(c => c.id === cid));
         if (!ids.length) throw new Error('give the curves by id');

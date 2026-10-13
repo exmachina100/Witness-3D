@@ -65,6 +65,7 @@ const ICONS = {
     bridge: `<path d="M2 18h6M16 6h6"/><path ${A} d="M8 18c5 0 3-12 8-12"/>`,
     hole: `<path d="M3 9l9-4 9 4-9 4z"/><path d="M3 9v8l9 4 9-4V9"/><ellipse ${A} cx="12" cy="9" rx="3" ry="1.4"/><path ${A} d="M9 9v6M15 9v6" stroke-dasharray="2 2"/>`,
     through: `<path d="M12 2v20" stroke-dasharray="2 2"/><path ${A} d="M8 8h8v8H8z"/>`,
+    cut: `<path d="M3 9l6-3 6 3v9l-6 3-6-3z"/><path d="M3 9l6 3 6-3M9 12v9"/><path ${A} d="M17 10l4 2v8l-4 2"/><path ${A} d="M16 2v20" stroke-dasharray="2 2"/>`,
     'remove-face': `<path d="M4 8l8-4 8 4v9l-8 4-8-4z"/><path d="M4 8l8 4 8-4M12 12v9"/><path ${A} d="M14 14l4 4M18 14l-4 4"/>`,
     suggest: `<circle cx="5" cy="12" r="1.5"/><circle cx="12" cy="12" r="1.5"/><circle ${A} cx="19" cy="12" r="1.5"/>`,
     // Selection modes (1–5): a cube with what each mode picks in the accent.

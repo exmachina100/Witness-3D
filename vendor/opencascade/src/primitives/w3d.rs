@@ -193,6 +193,16 @@ impl Shape {
         Ok((Shape::from_shape(&ffi::w3d::w3d_result_shape(&r)), history(&r, 1)))
     }
 
+    /// Split by sheets swept from curves (see `w3d_cut`): the biggest piece with its history, and the rest.
+    pub fn cut_with_history(&self, data: &[f64], length: f64) -> Result<(Shape, ShapeHistory, Vec<Shape>), String> {
+        let r = ffi::w3d::w3d_cut(&self.inner, data, length).map_err(reason)?;
+        let others = ffi::w3d::w3d_result_others(&r);
+        let rest = (0..ffi::w3d::w3d_solid_count(&others))
+            .map(|i| ffi::w3d::w3d_solid_at(&others, i).map(|s| Shape::from_shape(&s)).map_err(reason))
+            .collect::<Result<Vec<_>, _>>()?;
+        Ok((Shape::from_shape(&ffi::w3d::w3d_result_shape(&r)), history(&r, 1), rest))
+    }
+
     /// A copy reflected in the plane through `origin` with normal `normal`.
     pub fn mirrored_in_plane(&self, origin: DVec3, normal: DVec3) -> Result<Shape, String> {
         let plane = [origin.x, origin.y, origin.z, normal.x, normal.y, normal.z];

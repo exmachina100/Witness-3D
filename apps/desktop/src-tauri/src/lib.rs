@@ -196,6 +196,24 @@ async fn write_export(path: std::path::PathBuf, data: Vec<u8>) -> Result<(), api
 }
 
 #[tauri::command]
+async fn preview_cut(
+    model: State<'_, Model>,
+    req: api::CutRequest,
+) -> Result<Option<Vec<api::Body>>, api::ApiError> {
+    on_model(&model, move |m| api::preview_cut(m, req))
+        .await?
+        .transpose()
+}
+
+#[tauri::command]
+async fn commit_cut(
+    model: State<'_, Model>,
+    req: api::CutRequest,
+) -> Result<api::Duplicated, api::ApiError> {
+    on_model(&model, move |m| api::commit_cut(m, req)).await?
+}
+
+#[tauri::command]
 async fn replace_curves(
     model: State<'_, Model>,
     req: api::ReplaceCurvesRequest,
@@ -409,6 +427,8 @@ pub fn run() {
             preview_offset,
             commit_offset,
             replace_curves,
+            preview_cut,
+            commit_cut,
             mesh_bodies,
             write_export,
             preview_remove_faces,

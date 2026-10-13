@@ -871,3 +871,29 @@ pub fn write_export(path: PathBuf, data: Vec<u8>) -> Result<(), ApiError> {
     if !matches!(ext.as_deref(), Some("obj" | "stl")) { return Err(KernelError::Invalid("exports are .obj or .stl files").into()) }
     std::fs::write(&path, data).map_err(|e| ApiError::from(e.to_string()))
 }
+
+/// Plasticity's Cut: bodies split by curves drawn across them.
+#[derive(Deserialize, Debug, Clone)]
+pub struct CutRequest {
+    pub bodies: Vec<BodyId>,
+    pub curves: Vec<CurveId>,
+}
+
+/// Every piece the cut would make, the kept ones with their body's id; nothing changes.
+pub fn preview_cut(m: &Model, req: CutRequest) -> Option<Result<Vec<Body>, ApiError>> {
+    m.preview(move |doc| {
+        let mut out = Vec::new();
+        for (id, piece, rest) in doc.preview_cut(&req.bodies, &req.curves)? {
+            out.push(body(&doc.kernel, id, &piece.solid)?);
+            for s in &rest { out.push(body(&doc.kernel, 0, s)?); }
+        }
+        Ok(out)
+    })
+}
+
+pub fn commit_cut(m: &Model, req: CutRequest) -> Result<Duplicated, ApiError> {
+    m.call(move |doc| {
+        let ids = doc.commit_cut(&req.bodies, &req.curves)?;
+        Ok(Duplicated { ids, scene: bodies(doc)? })
+    })
+}

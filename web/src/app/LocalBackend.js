@@ -4,8 +4,8 @@
 import * as THREE from 'three';
 import { ExtrudeFactory } from '../ExtrudeFactory.js';
 import { NoOpError } from '../GeometryFactory.js';
-import { arrayMotions, blendEdges, booleanWithHistory, box, count, draftWithHistory, exportSTEP, facePlane, mirror, numberedEdges, oc, primitive, shellFaces, tessellate, transform, volume } from '../Kernel.js';
-import { loft, offsetFlatFaces, regionFace, revolve, splineSamples, sweep } from '../Forms.js';
+import { arrayMotions, blendEdges, booleanWithHistory, bounds, box, count, splitWithHistory, draftWithHistory, exportSTEP, facePlane, mirror, numberedEdges, oc, primitive, shellFaces, tessellate, transform, volume } from '../Kernel.js';
+import { cutSheets, loft, offsetFlatFaces, regionFace, revolve, splineSamples, sweep } from '../Forms.js';
 import { ends, join, loops, MEET } from '../curves.js';
 
 const v3 = a => new THREE.Vector3(...a);
@@ -362,6 +362,36 @@ export class LocalBackend {
     }
     previewArray(req) { return this.latest(async () => this.arrayCopies(req).flatMap(([, cs]) => cs.map(c => this.body(0, c)))) }
     async commitArray(req) { return this.placeCopies(this.arrayCopies(req), !!req.join) }
+
+    /** Plasticity's Cut: each body split by sheets grown from the curves. [[id, { pieces, history }]]. */
+    cutResult({ bodies, curves }) {
+        if (!bodies?.length) throw new Error('select a solid to cut');
+        if (!curves?.length) throw new Error('select the curves to cut with');
+        const cs = curves.map(id => { const c = this.curveMap.get(id); if (!c) throw new Error('that curve no longer exists'); return c; });
+        return bodies.map(id => {
+            const s = this.shapes.get(id);
+            if (!s) throw new Error('that body no longer exists');
+            const size = bounds(s).getSize(new THREE.Vector3()).length();
+            return [id, splitWithHistory(s, cutSheets(cs, 4 * size + 1000))];
+        });
+    }
+
+    previewCut(req) {
+        return this.latest(async () => this.cutResult(req).flatMap(([id, r]) => r.pieces.map((p, i) => this.body(i ? 0 : id, p))));
+    }
+
+    /** Cut as one undo step: the biggest piece keeps each body's id and refs; the others are new bodies. */
+    async commitCut(req) {
+        const all = this.cutResult(req);
+        this.checkpoint();
+        const ids = [];
+        for (const [id, { pieces, history }] of all) {
+            this.put(id, pieces[0], history);
+            ids.push(id);
+            for (const p of pieces.slice(1)) { const n = this.nextId++; this.put(n, p); ids.push(n); }
+        }
+        return { ids, scene: this.bodies() };
+    }
 
     scene() { return this.bodies() }
 

@@ -536,3 +536,26 @@ export function arrayMotions(spec) {
     }
     throw new Error('an array is rectangular or radial');
 }
+
+/**
+ * Split `shape` by `tools` (sheets or solids) into its solid pieces (Plasticity's Cut). Returns
+ * { pieces, history }, the history tracing the body's faces and edges into the first piece. Throws
+ * when nothing is cut.
+ */
+export function splitWithHistory(shape, tools) {
+    const o = oc();
+    const args = new o.NCollection_List_TopoDS_Shape(), cutters = new o.NCollection_List_TopoDS_Shape();
+    args.Append(shape);
+    for (const t of tools) cutters.Append(t);
+    const mk = new o.BRepAlgoAPI_Splitter();
+    mk.SetArguments(args);
+    mk.SetTools(cutters);
+    mk.Build(new o.Message_ProgressRange());
+    if (!mk.IsDone() || mk.HasErrors()) throw new Error('the body could not be cut there');
+    const pieces = [];
+    for (const ex = new o.TopExp_Explorer(mk.Shape(), o.TopAbs_ShapeEnum.TopAbs_SOLID, o.TopAbs_ShapeEnum.TopAbs_SHAPE); ex.More(); ex.Next()) pieces.push(o.TopoDS.Solid(ex.Current()));
+    if (pieces.length < 2) throw new Error('the curve does not cut the body; draw it across the solid');
+    // The biggest piece keeps the body's id, so its faces carry their refs.
+    pieces.sort((a, b) => volume(b) - volume(a));
+    return { pieces, history: trace([shape], pieces[0], s => successors(mk, s)) };
+}

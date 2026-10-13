@@ -265,6 +265,16 @@ impl Kernel for Occt {
         Ok(Traced { solid, history: history(h) })
     }
 
+    fn cut(&self, s: &Shape, cutters: &[(Path, DVec3)], length: f64) -> Result<(Traced<Shape>, Vec<Shape>), KernelError> {
+        let mut data = vec![cutters.len() as f64];
+        for (path, n) in cutters {
+            data.extend(n.to_array());
+            data.extend(path_numbers(path)?);
+        }
+        let (solid, h, rest) = s.cut_with_history(&data, length).map_err(shim)?;
+        Ok((Traced { solid, history: history(h) }, rest))
+    }
+
     fn remove_faces(&self, s: &Shape, faces: &[u32]) -> Result<Traced<Shape>, KernelError> {
         let faces: Vec<usize> = faces.iter().map(|&f| f as usize).collect();
         let (solid, h) = s.remove_faces_with_history(&faces).map_err(shim)?;

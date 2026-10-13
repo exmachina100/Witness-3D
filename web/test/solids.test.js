@@ -133,3 +133,25 @@ test('a hole is a round cut: to a depth, or through, as one undo step', async ()
     be.undo();
     close(be.scene()[0].volume, seed.volume, 1e-3);
 });
+
+test('cut splits a body along a drawn line into separate solids, as one undo step', async () => {
+    const be = new LocalBackend();
+    const seed = be.scene()[0]; // 80 × 30 × 50 at x −40..40, y 0..30
+    // A line across the top, drawn on the ground plane: x = 10, from front to back.
+    const { ids: [line] } = await be.addCurves([{ origin: [0, 0, 0], x: [1, 0, 0], normal: [0, 1, 0], kind: 'polyline', points: [[10, -100], [10, 100]], closed: false }]);
+    const preview = await be.previewCut({ bodies: [seed.id], curves: [line] });
+    assert.equal(preview.length, 2);
+    close(preview[0].volume + preview[1].volume, seed.volume, 1e-3);
+    assert.equal(be.scene().length, 1, 'a preview changes nothing');
+    const { ids } = await be.commitCut({ bodies: [seed.id], curves: [line] });
+    assert.equal(ids.length, 2);
+    assert.equal(ids[0], seed.id, 'the bigger piece keeps the id');
+    const vols = be.scene().map(b => b.volume).sort((a, b) => b - a);
+    close(vols[0], 50 * 30 * 50, 1e-3);
+    close(vols[1], 30 * 30 * 50, 1e-3);
+    be.undo();
+    assert.equal(be.scene().length, 1);
+    // A line off to the side cuts nothing.
+    const { ids: [miss] } = await be.addCurves([{ origin: [0, 0, 0], x: [1, 0, 0], normal: [0, 1, 0], kind: 'polyline', points: [[300, -100], [300, 100]], closed: false }]);
+    await assert.rejects(async () => be.commitCut({ bodies: [seed.id], curves: [miss] }), /does not cut/);
+});

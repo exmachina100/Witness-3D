@@ -26,6 +26,9 @@
 #include <BRepOffset_MakeOffset.hxx>
 #include <BRepOffsetAPI_MakeThickSolid.hxx>
 #include <BRepAlgoAPI_Defeaturing.hxx>
+#include <BRepAlgoAPI_Splitter.hxx>
+#include <TopoDS_Compound.hxx>
+#include <algorithm>
 #include <Geom_BSplineCurve.hxx>
 #include <TColStd_Array1OfInteger.hxx>
 #include <TColStd_Array1OfReal.hxx>
@@ -216,6 +219,8 @@ inline std::unique_ptr<TopoDS_Shape> w3d_read_brep(rust::Str text) {
 
 struct W3dResult {
   TopoDS_Shape shape;
+  // Further results beside `shape`, such as the other pieces of a cut (a compound, maybe empty).
+  TopoDS_Shape others;
   // [input][kind] flat (source index, result index) pairs. kind 0: faces that are, or were cut
   // from, the source face; 1: the same for edges; 2: faces generated from a source edge (a
   // fillet's rounds).
@@ -938,6 +943,70 @@ inline std::unique_ptr<W3dResult> w3d_remove_faces(const TopoDS_Shape &shape, ru
     r->shape = df.Shape();
     if (!w3d_is_valid(r->shape)) throw std::runtime_error("removing those faces breaks the body");
     w3d_record(*r, 0, shape, {w3d_step(df)});
+    return r;
+  } catch (const Standard_Failure &f) {
+    throw w3d_kernel_error(f);
+  }
+}
+
+// The solids in a shape, counted and fetched by number (TopExp::MapShapes order).
+inline int32_t w3d_solid_count(const TopoDS_Shape &shape) {
+  TopTools_IndexedMapOfShape map;
+  TopExp::MapShapes(shape, TopAbs_SOLID, map);
+  return map.Extent();
+}
+inline std::unique_ptr<TopoDS_Shape> w3d_solid_at(const TopoDS_Shape &shape, int32_t index) {
+  TopTools_IndexedMapOfShape map;
+  TopExp::MapShapes(shape, TopAbs_SOLID, map);
+  if (index < 0 || index >= map.Extent()) throw std::out_of_range("no such solid");
+  return std::unique_ptr<TopoDS_Shape>(new TopoDS_Shape(map(index + 1)));
+}
+inline std::unique_ptr<TopoDS_Shape> w3d_result_others(const W3dResult &r) {
+  return std::unique_ptr<TopoDS_Shape>(new TopoDS_Shape(r.others));
+}
+
+// Plasticity's Cut with curves. `data` is [m, then per cutter: nx, ny, nz, section...]: each
+// section's wire (see w3d_section) swept `length` both ways along its normal into a sheet, and the
+// shape split by the sheets. `shape` of the result is the biggest piece, with history; `others`
+// holds the rest.
+inline std::unique_ptr<W3dResult> w3d_cut(const TopoDS_Shape &shape, rust::Slice<const double> data, double length) {
+  const double *p = data.data(), *end = p + data.size();
+  if (p >= end) throw std::runtime_error("select the curves to cut with");
+  int m = int(*p++);
+  if (m < 1) throw std::runtime_error("select the curves to cut with");
+  try {
+    TopTools_ListOfShape args, tools;
+    args.Append(shape);
+    for (int i = 0; i < m; i++) {
+      if (p + 3 > end) throw std::runtime_error("a cutter is cut short");
+      gp_Vec n(p[0], p[1], p[2]);
+      p += 3;
+      if (n.Magnitude() < 1e-12) throw std::runtime_error("a cutting curve's plane has no direction");
+      n.Normalize();
+      TopoDS_Wire w = w3d_section(p, end);
+      gp_Trsf back;
+      back.SetTranslation(n * -length);
+      TopoDS_Shape start = BRepBuilderAPI_Transform(w, back, Standard_True).Shape();
+      tools.Append(BRepPrimAPI_MakePrism(start, n * (2 * length)).Shape());
+    }
+    BRepAlgoAPI_Splitter mk;
+    mk.SetArguments(args);
+    mk.SetTools(tools);
+    mk.Build();
+    if (!mk.IsDone() || mk.HasErrors()) throw std::runtime_error("the body could not be cut there");
+    std::vector<TopoDS_Shape> pieces;
+    for (TopExp_Explorer ex(mk.Shape(), TopAbs_SOLID); ex.More(); ex.Next()) pieces.push_back(ex.Current());
+    if (pieces.size() < 2) throw std::runtime_error("the curve does not cut the body; draw it across the solid");
+    auto vol = [](const TopoDS_Shape &s) { GProp_GProps g; BRepGProp::VolumeProperties(s, g); return g.Mass(); };
+    std::sort(pieces.begin(), pieces.end(), [&](const TopoDS_Shape &a, const TopoDS_Shape &b) { return vol(a) > vol(b); });
+    std::unique_ptr<W3dResult> r(new W3dResult());
+    r->shape = pieces[0];
+    TopoDS_Compound rest;
+    BRep_Builder bb;
+    bb.MakeCompound(rest);
+    for (size_t i = 1; i < pieces.size(); i++) bb.Add(rest, pieces[i]);
+    r->others = rest;
+    w3d_record(*r, 0, shape, {w3d_step(mk)});
     return r;
   } catch (const Standard_Failure &f) {
     throw w3d_kernel_error(f);

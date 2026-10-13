@@ -181,3 +181,21 @@ fn iges_round_trip_keeps_the_solid() {
     assert!(k.face_count(&back) >= 3);
     assert!(k.read_iges(&std::env::temp_dir().join("w3d-missing.igs")).is_err());
 }
+
+#[test]
+fn cut_splits_a_block_along_a_drawn_line() {
+    let mut doc = Document::new(Occt);
+    let block = doc.add(doc.kernel.box_from_corners(DVec3::new(-40.0, 0.0, -25.0), DVec3::new(40.0, 30.0, 25.0)));
+    doc.clear_history();
+    let ground = [0.0, 0.0, 0.0];
+    let line = doc.commit_curves(vec![Curve { origin: ground, x: [1.0, 0.0, 0.0], normal: [0.0, 1.0, 0.0], shape: CurveShape::Polyline { points: vec![[10.0, -100.0], [10.0, 100.0]], closed: false } }]).unwrap()[0];
+    let ids = doc.commit_cut(&[block], &[line]).unwrap();
+    assert_eq!(ids.len(), 2);
+    assert_eq!(ids[0], block, "the bigger piece keeps the id");
+    close(volume(&doc.kernel, doc.get(ids[0]).unwrap()), 50.0 * 30.0 * 50.0, 1e-6);
+    close(volume(&doc.kernel, doc.get(ids[1]).unwrap()), 30.0 * 30.0 * 50.0, 1e-6);
+    assert!(doc.undo());
+    assert_eq!(doc.ids().len(), 1);
+    let miss = doc.commit_curves(vec![Curve { origin: ground, x: [1.0, 0.0, 0.0], normal: [0.0, 1.0, 0.0], shape: CurveShape::Polyline { points: vec![[300.0, -100.0], [300.0, 100.0]], closed: false } }]).unwrap()[0];
+    assert!(doc.commit_cut(&[block], &[miss]).is_err());
+}

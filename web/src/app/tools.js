@@ -178,6 +178,12 @@ export const TOOLS = [
         summary: 'Delete the selected faces of a solid and let the faces around them grow to close the gap, such as a fillet, hole or boss.',
         params: {},
     },
+    // Round 10: Plasticity's Cut, solids split by curves drawn across them.
+    {
+        id: 'cut', label: 'CUT', key: '', group: 'shape', selects: 'curves', toolbar: false,
+        summary: 'Split the selected solids along curves drawn across them; each curve cuts straight through along the normal of its plane, and every piece becomes its own body.',
+        params: {},
+    },
     // Round 7: curve editing. Trim and Explode are actions (a click, or none), not tools.
     {
         id: 'offset-curve', label: 'OFFSET CURVE', key: '', group: 'curve', selects: 'curves', toolbar: false,
@@ -276,9 +282,10 @@ const EXTRA_PARAMS = {
     extrude: { face: { type: 'integer', description: 'a flat face to extrude instead of a region, by ref' } },
     boolean: { tools: { type: 'array', items: { type: 'integer' }, minItems: 1, description: 'the tool bodies, by id' } },
     sweep: { path: { type: 'integer', description: 'the curve to sweep along, by id' } },
+    cut: { bodies: { type: 'array', items: { type: 'integer' }, minItems: 1, description: 'the solids to cut, by id' } },
 };
 const REQUIRED = { edge: true, solid: true, solids: true, faces: true, regions: true, curves: true };
-const REQUIRED_EXTRA = { boolean: ['tools'], revolve: ['region'], sweep: ['region', 'path'] };
+const REQUIRED_EXTRA = { boolean: ['tools'], revolve: ['region'], sweep: ['region', 'path'], cut: ['bodies'] };
 
 /**
  * The tools as JSON Schema tool definitions ({ name, description, input_schema }), for a model

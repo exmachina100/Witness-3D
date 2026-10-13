@@ -255,6 +255,11 @@ pub trait Kernel {
     fn shell(&self, _s: &Self::Solid, _faces: &[u32], _thickness: f64) -> Result<Traced<Self::Solid>, KernelError> {
         Err(KernelError::Invalid("this kernel cannot shell"))
     }
+    /// Plasticity's Cut: the solid split by sheets swept `length` both ways from each path along its
+    /// normal. The biggest piece, traced, and the others.
+    fn cut(&self, _s: &Self::Solid, _cutters: &[(Path, DVec3)], _length: f64) -> Result<(Traced<Self::Solid>, Vec<Self::Solid>), KernelError> {
+        Err(KernelError::Invalid("this kernel cannot cut"))
+    }
     /// The numbered faces deleted and the gap closed by the faces around them (Remove Face).
     fn remove_faces(&self, _s: &Self::Solid, _faces: &[u32]) -> Result<Traced<Self::Solid>, KernelError> {
         Err(KernelError::Invalid("this kernel cannot remove faces"))

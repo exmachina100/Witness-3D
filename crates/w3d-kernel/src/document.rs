@@ -623,6 +623,36 @@ impl<K: Kernel> Document<K> {
         Ok(body)
     }
 
+    /// Plasticity's Cut, without changing the document: per body, its biggest piece (traced) and the rest.
+    pub fn preview_cut(&self, bodies: &[BodyId], curves: &[CurveId]) -> Result<Vec<(BodyId, Traced<K::Solid>, Vec<K::Solid>)>, KernelError> {
+        if bodies.is_empty() { return Err(KernelError::Invalid("select a solid to cut")) }
+        if curves.is_empty() { return Err(KernelError::Invalid("select the curves to cut with")) }
+        let cutters = curves.iter().map(|id| {
+            let c = self.curve(*id).ok_or(KernelError::Invalid("that curve no longer exists"))?;
+            Ok((c.path(), c.frame().normal))
+        }).collect::<Result<Vec<_>, KernelError>>()?;
+        bodies.iter().map(|&id| {
+            let s = self.get(id).ok_or(KernelError::Invalid("that body no longer exists"))?;
+            // Sheets 100 m each way: past any body the document is likely to hold.
+            let (piece, rest) = self.kernel.cut(s, &cutters, 1e5)?;
+            Ok((id, piece, rest))
+        }).collect()
+    }
+
+    /// Run a Cut as one undoable step: each body keeps its biggest piece; the others become new
+    /// bodies. Returns every piece's id, the kept ones first for each body.
+    pub fn commit_cut(&mut self, bodies: &[BodyId], curves: &[CurveId]) -> Result<Vec<BodyId>, KernelError> {
+        let all = self.preview_cut(bodies, curves)?;
+        self.checkpoint();
+        let mut ids = Vec::new();
+        for (id, piece, rest) in all {
+            self.replace_traced(id, piece);
+            ids.push(id);
+            for s in rest { ids.push(self.add_unrecorded(s)); }
+        }
+        Ok(ids)
+    }
+
     /// The copies Mirror or Array would make, per body in `bodies` order, without changing anything.
     fn copies(&self, bodies: &[BodyId], make: impl Fn(&K::Solid) -> Result<Vec<K::Solid>, KernelError>) -> Result<Vec<(BodyId, Vec<K::Solid>)>, KernelError> {
         if bodies.is_empty() { return Err(KernelError::Invalid("select a solid first")) }
