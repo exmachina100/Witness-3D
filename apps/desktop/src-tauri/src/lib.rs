@@ -196,6 +196,60 @@ async fn write_export(path: std::path::PathBuf, data: Vec<u8>) -> Result<(), api
 }
 
 #[tauri::command]
+async fn preview_cut(
+    model: State<'_, Model>,
+    req: api::CutRequest,
+) -> Result<Option<Vec<api::Body>>, api::ApiError> {
+    on_model(&model, move |m| api::preview_cut(m, req))
+        .await?
+        .transpose()
+}
+
+#[tauri::command]
+async fn commit_cut(
+    model: State<'_, Model>,
+    req: api::CutRequest,
+) -> Result<api::Duplicated, api::ApiError> {
+    on_model(&model, move |m| api::commit_cut(m, req)).await?
+}
+
+#[tauri::command]
+async fn preview_imprint(
+    model: State<'_, Model>,
+    req: api::ImprintRequest,
+) -> Result<Option<api::Body>, api::ApiError> {
+    on_model(&model, move |m| api::preview_imprint(m, req))
+        .await?
+        .transpose()
+}
+
+#[tauri::command]
+async fn commit_imprint(
+    model: State<'_, Model>,
+    req: api::ImprintRequest,
+) -> Result<api::Committed, api::ApiError> {
+    on_model(&model, move |m| api::commit_imprint(m, req)).await?
+}
+
+#[tauri::command]
+async fn preview_draft(
+    model: State<'_, Model>,
+    req: api::DraftRequest,
+) -> Result<Option<api::Body>, api::ApiError> {
+    on_model(&model, move |m| api::preview_draft(m, req))
+        .await?
+        .transpose()
+}
+
+#[tauri::command]
+async fn commit_draft(
+    model: State<'_, Model>,
+    req: api::DraftRequest,
+) -> Result<api::Committed, api::ApiError> {
+    on_model(&model, move |m| api::commit_draft(m, req)).await?
+}
+
+#[tauri::command]
 async fn replace_curves(
     model: State<'_, Model>,
     req: api::ReplaceCurvesRequest,
@@ -409,6 +463,12 @@ pub fn run() {
             preview_offset,
             commit_offset,
             replace_curves,
+            preview_cut,
+            commit_cut,
+            preview_imprint,
+            commit_imprint,
+            preview_draft,
+            commit_draft,
             mesh_bodies,
             write_export,
             preview_remove_faces,

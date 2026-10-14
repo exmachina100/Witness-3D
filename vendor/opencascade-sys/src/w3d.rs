@@ -56,5 +56,13 @@ mod inner {
         pub fn w3d_shell(shape: &TopoDS_Shape, faces: &[i32], thickness: f64) -> Result<UniquePtr<W3dResult>>;
         pub fn w3d_mirror(shape: &TopoDS_Shape, plane: &[f64]) -> Result<UniquePtr<TopoDS_Shape>>;
         pub fn w3d_remove_faces(shape: &TopoDS_Shape, faces: &[i32]) -> Result<UniquePtr<W3dResult>>;
+        pub fn w3d_cut(shape: &TopoDS_Shape, data: &[f64], length: f64, extra: &TopoDS_Shape) -> Result<UniquePtr<W3dResult>>;
+        pub fn w3d_face_sheet(shape: &TopoDS_Shape, index: i32, size: f64) -> Result<UniquePtr<TopoDS_Shape>>;
+        pub fn w3d_plane_sheet(plane: &[f64], size: f64) -> Result<UniquePtr<TopoDS_Shape>>;
+        pub fn w3d_imprint(shape: &TopoDS_Shape, faces: &[i32], data: &[f64], length: f64, extra: &TopoDS_Shape) -> Result<UniquePtr<W3dResult>>;
+        pub fn w3d_draft_faces(shape: &TopoDS_Shape, faces: &[i32], frame: &[f64], angle: f64) -> Result<UniquePtr<W3dResult>>;
+        pub fn w3d_result_others(r: &W3dResult) -> UniquePtr<TopoDS_Shape>;
+        pub fn w3d_solid_count(shape: &TopoDS_Shape) -> i32;
+        pub fn w3d_solid_at(shape: &TopoDS_Shape, index: i32) -> Result<UniquePtr<TopoDS_Shape>>;
     }
 }

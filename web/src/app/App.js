@@ -96,6 +96,9 @@ const KEYS = {
   'offset-curve': [['D', 'DISTANCE'], ['TYPE', 'IN PANEL'], ['⏎ / RMB', 'OK']],
   'fillet-curve': [['D', 'RADIUS'], ['TYPE', 'IN PANEL'], ['⏎ / RMB', 'OK']],
   'remove-face': [['⇧ CLICK', 'FACES'], ['⏎ / RMB', 'OK']],
+  cut: [['⇧ CLICK', 'SOLIDS · CURVES'], ['⇧ ALT CLICK', 'FACES'], ['P', 'CONSTRUCTION PLANE'], ['⏎ / RMB', 'OK']],
+  draft: [['A', 'ANGLE'], ['⇧ CLICK', 'FACES'], ['⏎ / RMB', 'OK']],
+  imprint: [['⇧ CLICK', 'FACES · CURVES'], ['⇧ ALT CLICK', 'BODY THAT IMPRINTS'], ['⏎ / RMB', 'OK']],
   hole: [['CLICK', 'A FLAT FACE'], ['T', 'THROUGH ALL'], ['TYPE', 'SIZE IN PANEL'], ['⏎ / RMB', 'OK']],
   split: [['CLICK', 'WHERE TO SPLIT'], ['ESC / ⏎', 'DONE']],
   'measure-distance': [['CLICK', 'TWO POINTS'], ['CLICK', 'AGAIN TO RESTART'], ['ESC', 'DONE']],
@@ -124,6 +127,7 @@ const DRAW = {
   polygon: 'REGULAR POLYGON', spline: 'SPLINE CURVE', ellipse: 'CENTER ELLIPSE', ellipse3: 'THREE POINT ELLIPSE',
   'tangent-arc': 'TANGENT ARC', spiral: 'SPIRAL', cv: 'CONTROL POINT CURVE',
 };
+for (const id of Object.keys(DRAW)) KEYS[id]?.splice(-1, 0, ['K', 'KNIFE']);
 // Clicks that finish each drawing; lines and splines go on until closed or finished.
 const CLICKS = { rect: 2, 'center-rect': 2, rect3: 3, circle: 2, circle2: 2, circle3: 3, arc3: 3, arc: 3, polygon: 2, ellipse: 3, ellipse3: 3, 'tangent-arc': 2 };
 // Commands that grow a solid from drawn regions, sharing one panel.
@@ -227,6 +231,7 @@ const SHELL = `
         <button data-draw="more" aria-pressed="false"><kbd>↑</kbd>MORE</button>
         <button data-draw="circumscribed" aria-pressed="false"><kbd>C</kbd>CIRCUMSCRIBED</button>
       </div>
+      <div class="chips"><button data-draw="knife" aria-pressed="false"><kbd>K</kbd>KNIFE</button></div>
       <div class="chips" data-id="draw-vertical" hidden>
         <button data-draw="vertical" aria-pressed="false"><kbd>V</kbd>VERTICAL</button>
       </div>
@@ -284,6 +289,26 @@ const SHELL = `
     <div class="sec" data-panel="remove-face" hidden>
       <span class="hint" data-id="rf-hint">—</span>
       <div class="field"><label>FACES</label><output data-id="rf-count">0</output></div>
+    </div>
+    <div class="sec" data-panel="cut" hidden>
+      <span class="hint" data-id="cut-hint">—</span>
+      <div class="field"><label>SOLIDS</label><output data-id="cut-solids">0</output></div>
+      <div class="field"><label>CURVES</label><output data-id="cut-curves">0</output></div>
+      <div class="field"><label>FACES</label><output data-id="cut-faces">0</output></div>
+      <div class="chips"><button data-id="cut-plane" aria-pressed="false"><kbd>P</kbd>PLANE</button></div>
+      <div class="field"><label>PIECES</label><output data-id="cut-pieces">—</output></div>
+    </div>
+    <div class="sec" data-panel="draft" hidden>
+      <span class="hint" data-id="draft-hint">—</span>
+      <div class="field"><label for="w3d-draft-a">ANGLE °</label><input id="w3d-draft-a" data-id="draft-a" type="number" step="0.5" value="3"></div>
+      <div class="field"><label>FACES</label><output data-id="draft-count">0</output></div>
+      <div class="field"><label>PULL</label><output data-id="draft-pull">—</output></div>
+    </div>
+    <div class="sec" data-panel="imprint" hidden>
+      <span class="hint" data-id="imp-hint">—</span>
+      <div class="field"><label>FACES</label><output data-id="imp-faces">ALL</output></div>
+      <div class="field"><label>CURVES</label><output data-id="imp-curves">0</output></div>
+      <div class="field"><label>BODIES</label><output data-id="imp-bodies">0</output></div>
     </div>
     <div class="sec" data-panel="hole" hidden>
       <span class="hint" data-id="hole-hint">CLICK A FLAT FACE</span>
@@ -405,6 +430,8 @@ const SHELL = `
         <button data-toggle="xray" aria-pressed="false" title="Alt+Z">X-RAY</button>
         <button data-toggle="snap" aria-pressed="false" title="Snap without holding Ctrl">SNAP</button>
         <button data-toggle="curvature" aria-pressed="false" title="Curvature combs on curves (Toggle Curvature)">CURVATURE</button>
+        <button data-toggle="zebra" aria-pressed="false" title="Zebra stripes: reflection lines that kink or break where faces meet without G1 or G2 continuity">ZEBRA</button>
+        <button data-toggle="draft" aria-pressed="false" title="Draft: faces that release along the construction plane's normal by 1° or more in green, undercuts in red, too steep in amber">DRAFT</button>
       </div>
       <div class="stepper"><span>GRID</span><button data-id="grid-dec" aria-label="Smaller grid step">−</button><output data-id="grid">2.5</output><button data-id="grid-inc" aria-label="Larger grid step">+</button></div>
     </div>
@@ -467,8 +494,8 @@ const VIEWS = {
 export async function mount(root, backend) {
   root.innerHTML = SHELL;
   // Panel options carry their icon ahead of the key and name.
-  for (const b of root.querySelectorAll('[data-draw],[data-bop],[data-xop],[data-fop],[data-spiral],[data-id="ex-lock"],[data-id="bool-keep"]')) {
-    const name = b.dataset.draw ?? b.dataset.bop ?? b.dataset.xop ?? b.dataset.fop ?? b.dataset.spiral ?? { 'ex-lock': 'lock', 'bool-keep': 'keep' }[b.dataset.id];
+  for (const b of root.querySelectorAll('[data-draw],[data-bop],[data-xop],[data-fop],[data-spiral],[data-toggle],[data-id="ex-lock"],[data-id="bool-keep"]')) {
+    const name = b.dataset.draw ?? b.dataset.bop ?? b.dataset.xop ?? b.dataset.fop ?? b.dataset.spiral ?? (b.dataset.toggle && `view-${b.dataset.toggle}`) ?? { 'ex-lock': 'lock', 'bool-keep': 'keep' }[b.dataset.id];
     b.insertAdjacentHTML('afterbegin', icon(name));
   }
   const $ = id => root.querySelector(`[data-id="${id}"]`);
@@ -495,8 +522,15 @@ export async function mount(root, backend) {
   // Ctrl+middle-drag zooms smoothly. The left button is for selecting.
   const canvas = root.querySelector('canvas');
   const viewEl = root.querySelector('.view');
-  const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
+  // Without WebGL there is no 3D view: say so on the loading screen rather than hang on it.
+  const NO_GL = '3D VIEW UNAVAILABLE: THE BROWSER COULD NOT START WEBGL. ITS GPU PROCESS IS OFF OR CRASHED, OFTEN WHEN DRIVE C: IS FULL. FREE SOME SPACE, CHECK HARDWARE ACCELERATION IS ON, THEN RESTART THE BROWSER OR APP.';
+  let renderer;
+  try { renderer = new THREE.WebGLRenderer({ canvas, antialias: true }); }
+  catch (e) { $('loading').textContent = NO_GL; throw e; }
   renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+  // The GPU process can also go away later; the browser restores the context when it comes back.
+  canvas.addEventListener('webglcontextlost', e => { e.preventDefault(); $('loading').textContent = NO_GL; $('loading').hidden = false; });
+  canvas.addEventListener('webglcontextrestored', () => { $('loading').hidden = true; });
   const scene = new THREE.Scene();
   scene.background = new THREE.Color(COLORS.ground);
   const persp = new THREE.PerspectiveCamera(36, 1, 1, 4000);
@@ -618,14 +652,41 @@ export async function mount(root, backend) {
   }
 
   // --- drawing what the backend sends ---------------------------------------
-  const view = { edges: true, faces: true, xray: false, snap: false, curvature: false };
+  const view = { edges: true, faces: true, xray: false, snap: false, curvature: false, zebra: false, draft: false };
+  const zebraOn = { value: 0 }, draftOn = { value: 0 }, pull = { value: new THREE.Vector3(0, 1, 0) };
   const faceMat = new THREE.MeshStandardMaterial({ color: COLORS.face, roughness: 0.85, metalness: 0, polygonOffset: true, polygonOffsetFactor: 1, polygonOffsetUnits: 1 });
   const edgeMat = new THREE.LineBasicMaterial({ color: COLORS.ink, transparent: true, opacity: 0.8 });
   const phantom = {
     add: { face: new THREE.MeshBasicMaterial({ color: COLORS.ink, transparent: true, opacity: 0.1, depthWrite: false }), edge: new THREE.LineBasicMaterial({ color: COLORS.ink }) },
     cut: { face: new THREE.MeshBasicMaterial({ color: COLORS.accent, transparent: true, opacity: 0.16, depthWrite: false }), edge: new THREE.LineBasicMaterial({ color: COLORS.accent }) },
   };
+  // Zebra stripes: the faces mirror even bands that run up the screen, so the stripes stay smooth
+  // over G2 joins, kink at G1 ones and break where faces only touch (G0), as surface modelers check
+  // them. Flat faces mirror straight stripes; curved ones bend them.
+  faceMat.onBeforeCompile = shader => {
+    shader.uniforms.zebra = zebraOn;
+    shader.uniforms.draft = draftOn;
+    shader.uniforms.pull = pull;
+    shader.fragmentShader = 'uniform float zebra;\nuniform float draft;\nuniform vec3 pull;\n' + shader.fragmentShader.replace('#include <dithering_fragment>', `
+      if (draft > 0.5) {
+        // Draft analysis: the face's angle to the pull direction, against 1° (sin 1° ≈ 0.01745).
+        vec3 nw = normalize((vec4(normalize(normal), 0.0) * viewMatrix).xyz);
+        float d = dot(nw, normalize(pull));
+        vec3 tint = d > 0.01745 ? vec3(0.30, 0.72, 0.42) : d < -0.01745 ? vec3(0.86, 0.30, 0.26) : vec3(0.93, 0.68, 0.22);
+        gl_FragColor.rgb = tint * (0.55 + 0.45 * abs(normalize(normal).z));
+      } else if (zebra > 0.5) {
+        vec3 r = reflect(normalize(-vViewPosition), normalize(normal));
+        float band = fract((asin(clamp(r.x, -1.0, 1.0)) / 3.14159265 + 0.5) * 24.0);
+        float aa = fwidth(band) * 1.5;
+        float s = smoothstep(0.5 - aa, 0.5 + aa, band) - smoothstep(1.0 - aa, 1.0, band);
+        gl_FragColor.rgb = mix(vec3(0.06), vec3(0.92), s);
+      }
+      #include <dithering_fragment>`);
+  };
   function applyView() {
+    zebraOn.value = view.zebra ? 1 : 0;
+    draftOn.value = view.draft ? 1 : 0;
+    pull.value.copy(cplane.normal);
     faceMat.transparent = view.xray;
     faceMat.opacity = view.xray ? 0.25 : 1;
     faceMat.depthWrite = !view.xray;
@@ -885,7 +946,7 @@ export async function mount(root, backend) {
   const planeOf = () => new THREE.Plane().setFromNormalAndCoplanarPoint(cplane.normal, cplane.origin);
   function setPlane({ origin, normal, name }) {
     cplane.origin.copy(origin);
-    cplane.normal.copy(normal).normalize();
+    cplane.normal.copy(normal).normalize(); pull.value.copy(cplane.normal);
     cplane.name = name;
     grid.position.copy(origin);
     grid.quaternion.setFromUnitVectors(UP, cplane.normal);
@@ -1236,6 +1297,8 @@ export async function mount(root, backend) {
     if (id === 'trim') return startTrim();
     if (id === 'hole') return startHole(opts);
     if (id === 'remove-face') return startRemoveFace();
+    if (id === 'cut') return startCut();
+    if (id === 'imprint') return startImprint();
     if (id === 'extend') return startExtend();
     if (id === 'tangent-circle') return startTangentCircle();
     if (id === 'split') return startSplit();
@@ -1245,6 +1308,7 @@ export async function mount(root, backend) {
     if (id === 'export-mesh') return startExportMesh();
     if (id === 'bridge') return startBridge();
     if (id === 'shell') return startShell();
+    if (id === 'draft') return startDraft();
     if (id === 'mirror') return startMirror();
     if (id === 'rect-array' || id === 'radial-array') return startArray(id);
     if (id === 'spiral') return startSpiral();
@@ -1762,7 +1826,7 @@ export async function mount(root, backend) {
       const normal = new THREE.Vector3(...p.normal);
       const plane = new THREE.Plane().setFromNormalAndCoplanarPoint(normal, new THREE.Vector3(...p.origin));
       const s = e.altKey ? null : snapNear(e, [hit.object], plane);
-      return { origin: onPlane(s ? s.point : grid(hit.point.clone()), plane), normal, target: id, snap: s };
+      return { origin: onPlane(s ? s.point : grid(hit.point.clone()), plane), normal, target: id, face, snap: s };
     }
     const plane = planeOf();
     const at = raycaster.ray.intersectPlane(plane, new THREE.Vector3());
@@ -1913,6 +1977,7 @@ export async function mount(root, backend) {
     $('draw-polygon').hidden = kind !== 'polygon';
     $('draw-vertical').hidden = kind !== 'polygon' && kind !== 'circle';
     for (const b of $$('[data-draw]')) b.setAttribute('aria-pressed', false);
+    c.knife = false;
     c.move = e => {
       if (c.id === 'tangent-arc' && !c.plane) return;
       const p = drawPoint(e);
@@ -1927,6 +1992,12 @@ export async function mount(root, backend) {
       return true;
     };
     c.key = action => {
+      if (action === 'knife') {
+        c.knife = !c.knife;
+        $$('[data-draw="knife"]')[0].setAttribute('aria-pressed', c.knife);
+        setHud(c.knife ? 'KNIFE: THE CURVE CUTS THE FACE IT IS DRAWN ON' : 'KNIFE OFF');
+        return true;
+      }
       if (action === 'square' || action === 'centre') {
         c[action] = !c[action];
         $(`draw-rect`).querySelector(`[data-draw="${action}"]`).setAttribute('aria-pressed', c[action]);
@@ -1996,7 +2067,7 @@ export async function mount(root, backend) {
       const h = placeAt(e);
       if (!h || h.curved) return h;
       const x = frameFor(h.normal);
-      return { plane: { o: h.origin.clone(), n: h.normal.clone(), x, y: new THREE.Vector3().crossVectors(h.normal, x), target: h.target }, uv: new THREE.Vector2(), snap: h.snap };
+      return { plane: { o: h.origin.clone(), n: h.normal.clone(), x, y: new THREE.Vector3().crossVectors(h.normal, x), target: h.target, face: h.face }, uv: new THREE.Vector2(), snap: h.snap };
     }
     ray(e);
     const { o, n, x, y } = c.plane;
@@ -2267,12 +2338,24 @@ export async function mount(root, backend) {
   }
   async function commitCurve(curve, text) {
     if (!backend.addCurves) { endCmd('failed'); return toast('DRAWING IS NOT IN THIS BUILD YET'); }
+    const knife = cmd?.knife ? cmd.plane : null;
     endCmd('committed');
     try {
       const { ids } = await backend.addCurves([curve]);
       record(text, ids[0], curveLabel(ids[0]));
+      if (knife) await knifeCut(knife, ids[0]);
       await loadCurves();
     } catch (e) { setState('failed'); toast(say(e)); }
+  }
+  /** Knife (K): the curve just drawn imprints the face it was drawn on and is used up; it stays when it cannot. */
+  async function knifeCut(plane, curve) {
+    if (plane.target == null || plane.face == null) return toast('KNIFE CUTS FACES; THAT CURVE WAS DRAWN ON THE CONSTRUCTION PLANE');
+    if (!backend.commitImprint) return toast('KNIFE IS NOT IN THIS BUILD YET');
+    try {
+      const { id, scene: list } = await backend.commitImprint({ body: plane.target, faces: [plane.face], curves: [curve], consume: true });
+      record('KNIFE', id);
+      await showScene(list);
+    } catch (e) { toast(`KNIFE: ${say(e)}`); }
   }
 
   // --- Spiral -------------------------------------------------------------------
@@ -2888,6 +2971,134 @@ export async function mount(root, backend) {
         const { id, scene: list } = await backend.commitRemoveFaces(c.request());
         endCmd('committed');
         record(`REMOVE FACE ×${c.faces.length}`, id);
+        await showScene(list);
+        sel.replace({ kind: 'solid', body: id });
+        selectionChanged({ quiet: true });
+      } catch (e) { setState('failed'); toast(say(e)); }
+    };
+    c.abort = () => endCmd('cancelled');
+    c.cleanup = () => clearPreview();
+    c.onSelection();
+  }
+
+  /**
+   * Plasticity's Cut: select the solids and the curves drawn across them, then Cut. Each curve
+   * cuts straight through along its plane's normal; every piece becomes its own body, the biggest
+   * keeping the solid's name. Shift+click adds or drops solids and curves while the preview shows.
+   */
+  function startCut() {
+    if (!backend.previewCut) return toast('CUT IS NOT IN THIS BUILD YET');
+    const c = cmd = { id: 'cut', bodies: [], curves: [], faces: [], plane: false, sent: 0, shown: 0 };
+    lastTool = 'cut';
+    showTool('cut');
+    setState('none');
+    $('cut-plane').setAttribute('aria-pressed', 'false');
+    c.request = () => ({ bodies: c.bodies, curves: c.curves, tools: { faces: c.faces, plane: c.plane ? { origin: cplane.origin.toArray(), normal: cplane.normal.toArray() } : null } });
+    c.key = action => {
+      if (action !== 'plane') return false;
+      c.plane = !c.plane;
+      $('cut-plane').setAttribute('aria-pressed', c.plane);
+      c.onSelection();
+      return true;
+    };
+    c.preview = () => livePreview(c, () => backend.previewCut(c.request()), list => {
+      showCopies(list);
+      $('cut-pieces').textContent = list.length;
+      setHud(`CUT INTO ${list.length} PIECES`);
+    }, 'cut-hint');
+    c.onSelection = () => {
+      drawOverlays();
+      c.bodies = sel.solids.filter(b => !hidden.has(b));
+      c.curves = sel.curves.filter(curveById);
+      c.faces = sel.list('face').map(it => ({ body: it.body, face: it.n }));
+      $('cut-solids').textContent = c.bodies.length;
+      $('cut-curves').textContent = c.curves.length;
+      $('cut-faces').textContent = c.faces.length;
+      $('cut-pieces').textContent = '—';
+      setTarget(c.bodies.length === 1 ? label(c.bodies[0]) : c.bodies.length ? `${c.bodies.length} SOLIDS` : '—');
+      const by = [c.curves.length && `${c.curves.length} CURVE${c.curves.length > 1 ? 'S' : ''}`, c.faces.length && `${c.faces.length} FACE${c.faces.length > 1 ? 'S' : ''}`, c.plane && `PLANE ${cplane.name}`].filter(Boolean);
+      const missing = !c.bodies.length ? 'SELECT THE SOLIDS TO CUT' : !by.length ? 'SELECT CURVES OR FACES, OR P FOR THE PLANE' : null;
+      $('cut-hint').textContent = missing ?? `${c.bodies.length} SOLID${c.bodies.length > 1 ? 'S' : ''} · ${by.join(' · ')}`;
+      if (missing) { clearPreview(); return setHud(missing); }
+      c.preview();
+    };
+    c.click = e => {
+      if (!(e.ctrlKey || e.metaKey || e.shiftKey)) return true;
+      const hit = pickAt(e);
+      if (hit?.kind === 'curve') sel.toggle({ kind: 'curve', id: hit.id });
+      else if (hit?.kind === 'face' && e.altKey) sel.toggle({ kind: 'face', body: hit.body, n: hit.n });
+      else if (hit?.body !== undefined) sel.toggle({ kind: 'solid', body: hit.body });
+      else return true;
+      selectionChanged();
+      return true;
+    };
+    c.finish = async () => {
+      if (!c.bodies.length || !(c.curves.length || c.faces.length || c.plane)) { setState('failed'); return toast($('cut-hint').textContent); }
+      try {
+        const { ids, scene: list } = await backend.commitCut(c.request());
+        endCmd('committed');
+        record(`CUT${c.plane ? ` BY PLANE ${cplane.name}` : ''}${c.curves.length ? ` ×${c.curves.length} CURVE` : ''}${c.faces.length ? ` ×${c.faces.length} FACE` : ''}`, ids[0], `${ids.length} PIECES`);
+        await showScene(list);
+        sel.clear();
+        for (const b of ids) sel.add({ kind: 'solid', body: b });
+        selectionChanged({ quiet: true });
+      } catch (e) { setState('failed'); toast(say(e)); }
+    };
+    c.abort = () => endCmd('cancelled');
+    c.cleanup = () => clearPreview();
+    c.onSelection();
+  }
+
+  /**
+   * Plasticity's Imprint: the selected curves projected along their planes' normals onto the
+   * selected faces of one solid (every face when the solid itself is selected), splitting them
+   * there. The body stays whole; the new edges can be filleted and the new faces pushed or pulled.
+   */
+  function startImprint() {
+    if (!backend.previewImprint) return toast('IMPRINT IS NOT IN THIS BUILD YET');
+    const c = cmd = { id: 'imprint', body: null, faces: [], curves: [], tools: [], sent: 0, shown: 0 };
+    lastTool = 'imprint';
+    showTool('imprint');
+    setState('none');
+    c.request = () => ({ body: c.body, faces: c.faces, curves: c.curves, tools: { bodies: c.tools } });
+    c.preview = () => livePreview(c, () => backend.previewImprint(c.request()), b => {
+      showPreviewBody(b);
+      setHud(`IMPRINT ${c.curves.length} CURVE${c.curves.length > 1 ? 'S' : ''}`);
+    }, 'imp-hint');
+    c.onSelection = () => {
+      drawOverlays();
+      // The faces' body, or the first solid picked, takes the imprint; other solids make it.
+      const fb = faceBody(), solids = sel.solids.filter(b => !hidden.has(b));
+      c.body = fb ?? solids[0] ?? null;
+      c.faces = fb === null ? [] : sel.list('face').map(it => it.n).sort((x, y) => x - y);
+      c.curves = sel.curves.filter(curveById);
+      c.tools = solids.filter(b => b !== c.body);
+      $('imp-faces').textContent = c.faces.length || 'ALL';
+      $('imp-curves').textContent = c.curves.length;
+      $('imp-bodies').textContent = c.tools.length;
+      setTarget(c.body === null ? '—' : label(c.body));
+      const by = [c.curves.length && `${c.curves.length} CURVE${c.curves.length > 1 ? 'S' : ''}`, ...c.tools.map(label)].filter(Boolean);
+      const missing = c.body === null ? 'SELECT FACES OF ONE SOLID, OR THE SOLID' : !by.length ? 'SELECT CURVES, OR ANOTHER SOLID THAT MEETS IT' : null;
+      $('imp-hint').textContent = missing ?? `${by.join(' · ')} ON ${c.faces.length || 'ALL'} FACE${c.faces.length === 1 ? '' : 'S'} OF ${label(c.body)}`;
+      if (missing) { clearPreview(); return setHud(missing); }
+      c.preview();
+    };
+    c.click = e => {
+      if (!(e.ctrlKey || e.metaKey || e.shiftKey)) return true;
+      const hit = pickAt(e);
+      if (hit?.kind === 'curve') sel.toggle({ kind: 'curve', id: hit.id });
+      else if (hit?.kind === 'face' && e.altKey) sel.toggle({ kind: 'solid', body: hit.body });
+      else if (hit?.kind === 'face') sel.toggle({ kind: 'face', body: hit.body, n: hit.n });
+      else return true;
+      selectionChanged();
+      return true;
+    };
+    c.finish = async () => {
+      if (c.body === null || !(c.curves.length || c.tools.length)) { setState('failed'); return toast($('imp-hint').textContent); }
+      try {
+        const { id, scene: list } = await backend.commitImprint(c.request());
+        endCmd('committed');
+        record(`IMPRINT${c.curves.length ? ` ×${c.curves.length} CURVE` : ''}${c.tools.length ? ` ${c.tools.map(label).join(' ')}` : ''}`, id);
         await showScene(list);
         sel.replace({ kind: 'solid', body: id });
         selectionChanged({ quiet: true });
@@ -3575,6 +3786,61 @@ export async function mount(root, backend) {
     }
   }
 
+  /**
+   * Plasticity's Draft Face: the selected faces of one solid tilt about the construction plane, the
+   * neutral plane, so the part leaves its mould along the plane's normal. A types the angle; the
+   * DRAFT view shows which faces still need it.
+   */
+  function startDraft() {
+    const body = faceBody();
+    if (body === null) return toast(sel.list('face').length ? 'DRAFT THE FACES OF ONE SOLID AT A TIME' : 'SELECT THE FACES TO DRAFT');
+    if (!backend.previewDraft) return toast('DRAFT FACE IS NOT IN THIS BUILD YET');
+    const c = cmd = { id: 'draft', body, faces: [], sent: 0, shown: 0 };
+    lastTool = 'draft';
+    showTool('draft');
+    setState('none');
+    $('draft-pull').textContent = cplane.name;
+    c.request = () => ({ body: c.body, faces: c.faces, pull: cplane.normal.toArray(), origin: cplane.origin.toArray(), angle: num('draft-a') * DEG });
+    c.preview = () => livePreview(c, () => backend.previewDraft(c.request()), b => { showPreviewBody(b); setHud(`DRAFT ${num('draft-a')}°`); }, 'draft-hint');
+    c.onSelection = () => {
+      drawOverlays();
+      const b = faceBody();
+      if (b === null) return setHud('SELECT FACES OF ONE SOLID TO DRAFT');
+      c.body = b;
+      c.faces = sel.list('face').map(it => it.n).sort((x, y) => x - y);
+      setTarget(label(b));
+      $('draft-count').textContent = c.faces.length;
+      $('draft-hint').textContent = `${c.faces.length} FACE${c.faces.length > 1 ? 'S' : ''} OF ${label(b)} ABOUT PLANE ${cplane.name}`;
+      c.preview();
+    };
+    c.key = action => {
+      if (action !== 'angle') return false;
+      c.entry = { label: 'ANGLE', text: '', apply: v => { $('draft-a').value = v; c.preview(); } };
+      setHud('ANGLE _');
+      return true;
+    };
+    c.click = e => {
+      const hit = pickAt(e);
+      if (hit?.kind !== 'face' || !(e.ctrlKey || e.metaKey || e.shiftKey)) return true;
+      sel.toggle({ kind: 'face', body: hit.body, n: hit.n });
+      selectionChanged();
+      return true;
+    };
+    c.finish = async () => {
+      try {
+        const { id, scene: list } = await backend.commitDraft(c.request());
+        endCmd('committed');
+        record(`DRAFT ${num('draft-a')}° ×${c.faces.length}`, id);
+        await showScene(list);
+        sel.replace({ kind: 'solid', body: id });
+        selectionChanged({ quiet: true });
+      } catch (e) { setState('failed'); toast(say(e)); }
+    };
+    c.abort = () => endCmd('cancelled');
+    c.cleanup = () => clearPreview();
+    c.onSelection();
+  }
+
   function startShell() {
     const body = faceBody();
     if (body === null) return toast(sel.list('face').length ? 'SHELL THE FACES OF ONE SOLID AT A TIME' : 'SELECT THE FACES TO LEAVE OPEN');
@@ -3950,6 +4216,8 @@ export async function mount(root, backend) {
         else if (arg === 'focus') focus();
         else if (arg === 'xray') { view.xray = !view.xray; applyView(); }
         else if (arg === 'curvature') { view.curvature = !view.curvature; applyView(); }
+        else if (arg === 'zebra') { view.zebra = !view.zebra; applyView(); }
+        else if (arg === 'draft') { view.draft = !view.draft; applyView(); }
         else setView(arg);
         return true;
       case 'mode': sel.setMode(arg); renderModes(); hover = null; drawOverlays(); return true;
@@ -4017,6 +4285,9 @@ export async function mount(root, backend) {
     if (kinds.has('edge')) out.push('tool:fillet', 'measure:radius');
     if (kinds.has('region')) out.push('tool:extrude', 'tool:revolve', 'tool:loft', 'tool:sweep');
     if (kinds.has('curve') || kinds.has('region')) {
+      if (kinds.has('solid')) out.push('tool:cut', 'tool:imprint');
+      if (kinds.has('face')) out.push('tool:imprint');
+      if (kinds.has('face')) out.push('tool:draft');
       out.push('trim', 'split', 'extend', 'tool:offset-curve', 'tool:fillet-curve');
       if (sel.curves.length === 2) out.push('tool:bridge');
       if (sel.curves.length > 1) out.push('join');
@@ -4320,9 +4591,11 @@ export async function mount(root, backend) {
   for (const id of ['prim-w', 'prim-d', 'prim-r', 'prim-h']) $(id).addEventListener('input', () => PRIMS[cmd?.id] && cmd.fromFields(id));
   for (const b of $$('[data-popt], [data-pop]')) b.onclick = () => PRIMS[cmd?.id] && cmd.key(b.dataset.popt ?? b.dataset.pop);
   $('shell-t').addEventListener('input', () => cmd?.id === 'shell' && cmd.preview());
+  $('draft-a').addEventListener('input', () => cmd?.id === 'draft' && cmd.preview());
   for (const id of ['mirror-at', 'ra-cx', 'ra-cy', 'ra-cz', 'ra-sx', 'ra-sy', 'ra-sz', 'rr-count', 'rr-angle']) $(id).addEventListener('input', () => cmd?.preview?.());
   for (const b of $$('[data-mx], [data-rx]')) b.onclick = () => cmd?.key?.(b.dataset.mx ?? b.dataset.rx);
   for (const id of ['mirror-join', 'ra-join', 'rr-join']) $(id).onclick = () => cmd?.key?.('join');
+  $('cut-plane').onclick = () => cmd?.id === 'cut' && cmd.key('plane');
   $('bool-keep').onclick = () => cmd?.id === 'boolean' && cmd.key('keep');
   for (const b of $$('[data-draw]')) b.onclick = () => DRAW[cmd?.id] && cmd.key(b.dataset.draw);
   $('commit').onclick = () => finish();
@@ -4482,7 +4755,7 @@ export async function mount(root, backend) {
      * The selection is named by ref: `edges` (fillet), `body` (move, rotate, scale) or `face` (push/pull).
      */
     async run(id, args = {}) {
-      const { edges, body, bodies: ids, face, faces, region, regions, path, target, tools, curves: curveIds, ...rest } = args;
+      const { edges, body, bodies: ids, face, faces, region, regions, path, target, tools, curves: curveIds, with: withBodies, ...rest } = args;
       const errors = check(id, rest);
       if (errors.length) throw new Error(errors.join('; '));
       const p = withDefaults(id, rest);
@@ -4549,6 +4822,15 @@ export async function mount(root, backend) {
         cmd.auto = false;
         if (p.angle) setOffsetAngle(p.angle);
         setOffsetDistance(p.distance ?? 0, false);
+      } else if (id === 'draft') {
+        const b = current.find(x => (faces ?? []).every(r => x.faceRefs?.includes(r)));
+        if (!b || !faces?.length) throw new Error('give faces of one body to draft');
+        sel.clear();
+        for (const r of faces) sel.add({ kind: 'face', body: b.id, n: b.faceRefs.indexOf(r) });
+        selectionChanged({ quiet: true });
+        $('draft-a').value = p.angle;
+        await startTool('draft');
+        if (cmd?.id !== 'draft') throw new Error('those faces cannot be drafted');
       } else if (id === 'remove-face') {
         const b = current.find(x => (faces ?? []).every(r => x.faceRefs?.includes(r)));
         if (!b || !faces?.length) throw new Error('give faces of one body to remove');
@@ -4572,6 +4854,30 @@ export async function mount(root, backend) {
         selectionChanged({ quiet: true });
         $('br-t').value = p.tension;
         await startTool('bridge');
+      } else if (id === 'cut') {
+        const cs = (curveIds ?? []).filter(cid => curveList.some(c => c.id === cid));
+        const bs = (ids ?? []).filter(b => current.some(x => x.id === b));
+        const fs = (faces ?? []).map(r => { const b = current.find(x => x.faceRefs?.includes(r)); return b && { body: b.id, n: b.faceRefs.indexOf(r) }; }).filter(Boolean);
+        if (!bs.length || !(cs.length || fs.length || p.plane)) throw new Error('give the solids to cut, by id, and curves, faces or the plane to cut with');
+        sel.clear();
+        for (const b of bs) sel.add({ kind: 'solid', body: b });
+        for (const cid of cs) sel.add({ kind: 'curve', id: cid });
+        for (const f of fs) sel.add({ kind: 'face', body: f.body, n: f.n });
+        selectionChanged({ quiet: true });
+        await startTool('cut');
+        if (p.plane) cmd.key('plane');
+      } else if (id === 'imprint') {
+        const cs = (curveIds ?? []).filter(cid => curveList.some(c => c.id === cid));
+        const b = body !== undefined ? current.find(x => x.id === body) : current.find(x => (faces ?? []).length && faces.every(r => x.faceRefs?.includes(r)));
+        const others = (withBodies ?? []).filter(o => o !== b?.id && current.some(x => x.id === o));
+        if (!b || !(cs.length || others.length)) throw new Error('give the body or faces of one body to imprint on, and curves or other bodies by id');
+        sel.clear();
+        if (faces?.length) for (const r of faces) sel.add({ kind: 'face', body: b.id, n: b.faceRefs.indexOf(r) });
+        else sel.add({ kind: 'solid', body: b.id });
+        for (const o of others) sel.add({ kind: 'solid', body: o });
+        for (const cid of cs) sel.add({ kind: 'curve', id: cid });
+        selectionChanged({ quiet: true });
+        await startTool('imprint');
       } else if (id === 'offset-curve' || id === 'fillet-curve') {
         const ids = (curveIds ?? []).filter(cid => curveList.some(c => c.id === cid));
         if (!ids.length) throw new Error('give the curves by id');

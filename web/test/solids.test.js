@@ -133,3 +133,92 @@ test('a hole is a round cut: to a depth, or through, as one undo step', async ()
     be.undo();
     close(be.scene()[0].volume, seed.volume, 1e-3);
 });
+
+test('cut splits a body along a drawn line into separate solids, as one undo step', async () => {
+    const be = new LocalBackend();
+    const seed = be.scene()[0]; // 80 × 30 × 50 at x −40..40, y 0..30
+    // A line across the top, drawn on the ground plane: x = 10, from front to back.
+    const { ids: [line] } = await be.addCurves([{ origin: [0, 0, 0], x: [1, 0, 0], normal: [0, 1, 0], kind: 'polyline', points: [[10, -100], [10, 100]], closed: false }]);
+    const preview = await be.previewCut({ bodies: [seed.id], curves: [line] });
+    assert.equal(preview.length, 2);
+    close(preview[0].volume + preview[1].volume, seed.volume, 1e-3);
+    assert.equal(be.scene().length, 1, 'a preview changes nothing');
+    const { ids } = await be.commitCut({ bodies: [seed.id], curves: [line] });
+    assert.equal(ids.length, 2);
+    assert.equal(ids[0], seed.id, 'the bigger piece keeps the id');
+    const vols = be.scene().map(b => b.volume).sort((a, b) => b - a);
+    close(vols[0], 50 * 30 * 50, 1e-3);
+    close(vols[1], 30 * 30 * 50, 1e-3);
+    be.undo();
+    assert.equal(be.scene().length, 1);
+    // A line off to the side cuts nothing.
+    const { ids: [miss] } = await be.addCurves([{ origin: [0, 0, 0], x: [1, 0, 0], normal: [0, 1, 0], kind: 'polyline', points: [[300, -100], [300, 100]], closed: false }]);
+    await assert.rejects(async () => be.commitCut({ bodies: [seed.id], curves: [miss] }), /does not cut/);
+});
+
+test('imprint splits faces where curves cross them and keeps the body whole', async () => {
+    const be = new LocalBackend();
+    const seed = be.scene()[0];
+    const faces = seed.faceRefs.length;
+    const { ids: [line] } = await be.addCurves([{ origin: [0, 0, 0], x: [1, 0, 0], normal: [0, 1, 0], kind: 'polyline', points: [[10, -100], [10, 100]], closed: false }]);
+    const preview = await be.previewImprint({ body: seed.id, curves: [line] });
+    assert.equal(preview.facePlanes.length, faces + 4, 'top, bottom, front and back are split');
+    close(preview.volume, seed.volume, 1e-3);
+    // One face, the knife's way: the curve is used up.
+    const top = [...Array(faces).keys()].find(f => { try { be.imprintResult({ body: seed.id, faces: [f], curves: [line] }); return true; } catch { return false; } });
+    const { id } = await be.commitImprint({ body: seed.id, faces: [top], curves: [line], consume: true });
+    assert.equal(id, seed.id);
+    assert.equal(be.scene().length, 1);
+    assert.equal(be.scene()[0].faceRefs.length, faces + 1);
+    assert.equal((await be.curves()).length, 0, 'the knife uses its curve up');
+    be.undo();
+    assert.equal(be.scene()[0].faceRefs.length, faces);
+    assert.equal((await be.curves()).length, 1);
+    const { ids: [miss] } = await be.addCurves([{ origin: [0, 0, 0], x: [1, 0, 0], normal: [0, 1, 0], kind: 'polyline', points: [[300, -100], [300, 100]], closed: false }]);
+    await assert.rejects(async () => be.commitImprint({ body: seed.id, curves: [miss] }), /do not cross/);
+});
+
+test('cut with a plane or another body\'s face, and imprint one body on another', async () => {
+    const be = new LocalBackend();
+    const seed = be.scene()[0]; // 80 × 30 × 50, x −40..40, y 0..30
+    // A post standing through the top: x −10..10, y 20..40, z −10..10.
+    const { id: post } = await be.commitPrimitive({ kind: 'box', frame: { origin: [-10, 20, 10], x: [1, 0, 0], normal: [0, 1, 0] }, width: 20, depth: 20, height: 20 });
+    const vols = () => be.scene().filter(b => b.id !== post).map(b => b.volume).sort((a, b) => b - a);
+
+    // The plane x = 10.
+    await be.commitCut({ bodies: [seed.id], tools: { plane: { origin: [10, 0, 0], normal: [1, 0, 0] } } });
+    close(vols()[0], 50 * 30 * 50, 1e-3);
+    close(vols()[1], 30 * 30 * 50, 1e-3);
+    be.undo();
+
+    // A side of the post, grown into a plane, cuts the block in two.
+    const faces = be.scene().find(b => b.id === post).facePlanes.length;
+    const side = [...Array(faces).keys()].find(f => { try { return be.cutResult({ bodies: [seed.id], tools: { faces: [{ body: post, face: f }] } })[0][1].pieces.length === 2; } catch { return false; } });
+    assert.ok(side !== undefined, 'a side of the post cuts the block');
+    const { ids } = await be.commitCut({ bodies: [seed.id], tools: { faces: [{ body: post, face: side }] } });
+    assert.equal(ids.length, 2);
+    be.undo();
+
+    // The post imprints its outline on the block's top; the block stays one body.
+    const before = be.scene().find(b => b.id === seed.id).facePlanes.length;
+    await be.commitImprint({ body: seed.id, tools: { bodies: [post] } });
+    const after = be.scene().find(b => b.id === seed.id);
+    assert.equal(after.facePlanes.length, before + 1);
+    close(after.volume, seed.volume, 1e-3);
+    await assert.rejects(async () => be.commitCut({ bodies: [seed.id] }), /cut with/);
+});
+
+test('draft face closes the sides of a block in along the pull, as one undo step', async () => {
+    const be = new LocalBackend();
+    const { id } = await be.commitPrimitive({ kind: 'box', frame: { origin: [100, 0, 10], x: [1, 0, 0], normal: [0, 1, 0] }, width: 20, depth: 20, height: 20 });
+    const faces = be.scene().find(b => b.id === id).facePlanes;
+    const sides = faces.map((p, i) => [p, i]).filter(([p]) => Math.abs(p.normal[1]) < 0.5).map(([, i]) => i);
+    assert.equal(sides.length, 4);
+    const angle = 5 * Math.PI / 180;
+    await be.commitDraft({ body: id, faces: sides, pull: [0, 1, 0], origin: [0, 0, 0], angle });
+    const t = 20 - 2 * 20 * Math.tan(angle);
+    close(be.scene().find(b => b.id === id).volume, 20 / 3 * (400 + t * t + 20 * t), 1e-3);
+    be.undo();
+    close(be.scene().find(b => b.id === id).volume, 8000, 1e-3);
+    await assert.rejects(async () => be.commitDraft({ body: id, faces: sides, pull: [0, 1, 0], origin: [0, 0, 0], angle: 0 }), /not be zero/);
+});

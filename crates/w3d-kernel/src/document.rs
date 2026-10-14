@@ -623,6 +623,96 @@ impl<K: Kernel> Document<K> {
         Ok(body)
     }
 
+    /// Plasticity's Cut, without changing the document: per body, its biggest piece (traced) and the rest.
+    pub fn preview_cut(&self, bodies: &[BodyId], curves: &[CurveId], tools: &Tools) -> Result<Vec<(BodyId, Traced<K::Solid>, Vec<K::Solid>)>, KernelError> {
+        if bodies.is_empty() { return Err(KernelError::Invalid("select a solid to cut")) }
+        let cutters = self.cutters(curves)?;
+        let sheets = self.sheets(tools)?;
+        if cutters.is_empty() && sheets.is_empty() && tools.bodies.is_empty() { return Err(KernelError::Invalid("select curves, faces or a plane to cut with")) }
+        bodies.iter().map(|&id| {
+            let s = self.get(id).ok_or(KernelError::Invalid("that body no longer exists"))?;
+            let extra = self.extra(&sheets, tools, id)?;
+            let (piece, rest) = self.kernel.cut(s, &cutters, &extra, SHEET)?;
+            Ok((id, piece, rest))
+        }).collect()
+    }
+
+    /// The faces and plane of `tools` as cutting sheets.
+    fn sheets(&self, tools: &Tools) -> Result<Vec<K::Solid>, KernelError> {
+        let mut out = Vec::new();
+        for f in &tools.faces {
+            let s = self.get(f.body).ok_or(KernelError::Invalid("that body no longer exists"))?;
+            out.push(self.kernel.face_sheet(s, f.face, SHEET)?);
+        }
+        if let Some(p) = &tools.plane { out.push(self.kernel.plane_sheet(DVec3::from(p.origin), DVec3::from(p.normal), SHEET)?) }
+        Ok(out)
+    }
+
+    /// The sheets and the tool bodies other than `target`, as the kernel takes them.
+    fn extra<'a>(&'a self, sheets: &'a [K::Solid], tools: &Tools, target: BodyId) -> Result<Vec<&'a K::Solid>, KernelError> {
+        let mut out: Vec<&K::Solid> = sheets.iter().collect();
+        for &b in tools.bodies.iter().filter(|&&b| b != target) {
+            out.push(self.get(b).ok_or(KernelError::Invalid("that body no longer exists"))?);
+        }
+        Ok(out)
+    }
+
+    /// The curves as cutting paths with their plane normals, for Cut and Imprint.
+    fn cutters(&self, curves: &[CurveId]) -> Result<Vec<(Path, DVec3)>, KernelError> {
+        curves.iter().map(|id| {
+            let c = self.curve(*id).ok_or(KernelError::Invalid("that curve no longer exists"))?;
+            Ok((c.path(), c.frame().normal))
+        }).collect()
+    }
+
+    /// Plasticity's Imprint, without changing the document: the body with the numbered faces (all
+    /// when `faces` is empty) split where the curves, projected along their normals, cross them.
+    pub fn preview_imprint(&self, body: BodyId, faces: &[u32], curves: &[CurveId], tools: &Tools) -> Result<Traced<K::Solid>, KernelError> {
+        let cutters = self.cutters(curves)?;
+        let s = self.get(body).ok_or(KernelError::Invalid("that body no longer exists"))?;
+        let sheets = self.sheets(tools)?;
+        let extra = self.extra(&sheets, tools, body)?;
+        if cutters.is_empty() && extra.is_empty() { return Err(KernelError::Invalid("select curves or another body to imprint")) }
+        self.kernel.imprint(s, faces, &cutters, &extra, SHEET)
+    }
+
+    /// Imprint as one undoable step; `consume` also deletes the curves (the knife).
+    pub fn commit_imprint(&mut self, body: BodyId, faces: &[u32], curves: &[CurveId], tools: &Tools, consume: bool) -> Result<BodyId, KernelError> {
+        let traced = self.preview_imprint(body, faces, curves, tools)?;
+        self.checkpoint();
+        self.replace_traced(body, traced);
+        if consume { for id in curves { self.state.curves.remove(id); } }
+        Ok(body)
+    }
+
+    /// Plasticity's Draft Face, without changing the document.
+    pub fn preview_draft(&self, body: BodyId, faces: &[u32], pull: DVec3, origin: DVec3, angle: f64) -> Result<Traced<K::Solid>, KernelError> {
+        let s = self.get(body).ok_or(KernelError::Invalid("that body no longer exists"))?;
+        self.kernel.draft_faces(s, faces, pull, origin, angle)
+    }
+
+    /// Draft Face as one undoable step.
+    pub fn commit_draft(&mut self, body: BodyId, faces: &[u32], pull: DVec3, origin: DVec3, angle: f64) -> Result<BodyId, KernelError> {
+        let traced = self.preview_draft(body, faces, pull, origin, angle)?;
+        self.checkpoint();
+        self.replace_traced(body, traced);
+        Ok(body)
+    }
+
+    /// Run a Cut as one undoable step: each body keeps its biggest piece; the others become new
+    /// bodies. Returns every piece's id, the kept ones first for each body.
+    pub fn commit_cut(&mut self, bodies: &[BodyId], curves: &[CurveId], tools: &Tools) -> Result<Vec<BodyId>, KernelError> {
+        let all = self.preview_cut(bodies, curves, tools)?;
+        self.checkpoint();
+        let mut ids = Vec::new();
+        for (id, piece, rest) in all {
+            self.replace_traced(id, piece);
+            ids.push(id);
+            for s in rest { ids.push(self.add_unrecorded(s)); }
+        }
+        Ok(ids)
+    }
+
     /// The copies Mirror or Array would make, per body in `bodies` order, without changing anything.
     fn copies(&self, bodies: &[BodyId], make: impl Fn(&K::Solid) -> Result<Vec<K::Solid>, KernelError>) -> Result<Vec<(BodyId, Vec<K::Solid>)>, KernelError> {
         if bodies.is_empty() { return Err(KernelError::Invalid("select a solid first")) }
@@ -711,4 +801,30 @@ fn chain(a: &History, b: &History) -> History {
         out
     };
     History { faces: [compose(&a.faces[0], &b.faces[0]), vec![]], edges: [compose(&a.edges[0], &b.edges[0]), vec![]], generated_faces: vec![] }
+}
+
+/// How far cutting sheets reach each way: 100 m, past any body the document is likely to hold.
+const SHEET: f64 = 1e5;
+
+/// Cut and Imprint's tools beside curves: faces (grown past their body), a plane, whole bodies.
+#[derive(Default, Clone, Debug, Serialize, Deserialize)]
+pub struct Tools {
+    #[serde(default)]
+    pub faces: Vec<ToolFace>,
+    #[serde(default)]
+    pub plane: Option<ToolPlane>,
+    #[serde(default)]
+    pub bodies: Vec<BodyId>,
+}
+
+#[derive(Clone, Copy, Debug, Serialize, Deserialize)]
+pub struct ToolFace {
+    pub body: BodyId,
+    pub face: u32,
+}
+
+#[derive(Clone, Copy, Debug, Serialize, Deserialize)]
+pub struct ToolPlane {
+    pub origin: [f64; 3],
+    pub normal: [f64; 3],
 }

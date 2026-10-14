@@ -16,8 +16,8 @@ and solid commands, then display and files.
 
 Every creation tool shares the manual's Sketching Essentials keys: **Tab** typed dimensions,
 **X/Y/Z** axis constraint, **K** knife mode (cut faces with the drawn curve), Ctrl to snap while
-moving, Shift for snap reference lines. Knife mode is missing everywhere for now (it needs face
-splitting; see Solid › Imprint).
+moving, Shift for snap reference lines. Knife mode (K) is in every drawing tool: a curve drawn on
+a flat face imprints that face and is used up (round 10).
 
 ## 1. Sketching and primitive tools
 
@@ -88,7 +88,7 @@ splitting; see Solid › Imprint).
 
 | Group | Commands (26.1 options from REA) | Status |
 |---|---|---|
-| Boolean and Cut | Boolean, Cut | Boolean done; Cut (by curve/surface) missing |
+| Boolean and Cut | Boolean, Cut | Boolean done; Cut by curves, faces (flat ones as their plane, round ones as their cylinder) and the construction plane done (both builds); Cut by free-form surface extension missing |
 | Create and Duplicate | Alternative Duplicate, instances | Missing |
 | Surface Creation | Extrude (Individual option), Revolve, Loft, Sweep (alignment, scale, twist), Pipe, Bridge Surface (tension, trim), Constrained Surface, Patch, PolySplines, Square, Xnurbs (boundary, quad-sided) | Extrude, Revolve, Loft, Sweep (scale, twist) done; Individual, sweep alignment, Pipe and all surface creation missing |
 | Deform and Slide | Deform, Deform Solid and Sheet, Slide, Slide Surface CV | Missing |
@@ -97,7 +97,7 @@ splitting; see Solid › Imprint).
 | Extend | Extend, Extend Sheet (extend-sheet shape) | Missing |
 | Fillet | Fillet, Fillet Shell (shell shape, Y-blend) | Fillet and chamfer done; variable radius and Fillet Shell missing |
 | Hollow and Thicken | Hollow, Thicken, Thicken Face | Hollow done (as Shell); Thicken missing |
-| Imprint | Imprint, Imprint Body Body, Imprint Curve Body (method, complete, bidirectional, hide occluded) | Missing |
+| Imprint | Imprint, Imprint Body Body, Imprint Curve Body (method, complete, bidirectional, hide occluded) | Imprint Curve Body and Imprint Body Body done (both builds; curves projected along their plane normals, or where another solid meets the body, onto chosen faces or all faces); the projection options missing |
 | Join and Unjoin | Join, Join Sheets, Unjoin, Unjoin Faces, Unjoin Shells | Missing |
 | Offset | Offset Edge, Offset Face (face-change grow, transform-face step), Offset Face Loop | Offset Face done (+ angle); grow, step, edge and loop missing |
 | Rebuild and Refine | Isoparam, Match Face (side option), Raise (Surface) Degree, Rebuild Face, Reverse Sheet | Missing |
@@ -112,7 +112,7 @@ splitting; see Solid › Imprint).
 | Navigation | View Cube, Camera Settings, Operating the Viewport | Done (axis gizmo, zoom, pan, ortho, frame, home) |
 | Selection | Selection Mode, Selecting Objects, Group Objects, Toggle Object States, Focus and Isolate | Modes and hide done; groups, lock, isolate missing |
 | Menus | P-Menu, Radial Menu, Command Palette, Command Bar | Palette and bar done; toolbar grouped in tool families with variant strips; P-Menu and radial missing |
-| Shader modes | Shader Mode, Render Mode, Curvature (REA: matcap, silhouette, isophotes, zebra stripes, reflection check, topographic, draft, face direction) | Missing |
+| Shader modes | Shader Mode, Render Mode, Curvature (REA: matcap, silhouette, isophotes, zebra stripes, reflection check, topographic, draft, face direction) | Zebra stripes and draft (against the construction plane normal, 1°) done (VIEW › ZEBRA, DRAFT); the rest missing |
 | Materials and lighting | Assets (REA: 22 PBR materials, 14 HDR environments) | Missing (use CC0 assets, not Plasticity's) |
 | Grid, units, snap, construction plane | | Done |
 | Import / export | STEP in/out done; OBJ export (REA: angle tolerance, inflection, max width), SVG export, hidden-line export, reference images | Missing except STEP |

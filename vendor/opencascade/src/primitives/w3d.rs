@@ -193,6 +193,47 @@ impl Shape {
         Ok((Shape::from_shape(&ffi::w3d::w3d_result_shape(&r)), history(&r, 1)))
     }
 
+    /// Split by sheets swept from curves (see `w3d_cut`): the biggest piece with its history, and the rest.
+    /// `extra` are further tools (sheets or solids) beside the curves.
+    pub fn cut_with_history(&self, data: &[f64], length: f64, extra: &[&Shape]) -> Result<(Shape, ShapeHistory, Vec<Shape>), String> {
+        let extra = Shape::from(crate::primitives::Compound::from_shapes(extra.iter().copied()));
+        let r = ffi::w3d::w3d_cut(&self.inner, data, length, &extra.inner).map_err(reason)?;
+        let others = ffi::w3d::w3d_result_others(&r);
+        let rest = (0..ffi::w3d::w3d_solid_count(&others))
+            .map(|i| ffi::w3d::w3d_solid_at(&others, i).map(|s| Shape::from_shape(&s)).map_err(reason))
+            .collect::<Result<Vec<_>, _>>()?;
+        Ok((Shape::from_shape(&ffi::w3d::w3d_result_shape(&r)), history(&r, 1), rest))
+    }
+
+    /// The numbered faces (all when empty) split where sheets swept from curves cross them (see `w3d_imprint`).
+    pub fn imprint_with_history(&self, faces: &[usize], data: &[f64], length: f64, extra: &[&Shape]) -> Result<(Shape, ShapeHistory), String> {
+        let faces: Vec<i32> = faces.iter().map(|&f| f as i32).collect();
+        let extra = Shape::from(crate::primitives::Compound::from_shapes(extra.iter().copied()));
+        let r = ffi::w3d::w3d_imprint(&self.inner, &faces, data, length, &extra.inner).map_err(reason)?;
+        Ok((Shape::from_shape(&ffi::w3d::w3d_result_shape(&r)), history(&r, 1)))
+    }
+
+    /// Face `index` as a cutting tool grown `size` past the body (see `w3d_face_sheet`).
+    pub fn face_sheet(&self, index: usize, size: f64) -> Result<Shape, String> {
+        let sheet = ffi::w3d::w3d_face_sheet(&self.inner, index as i32, size).map_err(reason)?;
+        Ok(Shape::from_shape(&sheet))
+    }
+
+    /// The plane through `origin` with `normal` as a square sheet `size` each way.
+    pub fn plane_sheet(origin: DVec3, normal: DVec3, size: f64) -> Result<Shape, String> {
+        let plane = [origin.x, origin.y, origin.z, normal.x, normal.y, normal.z];
+        let sheet = ffi::w3d::w3d_plane_sheet(&plane, size).map_err(reason)?;
+        Ok(Shape::from_shape(&sheet))
+    }
+
+    /// The numbered faces drafted by `angle` radians about the neutral plane through `origin` square to `pull`.
+    pub fn draft_faces_with_history(&self, faces: &[usize], pull: DVec3, origin: DVec3, angle: f64) -> Result<(Shape, ShapeHistory), String> {
+        let faces: Vec<i32> = faces.iter().map(|&f| f as i32).collect();
+        let frame = [pull.x, pull.y, pull.z, origin.x, origin.y, origin.z];
+        let r = ffi::w3d::w3d_draft_faces(&self.inner, &faces, &frame, angle).map_err(reason)?;
+        Ok((Shape::from_shape(&ffi::w3d::w3d_result_shape(&r)), history(&r, 1)))
+    }
+
     /// A copy reflected in the plane through `origin` with normal `normal`.
     pub fn mirrored_in_plane(&self, origin: DVec3, normal: DVec3) -> Result<Shape, String> {
         let plane = [origin.x, origin.y, origin.z, normal.x, normal.y, normal.z];

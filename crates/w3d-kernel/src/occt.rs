@@ -265,6 +265,31 @@ impl Kernel for Occt {
         Ok(Traced { solid, history: history(h) })
     }
 
+    fn cut(&self, s: &Shape, cutters: &[(Path, DVec3)], extra: &[&Shape], length: f64) -> Result<(Traced<Shape>, Vec<Shape>), KernelError> {
+        let (solid, h, rest) = s.cut_with_history(&cutter_numbers(cutters)?, length, extra).map_err(shim)?;
+        Ok((Traced { solid, history: history(h) }, rest))
+    }
+
+    fn imprint(&self, s: &Shape, faces: &[u32], cutters: &[(Path, DVec3)], extra: &[&Shape], length: f64) -> Result<Traced<Shape>, KernelError> {
+        let faces: Vec<usize> = faces.iter().map(|&f| f as usize).collect();
+        let (solid, h) = s.imprint_with_history(&faces, &cutter_numbers(cutters)?, length, extra).map_err(shim)?;
+        Ok(Traced { solid, history: history(h) })
+    }
+
+    fn draft_faces(&self, s: &Shape, faces: &[u32], pull: DVec3, origin: DVec3, angle: f64) -> Result<Traced<Shape>, KernelError> {
+        let faces: Vec<usize> = faces.iter().map(|&f| f as usize).collect();
+        let (solid, h) = s.draft_faces_with_history(&faces, pull, origin, angle).map_err(shim)?;
+        Ok(Traced { solid, history: history(h) })
+    }
+
+    fn face_sheet(&self, s: &Shape, face: u32, size: f64) -> Result<Shape, KernelError> {
+        s.face_sheet(face as usize, size).map_err(shim)
+    }
+
+    fn plane_sheet(&self, origin: DVec3, normal: DVec3, size: f64) -> Result<Shape, KernelError> {
+        Shape::plane_sheet(origin, normal, size).map_err(shim)
+    }
+
     fn remove_faces(&self, s: &Shape, faces: &[u32]) -> Result<Traced<Shape>, KernelError> {
         let faces: Vec<usize> = faces.iter().map(|&f| f as usize).collect();
         let (solid, h) = s.remove_faces_with_history(&faces).map_err(shim)?;
@@ -335,4 +360,14 @@ impl Kernel for Occt {
     fn to_native(&self, s: &Shape) -> Result<String, KernelError> { s.to_brep_text().map_err(failed) }
 
     fn from_native(&self, text: &str) -> Result<Shape, KernelError> { Shape::from_brep_text(text).map_err(failed) }
+}
+
+/// Cutting curves for the shim: [count, then per curve its plane normal and path numbers].
+fn cutter_numbers(cutters: &[(Path, DVec3)]) -> Result<Vec<f64>, KernelError> {
+    let mut data = vec![cutters.len() as f64];
+    for (path, n) in cutters {
+        data.extend(n.to_array());
+        data.extend(path_numbers(path)?);
+    }
+    Ok(data)
 }

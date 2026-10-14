@@ -45,6 +45,12 @@ const rust = {
     await tauri.core.invoke('write_export', { path, data: Array.from(typeof data === 'string' ? new TextEncoder().encode(data) : data) });
     return `SAVED ${path}`;
   },
+  previewCut: req => tauri.core.invoke('preview_cut', { req }),
+  commitCut: req => tauri.core.invoke('commit_cut', { req }),
+  previewImprint: req => tauri.core.invoke('preview_imprint', { req }),
+  commitImprint: req => tauri.core.invoke('commit_imprint', { req }),
+  previewDraft: req => tauri.core.invoke('preview_draft', { req }),
+  commitDraft: req => tauri.core.invoke('commit_draft', { req }),
   replaceCurves: (ids, curves) => tauri.core.invoke('replace_curves', { req: { ids, curves } }),
   previewPrimitive: req => tauri.core.invoke('preview_primitive', { req }),
   commitPrimitive: req => tauri.core.invoke('commit_primitive', { req }),

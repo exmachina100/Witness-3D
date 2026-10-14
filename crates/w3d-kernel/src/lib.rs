@@ -255,6 +255,30 @@ pub trait Kernel {
     fn shell(&self, _s: &Self::Solid, _faces: &[u32], _thickness: f64) -> Result<Traced<Self::Solid>, KernelError> {
         Err(KernelError::Invalid("this kernel cannot shell"))
     }
+    /// Plasticity's Cut: the solid split by sheets swept `length` both ways from each path along its
+    /// normal. The biggest piece, traced, and the others.
+    /// `extra` are further tools: sheets from `face_sheet` or `plane_sheet`, or solids.
+    fn cut(&self, _s: &Self::Solid, _cutters: &[(Path, DVec3)], _extra: &[&Self::Solid], _length: f64) -> Result<(Traced<Self::Solid>, Vec<Self::Solid>), KernelError> {
+        Err(KernelError::Invalid("this kernel cannot cut"))
+    }
+    /// Plasticity's Imprint: the numbered faces (every face when empty) split where the sheets of
+    /// `cutters` (as for `cut`) cross them. The solid stays whole.
+    fn imprint(&self, _s: &Self::Solid, _faces: &[u32], _cutters: &[(Path, DVec3)], _extra: &[&Self::Solid], _length: f64) -> Result<Traced<Self::Solid>, KernelError> {
+        Err(KernelError::Invalid("this kernel cannot imprint"))
+    }
+    /// A face as a cutting tool grown `size` past the body: a plane, a whole cylinder, or the face itself.
+    fn face_sheet(&self, _s: &Self::Solid, _face: u32, _size: f64) -> Result<Self::Solid, KernelError> {
+        Err(KernelError::Invalid("this kernel cannot cut with faces"))
+    }
+    /// A plane as a cutting tool, a square `size` each way.
+    fn plane_sheet(&self, _origin: DVec3, _normal: DVec3, _size: f64) -> Result<Self::Solid, KernelError> {
+        Err(KernelError::Invalid("this kernel cannot cut with planes"))
+    }
+    /// Plasticity's Draft Face: the numbered faces tilted by `angle` radians about the neutral plane
+    /// through `origin` square to `pull`; positive closes them in along the pull.
+    fn draft_faces(&self, _s: &Self::Solid, _faces: &[u32], _pull: DVec3, _origin: DVec3, _angle: f64) -> Result<Traced<Self::Solid>, KernelError> {
+        Err(KernelError::Invalid("this kernel cannot draft faces"))
+    }
     /// The numbered faces deleted and the gap closed by the faces around them (Remove Face).
     fn remove_faces(&self, _s: &Self::Solid, _faces: &[u32]) -> Result<Traced<Self::Solid>, KernelError> {
         Err(KernelError::Invalid("this kernel cannot remove faces"))
