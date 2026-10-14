@@ -265,15 +265,29 @@ impl Kernel for Occt {
         Ok(Traced { solid, history: history(h) })
     }
 
-    fn cut(&self, s: &Shape, cutters: &[(Path, DVec3)], length: f64) -> Result<(Traced<Shape>, Vec<Shape>), KernelError> {
-        let (solid, h, rest) = s.cut_with_history(&cutter_numbers(cutters)?, length).map_err(shim)?;
+    fn cut(&self, s: &Shape, cutters: &[(Path, DVec3)], extra: &[&Shape], length: f64) -> Result<(Traced<Shape>, Vec<Shape>), KernelError> {
+        let (solid, h, rest) = s.cut_with_history(&cutter_numbers(cutters)?, length, extra).map_err(shim)?;
         Ok((Traced { solid, history: history(h) }, rest))
     }
 
-    fn imprint(&self, s: &Shape, faces: &[u32], cutters: &[(Path, DVec3)], length: f64) -> Result<Traced<Shape>, KernelError> {
+    fn imprint(&self, s: &Shape, faces: &[u32], cutters: &[(Path, DVec3)], extra: &[&Shape], length: f64) -> Result<Traced<Shape>, KernelError> {
         let faces: Vec<usize> = faces.iter().map(|&f| f as usize).collect();
-        let (solid, h) = s.imprint_with_history(&faces, &cutter_numbers(cutters)?, length).map_err(shim)?;
+        let (solid, h) = s.imprint_with_history(&faces, &cutter_numbers(cutters)?, length, extra).map_err(shim)?;
         Ok(Traced { solid, history: history(h) })
+    }
+
+    fn draft_faces(&self, s: &Shape, faces: &[u32], pull: DVec3, origin: DVec3, angle: f64) -> Result<Traced<Shape>, KernelError> {
+        let faces: Vec<usize> = faces.iter().map(|&f| f as usize).collect();
+        let (solid, h) = s.draft_faces_with_history(&faces, pull, origin, angle).map_err(shim)?;
+        Ok(Traced { solid, history: history(h) })
+    }
+
+    fn face_sheet(&self, s: &Shape, face: u32, size: f64) -> Result<Shape, KernelError> {
+        s.face_sheet(face as usize, size).map_err(shim)
+    }
+
+    fn plane_sheet(&self, origin: DVec3, normal: DVec3, size: f64) -> Result<Shape, KernelError> {
+        Shape::plane_sheet(origin, normal, size).map_err(shim)
     }
 
     fn remove_faces(&self, s: &Shape, faces: &[u32]) -> Result<Traced<Shape>, KernelError> {

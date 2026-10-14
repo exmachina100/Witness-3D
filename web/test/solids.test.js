@@ -177,3 +177,48 @@ test('imprint splits faces where curves cross them and keeps the body whole', as
     const { ids: [miss] } = await be.addCurves([{ origin: [0, 0, 0], x: [1, 0, 0], normal: [0, 1, 0], kind: 'polyline', points: [[300, -100], [300, 100]], closed: false }]);
     await assert.rejects(async () => be.commitImprint({ body: seed.id, curves: [miss] }), /do not cross/);
 });
+
+test('cut with a plane or another body\'s face, and imprint one body on another', async () => {
+    const be = new LocalBackend();
+    const seed = be.scene()[0]; // 80 × 30 × 50, x −40..40, y 0..30
+    // A post standing through the top: x −10..10, y 20..40, z −10..10.
+    const { id: post } = await be.commitPrimitive({ kind: 'box', frame: { origin: [-10, 20, 10], x: [1, 0, 0], normal: [0, 1, 0] }, width: 20, depth: 20, height: 20 });
+    const vols = () => be.scene().filter(b => b.id !== post).map(b => b.volume).sort((a, b) => b - a);
+
+    // The plane x = 10.
+    await be.commitCut({ bodies: [seed.id], tools: { plane: { origin: [10, 0, 0], normal: [1, 0, 0] } } });
+    close(vols()[0], 50 * 30 * 50, 1e-3);
+    close(vols()[1], 30 * 30 * 50, 1e-3);
+    be.undo();
+
+    // A side of the post, grown into a plane, cuts the block in two.
+    const faces = be.scene().find(b => b.id === post).facePlanes.length;
+    const side = [...Array(faces).keys()].find(f => { try { return be.cutResult({ bodies: [seed.id], tools: { faces: [{ body: post, face: f }] } })[0][1].pieces.length === 2; } catch { return false; } });
+    assert.ok(side !== undefined, 'a side of the post cuts the block');
+    const { ids } = await be.commitCut({ bodies: [seed.id], tools: { faces: [{ body: post, face: side }] } });
+    assert.equal(ids.length, 2);
+    be.undo();
+
+    // The post imprints its outline on the block's top; the block stays one body.
+    const before = be.scene().find(b => b.id === seed.id).facePlanes.length;
+    await be.commitImprint({ body: seed.id, tools: { bodies: [post] } });
+    const after = be.scene().find(b => b.id === seed.id);
+    assert.equal(after.facePlanes.length, before + 1);
+    close(after.volume, seed.volume, 1e-3);
+    await assert.rejects(async () => be.commitCut({ bodies: [seed.id] }), /cut with/);
+});
+
+test('draft face closes the sides of a block in along the pull, as one undo step', async () => {
+    const be = new LocalBackend();
+    const { id } = await be.commitPrimitive({ kind: 'box', frame: { origin: [100, 0, 10], x: [1, 0, 0], normal: [0, 1, 0] }, width: 20, depth: 20, height: 20 });
+    const faces = be.scene().find(b => b.id === id).facePlanes;
+    const sides = faces.map((p, i) => [p, i]).filter(([p]) => Math.abs(p.normal[1]) < 0.5).map(([, i]) => i);
+    assert.equal(sides.length, 4);
+    const angle = 5 * Math.PI / 180;
+    await be.commitDraft({ body: id, faces: sides, pull: [0, 1, 0], origin: [0, 0, 0], angle });
+    const t = 20 - 2 * 20 * Math.tan(angle);
+    close(be.scene().find(b => b.id === id).volume, 20 / 3 * (400 + t * t + 20 * t), 1e-3);
+    be.undo();
+    close(be.scene().find(b => b.id === id).volume, 8000, 1e-3);
+    await assert.rejects(async () => be.commitDraft({ body: id, faces: sides, pull: [0, 1, 0], origin: [0, 0, 0], angle: 0 }), /not be zero/);
+});

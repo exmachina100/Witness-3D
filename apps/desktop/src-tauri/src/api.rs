@@ -5,7 +5,7 @@ use std::path::PathBuf;
 
 use glam::DVec3;
 use serde::{Deserialize, Serialize};
-use w3d_kernel::document::{BodyId, Document, FormRequest as FormKindRequest};
+use w3d_kernel::document::{BodyId, Document, FormRequest as FormKindRequest, Tools};
 use w3d_kernel::engine::Engine;
 use w3d_kernel::occt::Occt;
 use w3d_kernel::{extrude, file, form, ArraySpec, Primitive, FormParams, Blend, BlendParams, BooleanOp, Curve, CurveId, CurveShape, ExtrudeParams, ExtrudeResult, Frame, Kernel, KernelError, Motion, Operation, Profile, Ref, Refs, Tessellation};
@@ -876,14 +876,18 @@ pub fn write_export(path: PathBuf, data: Vec<u8>) -> Result<(), ApiError> {
 #[derive(Deserialize, Debug, Clone)]
 pub struct CutRequest {
     pub bodies: Vec<BodyId>,
+    #[serde(default)]
     pub curves: Vec<CurveId>,
+    /// Faces, a plane or bodies to cut with beside the curves.
+    #[serde(default)]
+    pub tools: Tools,
 }
 
 /// Every piece the cut would make, the kept ones with their body's id; nothing changes.
 pub fn preview_cut(m: &Model, req: CutRequest) -> Option<Result<Vec<Body>, ApiError>> {
     m.preview(move |doc| {
         let mut out = Vec::new();
-        for (id, piece, rest) in doc.preview_cut(&req.bodies, &req.curves)? {
+        for (id, piece, rest) in doc.preview_cut(&req.bodies, &req.curves, &req.tools)? {
             out.push(body(&doc.kernel, id, &piece.solid)?);
             for s in &rest { out.push(body(&doc.kernel, 0, s)?); }
         }
@@ -893,7 +897,7 @@ pub fn preview_cut(m: &Model, req: CutRequest) -> Option<Result<Vec<Body>, ApiEr
 
 pub fn commit_cut(m: &Model, req: CutRequest) -> Result<Duplicated, ApiError> {
     m.call(move |doc| {
-        let ids = doc.commit_cut(&req.bodies, &req.curves)?;
+        let ids = doc.commit_cut(&req.bodies, &req.curves, &req.tools)?;
         Ok(Duplicated { ids, scene: bodies(doc)? })
     })
 }
@@ -905,21 +909,50 @@ pub struct ImprintRequest {
     pub body: BodyId,
     #[serde(default)]
     pub faces: Vec<u32>,
+    #[serde(default)]
     pub curves: Vec<CurveId>,
+    /// Other bodies to imprint (their intersection with the faces).
+    #[serde(default)]
+    pub tools: Tools,
     #[serde(default)]
     pub consume: bool,
 }
 
 pub fn preview_imprint(m: &Model, req: ImprintRequest) -> Option<Result<Body, ApiError>> {
     m.preview(move |doc| {
-        let t = doc.preview_imprint(req.body, &req.faces, &req.curves)?;
+        let t = doc.preview_imprint(req.body, &req.faces, &req.curves, &req.tools)?;
         Ok(body(&doc.kernel, req.body, &t.solid)?)
     })
 }
 
 pub fn commit_imprint(m: &Model, req: ImprintRequest) -> Result<Committed, ApiError> {
     m.call(move |doc| {
-        let id = doc.commit_imprint(req.body, &req.faces, &req.curves, req.consume)?;
+        let id = doc.commit_imprint(req.body, &req.faces, &req.curves, &req.tools, req.consume)?;
+        Ok(Committed { id, scene: bodies(doc)? })
+    })
+}
+
+/// Plasticity's Draft Face: `faces` of `body` tilted by `angle` radians about the neutral plane
+/// through `origin` square to `pull`.
+#[derive(Deserialize, Debug, Clone)]
+pub struct DraftRequest {
+    pub body: BodyId,
+    pub faces: Vec<u32>,
+    pub pull: [f64; 3],
+    pub origin: [f64; 3],
+    pub angle: f64,
+}
+
+pub fn preview_draft(m: &Model, req: DraftRequest) -> Option<Result<Body, ApiError>> {
+    m.preview(move |doc| {
+        let t = doc.preview_draft(req.body, &req.faces, DVec3::from(req.pull), DVec3::from(req.origin), req.angle)?;
+        Ok(body(&doc.kernel, req.body, &t.solid)?)
+    })
+}
+
+pub fn commit_draft(m: &Model, req: DraftRequest) -> Result<Committed, ApiError> {
+    m.call(move |doc| {
+        let id = doc.commit_draft(req.body, &req.faces, DVec3::from(req.pull), DVec3::from(req.origin), req.angle)?;
         Ok(Committed { id, scene: bodies(doc)? })
     })
 }

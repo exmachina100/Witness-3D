@@ -28,6 +28,7 @@
 #include <BRepAlgoAPI_Defeaturing.hxx>
 #include <BRepAlgoAPI_Splitter.hxx>
 #include <BRepAlgoAPI_Section.hxx>
+#include <TopoDS_Iterator.hxx>
 #include <TopoDS_Compound.hxx>
 #include <algorithm>
 #include <Geom_BSplineCurve.hxx>
@@ -975,7 +976,7 @@ inline TopTools_ListOfShape w3d_cut_sheets(rust::Slice<const double> data, doubl
   const double *p = data.data(), *end = p + data.size();
   if (p >= end) throw std::runtime_error("select the curves to cut with");
   int m = int(*p++);
-  if (m < 1) throw std::runtime_error("select the curves to cut with");
+  if (m < 0) throw std::runtime_error("select the curves to cut with");
   TopTools_ListOfShape sheets;
   for (int i = 0; i < m; i++) {
     if (p + 3 > end) throw std::runtime_error("a cutter is cut short");
@@ -992,8 +993,48 @@ inline TopTools_ListOfShape w3d_cut_sheets(rust::Slice<const double> data, doubl
   return sheets;
 }
 
-inline std::unique_ptr<W3dResult> w3d_cut(const TopoDS_Shape &shape, rust::Slice<const double> data, double length) {
+// The shapes inside `extra` (a compound of further tools: sheets from faces or planes, or solids).
+inline void w3d_append_children(TopTools_ListOfShape &list, const TopoDS_Shape &extra) {
+  if (extra.IsNull()) return;
+  for (TopoDS_Iterator it(extra); it.More(); it.Next()) list.Append(it.Value());
+}
+
+// A face of `shape` as a cutting tool, grown past the body: a plane becomes a square `size` each way,
+// a cylinder its whole round `size` each way along the axis; other faces stay as they are.
+inline std::unique_ptr<TopoDS_Shape> w3d_face_sheet(const TopoDS_Shape &shape, int32_t index, double size) {
+  TopTools_IndexedMapOfShape map;
+  TopExp::MapShapes(shape, TopAbs_FACE, map);
+  if (index < 0 || index >= map.Extent()) throw std::out_of_range("no such face");
+  TopoDS_Face face = TopoDS::Face(map(index + 1));
+  try {
+    BRepAdaptor_Surface surf(face);
+    TopoDS_Shape out;
+    if (surf.GetType() == GeomAbs_Plane) out = BRepBuilderAPI_MakeFace(surf.Plane(), -size, size, -size, size).Face();
+    else if (surf.GetType() == GeomAbs_Cylinder) out = BRepBuilderAPI_MakeFace(surf.Cylinder(), 0.0, 2 * M_PI, -size, size).Face();
+    else out = face;
+    return std::unique_ptr<TopoDS_Shape>(new TopoDS_Shape(out));
+  } catch (const Standard_Failure &f) {
+    throw w3d_kernel_error(f);
+  }
+}
+
+// The plane through (plane[0..3]) with normal (plane[3..6]) as a square sheet `size` each way.
+inline std::unique_ptr<TopoDS_Shape> w3d_plane_sheet(rust::Slice<const double> plane, double size) {
+  if (plane.size() != 6) throw std::runtime_error("a plane is a point and a normal");
+  gp_Vec n(plane[3], plane[4], plane[5]);
+  if (n.Magnitude() < 1e-12) throw std::runtime_error("the plane has no direction");
+  try {
+    gp_Pln pln(gp_Pnt(plane[0], plane[1], plane[2]), gp_Dir(n));
+    return std::unique_ptr<TopoDS_Shape>(new TopoDS_Shape(BRepBuilderAPI_MakeFace(pln, -size, size, -size, size).Face()));
+  } catch (const Standard_Failure &f) {
+    throw w3d_kernel_error(f);
+  }
+}
+
+inline std::unique_ptr<W3dResult> w3d_cut(const TopoDS_Shape &shape, rust::Slice<const double> data, double length, const TopoDS_Shape &extra) {
   TopTools_ListOfShape args, tools = w3d_cut_sheets(data, length);
+  w3d_append_children(tools, extra);
+  if (tools.IsEmpty()) throw std::runtime_error("select curves, faces or a plane to cut with");
   args.Append(shape);
   try {
     BRepAlgoAPI_Splitter mk;
@@ -1023,8 +1064,10 @@ inline std::unique_ptr<W3dResult> w3d_cut(const TopoDS_Shape &shape, rust::Slice
 // Plasticity's Imprint: the curves of `data` (see w3d_cut) projected along their normals onto the
 // numbered faces (all of them when `faces` is empty) and the faces split there. The solid stays whole.
 inline std::unique_ptr<W3dResult> w3d_imprint(const TopoDS_Shape &shape, rust::Slice<const int32_t> faces,
-                                              rust::Slice<const double> data, double length) {
+                                              rust::Slice<const double> data, double length, const TopoDS_Shape &extra) {
   TopTools_ListOfShape sheets = w3d_cut_sheets(data, length);
+  w3d_append_children(sheets, extra);
+  if (sheets.IsEmpty()) throw std::runtime_error("select curves or a body to imprint");
   TopTools_IndexedMapOfShape map;
   TopExp::MapShapes(shape, TopAbs_FACE, map);
   std::vector<TopoDS_Shape> targets;
@@ -1059,6 +1102,43 @@ inline std::unique_ptr<W3dResult> w3d_imprint(const TopoDS_Shape &shape, rust::S
     TopExp::MapShapes(r->shape, TopAbs_FACE, after);
     if (after.Extent() <= map.Extent()) throw std::runtime_error("the curves do not divide those faces; draw them across a face or as closed loops");
     w3d_record(*r, 0, shape, {w3d_step(mk)});
+    return r;
+  } catch (const Standard_Failure &f) {
+    throw w3d_kernel_error(f);
+  }
+}
+
+// Plasticity's Draft Face: the numbered faces tilted by `angle` radians about the neutral plane
+// through (frame[3..6]) square to the pull direction (frame[0..3]). Positive angles close the
+// faces in along the pull, as a part leaving its mould needs. Flat, cylindrical and conical faces.
+inline std::unique_ptr<W3dResult> w3d_draft_faces(const TopoDS_Shape &shape, rust::Slice<const int32_t> faces,
+                                                  rust::Slice<const double> frame, double angle) {
+  if (faces.empty()) throw std::runtime_error("select the faces to draft");
+  if (frame.size() != 6) throw std::runtime_error("a draft needs a pull direction and a point on the neutral plane");
+  if (!(std::fabs(angle) > 1e-9) || !std::isfinite(angle)) throw std::runtime_error("the draft angle must not be zero");
+  if (std::fabs(angle) >= M_PI / 2) throw std::runtime_error("a draft is less than 90 degrees");
+  gp_Vec n(frame[0], frame[1], frame[2]);
+  if (n.Magnitude() < 1e-12) throw std::runtime_error("the pull direction has no length");
+  TopTools_IndexedMapOfShape map;
+  TopExp::MapShapes(shape, TopAbs_FACE, map);
+  try {
+    gp_Dir pull(n);
+    gp_Pln neutral(gp_Pnt(frame[3], frame[4], frame[5]), pull);
+    std::shared_ptr<BRepOffsetAPI_DraftAngle> draft(new BRepOffsetAPI_DraftAngle(shape));
+    for (int32_t f : faces) {
+      if (f < 0 || f >= map.Extent()) throw std::out_of_range("no such face");
+      draft->Add(TopoDS::Face(map(f + 1)), pull, angle, neutral);
+      if (!draft->AddDone()) throw std::runtime_error("that face cannot be drafted; faces square to the pull, or free-form ones, cannot");
+    }
+    draft->Build();
+    if (!draft->IsDone()) throw std::runtime_error("the faces cannot be drafted that far; try a smaller angle");
+    std::unique_ptr<W3dResult> r(new W3dResult());
+    r->shape = draft->Shape();
+    if (!w3d_is_valid(r->shape)) throw std::runtime_error("drafting that far breaks the body; try a smaller angle");
+    w3d_record(*r, 0, shape, {[draft](const TopoDS_Shape &s, TopTools_ListOfShape &out) {
+      // DraftAngle reports nothing as Modified; ModifiedShape gives each image.
+      try { out.Append(draft->ModifiedShape(s)); } catch (const Standard_Failure &) { out.Append(s); }
+    }});
     return r;
   } catch (const Standard_Failure &f) {
     throw w3d_kernel_error(f);

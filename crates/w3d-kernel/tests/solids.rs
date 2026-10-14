@@ -7,7 +7,7 @@ use std::f64::consts::{PI, TAU};
 
 use glam::DVec3;
 use opencascade::primitives::Shape;
-use w3d_kernel::document::Document;
+use w3d_kernel::document::{Document, ToolFace, ToolPlane, Tools};
 use w3d_kernel::occt::Occt;
 use w3d_kernel::solids::{mirror, primitive, shell};
 use w3d_kernel::*;
@@ -189,7 +189,7 @@ fn cut_splits_a_block_along_a_drawn_line() {
     doc.clear_history();
     let ground = [0.0, 0.0, 0.0];
     let line = doc.commit_curves(vec![Curve { origin: ground, x: [1.0, 0.0, 0.0], normal: [0.0, 1.0, 0.0], shape: CurveShape::Polyline { points: vec![[10.0, -100.0], [10.0, 100.0]], closed: false } }]).unwrap()[0];
-    let ids = doc.commit_cut(&[block], &[line]).unwrap();
+    let ids = doc.commit_cut(&[block], &[line], &Tools::default()).unwrap();
     assert_eq!(ids.len(), 2);
     assert_eq!(ids[0], block, "the bigger piece keeps the id");
     close(volume(&doc.kernel, doc.get(ids[0]).unwrap()), 50.0 * 30.0 * 50.0, 1e-6);
@@ -197,7 +197,7 @@ fn cut_splits_a_block_along_a_drawn_line() {
     assert!(doc.undo());
     assert_eq!(doc.ids().len(), 1);
     let miss = doc.commit_curves(vec![Curve { origin: ground, x: [1.0, 0.0, 0.0], normal: [0.0, 1.0, 0.0], shape: CurveShape::Polyline { points: vec![[300.0, -100.0], [300.0, 100.0]], closed: false } }]).unwrap()[0];
-    assert!(doc.commit_cut(&[block], &[miss]).is_err());
+    assert!(doc.commit_cut(&[block], &[miss], &Tools::default()).is_err());
 }
 
 #[test]
@@ -208,7 +208,7 @@ fn imprint_splits_faces_and_keeps_the_body_whole() {
     let ground = [0.0, 0.0, 0.0];
     let line = doc.commit_curves(vec![Curve { origin: ground, x: [1.0, 0.0, 0.0], normal: [0.0, 1.0, 0.0], shape: CurveShape::Polyline { points: vec![[10.0, -100.0], [10.0, 100.0]], closed: false } }]).unwrap()[0];
     // Every face the line's sheet crosses: top, bottom, front and back.
-    let id = doc.commit_imprint(block, &[], &[line], false).unwrap();
+    let id = doc.commit_imprint(block, &[], &[line], &Tools::default(), false).unwrap();
     assert_eq!(id, block);
     assert_eq!(doc.ids().len(), 1, "the body stays whole");
     assert_eq!(doc.kernel.face_count(doc.get(block).unwrap()), 10);
@@ -216,10 +216,62 @@ fn imprint_splits_faces_and_keeps_the_body_whole() {
     assert!(doc.undo());
     assert_eq!(doc.kernel.face_count(doc.get(block).unwrap()), 6);
     // One face only, and the knife's way: the curve is used up.
-    let top = (0..6).find(|&f| doc.preview_imprint(block, &[f], &[line]).is_ok()).unwrap();
-    doc.commit_imprint(block, &[top], &[line], true).unwrap();
+    let top = (0..6).find(|&f| doc.preview_imprint(block, &[f], &[line], &Tools::default()).is_ok()).unwrap();
+    doc.commit_imprint(block, &[top], &[line], &Tools::default(), true).unwrap();
     assert_eq!(doc.kernel.face_count(doc.get(block).unwrap()), 7);
     assert!(doc.curve(line).is_none(), "the knife uses its curve up");
     let miss = doc.commit_curves(vec![Curve { origin: ground, x: [1.0, 0.0, 0.0], normal: [0.0, 1.0, 0.0], shape: CurveShape::Polyline { points: vec![[300.0, -100.0], [300.0, 100.0]], closed: false } }]).unwrap()[0];
-    assert!(doc.commit_imprint(block, &[], &[miss], false).is_err());
+    assert!(doc.commit_imprint(block, &[], &[miss], &Tools::default(), false).is_err());
+}
+
+#[test]
+fn cut_with_a_plane_or_a_face_and_imprint_one_body_on_another() {
+    let mut doc = Document::new(Occt);
+    let block = doc.add(doc.kernel.box_from_corners(DVec3::new(-40.0, 0.0, -25.0), DVec3::new(40.0, 30.0, 25.0)));
+    // A post standing through the block's top: x and z −10..10, y 20..40.
+    let post = doc.add(doc.kernel.box_from_corners(DVec3::new(-10.0, 20.0, -10.0), DVec3::new(10.0, 40.0, 10.0)));
+    doc.clear_history();
+    let vols = |doc: &Document<Occt>, ids: &[u32]| { let mut v: Vec<f64> = ids.iter().map(|&i| volume(&doc.kernel, doc.get(i).unwrap())).collect(); v.sort_by(|a, b| b.partial_cmp(a).unwrap()); v };
+
+    // The plane x = 10.
+    let plane = Tools { plane: Some(ToolPlane { origin: [10.0, 0.0, 0.0], normal: [1.0, 0.0, 0.0] }), ..Tools::default() };
+    let ids = doc.commit_cut(&[block], &[], &plane).unwrap();
+    let v = vols(&doc, &ids);
+    close(v[0], 50.0 * 30.0 * 50.0, 1e-6);
+    close(v[1], 30.0 * 30.0 * 50.0, 1e-6);
+    assert!(doc.undo());
+
+    // A side of the post, grown into a plane, cuts the block at x = −10 or 10 (or z): 30 and 50 wide.
+    let side = (0..6).find(|&f| {
+        let t = Tools { faces: vec![ToolFace { body: post, face: f }], ..Tools::default() };
+        doc.preview_cut(&[block], &[], &t).map(|r| r[0].2.len() == 1).unwrap_or(false)
+    }).expect("a side of the post cuts the block");
+    let ids = doc.commit_cut(&[block], &[], &Tools { faces: vec![ToolFace { body: post, face: side }], ..Tools::default() }).unwrap();
+    assert_eq!(ids.len(), 2);
+    assert!(doc.undo());
+
+    // The post imprints its outline on the block's top; the block stays one body.
+    let faces = doc.kernel.face_count(doc.get(block).unwrap());
+    doc.commit_imprint(block, &[], &[], &Tools { bodies: vec![post], ..Tools::default() }, false).unwrap();
+    assert_eq!(doc.kernel.face_count(doc.get(block).unwrap()), faces + 1);
+    close(volume(&doc.kernel, doc.get(block).unwrap()), 80.0 * 30.0 * 50.0, 1e-6);
+    // Nothing to cut with is refused.
+    assert!(doc.commit_cut(&[block], &[], &Tools::default()).is_err());
+}
+
+#[test]
+fn draft_closes_the_sides_of_a_block_in_along_the_pull() {
+    let mut doc = Document::new(Occt);
+    let block = doc.add(doc.kernel.box_from_corners(DVec3::new(-10.0, 0.0, -10.0), DVec3::new(10.0, 20.0, 10.0)));
+    doc.clear_history();
+    // The four sides: the faces the pull (up) can draft; the top and bottom are refused one by one.
+    let sides: Vec<u32> = (0..6).filter(|&f| doc.preview_draft(block, &[f], DVec3::Y, DVec3::ZERO, 0.05).is_ok()).collect();
+    assert_eq!(sides.len(), 4);
+    let angle = 5f64.to_radians();
+    doc.commit_draft(block, &sides, DVec3::Y, DVec3::ZERO, angle).unwrap();
+    // A frustum: 20 × 20 at the base, closing in by 20·tan 5° on each side over its 20 height.
+    let t = 20.0 - 2.0 * 20.0 * angle.tan();
+    close(volume(&doc.kernel, doc.get(block).unwrap()), 20.0 / 3.0 * (400.0 + t * t + 20.0 * t), 1e-6);
+    assert!(doc.undo());
+    assert!(doc.commit_draft(block, &sides, DVec3::Y, DVec3::ZERO, 0.0).is_err());
 }
