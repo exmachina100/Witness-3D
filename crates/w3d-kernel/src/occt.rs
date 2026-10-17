@@ -201,6 +201,20 @@ impl Kernel for Occt {
         s.extrude_face_shaped(face as usize, normal.normalize().to_array(), e.distance, e.back, e.angle, e.thickness).map_err(shim)
     }
 
+    fn extrude_along(&self, profile: &Profile, frame: &Frame, dir: DVec3, e: &Extent) -> Result<Shape, KernelError> {
+        Shape::extrude_section(&section(profile, frame)?, dir.normalize().to_array(), e.distance, e.back, e.angle, e.thickness).map_err(shim)
+    }
+
+    fn extrude_face_along(&self, s: &Shape, face: u32, dir: DVec3, e: &Extent) -> Result<Shape, KernelError> {
+        s.face_at(face as usize).ok_or(KernelError::Invalid("that face no longer exists"))?;
+        s.extrude_face_shaped(face as usize, dir.normalize().to_array(), e.distance, e.back, e.angle, e.thickness).map_err(shim)
+    }
+
+    fn face_normal(&self, s: &Shape, face: u32) -> Option<DVec3> {
+        let n = s.face_at(face as usize)?.normal_at_center();
+        (n.is_finite() && n.length() > 0.5).then(|| n.normalize())
+    }
+
     fn boolean(&self, a: &Shape, b: &Shape, op: BooleanOp) -> Result<Traced<Shape>, KernelError> {
         let kind = match op {
             BooleanOp::Union => BooleanKind::Union,

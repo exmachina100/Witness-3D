@@ -227,6 +227,16 @@ pub trait Kernel {
     /// Sweep the numbered face of `s` along its outward normal as `extent` says (negative goes in).
     fn extrude_face(&self, s: &Self::Solid, face: u32, extent: &Extent) -> Result<Self::Solid, KernelError>;
     /// The boolean result, with coplanar faces merged, and where its faces and edges came from.
+    /// `profile` extruded along the unit `dir` instead of its plane's normal (Plasticity's Freestyle).
+    fn extrude_along(&self, _profile: &Profile, _frame: &Frame, _dir: DVec3, _extent: &Extent) -> Result<Self::Solid, KernelError> {
+        Err(KernelError::Invalid("this kernel cannot extrude along a free direction"))
+    }
+    /// The numbered face extruded along the unit `dir`.
+    fn extrude_face_along(&self, _s: &Self::Solid, _face: u32, _dir: DVec3, _extent: &Extent) -> Result<Self::Solid, KernelError> {
+        Err(KernelError::Invalid("this kernel cannot extrude along a free direction"))
+    }
+    /// The outward normal at the middle of the numbered face.
+    fn face_normal(&self, _s: &Self::Solid, _face: u32) -> Option<DVec3> { None }
     fn boolean(&self, a: &Self::Solid, b: &Self::Solid, op: BooleanOp) -> Result<Traced<Self::Solid>, KernelError>;
     /// Whether the shape is a sheet: faces that enclose no solid, as Patch makes.
     fn is_sheet(&self, _s: &Self::Solid) -> bool { false }

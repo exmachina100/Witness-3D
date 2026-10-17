@@ -130,6 +130,15 @@ pub struct ExtrudeRequest {
     /// Wall thickness; zero for a filled solid (Shift+T).
     #[serde(default)]
     pub thickness: f64,
+    /// Freestyle (F): the direction to extrude in instead of the normal.
+    #[serde(default)]
+    pub direction: Option<[f64; 3]>,
+    /// More faces of the same body to extrude with `face`.
+    #[serde(default)]
+    pub faces: Vec<u32>,
+    /// Individual (I): each face along its own normal.
+    #[serde(default)]
+    pub individual: bool,
 }
 
 fn east() -> [f64; 3] { [1.0, 0.0, 0.0] }
@@ -201,7 +210,7 @@ impl ExtrudeRequest {
     fn params(&self, doc: &Document<Occt>) -> Result<ExtrudeParams, String> {
         if let Some(id) = self.region {
             let p = doc.region_params(id, self.distance, self.operation()).map_err(|e| e.to_string())?;
-            return Ok(ExtrudeParams { back: self.back, angle: self.angle, thickness: self.thickness, ..p });
+            return Ok(ExtrudeParams { back: self.back, angle: self.angle, thickness: self.thickness, direction: self.direction.map(DVec3::from_array), ..p });
         }
         let profile = match self.profile {
             Some(ProfileShape::Rect { width, height }) => Profile::rectangle(width, height),
@@ -218,6 +227,9 @@ impl ExtrudeRequest {
             thickness: self.thickness,
             operation: self.operation(),
             face: self.face,
+            direction: self.direction.map(DVec3::from_array),
+            more_faces: self.faces.clone(),
+            individual: self.individual,
         })
     }
 }

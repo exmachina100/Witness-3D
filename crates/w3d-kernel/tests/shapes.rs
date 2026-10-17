@@ -241,6 +241,7 @@ fn bad_shapes_are_refused_in_words() {
             thickness: 0.0,
             operation: Operation::Auto,
             face: None,
+            direction: None, more_faces: vec![], individual: false,
         },
     )
     .err()
@@ -258,6 +259,7 @@ fn bad_shapes_are_refused_in_words() {
             thickness: 0.0,
             operation: Operation::Auto,
             face: None,
+            direction: None, more_faces: vec![], individual: false,
         },
     )
     .err()

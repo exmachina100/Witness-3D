@@ -63,7 +63,7 @@ export const COMMAND = {
     pushpull: { d: 'distance', q: 'join', w: 'cut', b: 'new', r: 'rect', c: 'circle' },
     // Extrude and Boolean (manual: Q union, W difference, Shift+E intersect, B new body, T keep tools)
     // (manual: A angle, Shift+T thickness, S lock both sides, Shift+Q slice)
-    extrude: { d: 'distance', a: 'angle', 'shift-t': 'thickness', s: 'lock', q: 'union', w: 'difference', 'shift-e': 'intersect', 'shift-q': 'slice', b: 'new' },
+    extrude: { f: 'freestyle', v: 'pivot', i: 'individual', d: 'distance', a: 'angle', 'shift-t': 'thickness', s: 'lock', q: 'union', w: 'difference', 'shift-e': 'intersect', 'shift-q': 'slice', b: 'new' },
     boolean: { q: 'union', w: 'difference', 'shift-e': 'intersect', 'shift-q': 'slice', t: 'keep' },
     // Offset Face (manual: D distance; its A angle and Tab grow modes are not here yet)
     offset: { d: 'distance', a: 'angle' },

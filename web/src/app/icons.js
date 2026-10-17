@@ -118,6 +118,19 @@ const ICONS = {
     new: `<rect x="5" y="5" width="14" height="14"/><path ${A} d="M12 9v6M9 12h6"/>`,
     keep: `<rect x="3" y="3" width="11" height="11"/><rect x="10" y="10" width="11" height="11" stroke-dasharray="2 2"/><path ${A} d="M13 17l2 2 4-4"/>`,
     lock: `<path d="M12 3v18"/><path ${A} d="M8 7l4-4 4 4M8 17l4 4 4-4"/>`,
+    // A slab leaning off its base along a dashed free direction, ending in a picked point.
+    freestyle: `<path d="M2 20h10"/><path ${A} d="M2 20l7-11h10l-7 11"/><circle ${A} cx="19" cy="9" r="1.5"/>`,
+    // A crosshair where the handle goes, and the handle's stem.
+    pivot: `<circle cx="12" cy="12" r="6"/><path d="M12 3v4M12 17v4M3 12h4M17 12h4"/><circle ${A} cx="12" cy="12" r="2"/>`,
+    // Two faces at an angle, each pushed along its own normal.
+    individual: `<path d="M3 20l8-4V6L3 10z"/><path d="M11 6l10 4v10l-10-4"/><path ${A} d="M7 13l-4-2M16 13l4-6"/>`,
+    // Sweep guide methods: the section touching the guide (point), a chord to it, a curve along it.
+    'guide-point': `<path d="M4 20C8 12 14 8 20 4" stroke-dasharray="1.5 1.5"/><rect x="5" y="9" width="8" height="8"/><circle ${A} cx="13" cy="9" r="2"/>`,
+    'guide-chord': `<path d="M4 20C8 12 14 8 20 4" stroke-dasharray="1.5 1.5"/><rect x="5" y="9" width="8" height="8"/><path ${A} d="M9 13l7-7"/>`,
+    'guide-curve': `<path d="M4 20C8 12 14 8 20 4"/><path ${A} d="M4 16C7 10 12 6 17 3"/>`,
+    // Alignment: the section turning with the path, or keeping its angle.
+    'align-normal': `<path d="M4 20C4 10 10 4 20 4" stroke-dasharray="1.5 1.5"/><path ${A} d="M1 14h6M10 5l4 4"/>`,
+    'align-parallel': `<path d="M4 20C4 10 10 4 20 4" stroke-dasharray="1.5 1.5"/><path ${A} d="M1 14h6M9 7h6"/>`,
     left: `<path d="M6 19c0 1.5 12 1.5 12 0s-12-2-12-4 12-2.5 12-4"/><path ${A} d="M10 6l-4 3 4 3"/>`,
 };
 
