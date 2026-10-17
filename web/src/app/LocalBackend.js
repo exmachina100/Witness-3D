@@ -14,6 +14,7 @@ import { projectOutline } from '../Outline.js';
 import { thicken } from '../Thicken.js';
 import { extendSheet } from '../ExtendSheet.js';
 import { joinSheets, unjoin } from '../Join.js';
+import { hiddenLines } from '../Drawing.js';
 
 const v3 = a => new THREE.Vector3(...a);
 
@@ -780,6 +781,12 @@ export class LocalBackend {
             const { mesh } = tessellate(s, { deflection: tolerance, angle });
             return { id, positions: Array.from(mesh.getAttribute('position').array), indices: Array.from(mesh.index.array) };
         });
+    }
+
+    /** The hidden-line drawing of bodies seen from the camera (see Drawing.js). */
+    async hiddenLines({ bodies, origin, toward, x, deflection = 0.01 }) {
+        const shapes = bodies.map(id => { const s = this.shapes.get(id); if (!s) throw new Error('that body no longer exists'); return s; });
+        return hiddenLines(shapes, origin, toward, x, deflection);
     }
 
     /** Hand the user a file: the browser downloads it. */

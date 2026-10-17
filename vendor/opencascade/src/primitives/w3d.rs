@@ -290,6 +290,14 @@ impl Shape {
         Ok(Shape::from_shape(&sheet))
     }
 
+    /// Plasticity's SVG and DXF export: the hidden-line drawing of `shapes` seen along `toward`
+    /// (pointing at the viewer), as [kind, n, x, y, ...] runs in the drawing's x, y (see `w3d_hidden_lines`).
+    pub fn hidden_lines(shapes: &[&Shape], origin: DVec3, toward: DVec3, x: DVec3, deflection: f64) -> Result<Vec<f64>, String> {
+        let all = Shape::from(crate::primitives::Compound::from_shapes(shapes.iter().copied()));
+        let frame = [origin.x, origin.y, origin.z, toward.x, toward.y, toward.z, x.x, x.y, x.z];
+        ffi::w3d::w3d_hidden_lines(&all.inner, &frame, deflection).map_err(reason)
+    }
+
     /// Plasticity's Join for sheets: `sheets` sewn into one body within `tol`; closed, a solid (see `w3d_join_sheets`).
     pub fn join_sheets(sheets: &[&Shape], tol: f64) -> Result<Shape, String> {
         let all = Shape::from(crate::primitives::Compound::from_shapes(sheets.iter().copied()));

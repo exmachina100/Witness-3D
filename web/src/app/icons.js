@@ -92,6 +92,10 @@ const ICONS = {
     ask: `<path ${A} d="M12 3l2 7 7 2-7 2-2 7-2-7-7-2 7-2z"/>`,
     import: `<path d="M4 15v5h16v-5"/><path ${A} d="M12 3v12M8 11l4 4 4-4"/>`,
     export: `<path d="M4 15v5h16v-5"/><path ${A} d="M12 15V3M8 7l4-4 4 4"/>`,
+    // A page with a box drawn on it, its far edges dashed.
+    'export-drawing': `<path d="M5 3h10l4 4v14H5z"/><path ${A} d="M8 11l3-2h5v6l-3 2H8zM8 11h5v6M13 11l3-2"/>`,
+    'hidden-lines': `<path d="M5 9h9v10H5z"/><path ${A} stroke-dasharray="2 2" d="M10 5h9v10h-5"/>`,
+    'drawing-curves': `<path d="M4 18h16"/><path ${A} d="M4 15c4-10 8 4 16-8"/>`,
     'file-new': `<path d="M5 3h9l5 5v13H5z"/><path ${A} d="M12 11v6M9 14h6"/>`,
     'file-open': `<path d="M3 6h6l2 2h10v12H3z"/><path ${A} d="M3 11h18"/>`,
     'file-save': `<path d="M4 4h13l3 3v13H4z"/><path d="M8 4v5h7V4"/><path ${A} d="M8 20v-6h8v6"/>`,

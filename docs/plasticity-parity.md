@@ -115,7 +115,7 @@ a flat face imprints that face and is used up (round 10).
 | Shader modes | Shader Mode, Render Mode, Curvature (REA: matcap, silhouette, isophotes, zebra stripes, reflection check, topographic, draft, face direction) | Zebra stripes and draft (against the construction plane normal, 1°) done (VIEW › ZEBRA, DRAFT); the rest missing |
 | Materials and lighting | Assets (REA: 22 PBR materials, 14 HDR environments) | Missing (use CC0 assets, not Plasticity's) |
 | Grid, units, snap, construction plane | | Done |
-| Import / export | STEP in/out done; OBJ export (REA: angle tolerance, inflection, max width), SVG export, hidden-line export, reference images | Missing except STEP |
+| Import / export | STEP in/out done; OBJ export (REA: angle tolerance, inflection, max width), SVG export, hidden-line export, reference images | STEP, OBJ/STL and SVG/DXF hidden-line drawings done; reference images missing |
 | Integrations | Blender bridge done; Cinema 4D bridge missing | Partial |
 
 ## 6. Exchange and distribution (from the 26.1.4 MSI)
@@ -130,9 +130,9 @@ opencascade.js (which lacks IGES).
 | IGES | import, export | `IGESControl` (TKDEIGES) on the desktop, through the STEP dialogs by extension | Done on the desktop |
 | ACIS SAT | import, export | No open implementation | Not planned |
 | Parasolid X_T | import, export | No open implementation | Not planned |
-| DWG / DXF | DWG import (ODA) | DXF read and write in-house; DWG needs the ODA SDK | Missing (DXF) |
+| DWG / DXF | DWG import (ODA) | DXF read and write in-house; DWG needs the ODA SDK | DXF drawing export done (R12, layers VISIBLE/HIDDEN/CURVES); DXF import missing |
 | OBJ | export (manual: Export OBJ; options angle tolerance, inflection, max width) | Re-meshed at the chosen tolerance in each build; max width splits long edges; written by `web/src/meshExport.js` | Done (the desktop mesher takes no separate angle; inflection not yet) |
-| SVG, hidden line | export (manual) | Project edges and silhouettes to 2D | Missing |
+| SVG, hidden line | export (manual) | `HLRBRep` hidden-line removal seen from the camera, written by `web/src/drawingExport.js` in both builds | Done (Export drawing: hidden lines dashed, H leaves them out; drawn curves on their own layer, not occluded) |
 | STL, glTF, 3MF | not listed | Binary STL done with OBJ; glTF and 3MF later | STL done |
 
 | Distribution | Plasticity 26.1.4 | Witness 3D plan | Status |
@@ -165,4 +165,4 @@ Quality bar for every feature, reported with numbers when missed:
 - Every operation in the three test workflows (enclosure, mirror housing, handle) succeeds on the
   benchmark models; a failure shows a message and leaves the model as it was
 
-Also still open from earlier rounds: Offset Face Tab and Spline Tab.
+Also still open from earlier rounds: Offset Face Tab.

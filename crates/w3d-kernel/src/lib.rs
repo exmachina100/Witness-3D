@@ -135,6 +135,14 @@ pub struct Tessellation {
     pub edges: Vec<Vec<[f64; 3]>>,
 }
 
+/// One line of a hidden-line drawing, in the drawing's own x, y (model units).
+#[derive(Debug, Clone, PartialEq)]
+pub struct DrawnLine {
+    /// Behind a face from the view; drawn dashed.
+    pub hidden: bool,
+    pub points: Vec<[f64; 2]>,
+}
+
 /// A point on a flat face and its outward normal.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Plane {
@@ -312,6 +320,11 @@ pub trait Kernel {
     /// the plane (`x` fixes its axes), holes through the body included.
     fn project_outline(&self, _s: &Self::Solid, _origin: DVec3, _normal: DVec3, _x: DVec3) -> Result<Vec<Path>, KernelError> {
         Err(KernelError::Invalid("this kernel cannot project outlines"))
+    }
+    /// Plasticity's SVG and DXF export: the hidden-line drawing of the bodies seen along `toward`
+    /// (pointing at the viewer) through `origin`, `x` the drawing's x; curves cut to within `deflection`.
+    fn hidden_lines(&self, _solids: &[&Self::Solid], _origin: DVec3, _toward: DVec3, _x: DVec3, _deflection: f64) -> Result<Vec<DrawnLine>, KernelError> {
+        Err(KernelError::Invalid("this kernel cannot draw hidden lines"))
     }
     /// Plasticity's Bridge Surface: a sheet from edge `a` of one body to edge `b` of another (or the
     /// same), tangent to their faces; `tension` 1 is a smooth cubic, more carries each side further.

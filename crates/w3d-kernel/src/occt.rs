@@ -6,7 +6,7 @@ use std::path::Path as FilePath;
 use glam::DVec3;
 use opencascade::primitives::{BooleanKind, Edge, Face, Shape, ShapeHistory, ShapeType, Wire};
 
-use crate::{Blend, BooleanOp, Extent, Frame, History, Kernel, KernelError, Motion, Path, Plane, Profile, Segment, Tessellation, Traced};
+use crate::{Blend, BooleanOp, DrawnLine, Extent, Frame, History, Kernel, KernelError, Motion, Path, Plane, Profile, Segment, Tessellation, Traced};
 
 pub struct Occt;
 
@@ -335,6 +335,20 @@ impl Kernel for Occt {
         let faces: Vec<usize> = faces.iter().map(|&f| f as usize).collect();
         let (solid, h) = s.draft_faces_with_history(&faces, pull, origin, angle).map_err(shim)?;
         Ok(Traced { solid, history: history(h) })
+    }
+
+    fn hidden_lines(&self, solids: &[&Shape], origin: DVec3, toward: DVec3, x: DVec3, deflection: f64) -> Result<Vec<DrawnLine>, KernelError> {
+        let flat = Shape::hidden_lines(solids, origin, toward, x, deflection).map_err(shim)?;
+        let mut lines = Vec::new();
+        let mut i = 0;
+        while i + 2 <= flat.len() {
+            let (hidden, n) = (flat[i] != 0.0, flat[i + 1] as usize);
+            let end = i + 2 + 2 * n;
+            if end > flat.len() { return Err(KernelError::Invalid("the drawing came back cut short")) }
+            lines.push(DrawnLine { hidden, points: flat[i + 2..end].chunks(2).map(|p| [p[0], p[1]]).collect() });
+            i = end;
+        }
+        Ok(lines)
     }
 
     fn project_outline(&self, s: &Shape, origin: DVec3, normal: DVec3, x: DVec3) -> Result<Vec<Path>, KernelError> {

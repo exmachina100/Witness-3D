@@ -114,6 +114,8 @@ export const COMMAND = {
     // Pipe: R radius, T wall thickness, V sides.
     pipe: { r: 'radius', t: 'thickness', v: 'sides' },
     'extend-sheet': { d: 'distance' },
+    // Export drawing: H leaves hidden lines out (or back in), C the curves.
+    'export-drawing': { h: 'hidden', c: 'curves' },
     // Draft Face: A types the angle.
     draft: { a: 'angle' },
     // Tangent Circle (manual): F freezes the circle, Tab types its radius.
@@ -149,7 +151,7 @@ export const ACTIONS = {
     'draw:polygon': 'Regular polygon', 'draw:spline': 'Spline curve', 'draw:ellipse': 'Center ellipse',
     'draw:ellipse3': 'Three point ellipse', 'draw:tangent-arc': 'Tangent arc', 'draw:spiral': 'Spiral', 'draw:cv': 'Control point curve', 'draw:tangent-circle': 'Tangent circle', 'split': 'Split curve at point', 'measure:distance': 'Measure distance', 'measure:radius': 'Measure radius', 'measure:continuity': 'Measure continuity', 'view:curvature': 'Toggle curvature', 'view:zebra': 'Zebra stripes', 'view:draft': 'Draft analysis', 'join': 'Join curves or sheets', 'unjoin:faces': 'Unjoin faces', 'unjoin:pieces': 'Unjoin shells', 'trim': 'Trim curves', 'explode': 'Explode curve', 'extend': 'Extend curve',
     'undo': 'Undo', 'redo': 'Redo', 'file:new': 'New', 'file:open': 'Open…', 'file:save': 'Save',
-    'export:step': 'Export STEP', 'export:mesh': 'Export mesh (OBJ, STL)', 'import:step': 'Import STEP',
+    'export:step': 'Export STEP', 'export:mesh': 'Export mesh (OBJ, STL)', 'export:drawing': 'Export drawing (SVG, DXF)', 'import:step': 'Import STEP',
 };
 
 /** The key bound to an action, for display ('SHIFT X'), or ''. */

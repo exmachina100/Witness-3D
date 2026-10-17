@@ -191,6 +191,14 @@ async fn mesh_bodies(
 }
 
 #[tauri::command]
+async fn hidden_lines(
+    model: State<'_, Model>,
+    req: api::DrawingRequest,
+) -> Result<Vec<api::DrawnLineOut>, api::ApiError> {
+    on_model(&model, move |m| api::hidden_lines(m, req)).await?
+}
+
+#[tauri::command]
 async fn write_export(path: std::path::PathBuf, data: Vec<u8>) -> Result<(), api::ApiError> {
     api::write_export(path, data)
 }
@@ -611,6 +619,7 @@ pub fn run() {
             commit_draft,
             mesh_bodies,
             write_export,
+            hidden_lines,
             preview_remove_faces,
             commit_remove_faces,
             preview_primitive,

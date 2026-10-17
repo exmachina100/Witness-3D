@@ -60,6 +60,7 @@ import { Selection } from './Selection.js';
 import { claude, describe, MODEL, reply, request } from './ai.js';
 import { icon } from './icons.js';
 import { limitEdges, toObj, toStl } from '../meshExport.js';
+import { flatten, toDxf, toSvg } from '../drawingExport.js';
 import { bridgeCurves, continuity, curvatureComb, explode, extendCurve, filletCurve, nearestEnd, OFFSET_CORNERS, offsetCurve, splitCurve, tangentCircle, trim } from '../curveEdit.js';
 import { ViewGizmo } from './ViewGizmo.js';
 import { Toolbar } from './Toolbar.js';
@@ -111,6 +112,7 @@ const KEYS = {
   'measure-radius': [['CLICK', 'A ROUND EDGE OR CURVE'], ['ESC', 'DONE']],
   'measure-continuity': [['CLICK', 'NEAR TWO CURVE ENDS'], ['ESC', 'DONE']],
   'export-mesh': [['TYPE', 'OPTIONS IN PANEL'], ['⏎ / RMB', 'SAVE'], ['ESC', 'CANCEL']],
+  'export-drawing': [['VIEW', 'AS THE CAMERA SEES IT'], ['H', 'HIDDEN LINES'], ['C', 'CURVES'], ['⏎ / RMB', 'SAVE'], ['ESC', 'CANCEL']],
   'tangent-circle': [['CLICK', 'FIRST · SECOND CURVE · SIZE'], ['F', 'FREEZE'], ['TAB', 'RADIUS'], ['ESC', 'CANCEL']],
   extend: [['CLICK', 'NEAR AN END'], ['TYPE', 'LENGTH IN PANEL'], ['ESC / ⏎', 'DONE']],
   bridge: [['T', 'TENSION'], ['⏎ / RMB', 'OK']],
@@ -140,7 +142,7 @@ const CLICKS = { rect: 2, 'center-rect': 2, rect3: 3, circle: 2, circle2: 2, cir
 const FORMS = { revolve: true, loft: true, sweep: true };
 const PRIMS = { box: true, 'center-box': true, box3: true, cylinder: true, sphere: true };
 // Commands that aren't tools in the registry (they act on a click, not on settings).
-const EDITS = { 'export-mesh': 'EXPORT MESH', 'measure-continuity': 'MEASURE CONTINUITY', trim: 'TRIM', extend: 'EXTEND CURVE', 'tangent-circle': 'TANGENT CIRCLE', split: 'SPLIT CURVE', 'measure-distance': 'MEASURE DISTANCE', 'measure-radius': 'MEASURE RADIUS' };
+const EDITS = { 'export-mesh': 'EXPORT MESH', 'export-drawing': 'EXPORT DRAWING', 'measure-continuity': 'MEASURE CONTINUITY', trim: 'TRIM', extend: 'EXTEND CURVE', 'tangent-circle': 'TANGENT CIRCLE', split: 'SPLIT CURVE', 'measure-distance': 'MEASURE DISTANCE', 'measure-radius': 'MEASURE RADIUS' };
 const keysHtml = id => KEYS[id].map(([k, v]) => `<kbd>${k}</kbd><span>${v}</span>`).join('');
 // The Command Bar, exactly the manual's list (Plasticity Essentials › Command Bar).
 const BAR = [['palette', 'F', 'SEARCH'], ['tool:move', 'G', 'MOVE'], ['tool:rotate', 'R', 'ROTATE'], ['tool:scale', 'S', 'SCALE'], ['duplicate', '⇧D', 'DUPLICATE'], ['tool:boolean', 'Q', 'BOOLEAN'], ['tool:rect-array', '', 'RECTANGULAR ARRAY'], ['tool:radial-array', '', 'RADIAL ARRAY'], ['suggest', '⇧F', 'SUGGESTED COMMANDS']];
@@ -288,6 +290,13 @@ const SHELL = `
       <div class="field"><label for="w3d-mx-tol">TOLERANCE</label><input id="w3d-mx-tol" data-id="mx-tol" type="number" step="0.01" min="0.001" value="0.05"></div>
       <div class="field"><label for="w3d-mx-angle">ANGLE °</label><input id="w3d-mx-angle" data-id="mx-angle" type="number" step="1" min="0.5" value="15"></div>
       <div class="field"><label for="w3d-mx-width">MAX WIDTH</label><input id="w3d-mx-width" data-id="mx-width" type="number" step="1" min="0" value="0"></div>
+    </div>
+    <div class="sec" data-panel="export-drawing" hidden>
+      <span class="hint" data-id="dr-hint">—</span>
+      <span class="label">FORMAT</span>
+      <div class="seg" role="group" aria-label="Drawing format"><button data-drf="svg" aria-pressed="true">SVG</button><button data-drf="dxf" aria-pressed="false">DXF</button></div>
+      <div class="chips"><button data-id="dr-hidden" aria-pressed="true" title="Hidden lines (H)">HIDDEN</button><button data-id="dr-curves" aria-pressed="true" title="Curves (C)">CURVES</button></div>
+      <div class="field"><label for="w3d-dr-tol">TOLERANCE</label><input id="w3d-dr-tol" data-id="dr-tol" type="number" step="0.01" min="0.001" value="0.01"></div>
     </div>
     <div class="sec" data-panel="offset-curve" hidden>
       <span class="hint" data-id="oc-hint">—</span>
@@ -560,10 +569,10 @@ const VIEWS = {
 export async function mount(root, backend) {
   root.innerHTML = SHELL;
   // Panel options carry their icon ahead of the key and name.
-  for (const b of root.querySelectorAll('[data-draw],[data-bop],[data-xop],[data-fop],[data-spiral],[data-toggle],[data-gmethod],[data-galign],[data-id="ex-lock"],[data-id="bool-keep"],[data-id="ex-free"],[data-id="ex-pivot"],[data-id="ex-individual"]')) {
+  for (const b of root.querySelectorAll('[data-draw],[data-bop],[data-xop],[data-fop],[data-spiral],[data-toggle],[data-gmethod],[data-galign],[data-id="ex-lock"],[data-id="bool-keep"],[data-id="ex-free"],[data-id="ex-pivot"],[data-id="ex-individual"],[data-id="dr-hidden"],[data-id="dr-curves"]')) {
     const name = b.dataset.draw ?? b.dataset.bop ?? b.dataset.xop ?? b.dataset.fop ?? b.dataset.spiral ?? (b.dataset.toggle && `view-${b.dataset.toggle}`)
       ?? (b.dataset.gmethod && `guide-${b.dataset.gmethod}`) ?? (b.dataset.galign && `align-${b.dataset.galign}`)
-      ?? { 'ex-lock': 'lock', 'bool-keep': 'keep', 'ex-free': 'freestyle', 'ex-pivot': 'pivot', 'ex-individual': 'individual' }[b.dataset.id];
+      ?? { 'ex-lock': 'lock', 'bool-keep': 'keep', 'ex-free': 'freestyle', 'ex-pivot': 'pivot', 'ex-individual': 'individual', 'dr-hidden': 'hidden-lines', 'dr-curves': 'drawing-curves' }[b.dataset.id];
     b.insertAdjacentHTML('afterbegin', icon(name));
   }
   const $ = id => root.querySelector(`[data-id="${id}"]`);
@@ -1383,6 +1392,7 @@ export async function mount(root, backend) {
     if (id === 'measure-radius') return startMeasureRadius();
     if (id === 'measure-continuity') return startMeasureContinuity();
     if (id === 'export-mesh') return startExportMesh();
+    if (id === 'export-drawing') return startExportDrawing();
     if (id === 'bridge') return startBridge();
     if (id === 'shell') return startShell();
     if (id === 'draft') return startDraft();
@@ -3866,6 +3876,58 @@ export async function mount(root, backend) {
     sync();
   }
 
+  /**
+   * Plasticity's SVG export (and DXF): a 2D drawing of the selected solids and curves, or all of
+   * them, seen as the camera sees them, at 1:1 in mm. Hidden lines come dashed (H leaves them out);
+   * curves are drawn flat in the view on a layer of their own (C leaves them out).
+   */
+  function startExportDrawing() {
+    if (!backend.hiddenLines) return toast('DRAWING EXPORT IS NOT IN THIS BUILD YET');
+    const ids = (sel.bodies.length ? sel.bodies : current.map(b => b.id)).filter(id => !hidden.has(id));
+    const curves = (sel.bodies.length || sel.curves.length ? sel.curves : curveList.map(c => c.id)).map(curveById).filter(Boolean);
+    if (!ids.length && !curves.length) return toast('NOTHING TO EXPORT');
+    const c = cmd = { id: 'export-drawing', format: 'svg', hidden: true, curves: true };
+    lastTool = 'export-drawing';
+    showTool('export-drawing');
+    setState('none');
+    $('dr-hint').textContent = [ids.length && `${ids.length} SOLID${ids.length > 1 ? 'S' : ''}`, curves.length && `${curves.length} CURVE${curves.length > 1 ? 'S' : ''}`].filter(Boolean).join(' · ');
+    setHud('EXPORT DRAWING · ⏎ TO SAVE');
+    const sync = () => {
+      for (const b of $$('[data-drf]')) b.setAttribute('aria-pressed', b.dataset.drf === c.format);
+      $('dr-hidden').setAttribute('aria-pressed', c.hidden);
+      $('dr-curves').setAttribute('aria-pressed', c.curves);
+    };
+    c.key = action => {
+      if (action === 'svg' || action === 'dxf') c.format = action;
+      else if (action === 'hidden') c.hidden = !c.hidden;
+      else if (action === 'curves') c.curves = !c.curves;
+      else return false;
+      sync();
+      return true;
+    };
+    c.finish = async () => {
+      // The camera's view: toward the viewer, its right as the drawing's x, about what it looks at.
+      const toward = camera.getWorldDirection(new THREE.Vector3()).negate();
+      const x = new THREE.Vector3(1, 0, 0).applyQuaternion(camera.quaternion);
+      const view = { origin: controls.target.toArray(), toward: toward.toArray(), x: x.toArray() };
+      try {
+        const lines = ids.length ? await backend.hiddenLines({ bodies: ids, ...view, deflection: num('dr-tol') }) : [];
+        if (c.curves) for (const cv of curves) {
+          const f = curveFrame(cv), pts = curve2d(cv).map(p => lift(f, p));
+          if (isClosed(cv)) pts.push(pts[0]);
+          lines.push({ curve: true, points: flatten(pts, view) });
+        }
+        const name = `witness3d-${ids.length === 1 && !curves.length ? label(ids[0]).toLowerCase() : 'drawing'}.${c.format}`;
+        const text = c.format === 'svg' ? toSvg(lines, { hidden: c.hidden }) : toDxf(lines, { hidden: c.hidden });
+        const msg = await backend.saveExport(name, text);
+        endCmd(msg ? 'committed' : 'cancelled');
+        if (msg) toast(`${msg} · ${lines.filter(l => c.hidden || !l.hidden).length} LINES`);
+      } catch (e) { setState('failed'); toast(say(e)); }
+    };
+    c.abort = () => endCmd('cancelled');
+    sync();
+  }
+
   /** Plasticity's Measure Continuity: click near where two curves meet; G0, G1 or G2 with the numbers. */
   function startMeasureContinuity() {
     const c = cmd = { id: 'measure-continuity', first: null };
@@ -4825,7 +4887,7 @@ export async function mount(root, backend) {
         if (b.hidden) toast('NOT IN THE BROWSER YET'); else b.click();
         return true;
       }
-      case 'export': if (arg === 'mesh') await startTool('export-mesh'); else exportSelected(); return true;
+      case 'export': if (arg === 'mesh' || arg === 'drawing') await startTool(`export-${arg}`); else exportSelected(); return true;
       case 'import': $('import').hidden ? toast('NOT IN THE BROWSER YET') : $('import').click(); return true;
       case 'unjoin': await unjoinSelected(arg !== 'pieces'); return true;
     }
@@ -4866,7 +4928,7 @@ export async function mount(root, backend) {
     const out = [];
     if (sel.solids.length > 1) out.push('tool:boolean');
     if (sel.solids.length === 2) out.push('tool:project');
-    if (kinds.has('solid')) out.push('tool:move', 'tool:rotate', 'tool:scale', 'duplicate', 'tool:mirror', 'tool:rect-array', 'tool:radial-array', 'delete', 'hide', 'export:step', 'export:mesh');
+    if (kinds.has('solid')) out.push('tool:move', 'tool:rotate', 'tool:scale', 'duplicate', 'tool:mirror', 'tool:rect-array', 'tool:radial-array', 'delete', 'hide', 'export:step', 'export:mesh', 'export:drawing');
     if (kinds.has('face')) out.push('tool:extrude', 'tool:offset', 'tool:shell', 'tool:hole', 'tool:remove-face', 'plane:selection', 'plane:selection-keep-view');
     if (kinds.has('edge')) out.push('tool:fillet', 'tool:patch', 'measure:radius');
     if (sel.list('edge').length === 2) out.push('tool:bridge-surface');
@@ -5180,6 +5242,9 @@ export async function mount(root, backend) {
   $('hole-through').onclick = () => cmd?.id === 'hole' && cmd.key('through');
   $('br-t').addEventListener('input', () => cmd?.id === 'bridge' && cmd.preview());
   for (const b of $$('[data-mxf]')) b.onclick = () => cmd?.id === 'export-mesh' && cmd.key(b.dataset.mxf);
+  for (const b of $$('[data-drf]')) b.onclick = () => cmd?.id === 'export-drawing' && cmd.key(b.dataset.drf);
+  $('dr-hidden').onclick = () => cmd?.id === 'export-drawing' && cmd.key('hidden');
+  $('dr-curves').onclick = () => cmd?.id === 'export-drawing' && cmd.key('curves');
   for (const id of ['oc-d', 'fc-r']) $(id).addEventListener('input', () => (cmd?.id === 'offset-curve' || cmd?.id === 'fillet-curve') && cmd.preview());
   for (const k of OFFSET_CORNERS) $(`oc-${k}`).onclick = () => {
     for (const j of OFFSET_CORNERS) $(`oc-${j}`).setAttribute('aria-pressed', j === k);
