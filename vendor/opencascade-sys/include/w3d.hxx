@@ -69,6 +69,8 @@
 #include <TopoDS_Iterator.hxx>
 #include <TopoDS_Compound.hxx>
 #include <algorithm>
+#include <map>
+#include <TColgp_Array1OfPnt2d.hxx>
 #include <Geom_BSplineCurve.hxx>
 #include <TColStd_Array1OfInteger.hxx>
 #include <TColStd_Array1OfReal.hxx>
@@ -345,9 +347,54 @@ inline std::unique_ptr<W3dResult> w3d_boolean(const TopoDS_Shape &a, const TopoD
   }
 }
 
+// Where a point on an edge falls along its fillet contour, as the contour's relative parameter
+// [0, 1]: the arc length from the edge's start to the point (on a fine polyline of the edge), placed
+// by the curvilinear abscissae the builder gives the edge's two vertices.
+inline double w3d_spine_param(BRepFilletAPI_MakeFillet &mk, int ic, const TopoDS_Edge &e, const gp_Pnt &p) {
+  BRepAdaptor_Curve c(e);
+  const double u0 = c.FirstParameter(), u1 = c.LastParameter();
+  const int n = 512;
+  gp_Pnt prev = c.Value(u0);
+  double run = 0, best = 1e300, at = 0;
+  for (int i = 1; i <= n; i++) {
+    gp_Pnt q = c.Value(u0 + (u1 - u0) * i / n);
+    gp_Vec d(prev, q);
+    double l = d.Magnitude(), t = l > 0 ? std::max(0.0, std::min(1.0, gp_Vec(prev, p).Dot(d) / (l * l))) : 0;
+    gp_Pnt f = prev.Translated(d * t);
+    double dist = f.Distance(p);
+    if (dist < best) { best = dist; at = run + t * l; }
+    run += l;
+    prev = q;
+  }
+  const double len = run, total = mk.Length(ic);
+  if (total <= 0) return 0;
+  TopoDS_Vertex v0, v1;
+  double d0 = 1e300, d1 = 1e300;
+  gp_Pnt s0 = c.Value(u0), s1 = c.Value(u1);
+  for (TopExp_Explorer x(e, TopAbs_VERTEX); x.More(); x.Next()) {
+    const TopoDS_Vertex &v = TopoDS::Vertex(x.Current());
+    gp_Pnt q = BRep_Tool::Pnt(v);
+    if (q.Distance(s0) < d0) { d0 = q.Distance(s0); v0 = v; }
+    if (q.Distance(s1) < d1) { d1 = q.Distance(s1); v1 = v; }
+  }
+  double a;
+  if (v0.IsNull() || v1.IsNull()) a = at * total / len;
+  else {
+    const double a0 = mk.Abscissa(ic, v0), a1 = mk.Abscissa(ic, v1), tol = 1e-3 * std::max(1.0, total);
+    if (v0.IsSame(v1)) a = at * total / len;                                   // a closed edge
+    else if (std::abs(a0 + len - a1) < tol || (std::abs(a0 + len - total) < tol && a1 < tol)) a = a0 + at;  // runs with the contour
+    else a = (a0 < tol ? total : a0) - at;                                       // runs against it
+  }
+  return std::max(0.0, std::min(1.0, a / total));
+}
+
 // w3d_blend_edges with history: the body's faces and edges, plus the faces each edge became.
+// `variable` holds Plasticity's variable points for a fillet, [edge, x, y, z, scale] each: the
+// radius there is `size` × scale, and the contour's radius runs smoothly through them from `size`
+// at its ends.
 inline std::unique_ptr<W3dResult> w3d_blend_edges_history(const TopoDS_Shape &shape, rust::Slice<const int32_t> edges,
-                                                          double size, bool chamfer, double angle) {
+                                                          double size, bool chamfer, double angle,
+                                                          rust::Slice<const double> variable) {
   TopTools_IndexedMapOfShape map;
   TopExp::MapShapes(shape, TopAbs_EDGE, map);
   for (int32_t e : edges)
@@ -359,6 +406,49 @@ inline std::unique_ptr<W3dResult> w3d_blend_edges_history(const TopoDS_Shape &sh
       BRepFilletAPI_MakeChamfer *c = new BRepFilletAPI_MakeChamfer(shape);
       mk.reset(c);
       for (int32_t e : edges) w3d_add_chamfer(*c, shape, size, angle, TopoDS::Edge(map(e + 1)));
+    } else if (variable.size() >= 5) {
+      if (variable.size() % 5) throw std::runtime_error("a variable point is cut short");
+      BRepFilletAPI_MakeFillet probe(shape);
+      for (int32_t e : edges) probe.Add(size, TopoDS::Edge(map(e + 1)));
+      std::map<int, std::vector<std::pair<double, double>>> laws;
+      for (size_t i = 0; i < variable.size(); i += 5) {
+        int e = int(variable[i]);
+        if (e < 0 || e >= map.Extent()) throw std::out_of_range("no such edge");
+        const TopoDS_Edge &edge = TopoDS::Edge(map(e + 1));
+        int ic = probe.Contour(edge);
+        if (ic == 0) throw std::runtime_error("a variable point is on an edge that isn't being rounded");
+        if (!(variable[i + 4] > 0)) throw std::runtime_error("a variable point's radius must be greater than zero");
+        laws[ic].push_back({w3d_spine_param(probe, ic, edge, gp_Pnt(variable[i + 1], variable[i + 2], variable[i + 3])), size * variable[i + 4]});
+      }
+      BRepFilletAPI_MakeFillet *f = new BRepFilletAPI_MakeFillet(shape);
+      mk.reset(f);
+      for (int ic = 1; ic <= probe.NbContours(); ic++) {
+        const TopoDS_Edge &first = probe.Edge(ic, 1);
+        auto law = laws.find(ic);
+        if (law == laws.end()) { f->Add(size, first); continue; }
+        // The ends keep the radius unless a point sits on them; points closer than 0.1% merge.
+        double r0 = size, r1 = size;
+        std::vector<std::pair<double, double>> mid;
+        for (auto &q : law->second) {
+          if (q.first < 1e-3) r0 = q.second;
+          else if (q.first > 1 - 1e-3) r1 = q.second;
+          else mid.push_back(q);
+        }
+        std::stable_sort(mid.begin(), mid.end(), [](const std::pair<double, double> &a, const std::pair<double, double> &b) { return a.first < b.first; });
+        std::vector<std::pair<double, double>> keep{{0.0, r0}};
+        for (auto &q : mid) {
+          if (q.first - keep.back().first < 1e-3) keep.back().second = q.second;
+          else keep.push_back(q);
+        }
+        if (1.0 - keep.back().first < 1e-3 && keep.size() > 1) keep.pop_back();
+        // A closed contour comes back to where it started.
+        bool closed = BRep_Tool::Pnt(probe.FirstVertex(ic)).Distance(BRep_Tool::Pnt(probe.LastVertex(ic))) < 1e-7;
+        keep.push_back({1.0, closed ? (r0 != size ? r0 : r1) : r1});
+        if (closed) keep.front().second = keep.back().second;
+        TColgp_Array1OfPnt2d arr(1, int(keep.size()));
+        for (size_t k = 0; k < keep.size(); k++) arr.SetValue(int(k) + 1, gp_Pnt2d(keep[k].first, keep[k].second));
+        f->Add(arr, first);
+      }
     } else {
       BRepFilletAPI_MakeFillet *f = new BRepFilletAPI_MakeFillet(shape);
       mk.reset(f);
@@ -366,6 +456,8 @@ inline std::unique_ptr<W3dResult> w3d_blend_edges_history(const TopoDS_Shape &sh
     }
     mk->Build();
     if (!mk->IsDone()) {
+      if (!chamfer && variable.size() >= 5)
+        throw std::runtime_error("BLEND||the kernel could not build the variable round; try radii closer to each other or a smaller radius");
       // Run the reporting version for the reason and the edges.
       w3d_blend_edges(shape, edges, size, chamfer, angle);
       throw std::runtime_error("BLEND||the kernel could not build the blend");

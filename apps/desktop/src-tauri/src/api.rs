@@ -583,6 +583,16 @@ pub struct BlendRequest {
     /// Chamfer angle from each edge's first face, in radians; π/4 (the default) is equal distances.
     #[serde(default = "equal")]
     pub angle: f64,
+    /// Variable points of a fillet: radius `size` × scale at a point on one of the edges.
+    #[serde(default)]
+    pub variable: Vec<VariableIn>,
+}
+
+#[derive(Deserialize, Debug, Clone, Copy)]
+pub struct VariableIn {
+    pub edge: u32,
+    pub point: [f64; 3],
+    pub scale: f64,
 }
 
 fn equal() -> f64 { w3d_kernel::blend::EQUAL }
@@ -594,6 +604,7 @@ impl BlendRequest {
             size: self.size,
             kind: if self.kind == BlendKind::Chamfer { Blend::Chamfer } else { Blend::Fillet },
             angle: self.angle,
+            variable: self.variable.iter().map(|v| w3d_kernel::blend::VariablePoint { edge: v.edge, point: v.point.into(), scale: v.scale }).collect(),
         }
     }
 }

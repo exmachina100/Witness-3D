@@ -292,12 +292,54 @@ const STRIPE_REASONS = {
     ChFiDS_TwistedSurface: 'the rounding surface would twist on itself',
 };
 
-/** Round (or, with `chamfer`, bevel) the numbered edges by `size`. Throws BlendError. With
- * `withHistory`, returns { shape, history } (see booleanWithHistory). */
-export function blendEdges(shape, edgeIds, size, chamfer = false, withHistory = false, angle = Math.PI / 4) {
+/**
+ * Where a point on an edge falls along its fillet contour, as the contour's relative parameter
+ * [0, 1]: the arc length from the edge's start to the point (on a fine polyline of the edge), placed
+ * by the curvilinear abscissae the builder gives the edge's two vertices. As w3d_spine_param.
+ */
+function spineParam(mk, ic, edge, p) {
+    const o = oc();
+    const c = new o.BRepAdaptor_Curve(edge), u0 = c.FirstParameter(), u1 = c.LastParameter(), n = 512;
+    const at3 = u => { const q = c.Value(u); return new THREE.Vector3(q.X(), q.Y(), q.Z()); };
+    let prev = at3(u0), run = 0, best = Infinity, at = 0;
+    for (let i = 1; i <= n; i++) {
+        const q = at3(u0 + (u1 - u0) * i / n), d = q.clone().sub(prev), l = d.length();
+        const t = l > 0 ? Math.max(0, Math.min(1, p.clone().sub(prev).dot(d) / (l * l))) : 0;
+        const dist = prev.clone().addScaledVector(d, t).distanceTo(p);
+        if (dist < best) { best = dist; at = run + t * l; }
+        run += l;
+        prev = q;
+    }
+    const len = run, total = mk.Length(ic);
+    if (total <= 0) return 0;
+    const s0 = at3(u0), s1 = at3(u1);
+    let v0 = null, v1 = null, d0 = Infinity, d1 = Infinity;
+    for (const v of numbered(edge, 'TopAbs_VERTEX')) {
+        const vx = o.TopoDS.Vertex(v), q = o.BRep_Tool.Pnt(vx), w = new THREE.Vector3(q.X(), q.Y(), q.Z());
+        if (w.distanceTo(s0) < d0) { d0 = w.distanceTo(s0); v0 = vx; }
+        if (w.distanceTo(s1) < d1) { d1 = w.distanceTo(s1); v1 = vx; }
+    }
+    let a;
+    if (!v0 || !v1 || v0.IsSame(v1)) a = at * total / len;
+    else {
+        const a0 = mk.Abscissa(ic, v0), a1 = mk.Abscissa(ic, v1), tol = 1e-3 * Math.max(1, total);
+        if (Math.abs(a0 + len - a1) < tol || (Math.abs(a0 + len - total) < tol && a1 < tol)) a = a0 + at;
+        else a = (a0 < tol ? total : a0) - at;
+    }
+    return Math.max(0, Math.min(1, a / total));
+}
+
+/**
+ * Round (or, with `chamfer`, bevel) the numbered edges by `size`. Throws BlendError. With
+ * `withHistory`, returns { shape, history } (see booleanWithHistory). `variable` holds a fillet's
+ * variable points, { edge, point: [x, y, z], scale }: the radius there is `size` × scale, running
+ * smoothly from point to point and back to `size` at the ends of the edge's contour.
+ */
+export function blendEdges(shape, edgeIds, size, chamfer = false, withHistory = false, angle = Math.PI / 4, variable = []) {
     const o = oc();
     const edges = numberedEdges(shape);
     if (edgeIds.some(i => !(i >= 0 && i < edges.length))) throw new BlendError('an edge in the selection is not on this body; select the edges again');
+    if (!chamfer && variable.length) return variableFillet(shape, edges, edgeIds, size, withHistory, variable);
     const mk = chamfer ? new o.BRepFilletAPI_MakeChamfer(shape) : new o.BRepFilletAPI_MakeFillet(shape, o.ChFi3d_FilletShape.ChFi3d_Rational);
     for (const i of edgeIds) {
         // A chamfer at an angle is `size` on the edge's first face, at `angle` from it.
@@ -323,6 +365,48 @@ export function blendEdges(shape, edgeIds, size, chamfer = false, withHistory = 
         if (!reason && mk.NbFaultyVertices() > 0) reason = 'the round could not be finished where it meets a corner; try a smaller radius';
         throw new BlendError(reason ?? 'the kernel could not build the round', failed);
     }
+    return blendResult(shape, mk, edges, edgeIds, chamfer, withHistory);
+}
+
+function variableFillet(shape, edges, edgeIds, size, withHistory, variable) {
+    const o = oc();
+    const probe = new o.BRepFilletAPI_MakeFillet(shape, o.ChFi3d_FilletShape.ChFi3d_Rational);
+    for (const i of edgeIds) probe.Add(size, edges[i]);
+    const laws = new Map();
+    for (const v of variable) {
+        if (!edgeIds.includes(v.edge)) throw new BlendError("a variable point is on an edge that isn't being rounded");
+        if (!(v.scale > 0) || !Number.isFinite(v.scale)) throw new BlendError("a variable point's radius must be greater than zero");
+        const ic = probe.Contour(edges[v.edge]);
+        if (!laws.has(ic)) laws.set(ic, []);
+        laws.get(ic).push([spineParam(probe, ic, edges[v.edge], new THREE.Vector3(...v.point)), size * v.scale]);
+    }
+    const mk = new o.BRepFilletAPI_MakeFillet(shape, o.ChFi3d_FilletShape.ChFi3d_Rational);
+    for (let ic = 1; ic <= probe.NbContours(); ic++) {
+        const first = probe.Edge(ic, 1), law = laws.get(ic);
+        if (!law) { mk.Add(size, first); continue; }
+        // The ends keep the radius unless a point sits on them; points closer than 0.1% merge.
+        let r0 = size, r1 = size;
+        const mid = [];
+        for (const q of law) { if (q[0] < 1e-3) r0 = q[1]; else if (q[0] > 1 - 1e-3) r1 = q[1]; else mid.push(q); }
+        mid.sort((a, b) => a[0] - b[0]);
+        const keep = [[0, r0]];
+        for (const q of mid) { if (q[0] - keep.at(-1)[0] < 1e-3) keep.at(-1)[1] = q[1]; else keep.push(q); }
+        const fv = o.BRep_Tool.Pnt(probe.FirstVertex(ic)), lv = o.BRep_Tool.Pnt(probe.LastVertex(ic));
+        const closed = fv.Distance(lv) < 1e-7;
+        keep.push([1, closed ? (r0 !== size ? r0 : r1) : r1]);
+        if (closed) keep[0][1] = keep.at(-1)[1];
+        const arr = new o.NCollection_Array1_gp_Pnt2d(1, keep.length);
+        keep.forEach(([u, r], k) => arr.SetValue(k + 1, new o.gp_Pnt2d(u, r)));
+        mk.Add(arr, first);
+    }
+    let built = true;
+    try { mk.Build(new o.Message_ProgressRange()); } catch { built = false; }
+    if (!built || !mk.IsDone()) throw new BlendError('the kernel could not build the variable round; try radii closer to each other or a smaller radius', edgeIds);
+    return blendResult(shape, mk, edges, edgeIds, false, withHistory);
+}
+
+function blendResult(shape, mk, edges, edgeIds, chamfer, withHistory) {
+    const o = oc();
     const result = mk.Shape();
     if (!new o.BRepCheck_Analyzer(result, true, false, false).IsValid()) {
         throw new BlendError(`the kernel built a ${chamfer ? 'chamfer' : 'round'} but the solid it produced is invalid; try a smaller ${chamfer ? 'distance' : 'radius'}`, edgeIds);

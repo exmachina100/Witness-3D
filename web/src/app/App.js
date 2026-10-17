@@ -73,7 +73,7 @@ import { arcPoints, circleThrough, cvPoints, ellipsePoints, endTangent, helixPoi
 const KEYS = {
   material: [['FORK', 'OWN COPY'], ['⏎ / RMB', 'OK'], ['ESC', 'CANCEL']],
   idle: [['CLICK', 'SELECT'], ['⇧ CLICK', 'ADD'], ['CTRL CLICK', 'REMOVE'], ['DRAG', 'BOX'], ['MMB', 'ORBIT'], ['RMB', 'PAN'], ['F', 'SEARCH']],
-  fillet: [['DRAG DOT', 'RADIUS'], ['IN', 'CHAMFER'], ['D', 'DISTANCE'], ['C', 'CHAMFER'], ['A', 'ANGLE'], ['CTRL CLICK', 'EDGES'], ['⏎ / RMB', 'OK']],
+  fillet: [['DRAG DOT', 'RADIUS'], ['IN', 'CHAMFER'], ['D', 'DISTANCE'], ['C', 'CHAMFER'], ['A', 'ANGLE'], ['V', 'VARIABLE POINT'], ['CTRL CLICK', 'EDGES'], ['⏎ / RMB', 'OK']],
   move: [['X Y Z', 'AXIS'], ['⇧ X Y Z', 'PLANE'], ['G', 'SCREEN'], ['CTRL', 'SNAP'], ['⏎ / RMB', 'OK']],
   rotate: [['X Y Z', 'AXIS'], ['R', 'SCREEN'], ['CTRL', '15°'], ['⏎ / RMB', 'OK']],
   scale: [['S', 'UNIFORM'], ['CTRL', '0.1'], ['⏎ / RMB', 'OK']],
@@ -226,6 +226,7 @@ const SHELL = `
       <div class="field"><label for="w3d-blend-angle">ANGLE °</label><input id="w3d-blend-angle" data-id="blend-angle" type="number" step="5" min="1" max="89" value="45" title="The chamfer's angle"></div>
       <div class="field"><label>SHAPE</label><output data-id="blend-kind">ROUND</output></div>
       <div class="field"><label>EDGES</label><output data-id="blend-count">0</output></div>
+      <div class="field"><label>VARIABLE POINTS</label><output data-id="blend-vars" title="V adds one on a rounded edge; drag its dot for the radius there">0</output></div>
     </div>
     <div class="sec" data-panel="spiral" hidden>
       <span class="hint" data-id="spiral-hint">CLICK THE START OF THE AXIS</span>
@@ -1616,6 +1617,8 @@ export async function mount(root, backend) {
     const c = cmd = {
       id: 'fillet', auto, value: 0, angle: 45, sent: 0, shown: 0, good: null, bad: null, body: null, edges: [],
       gizmo: null, entry: null, entryDone: () => previewFillet(),
+      // Plasticity's variable points (V): { edge, point, scale, gizmo }, the radius there being value × scale.
+      vars: [], placing: false, extraGizmos() { return this.vars.map(v => v.gizmo) },
       get kind() { return this.value < 0 ? 'chamfer' : 'fillet' },
     };
     lastTool = 'fillet';
@@ -1627,6 +1630,7 @@ export async function mount(root, backend) {
       if (!body) {
         // In Plasticity the default command goes when the selection stops being edges.
         if (c.auto && c.value === 0) return abortFillet(null);
+        for (const v of [...c.vars]) dropVariable(v);
         c.body = null; c.edges = [];
         c.gizmo?.dispose(); c.gizmo = null;
         clearPreview();
@@ -1637,6 +1641,7 @@ export async function mount(root, backend) {
       }
       const edges = sel.list('edge').map(it => it.n).sort((a, b) => a - b);
       const moved = c.body !== body || String(edges) !== String(c.edges);
+      for (const v of c.vars.filter(v => c.body !== body || !edges.includes(v.edge))) dropVariable(v);
       c.body = body; c.edges = edges;
       c.good = c.bad = null;
       failedEdges = [];
@@ -1654,6 +1659,13 @@ export async function mount(root, backend) {
         c.gizmo?.activate(lastPointer);
         return true;
       }
+      if (action === 'variable') {
+        if (!(c.value > 0)) { toast('DRAG THE DOT OUT TO A ROUND FIRST'); return true; }
+        c.auto = false;
+        c.placing = true;
+        setHud('CLICK A ROUNDED EDGE · VARIABLE POINT');
+        return true;
+      }
       if (action === 'angle') {
         c.entry = { label: 'ANGLE °', text: '', apply: v => { if (v > 0 && v < 90) { c.angle = v; $('blend-angle').value = v; previewFillet(); } else toast('THE ANGLE MUST BE BETWEEN 0 AND 90'); } };
         setHud('ANGLE ° _');
@@ -1662,8 +1674,14 @@ export async function mount(root, backend) {
       return false;
     };
     c.click = e => {
-      // Ctrl+click (or Shift) adds or removes an edge; with nothing picked yet a plain click picks.
       const hit = pickAt(e);
+      if (c.placing) {
+        c.placing = false;
+        if (hit?.kind !== 'edge' || hit.body !== c.body || !c.edges.includes(hit.n)) { toast('CLICK ONE OF THE ROUNDED EDGES'); previewFillet(); return true; }
+        addVariable(hit.n, hit.point);
+        return true;
+      }
+      // Ctrl+click (or Shift) adds or removes an edge; with nothing picked yet a plain click picks.
       if (hit?.kind !== 'edge') return !c.auto;
       if (e.ctrlKey || e.metaKey || e.shiftKey || !sel.list('edge').length) {
         sel.toggle({ kind: 'edge', body: hit.body, n: hit.n });
@@ -1677,6 +1695,7 @@ export async function mount(root, backend) {
     c.abort = () => abortFillet('cancelled');
     c.cleanup = () => {
       c.gizmo?.dispose();
+      for (const v of c.vars) v.gizmo.dispose();
       clearPreview();
       failedEdges = [];
       drawOverlays();
@@ -1698,7 +1717,51 @@ export async function mount(root, backend) {
     if (!e) return;
     const n = e.length / 3, mid = Math.floor((n - 1) / 2);
     const a = new THREE.Vector3().fromArray(e, mid * 3), d = new THREE.Vector3().fromArray(e, (mid + 1) * 3);
-    const at = a.clone().lerp(d, 0.5), tangent = d.clone().sub(a).normalize();
+    const at = a.clone().lerp(d, 0.5), out = filletOut(b, e, at, d.clone().sub(a).normalize());
+    if (!out) return;
+    c.gizmo = dot(at, out, v => {
+      if (c.sign < 0) v = -Math.abs(v);
+      setFillet(snapping(lastPointer) ? Math.round(v / gridStep()) * gridStep() : v);
+    }, () => refineFillet());
+    c.gizmo.onStart = () => { controls.enabled = false; c.auto = false; c.dragVar = null; };
+    c.gizmo.render(c.value);
+  }
+
+  /** A variable point on edge `n` nearest `near`, with a dot of its own for the radius there. */
+  function addVariable(n, near) {
+    const c = cmd, b = bodyOf(c.body), e = b?.edges[n];
+    if (!e) return;
+    let best = Infinity, at = null, tangent = null;
+    for (let i = 3; i < e.length; i += 3) {
+      const a = new THREE.Vector3().fromArray(e, i - 3), d = new THREE.Vector3().fromArray(e, i);
+      const q = new THREE.Line3(a, d).closestPointToPoint(near, true, new THREE.Vector3());
+      if (q.distanceTo(near) < best) { best = q.distanceTo(near); at = q; tangent = d.clone().sub(a).normalize(); }
+    }
+    const out = at && filletOut(b, e, at, tangent);
+    if (!out) return;
+    const v = { edge: n, point: at, scale: 1, gizmo: null };
+    v.gizmo = dot(at, out, r => {
+      r = Math.max(Math.abs(r), 1e-3);
+      v.scale = r / c.value;
+      c.dragVar = v;
+      $('blend-vars').textContent = c.vars.length;
+      previewFillet();
+    });
+    v.gizmo.onStart = () => { controls.enabled = false; };
+    v.gizmo.render(c.value);
+    c.vars.push(v);
+    $('blend-vars').textContent = c.vars.length;
+    setHud(`VARIABLE POINT ${c.vars.length} · DRAG ITS DOT`);
+  }
+  function dropVariable(v) {
+    const c = cmd;
+    v.gizmo.dispose();
+    c.vars.splice(c.vars.indexOf(v), 1);
+    $('blend-vars').textContent = c.vars.length;
+  }
+
+  /** Out of the solid between the faces meeting at an edge, square to the edge at `at`. */
+  function filletOut(b, e, at, tangent) {
     const out = new THREE.Vector3();
     b.facePlanes.forEach(p => {
       if (!p) return;
@@ -1707,18 +1770,12 @@ export async function mount(root, backend) {
       out.add(nrm);
     });
     if (out.lengthSq() < 1e-6) {
-      const m = bodyMesh(c.body);
+      const m = bodyMesh(b.id);
       m.geometry.computeBoundingBox();
       out.copy(at).sub(m.geometry.boundingBox.getCenter(new THREE.Vector3()));
     }
     out.addScaledVector(tangent, -out.dot(tangent)).normalize();
-    if (out.lengthSq() < 0.5) return;
-    c.gizmo = dot(at, out, v => {
-      if (c.sign < 0) v = -Math.abs(v);
-      setFillet(snapping(lastPointer) ? Math.round(v / gridStep()) * gridStep() : v);
-    }, () => refineFillet());
-    c.gizmo.onStart = () => { controls.enabled = false; c.auto = false; };
-    c.gizmo.render(c.value);
+    return out.lengthSq() < 0.5 ? null : out;
   }
 
   function setFillet(v, fromGizmo = true) {
@@ -1727,12 +1784,17 @@ export async function mount(root, backend) {
     c.value = v;
     c.auto = c.auto && v === 0;
     if (!fromGizmo) c.gizmo?.render(v);
+    // Variable points keep their share of the radius; a chamfer has none.
+    for (const p of c.vars) { p.gizmo.visible = v > 0; if (v > 0) p.gizmo.render(v * p.scale); }
     if (document.activeElement !== $('blend-distance')) $('blend-distance').value = +v.toFixed(3);
     $('blend-kind').textContent = v < 0 ? 'CHAMFER' : 'ROUND';
     previewFillet();
   }
 
-  const filletRequest = (c, v = c.value) => ({ body: c.body, edges: c.edges, size: Math.abs(v), kind: v < 0 ? 'chamfer' : 'fillet', angle: c.angle * DEG });
+  const filletRequest = (c, v = c.value) => ({
+    body: c.body, edges: c.edges, size: Math.abs(v), kind: v < 0 ? 'chamfer' : 'fillet', angle: c.angle * DEG,
+    variable: v > 0 ? c.vars.map(p => ({ edge: p.edge, point: p.point.toArray(), scale: p.scale })) : [],
+  });
 
   async function previewFillet() {
     const c = cmd;
@@ -1774,7 +1836,8 @@ export async function mount(root, backend) {
     $('ms').textContent = Math.round(performance.now() - t0);
     clearPreview();
     showPreviewBody(body);
-    setHud(`${v < 0 ? 'CHAMFER' : 'R'} ${Math.abs(v).toFixed(2)}`);
+    const at = c.vars.includes(c.dragVar) ? ` · POINT ${c.vars.indexOf(c.dragVar) + 1} R ${(Math.abs(v) * c.dragVar.scale).toFixed(2)}` : '';
+    setHud(`${v < 0 ? 'CHAMFER' : 'R'} ${Math.abs(v).toFixed(2)}${at}`);
     if (n === c.sent) setState('updated');
   }
 
@@ -1803,7 +1866,7 @@ export async function mount(root, backend) {
     try {
       const { id, scene: list } = await backend.commitBlend(req);
       endCmd('committed');
-      record(text, id);
+      record(c.vars.length && req.kind === 'fillet' ? `${text} · ${c.vars.length} VARIABLE` : text, id);
       showScene(list);
       // Plasticity selects the result.
       sel.replace({ kind: 'solid', body: id });
@@ -2796,7 +2859,7 @@ export async function mount(root, backend) {
     $('ex-outcome').textContent = '—';
     setExtrudeOps();
     c.gizmo = dot(src.at, src.normal, d => setExtrude(snapping(lastPointer) ? Math.round(d / gridStep()) * gridStep() : d));
-    c.gizmo.onStart = () => { controls.enabled = false; c.auto = false; };
+    c.gizmo.onStart = () => { controls.enabled = false; c.auto = false; c.dragVar = null; };
     c.onSelection = () => {
       drawOverlays();
       // The default command goes when the selection changes; a new region brings its own.
@@ -5601,9 +5664,11 @@ export async function mount(root, backend) {
 
   // --- pointer input --------------------------------------------------------
   let down = null; // { x, y, button, consumed, box }
+  /** The dot being dragged or under the pointer, among the command's dots; else its main one. */
+  const liveGizmo = () => [cmd?.gizmo, ...(cmd?.extraGizmos?.() ?? [])].find(g => g && (g.busy || g.state === 'hover')) ?? cmd?.gizmo;
   canvas.addEventListener('pointerdown', e => {
     lastPointer = e;
-    const g = cmd?.gizmo;
+    const g = liveGizmo();
     const grabbed = g?.busy || g?.state === 'hover' || (cmd?.tc && cmd.tc.axis !== null);
     down = { x: e.clientX, y: e.clientY, button: e.button, consumed: grabbed, box: null };
     if (e.button === 0 && cmd?.follow) { endFollow(true); down.consumed = true; }
@@ -5637,7 +5702,7 @@ export async function mount(root, backend) {
     requestAnimationFrame(() => {
       const ev = hoverQueued;
       hoverQueued = null;
-      const g = cmd?.gizmo;
+      const g = liveGizmo();
       const h = g?.state === 'hover' || g?.busy ? null : clickTarget(pickAt(ev), cmd?.id === 'fillet' ? 'add' : modOf(ev));
       const show = cmd?.id === 'fillet' && h && h.kind !== 'edge' ? null : h;
       if (JSON.stringify(show) !== JSON.stringify(hover)) { hover = show; drawOverlays(); }
@@ -5785,7 +5850,8 @@ export async function mount(root, backend) {
     const k = keyOf(e);
     if (k === 'ctrl' && cmd?.tc) snapsFor(!view.snap);
     // A dot being dragged or following the cursor.
-    if (cmd?.gizmo?.busy && cmd.gizmo.key(e)) { e.preventDefault(); return; }
+    const live = liveGizmo();
+    if (live?.busy && live.key(e)) { e.preventDefault(); return; }
     // The transform's cursor-follow.
     const f = cmd?.follow;
     if (f) {

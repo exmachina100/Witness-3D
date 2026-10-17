@@ -683,13 +683,13 @@ export class LocalBackend {
         return this.latest(async () => this.body(req.body, this.blend(req)));
     }
 
-    blend({ body, edges, size, kind, angle = Math.PI / 4 }, withHistory = false) {
+    blend({ body, edges, size, kind, angle = Math.PI / 4, variable = [] }, withHistory = false) {
         const shape = this.shapes.get(body);
         if (!shape) throw new Error('that body no longer exists');
         if (!edges.length) throw new Error('select at least one edge');
         if (!(size > 0)) throw new Error(`the ${kind === 'chamfer' ? 'distance' : 'radius'} must be greater than zero`);
         if (kind === 'chamfer' && !(angle > 0 && angle < Math.PI / 2)) throw new Error('the chamfer angle must be between 0 and 90 degrees');
-        return blendEdges(shape, [...new Set(edges)], size, kind === 'chamfer', withHistory, angle);
+        return blendEdges(shape, [...new Set(edges)], size, kind === 'chamfer', withHistory, angle, variable);
     }
 
     async commitBlend(req) {
