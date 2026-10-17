@@ -60,7 +60,7 @@ import { Selection } from './Selection.js';
 import { claude, describe, MODEL, reply, request } from './ai.js';
 import { icon } from './icons.js';
 import { limitEdges, toObj, toStl } from '../meshExport.js';
-import { bridgeCurves, continuity, curvatureComb, explode, extendCurve, filletCurve, nearestEnd, offsetCurve, splitCurve, tangentCircle, trim } from '../curveEdit.js';
+import { bridgeCurves, continuity, curvatureComb, explode, extendCurve, filletCurve, nearestEnd, OFFSET_CORNERS, offsetCurve, splitCurve, tangentCircle, trim } from '../curveEdit.js';
 import { ViewGizmo } from './ViewGizmo.js';
 import { Toolbar } from './Toolbar.js';
 import { arcPoints, circleThrough, cvPoints, ellipsePoints, endTangent, helixPoints, loops, nurbsLoop, nurbsPoints, polygonCorners, spiralAngle, tangentArc } from '../curves.js';
@@ -93,7 +93,7 @@ const KEYS = {
   spline: [['CLICK', 'POINTS'], ['CLICK START', 'CLOSE'], ['TAB', 'CONTROL POINTS'], ['X Y Z', 'AXIS'], ['CTRL Z', 'BACK'], ['⏎ / RMB', 'DONE']],
   'tangent-arc': [['CLICK', 'CURVE END · SIZE'], ['D', 'FLIP'], ['ALT', 'NO SNAP'], ['ESC', 'CANCEL']],
   spiral: [['CLICK', 'AXIS START · END · RADIUS'], ['X Y Z', 'AXIS'], ['A', 'ANGLE'], ['D', 'LENGTH'], ['R', 'RADIUS'], ['⏎ / RMB', 'OK']],
-  'offset-curve': [['D', 'DISTANCE'], ['TYPE', 'IN PANEL'], ['⏎ / RMB', 'OK']],
+  'offset-curve': [['D', 'DISTANCE'], ['C', 'CORNER STYLE'], ['⏎ / RMB', 'OK']],
   'fillet-curve': [['D', 'RADIUS'], ['TYPE', 'IN PANEL'], ['⏎ / RMB', 'OK']],
   'remove-face': [['⇧ CLICK', 'FACES'], ['⏎ / RMB', 'OK']],
   cut: [['⇧ CLICK', 'SOLIDS · CURVES'], ['⇧ ALT CLICK', 'FACES'], ['P', 'CONSTRUCTION PLANE'], ['⏎ / RMB', 'OK']],
@@ -286,6 +286,7 @@ const SHELL = `
     <div class="sec" data-panel="offset-curve" hidden>
       <span class="hint" data-id="oc-hint">—</span>
       <div class="field"><label for="w3d-oc-d">DISTANCE</label><input id="w3d-oc-d" data-id="oc-d" type="number" step="0.5" value="5"></div>
+      <div class="chips"><button data-id="oc-linear" aria-pressed="true">LINEAR</button><button data-id="oc-round" aria-pressed="false">ROUND</button><button data-id="oc-natural" aria-pressed="false">NATURAL</button></div>
     </div>
     <div class="sec" data-panel="fillet-curve" hidden>
       <span class="hint" data-id="fc-hint">—</span>
@@ -2923,18 +2924,25 @@ export async function mount(root, backend) {
     showTool(id);
     setState('none');
     setTarget(ids.length === 1 ? curveLabel(ids[0]) : `${ids.length} CURVES`);
-    c.compute = () => ids.map(cid => { const src = curveById(cid); return offset ? offsetCurve(src, num(field)) : filletCurve(src, num(field)); });
+    const corner = () => OFFSET_CORNERS.find(k => $(`oc-${k}`).getAttribute('aria-pressed') === 'true') ?? 'linear';
+    c.compute = () => ids.map(cid => { const src = curveById(cid); return offset ? offsetCurve(src, num(field), corner()) : filletCurve(src, num(field)); });
     c.preview = () => {
       clearPreview();
       try {
         c.out = c.compute();
         showCurvePreview(c.out);
         $(hint).textContent = `${ids.length} CURVE${ids.length > 1 ? 'S' : ''}`;
-        setHud(`${toolInfo(id).label} ${num(field)} MM`);
+        setHud(`${toolInfo(id).label} ${num(field)} MM${offset ? ` · ${corner().toUpperCase()}` : ''}`);
         setState('updated');
       } catch (e) { c.out = null; $(hint).textContent = say(e); setHud(`${toolInfo(id).label} FAILED`); setState('failed'); }
     };
     c.key = action => {
+      if (offset && action === 'corner') {
+        const next = OFFSET_CORNERS[(OFFSET_CORNERS.indexOf(corner()) + 1) % OFFSET_CORNERS.length];
+        for (const k of OFFSET_CORNERS) $(`oc-${k}`).setAttribute('aria-pressed', k === next);
+        c.preview();
+        return true;
+      }
       if (action !== 'distance' && action !== 'radius') return false;
       c.entry = { label: action.toUpperCase(), text: '', apply: v => { $(field).value = v; c.preview(); } };
       setHud(`${action.toUpperCase()} _`);
@@ -5017,6 +5025,10 @@ export async function mount(root, backend) {
   $('br-t').addEventListener('input', () => cmd?.id === 'bridge' && cmd.preview());
   for (const b of $$('[data-mxf]')) b.onclick = () => cmd?.id === 'export-mesh' && cmd.key(b.dataset.mxf);
   for (const id of ['oc-d', 'fc-r']) $(id).addEventListener('input', () => (cmd?.id === 'offset-curve' || cmd?.id === 'fillet-curve') && cmd.preview());
+  for (const k of OFFSET_CORNERS) $(`oc-${k}`).onclick = () => {
+    for (const j of OFFSET_CORNERS) $(`oc-${j}`).setAttribute('aria-pressed', j === k);
+    if (cmd?.id === 'offset-curve') cmd.preview();
+  };
   for (const id of ['prim-w', 'prim-d', 'prim-r', 'prim-h']) $(id).addEventListener('input', () => PRIMS[cmd?.id] && cmd.fromFields(id));
   for (const b of $$('[data-popt], [data-pop]')) b.onclick = () => PRIMS[cmd?.id] && cmd.key(b.dataset.popt ?? b.dataset.pop);
   $('shell-t').addEventListener('input', () => cmd?.id === 'shell' && cmd.preview());
@@ -5370,6 +5382,7 @@ export async function mount(root, backend) {
         for (const cid of ids) sel.add({ kind: 'curve', id: cid });
         selectionChanged({ quiet: true });
         $(id === 'offset-curve' ? 'oc-d' : 'fc-r').value = id === 'offset-curve' ? p.distance : p.radius;
+        if (id === 'offset-curve') for (const k of OFFSET_CORNERS) $(`oc-${k}`).setAttribute('aria-pressed', k === (p.corner ?? 'linear'));
         await startTool(id);
       } else if (PRIMS[id]) {
         const b = face !== undefined && current.find(x => x.faceRefs?.includes(face));

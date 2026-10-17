@@ -249,6 +249,7 @@ export const TOOLS = [
         summary: 'Copy the selected curves a set distance away: closed curves grow or shrink, open ones move sideways.',
         params: {
             distance: { type: 'number', unit: 'mm', nonzero: true, default: 5, describe: 'how far; positive grows a closed curve or moves an open one to its left' },
+            corner: { type: 'enum', values: ['linear', 'round', 'natural'], default: 'linear', describe: 'how outside corners close: straight on along the end tangents, an arc about the corner, or each piece carried on as itself (lines straight, arcs round their circles)' },
         },
     },
     {

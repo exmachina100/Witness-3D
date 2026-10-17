@@ -97,15 +97,157 @@ function thin(pts, closed, max = 64) {
     return out.filter((p, i) => i === 0 || dist(p, out[i - 1]) > 1e-4);
 }
 
+// Exact offsets of lines and arcs, with Plasticity 26.1's corner styles. A piece is a line
+// { line: true, p0, p1 } or an arc { line: false, c, r, ccw, p0, p1 }, running p0 to p1.
+
+/** The pieces of a polyline or a contour of lines and arcs, or null for other curves. */
+function exactPieces(c) {
+    const out = [];
+    const lines = (pts, closed) => {
+        const q = dedupe(pts);
+        if (closed && q.length > 2 && dist(q[0], q[q.length - 1]) < 1e-6) q.pop();
+        for (let i = 0; i < (closed ? q.length : q.length - 1); i++) out.push({ line: true, p0: q[i], p1: q[(i + 1) % q.length] });
+    };
+    if (c.kind === 'polyline') { lines(c.points, !!c.closed); return { pieces: out, closed: !!c.closed }; }
+    if (c.kind !== 'contour' || !c.pieces.every(p => p.kind === 'polyline' || p.kind === 'arc')) return null;
+    for (const p of c.pieces) {
+        if (p.kind === 'polyline') { lines(p.points, false); continue; }
+        const g = arcGeometry(p.start, p.mid, p.end);
+        if (!g) { out.push({ line: true, p0: p.start, p1: p.end }); continue; }
+        out.push({ line: false, c: g.center, r: g.radius, ccw: g.sweep > 0, p0: p.start, p1: p.end });
+    }
+    return { pieces: out, closed: loops(c.pieces) };
+}
+
+/** The unit direction of travel at the start (`at` 0) or end (`at` 1) of a piece. */
+function tangent(q, at) {
+    if (q.line) return norm(sub(q.p1, q.p0));
+    const radial = norm(sub(at ? q.p1 : q.p0, q.c));
+    return q.ccw ? left(radial) : mul(left(radial), -1);
+}
+
+/** The piece moved `d` to the left of its travel. */
+function shiftPiece(q, d) {
+    if (q.line) { const n = mul(left(norm(sub(q.p1, q.p0))), d); return { ...q, p0: add(q.p0, n), p1: add(q.p1, n) }; }
+    const r = q.ccw ? q.r - d : q.r + d;
+    if (!(r > 1e-6)) throw new Error('an arc would shrink to nothing; use a smaller distance');
+    const at = p => add(q.c, mul(norm(sub(p, q.c)), r));
+    return { ...q, r, p0: at(q.p0), p1: at(q.p1) };
+}
+
+/** Where two pieces' whole lines or circles cross. */
+function crossings(a, b) {
+    const lineLine = (p, u, q, v) => {
+        const den = cross2(u, v);
+        if (Math.abs(den) < 1e-12) return [];
+        return [add(p, mul(u, cross2(sub(q, p), v) / den))];
+    };
+    const lineCircle = (p, u, c, r) => {
+        const f = sub(p, c), b2 = dot2(f, u), cc = dot2(f, f) - r * r, disc = b2 * b2 - cc;
+        if (disc < -1e-12) return [];
+        const s = Math.sqrt(Math.max(0, disc));
+        return [add(p, mul(u, -b2 - s)), add(p, mul(u, -b2 + s))];
+    };
+    const circleCircle = (c1, r1, c2, r2) => {
+        const dd = dist(c1, c2);
+        if (dd < 1e-12 || dd > r1 + r2 + 1e-9 || dd < Math.abs(r1 - r2) - 1e-9) return [];
+        const a = (r1 * r1 - r2 * r2 + dd * dd) / (2 * dd), h = Math.sqrt(Math.max(0, r1 * r1 - a * a));
+        const e = norm(sub(c2, c1)), m = add(c1, mul(e, a));
+        return [add(m, mul(left(e), h)), add(m, mul(left(e), -h))];
+    };
+    if (a.line && b.line) return lineLine(a.p0, norm(sub(a.p1, a.p0)), b.p0, norm(sub(b.p1, b.p0)));
+    if (a.line) return lineCircle(a.p0, norm(sub(a.p1, a.p0)), b.c, b.r);
+    if (b.line) return lineCircle(b.p0, norm(sub(b.p1, b.p0)), a.c, a.r);
+    return circleCircle(a.c, a.r, b.c, b.r);
+}
+
+const nearest = (pts, to) => pts.reduce((best, p) => (best && dist(best, to) <= dist(p, to) ? best : p), null);
+
+/** An arc piece as a curve shape, from p0 to p1 the way it runs. */
+function arcShape(q) {
+    const a0 = Math.atan2(q.p0[1] - q.c[1], q.p0[0] - q.c[0]), a1 = Math.atan2(q.p1[1] - q.c[1], q.p1[0] - q.c[0]);
+    const n = x => ((x % TAU) + TAU) % TAU;
+    const sweep = q.ccw ? n(a1 - a0) || TAU : -(n(a0 - a1) || TAU);
+    const t = a0 + sweep / 2;
+    return { kind: 'arc', start: q.p0, mid: [q.c[0] + q.r * Math.cos(t), q.c[1] + q.r * Math.sin(t)], end: q.p1 };
+}
+
+/**
+ * The exact offset of lines and arcs by `d` (to the left of travel). Where the pieces part at an
+ * outside corner, `corner` closes the gap: 'linear' carries each on along its end tangent until
+ * they meet, 'round' puts in an arc about the original corner, and 'natural' carries each piece on
+ * as itself (a line straight, an arc round its circle). Inside corners are cut where they cross.
+ */
+function offsetExact({ pieces, closed }, d, corner) {
+    const moved = pieces.map(q => shiftPiece(q, d));
+    const n = moved.length, joins = closed ? n : n - 1;
+    const before = Array.from({ length: n }, () => []);   // pieces to put in after piece i
+    for (let i = 0; i < joins; i++) {
+        const j = (i + 1) % n, A = moved[i], B = moved[j];
+        if (dist(A.p1, B.p0) < 1e-9) continue;
+        const corner0 = pieces[i].p1;
+        const turn = cross2(tangent(pieces[i], 1), tangent(pieces[j], 0));
+        if (Math.abs(turn) < 1e-12 && dot2(tangent(pieces[i], 1), tangent(pieces[j], 0)) > 0) continue;
+        const outside = turn * d < 0;
+        if (!outside) {
+            const at = nearest(crossings(A, B), corner0);
+            if (!at) throw new Error('the curve would turn inside out; use a smaller distance');
+            A.p1 = at; B.p0 = at;
+            continue;
+        }
+        if (corner === 'round') {
+            before[i].push({ line: false, c: corner0, r: Math.abs(d), ccw: d < 0, p0: A.p1, p1: B.p0 });
+            continue;
+        }
+        if (corner === 'natural') {
+            const at = nearest(crossings(A, B), corner0);
+            if (at) { A.p1 = at; B.p0 = at; continue; }
+        }
+        // Linear (or natural with nothing to meet): straight on from each end until they meet.
+        const ta = tangent(A, 1), tb = tangent(B, 0);
+        const [at] = crossings({ line: true, p0: A.p1, p1: add(A.p1, ta) }, { line: true, p0: B.p0, p1: add(B.p0, tb) });
+        if (!at) { before[i].push({ line: true, p0: A.p1, p1: B.p0 }); continue; }
+        if (A.line) A.p1 = at; else before[i].push({ line: true, p0: A.p1, p1: at, ext: true });
+        if (B.line) B.p0 = at; else before[i].push({ line: true, p0: at, p1: B.p0, ext: true });
+    }
+    // A trimmed line must still run its own way.
+    moved.forEach((q, i) => { if (q.line && dot2(sub(q.p1, q.p0), sub(pieces[i].p1, pieces[i].p0)) <= 0) throw new Error('the curve would turn inside out; use a smaller distance'); });
+    const out = [];
+    moved.forEach((q, i) => {
+        out.push(q.line ? { kind: 'polyline', points: [q.p0, q.p1], closed: false } : arcShape(q));
+        for (const e of before[i]) out.push(e.line ? { kind: 'polyline', points: [e.p0, e.p1], closed: false } : arcShape(e));
+    });
+    return out.filter(p => p.kind !== 'polyline' || dist(p.points[0], p.points[1]) > 1e-9);
+}
+
+/** Consecutive line pieces merged into polylines, for a tidy contour. */
+function mergeLines(pieces) {
+    const out = [];
+    for (const p of pieces) {
+        const last = out[out.length - 1];
+        if (p.kind === 'polyline' && last?.kind === 'polyline' && dist(last.points.at(-1), p.points[0]) < 1e-9) {
+            const u = norm(sub(last.points.at(-1), last.points.at(-2))), v = norm(sub(p.points[1], p.points[0]));
+            if (Math.abs(cross2(u, v)) < 1e-12 && dot2(u, v) > 0) last.points[last.points.length - 1] = p.points[1];
+            else last.points.push(p.points[1]);
+        } else out.push(p.kind === 'polyline' ? { ...p, points: p.points.map(q => [...q]) } : p);
+    }
+    return out;
+}
+
+/** Plasticity 26.1's corner styles for Offset Curve. */
+export const OFFSET_CORNERS = ['linear', 'round', 'natural'];
+
 /**
  * Plasticity's Offset Curve: a copy `d` mm away. A closed curve grows with a positive distance and
  * shrinks with a negative one; an open one moves to the left of its direction (right if negative).
- * Lines stay lines (with mitred corners), circles and arcs stay circles and arcs; ellipses, splines
- * and contours with curved pieces become a smooth curve through the offset points.
+ * Lines and arcs are offset exactly, and where they part at an outside corner `corner` closes the
+ * gap (see offsetExact); circles stay circles; ellipses and splines become a smooth curve through
+ * the offset points.
  */
-export function offsetCurve(c, d) {
+export function offsetCurve(c, d, corner = 'linear') {
     if (!Number.isFinite(d)) throw new Error('the distance is not a number');
     if (Math.abs(d) < 1e-9) throw new Error('nothing to do');
+    if (!OFFSET_CORNERS.includes(corner)) throw new Error(`the corner is ${OFFSET_CORNERS.join(', ')}`);
     if (c.kind === 'circle') {
         const radius = c.radius + d;
         if (!(radius > 1e-6)) throw new Error('the circle would shrink to nothing; use a smaller distance');
@@ -118,15 +260,22 @@ export function offsetCurve(c, d) {
         if (!(radius > 1e-6)) throw new Error('the arc would shrink to nothing; use a smaller distance');
         return withShape(c, arcPiece({ ...g, radius }, 0, 1));
     }
-    const lineOnly = c.kind === 'polyline' || (c.kind === 'contour' && c.pieces.every(p => p.kind === 'polyline'));
     const { points, closed } = samples(c);
     if (points.length < 2) throw new Error('the curve is too short to offset');
     // Closed curves grow outward whichever way round they were drawn.
     const side = closed && area2(points) < 0 ? -1 : 1;
     const dd = closed ? -d * side : d;
-    let out = offsetPolyline(lineOnly && c.kind === 'contour' ? dedupe(points) : points, closed, dd);
+    const exact = exactPieces(c);
+    if (exact && exact.pieces.length) {
+        const pieces = mergeLines(offsetExact(exact, dd, corner));
+        const shape = c.kind === 'polyline' && pieces.length === 1 && pieces[0].kind === 'polyline'
+            ? { kind: 'polyline', points: closed ? pieces[0].points.slice(0, -1) : pieces[0].points, closed }
+            : { kind: 'contour', pieces };
+        if (closed && Math.sign(area2(samples(shape).points)) !== Math.sign(area2(points))) throw new Error('the curve would turn inside out; use a smaller distance');
+        return withShape(c, shape);
+    }
+    let out = offsetPolyline(points, closed, dd);
     if (closed && Math.sign(area2(out)) !== Math.sign(area2(points))) throw new Error('the curve would turn inside out; use a smaller distance');
-    if (lineOnly) return withShape(c, { kind: 'polyline', points: out, closed });
     out = thin(out, closed);
     if (out.length < (closed ? 3 : 2)) throw new Error('the curve would shrink to nothing; use a smaller distance');
     return withShape(c, { kind: 'spline', points: out, closed });
