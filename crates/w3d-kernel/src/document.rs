@@ -776,6 +776,31 @@ impl<K: Kernel> Document<K> {
         self.commit_curves(curves)
     }
 
+    /// Plasticity's Patch, without changing the document: a sheet filling one closed loop of
+    /// `curves` and body `edges`, each edge with whether the sheet leaves it tangent to its body.
+    pub fn preview_patch(&self, curves: &[CurveId], edges: &[(BodyId, u32, bool)]) -> Result<K::Solid, KernelError> {
+        if curves.is_empty() && edges.is_empty() { return Err(KernelError::Invalid("select a closed loop of curves or edges to patch")) }
+        let paths: Vec<Path> = self.cutters(curves)?.into_iter().map(|(p, _)| p).collect();
+        let mut bodies: Vec<(BodyId, Vec<(u32, bool)>)> = vec![];
+        for &(b, e, t) in edges {
+            match bodies.iter_mut().find(|(id, _)| *id == b) {
+                Some((_, list)) => list.push((e, t)),
+                None => bodies.push((b, vec![(e, t)])),
+            }
+        }
+        let mut picked = vec![];
+        for (b, list) in bodies {
+            picked.push((self.get(b).ok_or(KernelError::Invalid("that body no longer exists"))?, list));
+        }
+        self.kernel.patch(&paths, &picked)
+    }
+
+    /// Patch as one undoable step: the sheet becomes a body of its own, and the loop stays.
+    pub fn commit_patch(&mut self, curves: &[CurveId], edges: &[(BodyId, u32, bool)]) -> Result<BodyId, KernelError> {
+        let sheet = self.preview_patch(curves, edges)?;
+        Ok(self.add(sheet))
+    }
+
     /// Plasticity's Draft Face, without changing the document.
     pub fn preview_draft(&self, body: BodyId, faces: &[u32], pull: DVec3, origin: DVec3, angle: f64) -> Result<Traced<K::Solid>, KernelError> {
         let s = self.get(body).ok_or(KernelError::Invalid("that body no longer exists"))?;

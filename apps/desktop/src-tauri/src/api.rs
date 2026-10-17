@@ -60,6 +60,8 @@ pub struct Body {
     /// Each edge as a polyline, x, y, z per point.
     pub edges: Vec<Vec<f32>>,
     pub volume: f64,
+    /// Faces that enclose no solid (a Patch's sheet): listed under SHEETS, with no volume.
+    pub sheet: bool,
     /// Persistent ids of the faces and edges, by number; empty for previews of new geometry.
     /// A selection kept as refs survives edits that renumber the body.
     pub face_refs: Vec<Ref>,
@@ -158,7 +160,8 @@ fn body(k: &Occt, id: BodyId, solid: &<Occt as Kernel>::Solid) -> Result<Body, S
     let t: Tessellation = k.tessellate(solid, MESH_TOLERANCE).map_err(|e| e.to_string())?;
     Ok(Body {
         id,
-        volume: t.volume(),
+        volume: if k.is_sheet(solid) { 0.0 } else { t.volume() },
+        sheet: k.is_sheet(solid),
         positions: t.positions.iter().flatten().map(|&c| c as f32).collect(),
         indices: t.indices,
         face_ids: t.face_ids,
@@ -928,6 +931,42 @@ pub fn preview_imprint(m: &Model, req: ImprintRequest) -> Option<Result<Body, Ap
 pub fn commit_imprint(m: &Model, req: ImprintRequest) -> Result<Committed, ApiError> {
     m.call(move |doc| {
         let id = doc.commit_imprint(req.body, &req.faces, &req.curves, &req.tools, req.consume)?;
+        Ok(Committed { id, scene: bodies(doc)? })
+    })
+}
+
+/// Plasticity's Patch: a sheet filling one closed loop of curves and body edges, each edge with
+/// whether the sheet leaves it tangent to the body's face.
+#[derive(Deserialize, Debug, Clone)]
+pub struct PatchRequest {
+    #[serde(default)]
+    pub curves: Vec<CurveId>,
+    #[serde(default)]
+    pub edges: Vec<PatchEdge>,
+}
+
+#[derive(Deserialize, Debug, Clone)]
+pub struct PatchEdge {
+    pub body: BodyId,
+    pub edge: u32,
+    #[serde(default)]
+    pub tangent: bool,
+}
+
+impl PatchRequest {
+    fn edges(&self) -> Vec<(BodyId, u32, bool)> { self.edges.iter().map(|e| (e.body, e.edge, e.tangent)).collect() }
+}
+
+pub fn preview_patch(m: &Model, req: PatchRequest) -> Option<Result<Body, ApiError>> {
+    m.preview(move |doc| {
+        let sheet = doc.preview_patch(&req.curves, &req.edges())?;
+        Ok(body(&doc.kernel, 0, &sheet)?)
+    })
+}
+
+pub fn commit_patch(m: &Model, req: PatchRequest) -> Result<Committed, ApiError> {
+    m.call(move |doc| {
+        let id = doc.commit_patch(&req.curves, &req.edges())?;
         Ok(Committed { id, scene: bodies(doc)? })
     })
 }

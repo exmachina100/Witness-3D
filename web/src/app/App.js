@@ -100,6 +100,7 @@ const KEYS = {
   draft: [['A', 'ANGLE'], ['⇧ CLICK', 'FACES'], ['⏎ / RMB', 'OK']],
   imprint: [['⇧ CLICK', 'FACES · CURVES'], ['⇧ ALT CLICK', 'BODY THAT IMPRINTS'], ['⏎ / RMB', 'OK']],
   project: [['⇧ CLICK', 'SOLID · CURVES'], ['X Y Z', 'VECTOR'], ['S', 'SCREEN SPACE'], ['⏎ / RMB', 'OK']],
+  patch: [['⇧ CLICK', 'CURVES · EDGES'], ['T', 'TANGENT TO FACES'], ['⏎ / RMB', 'OK']],
   hole: [['CLICK', 'A FLAT FACE'], ['T', 'THROUGH ALL'], ['TYPE', 'SIZE IN PANEL'], ['⏎ / RMB', 'OK']],
   split: [['CLICK', 'WHERE TO SPLIT'], ['ESC / ⏎', 'DONE']],
   'measure-distance': [['CLICK', 'TWO POINTS'], ['CLICK', 'AGAIN TO RESTART'], ['ESC', 'DONE']],
@@ -323,6 +324,12 @@ const SHELL = `
       </div>
       <div class="field"><label>DIRECTION</label><output data-id="proj-dir">—</output></div>
       <div class="field"><label>CURVES</label><output data-id="proj-count">0</output></div>
+    </div>
+    <div class="sec" data-panel="patch" hidden>
+      <span class="hint" data-id="patch-hint">—</span>
+      <div class="chips"><button data-id="patch-tangent" aria-pressed="false"><kbd>T</kbd>TANGENT TO FACES</button></div>
+      <div class="field"><label>CURVES</label><output data-id="patch-curves">0</output></div>
+      <div class="field"><label>EDGES</label><output data-id="patch-edges">0</output></div>
     </div>
     <div class="sec" data-panel="hole" hidden>
       <span class="hint" data-id="hole-hint">CLICK A FLAT FACE</span>
@@ -902,12 +909,14 @@ export async function mount(root, backend) {
   function renderOutliner() {
     const out = $('outliner');
     out.innerHTML = '<div class="group-title">▾ SOLIDS</div>';
-    if (!current.length) out.insertAdjacentHTML('beforeend', '<div class="empty">NO SOLIDS</div>');
-    for (const b of current) {
+    const solids = current.filter(b => !b.sheet), sheets = current.filter(b => b.sheet);
+    if (!solids.length) out.insertAdjacentHTML('beforeend', '<div class="empty">NO SOLIDS</div>');
+    for (const b of [...solids, ...sheets]) {
+      if (b === sheets[0]) out.insertAdjacentHTML('beforeend', '<div class="group-title">▾ SHEETS</div>');
       const row = document.createElement('div');
       row.className = 'row-item';
       row.setAttribute('aria-current', sel.has({ kind: 'solid', body: b.id }));
-      row.innerHTML = `<span class="sq"></span><span class="name">BODY ${b.id}</span><span class="tag">${label(b.id)}</span><button class="eye" aria-pressed="${!hidden.has(b.id)}" aria-label="Show or hide">◉</button>`;
+      row.innerHTML = `<span class="sq"></span><span class="name">${b.sheet ? 'SHEET' : 'BODY'} ${b.id}</span><span class="tag">${label(b.id)}</span><button class="eye" aria-pressed="${!hidden.has(b.id)}" aria-label="Show or hide">◉</button>`;
       row.onclick = e => {
         if (e.target.classList.contains('eye')) return setHidden([b.id], !hidden.has(b.id));
         applySelect({ kind: 'solid', body: b.id }, e.shiftKey ? 'add' : (e.ctrlKey || e.metaKey) ? 'remove' : 'replace');
@@ -1315,6 +1324,7 @@ export async function mount(root, backend) {
     if (id === 'cut') return startCut();
     if (id === 'imprint') return startImprint();
     if (id === 'project') return startProject();
+    if (id === 'patch') return startPatch();
     if (id === 'extend') return startExtend();
     if (id === 'tangent-circle') return startTangentCircle();
     if (id === 'split') return startSplit();
@@ -3229,6 +3239,72 @@ export async function mount(root, backend) {
     c.onSelection();
   }
 
+  /**
+   * Plasticity's Patch: a sheet filling one closed loop of the selected curves and edges. A flat
+   * loop gives its plane; any other is filled with a smooth sheet. T makes the sheet leave the
+   * selected edges tangent to their faces. The sheet is a body of its own; the loop stays.
+   */
+  function startPatch() {
+    if (!backend.previewPatch) return toast('PATCH IS NOT IN THIS BUILD YET');
+    const c = cmd = { id: 'patch', tangent: false, curves: [], edges: [], sent: 0, shown: 0 };
+    lastTool = 'patch';
+    showTool('patch');
+    setState('none');
+    c.request = () => ({ curves: c.curves, edges: c.edges.map(e => ({ body: e.body, edge: e.n, tangent: c.tangent })) });
+    c.preview = () => livePreview(c, () => backend.previewPatch(c.request()), b => {
+      const m = showPreviewBody(b, phantom.add.face, phantom.add.edge);
+      m.renderOrder = 5;
+      $('patch-hint').textContent = c.tangent && c.edges.length ? 'SMOOTH SHEET, TANGENT TO THE FACES' : 'SHEET THROUGH THE LOOP';
+      setHud('PATCH');
+    }, 'patch-hint');
+    c.onSelection = () => {
+      drawOverlays();
+      c.curves = sel.curves.filter(curveById);
+      c.edges = sel.list('edge');
+      $('patch-curves').textContent = c.curves.length;
+      $('patch-edges').textContent = c.edges.length;
+      $('patch-tangent').setAttribute('aria-pressed', String(c.tangent));
+      $('patch-tangent').disabled = !c.edges.length;
+      setTarget(c.curves.length + c.edges.length ? `${c.curves.length + c.edges.length} PIECES` : '—');
+      if (!c.curves.length && !c.edges.length) {
+        const missing = 'SELECT CURVES OR EDGES THAT MAKE ONE CLOSED LOOP';
+        $('patch-hint').textContent = missing;
+        clearPreview();
+        return setHud(missing);
+      }
+      c.preview();
+    };
+    c.key = action => {
+      if (action !== 'tangent') return false;
+      c.tangent = !c.tangent;
+      c.onSelection();
+      return true;
+    };
+    c.click = e => {
+      if (!(e.ctrlKey || e.metaKey || e.shiftKey)) return true;
+      const hit = pickAt(e);
+      if (hit?.kind === 'curve') sel.toggle({ kind: 'curve', id: hit.id });
+      else if (hit?.kind === 'edge') sel.toggle({ kind: 'edge', body: hit.body, n: hit.n });
+      else return true;
+      selectionChanged();
+      return true;
+    };
+    c.finish = async () => {
+      if (!c.curves.length && !c.edges.length) { setState('failed'); return toast($('patch-hint').textContent); }
+      try {
+        const { id, scene: list } = await backend.commitPatch(c.request());
+        endCmd('committed');
+        record(`PATCH${c.tangent && c.edges.length ? ' TANGENT' : ''}`, id);
+        await showScene(list);
+        sel.replace({ kind: 'solid', body: id });
+        selectionChanged({ quiet: true });
+      } catch (e) { setState('failed'); toast(say(e)); }
+    };
+    c.abort = () => endCmd('cancelled');
+    c.cleanup = () => clearPreview();
+    c.onSelection();
+  }
+
   /** Hole: click a flat face; a round cut of the panel's diameter goes in to its depth, or through. */
   function startHole({ at = null } = {}) {
     if (!backend.preview) return toast('HOLE IS NOT IN THIS BUILD YET');
@@ -4403,11 +4479,12 @@ export async function mount(root, backend) {
     if (sel.solids.length === 2) out.push('tool:project');
     if (kinds.has('solid')) out.push('tool:move', 'tool:rotate', 'tool:scale', 'duplicate', 'tool:mirror', 'tool:rect-array', 'tool:radial-array', 'delete', 'hide', 'export:step', 'export:mesh');
     if (kinds.has('face')) out.push('tool:extrude', 'tool:offset', 'tool:shell', 'tool:hole', 'tool:remove-face', 'plane:selection', 'plane:selection-keep-view');
-    if (kinds.has('edge')) out.push('tool:fillet', 'measure:radius');
+    if (kinds.has('edge')) out.push('tool:fillet', 'tool:patch', 'measure:radius');
     if (kinds.has('region')) out.push('tool:extrude', 'tool:revolve', 'tool:loft', 'tool:sweep');
     if (kinds.has('curve') || kinds.has('region')) {
       if (kinds.has('solid')) out.push('tool:project', 'tool:cut', 'tool:imprint');
       if (sel.curves.length === 2) out.push('tool:project');
+      out.push('tool:patch');
       if (kinds.has('face')) out.push('tool:imprint');
       if (kinds.has('face')) out.push('tool:draft');
       out.push('trim', 'split', 'extend', 'tool:offset-curve', 'tool:fillet-curve');
@@ -4718,6 +4795,7 @@ export async function mount(root, backend) {
   for (const b of $$('[data-mx], [data-rx]')) b.onclick = () => cmd?.key?.(b.dataset.mx ?? b.dataset.rx);
   for (const id of ['mirror-join', 'ra-join', 'rr-join']) $(id).onclick = () => cmd?.key?.('join');
   $('cut-plane').onclick = () => cmd?.id === 'cut' && cmd.key('plane');
+  $('patch-tangent').onclick = () => cmd?.id === 'patch' && cmd.key('tangent');
   for (const b of $$('[data-proj]')) b.onclick = () => cmd?.id === 'project' && cmd.key(b.dataset.proj);
   $('bool-keep').onclick = () => cmd?.id === 'boolean' && cmd.key('keep');
   for (const b of $$('[data-draw]')) b.onclick = () => DRAW[cmd?.id] && cmd.key(b.dataset.draw);
@@ -5005,6 +5083,14 @@ export async function mount(root, backend) {
           if (p.bidirectional) cmd.key('both');
           if (p.hideOccluded) cmd.key('hide');
         }
+      } else if (id === 'patch') {
+        const cs = (curveIds ?? []).filter(cid => curveList.some(c => c.id === cid));
+        if (!cs.length && !edges?.length) throw new Error('give curves by id or edges by ref that make one closed loop');
+        if (edges?.length) selectEdgeRefs(edges); else sel.clear();
+        for (const cid of cs) sel.add({ kind: 'curve', id: cid });
+        selectionChanged({ quiet: true });
+        await startTool('patch');
+        if (p.tangent) cmd.key('tangent');
       } else if (id === 'imprint') {
         const cs = (curveIds ?? []).filter(cid => curveList.some(c => c.id === cid));
         const b = body !== undefined ? current.find(x => x.id === body) : current.find(x => (faces ?? []).length && faces.every(r => x.faceRefs?.includes(r)));

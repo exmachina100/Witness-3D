@@ -8,6 +8,7 @@ import { arrayMotions, blendEdges, booleanWithHistory, bounds, box, count, draft
 import { cutSheets, loft, offsetFlatFaces, regionFace, revolve, splineSamples, sweep } from '../Forms.js';
 import { curveFromNurbs, ends, join, loops, MEET, nurbsLoop } from '../curves.js';
 import { meetCurves, projectCurveCurve, projectCurves } from '../Project.js';
+import { isSheet, patch } from '../Patch.js';
 
 const v3 = a => new THREE.Vector3(...a);
 
@@ -57,7 +58,7 @@ export class LocalBackend {
             const p = facePlane(shape, i);
             return p ? { origin: p.origin.toArray(), normal: p.normal.toArray() } : null;
         });
-        return { id, positions: mesh.getAttribute('position').array, indices: Array.from(index), faceIds, facePlanes, edges: polylines, volume: volume(shape), faceRefs: [], edgeRefs: [], revision: 0 };
+        return { id, positions: mesh.getAttribute('position').array, indices: Array.from(index), faceIds, facePlanes, edges: polylines, volume: isSheet(shape) ? 0 : volume(shape), sheet: isSheet(shape), faceRefs: [], edgeRefs: [], revision: 0 };
     }
 
     bodies() {
@@ -464,6 +465,28 @@ export class LocalBackend {
         this.put(req.body, shape, history);
         if (req.consume) for (const id of req.curves ?? []) this.curveMap.delete(id);
         return { id: req.body, scene: this.bodies() };
+    }
+
+    /** Plasticity's Patch: a sheet filling one closed loop of curves and body edges. */
+    patchResult({ curves = [], edges = [] }) {
+        const cs = curves.map(id => { const c = this.curveMap.get(id); if (!c) throw new Error('that curve no longer exists'); return c; });
+        const es = edges.map(({ body, edge, tangent }) => {
+            const shape = this.shapes.get(body);
+            if (!shape) throw new Error('that body no longer exists');
+            return { shape, n: edge, tangent: !!tangent };
+        });
+        return patch(cs, es);
+    }
+
+    previewPatch(req) { return this.latest(async () => this.body(0, this.patchResult(req))) }
+
+    /** Patch as one undo step: the sheet becomes a body of its own, and the loop stays. */
+    async commitPatch(req) {
+        const sheet = this.patchResult(req);
+        this.checkpoint();
+        const id = this.nextId++;
+        this.put(id, sheet);
+        return { id, scene: this.bodies() };
     }
 
     /** Plasticity's Draft Face: `faces` of `body` tilted by `angle` about the neutral plane through `origin` square to `pull`. */
