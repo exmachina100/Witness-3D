@@ -91,13 +91,32 @@ const rust = {
     filePath = path;
     return baseName(path);
   },
-  async open() {
-    const path = await tauri.dialog.open({ multiple: false, directory: false, filters: W3D });
+  async saveAs() {
+    const path = await tauri.dialog.save({ defaultPath: filePath ? baseName(filePath) : 'untitled.w3d', filters: W3D });
+    if (!path) return null;
+    await tauri.core.invoke('save', { path });
+    filePath = path;
+    return baseName(path);
+  },
+  // Plasticity's Quick save version: a copy next to the file, named with the time; the document stays where it was.
+  async saveVersion() {
+    if (!filePath) return rust.save();
+    const t = new Date(), pad = n => String(n).padStart(2, '0');
+    const stamp = `${t.getFullYear()}${pad(t.getMonth() + 1)}${pad(t.getDate())}-${pad(t.getHours())}${pad(t.getMinutes())}${pad(t.getSeconds())}`;
+    const path = filePath.replace(/(\.w3d)?$/i, `-${stamp}.w3d`);
+    await tauri.core.invoke('save', { path });
+    return baseName(path);
+  },
+  async open(path) {
+    path ??= await tauri.dialog.open({ multiple: false, directory: false, filters: W3D });
     if (!path) return null;
     const scene = await tauri.core.invoke('open', { path });
     filePath = path;
     return { name: baseName(path), scene };
   },
+  get filePath() { return filePath; },
+  version: () => tauri.app.getVersion(),
+  quit: () => tauri.window.getCurrentWindow().close(),
   async importStep() {
     const path = await tauri.dialog.open({ multiple: false, directory: false, filters: STEP });
     return path ? tauri.core.invoke('import_step', { path }) : null;

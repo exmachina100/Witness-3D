@@ -3,5 +3,5 @@
   "identifier": "default",
   "description": "What the main window may call.",
   "windows": ["main"],
-  "permissions": ["core:default", "dialog:allow-save", "dialog:allow-open"]
+  "permissions": ["core:default", "core:window:allow-close", "dialog:allow-save", "dialog:allow-open"]
 }

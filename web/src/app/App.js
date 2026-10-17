@@ -59,6 +59,7 @@ import { TOOLS, check, tool as toolInfo, withDefaults } from './tools.js';
 import { ACTIONS, COMMAND, VIEWPORT, keyFor, keyOf } from './keymap.js';
 import { Selection } from './Selection.js';
 import { Organise } from './Organise.js';
+import { P_MENU, RADIALS, mergeKeys, parseRadial, shortLabel, showKey, sliceAt, slicePosition } from './menus.js';
 import { ENVIRONMENTS, SHADERS, SHADER_OPTIONS, checkMaterial, formatMass, massOf, newMaterial, shader } from './shading.js';
 import { claude, describe, MODEL, reply, request } from './ai.js';
 import { icon } from './icons.js';
@@ -154,7 +155,7 @@ const BAR = [['palette', 'F', 'SEARCH'], ['tool:move', 'G', 'MOVE'], ['tool:rota
 const SHELL = `
 <div class="w3d">
   <header class="bar">
-    <div class="brand">WITNESS 3D</div>
+    <div class="brand"><button class="pmenu-open" data-id="pmenu-open" aria-haspopup="menu" aria-expanded="false" title="File menu">WITNESS 3D <span class="caret">▾</span></button></div>
     <nav class="tools" data-id="tools" aria-label="Tools"></nav>
     <span class="spacer"></span>
     <button class="export" data-action="ask" title="Ask for a command in words (Ctrl+K)">${icon('ask')}ASK</button>
@@ -165,6 +166,7 @@ const SHELL = `
     <button class="export" data-id="export" disabled title="Export STEP">${icon('export')}STEP</button>
     <span class="file" data-id="file-name">UNTITLED.W3D</span>
   </header>
+  <div class="pmenu" data-id="pmenu" role="menu" hidden></div>
 
   <aside class="left" aria-label="Document">
     <div class="tabs" role="tablist">
@@ -198,12 +200,14 @@ const SHELL = `
     </div>
     <div class="keys" data-id="keys">${keysHtml('idle')}</div>
     <span class="snap-tag" data-id="snap-tag" hidden></span>
+    <div class="radial" data-id="radial" hidden><div class="radial-hub" data-id="radial-hub"></div></div>
     <button class="isolated" data-id="isolated" hidden title="Unisolate (Alt+.)">${icon('isolate')}<span>0 ISOLATED</span></button>
     <div class="boxsel" data-id="boxsel" hidden></div>
     <div class="palette" data-id="palette" hidden>
       <div class="palette-title" data-id="palette-title">SEARCH COMMANDS</div>
       <input data-id="palette-input" placeholder="TYPE A COMMAND" autocomplete="off" spellcheck="false">
       <ul data-id="palette-list" role="listbox"></ul>
+      <div class="palette-foot">RIGHT-CLICK A COMMAND TO SET ITS KEY</div>
     </div>
     <div class="palette ask" data-id="ask" hidden>
       <div class="palette-title" data-id="ask-title">ASK · ONE COMMAND, PREVIEWED FIRST</div>
@@ -5158,7 +5162,8 @@ export async function mount(root, backend) {
     const [kind, arg] = a.split(':');
     switch (kind) {
       case 'view':
-        if (arg === 'ortho') setOrtho(!camera.isOrthographicCamera);
+        if (arg === 'radial') openRadial(a.split(':')[2]);
+        else if (arg === 'ortho') setOrtho(!camera.isOrthographicCamera);
         else if (arg === 'focus') focus();
         else if (arg === 'xray') { view.xray = !view.xray; applyView(); }
         else if (arg === 'curvature') { view.curvature = !view.curvature; applyView(); }
@@ -5183,7 +5188,26 @@ export async function mount(root, backend) {
         else if (arg === 'view') planeFromView();
         else setPlane({ origin: new THREE.Vector3(), normal: UP, name: 'XY' });
         return true;
+      case 'radial': openRadial(arg); return true;
+      case 'app':
+        if (arg === 'quit') { if (backend.quit) backend.quit(); else toast('CLOSE THE TAB TO QUIT'); }
+        else openPMenu();
+        return true;
       case 'file': {
+        if (arg === 'recent') { openPMenu(); return true; }
+        if (arg === 'export') { openPalette(false, 'EXPORT'); return true; }
+        if (arg === 'save-as' || arg === 'save-version') {
+          const fn = backend[arg === 'save-as' ? 'saveAs' : 'saveVersion'];
+          if (!fn) { toast('NOT IN THE BROWSER YET'); return true; }
+          await fileAction(async () => {
+            const name = await fn.call(backend);
+            if (!name) return;
+            if (arg === 'save-as') $('file-name').textContent = name.toUpperCase();
+            remember(backend.filePath);
+            toast(`SAVED ${name.toUpperCase()}`);
+          });
+          return true;
+        }
         const b = $({ new: 'file-new', open: 'file-open', save: 'file-save' }[arg]);
         if (b.hidden) toast('NOT IN THE BROWSER YET'); else b.click();
         return true;
@@ -5222,11 +5246,121 @@ export async function mount(root, backend) {
     return false;
   }
 
+  // --- keys, the P-Menu and radial menus -------------------------------------
+  // Keys the user set in the palette sit over the defaults and are kept in this browser or app.
+  const store = {
+    get: (k, d) => { try { return JSON.parse(localStorage.getItem(k)) ?? d; } catch { return d; } },
+    set: (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch { /* storage off */ } },
+  };
+  let customKeys = store.get('w3d-keys', {});
+  let keys = mergeKeys(VIEWPORT, customKeys);
+  function bindKeys(list, action) {
+    for (const k of list) customKeys[k] = action;
+    // A key set back to the action it has by default needs no entry.
+    for (const k of Object.keys(customKeys)) if ((customKeys[k] || undefined) === VIEWPORT[k]) delete customKeys[k];
+    store.set('w3d-keys', customKeys);
+    keys = mergeKeys(VIEWPORT, customKeys);
+  }
+  const keyLabel = action => showKey(Object.keys(keys).find(k => keys[k] === action));
+
+  // P-Menu: the file menu under the app's name (Plasticity's P at the top left).
+  let recent = store.get('w3d-recent', []);
+  const remember = path => { if (!path) return; recent = [path, ...recent.filter(p => p !== path)].slice(0, 8); store.set('w3d-recent', recent); };
+  const P_NEEDS = { 'file:new': 'newDocument', 'file:open': 'open', 'import:step': 'importStep', 'file:save': 'save', 'file:save-as': 'saveAs', 'file:save-version': 'saveVersion', 'app:quit': 'quit' };
+  function openPMenu() {
+    const menu = $('pmenu');
+    const can = e => !P_NEEDS[e.action] || typeof backend[P_NEEDS[e.action]] === 'function';
+    menu.innerHTML = P_MENU.map(e => {
+      if (e.action === 'file:recent') {
+        const files = typeof backend.open === 'function' ? recent : [];
+        return `<div class="pm-title">RECENT FILES</div>` + (files.length ? files.map(p => `<button role="menuitem" data-recent="${encodeURIComponent(p)}" title="${p.replace(/"/g, '&quot;')}">${p.split(/[\\/]/).pop().toUpperCase()}</button>`).join('') : '<div class="pm-none">NONE YET</div>') + '<hr>';
+      }
+      if (e.action === 'app:version') return `<hr><div class="pm-none" data-id="pm-version">WITNESS 3D</div>`;
+      return `<button role="menuitem" data-pm="${e.action}" ${can(e) ? '' : 'disabled title="Not in the browser yet"'}><span>${e.label}</span><kbd>${keyLabel(e.action)}</kbd></button>`;
+    }).join('');
+    menu.hidden = false;
+    $('pmenu-open').setAttribute('aria-expanded', 'true');
+    for (const b of menu.querySelectorAll('[data-pm]')) b.onclick = () => { closePMenu(); doAction(b.dataset.pm); };
+    for (const b of menu.querySelectorAll('[data-recent]')) b.onclick = () => { closePMenu(); openFile(decodeURIComponent(b.dataset.recent)); };
+    const v = backend.version ? backend.version() : Promise.resolve(null);
+    v.then(n => { const el = $('pm-version'); if (el) el.textContent = `WITNESS 3D ${n ? `V${n}` : '· BROWSER'}`; }, () => {});
+  }
+  function closePMenu() { $('pmenu').hidden = true; $('pmenu-open').setAttribute('aria-expanded', 'false'); }
+  $('pmenu-open').onclick = () => $('pmenu').hidden ? openPMenu() : closePMenu();
+  addEventListener('pointerdown', e => { if (!$('pmenu').hidden && !e.target.closest('.pmenu, .pmenu-open')) closePMenu(); }, true);
+
+  // Radial menus: the items around the cursor; click one, or hold the menu's key, point and let go.
+  const radials = new Map([...RADIALS, ...store.get('w3d-radials', [])].map(m => [m.command, m]));
+  let radial = null, radialKey = null;
+  const actionKnown = a => a in ACTIONS || TOOLS.some(t => `tool:${t.id}` === a);
+  function openRadial(id) {
+    const m = radials.get(id);
+    if (!m) return toast('NO SUCH RADIAL MENU');
+    const at = lastPointer ? [lastPointer.clientX, lastPointer.clientY] : [innerWidth / 2, innerHeight / 2];
+    const host = $('radial'), box = host.parentElement.getBoundingClientRect();
+    radial = { m, x: at[0], y: at[1], hot: -1, key: radialKey };
+    host.style.left = `${at[0] - box.left}px`;
+    host.style.top = `${at[1] - box.top}px`;
+    for (const b of host.querySelectorAll('button')) b.remove();
+    m.items.forEach((it, i) => {
+      const [dx, dy] = slicePosition(i, m.items.length, 78);
+      const b = document.createElement('button');
+      b.className = 'radial-item';
+      b.style.transform = `translate(calc(${dx}px - 50%), calc(${dy}px - 50%))`;
+      b.innerHTML = icon(it.icon) || `<b>${shortLabel(it)}</b>`;
+      b.title = it.label;
+      b.onpointerenter = () => hotRadial(i);
+      b.onclick = () => runRadial(i);
+      host.append(b);
+    });
+    host.hidden = false;
+    hotRadial(-1);
+  }
+  function hotRadial(i) {
+    if (!radial) return;
+    radial.hot = i;
+    $('radial-hub').textContent = i < 0 ? radial.m.name.toUpperCase() : radial.m.items[i].label;
+    $$('.radial-item').forEach((b, n) => b.setAttribute('aria-current', n === i));
+  }
+  function closeRadial() { radial = null; $('radial').hidden = true; }
+  function runRadial(i) {
+    const it = radial?.m.items[i];
+    closeRadial();
+    if (!it) return;
+    if (it.command.startsWith('view:radial:')) return openRadial(it.command.slice(12));
+    doAction(it.command);
+  }
+  addEventListener('pointermove', e => { if (radial) hotRadial(sliceAt(e.clientX - radial.x, e.clientY - radial.y, radial.m.items.length)); });
+  addEventListener('pointerdown', e => { if (radial && !e.target.closest('.radial')) closeRadial(); }, true);
+  addEventListener('keydown', e => { if (radial && e.key === 'Escape') { e.stopImmediatePropagation(); closeRadial(); } }, true);
+  addEventListener('keyup', e => {
+    // Let go of the key that opened the menu: run what the pointer is on, or leave it open to click.
+    if (radial?.key && e.code === radial.key) { radial.key = null; if (radial.hot >= 0) runRadial(radial.hot); }
+  });
+  // A radial menu file (Plasticity's shape, this app's command names) dropped on the viewport.
+  canvas.addEventListener('dragover', e => { if ([...e.dataTransfer.items].some(i => i.kind === 'file')) e.preventDefault(); });
+  canvas.addEventListener('drop', async e => {
+    const f = [...e.dataTransfer.files].find(f => /\.json$/i.test(f.name));
+    if (!f) return;
+    e.preventDefault();
+    const { menu, error } = parseRadial(await f.text(), actionKnown);
+    if (error) return toast(error);
+    radials.set(menu.command, menu);
+    store.set('w3d-radials', [...radials.values()].filter(m => !RADIALS.some(r => r.command === m.command)));
+    ACTIONS[`radial:${menu.command}`] = `Radial menu: ${menu.name}`;
+    ENTRIES.push({ action: `radial:${menu.command}`, label: `RADIAL MENU: ${menu.name.toUpperCase()}` });
+    toast(`RADIAL MENU: ${menu.name.toUpperCase()} · RIGHT-CLICK IT IN F TO SET A KEY`);
+  });
+
   // --- command palette (F) and suggestions (Shift+F) --------------------------
   const ENTRIES = [
-    ...TOOLS.map(t => ({ action: `tool:${t.id}`, label: t.label, key: t.key.toUpperCase().replaceAll('-', ' ') })),
-    ...Object.entries(ACTIONS).map(([action, l]) => ({ action, label: l.toUpperCase(), key: keyFor(action) })),
+    ...TOOLS.map(t => ({ action: `tool:${t.id}`, label: t.label })),
+    ...Object.entries(ACTIONS).map(([action, l]) => ({ action, label: l.toUpperCase() })),
   ];
+  for (const m of radials.values()) if (!RADIALS.some(r => r.command === m.command)) {
+    ACTIONS[`radial:${m.command}`] = `Radial menu: ${m.name}`;
+    ENTRIES.push({ action: `radial:${m.command}`, label: `RADIAL MENU: ${m.name.toUpperCase()}` });
+  }
   /**
    * Commands that fit what is selected (Plasticity's Shift+F, Suggested Commands). With the toolbars
    * holding only drawing tools and the Command Bar's common commands, this is where the rest of the
@@ -5265,11 +5399,11 @@ export async function mount(root, backend) {
   }
   let palette = null;
   const fuzzy = (q, s) => { let i = 0; for (const ch of s) if (ch === q[i]) i++; return i === q.length; };
-  function openPalette(suggest) {
-    palette = { suggest, index: 0, items: [] };
+  function openPalette(suggest, query = '') {
+    palette = { suggest, index: 0, items: [], binding: null };
     $('palette').hidden = false;
     $('palette-title').textContent = suggest ? 'SUGGESTED FOR THE SELECTION' : 'SEARCH COMMANDS';
-    $('palette-input').value = '';
+    $('palette-input').value = query;
     renderPalette();
     $('palette-input').focus();
   }
@@ -5293,8 +5427,10 @@ export async function mount(root, backend) {
       li.setAttribute('role', 'option');
       li.setAttribute('aria-selected', i === palette.index);
       const [kind, id] = e.action.split(':');
-      li.innerHTML = `<span>${icon(kind === 'tool' || kind === 'draw' ? id : kind === 'palette' ? 'search' : kind)}${e.label}</span><kbd>${e.key}</kbd>`;
-      li.onmousedown = ev => { ev.preventDefault(); runPalette(i); };
+      li.innerHTML = `<span>${icon(kind === 'tool' || kind === 'draw' ? id : kind === 'palette' ? 'search' : kind)}${e.label}</span><kbd>${palette.binding === e ? 'PRESS A KEY · ⌫ CLEARS' : keyLabel(e.action)}</kbd>`;
+      li.onmousedown = ev => { ev.preventDefault(); if (ev.button === 0) runPalette(i); };
+      // Plasticity: right-click a command in the palette to give it a key of your own.
+      li.oncontextmenu = ev => { ev.preventDefault(); palette.binding = e; palette.index = i; renderPalette(); };
       ul.append(li);
     });
     if (!palette.items.length) ul.innerHTML = '<li class="none">NOTHING MATCHES</li>';
@@ -5306,6 +5442,18 @@ export async function mount(root, backend) {
   }
   $('palette-input').addEventListener('input', () => { palette.index = 0; renderPalette(); });
   $('palette-input').addEventListener('keydown', e => {
+    if (palette.binding) {
+      e.preventDefault();
+      e.stopPropagation();
+      const k = keyOf(e), action = palette.binding.action;
+      if (['ctrl', 'alt', 'shift'].includes(k)) return;
+      if (e.key === 'Escape') { palette.binding = null; return renderPalette(); }
+      if (e.key === 'Backspace' || e.key === 'Delete') bindKeys(Object.keys(keys).filter(x => keys[x] === action), '');
+      else bindKeys([k], action);
+      toast(e.key === 'Backspace' || e.key === 'Delete' ? `${palette.binding.label} · NO KEY` : `${palette.binding.label} · ${showKey(k)}`);
+      palette.binding = null;
+      return renderPalette();
+    }
     if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
       e.preventDefault();
       palette.index = (palette.index + (e.key === 'ArrowDown' ? 1 : -1) + palette.items.length) % Math.max(1, palette.items.length);
@@ -5410,13 +5558,18 @@ export async function mount(root, backend) {
     $(id).hidden = typeof backend[method] !== 'function';
   }
   $('file-new').onclick = () => fileAction(async () => newScene(await backend.newDocument(), 'UNTITLED.W3D'));
-  $('file-open').onclick = () => fileAction(async () => {
-    const r = await backend.open();
-    if (r) newScene(r.scene, r.name.toUpperCase());
-  });
+  function openFile(path) {
+    return fileAction(async () => {
+      const r = await backend.open(path);
+      if (!r) return;
+      newScene(r.scene, r.name.toUpperCase());
+      remember(backend.filePath);
+    });
+  }
+  $('file-open').onclick = () => openFile();
   $('file-save').onclick = () => fileAction(async () => {
     const name = await backend.save();
-    if (name) { $('file-name').textContent = name.toUpperCase(); toast(`SAVED ${name.toUpperCase()}`); }
+    if (name) { $('file-name').textContent = name.toUpperCase(); toast(`SAVED ${name.toUpperCase()}`); remember(backend.filePath); }
   });
   $('import').onclick = () => fileAction(async () => {
     const r = await backend.importStep();
@@ -5648,9 +5801,11 @@ export async function mount(root, backend) {
         return;
       }
     }
-    const action = VIEWPORT[k];
+    const action = keys[k];
     if (!action) return;
     e.preventDefault();
+    if (e.repeat && action.startsWith('radial:')) return;
+    radialKey = action.startsWith('radial:') ? e.code : null;
     await doAction(action);
   });
   addEventListener('keyup', e => { if (e.key === 'Control' && cmd?.tc) snapsFor(view.snap); });

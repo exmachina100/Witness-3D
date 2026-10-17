@@ -274,3 +274,25 @@ button:focus-visible, input:focus-visible { outline: 1px solid var(--accent); ou
 [data-id="render-options"][hidden], [data-id="shader-option"][hidden] { display: none; }
 input[aria-invalid="true"] { border-color: var(--accent); color: var(--accent); }
 input[type="range"] { accent-color: var(--accent); }
+
+/* P-Menu: the file menu under the app's name. */
+.pmenu-open { font: inherit; letter-spacing: inherit; color: var(--ink); display: flex; align-items: center; gap: 8px; padding: 0; }
+.pmenu-open .caret { color: var(--accent); font-size: 10px; }
+.pmenu { position: fixed; left: 0; top: 40px; width: 260px; z-index: 20; background: var(--raised); border: 1px solid var(--rule); box-shadow: 0 12px 40px rgba(0, 0, 0, 0.5); padding: 4px 0; font-size: 11px; }
+.pmenu[hidden] { display: none; }
+.pmenu button { display: flex; justify-content: space-between; width: 100%; padding: 8px 14px; color: var(--ink); text-align: left; }
+.pmenu button:hover:not(:disabled) { background: var(--ink); color: var(--on-accent); }
+.pmenu button:disabled { color: var(--dim); }
+.pmenu kbd { font: inherit; opacity: 0.6; }
+.pmenu .pm-title, .pmenu .pm-none { padding: 8px 14px 4px; color: var(--muted); font-size: 10px; }
+.pmenu hr { border: 0; border-top: 1px solid var(--rule-soft); margin: 4px 0; }
+.palette-foot { padding: 6px 12px; color: var(--dim); font-size: 9px; border-top: 1px solid var(--rule-soft); }
+/* Radial menus: items on a ring about the cursor, the one pointed at in orange, its name in the hub. */
+.radial { position: absolute; width: 0; height: 0; z-index: 6; }
+.radial[hidden] { display: none; }
+.radial-hub { position: absolute; transform: translate(-50%, -50%); min-width: 70px; padding: 4px 8px; text-align: center; font-size: 10px; color: var(--ink); background: var(--ground); border: 1px solid var(--rule); white-space: nowrap; pointer-events: none; }
+.radial-item { position: absolute; left: 0; top: 0; width: 40px; height: 40px; border-radius: 50%; display: grid; place-items: center; background: var(--raised); border: 1px solid var(--rule); color: var(--ink); box-shadow: 0 6px 20px rgba(0, 0, 0, 0.45); }
+.radial-item b { font-size: 11px; }
+.radial-item .ico { width: 20px; height: 20px; }
+.radial-item[aria-current="true"] { background: var(--accent); border-color: var(--accent); color: var(--on-accent); }
+.radial-item[aria-current="true"] .ico, .radial-item[aria-current="true"] .ico .ac { stroke: var(--on-accent); }

@@ -55,7 +55,9 @@ export const VIEWPORT = {
     // Construction planes (manual: Construction Plane)
     space: 'plane:selection', 'shift-space': 'plane:selection-keep-view', 'ctrl-space': 'plane:view',
     // Files and history
+    // P-Menu (manual: Plasticity Interface › P-Menu)
     'ctrl-z': 'undo', 'ctrl-shift-z': 'redo', 'ctrl-n': 'file:new', 'ctrl-o': 'file:open', 'ctrl-s': 'file:save',
+    'ctrl-shift-o': 'import:step', 'ctrl-shift-s': 'file:save-as', 'ctrl-shift-e': 'file:export', 'ctrl-q': 'app:quit',
 };
 
 /** Keys inside a running command, by tool. Each names the value the cursor then sets (see App.js). */
@@ -159,6 +161,8 @@ export const ACTIONS = {
     'draw:polygon': 'Regular polygon', 'draw:spline': 'Spline curve', 'draw:ellipse': 'Center ellipse',
     'draw:ellipse3': 'Three point ellipse', 'draw:tangent-arc': 'Tangent arc', 'draw:spiral': 'Spiral', 'draw:cv': 'Control point curve', 'draw:tangent-circle': 'Tangent circle', 'split': 'Split curve at point', 'measure:distance': 'Measure distance', 'measure:radius': 'Measure radius', 'measure:continuity': 'Measure continuity', 'view:curvature': 'Toggle curvature', 'view:zebra': 'Shader: vertical zebra', 'view:draft': 'Shader: draft angle', 'join': 'Join curves or sheets', 'unjoin:faces': 'Unjoin faces', 'unjoin:pieces': 'Unjoin shells', 'trim': 'Trim curves', 'explode': 'Explode curve', 'extend': 'Extend curve',
     'undo': 'Undo', 'redo': 'Redo', 'file:new': 'New', 'file:open': 'Open…', 'file:save': 'Save',
+    'file:save-as': 'Save as…', 'file:save-version': 'Quick save version', 'file:export': 'Export…', 'file:recent': 'Recent files', 'app:quit': 'Quit', 'app:menu': 'File menu (P-Menu)',
+    'radial:selection-mode': 'Radial menu: selection mode', 'radial:viewport-settings': 'Radial menu: viewport settings',
     'export:step': 'Export STEP', 'export:mesh': 'Export mesh (OBJ, STL)', 'export:drawing': 'Export drawing (SVG, DXF)', 'import:step': 'Import STEP',
 };
 
