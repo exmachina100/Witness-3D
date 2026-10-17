@@ -18,10 +18,34 @@ pub enum FormKind {
         /// Walls this thick inside the outline instead of a filled solid (Shift+T); zero for solid.
         thickness: f64,
     },
-    /// Pass a solid through the profile and then each of `more`, in selection order.
-    Loft { more: Vec<(Profile, Frame)> },
-    /// Sweep the profile along `path`, turning its far end by `twist` radians and scaling it by `scale`.
-    Sweep { path: Path, twist: f64, scale: f64 },
+    /// Pass a solid through the profile and then each of `more`, in selection order, its sides
+    /// along the `guides` when there are any.
+    Loft { more: Vec<(Profile, Frame)>, guides: Vec<Path> },
+    /// Sweep the profile along `path`, turning its far end by `twist` radians and scaling it by
+    /// `scale`; or following `guide` by `method`; or kept parallel to itself (`align`).
+    Sweep { path: Path, twist: f64, scale: f64, guide: Option<Path>, method: GuideMethod, align: Alignment },
+}
+
+/// How a swept section follows its guide (Plasticity's Guide method).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum GuideMethod {
+    /// The section turns and scales so it keeps touching the guide.
+    #[default]
+    Point,
+    /// The section turns toward the guide without scaling.
+    Chord,
+    /// As Chord, matched by length along the guide.
+    Curve,
+}
+
+/// How a swept section is held along the path (Plasticity's Alignment).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum Alignment {
+    /// Turned with the path, staying square to it.
+    #[default]
+    Normal,
+    /// Kept at its drawn orientation all along.
+    Parallel,
 }
 
 #[derive(Clone, Debug)]
@@ -62,21 +86,25 @@ pub fn tool<K: Kernel>(k: &K, p: &FormParams) -> Result<K::Solid, KernelError> {
                 *thickness,
             )
         }
-        FormKind::Loft { more } => {
+        FormKind::Loft { more, guides } => {
             if more.is_empty() {
                 return Err(KernelError::Invalid("select two regions or more to loft"));
             }
             let mut all = vec![(p.profile.clone(), p.frame)];
             all.extend(more.iter().cloned());
-            k.loft(&all)
+            if guides.is_empty() { k.loft(&all) } else { k.loft_guided(&all, guides) }
         }
-        FormKind::Sweep { path, twist, scale } => {
+        FormKind::Sweep { path, twist, scale, guide, method, align } => {
             if !twist.is_finite() || !(*scale > 0.0) || !scale.is_finite() {
                 return Err(KernelError::Invalid(
                     "the end scale must be greater than zero",
                 ));
             }
-            k.sweep(&p.profile, &p.frame, path, *twist, *scale)
+            let plain = twist.abs() < 1e-12 && (scale - 1.0).abs() < 1e-12;
+            if guide.is_none() && *align == Alignment::Normal { return k.sweep(&p.profile, &p.frame, path, *twist, *scale) }
+            if !plain { return Err(KernelError::Invalid("twist and scale don't go with a guide or Parallel alignment; set them back to 0 and 1")) }
+            let method = match method { GuideMethod::Point => 0, GuideMethod::Chord => 1, GuideMethod::Curve => 2 };
+            k.sweep_guided(&p.profile, &p.frame, path, guide.as_ref(), method, *align == Alignment::Parallel)
         }
     }
 }

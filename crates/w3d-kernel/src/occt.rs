@@ -267,6 +267,19 @@ impl Kernel for Occt {
         Shape::sweep_section(&section(profile, frame)?, &path_numbers(path)?, twist, scale).map_err(shim)
     }
 
+    fn sweep_guided(&self, profile: &Profile, frame: &Frame, path: &Path, guide: Option<&Path>, method: u8, parallel: bool) -> Result<Shape, KernelError> {
+        let guide = match guide { Some(g) => path_numbers(g)?, None => Vec::new() };
+        Shape::sweep_guided(&section(profile, frame)?, &path_numbers(path)?, &guide, method as i32, parallel).map_err(shim)
+    }
+
+    fn loft_guided(&self, sections: &[(Profile, Frame)], guides: &[Path]) -> Result<Shape, KernelError> {
+        let mut all = Vec::new();
+        for (p, f) in sections { all.extend(section(p, f)?) }
+        let mut rails = Vec::new();
+        for g in guides { rails.extend(path_numbers(g)?) }
+        Shape::loft_guided(&all, &rails).map_err(shim)
+    }
+
     fn offset_faces(&self, s: &Shape, faces: &[u32], distance: f64, angle: f64) -> Result<Traced<Shape>, KernelError> {
         let faces: Vec<usize> = faces.iter().map(|&f| f as usize).collect();
         let (solid, h) = s.offset_faces_with_history(&faces, distance, angle).map_err(shim)?;

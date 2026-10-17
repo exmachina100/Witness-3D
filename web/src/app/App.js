@@ -75,8 +75,8 @@ const KEYS = {
   boolean: [['Q', 'UNION'], ['W', 'DIFFERENCE'], ['⇧E', 'INTERSECT'], ['⇧Q', 'SLICE'], ['T', 'KEEP TOOLS'], ['⏎ / RMB', 'OK']],
   offset: [['DRAG DOT', 'DISTANCE'], ['D', 'DISTANCE'], ['A', 'ANGLE ADJACENT'], ['⇧ CLICK', 'FACES'], ['⏎ / RMB', 'OK']],
   revolve: [['CLICK', 'AXIS START · END'], ['A', 'ANGLE'], ['⇧T', 'THICKNESS'], ['Q', 'UNION'], ['W', 'DIFFERENCE'], ['⇧E', 'INTERSECT'], ['B', 'NEW BODY'], ['⏎ / RMB', 'OK']],
-  loft: [['⏎ / RMB', 'OK'], ['ESC', 'CANCEL']],
-  sweep: [['CLICK', 'PATH'], ['D', 'TWIST'], ['Q', 'UNION'], ['W', 'DIFFERENCE'], ['⇧E', 'INTERSECT'], ['B', 'NEW BODY'], ['⏎ / RMB', 'OK']],
+  loft: [['CLICK', 'GUIDES (OPTIONAL)'], ['⏎ / RMB', 'OK'], ['ESC', 'CANCEL']],
+  sweep: [['CLICK', 'PATH · THEN A GUIDE'], ['M', 'GUIDE METHOD'], ['N', 'ALIGNMENT'], ['D', 'TWIST'], ['Q', 'UNION'], ['W', 'DIFFERENCE'], ['⇧E', 'INTERSECT'], ['B', 'NEW BODY'], ['⏎ / RMB', 'OK']],
   rect: [['CLICK', 'CORNERS'], ['S', 'SQUARE'], ['C', 'FROM CENTRE'], ['TAB', 'TYPE SIZE'], ['ALT', 'NO SNAP'], ['ESC', 'CANCEL']],
   circle: [['CLICK', 'CENTRE · RADIUS'], ['V', 'VERTICAL'], ['TAB', 'TYPE DIAMETER'], ['ALT', 'NO SNAP'], ['ESC', 'CANCEL']],
   line: [['CLICK', 'POINTS'], ['CLICK START', 'CLOSE'], ['X Y Z', 'AXIS'], ['CTRL Z', 'BACK'], ['TAB', 'TYPE LENGTH'], ['⏎ / RMB', 'DONE']],
@@ -420,6 +420,22 @@ const SHELL = `
       <div class="field" data-id="form-thickness-row"><label for="w3d-form-thickness">THICKNESS</label><input id="w3d-form-thickness" data-id="form-thickness" type="number" step="0.5" min="0" value="0"></div>
       <div class="field" data-id="form-twist-row"><label for="w3d-form-twist">TWIST °</label><input id="w3d-form-twist" data-id="form-twist" type="number" step="15" value="0"></div>
       <div class="field" data-id="form-scale-row"><label for="w3d-form-scale">SCALE</label><input id="w3d-form-scale" data-id="form-scale" type="number" step="0.1" min="0.01" value="1"></div>
+      <div class="field" data-id="form-guides-row"><label>GUIDES</label><output data-id="form-guides">0</output></div>
+      <div data-id="form-method-row">
+        <span class="label">GUIDE METHOD</span>
+        <div class="seg" role="group" aria-label="Guide method">
+          <button data-gmethod="point" aria-pressed="true" title="The section turns and scales to keep touching the guide"><kbd>M</kbd>POINT</button>
+          <button data-gmethod="chord" aria-pressed="false" title="The section turns toward the guide without scaling">CHORD</button>
+          <button data-gmethod="curve" aria-pressed="false" title="As Chord, matched by length along the guide">CURVE</button>
+        </div>
+      </div>
+      <div data-id="form-align-row">
+        <span class="label">ALIGNMENT</span>
+        <div class="seg" role="group" aria-label="Alignment">
+          <button data-galign="normal" aria-pressed="true" title="The section turns with the path"><kbd>N</kbd>NORMAL</button>
+          <button data-galign="parallel" aria-pressed="false" title="The section keeps its drawn angle">PARALLEL</button>
+        </div>
+      </div>
       <div class="field"><label>RESULT</label><output data-id="form-outcome">—</output></div>
       <div data-id="form-ops">
         <span class="label">OPERATION</span>
@@ -4426,7 +4442,7 @@ export async function mount(root, backend) {
     if (!regions.length || (id === 'loft' && regions.length < 2)) return toast(id === 'loft' ? 'SELECT TWO REGIONS OR MORE, IN ORDER, TO LOFT' : `SELECT A REGION TO ${toolInfo(id).label}`);
     const first = curveList.find(c => c.id === regions[0]);
     const target = bodyAt(regionCentre(first), curveFrame(first).n);
-    const c = cmd = { id, regions: id === 'loft' ? regions : regions.slice(0, 1), target, op: 'new', angle: 360, thickness: 0, twist: 0, scale: 1, p1: null, p2: null, path: null, outcome: null, sent: 0, shown: 0, line: null };
+    const c = cmd = { id, regions: id === 'loft' ? regions : regions.slice(0, 1), target, op: 'new', angle: 360, thickness: 0, twist: 0, scale: 1, p1: null, p2: null, path: null, guides: [], method: 'point', align: 'normal', outcome: null, sent: 0, shown: 0, line: null };
     lastTool = id;
     showTool(id);
     setState('none');
@@ -4434,13 +4450,18 @@ export async function mount(root, backend) {
     $('form-angle-row').hidden = $('form-thickness-row').hidden = id !== 'revolve';
     $('form-twist-row').hidden = $('form-scale-row').hidden = id !== 'sweep';
     $('form-ops').hidden = id === 'loft';
+    $('form-guides-row').hidden = id === 'revolve';
+    $('form-method-row').hidden = $('form-align-row').hidden = id !== 'sweep';
+    setGuideChips(c);
     $('form-angle').value = c.angle; $('form-thickness').value = c.thickness; $('form-twist').value = c.twist; $('form-scale').value = c.scale;
     $('form-outcome').textContent = '—';
     setFormOps();
     const hint = () => {
-      const text = id === 'loft' ? `${c.regions.map(r => curveLabel(r)).join(' → ')}`
+      const guides = c.guides.length ? ` · GUIDES ${c.guides.map(g => curveLabel(g)).join(', ')}` : '';
+      const text = id === 'loft' ? `${c.regions.map(r => curveLabel(r)).join(' → ')}${guides || ' · CLICK GUIDES (OPTIONAL)'}`
         : id === 'revolve' ? (!c.p1 ? 'CLICK THE AXIS START' : !c.p2 ? 'CLICK THE AXIS END' : `${c.angle}° ABOUT THE AXIS${c.thickness ? ` · WALLS ${c.thickness}` : ''}`)
-        : !c.path ? 'CLICK THE CURVE TO SWEEP ALONG' : `ALONG ${curveLabel(c.path)}`;
+        : !c.path ? 'CLICK THE CURVE TO SWEEP ALONG' : `ALONG ${curveLabel(c.path)}${guides || ' · CLICK A GUIDE (OPTIONAL)'}`;
+      $('form-guides').textContent = c.guides.length;
       $('form-hint').textContent = text;
       setHud(text);
     };
@@ -4455,6 +4476,17 @@ export async function mount(root, backend) {
       if (action === 'thickness' && id === 'revolve') {
         c.entry = { label: 'THICKNESS', text: '', apply: v => setForm({ thickness: Math.abs(v) }) };
         setHud('THICKNESS _');
+        return true;
+      }
+      if (action === 'method' && id === 'sweep') {
+        const all = ['point', 'chord', 'curve'];
+        setForm({ method: all[(all.indexOf(c.method) + 1) % all.length] });
+        setGuideChips(c);
+        return true;
+      }
+      if (action === 'align' && id === 'sweep') {
+        setForm({ align: c.align === 'normal' ? 'parallel' : 'normal' });
+        setGuideChips(c);
         return true;
       }
       if (action === 'twist' && id === 'sweep') {
@@ -4479,11 +4511,15 @@ export async function mount(root, backend) {
         previewFormCmd();
         return true;
       }
-      if (id === 'sweep') {
-        const path = curveAt(e);
-        if (path !== null && !c.regions.includes(path)) { c.path = path; hint(); previewFormCmd(); }
-        return true;
-      }
+      // Loft: each click on another curve adds it as a guide, or takes it off again. Sweep: the
+      // first click picks the path, a later one the guide (this build follows one).
+      const picked = curveAt(e);
+      if (picked === null || c.regions.includes(picked)) return true;
+      if (id === 'sweep' && (c.path === null || picked === c.path)) c.path = picked;
+      else if (id === 'sweep') c.guides = c.guides[0] === picked ? [] : [picked];
+      else if (id === 'loft') c.guides = c.guides.includes(picked) ? c.guides.filter(g => g !== picked) : [...c.guides, picked];
+      hint();
+      previewFormCmd();
       return true;
     };
     if (id === 'revolve') c.move = e => {
@@ -4499,6 +4535,10 @@ export async function mount(root, backend) {
     c.cleanup = () => { if (c.line) dispose(c.line); clearPreview(); };
     hint();
     if (id === 'loft') previewFormCmd();
+  }
+  function setGuideChips(c) {
+    for (const b of $$('[data-gmethod]')) b.setAttribute('aria-pressed', String(c.method === b.dataset.gmethod));
+    for (const b of $$('[data-galign]')) b.setAttribute('aria-pressed', String(c.align === b.dataset.galign));
   }
   function setFormOps() { for (const b of $$('[data-fop]')) b.setAttribute('aria-pressed', !!FORMS[cmd?.id] && cmd.op === b.dataset.fop); }
   function setForm(values) {
@@ -4545,8 +4585,9 @@ export async function mount(root, backend) {
     }
     if (c.id === 'sweep') {
       if (c.path === null) return null;
-      Object.assign(req, { path: c.path, twist: c.twist * DEG, scale: c.scale });
+      Object.assign(req, { path: c.path, twist: c.twist * DEG, scale: c.scale, guides: c.guides, method: c.method, align: c.align });
     }
+    if (c.id === 'loft') req.guides = c.guides;
     return req;
   }
   async function previewFormCmd() {
@@ -4588,7 +4629,7 @@ export async function mount(root, backend) {
     try {
       const { id, scene: list } = await backend.commitForm(req);
       endCmd('committed');
-      const what = c.id === 'revolve' ? `REVOLVE ${c.angle}°${c.thickness ? ` T ${c.thickness}` : ''}` : c.id === 'loft' ? `LOFT ×${c.regions.length}` : `SWEEP${c.twist ? ` ${c.twist}°` : ''}${c.scale !== 1 ? ` ×${c.scale}` : ''}`;
+      const what = c.id === 'revolve' ? `REVOLVE ${c.angle}°${c.thickness ? ` T ${c.thickness}` : ''}` : c.id === 'loft' ? `LOFT ×${c.regions.length}${c.guides.length ? ` · ${c.guides.length} GUIDES` : ''}` : `SWEEP${c.twist ? ` ${c.twist}°` : ''}${c.scale !== 1 ? ` ×${c.scale}` : ''}${c.guides.length ? ` · GUIDE ${c.method.toUpperCase()}` : ''}${c.align === 'parallel' ? ' · PARALLEL' : ''}`;
       record(`${what}${req.op === 'new' ? '' : ` ${req.op.toUpperCase()}`}`, id);
       await showScene(list);
       sel.replace({ kind: 'solid', body: id });
@@ -5104,6 +5145,8 @@ export async function mount(root, backend) {
   for (const f of ['th-f', 'th-b']) $(f).addEventListener('input', () => cmd?.id === 'thicken' && cmd.preview());
   for (const f of ['pipe-r', 'pipe-t', 'pipe-v']) $(f).addEventListener('input', () => cmd?.id === 'pipe' && cmd.preview());
   $('patch-tangent').onclick = () => cmd?.id === 'patch' && cmd.key('tangent');
+  for (const b of $$('[data-gmethod]')) b.onclick = () => { if (cmd?.id === 'sweep') { setForm({ method: b.dataset.gmethod }); setGuideChips(cmd); } };
+  for (const b of $$('[data-galign]')) b.onclick = () => { if (cmd?.id === 'sweep') { setForm({ align: b.dataset.galign }); setGuideChips(cmd); } };
   for (const b of $$('[data-proj]')) b.onclick = () => cmd?.id === 'project' && cmd.key(b.dataset.proj);
   $('bool-keep').onclick = () => cmd?.id === 'boolean' && cmd.key('keep');
   for (const b of $$('[data-draw]')) b.onclick = () => DRAW[cmd?.id] && cmd.key(b.dataset.draw);
@@ -5504,8 +5547,14 @@ export async function mount(root, backend) {
           updateAxisLine(cmd.p2);
         }
         if (id === 'sweep') cmd.path = path;
+        if (id !== 'revolve') {
+          const guides = (curveIds ?? []).filter(cid => curveList.some(c => c.id === cid));
+          if (guides.length !== (curveIds ?? []).length) throw new Error('that guide is gone');
+          cmd.guides = guides;
+        }
         if (id !== 'loft') { cmd.op = p.op; setFormOps(); }
-        setForm(id === 'revolve' ? { angle: p.angle, thickness: p.thickness } : id === 'sweep' ? { twist: p.twist, scale: p.scale } : {});
+        setForm(id === 'revolve' ? { angle: p.angle, thickness: p.thickness } : id === 'sweep' ? { twist: p.twist, scale: p.scale, method: p.method, align: p.align } : {});
+        setGuideChips(cmd);
       }
     },
     /** Where a point (viewport coordinates) is on the page, in CSS pixels. */
