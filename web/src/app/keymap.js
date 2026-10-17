@@ -98,7 +98,7 @@ export const COMMAND = {
     cylinder: { tab: 'typed', v: 'vertical', f: 'radius', d: 'height', x: 'axis-x', y: 'axis-y', z: 'axis-z', q: 'union', w: 'difference', 'shift-e': 'intersect', 'shift-q': 'slice', b: 'new' },
     sphere: { tab: 'typed', d: 'radius', x: 'axis-x', y: 'axis-y', z: 'axis-z', q: 'union', w: 'difference', 'shift-e': 'intersect', 'shift-q': 'slice', b: 'new' },
     // Round 7: D types the distance or radius.
-    'offset-curve': { d: 'distance' },
+    'offset-curve': { d: 'distance', c: 'corner' },
     'fillet-curve': { d: 'radius' },
     bridge: { t: 'tension' },
     hole: { t: 'through' },
