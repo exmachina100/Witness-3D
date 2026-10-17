@@ -103,6 +103,7 @@ const KEYS = {
   'bridge-surface': [['⇧ CLICK', 'TWO EDGES'], ['T', 'TENSION'], ['⏎ / RMB', 'OK']],
   'extend-sheet': [['CLICK', "A SHEET'S EDGE"], ['D', 'DISTANCE'], ['⏎ / RMB', 'OK']],
   thicken: [['CLICK', 'A SHEET'], ['D', 'FRONT'], ['B', 'BACK'], ['⏎ / RMB', 'OK']],
+  pipe: [['⇧ CLICK', 'CURVES'], ['R', 'RADIUS'], ['T', 'THICKNESS'], ['V', 'SIDES'], ['⏎ / RMB', 'OK']],
   patch: [['⇧ CLICK', 'CURVES · EDGES'], ['T', 'TANGENT TO FACES'], ['⏎ / RMB', 'OK']],
   hole: [['CLICK', 'A FLAT FACE'], ['T', 'THROUGH ALL'], ['TYPE', 'SIZE IN PANEL'], ['⏎ / RMB', 'OK']],
   split: [['CLICK', 'WHERE TO SPLIT'], ['ESC / ⏎', 'DONE']],
@@ -347,6 +348,12 @@ const SHELL = `
       <span class="hint" data-id="th-hint">—</span>
       <div class="field"><label for="w3d-th-f">FRONT</label><input id="w3d-th-f" data-id="th-f" type="number" step="0.5" min="0" value="1"></div>
       <div class="field"><label for="w3d-th-b">BACK</label><input id="w3d-th-b" data-id="th-b" type="number" step="0.5" min="0" value="0"></div>
+    </div>
+    <div class="sec" data-panel="pipe" hidden>
+      <span class="hint" data-id="pipe-hint">—</span>
+      <div class="field"><label for="w3d-pipe-r">RADIUS</label><input id="w3d-pipe-r" data-id="pipe-r" type="number" step="0.5" min="0.01" value="1"></div>
+      <div class="field"><label for="w3d-pipe-t">THICKNESS</label><input id="w3d-pipe-t" data-id="pipe-t" type="number" step="0.1" min="0" value="0"></div>
+      <div class="field"><label for="w3d-pipe-v">SIDES</label><input id="w3d-pipe-v" data-id="pipe-v" type="number" step="1" min="0" max="256" value="0" title="0 for a round pipe, or 3 to 256 for a polygon"></div>
     </div>
     <div class="sec" data-panel="hole" hidden>
       <span class="hint" data-id="hole-hint">CLICK A FLAT FACE</span>
@@ -1344,6 +1351,7 @@ export async function mount(root, backend) {
     if (id === 'patch') return startPatch();
     if (id === 'bridge-surface') return startBridgeSurface();
     if (id === 'thicken') return startThicken();
+    if (id === 'pipe') return startPipe();
     if (id === 'extend-sheet') return startExtendSheet();
     if (id === 'extend') return startExtend();
     if (id === 'tangent-circle') return startTangentCircle();
@@ -3379,6 +3387,60 @@ export async function mount(root, backend) {
   }
 
   /**
+   * Plasticity's Pipe: a tube along each selected curve. R types the radius, T the wall thickness
+   * (0 leaves it solid) and V the number of sides (0 for round). Each tube is a body of its own and
+   * the curves stay.
+   */
+  function startPipe() {
+    if (!backend.previewPipe) return toast('PIPE IS NOT IN THIS BUILD YET');
+    const c = cmd = { id: 'pipe', curves: [], sent: 0, shown: 0 };
+    lastTool = 'pipe';
+    showTool('pipe');
+    setState('none');
+    const sides = () => Math.round(num('pipe-v'));
+    const describe = () => `PIPE R${num('pipe-r')}${num('pipe-t') ? ` · WALL ${num('pipe-t')}` : ''}${sides() ? ` · ${sides()} SIDES` : ''}`;
+    c.request = () => ({ curves: c.curves, radius: num('pipe-r'), thickness: num('pipe-t'), sides: sides() });
+    c.preview = () => livePreview(c, () => backend.previewPipe(c.request()), b => {
+      showPreviewBody(b);
+      $('pipe-hint').textContent = `${c.curves.length} ${c.curves.length === 1 ? 'PIPE' : 'PIPES'} · ${num('pipe-t') ? 'HOLLOW' : 'SOLID'}`;
+      setHud(describe());
+    }, 'pipe-hint');
+    c.onSelection = () => {
+      drawOverlays();
+      c.curves = sel.curves.filter(curveById);
+      setTarget(c.curves.length ? `${c.curves.length} CURVES` : '—');
+      if (!c.curves.length) {
+        const missing = 'SELECT THE CURVES TO RUN PIPES ALONG';
+        $('pipe-hint').textContent = missing;
+        clearPreview();
+        return setHud(missing);
+      }
+      c.preview();
+    };
+    c.key = action => {
+      const field = { radius: ['pipe-r', 'RADIUS', v => v > 0, 'THE RADIUS MUST BE ABOVE ZERO'], thickness: ['pipe-t', 'THICKNESS', v => v >= 0, "THE THICKNESS CAN'T BE BELOW ZERO"], sides: ['pipe-v', 'SIDES', v => v === 0 || (v >= 3 && v <= 256), 'SIDES ARE 0 (ROUND) OR 3 TO 256'] }[action];
+      if (!field) return false;
+      c.entry = { label: field[1], text: '', apply: v => { if (field[2](v)) { $(field[0]).value = v; c.preview(); } else toast(field[3]); } };
+      setHud(`${field[1]} _`);
+      return true;
+    };
+    c.finish = async () => {
+      if (!c.curves.length) { setState('failed'); return toast($('pipe-hint').textContent); }
+      try {
+        const { ids, scene: list } = await backend.commitPipe(c.request());
+        endCmd('committed');
+        record(describe(), ids[0]);
+        await showScene(list);
+        selectSolids(ids);
+        selectionChanged({ quiet: true });
+      } catch (e) { setState('failed'); toast(say(e)); }
+    };
+    c.abort = () => endCmd('cancelled');
+    c.cleanup = () => clearPreview();
+    c.onSelection();
+  }
+
+  /**
    * Plasticity's Bridge Surface: a sheet from one selected edge to another, leaving each tangent to
    * its face. T types the tension (1 is a smooth cubic; more carries each side further before it
    * turns). The sheet is a body of its own.
@@ -4722,7 +4784,7 @@ export async function mount(root, backend) {
     if (kinds.has('curve') || kinds.has('region')) {
       if (kinds.has('solid')) out.push('tool:project', 'tool:cut', 'tool:imprint');
       if (sel.curves.length === 2) out.push('tool:project');
-      out.push('tool:patch');
+      out.push('tool:patch', 'tool:pipe');
       if (kinds.has('face')) out.push('tool:imprint');
       if (kinds.has('face')) out.push('tool:draft');
       out.push('trim', 'split', 'extend', 'tool:offset-curve', 'tool:fillet-curve');
@@ -5040,6 +5102,7 @@ export async function mount(root, backend) {
   $('bs-t').addEventListener('input', () => cmd?.id === 'bridge-surface' && cmd.preview());
   $('es-d').addEventListener('input', () => cmd?.id === 'extend-sheet' && cmd.preview());
   for (const f of ['th-f', 'th-b']) $(f).addEventListener('input', () => cmd?.id === 'thicken' && cmd.preview());
+  for (const f of ['pipe-r', 'pipe-t', 'pipe-v']) $(f).addEventListener('input', () => cmd?.id === 'pipe' && cmd.preview());
   $('patch-tangent').onclick = () => cmd?.id === 'patch' && cmd.key('tangent');
   for (const b of $$('[data-proj]')) b.onclick = () => cmd?.id === 'project' && cmd.key(b.dataset.proj);
   $('bool-keep').onclick = () => cmd?.id === 'boolean' && cmd.key('keep');
@@ -5355,6 +5418,17 @@ export async function mount(root, backend) {
         selectionChanged({ quiet: true });
         $('bs-t').value = p.tension;
         await startTool('bridge-surface');
+      } else if (id === 'pipe') {
+        const cs = (curveIds ?? []).filter(cid => curveList.some(c => c.id === cid));
+        if (!cs.length) throw new Error('give the curves to run pipes along, by id');
+        sel.clear();
+        for (const cid of cs) sel.add({ kind: 'curve', id: cid });
+        selectionChanged({ quiet: true });
+        $('pipe-r').value = p.radius;
+        $('pipe-t').value = p.thickness;
+        $('pipe-v').value = p.sides;
+        await startTool('pipe');
+        if (cmd?.id !== 'pipe') throw new Error('give the curves to run pipes along');
       } else if (id === 'patch') {
         const cs = (curveIds ?? []).filter(cid => curveList.some(c => c.id === cid));
         if (!cs.length && !edges?.length) throw new Error('give curves by id or edges by ref that make one closed loop');

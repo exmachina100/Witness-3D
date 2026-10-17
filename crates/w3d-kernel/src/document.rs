@@ -863,6 +863,25 @@ impl<K: Kernel> Document<K> {
         Ok(ids)
     }
 
+    /// Plasticity's Pipe, without changing the document: a tube along each curve.
+    pub fn preview_pipe(&self, curves: &[CurveId], radius: f64, thickness: f64, sides: u32) -> Result<Vec<K::Solid>, KernelError> {
+        if curves.is_empty() { return Err(KernelError::Invalid("select the curves to run pipes along")) }
+        self.cutters(curves)?.iter().map(|(path, _)| {
+            let tube = crate::form::pipe(&self.kernel, path, radius, thickness, sides)?;
+            if !self.kernel.is_valid(&tube) || self.kernel.solid_count(&tube) == 0 {
+                return Err(KernelError::Invalid("the pipe crosses itself; use a smaller radius"));
+            }
+            Ok(tube)
+        }).collect()
+    }
+
+    /// Pipe as one undoable step: each tube is a body of its own and the curves stay.
+    pub fn commit_pipe(&mut self, curves: &[CurveId], radius: f64, thickness: f64, sides: u32) -> Result<Vec<BodyId>, KernelError> {
+        let tubes = self.preview_pipe(curves, radius, thickness, sides)?;
+        self.checkpoint();
+        Ok(tubes.into_iter().map(|t| self.add_unrecorded(t)).collect())
+    }
+
     /// Plasticity's Patch, without changing the document: a sheet filling one closed loop of
     /// `curves` and body `edges`, each edge with whether the sheet leaves it tangent to its body.
     pub fn preview_patch(&self, curves: &[CurveId], edges: &[(BodyId, u32, bool)]) -> Result<K::Solid, KernelError> {

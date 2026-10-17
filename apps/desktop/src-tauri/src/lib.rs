@@ -286,6 +286,24 @@ async fn preview_thicken(
 }
 
 #[tauri::command]
+async fn preview_pipe(
+    model: State<'_, Model>,
+    req: api::PipeRequest,
+) -> Result<Option<api::Body>, api::ApiError> {
+    on_model(&model, move |m| api::preview_pipe(m, req))
+        .await?
+        .transpose()
+}
+
+#[tauri::command]
+async fn commit_pipe(
+    model: State<'_, Model>,
+    req: api::PipeRequest,
+) -> Result<api::Duplicated, api::ApiError> {
+    on_model(&model, move |m| api::commit_pipe(m, req)).await?
+}
+
+#[tauri::command]
 async fn commit_thicken(
     model: State<'_, Model>,
     req: api::ThickenRequest,
@@ -584,6 +602,8 @@ pub fn run() {
             commit_extend_sheet,
             preview_thicken,
             commit_thicken,
+            preview_pipe,
+            commit_pipe,
             preview_bridge_surface,
             commit_bridge_surface,
             preview_project,

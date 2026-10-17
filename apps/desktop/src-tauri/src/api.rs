@@ -1077,6 +1077,34 @@ pub fn commit_thicken(m: &Model, req: ThickenRequest) -> Result<Committed, ApiEr
     })
 }
 
+/// Pipe: a tube along each of `curves`, round (`sides` 0) or polygonal, hollow with a `thickness`.
+#[derive(Deserialize, Debug, Clone)]
+pub struct PipeRequest {
+    pub curves: Vec<CurveId>,
+    pub radius: f64,
+    #[serde(default)]
+    pub thickness: f64,
+    #[serde(default)]
+    pub sides: u32,
+}
+
+pub fn preview_pipe(m: &Model, req: PipeRequest) -> Option<Result<Body, ApiError>> {
+    m.preview(move |doc| {
+        let mut tubes = doc.preview_pipe(&req.curves, req.radius, req.thickness, req.sides)?.into_iter();
+        let first = tubes.next().ok_or(KernelError::Invalid("select the curves to run pipes along"))?;
+        // Several tubes show as one preview body.
+        let all = tubes.try_fold(first, |a, t| doc.kernel.boolean(&a, &t, BooleanOp::Union).map(|r| r.solid))?;
+        Ok(body(&doc.kernel, 0, &all)?)
+    })
+}
+
+pub fn commit_pipe(m: &Model, req: PipeRequest) -> Result<Duplicated, ApiError> {
+    m.call(move |doc| {
+        let ids = doc.commit_pipe(&req.curves, req.radius, req.thickness, req.sides)?;
+        Ok(Duplicated { ids, scene: bodies(doc)? })
+    })
+}
+
 /// Extend Sheet: a sheet body grown `distance` past its open edge `edge`.
 #[derive(Deserialize, Debug, Clone)]
 pub struct ExtendSheetRequest {

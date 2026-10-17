@@ -111,6 +111,8 @@ export const COMMAND = {
     // Patch: T leaves the edges tangent to their faces.
     patch: { t: 'tangent' },
     thicken: { d: 'front', b: 'back' },
+    // Pipe: R radius, T wall thickness, V sides.
+    pipe: { r: 'radius', t: 'thickness', v: 'sides' },
     'extend-sheet': { d: 'distance' },
     // Draft Face: A types the angle.
     draft: { a: 'angle' },
