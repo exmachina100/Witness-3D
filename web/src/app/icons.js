@@ -143,6 +143,10 @@ const ICONS = {
     ungroup: `<rect x="3" y="3" width="8" height="8"/><rect ${A} x="13" y="13" width="8" height="8"/><path d="M14 4l6 6M20 4l-6 6"/>`,
     padlock: `<rect x="5" y="11" width="14" height="10"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/><path ${A} d="M12 15v2"/>`,
     unlock: `<rect x="5" y="11" width="14" height="10"/><path d="M8 11V7a4 4 0 0 1 8 0"/><path ${A} d="M12 15v2"/>`,
+    // Materials: a shaded ball, split in two for Fork, struck through for Remove.
+    material: `<circle cx="12" cy="12" r="8"/><path ${A} d="M8 9a5 5 0 0 1 4-2"/>`,
+    'fork-material': `<circle cx="8" cy="12" r="5"/><circle ${A} cx="16" cy="12" r="5"/>`,
+    'remove-material': `<circle cx="12" cy="12" r="8"/><path ${A} d="M5 19L19 5"/>`,
     isolate: `<rect x="3" y="5" width="18" height="14" stroke-dasharray="2 2"/><rect ${A} x="8" y="8" width="8" height="8"/>`,
 };
 

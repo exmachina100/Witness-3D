@@ -266,3 +266,11 @@ button:focus-visible, input:focus-visible { outline: 1px solid var(--accent); ou
 .family .tool { padding: 0 9px; }
 .modes button { display: grid; place-items: center; padding: 5px 8px; }
 .modes .ico { width: 20px; height: 20px; }
+
+/* Shader modes: a row of shaded balls, the current one ringed in orange. */
+.swatches { display: grid; grid-template-columns: repeat(7, 1fr); gap: 6px; }
+.swatches button { aspect-ratio: 1; border-radius: 50%; border: 1px solid var(--rule); }
+.swatches button[aria-pressed="true"] { outline: 2px solid var(--accent); outline-offset: 1px; }
+[data-id="render-options"][hidden], [data-id="shader-option"][hidden] { display: none; }
+input[aria-invalid="true"] { border-color: var(--accent); color: var(--accent); }
+input[type="range"] { accent-color: var(--accent); }
