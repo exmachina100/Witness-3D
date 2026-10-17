@@ -228,6 +228,8 @@ pub trait Kernel {
     fn extrude_face(&self, s: &Self::Solid, face: u32, extent: &Extent) -> Result<Self::Solid, KernelError>;
     /// The boolean result, with coplanar faces merged, and where its faces and edges came from.
     fn boolean(&self, a: &Self::Solid, b: &Self::Solid, op: BooleanOp) -> Result<Traced<Self::Solid>, KernelError>;
+    /// Whether the shape is a sheet: faces that enclose no solid, as Patch makes.
+    fn is_sheet(&self, _s: &Self::Solid) -> bool { false }
     /// Number of disconnected solids in the shape.
     fn solid_count(&self, s: &Self::Solid) -> usize;
     fn face_count(&self, s: &Self::Solid) -> usize;
@@ -287,6 +289,11 @@ pub trait Kernel {
         Err(KernelError::Invalid("this kernel cannot project curves"))
     }
     /// A face as a cutting tool grown `size` past the body: a plane, a whole cylinder, or the face itself.
+        /// Plasticity's Patch: a sheet filling one closed loop of `curves` and edges of bodies, each
+    /// edge with whether the sheet leaves it tangent to the body. Flat loops give the exact plane.
+    fn patch(&self, _curves: &[Path], _edges: &[(&Self::Solid, Vec<(u32, bool)>)]) -> Result<Self::Solid, KernelError> {
+        Err(KernelError::Invalid("this kernel cannot patch"))
+    }
     fn face_sheet(&self, _s: &Self::Solid, _face: u32, _size: f64) -> Result<Self::Solid, KernelError> {
         Err(KernelError::Invalid("this kernel cannot cut with faces"))
     }

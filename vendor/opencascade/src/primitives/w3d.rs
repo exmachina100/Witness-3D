@@ -230,6 +230,26 @@ impl Shape {
         ffi::w3d::w3d_project_curve_curve(data, length).map_err(reason)
     }
 
+    /// A sheet filling one closed loop of drawn curves and edges of `bodies`, each edge with
+    /// whether the sheet leaves it tangent to the body (see `w3d_patch`). Edges are numbered within
+    /// their own body.
+    pub fn patch(data: &[f64], bodies: &[(&Shape, Vec<(usize, bool)>)], tol: f64) -> Result<Shape, String> {
+        let all = Shape::from(crate::primitives::Compound::from_shapes(bodies.iter().map(|(s, _)| *s)));
+        let (mut edges, mut tangent, mut offset) = (vec![], vec![], 0);
+        for (s, picked) in bodies {
+            for &(e, t) in picked {
+                edges.push((offset + e) as i32);
+                tangent.push(t as i32);
+            }
+            offset += ffi::w3d::w3d_count(&s.inner, false) as usize;
+        }
+        let sheet = ffi::w3d::w3d_patch(data, &all.inner, &edges, &tangent, tol).map_err(reason)?;
+        Ok(Shape::from_shape(&sheet))
+    }
+
+    /// Whether the shape holds no solid: a sheet of faces, as Patch makes.
+    pub fn is_sheet(&self) -> bool { ffi::w3d::w3d_solid_count(&self.inner) == 0 }
+
     /// Face `index` as a cutting tool grown `size` past the body (see `w3d_face_sheet`).
     pub fn face_sheet(&self, index: usize, size: f64) -> Result<Shape, String> {
         let sheet = ffi::w3d::w3d_face_sheet(&self.inner, index as i32, size).map_err(reason)?;

@@ -106,6 +106,8 @@ export const COMMAND = {
     cut: { p: 'plane' },
     // Project (manual): S projects along the view (screen space); X, Y and Z pick a vector axis, again flips it.
     project: { s: 'screen', x: 'axis-x', y: 'axis-y', z: 'axis-z' },
+    // Patch: T leaves the edges tangent to their faces.
+    patch: { t: 'tangent' },
     // Draft Face: A types the angle.
     draft: { a: 'angle' },
     // Tangent Circle (manual): F freezes the circle, Tab types its radius.

@@ -232,6 +232,24 @@ async fn commit_imprint(
 }
 
 #[tauri::command]
+async fn preview_patch(
+    model: State<'_, Model>,
+    req: api::PatchRequest,
+) -> Result<Option<api::Body>, api::ApiError> {
+    on_model(&model, move |m| api::preview_patch(m, req))
+        .await?
+        .transpose()
+}
+
+#[tauri::command]
+async fn commit_patch(
+    model: State<'_, Model>,
+    req: api::PatchRequest,
+) -> Result<api::Committed, api::ApiError> {
+    on_model(&model, move |m| api::commit_patch(m, req)).await?
+}
+
+#[tauri::command]
 async fn preview_project(
     model: State<'_, Model>,
     req: api::ProjectRequest,
@@ -477,6 +495,8 @@ pub fn run() {
             commit_cut,
             preview_imprint,
             commit_imprint,
+            preview_patch,
+            commit_patch,
             preview_project,
             preview_draft,
             commit_draft,

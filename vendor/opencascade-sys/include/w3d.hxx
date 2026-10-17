@@ -17,6 +17,8 @@
 #include <BRepGProp_Face.hxx>
 #include <BRepLib.hxx>
 #include <BRepOffsetAPI_MakeOffset.hxx>
+#include <BRepOffsetAPI_MakeFilling.hxx>
+#include <BRepLib_FindSurface.hxx>
 #include <BRepOffsetAPI_MakePipeShell.hxx>
 #include <BRepPrimAPI_MakePrism.hxx>
 #include <GC_MakeArcOfCircle.hxx>
@@ -1378,6 +1380,92 @@ inline rust::Vec<double> w3d_project_curve_curve(rust::Slice<const double> data,
     w3d_meet(curtains[0].second, curtains[1].second, edges);
     if (edges.empty()) throw std::runtime_error("the two curves' sheets do not meet; check that their directions cross");
     return w3d_curves_out(edges);
+  } catch (const Standard_Failure &f) {
+    throw w3d_kernel_error(f);
+  }
+}
+
+
+// Plasticity's Patch: a sheet filling one closed loop of drawn curves (`data`, as w3d_curtains
+// reads them, their directions unused) and edges of `shape`. Where `tangent[i]` is set, the sheet
+// leaves edge `edges[i]` tangent to the body's face along it. A flat loop with no tangency gives
+// the exact plane; anything else is filled with an energy-minimising plate (GeomPlate), within
+// `tol` of the boundary. Returns the face, or says why the loop does not close.
+inline std::unique_ptr<TopoDS_Shape> w3d_patch(rust::Slice<const double> data, const TopoDS_Shape &shape,
+                                              rust::Slice<const int32_t> edges, rust::Slice<const int32_t> tangent,
+                                              double tol) {
+  if (edges.size() != tangent.size()) throw std::runtime_error("each edge needs its continuity");
+  try {
+    std::vector<std::pair<TopoDS_Edge, TopoDS_Face>> bounds;
+    const double *p = data.data(), *end = p + data.size();
+    int m = p < end ? int(*p++) : 0;
+    for (int i = 0; i < m; i++) {
+      if (p + 3 > end) throw std::runtime_error("a curve is cut short");
+      p += 3;
+      TopoDS_Wire w = w3d_section(p, end);
+      for (TopExp_Explorer ex(w, TopAbs_EDGE); ex.More(); ex.Next()) bounds.push_back({TopoDS::Edge(ex.Current()), TopoDS_Face()});
+    }
+    TopTools_IndexedMapOfShape map;
+    TopExp::MapShapes(shape, TopAbs_EDGE, map);
+    TopTools_IndexedDataMapOfShapeListOfShape faces;
+    TopExp::MapShapesAndAncestors(shape, TopAbs_EDGE, TopAbs_FACE, faces);
+    for (size_t i = 0; i < edges.size(); i++) {
+      if (edges[i] < 0 || edges[i] >= map.Extent()) throw std::out_of_range("that edge no longer exists");
+      TopoDS_Edge e = TopoDS::Edge(map(edges[i] + 1));
+      TopoDS_Face f;
+      if (tangent[i]) {
+        const TopTools_ListOfShape &around = faces.FindFromKey(e);
+        if (around.IsEmpty()) throw std::runtime_error("a tangent edge needs a face beside it");
+        f = TopoDS::Face(around.First());
+      }
+      bounds.push_back({e, f});
+    }
+    if (bounds.empty()) throw std::runtime_error("select a closed loop of curves or edges to patch");
+
+    // One closed loop, or say what is wrong with it.
+    Handle(TopTools_HSequenceOfShape) loose = new TopTools_HSequenceOfShape, wires;
+    for (auto &b : bounds) loose->Append(b.first);
+    ShapeAnalysis_FreeBounds::ConnectEdgesToWires(loose, tol, Standard_False, wires);
+    if (wires->Length() != 1) throw std::runtime_error("the curves and edges must join end to end into one loop");
+    TopoDS_Wire loop = TopoDS::Wire(wires->Value(1));
+    if (!BRep_Tool::IsClosed(loop)) {
+      TopoDS_Vertex a, b;
+      TopExp::Vertices(loop, a, b);
+      if (a.IsNull() || b.IsNull() || BRep_Tool::Pnt(a).Distance(BRep_Tool::Pnt(b)) > tol)
+        throw std::runtime_error("the loop is open; its ends must meet");
+    }
+
+    bool smooth = false;
+    for (auto &b : bounds) smooth = smooth || !b.second.IsNull();
+    if (!smooth) {
+      BRepLib_FindSurface flat(loop, tol, Standard_True);
+      if (flat.Found()) {
+        BRepBuilderAPI_MakeFace mk(loop, Standard_True);
+        if (mk.IsDone()) return std::unique_ptr<TopoDS_Shape>(new TopoDS_Shape(mk.Face()));
+      }
+    }
+    BRepOffsetAPI_MakeFilling fill(3, 15, 2, Standard_False, 1e-5, tol, 0.01, 0.1, 8, 9);
+    for (auto &b : bounds) {
+      if (b.second.IsNull()) fill.Add(b.first, GeomAbs_C0, Standard_True);
+      else fill.Add(b.first, b.second, GeomAbs_G1, Standard_True);
+    }
+    fill.Build();
+    if (!fill.IsDone()) throw std::runtime_error("no surface could be filled inside that loop");
+    if (fill.G0Error() > 10 * tol) {
+      std::ostringstream why;
+      why << "the patch misses its boundary by " << fill.G0Error() << " mm";
+      throw std::runtime_error(why.str());
+    }
+    // A plate is a height field over its first guess, so it cannot turn as steeply as a wall
+    // standing square to the loop; say so rather than hand back a flat lid.
+    double off = fill.G1Error() * 180.0 / M_PI;
+    if (smooth && off > 0.5) {
+      std::ostringstream why;
+      why.precision(2);
+      why << std::fixed << "the patch meets the faces up to " << off << " degrees off tangent; try plain (G0) edges where the walls stand square to the loop";
+      throw std::runtime_error(why.str());
+    }
+    return std::unique_ptr<TopoDS_Shape>(new TopoDS_Shape(fill.Shape()));
   } catch (const Standard_Failure &f) {
     throw w3d_kernel_error(f);
   }

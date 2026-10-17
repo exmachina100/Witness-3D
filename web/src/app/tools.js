@@ -202,6 +202,14 @@ export const TOOLS = [
             hideOccluded: { type: 'boolean', default: false, describe: 'with vector, skip faces hidden behind others along the direction' },
         },
     },
+    // Plasticity's Patch (and the fill its Xnurbs tool makes): a sheet in a closed loop.
+    {
+        id: 'patch', label: 'PATCH', key: '', group: 'shape', selects: 'curves', toolbar: false,
+        summary: 'Fill one closed loop of the selected curves and edges with a sheet: flat when the loop is flat, otherwise a smooth surface through it. The sheet is a body of its own; the loop stays.',
+        params: {
+            tangent: { type: 'boolean', default: false, describe: "leave the selected edges tangent to their bodies' faces instead of just meeting them" },
+        },
+    },
     // Round 11: Draft Face, against the construction plane.
     {
         id: 'draft', label: 'DRAFT FACE', key: '', group: 'shape', selects: 'faces', toolbar: false,
@@ -312,6 +320,9 @@ const EXTRA_PARAMS = {
         bodies: { type: 'array', items: { type: 'integer' }, minItems: 1, description: 'the solids to cut, by id' },
         faces: { type: 'array', items: { type: 'integer' }, minItems: 1, description: 'faces to cut with, by ref; flat ones cut as their whole plane' },
     },
+    patch: {
+        edges: { type: 'array', items: { type: 'integer' }, minItems: 1, description: 'edges of bodies in the loop, by ref' },
+    },
     project: {
         bodies: { type: 'array', items: { type: 'integer' }, minItems: 1, maxItems: 2, description: 'the solid to project onto, by id; or two solids to get the curves where they meet' },
     },
@@ -333,8 +344,8 @@ export function schema() {
         const properties = {}, required = [];
         const [selName, selSchema] = SELECTION_PARAM[t.selects];
         properties[selName] = selSchema;
-        // Cut, Imprint and Project can work without curves (faces, a plane or other bodies instead).
-        if (REQUIRED[t.selects] && t.id !== 'cut' && t.id !== 'imprint' && t.id !== 'project') required.push(selName);
+        // Cut, Imprint, Project and Patch can work without curves (faces, a plane or other bodies instead).
+        if (REQUIRED[t.selects] && t.id !== 'cut' && t.id !== 'imprint' && t.id !== 'project' && t.id !== 'patch') required.push(selName);
         Object.assign(properties, EXTRA_PARAMS[t.id]);
         required.push(...(REQUIRED_EXTRA[t.id] ?? []));
         for (const [name, p] of Object.entries(t.params)) {

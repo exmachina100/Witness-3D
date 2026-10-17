@@ -211,6 +211,8 @@ impl Kernel for Occt {
         Ok(Traced { solid, history: history(h) })
     }
 
+    fn is_sheet(&self, s: &Shape) -> bool { s.is_sheet() }
+
     fn solid_count(&self, s: &Shape) -> usize {
         // opencascade-rs has no solid iterator, and a boolean returns a Compound even when it holds
         // one solid. Faces of one closed solid are connected through shared edges, so count the
@@ -306,6 +308,12 @@ impl Kernel for Occt {
         let faces: Vec<usize> = faces.iter().map(|&f| f as usize).collect();
         let (solid, h) = s.draft_faces_with_history(&faces, pull, origin, angle).map_err(shim)?;
         Ok(Traced { solid, history: history(h) })
+    }
+
+    fn patch(&self, curves: &[Path], edges: &[(&Shape, Vec<(u32, bool)>)]) -> Result<Shape, KernelError> {
+        let curves: Vec<(Path, DVec3)> = curves.iter().map(|c| (c.clone(), DVec3::Z)).collect();
+        let edges: Vec<(&Shape, Vec<(usize, bool)>)> = edges.iter().map(|(s, e)| (*s, e.iter().map(|&(i, t)| (i as usize, t)).collect())).collect();
+        Shape::patch(&cutter_numbers(&curves)?, &edges, PATCH_TOLERANCE).map_err(shim)
     }
 
     fn face_sheet(&self, s: &Shape, face: u32, size: f64) -> Result<Shape, KernelError> {
@@ -411,6 +419,9 @@ fn nurbs_paths(v: &[f64]) -> Result<Vec<Path>, KernelError> {
     }
     Ok(out)
 }
+
+/// How far apart a patch's boundary pieces may be and still join, and a tenth of how far the patch may stray from them: within the 0.01 mm bar.
+const PATCH_TOLERANCE: f64 = 1e-3;
 
 fn cutter_numbers(cutters: &[(Path, DVec3)]) -> Result<Vec<f64>, KernelError> {
     let mut data = vec![cutters.len() as f64];
