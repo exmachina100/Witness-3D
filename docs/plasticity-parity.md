@@ -110,7 +110,7 @@ a flat face imprints that face and is used up (round 10).
 | Area | Manual pages (REA assets) | Status |
 |---|---|---|
 | Navigation | View Cube, Camera Settings, Operating the Viewport | Done (axis gizmo, zoom, pan, ortho, frame, home) |
-| Selection | Selection Mode, Selecting Objects, Group Objects, Toggle Object States, Focus and Isolate | Modes and hide done; groups, lock, isolate missing |
+| Selection | Selection Mode, Selecting Objects, Group Objects, Toggle Object States, Focus and Isolate | Done in both builds: modes; Hide H, Hide Unselected Shift+H, Unhide All Alt+H, Invert Hidden Ctrl+H; Isolate . in layers (. with nothing selected steps out one, Alt+. all; "N ISOLATED" button at the top unisolates; bodies made while isolated stay shown); Group Ctrl+G as nesting outliner folders (click selects everything inside, eye and padlock act on all, double-click renames, empty groups dimmed), Ungroup Alt+G; Lock Selected / Unlock All from F, and a padlock per outliner row (locked bodies show but can't be picked, box-selected or selected with A). Groups, locks and isolation aren't saved in the .w3d file yet; Disable state and active collection missing |
 | Menus | P-Menu, Radial Menu, Command Palette, Command Bar | Palette and bar done; toolbar grouped in tool families with variant strips; P-Menu and radial missing |
 | Shader modes | Shader Mode, Render Mode, Curvature (REA: matcap, silhouette, isophotes, zebra stripes, reflection check, topographic, draft, face direction) | Zebra stripes and draft (against the construction plane normal, 1°) done (VIEW › ZEBRA, DRAFT); the rest missing |
 | Materials and lighting | Assets (REA: 22 PBR materials, 14 HDR environments) | Missing (use CC0 assets, not Plasticity's) |

@@ -47,7 +47,9 @@ export const VIEWPORT = {
     j: 'join',
     // Witness 3D's own: a command asked for in words (ai.js); Plasticity has no equivalent
     'ctrl-k': 'ask',
-    h: 'hide', 'shift-h': 'hide-others', 'alt-h': 'unhide-all',
+    h: 'hide', 'shift-h': 'hide-others', 'alt-h': 'unhide-all', 'ctrl-h': 'invert-hidden',
+    // Organising (manual: Outliner; Focus and Isolate). Lock Selected and Unlock All have no key there either.
+    '.': 'isolate', 'alt-.': 'unisolate', 'ctrl-g': 'group', 'alt-g': 'ungroup',
     // Construction planes (manual: Construction Plane)
     space: 'plane:selection', 'shift-space': 'plane:selection-keep-view', 'ctrl-space': 'plane:view',
     // Files and history
@@ -142,7 +144,9 @@ export const ACTIONS = {
     'convert:edge': 'Convert selection to edges', 'convert:face': 'Convert selection to faces', 'convert:solid': 'Convert selection to solids',
     'select:all': 'Select all', 'select:none': 'Deselect all', 'select:invert': 'Invert selection',
     'repeat': 'Repeat last command', 'ask': 'Ask for a command in words', 'delete': 'Delete', 'duplicate': 'Duplicate',
-    'hide': 'Hide selected', 'hide-others': 'Hide unselected', 'unhide-all': 'Unhide all',
+    'hide': 'Hide selected', 'hide-others': 'Hide unselected', 'unhide-all': 'Unhide all', 'invert-hidden': 'Invert hidden',
+    'isolate': 'Isolate selected', 'unisolate': 'Unisolate', 'group': 'Group selected', 'ungroup': 'Ungroup',
+    'lock': 'Lock selected', 'unlock-all': 'Unlock all',
     'plane:selection': 'Construction plane from selection', 'plane:selection-keep-view': 'Construction plane from selection, keep view',
     'plane:view': 'Construction plane from view', 'plane:world': 'Construction plane: world XY',
     'draw:rect': 'Corner rectangle', 'draw:circle': 'Center circle', 'draw:line': 'Line',

@@ -57,6 +57,7 @@ import { MagnitudeGizmo, typed } from '../MagnitudeGizmo.js';
 import { TOOLS, check, tool as toolInfo, withDefaults } from './tools.js';
 import { ACTIONS, COMMAND, VIEWPORT, keyFor, keyOf } from './keymap.js';
 import { Selection } from './Selection.js';
+import { Organise } from './Organise.js';
 import { claude, describe, MODEL, reply, request } from './ai.js';
 import { icon } from './icons.js';
 import { limitEdges, toObj, toStl } from '../meshExport.js';
@@ -193,6 +194,7 @@ const SHELL = `
     </div>
     <div class="keys" data-id="keys">${keysHtml('idle')}</div>
     <span class="snap-tag" data-id="snap-tag" hidden></span>
+    <button class="isolated" data-id="isolated" hidden title="Unisolate (Alt+.)">${icon('isolate')}<span>0 ISOLATED</span></button>
     <div class="boxsel" data-id="boxsel" hidden></div>
     <div class="palette" data-id="palette" hidden>
       <div class="palette-title" data-id="palette-title">SEARCH COMMANDS</div>
@@ -796,22 +798,23 @@ export async function mount(root, backend) {
   const bodies = new THREE.Group();
   scene.add(bodies);
   let current = [];
-  const hidden = new Set();
+  const org = new Organise();   // hidden, locked, isolated, grouped
   const sel = new Selection();
   const bodyMesh = id => bodies.children.find(m => m.userData.id === id);
   const bodyOf = id => current.find(b => b.id === id);
-  const shownMeshes = () => bodies.children.filter(m => !hidden.has(m.userData.id));
+  const shownMeshes = () => bodies.children.filter(m => org.shows(m.userData.id));
 
   function showScene(list) {
     // The selection is kept as refs across the change and turned back into the new numbers.
     const saved = sel.toRefs(current);
     current = list;
     sel.fromRefs(saved, list);
-    for (const id of [...hidden]) if (!list.some(b => b.id === id)) hidden.delete(id);
+    org.prune(list.map(b => b.id));
+    renderIsolated();
     for (const m of [...bodies.children]) dispose(m);
     for (const b of list) {
       const m = meshOf(b);
-      m.visible = !hidden.has(b.id);
+      m.visible = org.shows(b.id);
       bodies.add(m);
     }
     $('volume').textContent = list.reduce((v, b) => v + b.volume, 0).toFixed(3);
@@ -965,21 +968,65 @@ export async function mount(root, backend) {
   function renderOutliner() {
     const out = $('outliner');
     out.innerHTML = '<div class="group-title">▾ SOLIDS</div>';
+    const ids = current.map(b => b.id);
     const solids = current.filter(b => !b.sheet), sheets = current.filter(b => b.sheet);
-    if (!solids.length) out.insertAdjacentHTML('beforeend', '<div class="empty">NO SOLIDS</div>');
-    for (const b of [...solids, ...sheets]) {
-      if (b === sheets[0]) out.insertAdjacentHTML('beforeend', '<div class="group-title">▾ SHEETS</div>');
+    const toggles = (shown, locked) => `<button class="lk" aria-pressed="${locked}" aria-label="Lock or unlock" title="${locked ? 'Unlock' : 'Lock'}">${icon(locked ? 'padlock' : 'unlock')}</button><button class="eye" aria-pressed="${shown}" aria-label="Show or hide">◉</button>`;
+    const indent = depth => `padding-left: ${14 + 14 * depth}px`;
+    const bodyRow = (b, depth) => {
       const row = document.createElement('div');
-      row.className = 'row-item';
+      const locked = org.locked.has(b.id), shown = !org.hidden.has(b.id);
+      row.className = 'row-item' + (locked ? ' locked' : '') + (org.shows(b.id) ? '' : ' off');
+      row.style = indent(depth);
       row.setAttribute('aria-current', sel.has({ kind: 'solid', body: b.id }));
-      row.innerHTML = `<span class="sq"></span><span class="name">${b.sheet ? 'SHEET' : 'BODY'} ${b.id}</span><span class="tag">${label(b.id)}</span><button class="eye" aria-pressed="${!hidden.has(b.id)}" aria-label="Show or hide">◉</button>`;
+      row.innerHTML = `<span class="sq"></span><span class="name">${b.sheet ? 'SHEET' : 'BODY'} ${b.id}</span><span class="tag">${label(b.id)}</span>${toggles(shown, locked)}`;
       row.onclick = e => {
-        if (e.target.classList.contains('eye')) return setHidden([b.id], !hidden.has(b.id));
+        if (e.target.closest('.eye')) return setHidden([b.id], shown);
+        if (e.target.closest('.lk')) { org.setLocked([b.id], !locked); return organised(); }
+        if (!org.picks(b.id)) return toast(locked ? 'LOCKED · UNLOCK TO SELECT' : 'HIDDEN');
         applySelect({ kind: 'solid', body: b.id }, e.shiftKey ? 'add' : (e.ctrlKey || e.metaKey) ? 'remove' : 'replace');
         selectionChanged();
       };
       out.append(row);
-    }
+    };
+    // A group is a folder: its own groups, then its bodies. Clicking it selects everything in it.
+    const folder = (g, depth) => {
+      const all = org.allMembers(g.id, ids), shown = all.some(id => !org.hidden.has(id)), locked = all.length > 0 && all.every(id => org.locked.has(id));
+      const row = document.createElement('div');
+      row.className = 'row-item folder' + (all.length ? '' : ' empty-group');
+      row.style = indent(depth);
+      row.setAttribute('aria-current', all.length > 0 && all.every(id => sel.has({ kind: 'solid', body: id })));
+      row.innerHTML = `<span class="tw">${g.open ? '▾' : '▸'}</span>${icon('folder')}<span class="name" title="Double-click to rename">${g.name}</span><span class="tag">${all.length}</span>${toggles(shown, locked)}`;
+      const name = row.querySelector('.name');
+      row.onclick = e => {
+        if (name.isContentEditable) return;
+        if (e.target.closest('.tw')) { g.open = !g.open; return renderOutliner(); }
+        if (e.target.closest('.eye')) return setHidden(all, shown);
+        if (e.target.closest('.lk')) { org.setLocked(all, !locked); return organised(); }
+        const mod = e.shiftKey ? 'add' : (e.ctrlKey || e.metaKey) ? 'remove' : 'replace';
+        if (mod === 'replace') sel.clear();
+        for (const id of all.filter(id => org.picks(id))) mod === 'remove' ? sel.remove({ kind: 'solid', body: id }) : applySelect({ kind: 'solid', body: id }, 'add');
+        selectionChanged();
+      };
+      name.ondblclick = e => {
+        e.stopPropagation();
+        name.contentEditable = 'true';
+        name.focus();
+        getSelection().selectAllChildren(name);
+        const done = keep => { name.onblur = name.onkeydown = null; if (keep) org.rename(g.id, name.textContent); renderOutliner(); };
+        name.onkeydown = k => { k.stopPropagation(); if (k.key === 'Enter') { k.preventDefault(); done(true); } else if (k.key === 'Escape') done(false); };
+        name.onblur = () => done(true);
+      };
+      out.append(row);
+      if (!g.open) return;
+      for (const c of org.childGroups(g.id)) folder(c, depth + 1);
+      for (const id of org.members(g.id, ids)) bodyRow(bodyOf(id), depth + 1);
+    };
+    for (const g of org.childGroups(null)) folder(g, 0);
+    const loose = b => !org.groupOf.has(b.id);
+    if (!solids.length && !org.groups.length) out.insertAdjacentHTML('beforeend', '<div class="empty">NO SOLIDS</div>');
+    for (const b of solids.filter(loose)) bodyRow(b, 0);
+    if (sheets.some(loose)) out.insertAdjacentHTML('beforeend', '<div class="group-title">▾ SHEETS</div>');
+    for (const b of sheets.filter(loose)) bodyRow(b, 0);
     out.insertAdjacentHTML('beforeend', '<div class="group-title">▾ CURVES</div>');
     for (const c of curveList) {
       const row = document.createElement('div');
@@ -1079,7 +1126,7 @@ export async function mount(root, backend) {
    */
   function pickAt(e) {
     ray(e);
-    const meshes = shownMeshes();
+    const meshes = shownMeshes().filter(m => !org.locked.has(m.userData.id));
     const faceHit = raycaster.intersectObjects(meshes, false)[0];
     const reach = faceHit ? faceHit.distance * 1.01 + 0.5 : Infinity; // in front of the face, or on it
     raycaster.params.Line.threshold = unitsPerPixel(faceHit?.point ?? controls.target) * 6;
@@ -1152,7 +1199,7 @@ export async function mount(root, backend) {
       return points.every(inside);
     }
     const found = [];
-    for (const m of shownMeshes()) {
+    for (const m of shownMeshes().filter(m => !org.locked.has(m.userData.id))) {
       const id = m.userData.id, body = bodyOf(id);
       const solidSelected = sel.has({ kind: 'solid', body: id });
       const children = sel.list().some(it => it.body === id && it.kind !== 'solid');
@@ -1406,7 +1453,7 @@ export async function mount(root, backend) {
   scene.add(previewGroup);
   function clearPreview() {
     for (const m of [...previewGroup.children]) dispose(m);
-    for (const m of bodies.children) m.visible = !hidden.has(m.userData.id);
+    for (const m of bodies.children) m.visible = org.shows(m.userData.id);
   }
   function showPreviewBody(body, faces = faceMat, edges = edgeMat) {
     for (const m of bodies.children) if (m.userData.id === body.id) m.visible = false;
@@ -1646,7 +1693,7 @@ export async function mount(root, backend) {
   // and typing while it does sets the value exactly. The meshes follow as the preview, since a
   // rigid motion needs no kernel work; finishing sends one request, one undo step.
   function startTransform(kind, { follow = null } = {}) {
-    const ids = targetBodies().filter(id => !hidden.has(id));
+    const ids = targetBodies().filter(id => org.shows(id));
     if (!ids.length) return toast(`SELECT A SOLID TO ${kind.toUpperCase()}`);
     const box = new THREE.Box3();
     for (const id of ids) box.expandByObject(bodyMesh(id));
@@ -2782,7 +2829,7 @@ export async function mount(root, backend) {
   // Shift+E intersect, Shift+Q slice (the target splits where each tool cuts it); T keeps the tools.
   // The target changes and the tools go.
   function startBoolean() {
-    const ids = sel.solids.filter(id => !hidden.has(id));
+    const ids = sel.solids.filter(id => org.shows(id));
     if (ids.length < 2) return toast('SELECT THE TARGET, THEN THE TOOLS');
     if (!backend.previewBoolean) return toast('BOOLEAN IS NOT IN THIS BUILD YET');
     const c = cmd = { id: 'boolean', target: ids[0], tools: ids.slice(1), op: 'union', keep: false, sent: 0, shown: 0 };
@@ -3148,7 +3195,7 @@ export async function mount(root, backend) {
     }, 'cut-hint');
     c.onSelection = () => {
       drawOverlays();
-      c.bodies = sel.solids.filter(b => !hidden.has(b));
+      c.bodies = sel.solids.filter(b => org.shows(b));
       c.curves = sel.curves.filter(curveById);
       c.faces = sel.list('face').map(it => ({ body: it.body, face: it.n }));
       $('cut-solids').textContent = c.bodies.length;
@@ -3208,7 +3255,7 @@ export async function mount(root, backend) {
     c.onSelection = () => {
       drawOverlays();
       // The faces' body, or the first solid picked, takes the imprint; other solids make it.
-      const fb = faceBody(), solids = sel.solids.filter(b => !hidden.has(b));
+      const fb = faceBody(), solids = sel.solids.filter(b => org.shows(b));
       c.body = fb ?? solids[0] ?? null;
       c.faces = fb === null ? [] : sel.list('face').map(it => it.n).sort((x, y) => x - y);
       c.curves = sel.curves.filter(curveById);
@@ -3273,7 +3320,7 @@ export async function mount(root, backend) {
       return cplane.normal.clone().negate();
     };
     c.request = () => {
-      const fb = faceBody(), solids = sel.solids.filter(b => !hidden.has(b)), curves = sel.curves.filter(curveById);
+      const fb = faceBody(), solids = sel.solids.filter(b => org.shows(b)), curves = sel.curves.filter(curveById);
       if (fb === null && solids.length === 2 && !curves.length) return { mode: 'body-body', bodies: solids };
       if (fb === null && !solids.length && curves.length === 2) return { mode: 'curve-curve', curves };
       // One solid alone: its outline seen along the construction plane's normal (Project Outline).
@@ -3860,7 +3907,7 @@ export async function mount(root, backend) {
    */
   function startExportMesh() {
     if (!backend.meshBodies) return toast('MESH EXPORT IS NOT IN THIS BUILD YET');
-    const ids = (sel.bodies.length ? sel.bodies : current.map(b => b.id)).filter(id => !hidden.has(id));
+    const ids = (sel.bodies.length ? sel.bodies : current.map(b => b.id)).filter(id => org.shows(id));
     if (!ids.length) return toast('NOTHING TO EXPORT');
     const c = cmd = { id: 'export-mesh', format: 'obj' };
     lastTool = 'export-mesh';
@@ -3892,7 +3939,7 @@ export async function mount(root, backend) {
    */
   function startExportDrawing() {
     if (!backend.hiddenLines) return toast('DRAWING EXPORT IS NOT IN THIS BUILD YET');
-    const ids = (sel.bodies.length ? sel.bodies : current.map(b => b.id)).filter(id => !hidden.has(id));
+    const ids = (sel.bodies.length ? sel.bodies : current.map(b => b.id)).filter(id => org.shows(id));
     const curves = (sel.bodies.length || sel.curves.length ? sel.curves : curveList.map(c => c.id)).map(curveById).filter(Boolean);
     if (!ids.length && !curves.length) return toast('NOTHING TO EXPORT');
     const c = cmd = { id: 'export-drawing', format: 'svg', hidden: true, curves: true };
@@ -4490,7 +4537,7 @@ export async function mount(root, backend) {
 
   /** The commands that copy the selected solids: Mirror and the two arrays. */
   function startCopies(id, request, describe) {
-    const ids = targetBodies().filter(b => !hidden.has(b));
+    const ids = targetBodies().filter(b => org.shows(b));
     if (!ids.length) { toast(`SELECT A SOLID TO ${toolInfo(id).label}`); return null; }
     const preview = id === 'mirror' ? 'previewMirror' : 'previewArray', commit = id === 'mirror' ? 'commitMirror' : 'commitArray';
     if (!backend[preview]) { toast(`${toolInfo(id).label} IS NOT IN THIS BUILD YET`); return null; }
@@ -4844,10 +4891,41 @@ export async function mount(root, backend) {
     } catch (e) { toast(say(e)); }
   }
   function setHidden(ids, hide) {
-    for (const id of ids) hide ? hidden.add(id) : hidden.delete(id);
-    if (hide) for (const it of sel.list()) if (ids.includes(it.body)) sel.remove(it);
-    for (const m of bodies.children) m.visible = !hidden.has(m.userData.id);
+    org.setHidden(ids, hide);
+    organised();
+  }
+  /** After a change to what shows or locks: the viewport, the selection (nothing hidden or locked stays picked) and the outliner. */
+  function organised() {
+    for (const it of sel.list()) if (it.body !== undefined && !org.picks(it.body)) sel.remove(it);
+    for (const m of bodies.children) m.visible = org.shows(m.userData.id);
+    renderIsolated();
     selectionChanged({ quiet: true });
+  }
+  function renderIsolated() {
+    const n = org.isolated, b = $('isolated');
+    b.hidden = !n;
+    b.querySelector('span').textContent = `${n} ISOLATED`;
+  }
+  function isolateSelected() {
+    const ids = sel.bodies.filter(id => org.shows(id));
+    if (!ids.length && !org.layers.length) return toast('SELECT WHAT TO ISOLATE');
+    org.isolate(ids);
+    organised();
+  }
+  function groupSelected() {
+    const g = org.makeGroup(sel.bodies);
+    if (!g) return toast('SELECT BODIES TO GROUP');
+    toast(`${g.name} · ${sel.bodies.length} BODIES`);
+    renderOutliner();
+  }
+  function ungroupSelected() {
+    if (!org.ungroup(sel.bodies)) return toast('NOTHING SELECTED IS IN A GROUP');
+    renderOutliner();
+  }
+  function lockSelected() {
+    if (!sel.bodies.length) return toast('SELECT BODIES TO LOCK');
+    org.setLocked(sel.bodies, true);
+    organised();
   }
   async function exportSelected() {
     const ids = sel.bodies.length ? sel.bodies : current.map(b => b.id);
@@ -4880,8 +4958,8 @@ export async function mount(root, backend) {
       case 'convert': sel.convert(arg, current); renderModes(); selectionChanged({ quiet: true }); return true;
       case 'select':
         if (arg === 'none') { if (cmd) abort(); sel.clear(); }
-        else if (arg === 'all') sel.selectAll(current.filter(b => !hidden.has(b.id)));
-        else sel.invert(current.filter(b => !hidden.has(b.id)));
+        else if (arg === 'all') sel.selectAll(current.filter(b => org.picks(b.id)));
+        else sel.invert(current.filter(b => org.picks(b.id)));
         selectionChanged({ quiet: arg !== 'all' && arg !== 'invert' });
         return true;
       case 'tool': case 'draw': await startTool(arg); return true;
@@ -4915,7 +4993,14 @@ export async function mount(root, backend) {
       case 'explode': await explodeSelected(); return true;
       case 'hide': setHidden(sel.bodies, true); return true;
       case 'hide-others': setHidden(current.map(b => b.id).filter(id => !sel.bodies.includes(id)), true); return true;
-      case 'unhide-all': setHidden([...hidden], false); return true;
+      case 'unhide-all': setHidden([...org.hidden], false); return true;
+      case 'invert-hidden': org.invertHidden(current.map(b => b.id)); organised(); return true;
+      case 'isolate': isolateSelected(); return true;
+      case 'unisolate': org.unisolate(); organised(); return true;
+      case 'group': groupSelected(); return true;
+      case 'ungroup': ungroupSelected(); return true;
+      case 'lock': lockSelected(); return true;
+      case 'unlock-all': org.setLocked([...org.locked], false); organised(); return true;
       case 'undo': await step('undo'); return true;
       case 'redo': await step('redo'); return true;
     }
@@ -4937,7 +5022,7 @@ export async function mount(root, backend) {
     const out = [];
     if (sel.solids.length > 1) out.push('tool:boolean');
     if (sel.solids.length === 2) out.push('tool:project');
-    if (kinds.has('solid')) out.push('tool:move', 'tool:rotate', 'tool:scale', 'duplicate', 'tool:mirror', 'tool:rect-array', 'tool:radial-array', 'delete', 'hide', 'export:step', 'export:mesh', 'export:drawing');
+    if (kinds.has('solid')) out.push('tool:move', 'tool:rotate', 'tool:scale', 'duplicate', 'tool:mirror', 'tool:rect-array', 'tool:radial-array', 'delete', 'hide', 'isolate', 'group', 'lock', 'export:step', 'export:mesh', 'export:drawing');
     if (kinds.has('face')) out.push('tool:extrude', 'tool:offset', 'tool:thicken', 'tool:shell', 'tool:hole', 'tool:remove-face', 'plane:selection', 'plane:selection-keep-view');
     if (kinds.has('edge')) out.push('tool:fillet', 'tool:patch', 'measure:radius');
     if (sel.list('edge').length === 2) out.push('tool:bridge-surface');
@@ -4959,6 +5044,8 @@ export async function mount(root, backend) {
     }
     if (kinds.size) out.push('convert:solid', 'select:invert', 'view:focus');
     else out.push('draw:line', 'draw:spline', 'draw:rect', 'draw:circle', 'draw:arc3', 'tool:box', 'tool:cylinder', 'tool:sphere', 'select:all', 'unhide-all', 'plane:view');
+    if (!kinds.size && org.layers.length) out.push('isolate', 'unisolate');
+    if (!kinds.size && org.locked.size) out.push('unlock-all');
     return [...new Set(out)].map(a => ENTRIES.find(e => e.action === a)).filter(Boolean);
   }
   let palette = null;
@@ -5051,7 +5138,7 @@ export async function mount(root, backend) {
   async function ask(prompt) {
     const t = await sender();
     if (!t) throw new Error('add an Anthropic API key first');
-    const described = describe({ bodies: current, curves: curveList, hidden: [...hidden], context: api.context(), toUser });
+    const described = describe({ bodies: current, curves: curveList, hidden: current.map(b => b.id).filter(id => !org.shows(id)), context: api.context(), toUser });
     const r = reply(await t(request(prompt, described)));
     lastAsk = { prompt, ...r, started: false };
     if (r.tool) { await api.run(r.tool, r.args); lastAsk.started = true; }
@@ -5283,6 +5370,7 @@ export async function mount(root, backend) {
   $('commit').onclick = () => finish();
   $('cancel').onclick = () => abort();
   $('undo').onclick = () => step('undo');
+  $('isolated').onclick = () => doAction('unisolate');
   $('redo').onclick = () => step('redo');
   $('export').onclick = () => exportSelected();
 
@@ -5711,7 +5799,8 @@ export async function mount(root, backend) {
       return out;
     },
     get plane() { return { name: cplane.name, origin: cplane.origin.toArray(), normal: cplane.normal.toArray() } },
-    get hidden() { return [...hidden] },
+    get hidden() { return current.map(b => b.id).filter(id => !org.shows(id)) },
+    get organise() { return { locked: [...org.locked], isolated: org.isolated, layers: org.layers.length, groups: org.groups.map(g => ({ ...g, members: org.allMembers(g.id, current.map(b => b.id)) })) } },
     get ortho() { return camera.isOrthographicCamera },
     get camera() { return { position: camera.position.toArray(), target: controls.target.toArray() } },
     get bodies() { return current },
