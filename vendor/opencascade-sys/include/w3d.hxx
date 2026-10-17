@@ -51,6 +51,10 @@
 #include <BRep_Tool.hxx>
 #include <GeomConvert.hxx>
 #include <GeomLib.hxx>
+#include <TopoDS_Iterator.hxx>
+#include <BRepBuilderAPI_Copy.hxx>
+#include <BRepBuilderAPI_MakeSolid.hxx>
+#include <BRep_Builder.hxx>
 #include <Geom_RectangularTrimmedSurface.hxx>
 #include <BRepTools_ReShape.hxx>
 #include <GeomAdaptor_Surface.hxx>
@@ -1855,4 +1859,74 @@ inline std::unique_ptr<TopoDS_Shape> w3d_extend_sheet(const TopoDS_Shape &shape,
   } catch (const Standard_Failure &f) {
     throw w3d_kernel_error(f);
   }
+}
+
+// The pieces at the top of a compound, counted and fetched by number.
+inline int32_t w3d_child_count(const TopoDS_Shape &shape) {
+  int32_t n = 0;
+  for (TopoDS_Iterator it(shape); it.More(); it.Next()) n++;
+  return n;
+}
+inline std::unique_ptr<TopoDS_Shape> w3d_child_at(const TopoDS_Shape &shape, int32_t index) {
+  int32_t n = 0;
+  for (TopoDS_Iterator it(shape); it.More(); it.Next(), n++)
+    if (n == index) return std::unique_ptr<TopoDS_Shape>(new TopoDS_Shape(it.Value()));
+  throw std::out_of_range("no such piece");
+}
+
+// Plasticity's Join for sheets: the sheets in `all` (a compound of bodies) sewn where their open
+// edges meet within `tol` into one body; a sewn shell that closes becomes a solid.
+inline std::unique_ptr<TopoDS_Shape> w3d_join_sheets(const TopoDS_Shape &all, double tol) {
+  if (w3d_solid_count(all) != 0) throw std::runtime_error("join sheets; use Boolean to join solids");
+  TopTools_IndexedMapOfShape faces;
+  TopExp::MapShapes(all, TopAbs_FACE, faces);
+  if (faces.Extent() < 2) throw std::runtime_error("select two or more sheets to join");
+  try {
+    BRepBuilderAPI_Sewing sew(tol, true, true, true, false);
+    for (int i = 1; i <= faces.Extent(); i++) sew.Add(faces(i));
+    sew.Perform();
+    TopoDS_Shape sewn = sew.SewedShape();
+    std::vector<TopoDS_Shell> shells;
+    for (TopExp_Explorer ex(sewn, TopAbs_SHELL); ex.More(); ex.Next()) shells.push_back(TopoDS::Shell(ex.Current()));
+    TopTools_IndexedMapOfShape loose;
+    for (TopExp_Explorer ex(sewn, TopAbs_FACE, TopAbs_SHELL); ex.More(); ex.Next()) loose.Add(ex.Current());
+    if (shells.size() != 1 || loose.Extent() != 0)
+      throw std::runtime_error("the sheets must meet edge to edge, within 0.01 mm, to join into one");
+    TopoDS_Shell shell = shells[0];
+    if (BRep_Tool::IsClosed(shell)) {
+      BRepBuilderAPI_MakeSolid mk(shell);
+      if (mk.IsDone()) {
+        TopoDS_Solid solid = mk.Solid();
+        BRepLib::OrientClosedSolid(solid);
+        if (w3d_is_valid(solid)) return std::unique_ptr<TopoDS_Shape>(new TopoDS_Shape(solid));
+      }
+    }
+    if (!w3d_is_valid(shell)) throw std::runtime_error("the joined sheet is not valid");
+    return std::unique_ptr<TopoDS_Shape>(new TopoDS_Shape(shell));
+  } catch (const Standard_Failure &f) {
+    throw w3d_kernel_error(f);
+  }
+}
+
+// Plasticity's Unjoin: a body taken apart, into each face as a sheet of its own (`faces`), or into
+// each separate shell or solid it holds. A compound of the pieces, in face or shell order.
+inline std::unique_ptr<TopoDS_Shape> w3d_unjoin(const TopoDS_Shape &shape, bool faces) {
+  BRep_Builder b;
+  TopoDS_Compound out;
+  b.MakeCompound(out);
+  int n = 0;
+  if (faces) {
+    TopTools_IndexedMapOfShape map;
+    TopExp::MapShapes(shape, TopAbs_FACE, map);
+    for (int i = 1; i <= map.Extent(); i++, n++) {
+      TopoDS_Shape copy = BRepBuilderAPI_Copy(map(i)).Shape();
+      b.Add(out, copy);
+    }
+  } else {
+    for (TopExp_Explorer ex(shape, TopAbs_SOLID); ex.More(); ex.Next(), n++) b.Add(out, ex.Current());
+    for (TopExp_Explorer ex(shape, TopAbs_SHELL, TopAbs_SOLID); ex.More(); ex.Next(), n++) b.Add(out, ex.Current());
+    for (TopExp_Explorer ex(shape, TopAbs_FACE, TopAbs_SHELL); ex.More(); ex.Next(), n++) b.Add(out, ex.Current());
+  }
+  if (n < 2) throw std::runtime_error(faces ? "that body has only one face" : "that body is all one piece; unjoin its faces instead");
+  return std::unique_ptr<TopoDS_Shape>(new TopoDS_Shape(out));
 }

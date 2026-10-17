@@ -277,6 +277,21 @@ impl Shape {
         Ok(Shape::from_shape(&sheet))
     }
 
+    /// Plasticity's Join for sheets: `sheets` sewn into one body within `tol`; closed, a solid (see `w3d_join_sheets`).
+    pub fn join_sheets(sheets: &[&Shape], tol: f64) -> Result<Shape, String> {
+        let all = Shape::from(crate::primitives::Compound::from_shapes(sheets.iter().copied()));
+        let joined = ffi::w3d::w3d_join_sheets(&all.inner, tol).map_err(reason)?;
+        Ok(Shape::from_shape(&joined))
+    }
+
+    /// Plasticity's Unjoin: each face as a sheet (`faces`), or each separate shell or solid (see `w3d_unjoin`).
+    pub fn unjoin(&self, faces: bool) -> Result<Vec<Shape>, String> {
+        let all = ffi::w3d::w3d_unjoin(&self.inner, faces).map_err(reason)?;
+        (0..ffi::w3d::w3d_child_count(&all))
+            .map(|i| ffi::w3d::w3d_child_at(&all, i).map(|s| Shape::from_shape(&s)).map_err(reason))
+            .collect()
+    }
+
     /// Whether the shape holds no solid: a sheet of faces, as Patch makes.
     pub fn is_sheet(&self) -> bool { ffi::w3d::w3d_solid_count(&self.inner) == 0 }
 

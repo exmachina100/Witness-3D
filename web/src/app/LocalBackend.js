@@ -13,6 +13,7 @@ import { bridgeSurface } from '../BridgeSurface.js';
 import { projectOutline } from '../Outline.js';
 import { thicken } from '../Thicken.js';
 import { extendSheet } from '../ExtendSheet.js';
+import { joinSheets, unjoin } from '../Join.js';
 
 const v3 = a => new THREE.Vector3(...a);
 
@@ -551,6 +552,42 @@ export class LocalBackend {
         this.checkpoint();
         this.put(req.body, sheet);
         return { id: req.body, scene: this.bodies() };
+    }
+
+    /** Plasticity's Join for sheets: `bodies` sewn into one; a closed result is a solid. */
+    joinResult({ bodies }) {
+        const ids = [...new Set(bodies ?? [])];
+        if (ids.length < 2) throw new Error('select two or more sheets to join');
+        return joinSheets(ids.map(id => { const s = this.shapes.get(id); if (!s) throw new Error('that body no longer exists'); return s; }));
+    }
+
+    previewJoinSheets(req) { return this.latest(async () => this.body(req.bodies[0], this.joinResult(req))) }
+
+    /** Join as one undo step: the first body becomes the joined one, the others go. */
+    async commitJoinSheets(req) {
+        const joined = this.joinResult(req);
+        this.checkpoint();
+        const [first, ...rest] = [...new Set(req.bodies)];
+        this.put(first, joined);
+        for (const id of rest) { this.shapes.delete(id); this.refs.delete(id); }
+        return { id: first, scene: this.bodies() };
+    }
+
+    /** Plasticity's Unjoin: `body` taken apart into its faces (`faces`) or its separate pieces. */
+    unjoinResult({ body, faces }) {
+        const s = this.shapes.get(body);
+        if (!s) throw new Error('that body no longer exists');
+        return unjoin(s, !!faces);
+    }
+
+    /** Unjoin as one undo step: the body keeps the first piece and the rest become new bodies. */
+    async commitUnjoin(req) {
+        const [first, ...rest] = this.unjoinResult(req);
+        this.checkpoint();
+        this.put(req.body, first);
+        const ids = [req.body];
+        for (const p of rest) { const id = this.nextId++; this.put(id, p); ids.push(id); }
+        return { ids, scene: this.bodies() };
     }
 
     /** Plasticity's Draft Face: `faces` of `body` tilted by `angle` about the neutral plane through `origin` square to `pull`. */

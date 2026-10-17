@@ -145,7 +145,7 @@ export const ACTIONS = {
     'draw:center-rect': 'Center rectangle', 'draw:rect3': 'Three point rectangle', 'draw:circle2': 'Two point circle',
     'draw:circle3': 'Three point circle', 'draw:arc3': 'Three point arc', 'draw:arc': 'Center point arc',
     'draw:polygon': 'Regular polygon', 'draw:spline': 'Spline curve', 'draw:ellipse': 'Center ellipse',
-    'draw:ellipse3': 'Three point ellipse', 'draw:tangent-arc': 'Tangent arc', 'draw:spiral': 'Spiral', 'draw:cv': 'Control point curve', 'draw:tangent-circle': 'Tangent circle', 'split': 'Split curve at point', 'measure:distance': 'Measure distance', 'measure:radius': 'Measure radius', 'measure:continuity': 'Measure continuity', 'view:curvature': 'Toggle curvature', 'view:zebra': 'Zebra stripes', 'view:draft': 'Draft analysis', 'join': 'Join curves', 'trim': 'Trim curves', 'explode': 'Explode curve', 'extend': 'Extend curve',
+    'draw:ellipse3': 'Three point ellipse', 'draw:tangent-arc': 'Tangent arc', 'draw:spiral': 'Spiral', 'draw:cv': 'Control point curve', 'draw:tangent-circle': 'Tangent circle', 'split': 'Split curve at point', 'measure:distance': 'Measure distance', 'measure:radius': 'Measure radius', 'measure:continuity': 'Measure continuity', 'view:curvature': 'Toggle curvature', 'view:zebra': 'Zebra stripes', 'view:draft': 'Draft analysis', 'join': 'Join curves or sheets', 'unjoin:faces': 'Unjoin faces', 'unjoin:pieces': 'Unjoin shells', 'trim': 'Trim curves', 'explode': 'Explode curve', 'extend': 'Extend curve',
     'undo': 'Undo', 'redo': 'Redo', 'file:new': 'New', 'file:open': 'Open…', 'file:save': 'Save',
     'export:step': 'Export STEP', 'export:mesh': 'Export mesh (OBJ, STL)', 'import:step': 'Import STEP',
 };

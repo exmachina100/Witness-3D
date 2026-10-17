@@ -828,6 +828,41 @@ impl<K: Kernel> Document<K> {
         Ok(body)
     }
 
+    /// Plasticity's Join for sheets, without changing the document.
+    pub fn preview_join_sheets(&self, bodies: &[BodyId]) -> Result<K::Solid, KernelError> {
+        let mut ids = bodies.to_vec();
+        ids.dedup();
+        if ids.len() < 2 { return Err(KernelError::Invalid("select two or more sheets to join")) }
+        let sheets = ids.iter().map(|&b| self.get(b).ok_or(KernelError::Invalid("that body no longer exists"))).collect::<Result<Vec<_>, _>>()?;
+        self.kernel.join_sheets(&sheets)
+    }
+
+    /// Join as one undoable step: the first body becomes the joined one, the others go.
+    pub fn commit_join_sheets(&mut self, bodies: &[BodyId]) -> Result<BodyId, KernelError> {
+        let joined = self.preview_join_sheets(bodies)?;
+        self.checkpoint();
+        self.replace_traced(bodies[0], Traced { solid: joined, history: History::default() });
+        for id in &bodies[1..] { if *id != bodies[0] { self.state.bodies.remove(id); } }
+        Ok(bodies[0])
+    }
+
+    /// Plasticity's Unjoin, without changing the document: the pieces `body` comes apart into.
+    pub fn preview_unjoin(&self, body: BodyId, faces: bool) -> Result<Vec<K::Solid>, KernelError> {
+        let s = self.get(body).ok_or(KernelError::Invalid("that body no longer exists"))?;
+        self.kernel.unjoin(s, faces)
+    }
+
+    /// Unjoin as one undoable step: `body` keeps the first piece and the rest become new bodies.
+    pub fn commit_unjoin(&mut self, body: BodyId, faces: bool) -> Result<Vec<BodyId>, KernelError> {
+        let mut pieces = self.preview_unjoin(body, faces)?.into_iter();
+        let first = pieces.next().ok_or(KernelError::NoOp)?;
+        self.checkpoint();
+        self.replace_traced(body, Traced { solid: first, history: History::default() });
+        let mut ids = vec![body];
+        ids.extend(pieces.map(|p| self.add_unrecorded(p)));
+        Ok(ids)
+    }
+
     /// Plasticity's Patch, without changing the document: a sheet filling one closed loop of
     /// `curves` and body `edges`, each edge with whether the sheet leaves it tangent to its body.
     pub fn preview_patch(&self, curves: &[CurveId], edges: &[(BodyId, u32, bool)]) -> Result<K::Solid, KernelError> {

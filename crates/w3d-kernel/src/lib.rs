@@ -312,6 +312,15 @@ pub trait Kernel {
     fn extend_sheet(&self, _s: &Self::Solid, _edge: u32, _distance: f64) -> Result<Self::Solid, KernelError> {
         Err(KernelError::Invalid("this kernel cannot extend sheets"))
     }
+    /// Plasticity's Join for sheets: the sheets sewn where their open edges meet into one body; a
+    /// closed result is a solid.
+    fn join_sheets(&self, _sheets: &[&Self::Solid]) -> Result<Self::Solid, KernelError> {
+        Err(KernelError::Invalid("this kernel cannot join sheets"))
+    }
+    /// Plasticity's Unjoin: each face as a sheet of its own (`faces`), or each separate shell or solid.
+    fn unjoin(&self, _s: &Self::Solid, _faces: bool) -> Result<Vec<Self::Solid>, KernelError> {
+        Err(KernelError::Invalid("this kernel cannot unjoin"))
+    }
     fn face_sheet(&self, _s: &Self::Solid, _face: u32, _size: f64) -> Result<Self::Solid, KernelError> {
         Err(KernelError::Invalid("this kernel cannot cut with faces"))
     }
