@@ -111,6 +111,7 @@ export const COMMAND = {
     // Patch: T leaves the edges tangent to their faces.
     patch: { t: 'tangent' },
     thicken: { d: 'front', b: 'back' },
+    'extend-sheet': { d: 'distance' },
     // Draft Face: A types the angle.
     draft: { a: 'angle' },
     // Tangent Circle (manual): F freezes the circle, Tab types its radius.

@@ -1076,3 +1076,25 @@ pub fn commit_thicken(m: &Model, req: ThickenRequest) -> Result<Committed, ApiEr
         Ok(Committed { id, scene: bodies(doc)? })
     })
 }
+
+/// Extend Sheet: a sheet body grown `distance` past its open edge `edge`.
+#[derive(Deserialize, Debug, Clone)]
+pub struct ExtendSheetRequest {
+    pub body: BodyId,
+    pub edge: u32,
+    pub distance: f64,
+}
+
+pub fn preview_extend_sheet(m: &Model, req: ExtendSheetRequest) -> Option<Result<Body, ApiError>> {
+    m.preview(move |doc| {
+        let sheet = doc.preview_extend_sheet(req.body, req.edge, req.distance)?;
+        Ok(body(&doc.kernel, req.body, &sheet)?)
+    })
+}
+
+pub fn commit_extend_sheet(m: &Model, req: ExtendSheetRequest) -> Result<Committed, ApiError> {
+    m.call(move |doc| {
+        let id = doc.commit_extend_sheet(req.body, req.edge, req.distance)?;
+        Ok(Committed { id, scene: bodies(doc)? })
+    })
+}

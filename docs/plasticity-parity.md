@@ -94,7 +94,7 @@ a flat face imprints that face and is used up (round 10).
 | Deform and Slide | Deform, Deform Solid and Sheet, Slide, Slide Surface CV | Missing |
 | Delete and Remove | Delete Face, Delete Redundant Topology, Remove Fillets from Shell, Remove Nominal Surface | Delete Face done on desktop (Remove Face); rest missing |
 | Draft and Align | Align, Align Surface, Draft Face (draft illustration) | Offset Face's angle covers part of Draft Face; rest missing |
-| Extend | Extend, Extend Sheet (extend-sheet shape) | Missing |
+| Extend | Extend, Extend Sheet (extend-sheet shape) | Extend Sheet done in both builds (linear): one open edge of a sheet, D for the distance; works on a side of the sheet's surface (Patch and Bridge Surface sheets) or a straight edge of a flat sheet, and keeps one face. Edges trimmed across a curved surface are refused. Natural shape missing |
 | Fillet | Fillet, Fillet Shell (shell shape, Y-blend) | Fillet and chamfer done; variable radius and Fillet Shell missing |
 | Hollow and Thicken | Hollow, Thicken, Thicken Face | Hollow done (as Shell). Thicken done in both builds: a selected sheet body becomes a solid, D typing the front thickness (along its normals) and B the back; walls are ruled along its open edges. Thicken Face missing |
 | Imprint | Imprint, Imprint Body Body, Imprint Curve Body (method, complete, bidirectional, hide occluded) | Imprint Curve Body and Imprint Body Body done (both builds; curves projected along their plane normals, or where another solid meets the body, onto chosen faces or all faces); the projection options missing |

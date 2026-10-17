@@ -50,6 +50,10 @@
 #include <BRepTools_WireExplorer.hxx>
 #include <BRep_Tool.hxx>
 #include <GeomConvert.hxx>
+#include <GeomLib.hxx>
+#include <Geom_RectangularTrimmedSurface.hxx>
+#include <BRepTools_ReShape.hxx>
+#include <GeomAdaptor_Surface.hxx>
 #include <GeomConvert_CompCurveToBSplineCurve.hxx>
 #include <Geom_TrimmedCurve.hxx>
 #include <ShapeAnalysis_FreeBounds.hxx>
@@ -1754,6 +1758,100 @@ inline std::unique_ptr<TopoDS_Shape> w3d_thicken(const TopoDS_Shape &shape, doub
     BRepLib::OrientClosedSolid(one);
     if (!w3d_is_valid(one)) throw std::runtime_error("that thickness folds the sheet into itself; try a thinner one");
     return std::unique_ptr<TopoDS_Shape>(new TopoDS_Shape(one));
+  } catch (const Standard_Failure &f) {
+    throw w3d_kernel_error(f);
+  }
+}
+
+// Which side of its face's surface (u0, u1, v0, v1 as 0..3) the edge runs along, or -1 when it
+// crosses the surface's parameters, as a trimmed edge does.
+inline int w3d_iso_side(const TopoDS_Edge &edge, const TopoDS_Face &face, double u0, double u1, double v0, double v1) {
+  double f, l;
+  Handle(Geom2d_Curve) uv = BRep_Tool::CurveOnSurface(edge, face, f, l);
+  if (uv.IsNull()) return -1;
+  const double eu = 1e-7 * std::max(1.0, u1 - u0), ev = 1e-7 * std::max(1.0, v1 - v0);
+  const double bound[4] = {u0, u1, v0, v1};
+  for (int side = 0; side < 4; side++) {
+    bool on = true;
+    for (int i = 0; i <= 8 && on; i++) {
+      gp_Pnt2d q = uv->Value(f + (l - f) * i / 8.0);
+      on = std::abs((side < 2 ? q.X() : q.Y()) - bound[side]) < (side < 2 ? eu : ev);
+    }
+    if (on) return side;
+  }
+  return -1;
+}
+
+// Plasticity's Extend Sheet: the sheet grown `distance` past its open edge `index`, carrying on
+// in a straight line from the face (linear). An edge along a side of the face's surface extends
+// that surface (GeomLib); a straight edge of a flat face extends the plane with a strip.
+inline std::unique_ptr<TopoDS_Shape> w3d_extend_sheet(const TopoDS_Shape &shape, int32_t index, double distance) {
+  if (!std::isfinite(distance) || !(distance > 1e-6)) throw std::runtime_error("the distance must be above zero");
+  TopTools_IndexedMapOfShape map;
+  TopExp::MapShapes(shape, TopAbs_EDGE, map);
+  if (index < 0 || index >= map.Extent()) throw std::out_of_range("that edge no longer exists");
+  TopoDS_Edge edge = TopoDS::Edge(map(index + 1));
+  TopTools_IndexedDataMapOfShapeListOfShape faces;
+  TopExp::MapShapesAndAncestors(shape, TopAbs_EDGE, TopAbs_FACE, faces);
+  const TopTools_ListOfShape &around = faces.FindFromKey(edge);
+  if (around.Extent() != 1) throw std::runtime_error(around.IsEmpty() ? "that edge has no sheet to extend" : "extend an open edge of a sheet; that edge joins two faces");
+  TopoDS_Face face = TopoDS::Face(around.First());
+  try {
+    double u0, u1, v0, v1;
+    BRepTools::UVBounds(face, u0, u1, v0, v1);
+    TopoDS_Face grown;
+    int side = w3d_iso_side(edge, face, u0, u1, v0, v1);
+    bool untrimmed = true;
+    for (TopExp_Explorer ex(face, TopAbs_EDGE); ex.More() && untrimmed; ex.Next()) {
+      TopoDS_Edge e = TopoDS::Edge(ex.Current());
+      untrimmed = BRep_Tool::Degenerated(e) || w3d_iso_side(e, face, u0, u1, v0, v1) >= 0;
+    }
+    if (side >= 0 && untrimmed) {
+      Handle(Geom_Surface) surface = BRep_Tool::Surface(face);
+      Handle(Geom_BoundedSurface) bs = GeomConvert::SurfaceToBSplineSurface(new Geom_RectangularTrimmedSurface(surface, u0, u1, v0, v1));
+      GeomLib::ExtendSurfByLength(bs, distance, 1, side < 2, side % 2 == 1);
+      BRepBuilderAPI_MakeFace mk(bs, 1e-7);
+      if (!mk.IsDone()) throw std::runtime_error("the extended surface could not be made into a face");
+      grown = mk.Face();
+      if (face.Orientation() == TopAbs_REVERSED) grown.Reverse();
+    } else {
+      BRepAdaptor_Curve curve(edge);
+      GeomAdaptor_Surface plane(BRep_Tool::Surface(face));
+      if (plane.GetType() != GeomAbs_Plane || curve.GetType() != GeomAbs_Line)
+        throw std::runtime_error("extend a side of the sheet's surface, or a straight edge of a flat sheet; that edge is trimmed across its surface");
+      // Out of the face, in its plane: the edge as the face's wire runs it has the face on its left.
+      TopoDS_Edge inFace = edge;
+      for (TopExp_Explorer ex(face, TopAbs_EDGE); ex.More(); ex.Next())
+        if (ex.Current().IsSame(edge)) { inFace = TopoDS::Edge(ex.Current()); break; }
+      gp_Vec d = curve.Line().Direction();
+      if (inFace.Orientation() == TopAbs_REVERSED) d.Reverse();
+      gp_Vec normal = plane.Plane().Axis().Direction();
+      if (face.Orientation() == TopAbs_REVERSED) normal.Reverse();
+      gp_Vec out = d.Crossed(normal).Normalized() * distance;
+      TopoDS_Shape strip = BRepPrimAPI_MakePrism(edge, out).Shape();
+      BRepAlgoAPI_Fuse fuse(face, strip);
+      if (!fuse.IsDone()) throw std::runtime_error("the strip could not be joined to the sheet");
+      ShapeUpgrade_UnifySameDomain unify(fuse.Shape(), true, true, false);
+      unify.Build();
+      TopExp_Explorer one(unify.Shape(), TopAbs_FACE);
+      if (!one.More()) throw std::runtime_error("the strip could not be joined to the sheet");
+      grown = TopoDS::Face(one.Current());
+      one.Next();
+      if (one.More()) throw std::runtime_error("the strip could not be merged into the sheet");
+    }
+    TopoDS_Shape result;
+    if (faces.Extent() > 0 && [&] { TopTools_IndexedMapOfShape all; TopExp::MapShapes(shape, TopAbs_FACE, all); return all.Extent(); }() == 1) {
+      result = grown;
+    } else {
+      Handle(BRepTools_ReShape) rs = new BRepTools_ReShape();
+      rs->Replace(face, grown);
+      BRepBuilderAPI_Sewing sew(1e-6);
+      sew.Add(rs->Apply(shape));
+      sew.Perform();
+      result = sew.SewedShape();
+    }
+    if (!w3d_is_valid(result)) throw std::runtime_error("the extended sheet is not valid; try a shorter distance");
+    return std::unique_ptr<TopoDS_Shape>(new TopoDS_Shape(result));
   } catch (const Standard_Failure &f) {
     throw w3d_kernel_error(f);
   }

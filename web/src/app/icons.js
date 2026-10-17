@@ -69,6 +69,8 @@ const ICONS = {
     project: `<path d="M3 15l9 4 9-4-9-4z"/><path d="M6 3c2 2 4 2 6 0s4-2 6 0"/><path d="M9 5v6M15 5v6" stroke-dasharray="2 2"/><path ${A} d="M6 14.4c2 1.6 4 1.6 6 0s4-1.6 6 0"/>`,
     // Two sheets with the bridge between them in the accent.
     'bridge-surface': `<path d="M2 16l6-3M16 13l6 3"/><path d="M2 12l6-3M16 9l6 3"/><path ${A} d="M8 13c3-2 5-2 8 0M8 9c3-2 5-2 8 0"/>`,
+    // A sheet with its edge carried on past it in the accent, dashed where it is new.
+    'extend-sheet': `<path d="M3 17l4-10h8l-4 10z"/><path ${A} d="M15 7h5l-4 10h-5" stroke-dasharray="2 2"/><path ${A} d="M17 12h4M19.5 10.5L21 12l-1.5 1.5"/>`,
     // A curved sheet, and below it the slab it thickens into in the accent.
     thicken: `<path d="M3 8c4-3 14-3 18 0"/><path ${A} d="M3 13c4-3 14-3 18 0v4c-4-3-14-3-18 0z"/><path d="M12 6.5v4" stroke-dasharray="1.5 1.5"/>`,
     // A loop of curves with the sheet filling it, the sheet in the accent.

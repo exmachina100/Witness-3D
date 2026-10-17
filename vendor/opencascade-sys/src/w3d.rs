@@ -70,6 +70,7 @@ mod inner {
         pub fn w3d_bridge_surface(shape: &TopoDS_Shape, a: i32, b: i32, tension: f64) -> Result<UniquePtr<TopoDS_Shape>>;
         pub fn w3d_project_outline(shape: &TopoDS_Shape, plane: &[f64]) -> Result<Vec<f64>>;
         pub fn w3d_thicken(shape: &TopoDS_Shape, front: f64, back: f64) -> Result<UniquePtr<TopoDS_Shape>>;
+        pub fn w3d_extend_sheet(shape: &TopoDS_Shape, index: i32, distance: f64) -> Result<UniquePtr<TopoDS_Shape>>;
         pub fn w3d_patch(data: &[f64], shape: &TopoDS_Shape, edges: &[i32], tangent: &[i32], tol: f64) -> Result<UniquePtr<TopoDS_Shape>>;
     }
 }

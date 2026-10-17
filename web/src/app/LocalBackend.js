@@ -12,6 +12,7 @@ import { isSheet, patch } from '../Patch.js';
 import { bridgeSurface } from '../BridgeSurface.js';
 import { projectOutline } from '../Outline.js';
 import { thicken } from '../Thicken.js';
+import { extendSheet } from '../ExtendSheet.js';
 
 const v3 = a => new THREE.Vector3(...a);
 
@@ -532,6 +533,23 @@ export class LocalBackend {
         const solid = this.thickenResult(req);
         this.checkpoint();
         this.put(req.body, solid);
+        return { id: req.body, scene: this.bodies() };
+    }
+
+    /** Plasticity's Extend Sheet: sheet `body` grown `distance` past its open `edge`. */
+    extendSheetResult({ body, edge, distance }) {
+        const s = this.shapes.get(body);
+        if (!s) throw new Error('that body no longer exists');
+        return extendSheet(s, edge, distance);
+    }
+
+    previewExtendSheet(req) { return this.latest(async () => this.body(req.body, this.extendSheetResult(req))) }
+
+    /** Extend Sheet as one undo step: the sheet keeps its body. */
+    async commitExtendSheet(req) {
+        const sheet = this.extendSheetResult(req);
+        this.checkpoint();
+        this.put(req.body, sheet);
         return { id: req.body, scene: this.bodies() };
     }
 

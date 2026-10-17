@@ -232,6 +232,24 @@ async fn commit_imprint(
 }
 
 #[tauri::command]
+async fn preview_extend_sheet(
+    model: State<'_, Model>,
+    req: api::ExtendSheetRequest,
+) -> Result<Option<api::Body>, api::ApiError> {
+    on_model(&model, move |m| api::preview_extend_sheet(m, req))
+        .await?
+        .transpose()
+}
+
+#[tauri::command]
+async fn commit_extend_sheet(
+    model: State<'_, Model>,
+    req: api::ExtendSheetRequest,
+) -> Result<api::Committed, api::ApiError> {
+    on_model(&model, move |m| api::commit_extend_sheet(m, req)).await?
+}
+
+#[tauri::command]
 async fn preview_thicken(
     model: State<'_, Model>,
     req: api::ThickenRequest,
@@ -533,6 +551,8 @@ pub fn run() {
             commit_imprint,
             preview_patch,
             commit_patch,
+            preview_extend_sheet,
+            commit_extend_sheet,
             preview_thicken,
             commit_thicken,
             preview_bridge_surface,
