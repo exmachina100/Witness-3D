@@ -77,7 +77,7 @@ a flat face imprints that face and is used up (round 10).
 | Join and Unjoin | Join, Join Curves, Unjoin, Unjoin Curve | Join Curves done; Explode stands in for Unjoin Curve |
 | Offset | Offset Curve (26.1: Round / Linear / Natural), Offset Planar Curve, Offset Region, Offset Vertex | Offset Curve done with sharp corners; Round/Natural corner styles and the rest missing |
 | Slot | | Missing |
-| Project | Project, Project Body Body, Project Curve Body, Project Curve Curve, Project Outline (26.1: method, bidirectional, hide occluded) | Missing |
+| Project | Project, Project Body Body, Project Curve Body, Project Curve Curve, Project Outline (26.1: method, bidirectional, hide occluded) | Project (I) done in both builds: Curve Body (Normal or Vector X/Y/Z, S screen space, Bidirectional, Hide Occluded, chosen faces or all), Body Body and Curve Curve, picked by the selection; results are new NURBS curves, flat ones usable as regions. Hide Occluded is exact on the desktop and casts rays on the mesh in the browser. Project Outline missing |
 | Duplication | Alternative Duplicate, Duplicate Curve and Project, Create Outline | Missing |
 | Rebuild and Refine | Convert Vertex, Delete Redundant Topology, Insert Knot, Raise (Curve) Degree, Rebuild (Curve), Reverse (Curve) | Missing |
 | Instances | Create / Realize (Curve) Instance | Missing |

@@ -40,6 +40,8 @@ pub enum Profile {
     Contour(Vec<Segment>),
     /// A closed control-point curve (Plasticity's Control Point Curve).
     Cv(Vec<(f64, f64)>),
+    /// A closed NURBS curve, its first and last poles the same (a projected loop lying flat).
+    Nurbs { degree: usize, poles: Vec<(f64, f64)>, weights: Vec<f64>, knots: Vec<f64> },
 }
 
 /// One open piece of a [`Profile::Contour`], in plane coordinates.
@@ -78,6 +80,9 @@ pub enum Path {
     Spiral { origin: DVec3, axis: DVec3, x: DVec3, radius: f64, length: f64, turns: f64, left: bool },
     /// A control-point curve: a uniform B-spline shaped by these points, clamped to its ends when open.
     Cv { points: Vec<DVec3>, closed: bool },
+    /// A NURBS curve: `poles.len() + degree + 1` knots, repeated as often as they occur, and a
+    /// weight per pole. What Project makes.
+    Nurbs { degree: usize, poles: Vec<DVec3>, weights: Vec<f64>, knots: Vec<f64> },
 }
 
 /// How far and in what form an extrude goes (Plasticity's Extrude options).
@@ -265,6 +270,21 @@ pub trait Kernel {
     /// `cutters` (as for `cut`) cross them. The solid stays whole.
     fn imprint(&self, _s: &Self::Solid, _faces: &[u32], _cutters: &[(Path, DVec3)], _extra: &[&Self::Solid], _length: f64) -> Result<Traced<Self::Solid>, KernelError> {
         Err(KernelError::Invalid("this kernel cannot imprint"))
+    }
+    /// Plasticity's Project Curve Body: each path carried along its direction, `length` forwards
+    /// (and backwards as well when `both`), onto the numbered faces (all when empty). With `hide`,
+    /// only the parts seen looking along the direction from the curve. The curves it leaves there.
+    fn project(&self, _s: &Self::Solid, _faces: &[u32], _curves: &[(Path, DVec3)], _length: f64, _both: bool, _hide: bool) -> Result<Vec<Path>, KernelError> {
+        Err(KernelError::Invalid("this kernel cannot project curves"))
+    }
+    /// Plasticity's Project Body Body: the curves where two bodies meet.
+    fn meet(&self, _a: &Self::Solid, _b: &Self::Solid) -> Result<Vec<Path>, KernelError> {
+        Err(KernelError::Invalid("this kernel cannot project bodies"))
+    }
+    /// Plasticity's Project Curve Curve: where the sheets of two curves, each swept `length` both
+    /// ways along its direction, meet.
+    fn project_curve_curve(&self, _a: &(Path, DVec3), _b: &(Path, DVec3), _length: f64) -> Result<Vec<Path>, KernelError> {
+        Err(KernelError::Invalid("this kernel cannot project curves"))
     }
     /// A face as a cutting tool grown `size` past the body: a plane, a whole cylinder, or the face itself.
     fn face_sheet(&self, _s: &Self::Solid, _face: u32, _size: f64) -> Result<Self::Solid, KernelError> {

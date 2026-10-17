@@ -213,6 +213,23 @@ impl Shape {
         Ok((Shape::from_shape(&ffi::w3d::w3d_result_shape(&r)), history(&r, 1)))
     }
 
+    /// Curves projected onto the numbered faces (all when empty), as `w3d_project` writes them:
+    /// a count, then each curve as NURBS numbers.
+    pub fn project_curves(&self, faces: &[usize], data: &[f64], length: f64, both: bool, hide: bool) -> Result<Vec<f64>, String> {
+        let faces: Vec<i32> = faces.iter().map(|&f| f as i32).collect();
+        ffi::w3d::w3d_project(&self.inner, &faces, data, length, both, hide).map_err(reason)
+    }
+
+    /// The curves where this shape and `other` meet, numbered as for [`Shape::project_curves`].
+    pub fn meet_curves(&self, other: &Shape) -> Result<Vec<f64>, String> {
+        ffi::w3d::w3d_meet_curves(&self.inner, &other.inner).map_err(reason)
+    }
+
+    /// The curves where the sheets of two curves meet (see `w3d_project_curve_curve`).
+    pub fn project_curve_curve(data: &[f64], length: f64) -> Result<Vec<f64>, String> {
+        ffi::w3d::w3d_project_curve_curve(data, length).map_err(reason)
+    }
+
     /// Face `index` as a cutting tool grown `size` past the body (see `w3d_face_sheet`).
     pub fn face_sheet(&self, index: usize, size: f64) -> Result<Shape, String> {
         let sheet = ffi::w3d::w3d_face_sheet(&self.inner, index as i32, size).map_err(reason)?;

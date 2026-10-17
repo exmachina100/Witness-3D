@@ -63,7 +63,7 @@ import { limitEdges, toObj, toStl } from '../meshExport.js';
 import { bridgeCurves, continuity, curvatureComb, explode, extendCurve, filletCurve, nearestEnd, offsetCurve, splitCurve, tangentCircle, trim } from '../curveEdit.js';
 import { ViewGizmo } from './ViewGizmo.js';
 import { Toolbar } from './Toolbar.js';
-import { arcPoints, circleThrough, cvPoints, ellipsePoints, endTangent, helixPoints, loops, polygonCorners, spiralAngle, tangentArc } from '../curves.js';
+import { arcPoints, circleThrough, cvPoints, ellipsePoints, endTangent, helixPoints, loops, nurbsLoop, nurbsPoints, polygonCorners, spiralAngle, tangentArc } from '../curves.js';
 
 const KEYS = {
   idle: [['CLICK', 'SELECT'], ['⇧ CLICK', 'ADD'], ['CTRL CLICK', 'REMOVE'], ['DRAG', 'BOX'], ['MMB', 'ORBIT'], ['RMB', 'PAN'], ['F', 'SEARCH']],
@@ -99,6 +99,7 @@ const KEYS = {
   cut: [['⇧ CLICK', 'SOLIDS · CURVES'], ['⇧ ALT CLICK', 'FACES'], ['P', 'CONSTRUCTION PLANE'], ['⏎ / RMB', 'OK']],
   draft: [['A', 'ANGLE'], ['⇧ CLICK', 'FACES'], ['⏎ / RMB', 'OK']],
   imprint: [['⇧ CLICK', 'FACES · CURVES'], ['⇧ ALT CLICK', 'BODY THAT IMPRINTS'], ['⏎ / RMB', 'OK']],
+  project: [['⇧ CLICK', 'SOLID · CURVES'], ['X Y Z', 'VECTOR'], ['S', 'SCREEN SPACE'], ['⏎ / RMB', 'OK']],
   hole: [['CLICK', 'A FLAT FACE'], ['T', 'THROUGH ALL'], ['TYPE', 'SIZE IN PANEL'], ['⏎ / RMB', 'OK']],
   split: [['CLICK', 'WHERE TO SPLIT'], ['ESC / ⏎', 'DONE']],
   'measure-distance': [['CLICK', 'TWO POINTS'], ['CLICK', 'AGAIN TO RESTART'], ['ESC', 'DONE']],
@@ -309,6 +310,19 @@ const SHELL = `
       <div class="field"><label>FACES</label><output data-id="imp-faces">ALL</output></div>
       <div class="field"><label>CURVES</label><output data-id="imp-curves">0</output></div>
       <div class="field"><label>BODIES</label><output data-id="imp-bodies">0</output></div>
+    </div>
+    <div class="sec" data-panel="project" hidden>
+      <span class="hint" data-id="proj-hint">—</span>
+      <div class="field"><label>MAKES</label><output data-id="proj-mode">—</output></div>
+      <div class="chips" data-id="proj-opts">
+        <button data-proj="normal" aria-pressed="true">NORMAL</button>
+        <button data-proj="vector" aria-pressed="false">VECTOR</button>
+        <button data-proj="both" aria-pressed="false">BIDIRECTIONAL</button>
+        <button data-proj="hide" aria-pressed="false">HIDE OCCLUDED</button>
+        <button data-proj="screen" aria-pressed="false"><kbd>S</kbd>SCREEN SPACE</button>
+      </div>
+      <div class="field"><label>DIRECTION</label><output data-id="proj-dir">—</output></div>
+      <div class="field"><label>CURVES</label><output data-id="proj-count">0</output></div>
     </div>
     <div class="sec" data-panel="hole" hidden>
       <span class="hint" data-id="hole-hint">CLICK A FLAT FACE</span>
@@ -773,15 +787,16 @@ export async function mount(root, backend) {
     : c.kind === 'ellipse' ? ellipsePoints(c.center, c.major, c.minor, 96).map(p => new THREE.Vector2(...p))
     : c.kind === 'contour' ? contour2d(c)
     : c.kind === 'spiral' ? helixPoints(c, 48).map(p => new THREE.Vector3(...p))
+    : c.kind === 'nurbs' ? nurbsPoints(c).slice(0, nurbsLoop(c) ? -1 : undefined).map(p => new THREE.Vector3(...p))
     : c.points.map(p => new THREE.Vector2(...p));
   /** A joined contour's points: the kernel's samples, or its pieces one after another. */
   function contour2d(c) {
     const pts = c.samples ? c.samples.map(p => new THREE.Vector2(...p)) : c.pieces.flatMap((p, i) => curve2d(p).slice(i ? 1 : 0));
     return isClosed(c) && pts.length > 1 && pts[0].distanceTo(pts.at(-1)) < 1e-6 ? pts.slice(0, -1) : pts;
   }
-  const isClosed = c => c.kind === 'circle' || c.kind === 'ellipse' || (c.kind === 'contour' ? loops(c.pieces) : c.kind !== 'arc' && c.closed && c.points.length >= 3);
+  const isClosed = c => c.kind === 'circle' || c.kind === 'ellipse' || (c.kind === 'contour' ? loops(c.pieces) : c.kind === 'nurbs' ? nurbsLoop(c) : c.kind !== 'arc' && c.closed && c.points.length >= 3);
   // Control-point curves draw from their control points with the same B-spline the kernels make.
-  const curveName = c => ({ circle: 'CIRCLE', arc: 'ARC', spline: 'SPLINE', cv: 'CV CURVE', ellipse: 'ELLIPSE', contour: 'CONTOUR', spiral: 'SPIRAL' })[c.kind] ?? (!c.closed ? 'LINE' : c.points.length === 4 ? 'RECTANGLE' : 'POLYGON');
+  const curveName = c => ({ circle: 'CIRCLE', arc: 'ARC', spline: 'SPLINE', cv: 'CV CURVE', ellipse: 'ELLIPSE', contour: 'CONTOUR', spiral: 'SPIRAL', nurbs: 'PROJECTED CURVE' })[c.kind] ?? (!c.closed ? 'LINE' : c.points.length === 4 ? 'RECTANGLE' : 'POLYGON');
   /** A spline through the points for drawing before the kernel has made it (the kernel's own fit
    * is close to this chordal Catmull-Rom curve, not the same). */
   function splinePreview(points, closed) {
@@ -797,7 +812,7 @@ export async function mount(root, backend) {
   function drawCombs() {
     for (const o of [...combGroup.children]) dispose(o);
     if (!view.curvature || !curveList.length) return;
-    const combs = curveList.filter(c => c.kind !== 'spiral').map(c => { try { return { c, comb: curvatureComb(c) }; } catch { return null; } }).filter(Boolean);
+    const combs = curveList.filter(c => c.kind !== 'spiral' && c.kind !== 'nurbs').map(c => { try { return { c, comb: curvatureComb(c) }; } catch { return null; } }).filter(Boolean);
     const kMax = Math.max(1e-12, ...combs.flatMap(x => x.comb.map(t => t.k)));
     const box = new THREE.Box3();
     for (const o of curveGroup.children) box.expandByObject(o);
@@ -905,7 +920,7 @@ export async function mount(root, backend) {
       const row = document.createElement('div');
       row.className = 'row-item curve';
       row.setAttribute('aria-current', sel.has({ kind: 'curve', id: c.id }) || sel.has({ kind: 'region', id: c.id }));
-      const look = { circle: 'circle', arc: 'arc3', spline: 'spline', cv: 'cv', ellipse: 'ellipse', contour: 'join', spiral: 'spiral' }[c.kind] ?? (!c.closed ? 'line' : c.points.length === 4 ? 'rect' : 'polygon');
+      const look = { circle: 'circle', arc: 'arc3', spline: 'spline', cv: 'cv', ellipse: 'ellipse', contour: 'join', spiral: 'spiral', nurbs: 'project' }[c.kind] ?? (!c.closed ? 'line' : c.points.length === 4 ? 'rect' : 'polygon');
       row.innerHTML = `${icon(look)}<span class="name">${curveName(c)}</span><span class="tag">${curveLabel(c.id)}</span>`;
       row.onclick = e => { applySelect({ kind: 'curve', id: c.id }, modOf(e)); selectionChanged(); };
       out.append(row);
@@ -1299,6 +1314,7 @@ export async function mount(root, backend) {
     if (id === 'remove-face') return startRemoveFace();
     if (id === 'cut') return startCut();
     if (id === 'imprint') return startImprint();
+    if (id === 'project') return startProject();
     if (id === 'extend') return startExtend();
     if (id === 'tangent-circle') return startTangentCircle();
     if (id === 'split') return startSplit();
@@ -3109,6 +3125,110 @@ export async function mount(root, backend) {
     c.onSelection();
   }
 
+  /**
+   * Plasticity's Project (I), by what is selected: curves and a solid (or faces of one) give the
+   * curves carried onto it (Project Curve Body); two solids, the curves where they meet (Body Body);
+   * two curves, where their sheets cross (Curve Curve). New curves are made; the projected ones stay.
+   * Curve Body's methods, as the manual gives them: NORMAL goes along the construction plane's
+   * normal and keeps every face crossed; VECTOR goes along a direction (X, Y or Z, again to flip;
+   * down the plane's normal to start), with BIDIRECTIONAL and HIDE OCCLUDED. S uses the view.
+   */
+  function startProject() {
+    if (!backend.previewProject) return toast('PROJECT IS NOT IN THIS BUILD YET');
+    const c = cmd = { id: 'project', method: 'normal', axis: null, flip: false, screen: false, both: false, hide: false, out: null, req: null, sent: 0, shown: 0 };
+    lastTool = 'project';
+    showTool('project');
+    setState('none');
+    const AXES = { x: [1, 0, 0], y: [0, 0, -1], z: [0, 1, 0] };
+    const dirName = () => c.screen ? 'SCREEN' : c.method === 'normal' ? `${cplane.name} NORMAL` : c.axis ? `${c.flip ? '−' : '+'}${c.axis.toUpperCase()}` : `−${cplane.name} NORMAL`;
+    // Where Curve Body carries the curves, in the viewport's axes.
+    c.dir = () => {
+      if (c.screen) return camera.getWorldDirection(new THREE.Vector3());
+      if (c.method === 'normal') return cplane.normal.clone();
+      if (c.axis) return new THREE.Vector3(...AXES[c.axis]).multiplyScalar(c.flip ? -1 : 1);
+      return cplane.normal.clone().negate();
+    };
+    c.request = () => {
+      const fb = faceBody(), solids = sel.solids.filter(b => !hidden.has(b)), curves = sel.curves.filter(curveById);
+      if (fb === null && solids.length === 2 && !curves.length) return { mode: 'body-body', bodies: solids };
+      if (fb === null && !solids.length && curves.length === 2) return { mode: 'curve-curve', curves };
+      const body = fb ?? solids[0] ?? null;
+      if (body === null || !curves.length) return null;
+      const vector = c.method === 'vector' || c.screen;
+      return {
+        mode: 'curve-body', body, curves, dir: c.dir().toArray(),
+        faces: fb === null ? [] : sel.list('face').map(it => it.n).sort((x, y) => x - y),
+        both: vector && c.both, hide: vector && c.hide,
+      };
+    };
+    const MODES = { 'curve-body': 'CURVES ON BODY', 'body-body': 'WHERE BODIES MEET', 'curve-curve': 'WHERE CURVES CROSS' };
+    c.preview = () => livePreview(c, () => backend.previewProject(c.req), out => {
+      c.out = out;
+      showCurvePreview(out);
+      $('proj-count').textContent = out.length;
+      $('proj-hint').textContent = `${out.length} CURVE${out.length === 1 ? '' : 'S'} · ${MODES[c.req.mode]}`;
+      setHud(`PROJECT ${out.length} CURVE${out.length === 1 ? '' : 'S'}`);
+    }, 'proj-hint');
+    c.onSelection = () => {
+      drawOverlays();
+      c.req = c.request();
+      c.out = null;
+      const curveBody = c.req?.mode === 'curve-body' || !c.req;
+      for (const b of $$('[data-proj]')) {
+        const k = b.dataset.proj;
+        b.setAttribute('aria-pressed', String(k === 'normal' ? c.method === 'normal' && !c.screen : k === 'vector' ? c.method === 'vector' && !c.screen : !!c[k]));
+        b.disabled = !curveBody || ((k === 'both' || k === 'hide') && c.method !== 'vector' && !c.screen);
+      }
+      $('proj-mode').textContent = c.req ? MODES[c.req.mode] : '—';
+      $('proj-dir').textContent = curveBody ? dirName() : '—';
+      setTarget(c.req?.mode === 'curve-body' ? label(c.req.body) : c.req?.mode === 'body-body' ? c.req.bodies.map(label).join(' · ') : c.req ? c.req.curves.map(curveLabel).join(' · ') : '—');
+      if (!c.req) {
+        const missing = 'SELECT A SOLID AND CURVES, TWO SOLIDS, OR TWO CURVES';
+        $('proj-hint').textContent = missing;
+        $('proj-count').textContent = 0;
+        clearPreview();
+        return setHud(missing);
+      }
+      c.preview();
+    };
+    c.key = action => {
+      if (action === 'screen') c.screen = !c.screen;
+      else if (action.startsWith('axis-')) {
+        const a = action.slice(5);
+        c.flip = c.method === 'vector' && c.axis === a && !c.screen ? !c.flip : false;
+        c.axis = a;
+        c.method = 'vector';
+        c.screen = false;
+      } else if (action === 'normal' || action === 'vector') { c.method = action; c.screen = false; }
+      else if (action === 'both' || action === 'hide') c[action] = !c[action];
+      else return false;
+      c.onSelection();
+      return true;
+    };
+    c.click = e => {
+      if (!(e.ctrlKey || e.metaKey || e.shiftKey)) return true;
+      const hit = pickAt(e);
+      if (hit?.kind === 'curve') sel.toggle({ kind: 'curve', id: hit.id });
+      else if (hit?.kind === 'face' && e.altKey) sel.toggle({ kind: 'face', body: hit.body, n: hit.n });
+      else if (hit?.kind === 'face') sel.toggle({ kind: 'solid', body: hit.body });
+      else return true;
+      selectionChanged();
+      return true;
+    };
+    c.finish = async () => {
+      if (!c.out?.length) { setState('failed'); return toast($('proj-hint').textContent); }
+      try {
+        const { ids: made } = await backend.addCurves(c.out);
+        endCmd('committed');
+        record(`PROJECT ×${made.length} ${MODES[c.req.mode]}`, made[0], curveLabel(made[0]));
+        await curvesChanged(made);
+      } catch (e) { setState('failed'); toast(say(e)); }
+    };
+    c.abort = () => endCmd('cancelled');
+    c.cleanup = () => clearPreview();
+    c.onSelection();
+  }
+
   /** Hole: click a flat face; a round cut of the panel's diameter goes in to its depth, or through. */
   function startHole({ at = null } = {}) {
     if (!backend.preview) return toast('HOLE IS NOT IN THIS BUILD YET');
@@ -4280,12 +4400,14 @@ export async function mount(root, backend) {
     const kinds = new Set(sel.list().map(it => it.kind));
     const out = [];
     if (sel.solids.length > 1) out.push('tool:boolean');
+    if (sel.solids.length === 2) out.push('tool:project');
     if (kinds.has('solid')) out.push('tool:move', 'tool:rotate', 'tool:scale', 'duplicate', 'tool:mirror', 'tool:rect-array', 'tool:radial-array', 'delete', 'hide', 'export:step', 'export:mesh');
     if (kinds.has('face')) out.push('tool:extrude', 'tool:offset', 'tool:shell', 'tool:hole', 'tool:remove-face', 'plane:selection', 'plane:selection-keep-view');
     if (kinds.has('edge')) out.push('tool:fillet', 'measure:radius');
     if (kinds.has('region')) out.push('tool:extrude', 'tool:revolve', 'tool:loft', 'tool:sweep');
     if (kinds.has('curve') || kinds.has('region')) {
-      if (kinds.has('solid')) out.push('tool:cut', 'tool:imprint');
+      if (kinds.has('solid')) out.push('tool:project', 'tool:cut', 'tool:imprint');
+      if (sel.curves.length === 2) out.push('tool:project');
       if (kinds.has('face')) out.push('tool:imprint');
       if (kinds.has('face')) out.push('tool:draft');
       out.push('trim', 'split', 'extend', 'tool:offset-curve', 'tool:fillet-curve');
@@ -4596,6 +4718,7 @@ export async function mount(root, backend) {
   for (const b of $$('[data-mx], [data-rx]')) b.onclick = () => cmd?.key?.(b.dataset.mx ?? b.dataset.rx);
   for (const id of ['mirror-join', 'ra-join', 'rr-join']) $(id).onclick = () => cmd?.key?.('join');
   $('cut-plane').onclick = () => cmd?.id === 'cut' && cmd.key('plane');
+  for (const b of $$('[data-proj]')) b.onclick = () => cmd?.id === 'project' && cmd.key(b.dataset.proj);
   $('bool-keep').onclick = () => cmd?.id === 'boolean' && cmd.key('keep');
   for (const b of $$('[data-draw]')) b.onclick = () => DRAW[cmd?.id] && cmd.key(b.dataset.draw);
   $('commit').onclick = () => finish();
@@ -4866,6 +4989,22 @@ export async function mount(root, backend) {
         selectionChanged({ quiet: true });
         await startTool('cut');
         if (p.plane) cmd.key('plane');
+      } else if (id === 'project') {
+        const cs = (curveIds ?? []).filter(cid => curveList.some(c => c.id === cid));
+        const bs = (ids ?? []).filter(b => current.some(x => x.id === b));
+        if (!(bs.length === 1 && cs.length) && !(bs.length === 2 && !cs.length) && !(cs.length === 2 && !bs.length)) throw new Error('give a solid and curves, two solids, or two curves, by id');
+        sel.clear();
+        for (const b of bs) sel.add({ kind: 'solid', body: b });
+        for (const cid of cs) sel.add({ kind: 'curve', id: cid });
+        selectionChanged({ quiet: true });
+        await startTool('project');
+        const d = p.direction ?? '-z';
+        if (p.method === 'vector' || d === 'screen') {
+          if (d === 'screen') cmd.key('screen');
+          else { cmd.key('vector'); cmd.key(`axis-${d.at(-1)}`); if (d.startsWith('-')) cmd.key(`axis-${d.at(-1)}`); }
+          if (p.bidirectional) cmd.key('both');
+          if (p.hideOccluded) cmd.key('hide');
+        }
       } else if (id === 'imprint') {
         const cs = (curveIds ?? []).filter(cid => curveList.some(c => c.id === cid));
         const b = body !== undefined ? current.find(x => x.id === body) : current.find(x => (faces ?? []).length && faces.every(r => x.faceRefs?.includes(r)));

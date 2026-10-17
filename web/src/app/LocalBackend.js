@@ -6,7 +6,8 @@ import { ExtrudeFactory } from '../ExtrudeFactory.js';
 import { NoOpError } from '../GeometryFactory.js';
 import { arrayMotions, blendEdges, booleanWithHistory, bounds, box, count, draftFaces, faceSheet, imprintWithHistory, planeSheet, splitWithHistory, draftWithHistory, exportSTEP, facePlane, mirror, numberedEdges, oc, primitive, shellFaces, tessellate, transform, volume } from '../Kernel.js';
 import { cutSheets, loft, offsetFlatFaces, regionFace, revolve, splineSamples, sweep } from '../Forms.js';
-import { ends, join, loops, MEET } from '../curves.js';
+import { curveFromNurbs, ends, join, loops, MEET, nurbsLoop } from '../curves.js';
+import { meetCurves, projectCurveCurve, projectCurves } from '../Project.js';
 
 const v3 = a => new THREE.Vector3(...a);
 
@@ -417,6 +418,34 @@ export class LocalBackend {
         return { ids, scene: this.bodies() };
     }
 
+    /**
+     * Plasticity's Project, by `mode`: curves onto a body ('curve-body', along `dir`, `both` ways,
+     * `hide` occluded), where two bodies meet ('body-body') or two curves' sheets cross
+     * ('curve-curve'). The curves it would make; Add Curves keeps them.
+     */
+    projectResult(req) {
+        const shape = id => { const s = this.shapes.get(id); if (!s) throw new Error('that body no longer exists'); return s; };
+        const curve = id => { const c = this.curveMap.get(id); if (!c) throw new Error('that curve no longer exists'); return c; };
+        if (req.mode === 'body-body') {
+            if (req.bodies[0] === req.bodies[1]) throw new Error('select two different bodies');
+            // Curves that are not flat get a plane facing up.
+            return meetCurves(shape(req.bodies[0]), shape(req.bodies[1])).map(p => curveFromNurbs(p, [0, -1, 0]));
+        }
+        if (req.mode === 'curve-curve') {
+            if (req.curves[0] === req.curves[1]) throw new Error('select two different curves');
+            const [a, b] = req.curves.map(curve);
+            return projectCurveCurve(a, b, this.sheetSize()).map(p => curveFromNurbs(p, a.normal.map(v => -v)));
+        }
+        if (!req.curves?.length) throw new Error('select the curves to project');
+        const dir = new THREE.Vector3(...req.dir);
+        if (!(dir.length() > 1e-12)) throw new Error('the projection has no direction');
+        dir.normalize();
+        const out = projectCurves(shape(req.body), req.faces ?? [], req.curves.map(curve), dir, { length: this.sheetSize(), both: !!req.both, hide: !!req.hide });
+        return out.map(p => curveFromNurbs(p, dir.toArray()));
+    }
+
+    previewProject(req) { return this.latest(async () => this.projectResult(req)) }
+
     /** Plasticity's Imprint: the body's faces (all when `faces` is empty) split where the curves cross them. */
     imprintResult({ body, faces = [], curves = [], tools = {} }) {
         const s = this.shapes.get(body);
@@ -601,7 +630,7 @@ export class LocalBackend {
 }
 
 /** Whether the curve encloses a region. */
-const isClosed = c => c.kind === 'circle' || c.kind === 'ellipse' || (['polyline', 'spline', 'cv'].includes(c.kind) && c.closed && c.points.length >= 3) || (c.kind === 'contour' && loops(c.pieces));
+const isClosed = c => c.kind === 'circle' || c.kind === 'ellipse' || (c.kind === 'nurbs' && nurbsLoop(c)) || (['polyline', 'spline', 'cv'].includes(c.kind) && c.closed && c.points.length >= 3) || (c.kind === 'contour' && loops(c.pieces));
 
 function checkCurve(c) {
     const finite = a => Array.isArray(a) && a.every(Number.isFinite);
@@ -643,7 +672,13 @@ function checkShape(c) {
     } else if (c.kind === 'spiral') {
         const ok = v => Number.isFinite(v) && v > 1e-9;
         if (!ok(c.radius) || !ok(c.length) || !ok(c.turns)) throw new Error('a spiral needs a radius, a length and turns greater than zero');
-    } else throw new Error('a curve is a line, circle, spline, control-point curve, arc, ellipse, contour or spiral');
+    } else if (c.kind === 'nurbs') {
+        const n = c.poles?.length ?? 0, d = c.degree;
+        if (!(Number.isInteger(d) && d >= 1) || n < d + 1 || c.weights?.length !== n || c.knots?.length !== n + d + 1) throw new Error("a NURBS curve's knots and weights do not match its poles");
+        if (!c.poles.every(p => finite(p) && p.length === 3) || !finite(c.knots)) throw new Error('a point is not a number');
+        if (!c.weights.every(w => Number.isFinite(w) && w > 0)) throw new Error("a NURBS curve's weights must be positive");
+        if (c.knots.some((k, i) => i > 0 && k < c.knots[i - 1]) || !(c.knots[n] - c.knots[d] > 1e-12)) throw new Error("a NURBS curve's knots must increase");
+    } else throw new Error('a curve is a line, circle, spline, control-point curve, arc, ellipse, contour, spiral or projected curve');
 }
 
 /** The history of doing `a` then `b`, for the body being changed (input 0). */

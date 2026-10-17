@@ -4,7 +4,7 @@
 // OpenCascade build leaves out the per-face offset algorithm.
 
 import * as THREE from 'three';
-import { arcPoints, cvDegree, cvPoints, ellipsePoints, helixPoints, loops } from './curves.js';
+import { arcPoints, cvDegree, cvPoints, ellipsePoints, helixPoints, loops, nurbsLoop, nurbsPoints } from './curves.js';
 import { boolean, count, extrudeFace, facePlane, oc } from './Kernel.js';
 
 const pnt = v => new (oc().gp_Pnt)(v.x, v.y, v.z);
@@ -73,6 +73,21 @@ function geometry(c) {
         if (![c.radius, c.length, c.turns].every(v => Number.isFinite(v) && v > 1e-9)) throw new Error('a spiral needs a radius, a length and turns greater than zero');
         return { spiral: { o: p.o, n: p.n, x: p.x, radius: c.radius, length: c.length, turns: c.turns, left: !!c.left }, points: helixPoints(c, 32).map(([u, v, h]) => p.at([u, v]).addScaledVector(p.n, h)), closed: false };
     }
+    if (c.kind === 'nurbs') {
+        // As w3d_section's kind 9: poles in the plane's coordinates, with their height up its normal.
+        const o = oc(), n = c.poles.length, deg = c.degree;
+        if (!(deg >= 1) || n < deg + 1 || c.weights.length !== n || c.knots.length !== n + deg + 1) throw new Error("a NURBS curve's knots and weights do not match its poles");
+        const at = q => p.at(q).addScaledVector(p.n, q[2]);
+        const poles = new o.NCollection_Array1_gp_Pnt(1, n), weights = new o.NCollection_Array1_double(1, n);
+        c.poles.forEach((q, i) => { poles.SetValue(i + 1, pnt(at(q))); weights.SetValue(i + 1, c.weights[i]); });
+        const distinct = [], mult = [];
+        for (const k of c.knots) { if (distinct.length && k - distinct.at(-1) < 1e-12) mult[mult.length - 1]++; else { distinct.push(k); mult.push(1); } }
+        const knots = new o.NCollection_Array1_double(1, distinct.length), mults = new o.NCollection_Array1_int(1, distinct.length);
+        distinct.forEach((k, i) => { knots.SetValue(i + 1, k); mults.SetValue(i + 1, mult[i]); });
+        const curve = new o.Geom_BSplineCurve(poles, weights, knots, mults, deg, false, true);
+        const closed = nurbsLoop(c), pts = nurbsPoints(c).map(at);
+        return { spline: curve, points: closed ? pts.slice(0, -1) : pts, closed };
+    }
     if (c.kind === 'contour') {
         const parts = c.pieces.map(q => geometry({ ...q, origin: c.origin, x: c.x, normal: c.normal }));
         return { pieces: parts, points: parts.flatMap((g, i) => i ? g.points.slice(1) : g.points), closed: loops(c.pieces) };
@@ -120,6 +135,12 @@ function wireOf(g) {
     for (let i = 0; i < (g.closed ? n : n - 1); i++) mk.Add(new o.BRepBuilderAPI_MakeEdge(pnt(pts[i]), pnt(pts[(i + 1) % n])).Edge());
     return mk;
 }
+
+/** A drawn curve as an OpenCascade wire in model space. */
+export const curveWire = c => wireOf(geometry(c)).Wire();
+
+/** Points along a drawn curve in model space, as the sheets of Cut and Project sweep it. */
+export const curvePoints = c => geometry(c).points;
 
 /** A closed curve's region as a wire, with its centre and normal. */
 function section(c) {

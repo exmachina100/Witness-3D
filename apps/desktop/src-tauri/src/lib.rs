@@ -232,6 +232,16 @@ async fn commit_imprint(
 }
 
 #[tauri::command]
+async fn preview_project(
+    model: State<'_, Model>,
+    req: api::ProjectRequest,
+) -> Result<Option<Vec<w3d_kernel::Curve>>, api::ApiError> {
+    on_model(&model, move |m| api::preview_project(m, req))
+        .await?
+        .transpose()
+}
+
+#[tauri::command]
 async fn preview_draft(
     model: State<'_, Model>,
     req: api::DraftRequest,
@@ -467,6 +477,7 @@ pub fn run() {
             commit_cut,
             preview_imprint,
             commit_imprint,
+            preview_project,
             preview_draft,
             commit_draft,
             mesh_bodies,

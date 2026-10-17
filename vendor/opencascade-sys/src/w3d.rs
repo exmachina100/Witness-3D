@@ -64,5 +64,8 @@ mod inner {
         pub fn w3d_result_others(r: &W3dResult) -> UniquePtr<TopoDS_Shape>;
         pub fn w3d_solid_count(shape: &TopoDS_Shape) -> i32;
         pub fn w3d_solid_at(shape: &TopoDS_Shape, index: i32) -> Result<UniquePtr<TopoDS_Shape>>;
+        pub fn w3d_project(shape: &TopoDS_Shape, faces: &[i32], data: &[f64], length: f64, both: bool, hide: bool) -> Result<Vec<f64>>;
+        pub fn w3d_meet_curves(a: &TopoDS_Shape, b: &TopoDS_Shape) -> Result<Vec<f64>>;
+        pub fn w3d_project_curve_curve(data: &[f64], length: f64) -> Result<Vec<f64>>;
     }
 }
