@@ -101,6 +101,7 @@ const KEYS = {
   imprint: [['⇧ CLICK', 'FACES · CURVES'], ['⇧ ALT CLICK', 'BODY THAT IMPRINTS'], ['⏎ / RMB', 'OK']],
   project: [['⇧ CLICK', 'SOLID · CURVES'], ['X Y Z', 'VECTOR'], ['S', 'SCREEN SPACE'], ['⏎ / RMB', 'OK']],
   'bridge-surface': [['⇧ CLICK', 'TWO EDGES'], ['T', 'TENSION'], ['⏎ / RMB', 'OK']],
+  'extend-sheet': [['CLICK', "A SHEET'S EDGE"], ['D', 'DISTANCE'], ['⏎ / RMB', 'OK']],
   thicken: [['CLICK', 'A SHEET'], ['D', 'FRONT'], ['B', 'BACK'], ['⏎ / RMB', 'OK']],
   patch: [['⇧ CLICK', 'CURVES · EDGES'], ['T', 'TANGENT TO FACES'], ['⏎ / RMB', 'OK']],
   hole: [['CLICK', 'A FLAT FACE'], ['T', 'THROUGH ALL'], ['TYPE', 'SIZE IN PANEL'], ['⏎ / RMB', 'OK']],
@@ -336,6 +337,10 @@ const SHELL = `
     <div class="sec" data-panel="bridge-surface" hidden>
       <span class="hint" data-id="bs-hint">—</span>
       <div class="field"><label for="w3d-bs-t">TENSION</label><input id="w3d-bs-t" data-id="bs-t" type="number" step="0.1" min="0.05" value="1"></div>
+    </div>
+    <div class="sec" data-panel="extend-sheet" hidden>
+      <span class="hint" data-id="es-hint">—</span>
+      <div class="field"><label for="w3d-es-d">DISTANCE</label><input id="w3d-es-d" data-id="es-d" type="number" step="0.5" min="0.01" value="5"></div>
     </div>
     <div class="sec" data-panel="thicken" hidden>
       <span class="hint" data-id="th-hint">—</span>
@@ -1338,6 +1343,7 @@ export async function mount(root, backend) {
     if (id === 'patch') return startPatch();
     if (id === 'bridge-surface') return startBridgeSurface();
     if (id === 'thicken') return startThicken();
+    if (id === 'extend-sheet') return startExtendSheet();
     if (id === 'extend') return startExtend();
     if (id === 'tangent-circle') return startTangentCircle();
     if (id === 'split') return startSplit();
@@ -3255,6 +3261,61 @@ export async function mount(root, backend) {
   }
 
   /**
+   * Plasticity's Extend on a sheet's edge: the sheet grown past the selected open edge, carrying
+   * straight on from its face. D types the distance; the sheet keeps its body.
+   */
+  function startExtendSheet() {
+    if (!backend.previewExtendSheet) return toast('EXTEND SHEET IS NOT IN THIS BUILD YET');
+    const isSheetBody = id => !!current.find(b => b.id === id)?.sheet;
+    const picked = () => { const es = sel.list('edge'); return es.length === 1 && isSheetBody(es[0].body) ? es[0] : null; };
+    if (!picked()) return toast('SELECT ONE EDGE OF A SHEET');
+    const c = cmd = { id: 'extend-sheet', edge: picked(), sent: 0, shown: 0 };
+    lastTool = 'extend-sheet';
+    showTool('extend-sheet');
+    setState('none');
+    c.request = () => ({ body: c.edge.body, edge: c.edge.n, distance: num('es-d') });
+    c.preview = () => livePreview(c, () => backend.previewExtendSheet(c.request()), b => {
+      const m = showPreviewBody(b, phantom.add.face, phantom.add.edge);
+      m.renderOrder = 5;
+      $('es-hint').textContent = `${label(c.edge.body)} · ${num('es-d')} MM PAST THE EDGE`;
+      setHud(`EXTEND SHEET ${num('es-d')} MM`);
+    }, 'es-hint');
+    c.onSelection = () => {
+      drawOverlays();
+      const e = picked();
+      if (!e) {
+        const missing = 'SELECT ONE EDGE OF A SHEET';
+        $('es-hint').textContent = missing;
+        clearPreview();
+        return setHud(missing);
+      }
+      c.edge = e;
+      setTarget(label(e.body));
+      c.preview();
+    };
+    c.key = action => {
+      if (action !== 'distance') return false;
+      c.entry = { label: 'DISTANCE', text: '', apply: v => { if (v > 0) { $('es-d').value = v; c.preview(); } else toast('THE DISTANCE MUST BE ABOVE ZERO'); } };
+      setHud('DISTANCE _');
+      return true;
+    };
+    c.finish = async () => {
+      if (!picked()) { setState('failed'); return toast($('es-hint').textContent); }
+      try {
+        const { id, scene: list } = await backend.commitExtendSheet(c.request());
+        endCmd('committed');
+        record(`EXTEND SHEET ${num('es-d')} MM`, id);
+        await showScene(list);
+        sel.replace({ kind: 'solid', body: id });
+        selectionChanged({ quiet: true });
+      } catch (e) { setState('failed'); toast(say(e)); }
+    };
+    c.abort = () => endCmd('cancelled');
+    c.cleanup = () => clearPreview();
+    c.onSelection();
+  }
+
+  /**
    * Plasticity's Thicken: the selected sheet made solid, D typing how far it grows along its faces'
    * normals and B how far behind them. The sheet body becomes the solid.
    */
@@ -4613,6 +4674,7 @@ export async function mount(root, backend) {
     if (kinds.has('edge')) out.push('tool:fillet', 'tool:patch', 'measure:radius');
     if (sel.list('edge').length === 2) out.push('tool:bridge-surface');
     if (sel.solids.some(id => current.find(b => b.id === id)?.sheet)) out.push('tool:thicken');
+    if (sel.list('edge').some(e => current.find(b => b.id === e.body)?.sheet)) out.push('tool:extend-sheet');
     if (kinds.has('region')) out.push('tool:extrude', 'tool:revolve', 'tool:loft', 'tool:sweep');
     if (kinds.has('curve') || kinds.has('region')) {
       if (kinds.has('solid')) out.push('tool:project', 'tool:cut', 'tool:imprint');
@@ -4929,6 +4991,7 @@ export async function mount(root, backend) {
   for (const id of ['mirror-join', 'ra-join', 'rr-join']) $(id).onclick = () => cmd?.key?.('join');
   $('cut-plane').onclick = () => cmd?.id === 'cut' && cmd.key('plane');
   $('bs-t').addEventListener('input', () => cmd?.id === 'bridge-surface' && cmd.preview());
+  $('es-d').addEventListener('input', () => cmd?.id === 'extend-sheet' && cmd.preview());
   for (const f of ['th-f', 'th-b']) $(f).addEventListener('input', () => cmd?.id === 'thicken' && cmd.preview());
   $('patch-tangent').onclick = () => cmd?.id === 'patch' && cmd.key('tangent');
   for (const b of $$('[data-proj]')) b.onclick = () => cmd?.id === 'project' && cmd.key(b.dataset.proj);
@@ -5218,6 +5281,15 @@ export async function mount(root, backend) {
           if (p.bidirectional) cmd.key('both');
           if (p.hideOccluded) cmd.key('hide');
         }
+      } else if (id === 'extend-sheet') {
+        if (edges?.length !== 1) throw new Error('give the one sheet edge to extend, by ref');
+        const owner = current.find(b => b.edgeRefs?.includes(edges[0]));
+        if (!owner) throw new Error('that edge no longer exists');
+        sel.replace({ kind: 'edge', body: owner.id, n: owner.edgeRefs.indexOf(edges[0]) });
+        selectionChanged({ quiet: true });
+        $('es-d').value = p.distance;
+        await startTool('extend-sheet');
+        if (cmd?.id !== 'extend-sheet') throw new Error('give an edge of a sheet to extend');
       } else if (id === 'thicken') {
         selectSolids([body]);
         selectionChanged({ quiet: true });

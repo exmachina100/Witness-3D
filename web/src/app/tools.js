@@ -210,6 +210,14 @@ export const TOOLS = [
             tension: { type: 'number', above: 0, default: 1, describe: 'how far each side carries on before it turns; 1 is a smooth curve' },
         },
     },
+    // Plasticity's Extend on a sheet's edge.
+    {
+        id: 'extend-sheet', label: 'EXTEND SHEET', key: '', group: 'shape', selects: 'edge', toolbar: false,
+        summary: "Grow a sheet past one of its open edges, carrying straight on from its face; works on a side of the sheet's surface or a straight edge of a flat sheet.",
+        params: {
+            distance: { type: 'number', unit: 'mm', above: 0, default: 5, describe: 'how far past the edge the sheet grows' },
+        },
+    },
     // Plasticity's Thicken: a sheet made solid.
     {
         id: 'thicken', label: 'THICKEN', key: '', group: 'shape', selects: 'solid', toolbar: false,

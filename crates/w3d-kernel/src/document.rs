@@ -814,6 +814,20 @@ impl<K: Kernel> Document<K> {
         Ok(body)
     }
 
+    /// Plasticity's Extend Sheet, without changing the document: sheet `body` grown past its open `edge`.
+    pub fn preview_extend_sheet(&self, body: BodyId, edge: u32, distance: f64) -> Result<K::Solid, KernelError> {
+        let sheet = self.get(body).ok_or(KernelError::Invalid("that body no longer exists"))?;
+        self.kernel.extend_sheet(sheet, edge, distance)
+    }
+
+    /// Extend Sheet as one undoable step: the sheet keeps its body.
+    pub fn commit_extend_sheet(&mut self, body: BodyId, edge: u32, distance: f64) -> Result<BodyId, KernelError> {
+        let sheet = self.preview_extend_sheet(body, edge, distance)?;
+        self.checkpoint();
+        self.replace_traced(body, Traced { solid: sheet, history: History::default() });
+        Ok(body)
+    }
+
     /// Plasticity's Patch, without changing the document: a sheet filling one closed loop of
     /// `curves` and body `edges`, each edge with whether the sheet leaves it tangent to its body.
     pub fn preview_patch(&self, curves: &[CurveId], edges: &[(BodyId, u32, bool)]) -> Result<K::Solid, KernelError> {
