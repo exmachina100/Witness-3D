@@ -615,7 +615,17 @@ pub fn commit_blend(m: &Model, req: BlendRequest) -> Result<Committed, ApiError>
 
 /// Start over with the seed enclosure.
 pub fn new_document(m: &Model) -> Result<Vec<Body>, String> {
-    m.call(|doc| { seed(doc); bodies(doc) })
+    m.call(|doc| { doc.app_state = None; seed(doc); bodies(doc) })
+}
+
+/// The app's own state saved with the document (groups, locks, materials), or null.
+pub fn app_state(m: &Model) -> Result<Option<serde_json::Value>, String> {
+    Ok(m.call(|doc| doc.app_state.clone()))
+}
+
+pub fn set_app_state(m: &Model, state: Option<serde_json::Value>) -> Result<(), String> {
+    m.call(move |doc| doc.app_state = state);
+    Ok(())
 }
 
 pub fn save(m: &Model, path: PathBuf) -> Result<(), String> {

@@ -487,6 +487,16 @@ async fn new_document(model: State<'_, Model>) -> Result<Vec<api::Body>, String>
 }
 
 #[tauri::command]
+async fn app_state(model: State<'_, Model>) -> Result<Option<serde_json::Value>, String> {
+    on_model(&model, api::app_state).await?
+}
+
+#[tauri::command]
+async fn set_app_state(model: State<'_, Model>, state: Option<serde_json::Value>) -> Result<(), String> {
+    on_model(&model, move |m| api::set_app_state(m, state)).await?
+}
+
+#[tauri::command]
 async fn save(model: State<'_, Model>, path: PathBuf) -> Result<(), String> {
     on_model(&model, move |m| api::save(m, path)).await?
 }
@@ -643,6 +653,8 @@ pub fn run() {
             redo,
             new_document,
             save,
+            app_state,
+            set_app_state,
             open,
             import_step,
             export_step,

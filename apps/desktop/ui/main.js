@@ -115,6 +115,8 @@ const rust = {
     return { name: baseName(path), scene };
   },
   get filePath() { return filePath; },
+  appState: () => tauri.core.invoke('app_state'),
+  setAppState: state => tauri.core.invoke('set_app_state', { state }),
   version: () => tauri.app.getVersion(),
   quit: () => tauri.window.getCurrentWindow().close(),
   async importStep() {

@@ -74,3 +74,26 @@ test('the keys follow the manual', () => {
     assert.equal(VIEWPORT['ctrl-h'], 'invert-hidden');
     for (const a of ['lock', 'unlock-all', 'isolate', 'unisolate', 'group', 'ungroup', 'invert-hidden']) assert.ok(ACTIONS[a], a);
 });
+
+test('groups, hidden and locked go through the file; isolation does not', () => {
+    const o = new Organise();
+    o.prune([1, 2, 3]);
+    const g = o.makeGroup([1, 2]);
+    o.makeGroup([2]);
+    o.rename(g.id, 'base');
+    o.setHidden([3], true);
+    o.setLocked([1], true);
+    o.isolate([1]);
+    const back = Organise.from(JSON.parse(JSON.stringify(o.toJSON())));
+    assert.deepEqual(back.allMembers(g.id, [1, 2, 3]), [1, 2]);
+    assert.equal(back.group(g.id).name, 'BASE');
+    assert.equal(back.group(2).parent, g.id);
+    assert.ok(back.hidden.has(3) && back.locked.has(1));
+    assert.equal(back.layers.length, 0);
+    assert.equal(back.makeGroup([3]).id, 3);
+    // Damaged or missing state opens empty rather than failing.
+    for (const bad of [null, 7, { groups: [{ id: 'x' }], groupOf: [[1, 99]], hidden: ['a'] }]) {
+        const e = Organise.from(bad);
+        assert.equal(e.groups.length + e.groupOf.size + e.hidden.size, 0);
+    }
+});

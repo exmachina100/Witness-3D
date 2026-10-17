@@ -924,7 +924,7 @@ export async function mount(root, backend) {
   const bodies = new THREE.Group();
   scene.add(bodies);
   let current = [];
-  const org = new Organise();   // hidden, locked, isolated, grouped
+  let org = new Organise();   // hidden, locked, isolated, grouped
   const sel = new Selection();
   const bodyMesh = id => bodies.children.find(m => m.userData.id === id);
   const bodyOf = id => current.find(b => b.id === id);
@@ -5200,6 +5200,7 @@ export async function mount(root, backend) {
           const fn = backend[arg === 'save-as' ? 'saveAs' : 'saveVersion'];
           if (!fn) { toast('NOT IN THE BROWSER YET'); return true; }
           await fileAction(async () => {
+            await keepAppState();
             const name = await fn.call(backend);
             if (!name) return;
             if (arg === 'save-as') $('file-name').textContent = name.toUpperCase();
@@ -5551,23 +5552,41 @@ export async function mount(root, backend) {
     showScene(list);
     $('file-name').textContent = name;
   }
+  /** Groups, hidden and locked bodies and materials go into the file with the geometry. */
+  async function keepAppState() {
+    if (!backend.setAppState) return;
+    await backend.setAppState({ organise: org.toJSON(), materials: [...materials.values()], materialOf: [...materialOf], nextMaterial });
+  }
+  async function restoreAppState() {
+    const st = backend.appState ? await backend.appState() : null;
+    org = Organise.from(st?.organise);
+    materials.clear(); materialOf.clear(); for (const m of bodyMats.values()) m.dispose(); bodyMats.clear();
+    for (const m of Array.isArray(st?.materials) ? st.materials : []) if (Number.isInteger(m?.id) && !checkMaterial({ ...newMaterial(m.id), ...m }).length) materials.set(m.id, { ...newMaterial(m.id), ...m });
+    for (const [b, m] of Array.isArray(st?.materialOf) ? st.materialOf : []) if (materials.has(m)) materialOf.set(b, m);
+    nextMaterial = Math.max(Number.isInteger(st?.nextMaterial) ? st.nextMaterial : 1, ...[...materials.keys()].map(k => k + 1));
+    org.prune(current.map(b => b.id));
+    materialsChanged();
+    organised();
+  }
   async function fileAction(fn) {
     try { await fn(); } catch (e) { toast(say(e)); }
   }
   for (const [id, method] of [['file-new', 'newDocument'], ['file-open', 'open'], ['file-save', 'save'], ['import', 'importStep']]) {
     $(id).hidden = typeof backend[method] !== 'function';
   }
-  $('file-new').onclick = () => fileAction(async () => newScene(await backend.newDocument(), 'UNTITLED.W3D'));
+  $('file-new').onclick = () => fileAction(async () => { newScene(await backend.newDocument(), 'UNTITLED.W3D'); await restoreAppState(); });
   function openFile(path) {
     return fileAction(async () => {
       const r = await backend.open(path);
       if (!r) return;
       newScene(r.scene, r.name.toUpperCase());
+      await restoreAppState();
       remember(backend.filePath);
     });
   }
   $('file-open').onclick = () => openFile();
   $('file-save').onclick = () => fileAction(async () => {
+    await keepAppState();
     const name = await backend.save();
     if (name) { $('file-name').textContent = name.toUpperCase(); toast(`SAVED ${name.toUpperCase()}`); remember(backend.filePath); }
   });
