@@ -191,6 +191,17 @@ export const TOOLS = [
         summary: 'Draw the selected curves, or the outline where other solids meet it, onto faces of a solid, splitting the faces there without cutting the body; each curve is projected along the normal of its plane.',
         params: {},
     },
+    // Plasticity's Project (I): curves onto a body, two bodies, or two curves, by what is selected.
+    {
+        id: 'project', label: 'PROJECT', key: 'i', group: 'shape', selects: 'curves', toolbar: false,
+        summary: "Make new curves: the selected curves carried onto a solid's faces, the line where two solids meet, or where two curves' sheets cross. The curves projected stay.",
+        params: {
+            method: { type: 'enum', values: ['normal', 'vector'], default: 'normal', describe: "normal carries the curves along the construction plane's normal and keeps every face they cross; vector goes along a chosen direction" },
+            direction: { type: 'enum', values: ['x', 'y', 'z', '-x', '-y', '-z', 'screen'], default: '-z', describe: 'with vector, the direction in your axes, or screen for the view direction' },
+            bidirectional: { type: 'boolean', default: false, describe: 'with vector, project the other way as well' },
+            hideOccluded: { type: 'boolean', default: false, describe: 'with vector, skip faces hidden behind others along the direction' },
+        },
+    },
     // Round 11: Draft Face, against the construction plane.
     {
         id: 'draft', label: 'DRAFT FACE', key: '', group: 'shape', selects: 'faces', toolbar: false,
@@ -301,6 +312,9 @@ const EXTRA_PARAMS = {
         bodies: { type: 'array', items: { type: 'integer' }, minItems: 1, description: 'the solids to cut, by id' },
         faces: { type: 'array', items: { type: 'integer' }, minItems: 1, description: 'faces to cut with, by ref; flat ones cut as their whole plane' },
     },
+    project: {
+        bodies: { type: 'array', items: { type: 'integer' }, minItems: 1, maxItems: 2, description: 'the solid to project onto, by id; or two solids to get the curves where they meet' },
+    },
     imprint: {
         body: { type: 'integer', description: 'the body to imprint on, by id; every face it has unless faces are given' },
         faces: { type: 'array', items: { type: 'integer' }, minItems: 1, description: 'only these faces, by ref, all on one body' },
@@ -319,8 +333,8 @@ export function schema() {
         const properties = {}, required = [];
         const [selName, selSchema] = SELECTION_PARAM[t.selects];
         properties[selName] = selSchema;
-        // Cut and Imprint can work without curves (faces, a plane or other bodies instead).
-        if (REQUIRED[t.selects] && t.id !== 'cut' && t.id !== 'imprint') required.push(selName);
+        // Cut, Imprint and Project can work without curves (faces, a plane or other bodies instead).
+        if (REQUIRED[t.selects] && t.id !== 'cut' && t.id !== 'imprint' && t.id !== 'project') required.push(selName);
         Object.assign(properties, EXTRA_PARAMS[t.id]);
         required.push(...(REQUIRED_EXTRA[t.id] ?? []));
         for (const [name, p] of Object.entries(t.params)) {

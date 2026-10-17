@@ -37,6 +37,8 @@ export const VIEWPORT = {
     f: 'palette', 'shift-f': 'suggest', 'shift-r': 'repeat',
     b: 'tool:fillet', g: 'tool:move', r: 'tool:rotate', s: 'tool:scale', p: 'tool:pushpull',
     e: 'tool:extrude', q: 'tool:boolean', l: 'tool:loft', 'shift-p': 'tool:sweep',
+    // Project (manual: I; Curve Body, Body Body or Curve Curve by what is selected)
+    i: 'tool:project',
     // Sketching (manual: Line is Shift+A; 0.6.30 for the rectangle and circle, which 26.1 leaves unbound)
     'shift-q': 'draw:rect', 'shift-w': 'draw:circle', 'shift-a': 'draw:line',
     'shift-x': 'delete', 'shift-delete': 'delete', 'shift-backspace': 'delete',
@@ -102,6 +104,8 @@ export const COMMAND = {
     hole: { t: 'through' },
     // Cut: P cuts with the construction plane as well.
     cut: { p: 'plane' },
+    // Project (manual): S projects along the view (screen space); X, Y and Z pick a vector axis, again flips it.
+    project: { s: 'screen', x: 'axis-x', y: 'axis-y', z: 'axis-z' },
     // Draft Face: A types the angle.
     draft: { a: 'angle' },
     // Tangent Circle (manual): F freezes the circle, Tab types its radius.

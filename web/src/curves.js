@@ -225,3 +225,72 @@ export function cvPoints(points, closed, n = 64) {
     const steps = closed ? n : n + 1;
     return Array.from({ length: steps }, (_, i) => at(i === n ? t1 - 1e-12 * (t1 - t0) : t0 + (t1 - t0) * i / n));
 }
+
+// --- NURBS curves (what Project makes), as w3d_section's kind 9 -----------------------------------
+
+/**
+ * Points along a NURBS curve shape ({ degree, poles: [[x, y, h]], weights, knots }, knots repeated as
+ * often as they occur) as [x, y, h] in its plane, `perSpan` steps across each knot span so corners
+ * between spans stay sharp.
+ */
+export function nurbsPoints(c, perSpan = 16) {
+    const { degree: p, poles, weights, knots } = c;
+    const out = [];
+    const at = (t, k) => {
+        // de Boor's algorithm in homogeneous coordinates, on span k (knots[k] <= t <= knots[k + 1]).
+        const d = [];
+        for (let j = 0; j <= p; j++) { const w = weights[k - p + j], q = poles[k - p + j]; d.push([q[0] * w, q[1] * w, q[2] * w, w]); }
+        for (let r = 1; r <= p; r++) for (let j = p; j >= r; j--) {
+            const i = k - p + j, span = knots[i + p - r + 1] - knots[i];
+            const a = span > 0 ? (t - knots[i]) / span : 0;
+            d[j] = d[j].map((v, m) => (1 - a) * d[j - 1][m] + a * v);
+        }
+        const [x, y, z, w] = d[p];
+        return [x / w, y / w, z / w];
+    };
+    for (let k = p; k < poles.length; k++) {
+        const t0 = knots[k], t1 = knots[k + 1];
+        if (!(t1 > t0)) continue;
+        for (let i = out.length ? 1 : 0; i <= perSpan; i++) out.push(at(t0 + (t1 - t0) * i / perSpan, k));
+    }
+    return out;
+}
+
+/** Whether a NURBS curve lies in its plane and closes up, so it bounds a region. */
+export const nurbsLoop = c => c.poles.length >= 3 && c.poles.every(q => Math.abs(q[2]) < 1e-7)
+    && Math.hypot(c.poles[0][0] - c.poles.at(-1)[0], c.poles[0][1] - c.poles.at(-1)[1]) < 1e-7;
+
+const sub3 = (a, b) => [a[0] - b[0], a[1] - b[1], a[2] - b[2]];
+const dot3 = (a, b) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
+const cross3 = (a, b) => [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]];
+const len3 = a => Math.hypot(...a);
+const unit3 = a => { const l = len3(a); return a.map(v => v / l); };
+
+/**
+ * A NURBS curve in model space ({ degree, poles: [[x, y, z]], weights, knots }) as a drawn curve, as
+ * the desktop's Curve::from_nurbs: in its own plane when it is flat (its normal facing back against
+ * `dir`, the way it was projected), otherwise on a plane square to `dir`.
+ */
+export function curveFromNurbs(path, dir) {
+    const { degree, poles, weights, knots } = path, first = poles[0];
+    const size = Math.max(1, ...poles.map(p => len3(sub3(p, first))));
+    const back = unit3(dir.map(v => -v));
+    const far = poles.reduce((a, p) => len3(sub3(p, first)) > len3(sub3(a, first)) ? p : a, first);
+    const side = poles.map(p => cross3(sub3(far, first), sub3(p, first))).reduce((a, b) => len3(b) > len3(a) ? b : a, [0, 0, 0]);
+    let normal = back;
+    if (len3(side) > 1e-12) {
+        let n = unit3(side);
+        if (poles.every(p => Math.abs(dot3(sub3(p, first), n)) < 1e-9 * size)) {
+            if (dot3(n, back) < 0) n = n.map(v => -v);
+            if (Math.abs(dot3(n, back)) > 1e-9) normal = n;
+        }
+    }
+    let x = sub3(far, first);
+    if (!(len3(x) > 1e-12) || len3(cross3(unit3(x), normal)) < 1e-6) x = Math.abs(normal[0]) < 0.9 ? [1, 0, 0] : [0, 1, 0];
+    x = unit3(sub3(x, normal.map(v => v * dot3(x, normal))));
+    const y = cross3(normal, x);
+    let local = poles.map(p => { const d = sub3(p, first); return [dot3(d, x), dot3(d, y), dot3(d, normal)]; });
+    // Flat curves are flat exactly, so they bound regions.
+    if (local.every(p => Math.abs(p[2]) < 1e-9 * size)) local = local.map(([u, v]) => [u, v, 0]);
+    return { origin: [...first], x, normal, kind: 'nurbs', degree, poles: local, weights: [...weights], knots: [...knots] };
+}

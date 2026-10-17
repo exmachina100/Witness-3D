@@ -94,7 +94,7 @@ export function booleanWithHistory(a, b, op) {
 const KINDS = { faces: 'TopAbs_FACE', edges: 'TopAbs_EDGE' };
 
 /** The shape's faces or edges, each once, in TopExp::MapShapes order (see numberedEdges). */
-function numbered(shape, kind) {
+export function numbered(shape, kind) {
     const o = oc(), out = [];
     for (const ex = new o.TopExp_Explorer(shape, o.TopAbs_ShapeEnum[kind], o.TopAbs_ShapeEnum.TopAbs_SHAPE); ex.More(); ex.Next()) {
         const s = ex.Current();

@@ -5,7 +5,7 @@
 // A curve is { origin, x, normal, kind, ... } with points in its plane's coordinates (see
 // LocalBackend.checkCurve). Lengths are millimetres.
 
-import { arcPoints, circleThrough, cvPoints, ellipsePoints, loops } from './curves.js';
+import { arcPoints, circleThrough, cvPoints, ellipsePoints, loops, nurbsLoop, nurbsPoints } from './curves.js';
 
 const EPS = 1e-9, TAU = 2 * Math.PI;
 const sub = (a, b) => [a[0] - b[0], a[1] - b[1]], add = (a, b) => [a[0] + b[0], a[1] + b[1]];
@@ -53,6 +53,12 @@ export function samples(shape, n = 96) {
                 pts.push(...(pts.length ? s.slice(1) : s));
             }
             const closed = loops(shape.pieces);
+            if (closed) pts.pop();
+            return { points: pts, closed };
+        }
+        case 'nurbs': {
+            if (shape.poles.some(q => Math.abs(q[2]) > 1e-7)) throw new Error('this projected curve is not flat, so it cannot be edited in a plane');
+            const pts = nurbsPoints(shape).map(([u, v]) => [u, v]), closed = nurbsLoop(shape);
             if (closed) pts.pop();
             return { points: pts, closed };
         }

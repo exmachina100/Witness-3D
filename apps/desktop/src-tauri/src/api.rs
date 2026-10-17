@@ -932,6 +932,35 @@ pub fn commit_imprint(m: &Model, req: ImprintRequest) -> Result<Committed, ApiEr
     })
 }
 
+/// Plasticity's Project, by what is selected: curves onto a body (`body`, with `dir`, `both` and
+/// `hide`), two bodies against each other (`bodies`), or two curves against each other.
+#[derive(Deserialize, Debug, Clone)]
+#[serde(tag = "mode", rename_all = "kebab-case")]
+pub enum ProjectRequest {
+    CurveBody {
+        body: BodyId,
+        #[serde(default)]
+        faces: Vec<u32>,
+        curves: Vec<CurveId>,
+        dir: [f64; 3],
+        #[serde(default)]
+        both: bool,
+        #[serde(default)]
+        hide: bool,
+    },
+    BodyBody { bodies: [BodyId; 2] },
+    CurveCurve { curves: [CurveId; 2] },
+}
+
+/// The curves Project would make, without changing the document; Add Curves keeps them.
+pub fn preview_project(m: &Model, req: ProjectRequest) -> Option<Result<Vec<Curve>, ApiError>> {
+    m.preview(move |doc| Ok(match req {
+        ProjectRequest::CurveBody { body, faces, curves, dir, both, hide } => doc.preview_project(body, &faces, &curves, DVec3::from(dir), both, hide)?,
+        ProjectRequest::BodyBody { bodies: [a, b] } => doc.preview_meet(a, b)?,
+        ProjectRequest::CurveCurve { curves: [a, b] } => doc.preview_project_curves(a, b)?,
+    }))
+}
+
 /// Plasticity's Draft Face: `faces` of `body` tilted by `angle` radians about the neutral plane
 /// through `origin` square to `pull`.
 #[derive(Deserialize, Debug, Clone)]
