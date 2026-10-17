@@ -13,6 +13,7 @@
 #include <BRepBuilderAPI_Transform.hxx>
 #include <BRepAdaptor_CompCurve.hxx>
 #include <GCPnts_AbscissaPoint.hxx>
+#include <GCPnts_TangentialDeflection.hxx>
 #include <BRepBuilderAPI_MakeVertex.hxx>
 #include <TopTools_HSequenceOfShape.hxx>
 #include <BRepAdaptor_Surface.hxx>
@@ -2170,4 +2171,50 @@ inline std::unique_ptr<TopoDS_Shape> w3d_unjoin(const TopoDS_Shape &shape, bool 
   }
   if (n < 2) throw std::runtime_error(faces ? "that body has only one face" : "that body is all one piece; unjoin its faces instead");
   return std::unique_ptr<TopoDS_Shape>(new TopoDS_Shape(out));
+}
+
+// Plasticity's SVG and DXF export: the hidden-line drawing of `shape` (a compound of the bodies) seen
+// along frame[3..6] (pointing at the viewer) from frame[0..3], frame[6..9] the drawing's x. Each line
+// comes back as [kind, n, x0, y0, ... x(n-1), y(n-1)] in the drawing's own x, y: kind 0 is visible
+// (sharp edges, smooth-edge lines and silhouettes), 1 hidden. Curves are cut to within `deflection`.
+inline rust::Vec<double> w3d_hidden_lines(const TopoDS_Shape &shape, rust::Slice<const double> frame, double deflection) {
+  if (frame.size() != 9) throw std::runtime_error("a view is a point, a direction and an x direction");
+  if (!(deflection > 0)) throw std::runtime_error("the deflection must be greater than zero");
+  try {
+    gp_Ax2 ax(gp_Pnt(frame[0], frame[1], frame[2]), gp_Dir(frame[3], frame[4], frame[5]), gp_Dir(frame[6], frame[7], frame[8]));
+    Handle(HLRBRep_Algo) hlr = new HLRBRep_Algo();
+    hlr->Add(shape);
+    hlr->Projector(HLRAlgo_Projector(ax));
+    hlr->Update();
+    hlr->Hide();
+    HLRBRep_HLRToShape out(hlr);
+    rust::Vec<double> lines;
+    auto emit = [&](const TopoDS_Shape &c, double kind) {
+      if (c.IsNull()) return;
+      for (TopExp_Explorer ex(c, TopAbs_EDGE); ex.More(); ex.Next()) {
+        TopoDS_Edge e = TopoDS::Edge(ex.Current());
+        BRepLib::BuildCurves3d(e);
+        BRepAdaptor_Curve a(e);
+        GCPnts_TangentialDeflection pts(a, 0.1, deflection);
+        if (pts.NbPoints() < 2) continue;
+        lines.push_back(kind);
+        lines.push_back(pts.NbPoints());
+        for (int i = 1; i <= pts.NbPoints(); i++) {
+          gp_Pnt p = pts.Value(i);
+          lines.push_back(p.X());
+          lines.push_back(p.Y());
+        }
+      }
+    };
+    emit(out.VCompound(), 0);
+    emit(out.Rg1LineVCompound(), 0);
+    emit(out.OutLineVCompound(), 0);
+    emit(out.HCompound(), 1);
+    emit(out.Rg1LineHCompound(), 1);
+    emit(out.OutLineHCompound(), 1);
+    if (lines.empty()) throw std::runtime_error("nothing to draw seen from that view");
+    return lines;
+  } catch (const Standard_Failure &f) {
+    throw w3d_kernel_error(f);
+  }
 }

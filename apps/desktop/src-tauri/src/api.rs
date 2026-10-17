@@ -908,11 +908,40 @@ pub fn mesh_bodies(m: &Model, ids: Vec<BodyId>, tolerance: f64) -> Result<Vec<Me
     })
 }
 
-/// Write an exported mesh the viewport made, to a path the user chose in the save dialog. Only mesh
-/// formats, so this can't be turned into writing anything anywhere.
+/// Plasticity's SVG and DXF export: the hidden-line drawing of `bodies` seen from the camera.
+#[derive(Deserialize, Debug, Clone)]
+pub struct DrawingRequest {
+    pub bodies: Vec<BodyId>,
+    pub origin: [f64; 3],
+    /// From the scene toward the viewer.
+    pub toward: [f64; 3],
+    /// The drawing's x: the camera's right.
+    pub x: [f64; 3],
+    pub deflection: f64,
+}
+
+/// A drawn line in the drawing's x, y: [x0, y0, x1, y1, ...].
+#[derive(Serialize, Debug, Clone)]
+pub struct DrawnLineOut {
+    pub hidden: bool,
+    pub points: Vec<f64>,
+}
+
+pub fn hidden_lines(m: &Model, req: DrawingRequest) -> Result<Vec<DrawnLineOut>, ApiError> {
+    if !(req.deflection > 0.0) || !req.deflection.is_finite() { return Err(KernelError::Invalid("the tolerance must be greater than zero").into()) }
+    if req.bodies.is_empty() { return Err(KernelError::Invalid("nothing to draw").into()) }
+    m.call(move |doc| {
+        let solids = req.bodies.iter().map(|&id| doc.get(id).ok_or(KernelError::Invalid("that body no longer exists"))).collect::<Result<Vec<_>, _>>()?;
+        let lines = doc.kernel.hidden_lines(&solids, DVec3::from(req.origin), DVec3::from(req.toward), DVec3::from(req.x), req.deflection)?;
+        Ok(lines.into_iter().map(|l| DrawnLineOut { hidden: l.hidden, points: l.points.into_iter().flatten().collect() }).collect())
+    })
+}
+
+/// Write an exported mesh or drawing the viewport made, to a path the user chose in the save dialog.
+/// Only those formats, so this can't be turned into writing anything anywhere.
 pub fn write_export(path: PathBuf, data: Vec<u8>) -> Result<(), ApiError> {
     let ext = path.extension().and_then(|e| e.to_str()).map(|e| e.to_ascii_lowercase());
-    if !matches!(ext.as_deref(), Some("obj" | "stl")) { return Err(KernelError::Invalid("exports are .obj or .stl files").into()) }
+    if !matches!(ext.as_deref(), Some("obj" | "stl" | "svg" | "dxf")) { return Err(KernelError::Invalid("exports are .obj, .stl, .svg or .dxf files").into()) }
     std::fs::write(&path, data).map_err(|e| ApiError::from(e.to_string()))
 }
 
