@@ -2,6 +2,8 @@
 //! `PossiblyBooleanExtrudeFactory` (src/commands/extrude/ExtrudeFactory.ts:115-117, :150):
 //! pulling out of a face joins, pushing in cuts, and an extrude that touches nothing is a new body.
 
+use glam::DVec3;
+
 use crate::{BooleanOp, Extent, Frame, History, Kernel, KernelError, Profile};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -34,6 +36,13 @@ pub struct ExtrudeParams {
     /// Extrude this face of the target along its normal instead of `profile` (Plasticity's
     /// Extrude on a face). `frame` and `profile` are then unused.
     pub face: Option<u32>,
+    /// Plasticity's Freestyle (F): extrude along this direction instead of the normal.
+    pub direction: Option<DVec3>,
+    /// More faces of the target extruded with `face`, the tools joined into one.
+    pub more_faces: Vec<u32>,
+    /// Plasticity's Individual (I): each face along its own normal instead of all along the first
+    /// face's (Direct).
+    pub individual: bool,
 }
 
 impl ExtrudeParams {
@@ -48,10 +57,46 @@ pub fn tool<K: Kernel>(k: &K, target: Option<&K::Solid>, p: &ExtrudeParams) -> R
     }
     if e.back < 0.0 || e.thickness < 0.0 { return Err(KernelError::Invalid("the far side and the thickness can't be negative")) }
     if e.angle.abs() >= std::f64::consts::FRAC_PI_2 - 1e-6 { return Err(KernelError::Invalid("the angle must be less than 90 degrees")) }
-    match p.face {
-        Some(face) => k.extrude_face(target.ok_or(KernelError::Invalid("that body no longer exists"))?, face, &e),
-        None => k.extrude(&p.profile, &p.frame, &e),
+    let direction = match p.direction {
+        Some(d) if !d.is_finite() || d.length() < 1e-9 => return Err(KernelError::Invalid("the freestyle direction has no length")),
+        d => d.map(|d| d.normalize()),
+    };
+    let Some(face) = p.face else {
+        return match direction {
+            Some(d) => k.extrude_along(&p.profile, &p.frame, d, &e),
+            None => k.extrude(&p.profile, &p.frame, &e),
+        };
+    };
+    let target = target.ok_or(KernelError::Invalid("that body no longer exists"))?;
+    let mut faces = vec![face];
+    for &f in &p.more_faces { if !faces.contains(&f) { faces.push(f) } }
+    if faces.len() == 1 && direction.is_none() { return k.extrude_face(target, face, &e) }
+    let normal = |f: u32| k.face_normal(target, f).ok_or(KernelError::Invalid("that face has no direction to extrude in"));
+    // Direct: every face along the first face's normal (or the freestyle direction); Individual:
+    // each along its own.
+    let common = match direction { Some(d) => d, None => normal(face)? };
+    let mut out: Option<K::Solid> = None;
+    for f in faces {
+        let dir = if p.individual { normal(f)? } else { common };
+        if dir.dot(normal(f)?).abs() < 1e-6 { return Err(KernelError::Invalid("a face lies along the extrude's direction; use Individual (I) or pick other faces")) }
+        let piece = k.extrude_face_along(target, f, dir, &e)?;
+        out = Some(match out { None => piece, Some(all) => k.boolean(&all, &piece, BooleanOp::Union)?.solid });
     }
+    Ok(out.expect("at least one face"))
+}
+
+/// Whether a positive distance moves away from the body: false when the freestyle direction
+/// points back into the face or region it starts from.
+fn outward<K: Kernel>(k: &K, target: Option<&K::Solid>, p: &ExtrudeParams) -> bool {
+    let reference = match p.face {
+        Some(f) => target.and_then(|t| k.face_normal(t, f)),
+        None => Some(p.frame.normal),
+    };
+    let along = match (p.direction, reference) {
+        (Some(d), Some(n)) if !p.individual || p.face.is_none() => d.dot(n) >= 0.0,
+        _ => true,
+    };
+    (p.distance > 0.0) == along
 }
 
 #[derive(Clone, Debug)]
@@ -69,7 +114,7 @@ pub fn extrude<K: Kernel>(k: &K, target: Option<&K::Solid>, p: &ExtrudeParams) -
         return Err(KernelError::NoOp);
     }
     let tool = tool(k, target, p)?;
-    combine(k, target, tool, p.operation, p.distance > 0.0, "the extrude does not meet the body")
+    combine(k, target, tool, p.operation, outward(k, target, p), "the extrude does not meet the body")
 }
 
 /// Join `tool` to `target`, cut it out or intersect with it, as `operation` says; `Auto` joins when

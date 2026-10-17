@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { GeometryFactory, NoOpError, ValidationError } from './GeometryFactory.js';
-import { booleanWithHistory, count, extrudeFace, makeProfileFace, volume } from './Kernel.js';
+import { boolean, booleanWithHistory, count, extrudeFace, makeProfileFace, volume } from './Kernel.js';
 import { faceBase, shapedExtrude } from './Forms.js';
 
 // Push/pull extrude that becomes a boolean when it meets a body, modeled on Plasticity's
@@ -31,6 +31,12 @@ export class ExtrudeFactory extends GeometryFactory {
         this.back = 0;
         this.angle = 0;
         this.thickness = 0;
+        /** Freestyle (F): extrude along this direction instead of the normal. */
+        this.direction = undefined;
+        /** More faces of the target extruded with `face`, the tools joined; Individual (I) takes
+         * each along its own normal instead of all along the first face's (Direct). */
+        this.faces = [];
+        this.individual = false;
         this.isOverlapping = false;
     }
 
@@ -43,7 +49,21 @@ export class ExtrudeFactory extends GeometryFactory {
 
     get operationType() {
         if (this.operation !== 'auto') return this.operation;
-        return this.distance > 0 ? 'union' : 'difference';
+        return (this.distance > 0) === this.along ? 'union' : 'difference';
+    }
+
+    /** Whether the freestyle direction points away from the face or region (as extrude.rs's outward). */
+    get along() {
+        if (!this.direction || (this.individual && this.face !== undefined)) return true;
+        const n = this.face !== undefined ? faceBase(this.doc.shape(this.target), this.face).normal : this.normal;
+        return this.direction.dot(n) >= 0;
+    }
+
+    /** The freestyle direction as a unit vector, or undefined. */
+    get freestyle() {
+        if (!this.direction) return undefined;
+        if (!(this.direction.length() > 1e-9)) throw new ValidationError('the freestyle direction has no length');
+        return this.direction.clone().normalize();
     }
 
     get plain() { return Math.abs(this.back) < 1e-12 && Math.abs(this.angle) < 1e-12 && Math.abs(this.thickness) < 1e-12 }
@@ -51,13 +71,30 @@ export class ExtrudeFactory extends GeometryFactory {
     tool() {
         if (Math.abs(this.distance) < 1e-6 && Math.abs(this.back) < 1e-6) throw new NoOpError();
         const shaped = (face, n) => shapedExtrude(face, n, this.distance, this.back, this.angle, this.thickness);
+        const free = this.freestyle;
         if (this.face !== undefined) {
-            if (this.plain) return extrudeFace(this.doc.shape(this.target), this.face, this.distance);
-            const { face, normal } = faceBase(this.doc.shape(this.target), this.face);
-            return shaped(face, normal);
+            const faces = [...new Set([this.face, ...this.faces])];
+            if (faces.length === 1 && !free) {
+                if (this.plain) return extrudeFace(this.doc.shape(this.target), this.face, this.distance);
+                const { face, normal } = faceBase(this.doc.shape(this.target), this.face);
+                return shaped(face, normal);
+            }
+            // Direct: every face along the first face's normal (or the freestyle direction);
+            // Individual: each along its own. As extrude.rs's tool.
+            const shape = this.doc.shape(this.target);
+            const common = free ?? faceBase(shape, this.face).normal;
+            let all;
+            for (const f of faces) {
+                const { face, normal } = faceBase(shape, f);
+                const n = this.individual ? normal : common;
+                if (Math.abs(n.dot(normal)) < 1e-6) throw new ValidationError("a face lies along the extrude's direction; use Individual (I) or pick other faces");
+                const piece = shaped(face, n.clone().normalize());
+                all = all ? boolean(all, piece, 'union') : piece;
+            }
+            return all;
         }
         if (!this.baseFace && !this.profile) throw new ValidationError("No profile to extrude");
-        return shaped(this.baseFace ?? makeProfileFace(this.profile, this.frame), this.normal.clone().normalize());
+        return shaped(this.baseFace ?? makeProfileFace(this.profile, this.frame), free ?? this.normal.clone().normalize());
     }
 
     async calculate() {

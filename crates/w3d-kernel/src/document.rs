@@ -1012,7 +1012,7 @@ impl<K: Kernel> Document<K> {
     pub fn region_params(&self, curve: CurveId, distance: f64, operation: crate::Operation) -> Result<ExtrudeParams, KernelError> {
         let c = self.curve(curve).ok_or(KernelError::Invalid("that curve no longer exists"))?;
         let profile = c.profile().ok_or(KernelError::Invalid("only a closed curve has a region to extrude"))?;
-        Ok(ExtrudeParams { profile, frame: c.frame(), distance, back: 0.0, angle: 0.0, thickness: 0.0, operation, face: None })
+        Ok(ExtrudeParams { profile, frame: c.frame(), distance, back: 0.0, angle: 0.0, thickness: 0.0, operation, face: None, direction: None, more_faces: vec![], individual: false })
     }
 
     pub fn undo(&mut self) -> bool {

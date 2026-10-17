@@ -71,7 +71,7 @@ const KEYS = {
   move: [['X Y Z', 'AXIS'], ['⇧ X Y Z', 'PLANE'], ['G', 'SCREEN'], ['CTRL', 'SNAP'], ['⏎ / RMB', 'OK']],
   rotate: [['X Y Z', 'AXIS'], ['R', 'SCREEN'], ['CTRL', '15°'], ['⏎ / RMB', 'OK']],
   scale: [['S', 'UNIFORM'], ['CTRL', '0.1'], ['⏎ / RMB', 'OK']],
-  extrude: [['DRAG DOT', 'DISTANCE'], ['D', 'DISTANCE'], ['A', 'ANGLE'], ['⇧T', 'THICKNESS'], ['S', 'BOTH SIDES'], ['Q', 'UNION'], ['W', 'DIFFERENCE'], ['⇧E', 'INTERSECT'], ['⇧Q', 'SLICE'], ['B', 'NEW BODY'], ['⏎ / RMB', 'OK']],
+  extrude: [['DRAG DOT', 'DISTANCE'], ['D', 'DISTANCE'], ['F', 'FREESTYLE: CLICK START · END'], ['V', 'PIVOT: CLICK'], ['I', 'INDIVIDUAL'], ['A', 'ANGLE'], ['⇧T', 'THICKNESS'], ['S', 'BOTH SIDES'], ['Q', 'UNION'], ['W', 'DIFFERENCE'], ['⇧E', 'INTERSECT'], ['⇧Q', 'SLICE'], ['B', 'NEW BODY'], ['⏎ / RMB', 'OK']],
   boolean: [['Q', 'UNION'], ['W', 'DIFFERENCE'], ['⇧E', 'INTERSECT'], ['⇧Q', 'SLICE'], ['T', 'KEEP TOOLS'], ['⏎ / RMB', 'OK']],
   offset: [['DRAG DOT', 'DISTANCE'], ['D', 'DISTANCE'], ['A', 'ANGLE ADJACENT'], ['⇧ CLICK', 'FACES'], ['⏎ / RMB', 'OK']],
   revolve: [['CLICK', 'AXIS START · END'], ['A', 'ANGLE'], ['⇧T', 'THICKNESS'], ['Q', 'UNION'], ['W', 'DIFFERENCE'], ['⇧E', 'INTERSECT'], ['B', 'NEW BODY'], ['⏎ / RMB', 'OK']],
@@ -248,6 +248,11 @@ const SHELL = `
       <div class="field"><label for="w3d-ex-angle">ANGLE °</label><input id="w3d-ex-angle" data-id="ex-angle" type="number" step="1" value="0"></div>
       <div class="field"><label for="w3d-ex-thickness">THICKNESS</label><input id="w3d-ex-thickness" data-id="ex-thickness" type="number" step="0.5" min="0" value="0"></div>
       <div class="chips"><button data-id="ex-lock" aria-pressed="false"><kbd>S</kbd>BOTH SIDES</button></div>
+      <div class="chips">
+        <button data-id="ex-free" aria-pressed="false" title="Click a start point and an end point: they set the direction and distance"><kbd>F</kbd>FREESTYLE</button>
+        <button data-id="ex-pivot" aria-pressed="false" title="Click where the gizmo sits"><kbd>V</kbd>PIVOT</button>
+        <button data-id="ex-individual" aria-pressed="false" title="Each selected face along its own normal instead of all along the first face's"><kbd>I</kbd>INDIVIDUAL</button>
+      </div>
       <div class="field"><label>RESULT</label><output data-id="ex-outcome">—</output></div>
       <span class="label">OPERATION</span>
       <div class="seg wrap" role="group" aria-label="Extrude operation">
@@ -555,8 +560,10 @@ const VIEWS = {
 export async function mount(root, backend) {
   root.innerHTML = SHELL;
   // Panel options carry their icon ahead of the key and name.
-  for (const b of root.querySelectorAll('[data-draw],[data-bop],[data-xop],[data-fop],[data-spiral],[data-toggle],[data-id="ex-lock"],[data-id="bool-keep"]')) {
-    const name = b.dataset.draw ?? b.dataset.bop ?? b.dataset.xop ?? b.dataset.fop ?? b.dataset.spiral ?? (b.dataset.toggle && `view-${b.dataset.toggle}`) ?? { 'ex-lock': 'lock', 'bool-keep': 'keep' }[b.dataset.id];
+  for (const b of root.querySelectorAll('[data-draw],[data-bop],[data-xop],[data-fop],[data-spiral],[data-toggle],[data-gmethod],[data-galign],[data-id="ex-lock"],[data-id="bool-keep"],[data-id="ex-free"],[data-id="ex-pivot"],[data-id="ex-individual"]')) {
+    const name = b.dataset.draw ?? b.dataset.bop ?? b.dataset.xop ?? b.dataset.fop ?? b.dataset.spiral ?? (b.dataset.toggle && `view-${b.dataset.toggle}`)
+      ?? (b.dataset.gmethod && `guide-${b.dataset.gmethod}`) ?? (b.dataset.galign && `align-${b.dataset.galign}`)
+      ?? { 'ex-lock': 'lock', 'bool-keep': 'keep', 'ex-free': 'freestyle', 'ex-pivot': 'pivot', 'ex-individual': 'individual' }[b.dataset.id];
     b.insertAdjacentHTML('afterbegin', icon(name));
   }
   const $ = id => root.querySelector(`[data-id="${id}"]`);
@@ -2572,7 +2579,9 @@ export async function mount(root, backend) {
     }
     const b = bodyOf(it.body), p = b?.facePlanes[it.n];
     if (!p) return { curved: true };
-    return { face: it.n, at: faceCentre(b, it.n), normal: new THREE.Vector3(...p.normal), target: b.id, name: `FACE · ${label(b.id)}` };
+    // The other selected flat faces of the same body go with it (Direct or Individual, I).
+    const faces = sel.list('face').filter(f => f.body === it.body && f.n !== it.n && b.facePlanes[f.n]).map(f => f.n);
+    return { face: it.n, faces, at: faceCentre(b, it.n), normal: new THREE.Vector3(...p.normal), target: b.id, name: `${faces.length ? `${faces.length + 1} FACES` : 'FACE'} · ${label(b.id)}` };
   }
   /** The body a region lies on: one whose face is under (or over) it. */
   function bodyAt(at, n) {
@@ -2589,7 +2598,7 @@ export async function mount(root, backend) {
       if (!auto) toast(src?.curved ? 'EXTRUDE A FLAT FACE OR A REGION' : 'SELECT A REGION OR A FLAT FACE TO EXTRUDE');
       return;
     }
-    const c = cmd = { id: 'extrude', auto, src, distance: 0, angle: 0, thickness: 0, lock: false, op: 'auto', outcome: null, sent: 0, shown: 0, gizmo: null, entry: null };
+    const c = cmd = { id: 'extrude', auto, src, distance: 0, angle: 0, thickness: 0, lock: false, op: 'auto', direction: null, individual: false, picking: null, freeStart: null, pivot: src.at.clone(), outcome: null, sent: 0, shown: 0, gizmo: null, entry: null };
     lastTool = 'extrude';
     showTool('extrude');
     setState('none');
@@ -2624,6 +2633,21 @@ export async function mount(root, backend) {
         return true;
       }
       if (action === 'lock') { setExtrudeShape({ lock: !c.lock }); return true; }
+      // Freestyle (F): the next two clicks set the direction and distance. Pivot (V): the next
+      // click places the gizmo. Individual (I): each face along its own normal.
+      if (action === 'freestyle' || action === 'pivot') {
+        c.auto = false;
+        c.picking = c.picking === action || (action === 'freestyle' && c.picking === 'freestyle-end') ? null : action;
+        c.freeStart = null;
+        setExtrudeOps();
+        setHud(c.picking === 'freestyle' ? 'CLICK THE START POINT' : c.picking === 'pivot' ? 'CLICK WHERE THE GIZMO GOES' : 'DRAG THE DOT');
+        return true;
+      }
+      if (action === 'individual') {
+        if (!c.src.faces?.length) { toast('INDIVIDUAL NEEDS TWO FACES OR MORE'); return true; }
+        setExtrudeShape({ individual: !c.individual });
+        return true;
+      }
       if (!XOPS.includes(action)) return false;
       c.auto = false;
       c.op = c.op === action ? 'auto' : action;
@@ -2632,6 +2656,30 @@ export async function mount(root, backend) {
       return true;
     };
     c.entryDone = () => { if (!c.entry) previewExtrude(); };
+    c.click = e => {
+      if (!c.picking) return false;
+      const p = axisPointAt(e);
+      if (!p) return true;
+      if (c.picking === 'pivot') {
+        c.pivot = p;
+        c.picking = null;
+        c.gizmo.setFrame(c.pivot, c.direction ?? c.src.normal);
+      } else if (c.picking === 'freestyle') {
+        c.freeStart = p;
+        c.picking = 'freestyle-end';
+        setHud('CLICK THE END POINT');
+        return true;
+      } else {
+        const d = p.clone().sub(c.freeStart);
+        if (d.length() < 1e-6) return true;
+        c.direction = d.clone().normalize();
+        c.picking = null;
+        c.gizmo.setFrame(c.pivot, c.direction);
+        setExtrude(d.length(), false);
+      }
+      setExtrudeOps();
+      return true;
+    };
     c.finish = () => commitExtrude();
     c.abort = () => endCmd('cancelled');
     c.cleanup = () => { c.gizmo?.dispose(); clearPreview(); };
@@ -2640,6 +2688,10 @@ export async function mount(root, backend) {
   function setExtrudeOps() {
     for (const b of $$('[data-xop]')) b.setAttribute('aria-pressed', cmd?.id === 'extrude' && cmd.op === b.dataset.xop);
     $('ex-lock').setAttribute('aria-pressed', cmd?.id === 'extrude' && cmd.lock);
+    $('ex-free').setAttribute('aria-pressed', cmd?.id === 'extrude' && (!!cmd.direction || cmd.picking?.startsWith('freestyle')));
+    $('ex-pivot').setAttribute('aria-pressed', cmd?.id === 'extrude' && cmd.picking === 'pivot');
+    $('ex-individual').setAttribute('aria-pressed', cmd?.id === 'extrude' && cmd.individual);
+    $('ex-individual').disabled = !(cmd?.id === 'extrude' && cmd.src.faces?.length);
   }
   /** Change the angle (degrees), thickness or both-sides lock, and preview again. */
   function setExtrudeShape(v) {
@@ -2663,8 +2715,9 @@ export async function mount(root, backend) {
     previewExtrude();
   }
   const extrudeRequest = c => ({
-    target: c.src.target, ...(c.src.region !== undefined ? { region: c.src.region } : { face: c.src.face }), distance: c.distance, op: c.op,
+    target: c.src.target, ...(c.src.region !== undefined ? { region: c.src.region } : { face: c.src.face, faces: c.src.faces ?? [], individual: c.individual }), distance: c.distance, op: c.op,
     back: c.lock ? Math.abs(c.distance) : 0, angle: c.angle * DEG, thickness: c.thickness,
+    ...(c.direction && { direction: c.direction.toArray() }),
   });
   async function previewExtrude() {
     const c = cmd;
@@ -2706,7 +2759,7 @@ export async function mount(root, backend) {
     try {
       const { id, scene: list } = await backend.commit(req);
       endCmd('committed');
-      const extra = [c.lock && 'BOTH SIDES', c.angle && `${c.angle}°`, c.thickness && `T ${c.thickness}`].filter(Boolean).join(' ');
+      const extra = [c.lock && 'BOTH SIDES', c.angle && `${c.angle}°`, c.thickness && `T ${c.thickness}`, c.direction && 'FREESTYLE', c.individual && 'INDIVIDUAL'].filter(Boolean).join(' ');
       record(`EXTRUDE ${fmt(req.distance)}${extra ? ` ${extra}` : ''}${req.op === 'auto' ? '' : ` ${req.op.toUpperCase()}`}`, id);
       await showScene(list);
       sel.replace({ kind: 'solid', body: id });
@@ -5145,6 +5198,9 @@ export async function mount(root, backend) {
   for (const f of ['th-f', 'th-b']) $(f).addEventListener('input', () => cmd?.id === 'thicken' && cmd.preview());
   for (const f of ['pipe-r', 'pipe-t', 'pipe-v']) $(f).addEventListener('input', () => cmd?.id === 'pipe' && cmd.preview());
   $('patch-tangent').onclick = () => cmd?.id === 'patch' && cmd.key('tangent');
+  $('ex-free').onclick = () => cmd?.id === 'extrude' && cmd.key('freestyle');
+  $('ex-pivot').onclick = () => cmd?.id === 'extrude' && cmd.key('pivot');
+  $('ex-individual').onclick = () => cmd?.id === 'extrude' && cmd.key('individual');
   for (const b of $$('[data-gmethod]')) b.onclick = () => { if (cmd?.id === 'sweep') { setForm({ method: b.dataset.gmethod }); setGuideChips(cmd); } };
   for (const b of $$('[data-galign]')) b.onclick = () => { if (cmd?.id === 'sweep') { setForm({ align: b.dataset.galign }); setGuideChips(cmd); } };
   for (const b of $$('[data-proj]')) b.onclick = () => cmd?.id === 'project' && cmd.key(b.dataset.proj);

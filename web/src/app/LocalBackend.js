@@ -95,6 +95,9 @@ export class LocalBackend {
         }
         f.distance = req.distance;
         Object.assign(f, { back: req.back ?? 0, angle: req.angle ?? 0, thickness: req.thickness ?? 0 });
+        if (req.direction) f.direction = v3(req.direction);
+        if (req.faces?.length) f.faces = req.faces;
+        f.individual = !!req.individual;
         f.target = req.target ?? undefined;
         f.operation = req.newBody || req.op === 'new' ? 'new' : ({ union: 'union', difference: 'difference', intersect: 'intersection', slice: 'slice' })[req.op] ?? 'auto';
         const [r, piece] = await f.calculate();
