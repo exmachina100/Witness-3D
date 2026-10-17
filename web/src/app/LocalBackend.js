@@ -11,7 +11,7 @@ import { meetCurves, projectCurveCurve, projectCurves } from '../Project.js';
 import { isSheet, patch } from '../Patch.js';
 import { bridgeSurface } from '../BridgeSurface.js';
 import { projectOutline } from '../Outline.js';
-import { thicken } from '../Thicken.js';
+import { thicken, thickenFaces } from '../Thicken.js';
 import { extendSheet } from '../ExtendSheet.js';
 import { joinSheets, unjoin } from '../Join.js';
 import { hiddenLines } from '../Drawing.js';
@@ -567,21 +567,31 @@ export class LocalBackend {
         return { ids, scene: this.bodies() };
     }
 
-    /** Plasticity's Thicken: sheet `body` made solid, `front` along its normals and `back` behind. */
-    thickenResult({ body, front, back = 0 }) {
+    /**
+     * Plasticity's Thicken: sheet `body` made solid, `front` along its normals and `back` behind. With
+     * `faces`, Thicken Face: those faces of the body made a solid of their own, the body kept.
+     */
+    thickenResult({ body, front, back = 0, faces = [] }) {
         const s = this.shapes.get(body);
         if (!s) throw new Error('that body no longer exists');
-        return thicken(s, front, back);
+        if (!faces.length) return thicken(s, front, back);
+        if (!isSheet(s)) return thickenFaces(s, faces, front, back);
+        // On a sheet the faces are copied into a sheet of their own and thickened.
+        if (new Set(faces).size !== faces.length) throw new Error('a face is picked twice');
+        const pieces = count(s, 'TopAbs_FACE') === 1 ? [s] : unjoin(s, true);
+        const picked = faces.map(f => { if (!pieces[f]) throw new Error('no such face'); return pieces[f]; });
+        return thicken(picked.length === 1 ? picked[0] : joinSheets(picked), front, back);
     }
 
     previewThicken(req) { return this.latest(async () => this.body(req.body, this.thickenResult(req))) }
 
-    /** Thicken as one undo step: the sheet becomes the solid, keeping its body. */
+    /** Thicken as one undo step: the sheet becomes the solid, keeping its body; Thicken Face adds a body. */
     async commitThicken(req) {
         const solid = this.thickenResult(req);
         this.checkpoint();
-        this.put(req.body, solid);
-        return { id: req.body, scene: this.bodies() };
+        const id = req.faces?.length ? this.nextId++ : req.body;
+        this.put(id, solid);
+        return { id, scene: this.bodies() };
     }
 
     /** Plasticity's Extend Sheet: sheet `body` grown `distance` past its open `edge`. */

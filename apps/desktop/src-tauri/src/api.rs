@@ -1124,25 +1124,28 @@ pub fn commit_draft(m: &Model, req: DraftRequest) -> Result<Committed, ApiError>
     })
 }
 
-/// Thicken: a sheet body made solid, `front` along its faces' normals and `back` behind them.
+/// Thicken: a sheet body made solid, `front` along its faces' normals and `back` behind them. With
+/// `faces`, Thicken Face: those faces of the body made into a new solid, the body kept.
 #[derive(Deserialize, Debug, Clone)]
 pub struct ThickenRequest {
     pub body: BodyId,
     pub front: f64,
     #[serde(default)]
     pub back: f64,
+    #[serde(default)]
+    pub faces: Vec<u32>,
 }
 
 pub fn preview_thicken(m: &Model, req: ThickenRequest) -> Option<Result<Body, ApiError>> {
     m.preview(move |doc| {
-        let solid = doc.preview_thicken(req.body, req.front, req.back)?;
+        let solid = if req.faces.is_empty() { doc.preview_thicken(req.body, req.front, req.back)? } else { doc.preview_thicken_faces(req.body, &req.faces, req.front, req.back)? };
         Ok(body(&doc.kernel, req.body, &solid)?)
     })
 }
 
 pub fn commit_thicken(m: &Model, req: ThickenRequest) -> Result<Committed, ApiError> {
     m.call(move |doc| {
-        let id = doc.commit_thicken(req.body, req.front, req.back)?;
+        let id = if req.faces.is_empty() { doc.commit_thicken(req.body, req.front, req.back)? } else { doc.commit_thicken_faces(req.body, &req.faces, req.front, req.back)? };
         Ok(Committed { id, scene: bodies(doc)? })
     })
 }

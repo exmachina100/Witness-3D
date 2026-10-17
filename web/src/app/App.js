@@ -103,7 +103,7 @@ const KEYS = {
   project: [['⇧ CLICK', 'SOLID · CURVES'], ['X Y Z', 'VECTOR'], ['S', 'SCREEN SPACE'], ['⏎ / RMB', 'OK']],
   'bridge-surface': [['⇧ CLICK', 'TWO EDGES'], ['T', 'TENSION'], ['⏎ / RMB', 'OK']],
   'extend-sheet': [['CLICK', "A SHEET'S EDGE"], ['D', 'DISTANCE'], ['⏎ / RMB', 'OK']],
-  thicken: [['CLICK', 'A SHEET'], ['D', 'FRONT'], ['B', 'BACK'], ['⏎ / RMB', 'OK']],
+  thicken: [['CLICK', 'A SHEET'], ['ALT CLICK', 'FACES (THICKEN FACE)'], ['D', 'FRONT'], ['B', 'BACK'], ['⏎ / RMB', 'OK']],
   pipe: [['⇧ CLICK', 'CURVES'], ['R', 'RADIUS'], ['T', 'THICKNESS'], ['V', 'SIDES'], ['⏎ / RMB', 'OK']],
   patch: [['⇧ CLICK', 'CURVES · EDGES'], ['T', 'TANGENT TO FACES'], ['⏎ / RMB', 'OK']],
   hole: [['CLICK', 'A FLAT FACE'], ['T', 'THROUGH ALL'], ['TYPE', 'SIZE IN PANEL'], ['⏎ / RMB', 'OK']],
@@ -3417,28 +3417,37 @@ export async function mount(root, backend) {
   function startThicken() {
     if (!backend.previewThicken) return toast('THICKEN IS NOT IN THIS BUILD YET');
     const sheets = () => sel.solids.filter(id => current.find(b => b.id === id)?.sheet);
-    if (sheets().length !== 1) return toast(sel.solids.length ? 'THICKEN ONE SHEET AT A TIME' : 'SELECT A SHEET TO THICKEN');
-    const c = cmd = { id: 'thicken', body: sheets()[0], sent: 0, shown: 0 };
+    // Thicken Face: faces picked on one body become a solid of their own and the body stays.
+    const faces = () => sel.list('face');
+    const target = () => {
+      const fs = faces();
+      if (fs.length) return fs.every(f => f.body === fs[0].body) ? { body: fs[0].body, faces: fs.map(f => f.n).sort((x, y) => x - y) } : null;
+      return sheets().length === 1 ? { body: sheets()[0], faces: [] } : null;
+    };
+    const wrong = () => faces().length ? 'PICK FACES ON ONE BODY' : sel.solids.length ? 'THICKEN ONE SHEET AT A TIME' : 'SELECT A SHEET OR FACES TO THICKEN';
+    if (!target()) return toast(wrong());
+    const c = cmd = { id: 'thicken', ...target(), sent: 0, shown: 0 };
     lastTool = 'thicken';
     showTool('thicken');
     setState('none');
-    const describe = () => `THICKEN ${num('th-f')}${num('th-b') ? ` + ${num('th-b')} BACK` : ''} MM`;
-    c.request = () => ({ body: c.body, front: num('th-f'), back: num('th-b') });
+    const describe = () => `THICKEN ${c.faces.length ? `${c.faces.length} FACE${c.faces.length > 1 ? 'S' : ''} ` : ''}${num('th-f')}${num('th-b') ? ` + ${num('th-b')} BACK` : ''} MM`;
+    c.request = () => ({ body: c.body, faces: c.faces, front: num('th-f'), back: num('th-b') });
     c.preview = () => livePreview(c, () => backend.previewThicken(c.request()), b => {
-      showPreviewBody(b);
-      $('th-hint').textContent = `${label(c.body)} · ${num('th-f') + num('th-b')} MM THICK`;
+      // Thicken Face's solid is a new body; the one its faces are on stays in view.
+      showPreviewBody(c.faces.length ? { ...b, id: -1 } : b);
+      $('th-hint').textContent = `${label(c.body)}${c.faces.length ? ` · ${c.faces.length} FACE${c.faces.length > 1 ? 'S' : ''}` : ''} · ${num('th-f') + num('th-b')} MM THICK`;
       setHud(describe());
     }, 'th-hint');
     c.onSelection = () => {
       drawOverlays();
-      const list = sheets();
-      if (list.length !== 1) {
-        const missing = 'SELECT ONE SHEET';
+      const t = target();
+      if (!t) {
+        const missing = faces().length ? 'PICK FACES ON ONE BODY' : 'SELECT ONE SHEET OR FACES';
         $('th-hint').textContent = missing;
         clearPreview();
         return setHud(missing);
       }
-      c.body = list[0];
+      Object.assign(c, t);
       setTarget(label(c.body));
       c.preview();
     };
@@ -3450,7 +3459,7 @@ export async function mount(root, backend) {
       return true;
     };
     c.finish = async () => {
-      if (sheets().length !== 1) { setState('failed'); return toast($('th-hint').textContent); }
+      if (!target()) { setState('failed'); return toast($('th-hint').textContent); }
       try {
         const { id, scene: list } = await backend.commitThicken(c.request());
         endCmd('committed');
@@ -4929,7 +4938,7 @@ export async function mount(root, backend) {
     if (sel.solids.length > 1) out.push('tool:boolean');
     if (sel.solids.length === 2) out.push('tool:project');
     if (kinds.has('solid')) out.push('tool:move', 'tool:rotate', 'tool:scale', 'duplicate', 'tool:mirror', 'tool:rect-array', 'tool:radial-array', 'delete', 'hide', 'export:step', 'export:mesh', 'export:drawing');
-    if (kinds.has('face')) out.push('tool:extrude', 'tool:offset', 'tool:shell', 'tool:hole', 'tool:remove-face', 'plane:selection', 'plane:selection-keep-view');
+    if (kinds.has('face')) out.push('tool:extrude', 'tool:offset', 'tool:thicken', 'tool:shell', 'tool:hole', 'tool:remove-face', 'plane:selection', 'plane:selection-keep-view');
     if (kinds.has('edge')) out.push('tool:fillet', 'tool:patch', 'measure:radius');
     if (sel.list('edge').length === 2) out.push('tool:bridge-surface');
     if (sel.solids.some(id => current.find(b => b.id === id)?.sheet)) out.push('tool:thicken');

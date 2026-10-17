@@ -284,6 +284,13 @@ impl Shape {
         Ok(Shape::from_shape(&solid))
     }
 
+    /// Plasticity's Thicken Face on a solid: `faces` made a solid of their own (see `w3d_thicken_faces`).
+    pub fn thicken_faces(&self, faces: &[usize], front: f64, back: f64) -> Result<Shape, String> {
+        let faces: Vec<i32> = faces.iter().map(|&f| f as i32).collect();
+        let solid = ffi::w3d::w3d_thicken_faces(&self.inner, &faces, front, back).map_err(reason)?;
+        Ok(Shape::from_shape(&solid))
+    }
+
     /// Plasticity's Extend Sheet: this sheet grown `distance` past its open edge `edge` (see `w3d_extend_sheet`).
     pub fn extend_sheet(&self, edge: usize, distance: f64) -> Result<Shape, String> {
         let sheet = ffi::w3d::w3d_extend_sheet(&self.inner, edge as i32, distance).map_err(reason)?;
