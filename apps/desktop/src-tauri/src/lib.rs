@@ -232,6 +232,24 @@ async fn commit_imprint(
 }
 
 #[tauri::command]
+async fn preview_bridge_surface(
+    model: State<'_, Model>,
+    req: api::BridgeSurfaceRequest,
+) -> Result<Option<api::Body>, api::ApiError> {
+    on_model(&model, move |m| api::preview_bridge_surface(m, req))
+        .await?
+        .transpose()
+}
+
+#[tauri::command]
+async fn commit_bridge_surface(
+    model: State<'_, Model>,
+    req: api::BridgeSurfaceRequest,
+) -> Result<api::Committed, api::ApiError> {
+    on_model(&model, move |m| api::commit_bridge_surface(m, req)).await?
+}
+
+#[tauri::command]
 async fn preview_patch(
     model: State<'_, Model>,
     req: api::PatchRequest,
@@ -497,6 +515,8 @@ pub fn run() {
             commit_imprint,
             preview_patch,
             commit_patch,
+            preview_bridge_surface,
+            commit_bridge_surface,
             preview_project,
             preview_draft,
             commit_draft,

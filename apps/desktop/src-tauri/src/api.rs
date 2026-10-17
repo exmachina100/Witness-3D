@@ -935,6 +935,29 @@ pub fn commit_imprint(m: &Model, req: ImprintRequest) -> Result<Committed, ApiEr
     })
 }
 
+/// Plasticity's Bridge Surface: a sheet from one body edge to another, tangent to their faces.
+#[derive(Deserialize, Debug, Clone)]
+pub struct BridgeSurfaceRequest {
+    pub a: PatchEdge,
+    pub b: PatchEdge,
+    #[serde(default = "one")]
+    pub tension: f64,
+}
+
+pub fn preview_bridge_surface(m: &Model, req: BridgeSurfaceRequest) -> Option<Result<Body, ApiError>> {
+    m.preview(move |doc| {
+        let sheet = doc.preview_bridge_surface((req.a.body, req.a.edge), (req.b.body, req.b.edge), req.tension)?;
+        Ok(body(&doc.kernel, 0, &sheet)?)
+    })
+}
+
+pub fn commit_bridge_surface(m: &Model, req: BridgeSurfaceRequest) -> Result<Committed, ApiError> {
+    m.call(move |doc| {
+        let id = doc.commit_bridge_surface((req.a.body, req.a.edge), (req.b.body, req.b.edge), req.tension)?;
+        Ok(Committed { id, scene: bodies(doc)? })
+    })
+}
+
 /// Plasticity's Patch: a sheet filling one closed loop of curves and body edges, each edge with
 /// whether the sheet leaves it tangent to the body's face.
 #[derive(Deserialize, Debug, Clone)]

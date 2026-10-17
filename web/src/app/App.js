@@ -100,6 +100,7 @@ const KEYS = {
   draft: [['A', 'ANGLE'], ['⇧ CLICK', 'FACES'], ['⏎ / RMB', 'OK']],
   imprint: [['⇧ CLICK', 'FACES · CURVES'], ['⇧ ALT CLICK', 'BODY THAT IMPRINTS'], ['⏎ / RMB', 'OK']],
   project: [['⇧ CLICK', 'SOLID · CURVES'], ['X Y Z', 'VECTOR'], ['S', 'SCREEN SPACE'], ['⏎ / RMB', 'OK']],
+  'bridge-surface': [['⇧ CLICK', 'TWO EDGES'], ['T', 'TENSION'], ['⏎ / RMB', 'OK']],
   patch: [['⇧ CLICK', 'CURVES · EDGES'], ['T', 'TANGENT TO FACES'], ['⏎ / RMB', 'OK']],
   hole: [['CLICK', 'A FLAT FACE'], ['T', 'THROUGH ALL'], ['TYPE', 'SIZE IN PANEL'], ['⏎ / RMB', 'OK']],
   split: [['CLICK', 'WHERE TO SPLIT'], ['ESC / ⏎', 'DONE']],
@@ -330,6 +331,10 @@ const SHELL = `
       <div class="chips"><button data-id="patch-tangent" aria-pressed="false"><kbd>T</kbd>TANGENT TO FACES</button></div>
       <div class="field"><label>CURVES</label><output data-id="patch-curves">0</output></div>
       <div class="field"><label>EDGES</label><output data-id="patch-edges">0</output></div>
+    </div>
+    <div class="sec" data-panel="bridge-surface" hidden>
+      <span class="hint" data-id="bs-hint">—</span>
+      <div class="field"><label for="w3d-bs-t">TENSION</label><input id="w3d-bs-t" data-id="bs-t" type="number" step="0.1" min="0.05" value="1"></div>
     </div>
     <div class="sec" data-panel="hole" hidden>
       <span class="hint" data-id="hole-hint">CLICK A FLAT FACE</span>
@@ -1325,6 +1330,7 @@ export async function mount(root, backend) {
     if (id === 'imprint') return startImprint();
     if (id === 'project') return startProject();
     if (id === 'patch') return startPatch();
+    if (id === 'bridge-surface') return startBridgeSurface();
     if (id === 'extend') return startExtend();
     if (id === 'tangent-circle') return startTangentCircle();
     if (id === 'split') return startSplit();
@@ -3240,6 +3246,67 @@ export async function mount(root, backend) {
   }
 
   /**
+   * Plasticity's Bridge Surface: a sheet from one selected edge to another, leaving each tangent to
+   * its face. T types the tension (1 is a smooth cubic; more carries each side further before it
+   * turns). The sheet is a body of its own.
+   */
+  function startBridgeSurface() {
+    if (!backend.previewBridgeSurface) return toast('BRIDGE SURFACE IS NOT IN THIS BUILD YET');
+    const c = cmd = { id: 'bridge-surface', edges: [], sent: 0, shown: 0 };
+    lastTool = 'bridge-surface';
+    showTool('bridge-surface');
+    setState('none');
+    const side = e => ({ body: e.body, edge: e.n });
+    c.request = () => ({ a: side(c.edges[0]), b: side(c.edges[1]), tension: num('bs-t') });
+    c.preview = () => livePreview(c, () => backend.previewBridgeSurface(c.request()), b => {
+      const m = showPreviewBody(b, phantom.add.face, phantom.add.edge);
+      m.renderOrder = 5;
+      $('bs-hint').textContent = `TANGENT TO BOTH FACES · TENSION ${num('bs-t')}`;
+      setHud(`BRIDGE SURFACE · TENSION ${num('bs-t')}`);
+    }, 'bs-hint');
+    c.onSelection = () => {
+      drawOverlays();
+      c.edges = sel.list('edge');
+      setTarget(c.edges.length ? c.edges.map(e => label(e.body)).join(' · ') : '—');
+      if (c.edges.length !== 2) {
+        const missing = 'SELECT TWO EDGES OF SHEETS OR SOLIDS';
+        $('bs-hint').textContent = missing;
+        clearPreview();
+        return setHud(missing);
+      }
+      c.preview();
+    };
+    c.key = action => {
+      if (action !== 'tension') return false;
+      c.entry = { label: 'TENSION', text: '', apply: v => { if (v > 0) { $('bs-t').value = v; c.preview(); } else toast('THE TENSION MUST BE ABOVE ZERO'); } };
+      setHud('TENSION _');
+      return true;
+    };
+    c.click = e => {
+      if (!(e.ctrlKey || e.metaKey || e.shiftKey)) return true;
+      const hit = pickAt(e);
+      if (hit?.kind !== 'edge') return true;
+      sel.toggle({ kind: 'edge', body: hit.body, n: hit.n });
+      selectionChanged();
+      return true;
+    };
+    c.finish = async () => {
+      if (c.edges.length !== 2) { setState('failed'); return toast($('bs-hint').textContent); }
+      try {
+        const { id, scene: list } = await backend.commitBridgeSurface(c.request());
+        endCmd('committed');
+        record(`BRIDGE SURFACE · TENSION ${num('bs-t')}`, id);
+        await showScene(list);
+        sel.replace({ kind: 'solid', body: id });
+        selectionChanged({ quiet: true });
+      } catch (e) { setState('failed'); toast(say(e)); }
+    };
+    c.abort = () => endCmd('cancelled');
+    c.cleanup = () => clearPreview();
+    c.onSelection();
+  }
+
+  /**
    * Plasticity's Patch: a sheet filling one closed loop of the selected curves and edges. A flat
    * loop gives its plane; any other is filled with a smooth sheet. T makes the sheet leave the
    * selected edges tangent to their faces. The sheet is a body of its own; the loop stays.
@@ -4480,6 +4547,7 @@ export async function mount(root, backend) {
     if (kinds.has('solid')) out.push('tool:move', 'tool:rotate', 'tool:scale', 'duplicate', 'tool:mirror', 'tool:rect-array', 'tool:radial-array', 'delete', 'hide', 'export:step', 'export:mesh');
     if (kinds.has('face')) out.push('tool:extrude', 'tool:offset', 'tool:shell', 'tool:hole', 'tool:remove-face', 'plane:selection', 'plane:selection-keep-view');
     if (kinds.has('edge')) out.push('tool:fillet', 'tool:patch', 'measure:radius');
+    if (sel.list('edge').length === 2) out.push('tool:bridge-surface');
     if (kinds.has('region')) out.push('tool:extrude', 'tool:revolve', 'tool:loft', 'tool:sweep');
     if (kinds.has('curve') || kinds.has('region')) {
       if (kinds.has('solid')) out.push('tool:project', 'tool:cut', 'tool:imprint');
@@ -4795,6 +4863,7 @@ export async function mount(root, backend) {
   for (const b of $$('[data-mx], [data-rx]')) b.onclick = () => cmd?.key?.(b.dataset.mx ?? b.dataset.rx);
   for (const id of ['mirror-join', 'ra-join', 'rr-join']) $(id).onclick = () => cmd?.key?.('join');
   $('cut-plane').onclick = () => cmd?.id === 'cut' && cmd.key('plane');
+  $('bs-t').addEventListener('input', () => cmd?.id === 'bridge-surface' && cmd.preview());
   $('patch-tangent').onclick = () => cmd?.id === 'patch' && cmd.key('tangent');
   for (const b of $$('[data-proj]')) b.onclick = () => cmd?.id === 'project' && cmd.key(b.dataset.proj);
   $('bool-keep').onclick = () => cmd?.id === 'boolean' && cmd.key('keep');
@@ -5083,6 +5152,17 @@ export async function mount(root, backend) {
           if (p.bidirectional) cmd.key('both');
           if (p.hideOccluded) cmd.key('hide');
         }
+      } else if (id === 'bridge-surface') {
+        if (edges?.length !== 2) throw new Error('give the two edges to bridge, by ref');
+        sel.clear();
+        for (const r of edges) {
+          const owner = current.find(b => b.edgeRefs?.includes(r));
+          if (!owner) throw new Error('that edge no longer exists');
+          sel.add({ kind: 'edge', body: owner.id, n: owner.edgeRefs.indexOf(r) });
+        }
+        selectionChanged({ quiet: true });
+        $('bs-t').value = p.tension;
+        await startTool('bridge-surface');
       } else if (id === 'patch') {
         const cs = (curveIds ?? []).filter(cid => curveList.some(c => c.id === cid));
         if (!cs.length && !edges?.length) throw new Error('give curves by id or edges by ref that make one closed loop');

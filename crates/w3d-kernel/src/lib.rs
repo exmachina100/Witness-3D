@@ -289,7 +289,12 @@ pub trait Kernel {
         Err(KernelError::Invalid("this kernel cannot project curves"))
     }
     /// A face as a cutting tool grown `size` past the body: a plane, a whole cylinder, or the face itself.
-        /// Plasticity's Patch: a sheet filling one closed loop of `curves` and edges of bodies, each
+        /// Plasticity's Bridge Surface: a sheet from edge `a` of one body to edge `b` of another (or the
+    /// same), tangent to their faces; `tension` 1 is a smooth cubic, more carries each side further.
+    fn bridge_surface(&self, _a: (&Self::Solid, u32), _b: (&Self::Solid, u32), _same: bool, _tension: f64) -> Result<Self::Solid, KernelError> {
+        Err(KernelError::Invalid("this kernel cannot bridge surfaces"))
+    }
+    /// Plasticity's Patch: a sheet filling one closed loop of `curves` and edges of bodies, each
     /// edge with whether the sheet leaves it tangent to the body. Flat loops give the exact plane.
     fn patch(&self, _curves: &[Path], _edges: &[(&Self::Solid, Vec<(u32, bool)>)]) -> Result<Self::Solid, KernelError> {
         Err(KernelError::Invalid("this kernel cannot patch"))

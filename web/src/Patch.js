@@ -50,13 +50,13 @@ function flat(pts) {
     return !n || pts.every(p => Math.abs(new THREE.Vector3().subVectors(p, a).dot(n)) < TOL);
 }
 
-/** The face of `shape` beside `edge`, the first found. */
-function faceBeside(shape, edge) {
+/** The face of `shape` beside `edge`, the first found; throws `why` when there is none. */
+export function faceBeside(shape, edge, why = 'a tangent edge needs a face beside it') {
     const o = oc();
     for (const f of numbered(shape, 'TopAbs_FACE')) {
         for (const e of numberedEdges(f)) if (e.IsSame(edge)) return o.TopoDS.Face(f);
     }
-    throw new Error('a tangent edge needs a face beside it');
+    throw new Error(why);
 }
 
 /**

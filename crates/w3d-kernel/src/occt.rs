@@ -310,6 +310,10 @@ impl Kernel for Occt {
         Ok(Traced { solid, history: history(h) })
     }
 
+    fn bridge_surface(&self, a: (&Shape, u32), b: (&Shape, u32), same: bool, tension: f64) -> Result<Shape, KernelError> {
+        Shape::bridge_surface(a.0, a.1 as usize, b.0, b.1 as usize, same, tension).map_err(shim)
+    }
+
     fn patch(&self, curves: &[Path], edges: &[(&Shape, Vec<(u32, bool)>)]) -> Result<Shape, KernelError> {
         let curves: Vec<(Path, DVec3)> = curves.iter().map(|c| (c.clone(), DVec3::Z)).collect();
         let edges: Vec<(&Shape, Vec<(usize, bool)>)> = edges.iter().map(|(s, e)| (*s, e.iter().map(|&(i, t)| (i as usize, t)).collect())).collect();

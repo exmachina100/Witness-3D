@@ -202,6 +202,14 @@ export const TOOLS = [
             hideOccluded: { type: 'boolean', default: false, describe: 'with vector, skip faces hidden behind others along the direction' },
         },
     },
+    // Plasticity's Bridge Surface: a sheet between two edges, tangent to their faces.
+    {
+        id: 'bridge-surface', label: 'BRIDGE SURFACE', key: '', group: 'shape', selects: 'edge', toolbar: false,
+        summary: 'Join two edges of sheets or solids with a new sheet that leaves each tangent to its face; open edges pair end to end, closed ones go round together.',
+        params: {
+            tension: { type: 'number', above: 0, default: 1, describe: 'how far each side carries on before it turns; 1 is a smooth curve' },
+        },
+    },
     // Plasticity's Patch (and the fill its Xnurbs tool makes): a sheet in a closed loop.
     {
         id: 'patch', label: 'PATCH', key: '', group: 'shape', selects: 'curves', toolbar: false,
