@@ -110,6 +110,7 @@ export const COMMAND = {
     'bridge-surface': { t: 'tension' },
     // Patch: T leaves the edges tangent to their faces.
     patch: { t: 'tangent' },
+    thicken: { d: 'front', b: 'back' },
     // Draft Face: A types the angle.
     draft: { a: 'angle' },
     // Tangent Circle (manual): F freezes the circle, Tab types its radius.

@@ -101,6 +101,7 @@ const KEYS = {
   imprint: [['⇧ CLICK', 'FACES · CURVES'], ['⇧ ALT CLICK', 'BODY THAT IMPRINTS'], ['⏎ / RMB', 'OK']],
   project: [['⇧ CLICK', 'SOLID · CURVES'], ['X Y Z', 'VECTOR'], ['S', 'SCREEN SPACE'], ['⏎ / RMB', 'OK']],
   'bridge-surface': [['⇧ CLICK', 'TWO EDGES'], ['T', 'TENSION'], ['⏎ / RMB', 'OK']],
+  thicken: [['CLICK', 'A SHEET'], ['D', 'FRONT'], ['B', 'BACK'], ['⏎ / RMB', 'OK']],
   patch: [['⇧ CLICK', 'CURVES · EDGES'], ['T', 'TANGENT TO FACES'], ['⏎ / RMB', 'OK']],
   hole: [['CLICK', 'A FLAT FACE'], ['T', 'THROUGH ALL'], ['TYPE', 'SIZE IN PANEL'], ['⏎ / RMB', 'OK']],
   split: [['CLICK', 'WHERE TO SPLIT'], ['ESC / ⏎', 'DONE']],
@@ -335,6 +336,11 @@ const SHELL = `
     <div class="sec" data-panel="bridge-surface" hidden>
       <span class="hint" data-id="bs-hint">—</span>
       <div class="field"><label for="w3d-bs-t">TENSION</label><input id="w3d-bs-t" data-id="bs-t" type="number" step="0.1" min="0.05" value="1"></div>
+    </div>
+    <div class="sec" data-panel="thicken" hidden>
+      <span class="hint" data-id="th-hint">—</span>
+      <div class="field"><label for="w3d-th-f">FRONT</label><input id="w3d-th-f" data-id="th-f" type="number" step="0.5" min="0" value="1"></div>
+      <div class="field"><label for="w3d-th-b">BACK</label><input id="w3d-th-b" data-id="th-b" type="number" step="0.5" min="0" value="0"></div>
     </div>
     <div class="sec" data-panel="hole" hidden>
       <span class="hint" data-id="hole-hint">CLICK A FLAT FACE</span>
@@ -1331,6 +1337,7 @@ export async function mount(root, backend) {
     if (id === 'project') return startProject();
     if (id === 'patch') return startPatch();
     if (id === 'bridge-surface') return startBridgeSurface();
+    if (id === 'thicken') return startThicken();
     if (id === 'extend') return startExtend();
     if (id === 'tangent-circle') return startTangentCircle();
     if (id === 'split') return startSplit();
@@ -3248,6 +3255,61 @@ export async function mount(root, backend) {
   }
 
   /**
+   * Plasticity's Thicken: the selected sheet made solid, D typing how far it grows along its faces'
+   * normals and B how far behind them. The sheet body becomes the solid.
+   */
+  function startThicken() {
+    if (!backend.previewThicken) return toast('THICKEN IS NOT IN THIS BUILD YET');
+    const sheets = () => sel.solids.filter(id => current.find(b => b.id === id)?.sheet);
+    if (sheets().length !== 1) return toast(sel.solids.length ? 'THICKEN ONE SHEET AT A TIME' : 'SELECT A SHEET TO THICKEN');
+    const c = cmd = { id: 'thicken', body: sheets()[0], sent: 0, shown: 0 };
+    lastTool = 'thicken';
+    showTool('thicken');
+    setState('none');
+    const describe = () => `THICKEN ${num('th-f')}${num('th-b') ? ` + ${num('th-b')} BACK` : ''} MM`;
+    c.request = () => ({ body: c.body, front: num('th-f'), back: num('th-b') });
+    c.preview = () => livePreview(c, () => backend.previewThicken(c.request()), b => {
+      showPreviewBody(b);
+      $('th-hint').textContent = `${label(c.body)} · ${num('th-f') + num('th-b')} MM THICK`;
+      setHud(describe());
+    }, 'th-hint');
+    c.onSelection = () => {
+      drawOverlays();
+      const list = sheets();
+      if (list.length !== 1) {
+        const missing = 'SELECT ONE SHEET';
+        $('th-hint').textContent = missing;
+        clearPreview();
+        return setHud(missing);
+      }
+      c.body = list[0];
+      setTarget(label(c.body));
+      c.preview();
+    };
+    c.key = action => {
+      const field = { front: ['th-f', 'FRONT'], back: ['th-b', 'BACK'] }[action];
+      if (!field) return false;
+      c.entry = { label: field[1], text: '', apply: v => { if (v >= 0) { $(field[0]).value = v; c.preview(); } else toast("THE THICKNESS CAN'T BE BELOW ZERO"); } };
+      setHud(`${field[1]} _`);
+      return true;
+    };
+    c.finish = async () => {
+      if (sheets().length !== 1) { setState('failed'); return toast($('th-hint').textContent); }
+      try {
+        const { id, scene: list } = await backend.commitThicken(c.request());
+        endCmd('committed');
+        record(describe(), id);
+        await showScene(list);
+        sel.replace({ kind: 'solid', body: id });
+        selectionChanged({ quiet: true });
+      } catch (e) { setState('failed'); toast(say(e)); }
+    };
+    c.abort = () => endCmd('cancelled');
+    c.cleanup = () => clearPreview();
+    c.onSelection();
+  }
+
+  /**
    * Plasticity's Bridge Surface: a sheet from one selected edge to another, leaving each tangent to
    * its face. T types the tension (1 is a smooth cubic; more carries each side further before it
    * turns). The sheet is a body of its own.
@@ -4550,6 +4612,7 @@ export async function mount(root, backend) {
     if (kinds.has('face')) out.push('tool:extrude', 'tool:offset', 'tool:shell', 'tool:hole', 'tool:remove-face', 'plane:selection', 'plane:selection-keep-view');
     if (kinds.has('edge')) out.push('tool:fillet', 'tool:patch', 'measure:radius');
     if (sel.list('edge').length === 2) out.push('tool:bridge-surface');
+    if (sel.solids.some(id => current.find(b => b.id === id)?.sheet)) out.push('tool:thicken');
     if (kinds.has('region')) out.push('tool:extrude', 'tool:revolve', 'tool:loft', 'tool:sweep');
     if (kinds.has('curve') || kinds.has('region')) {
       if (kinds.has('solid')) out.push('tool:project', 'tool:cut', 'tool:imprint');
@@ -4866,6 +4929,7 @@ export async function mount(root, backend) {
   for (const id of ['mirror-join', 'ra-join', 'rr-join']) $(id).onclick = () => cmd?.key?.('join');
   $('cut-plane').onclick = () => cmd?.id === 'cut' && cmd.key('plane');
   $('bs-t').addEventListener('input', () => cmd?.id === 'bridge-surface' && cmd.preview());
+  for (const f of ['th-f', 'th-b']) $(f).addEventListener('input', () => cmd?.id === 'thicken' && cmd.preview());
   $('patch-tangent').onclick = () => cmd?.id === 'patch' && cmd.key('tangent');
   for (const b of $$('[data-proj]')) b.onclick = () => cmd?.id === 'project' && cmd.key(b.dataset.proj);
   $('bool-keep').onclick = () => cmd?.id === 'boolean' && cmd.key('keep');
@@ -5154,6 +5218,13 @@ export async function mount(root, backend) {
           if (p.bidirectional) cmd.key('both');
           if (p.hideOccluded) cmd.key('hide');
         }
+      } else if (id === 'thicken') {
+        selectSolids([body]);
+        selectionChanged({ quiet: true });
+        $('th-f').value = p.front;
+        $('th-b').value = p.back;
+        await startTool('thicken');
+        if (cmd?.id !== 'thicken') throw new Error('give a sheet body to thicken');
       } else if (id === 'bridge-surface') {
         if (edges?.length !== 2) throw new Error('give the two edges to bridge, by ref');
         sel.clear();

@@ -232,6 +232,24 @@ async fn commit_imprint(
 }
 
 #[tauri::command]
+async fn preview_thicken(
+    model: State<'_, Model>,
+    req: api::ThickenRequest,
+) -> Result<Option<api::Body>, api::ApiError> {
+    on_model(&model, move |m| api::preview_thicken(m, req))
+        .await?
+        .transpose()
+}
+
+#[tauri::command]
+async fn commit_thicken(
+    model: State<'_, Model>,
+    req: api::ThickenRequest,
+) -> Result<api::Committed, api::ApiError> {
+    on_model(&model, move |m| api::commit_thicken(m, req)).await?
+}
+
+#[tauri::command]
 async fn preview_bridge_surface(
     model: State<'_, Model>,
     req: api::BridgeSurfaceRequest,
@@ -515,6 +533,8 @@ pub fn run() {
             commit_imprint,
             preview_patch,
             commit_patch,
+            preview_thicken,
+            commit_thicken,
             preview_bridge_surface,
             commit_bridge_surface,
             preview_project,

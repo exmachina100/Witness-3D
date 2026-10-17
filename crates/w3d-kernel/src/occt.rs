@@ -324,6 +324,10 @@ impl Kernel for Occt {
         Shape::patch(&cutter_numbers(&curves)?, &edges, PATCH_TOLERANCE).map_err(shim)
     }
 
+    fn thicken(&self, s: &Shape, front: f64, back: f64) -> Result<Shape, KernelError> {
+        s.thicken(front, back).map_err(shim)
+    }
+
     fn face_sheet(&self, s: &Shape, face: u32, size: f64) -> Result<Shape, KernelError> {
         s.face_sheet(face as usize, size).map_err(shim)
     }

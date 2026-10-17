@@ -265,6 +265,12 @@ impl Shape {
         ffi::w3d::w3d_project_outline(&self.inner, &plane).map_err(reason)
     }
 
+    /// Plasticity's Thicken: this sheet made solid, `front` along its normals and `back` behind (see `w3d_thicken`).
+    pub fn thicken(&self, front: f64, back: f64) -> Result<Shape, String> {
+        let solid = ffi::w3d::w3d_thicken(&self.inner, front, back).map_err(reason)?;
+        Ok(Shape::from_shape(&solid))
+    }
+
     /// Whether the shape holds no solid: a sheet of faces, as Patch makes.
     pub fn is_sheet(&self) -> bool { ffi::w3d::w3d_solid_count(&self.inner) == 0 }
 

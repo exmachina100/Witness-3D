@@ -11,6 +11,7 @@ import { meetCurves, projectCurveCurve, projectCurves } from '../Project.js';
 import { isSheet, patch } from '../Patch.js';
 import { bridgeSurface } from '../BridgeSurface.js';
 import { projectOutline } from '../Outline.js';
+import { thicken } from '../Thicken.js';
 
 const v3 = a => new THREE.Vector3(...a);
 
@@ -515,6 +516,23 @@ export class LocalBackend {
         const id = this.nextId++;
         this.put(id, sheet);
         return { id, scene: this.bodies() };
+    }
+
+    /** Plasticity's Thicken: sheet `body` made solid, `front` along its normals and `back` behind. */
+    thickenResult({ body, front, back = 0 }) {
+        const s = this.shapes.get(body);
+        if (!s) throw new Error('that body no longer exists');
+        return thicken(s, front, back);
+    }
+
+    previewThicken(req) { return this.latest(async () => this.body(req.body, this.thickenResult(req))) }
+
+    /** Thicken as one undo step: the sheet becomes the solid, keeping its body. */
+    async commitThicken(req) {
+        const solid = this.thickenResult(req);
+        this.checkpoint();
+        this.put(req.body, solid);
+        return { id: req.body, scene: this.bodies() };
     }
 
     /** Plasticity's Draft Face: `faces` of `body` tilted by `angle` about the neutral plane through `origin` square to `pull`. */
