@@ -53,11 +53,13 @@
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { TransformControls } from 'three/addons/controls/TransformControls.js';
+import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
 import { MagnitudeGizmo, typed } from '../MagnitudeGizmo.js';
 import { TOOLS, check, tool as toolInfo, withDefaults } from './tools.js';
 import { ACTIONS, COMMAND, VIEWPORT, keyFor, keyOf } from './keymap.js';
 import { Selection } from './Selection.js';
 import { Organise } from './Organise.js';
+import { ENVIRONMENTS, SHADERS, SHADER_OPTIONS, checkMaterial, formatMass, massOf, newMaterial, shader } from './shading.js';
 import { claude, describe, MODEL, reply, request } from './ai.js';
 import { icon } from './icons.js';
 import { limitEdges, toObj, toStl } from '../meshExport.js';
@@ -68,6 +70,7 @@ import { Toolbar } from './Toolbar.js';
 import { arcPoints, circleThrough, cvPoints, ellipsePoints, endTangent, helixPoints, loops, nurbsLoop, nurbsPoints, polygonCorners, spiralAngle, tangentArc } from '../curves.js';
 
 const KEYS = {
+  material: [['FORK', 'OWN COPY'], ['⏎ / RMB', 'OK'], ['ESC', 'CANCEL']],
   idle: [['CLICK', 'SELECT'], ['⇧ CLICK', 'ADD'], ['CTRL CLICK', 'REMOVE'], ['DRAG', 'BOX'], ['MMB', 'ORBIT'], ['RMB', 'PAN'], ['F', 'SEARCH']],
   fillet: [['DRAG DOT', 'RADIUS'], ['IN', 'CHAMFER'], ['D', 'DISTANCE'], ['C', 'CHAMFER'], ['A', 'ANGLE'], ['CTRL CLICK', 'EDGES'], ['⏎ / RMB', 'OK']],
   move: [['X Y Z', 'AXIS'], ['⇧ X Y Z', 'PLANE'], ['G', 'SCREEN'], ['CTRL', 'SNAP'], ['⏎ / RMB', 'OK']],
@@ -143,7 +146,7 @@ const CLICKS = { rect: 2, 'center-rect': 2, rect3: 3, circle: 2, circle2: 2, cir
 const FORMS = { revolve: true, loft: true, sweep: true };
 const PRIMS = { box: true, 'center-box': true, box3: true, cylinder: true, sphere: true };
 // Commands that aren't tools in the registry (they act on a click, not on settings).
-const EDITS = { 'export-mesh': 'EXPORT MESH', 'export-drawing': 'EXPORT DRAWING', 'measure-continuity': 'MEASURE CONTINUITY', trim: 'TRIM', extend: 'EXTEND CURVE', 'tangent-circle': 'TANGENT CIRCLE', split: 'SPLIT CURVE', 'measure-distance': 'MEASURE DISTANCE', 'measure-radius': 'MEASURE RADIUS' };
+const EDITS = { material: 'SET MATERIAL', 'export-mesh': 'EXPORT MESH', 'export-drawing': 'EXPORT DRAWING', 'measure-continuity': 'MEASURE CONTINUITY', trim: 'TRIM', extend: 'EXTEND CURVE', 'tangent-circle': 'TANGENT CIRCLE', split: 'SPLIT CURVE', 'measure-distance': 'MEASURE DISTANCE', 'measure-radius': 'MEASURE RADIUS' };
 const keysHtml = id => KEYS[id].map(([k, v]) => `<kbd>${k}</kbd><span>${v}</span>`).join('');
 // The Command Bar, exactly the manual's list (Plasticity Essentials › Command Bar).
 const BAR = [['palette', 'F', 'SEARCH'], ['tool:move', 'G', 'MOVE'], ['tool:rotate', 'R', 'ROTATE'], ['tool:scale', 'S', 'SCALE'], ['duplicate', '⇧D', 'DUPLICATE'], ['tool:boolean', 'Q', 'BOOLEAN'], ['tool:rect-array', '', 'RECTANGULAR ARRAY'], ['tool:radial-array', '', 'RADIAL ARRAY'], ['suggest', '⇧F', 'SUGGESTED COMMANDS']];
@@ -174,6 +177,7 @@ const SHELL = `
       <dt>SELECTED</dt><dd data-id="sel-count">—</dd>
       <dt>VOLUME</dt><dd data-id="volume">—</dd>
       <dt>FACES</dt><dd data-id="faces">—</dd>
+      <dt>MASS</dt><dd data-id="mass">—</dd>
     </dl>
     <div class="pair">
       <button data-id="undo" title="Undo (Ctrl+Z)">${icon('undo')}UNDO</button>
@@ -404,6 +408,17 @@ const SHELL = `
         <button data-pop="new" aria-pressed="true"><kbd>B</kbd>NEW</button>
       </div>
     </div>
+    <div class="sec" data-panel="material" hidden>
+      <span class="hint" data-id="mat-hint">—</span>
+      <div class="field"><label for="w3d-mat-color">COLOR</label><input id="w3d-mat-color" data-mat="color" type="color" value="#9a968c"></div>
+      <div class="field"><label for="w3d-mat-rough">ROUGHNESS</label><input id="w3d-mat-rough" data-mat="roughness" type="number" step="0.05" min="0" max="1" value="0.5"></div>
+      <div class="field"><label for="w3d-mat-metal">METALNESS</label><input id="w3d-mat-metal" data-mat="metalness" type="number" step="0.05" min="0" max="1" value="0"></div>
+      <div class="field"><label for="w3d-mat-ior">IOR</label><input id="w3d-mat-ior" data-mat="ior" type="number" step="0.01" min="1" max="2.333" value="1.5"></div>
+      <div class="field"><label for="w3d-mat-opacity">OPACITY</label><input id="w3d-mat-opacity" data-mat="opacity" type="number" step="0.05" min="0" max="1" value="1"></div>
+      <div class="field"><label for="w3d-mat-density">DENSITY G/CM³</label><input id="w3d-mat-density" data-mat="density" type="number" step="0.01" min="0.001" value="1"></div>
+      <div class="field"><label>MASS</label><output data-id="mat-mass">—</output></div>
+      <div class="seg" role="group" aria-label="Material"><button data-id="mat-fork" title="Fork material: these bodies get their own copy">${icon('fork-material')}FORK</button><button data-id="mat-remove" title="Remove material">${icon('remove-material')}REMOVE</button></div>
+    </div>
     <div class="sec" data-panel="shell" hidden>
       <span class="hint" data-id="shell-hint">FACES TO OPEN</span>
       <div class="field"><label for="w3d-shell-t">THICKNESS</label><input id="w3d-shell-t" data-id="shell-t" type="number" step="0.5" min="0.01" value="2"></div>
@@ -506,9 +521,18 @@ const SHELL = `
         <button data-toggle="faces" aria-pressed="true">FACES</button>
         <button data-toggle="xray" aria-pressed="false" title="Alt+Z">X-RAY</button>
         <button data-toggle="snap" aria-pressed="false" title="Snap without holding Ctrl">SNAP</button>
+        <button data-toggle="curves" aria-pressed="true" title="Viewport: toggle curves">CURVES</button>
         <button data-toggle="curvature" aria-pressed="false" title="Curvature combs on curves (Toggle Curvature)">CURVATURE</button>
-        <button data-toggle="zebra" aria-pressed="false" title="Zebra stripes: reflection lines that kink or break where faces meet without G1 or G2 continuity">ZEBRA</button>
-        <button data-toggle="draft" aria-pressed="false" title="Draft: faces that release along the construction plane's normal by 1° or more in green, undercuts in red, too steep in amber">DRAFT</button>
+        <button data-toggle="render" aria-pressed="false" title="Render mode: lit by an environment, with the materials' roughness and metal">RENDER</button>
+      </div>
+      <span class="label">SHADER <output data-id="shader-name">CERAMIC DARK</output></span>
+      <div class="swatches" role="group" aria-label="Shader mode">${SHADERS.map(s => `<button data-shader="${s.id}" aria-pressed="${s.id === 'ceramic-dark'}" aria-label="${s.name}" title="${s.name}: ${s.use}" style="background: ${s.swatch}"></button>`).join('')}</div>
+      <div class="stepper" data-id="shader-option" hidden><span data-id="shader-option-label">STRIPES</span><button data-id="shader-option-dec" aria-label="Less">−</button><output data-id="shader-option-value">24</output><button data-id="shader-option-inc" aria-label="More">+</button></div>
+      <div data-id="render-options" hidden>
+        <span class="label">ENVIRONMENT</span>
+        <div class="chips">${ENVIRONMENTS.map(e => `<button data-env="${e.id}" aria-pressed="${e.id === 'studio'}" title="${e.use}">${e.name.toUpperCase()}</button>`).join('')}</div>
+        <div class="field"><label for="w3d-env-rot">ROTATION</label><input id="w3d-env-rot" data-id="env-rot" type="range" min="-180" max="180" step="1" value="0"></div>
+        <div class="field"><label for="w3d-env-int">INTENSITY</label><input id="w3d-env-int" data-id="env-int" type="range" min="0" max="10" step="0.1" value="1"></div>
       </div>
       <div class="stepper"><span>GRID</span><button data-id="grid-dec" aria-label="Smaller grid step">−</button><output data-id="grid">2.5</output><button data-id="grid-inc" aria-label="Larger grid step">+</button></div>
     </div>
@@ -731,48 +755,146 @@ export async function mount(root, backend) {
   }
 
   // --- drawing what the backend sends ---------------------------------------
-  const view = { edges: true, faces: true, xray: false, snap: false, curvature: false, zebra: false, draft: false };
-  const zebraOn = { value: 0 }, draftOn = { value: 0 }, pull = { value: new THREE.Vector3(0, 1, 0) };
+  const view = { edges: true, faces: true, curves: true, xray: false, snap: false, curvature: false, shader: 'ceramic-dark', render: false, environment: 'studio', envRotation: 0, envIntensity: 1 };
+  const shadeU = {
+    mode: { value: 0 }, pull: { value: new THREE.Vector3(0, 1, 0) }, stripes: { value: SHADER_OPTIONS.stripes.value },
+    draftSin: { value: Math.sin(SHADER_OPTIONS.draft.value * DEG) }, spacing: { value: SHADER_OPTIONS.spacing.value },
+  };
+  const shaderOpts = Object.fromEntries(Object.entries(SHADER_OPTIONS).map(([k, o]) => [k, o.value]));
   const faceMat = new THREE.MeshStandardMaterial({ color: COLORS.face, roughness: 0.85, metalness: 0, polygonOffset: true, polygonOffsetFactor: 1, polygonOffsetUnits: 1 });
   const edgeMat = new THREE.LineBasicMaterial({ color: COLORS.ink, transparent: true, opacity: 0.8 });
   const phantom = {
     add: { face: new THREE.MeshBasicMaterial({ color: COLORS.ink, transparent: true, opacity: 0.1, depthWrite: false }), edge: new THREE.LineBasicMaterial({ color: COLORS.ink }) },
     cut: { face: new THREE.MeshBasicMaterial({ color: COLORS.accent, transparent: true, opacity: 0.16, depthWrite: false }), edge: new THREE.LineBasicMaterial({ color: COLORS.accent }) },
   };
-  // Zebra stripes: the faces mirror even bands that run up the screen, so the stripes stay smooth
-  // over G2 joins, kink at G1 ones and break where faces only touch (G0), as surface modelers check
-  // them. Flat faces mirror straight stripes; curved ones bend them.
-  faceMat.onBeforeCompile = shader => {
-    shader.uniforms.zebra = zebraOn;
-    shader.uniforms.draft = draftOn;
-    shader.uniforms.pull = pull;
-    shader.fragmentShader = 'uniform float zebra;\nuniform float draft;\nuniform vec3 pull;\n' + shader.fragmentShader.replace('#include <dithering_fragment>', `
-      if (draft > 0.5) {
-        // Draft analysis: the face's angle to the pull direction, against 1° (sin 1° ≈ 0.01745).
-        vec3 nw = normalize((vec4(normalize(normal), 0.0) * viewMatrix).xyz);
+  // Shader modes (shading.js), drawn from the face normal in view space rather than from matcap
+  // images. Zebra stripes mirror even bands, so they stay smooth over G2 joins, kink at G1 ones and
+  // break where faces only touch (G0). In render mode the faces keep the lit physical material.
+  const shade = (own = false) => shader => {
+    Object.assign(shader.uniforms, { ownColor: { value: own }, shadeMode: shadeU.mode, pull: shadeU.pull, stripes: shadeU.stripes, draftSin: shadeU.draftSin, spacing: shadeU.spacing });
+    shader.fragmentShader = 'uniform bool ownColor;\nuniform int shadeMode;\nuniform vec3 pull;\nuniform float stripes;\nuniform float draftSin;\nuniform float spacing;\n' + shader.fragmentShader.replace('#include <dithering_fragment>', `
+      vec3 n = normalize(normal);
+      if (!gl_FrontFacing) n = -n;
+      vec3 v = normalize(vViewPosition);
+      // A matcap's lighting: the view-space normal against a light up and to the left.
+      float lam = clamp(dot(n, normalize(vec3(-0.4, 0.6, 0.7))), 0.0, 1.0);
+      float spec = pow(clamp(dot(reflect(-normalize(vec3(-0.4, 0.6, 0.7)), n), v), 0.0, 1.0), 40.0);
+      float fres = pow(1.0 - clamp(dot(n, v), 0.0, 1.0), 3.0);
+      // The colour modes show a body's material, or a light grey where it has none.
+      vec3 base = ownColor ? diffuseColor.rgb : vec3(0.62, 0.60, 0.56);
+      // Ceramic dark keeps the lit standard material; a body with a material shows its colour in it
+      // without needing an environment (render mode, -1, leaves everything to the physical material).
+      if (shadeMode == 0 && ownColor) gl_FragColor.rgb = base * (0.25 + 0.7 * lam) + 0.2 * spec;
+      else if (shadeMode == 1) gl_FragColor.rgb = mix(vec3(0.07, 0.10, 0.16), vec3(0.42, 0.52, 0.64), lam) + vec3(spec) + 0.35 * fres * vec3(0.6, 0.75, 1.0);
+      else if (shadeMode == 2) gl_FragColor.rgb = vec3(0.03 + 0.17 * lam) + vec3(spec) * 1.2 + 0.25 * fres;
+      else if (shadeMode == 3) gl_FragColor.rgb = mix(vec3(0.24, 0.23, 0.21), vec3(0.86, 0.84, 0.79), 0.5 + 0.5 * n.y);
+      else if (shadeMode == 4) gl_FragColor.rgb = base * (0.35 + 0.75 * lam) + vec3(pow(spec, 0.5) * 0.8);
+      else if (shadeMode == 5) gl_FragColor.rgb = base * (0.3 + 0.8 * lam);
+      else if (shadeMode == 6) gl_FragColor.rgb = vec3(0.0);
+      else if (shadeMode == 7) gl_FragColor.rgb = base;
+      else if (shadeMode == 8) {
+        // Isophotes: bands of equal angle between the face and the line of sight.
+        float band = fract(acos(clamp(dot(n, v), -1.0, 1.0)) / 1.5707963 * stripes * 0.5);
+        float aa = fwidth(band) * 1.5;
+        gl_FragColor.rgb = mix(vec3(0.08), vec3(0.9), smoothstep(0.5 - aa, 0.5 + aa, band) - smoothstep(1.0 - aa, 1.0, band));
+      } else if (shadeMode == 9) {
+        // Draft: the face's angle to the pull direction against the threshold.
+        vec3 nw = normalize((vec4(n, 0.0) * viewMatrix).xyz);
         float d = dot(nw, normalize(pull));
-        vec3 tint = d > 0.01745 ? vec3(0.30, 0.72, 0.42) : d < -0.01745 ? vec3(0.86, 0.30, 0.26) : vec3(0.93, 0.68, 0.22);
-        gl_FragColor.rgb = tint * (0.55 + 0.45 * abs(normalize(normal).z));
-      } else if (zebra > 0.5) {
-        vec3 r = reflect(normalize(-vViewPosition), normalize(normal));
-        float band = fract((asin(clamp(r.x, -1.0, 1.0)) / 3.14159265 + 0.5) * 24.0);
+        vec3 tint = d > draftSin ? vec3(0.30, 0.72, 0.42) : d < -draftSin ? vec3(0.86, 0.30, 0.26) : vec3(0.93, 0.68, 0.22);
+        gl_FragColor.rgb = tint * (0.55 + 0.45 * abs(n.z));
+      } else if (shadeMode == 10 || shadeMode == 11) {
+        vec3 r = reflect(-v, n);
+        float band = fract((asin(clamp(shadeMode == 10 ? r.y : r.x, -1.0, 1.0)) / 3.14159265 + 0.5) * stripes);
         float aa = fwidth(band) * 1.5;
         float s = smoothstep(0.5 - aa, 0.5 + aa, band) - smoothstep(1.0 - aa, 1.0, band);
         gl_FragColor.rgb = mix(vec3(0.06), vec3(0.92), s);
-      }
+      } else if (shadeMode == 12) {
+        // Topography: a line every \`spacing\` mm of height along the construction plane normal.
+        vec3 world = (inverse(viewMatrix) * vec4(-vViewPosition, 1.0)).xyz;
+        float h = dot(world, normalize(pull)) / spacing;
+        float line = abs(fract(h - 0.5) - 0.5) / max(fwidth(h), 1e-6);
+        gl_FragColor.rgb = mix(vec3(1.0, 0.30, 0.0), vec3(0.16 + 0.2 * lam), clamp(line, 0.0, 1.0));
+      } else if (shadeMode == 13) gl_FragColor.rgb = (gl_FrontFacing ? vec3(0.24, 0.44, 0.85) : vec3(0.85, 0.29, 0.24)) * (0.45 + 0.55 * lam);
       #include <dithering_fragment>`);
   };
+  faceMat.onBeforeCompile = shade();
+  // Set Material: bodies share materials by id; each gets its own three.js material made from it.
+  const materials = new Map(), materialOf = new Map();   // material id -> values; body id -> material id
+  let nextMaterial = 1;
+  const bodyMats = new Map();   // body id -> THREE material
+  function faceMatFor(id) {
+    const m = materials.get(materialOf.get(id));
+    if (!m) return faceMat;
+    let mat = bodyMats.get(id);
+    if (!mat) {
+      mat = new THREE.MeshPhysicalMaterial({ polygonOffset: true, polygonOffsetFactor: 1, polygonOffsetUnits: 1 });
+      mat.onBeforeCompile = shade(true);
+      mat.customProgramCacheKey = () => 'own';
+      bodyMats.set(id, mat);
+    }
+    mat.color.set(m.color);
+    Object.assign(mat, { roughness: m.roughness, metalness: m.metalness, ior: m.ior });
+    mat.userData.opacity = m.opacity;
+    return mat;
+  }
+  /** Every face material bodies use now. */
+  const faceMats = () => [faceMat, ...bodyMats.values()];
+  // Render mode lights the faces with an environment instead of the shader; the environments are
+  // small scenes turned into reflection maps, so no image files are needed.
+  let pmrem = null;
+  const envMaps = {};
+  function environmentMap(id) {
+    if (envMaps[id]) return envMaps[id];
+    pmrem ??= new THREE.PMREMGenerator(renderer);
+    let room;
+    if (id === 'studio') room = new RoomEnvironment();
+    else {
+      room = new THREE.Scene();
+      const sky = id === 'sky';
+      room.background = new THREE.Color(sky ? 0x8fb4d9 : 0x101012);
+      const light = (w, h, x, y, z, k = 6) => {
+        const p = new THREE.Mesh(new THREE.PlaneGeometry(w, h), new THREE.MeshBasicMaterial({ color: new THREE.Color(k, k, k), side: THREE.DoubleSide }));
+        p.position.set(x, y, z);
+        p.lookAt(0, 0, 0);
+        room.add(p);
+      };
+      if (sky) { light(40, 40, 0, 12, 0, 3); light(60, 6, 0, -8, 0, 0.4); }
+      else if (id === 'stripes') for (let i = -4; i <= 4; i++) light(0.6, 14, 6 * Math.sin(i * 0.35), 0, 6 * Math.cos(i * 0.35), 8);
+      else { light(4, 4, -5, 4, 5, 9); light(6, 6, 6, 1, 4, 3); light(3, 6, 0, 3, -6, 7); }
+    }
+    envMaps[id] = pmrem.fromScene(room, 0.02).texture;
+    return envMaps[id];
+  }
   function applyView() {
-    zebraOn.value = view.zebra ? 1 : 0;
-    draftOn.value = view.draft ? 1 : 0;
-    pull.value.copy(cplane.normal);
-    faceMat.transparent = view.xray;
-    faceMat.opacity = view.xray ? 0.25 : 1;
-    faceMat.depthWrite = !view.xray;
-    faceMat.colorWrite = view.faces;
-    faceMat.needsUpdate = true;
+    const sh = shader(view.shader);
+    shadeU.mode.value = view.render ? -1 : sh.mode;
+    shadeU.pull.value.copy(cplane.normal);
+    shadeU.stripes.value = shaderOpts.stripes;
+    shadeU.draftSin.value = Math.sin(shaderOpts.draft * DEG);
+    shadeU.spacing.value = shaderOpts.spacing;
+    scene.environment = view.render ? environmentMap(view.environment) : null;
+    scene.environmentIntensity = view.envIntensity;
+    scene.environmentRotation.set(0, view.envRotation * DEG, 0);
+    for (const m of faceMats()) {
+      // Transparent materials show at half strength outside render mode, as Plasticity does.
+      const own = m.userData.opacity ?? 1, opacity = view.xray ? 0.25 : own < 1 ? (view.render ? own : 0.5) : 1;
+      m.transparent = opacity < 1;
+      m.opacity = opacity;
+      m.depthWrite = opacity === 1;
+      m.colorWrite = view.faces;
+      m.needsUpdate = true;
+    }
     for (const b of $$('[data-toggle]')) b.setAttribute('aria-pressed', view[b.dataset.toggle]);
+    for (const b of $$('[data-shader]')) b.setAttribute('aria-pressed', !view.render && b.dataset.shader === sh.id);
+    for (const b of $$('[data-env]')) b.setAttribute('aria-pressed', b.dataset.env === view.environment);
+    $('render-options').hidden = !view.render;
+    const opt = !view.render && sh.option ? SHADER_OPTIONS[sh.option] : null;
+    $('shader-option').hidden = !opt;
+    if (opt) { $('shader-option-label').textContent = opt.label; $('shader-option-value').textContent = shaderOpts[sh.option]; }
+    $('shader-name').textContent = view.render ? 'RENDER' : sh.name.toUpperCase();
     scene.traverse(o => { if (o.userData.bodyEdges) o.visible = view.edges; });
+    curveGroup.visible = view.curves;
     drawCombs();
   }
 
@@ -812,8 +934,9 @@ export async function mount(root, backend) {
     org.prune(list.map(b => b.id));
     renderIsolated();
     for (const m of [...bodies.children]) dispose(m);
+    for (const id of [...materialOf.keys()]) if (!list.some(b => b.id === id)) { materialOf.delete(id); bodyMats.get(id)?.dispose(); bodyMats.delete(id); }
     for (const b of list) {
-      const m = meshOf(b);
+      const m = meshOf(b, faceMatFor(b.id));
       m.visible = org.shows(b.id);
       bodies.add(m);
     }
@@ -1073,7 +1196,7 @@ export async function mount(root, backend) {
   const planeOf = () => new THREE.Plane().setFromNormalAndCoplanarPoint(cplane.normal, cplane.origin);
   function setPlane({ origin, normal, name }) {
     cplane.origin.copy(origin);
-    cplane.normal.copy(normal).normalize(); pull.value.copy(cplane.normal);
+    cplane.normal.copy(normal).normalize(); shadeU.pull.value.copy(cplane.normal);
     cplane.name = name;
     grid.position.copy(origin);
     grid.quaternion.setFromUnitVectors(UP, cplane.normal);
@@ -1295,6 +1418,7 @@ export async function mount(root, backend) {
     renderOutliner();
     const n = sel.size;
     $('sel-count').textContent = n ? `${n} ${[...new Set(sel.list().map(it => it.kind))].join('+').toUpperCase()}` : '—';
+    renderMass();
     if (cmd?.onSelection) return cmd.onSelection();
     if (quiet) return;
     // Plasticity's default command: with edges selected the fillet's dot is already there to drag.
@@ -1439,6 +1563,7 @@ export async function mount(root, backend) {
     if (id === 'measure-radius') return startMeasureRadius();
     if (id === 'measure-continuity') return startMeasureContinuity();
     if (id === 'export-mesh') return startExportMesh();
+    if (id === 'material') return startMaterial();
     if (id === 'export-drawing') return startExportDrawing();
     if (id === 'bridge') return startBridge();
     if (id === 'shell') return startShell();
@@ -3905,6 +4030,94 @@ export async function mount(root, backend) {
    * surface, the angle between neighbouring normals, and a max width that splits longer edges (0 is
    * off). Exports the selected solids, or all of them.
    */
+  /** The mass of the selected solids (or all), from their materials' densities; bodies without one don't count. */
+  function renderMass() {
+    const ids = sel.bodies.length ? sel.bodies : current.map(b => b.id);
+    const weighed = ids.filter(id => materials.has(materialOf.get(id)));
+    $('mass').textContent = weighed.length ? formatMass(weighed.reduce((g, id) => g + massOf(bodyOf(id)?.volume ?? 0, materials.get(materialOf.get(id)).density), 0)) : '—';
+  }
+  /** Bodies that use the material changed: their faces take the new values. */
+  function materialsChanged() {
+    for (const m of bodies.children) m.material = faceMatFor(m.userData.id);
+    applyView();
+    renderMass();
+  }
+
+  /**
+   * Plasticity's Set Material (M): a material for the selected solids and sheets (a group's bodies
+   * when the group is picked in the outliner). When they already share one, it is that material that
+   * changes, for every body using it; Fork gives them a copy of their own, Remove takes it off.
+   */
+  function startMaterial() {
+    const ids = sel.bodies.filter(id => org.picks(id));
+    if (!ids.length) return toast('SELECT SOLIDS OR SHEETS');
+    const before = { materials: new Map([...materials].map(([k, v]) => [k, { ...v }])), materialOf: new Map(materialOf), next: nextMaterial };
+    const shared = new Set(ids.map(id => materialOf.get(id)));
+    let mat = shared.size === 1 && materials.get([...shared][0]);
+    if (!mat) {
+      mat = newMaterial(nextMaterial++, materials.get(materialOf.get(ids[0])) ? { ...materials.get(materialOf.get(ids[0])), id: undefined, name: undefined } : {});
+      mat.id ??= nextMaterial - 1;
+      mat.name ??= `MATERIAL ${mat.id}`;
+      materials.set(mat.id, mat);
+      for (const id of ids) materialOf.set(id, mat.id);
+    }
+    const c = cmd = { id: 'material', ids, mat };
+    lastTool = 'material';
+    showTool('material');
+    setState('updated');
+    setHud('SET MATERIAL · ⏎ TO KEEP');
+    const sync = () => {
+      const users = [...materialOf.values()].filter(m => m === c.mat.id).length;
+      $('mat-hint').textContent = `${c.mat.name} · ${users} BOD${users > 1 ? 'IES' : 'Y'}`;
+      for (const input of $$('[data-mat]')) if (input !== document.activeElement) input.value = c.mat[input.dataset.mat];
+      const g = ids.reduce((sum, id) => sum + massOf(bodyOf(id)?.volume ?? 0, c.mat.density), 0);
+      $('mat-mass').textContent = formatMass(g);
+      materialsChanged();
+    };
+    c.edit = (key, value) => {
+      const next = { ...c.mat, [key]: key === 'color' ? value : parseFloat(value) };
+      if (checkMaterial(next).length) return false;
+      Object.assign(c.mat, next);
+      sync();
+      return true;
+    };
+    c.fork = () => {
+      const copy = newMaterial(nextMaterial++, { ...c.mat });
+      copy.id = nextMaterial - 1; copy.name = `MATERIAL ${copy.id}`;
+      materials.set(copy.id, copy);
+      for (const id of ids) materialOf.set(id, copy.id);
+      c.mat = copy;
+      sync();
+    };
+    c.remove = () => {
+      for (const id of ids) materialOf.delete(id);
+      for (const k of [...materials.keys()]) if (![...materialOf.values()].includes(k)) materials.delete(k);
+      materialsChanged();
+      endCmd('committed');
+      toast(`MATERIAL REMOVED · ${ids.length} BOD${ids.length > 1 ? 'IES' : 'Y'}`);
+    };
+    c.finish = async () => {
+      for (const k of [...materials.keys()]) if (![...materialOf.values()].includes(k)) materials.delete(k);
+      endCmd('committed');
+      toast(`${c.mat.name} · ${$('mat-mass').textContent}`);
+    };
+    c.abort = () => {
+      materials.clear(); for (const [k, v] of before.materials) materials.set(k, v);
+      materialOf.clear(); for (const [k, v] of before.materialOf) materialOf.set(k, v);
+      nextMaterial = before.next;
+      materialsChanged();
+      endCmd('cancelled');
+    };
+    sync();
+  }
+  function removeMaterial() {
+    const ids = sel.bodies.filter(id => materialOf.has(id));
+    if (!ids.length) return toast('NO MATERIAL ON THE SELECTION');
+    for (const id of ids) materialOf.delete(id);
+    for (const k of [...materials.keys()]) if (![...materialOf.values()].includes(k)) materials.delete(k);
+    materialsChanged();
+  }
+
   function startExportMesh() {
     if (!backend.meshBodies) return toast('MESH EXPORT IS NOT IN THIS BUILD YET');
     const ids = (sel.bodies.length ? sel.bodies : current.map(b => b.id)).filter(id => org.shows(id));
@@ -4949,8 +5162,9 @@ export async function mount(root, backend) {
         else if (arg === 'focus') focus();
         else if (arg === 'xray') { view.xray = !view.xray; applyView(); }
         else if (arg === 'curvature') { view.curvature = !view.curvature; applyView(); }
-        else if (arg === 'zebra') { view.zebra = !view.zebra; applyView(); }
-        else if (arg === 'draft') { view.draft = !view.draft; applyView(); }
+        else if (arg === 'zebra' || arg === 'draft') { view.shader = view.shader === (arg === 'zebra' ? 'zebra-v' : 'draft') ? 'ceramic-dark' : arg === 'zebra' ? 'zebra-v' : 'draft'; view.render = false; applyView(); }
+        else if (arg === 'render') { view.render = !view.render; applyView(); }
+        else if (arg === 'edges' || arg === 'faces' || arg === 'curves') { view[arg] = !view[arg]; applyView(); }
         else setView(arg);
         return true;
       case 'mode': sel.setMode(arg); renderModes(); hover = null; drawOverlays(); return true;
@@ -4977,6 +5191,7 @@ export async function mount(root, backend) {
       case 'export': if (arg === 'mesh' || arg === 'drawing') await startTool(`export-${arg}`); else exportSelected(); return true;
       case 'import': $('import').hidden ? toast('NOT IN THE BROWSER YET') : $('import').click(); return true;
       case 'unjoin': await unjoinSelected(arg !== 'pieces'); return true;
+      case 'material': if (arg === 'remove') removeMaterial(); else await startTool('material'); return true;
     }
     switch (a) {
       case 'palette': openPalette(false); return true;
@@ -5022,7 +5237,7 @@ export async function mount(root, backend) {
     const out = [];
     if (sel.solids.length > 1) out.push('tool:boolean');
     if (sel.solids.length === 2) out.push('tool:project');
-    if (kinds.has('solid')) out.push('tool:move', 'tool:rotate', 'tool:scale', 'duplicate', 'tool:mirror', 'tool:rect-array', 'tool:radial-array', 'delete', 'hide', 'isolate', 'group', 'lock', 'export:step', 'export:mesh', 'export:drawing');
+    if (kinds.has('solid')) out.push('tool:move', 'tool:rotate', 'tool:scale', 'duplicate', 'tool:mirror', 'tool:rect-array', 'tool:radial-array', 'delete', 'hide', 'isolate', 'group', 'lock', 'material:set', 'export:step', 'export:mesh', 'export:drawing');
     if (kinds.has('face')) out.push('tool:extrude', 'tool:offset', 'tool:thicken', 'tool:shell', 'tool:hole', 'tool:remove-face', 'plane:selection', 'plane:selection-keep-view');
     if (kinds.has('edge')) out.push('tool:fillet', 'tool:patch', 'measure:radius');
     if (sel.list('edge').length === 2) out.push('tool:bridge-surface');
@@ -5337,6 +5552,19 @@ export async function mount(root, backend) {
   for (const id of ['hole-d', 'hole-depth']) $(id).addEventListener('input', () => cmd?.id === 'hole' && cmd.preview());
   $('hole-through').onclick = () => cmd?.id === 'hole' && cmd.key('through');
   $('br-t').addEventListener('input', () => cmd?.id === 'bridge' && cmd.preview());
+  for (const input of $$('[data-mat]')) input.addEventListener('input', () => { if (cmd?.id === 'material' && !cmd.edit(input.dataset.mat, input.value)) input.setAttribute('aria-invalid', 'true'); else input.removeAttribute('aria-invalid'); });
+  $('mat-fork').onclick = () => cmd?.id === 'material' && cmd.fork();
+  $('mat-remove').onclick = () => cmd?.id === 'material' && cmd.remove();
+  for (const b of $$('[data-shader]')) b.onclick = () => { view.shader = b.dataset.shader; view.render = false; applyView(); };
+  for (const b of $$('[data-env]')) b.onclick = () => { view.environment = b.dataset.env; applyView(); };
+  $('env-rot').addEventListener('input', e => { view.envRotation = parseFloat(e.target.value); applyView(); });
+  $('env-int').addEventListener('input', e => { view.envIntensity = parseFloat(e.target.value); applyView(); });
+  for (const [id, dir] of [['shader-option-dec', -1], ['shader-option-inc', 1]]) $(id).onclick = () => {
+    const k = shader(view.shader).option, o = SHADER_OPTIONS[k];
+    if (!k) return;
+    shaderOpts[k] = Math.min(o.max, Math.max(o.min, +(shaderOpts[k] + dir * o.step).toFixed(2)));
+    applyView();
+  };
   for (const b of $$('[data-mxf]')) b.onclick = () => cmd?.id === 'export-mesh' && cmd.key(b.dataset.mxf);
   for (const b of $$('[data-drf]')) b.onclick = () => cmd?.id === 'export-drawing' && cmd.key(b.dataset.drf);
   $('dr-hidden').onclick = () => cmd?.id === 'export-drawing' && cmd.key('hidden');

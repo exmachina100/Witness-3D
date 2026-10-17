@@ -50,6 +50,8 @@ export const VIEWPORT = {
     h: 'hide', 'shift-h': 'hide-others', 'alt-h': 'unhide-all', 'ctrl-h': 'invert-hidden',
     // Organising (manual: Outliner; Focus and Isolate). Lock Selected and Unlock All have no key there either.
     '.': 'isolate', 'alt-.': 'unisolate', 'ctrl-g': 'group', 'alt-g': 'ungroup',
+    // Materials (manual: Set Material is M)
+    m: 'material:set',
     // Construction planes (manual: Construction Plane)
     space: 'plane:selection', 'shift-space': 'plane:selection-keep-view', 'ctrl-space': 'plane:view',
     // Files and history
@@ -147,13 +149,15 @@ export const ACTIONS = {
     'hide': 'Hide selected', 'hide-others': 'Hide unselected', 'unhide-all': 'Unhide all', 'invert-hidden': 'Invert hidden',
     'isolate': 'Isolate selected', 'unisolate': 'Unisolate', 'group': 'Group selected', 'ungroup': 'Ungroup',
     'lock': 'Lock selected', 'unlock-all': 'Unlock all',
+    'material:set': 'Set material', 'material:remove': 'Remove material', 'view:render': 'Toggle render mode',
+    'view:edges': 'Viewport: toggle edges', 'view:faces': 'Viewport: toggle faces', 'view:curves': 'Viewport: toggle curves',
     'plane:selection': 'Construction plane from selection', 'plane:selection-keep-view': 'Construction plane from selection, keep view',
     'plane:view': 'Construction plane from view', 'plane:world': 'Construction plane: world XY',
     'draw:rect': 'Corner rectangle', 'draw:circle': 'Center circle', 'draw:line': 'Line',
     'draw:center-rect': 'Center rectangle', 'draw:rect3': 'Three point rectangle', 'draw:circle2': 'Two point circle',
     'draw:circle3': 'Three point circle', 'draw:arc3': 'Three point arc', 'draw:arc': 'Center point arc',
     'draw:polygon': 'Regular polygon', 'draw:spline': 'Spline curve', 'draw:ellipse': 'Center ellipse',
-    'draw:ellipse3': 'Three point ellipse', 'draw:tangent-arc': 'Tangent arc', 'draw:spiral': 'Spiral', 'draw:cv': 'Control point curve', 'draw:tangent-circle': 'Tangent circle', 'split': 'Split curve at point', 'measure:distance': 'Measure distance', 'measure:radius': 'Measure radius', 'measure:continuity': 'Measure continuity', 'view:curvature': 'Toggle curvature', 'view:zebra': 'Zebra stripes', 'view:draft': 'Draft analysis', 'join': 'Join curves or sheets', 'unjoin:faces': 'Unjoin faces', 'unjoin:pieces': 'Unjoin shells', 'trim': 'Trim curves', 'explode': 'Explode curve', 'extend': 'Extend curve',
+    'draw:ellipse3': 'Three point ellipse', 'draw:tangent-arc': 'Tangent arc', 'draw:spiral': 'Spiral', 'draw:cv': 'Control point curve', 'draw:tangent-circle': 'Tangent circle', 'split': 'Split curve at point', 'measure:distance': 'Measure distance', 'measure:radius': 'Measure radius', 'measure:continuity': 'Measure continuity', 'view:curvature': 'Toggle curvature', 'view:zebra': 'Shader: vertical zebra', 'view:draft': 'Shader: draft angle', 'join': 'Join curves or sheets', 'unjoin:faces': 'Unjoin faces', 'unjoin:pieces': 'Unjoin shells', 'trim': 'Trim curves', 'explode': 'Explode curve', 'extend': 'Extend curve',
     'undo': 'Undo', 'redo': 'Redo', 'file:new': 'New', 'file:open': 'Open…', 'file:save': 'Save',
     'export:step': 'Export STEP', 'export:mesh': 'Export mesh (OBJ, STL)', 'export:drawing': 'Export drawing (SVG, DXF)', 'import:step': 'Import STEP',
 };
