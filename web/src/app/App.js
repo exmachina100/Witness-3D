@@ -3168,6 +3168,8 @@ export async function mount(root, backend) {
       const fb = faceBody(), solids = sel.solids.filter(b => !hidden.has(b)), curves = sel.curves.filter(curveById);
       if (fb === null && solids.length === 2 && !curves.length) return { mode: 'body-body', bodies: solids };
       if (fb === null && !solids.length && curves.length === 2) return { mode: 'curve-curve', curves };
+      // One solid alone: its outline seen along the construction plane's normal (Project Outline).
+      if (fb === null && solids.length === 1 && !curves.length) return { mode: 'outline', body: solids[0], origin: cplane.origin.toArray(), normal: cplane.normal.toArray() };
       const body = fb ?? solids[0] ?? null;
       if (body === null || !curves.length) return null;
       const vector = c.method === 'vector' || c.screen;
@@ -3177,7 +3179,7 @@ export async function mount(root, backend) {
         both: vector && c.both, hide: vector && c.hide,
       };
     };
-    const MODES = { 'curve-body': 'CURVES ON BODY', 'body-body': 'WHERE BODIES MEET', 'curve-curve': 'WHERE CURVES CROSS' };
+    const MODES = { 'curve-body': 'CURVES ON BODY', 'body-body': 'WHERE BODIES MEET', 'curve-curve': 'WHERE CURVES CROSS', outline: 'OUTLINE ON THE PLANE' };
     c.preview = () => livePreview(c, () => backend.previewProject(c.req), out => {
       c.out = out;
       showCurvePreview(out);
@@ -3197,9 +3199,9 @@ export async function mount(root, backend) {
       }
       $('proj-mode').textContent = c.req ? MODES[c.req.mode] : '—';
       $('proj-dir').textContent = curveBody ? dirName() : '—';
-      setTarget(c.req?.mode === 'curve-body' ? label(c.req.body) : c.req?.mode === 'body-body' ? c.req.bodies.map(label).join(' · ') : c.req ? c.req.curves.map(curveLabel).join(' · ') : '—');
+      setTarget(c.req?.mode === 'curve-body' || c.req?.mode === 'outline' ? label(c.req.body) : c.req?.mode === 'body-body' ? c.req.bodies.map(label).join(' · ') : c.req ? c.req.curves.map(curveLabel).join(' · ') : '—');
       if (!c.req) {
-        const missing = 'SELECT A SOLID AND CURVES, TWO SOLIDS, OR TWO CURVES';
+        const missing = 'SELECT A SOLID AND CURVES, A SOLID ALONE, TWO SOLIDS, OR TWO CURVES';
         $('proj-hint').textContent = missing;
         $('proj-count').textContent = 0;
         clearPreview();

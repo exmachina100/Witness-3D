@@ -5,6 +5,8 @@ const OCCT_VERSION: (u8, u8) = (7, 8);
 
 /// The list of used OpenCASCADE libraries which needs to be linked with.
 const OCCT_LIBS: &[&str] = &[
+    // Hidden-line removal, for Project Outline's silhouettes; ahead of the toolkits it uses.
+    "TKHLR",
     "TKMath",
     "TKernel",
     "TKDE",

@@ -289,7 +289,12 @@ pub trait Kernel {
         Err(KernelError::Invalid("this kernel cannot project curves"))
     }
     /// A face as a cutting tool grown `size` past the body: a plane, a whole cylinder, or the face itself.
-        /// Plasticity's Bridge Surface: a sheet from edge `a` of one body to edge `b` of another (or the
+        /// Plasticity's Project Outline: the outline of the body seen along the plane's normal, drawn on
+    /// the plane (`x` fixes its axes), holes through the body included.
+    fn project_outline(&self, _s: &Self::Solid, _origin: DVec3, _normal: DVec3, _x: DVec3) -> Result<Vec<Path>, KernelError> {
+        Err(KernelError::Invalid("this kernel cannot project outlines"))
+    }
+    /// Plasticity's Bridge Surface: a sheet from edge `a` of one body to edge `b` of another (or the
     /// same), tangent to their faces; `tension` 1 is a smooth cubic, more carries each side further.
     fn bridge_surface(&self, _a: (&Self::Solid, u32), _b: (&Self::Solid, u32), _same: bool, _tension: f64) -> Result<Self::Solid, KernelError> {
         Err(KernelError::Invalid("this kernel cannot bridge surfaces"))

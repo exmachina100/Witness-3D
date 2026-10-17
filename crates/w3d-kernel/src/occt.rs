@@ -310,6 +310,10 @@ impl Kernel for Occt {
         Ok(Traced { solid, history: history(h) })
     }
 
+    fn project_outline(&self, s: &Shape, origin: DVec3, normal: DVec3, x: DVec3) -> Result<Vec<Path>, KernelError> {
+        nurbs_paths(&s.project_outline(origin, normal, x).map_err(shim)?)
+    }
+
     fn bridge_surface(&self, a: (&Shape, u32), b: (&Shape, u32), same: bool, tension: f64) -> Result<Shape, KernelError> {
         Shape::bridge_surface(a.0, a.1 as usize, b.0, b.1 as usize, same, tension).map_err(shim)
     }

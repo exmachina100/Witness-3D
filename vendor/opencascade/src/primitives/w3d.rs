@@ -259,6 +259,12 @@ impl Shape {
         Ok(Shape::from_shape(&sheet))
     }
 
+    /// The outline seen along `normal`, drawn on the plane through `origin` (see `w3d_project_outline`).
+    pub fn project_outline(&self, origin: DVec3, normal: DVec3, x: DVec3) -> Result<Vec<f64>, String> {
+        let plane = [origin.x, origin.y, origin.z, normal.x, normal.y, normal.z, x.x, x.y, x.z];
+        ffi::w3d::w3d_project_outline(&self.inner, &plane).map_err(reason)
+    }
+
     /// Whether the shape holds no solid: a sheet of faces, as Patch makes.
     pub fn is_sheet(&self) -> bool { ffi::w3d::w3d_solid_count(&self.inner) == 0 }
 
