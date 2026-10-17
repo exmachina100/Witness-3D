@@ -90,6 +90,10 @@ pub enum CurveShape {
     Spiral { radius: f64, length: f64, turns: f64, #[serde(default)] left: bool },
     /// A curve shaped by control points it need not pass through (Plasticity's Control Point Curve).
     Cv { points: Vec<[f64; 2]>, closed: bool },
+    /// A NURBS curve, free in space: its poles as (x, y, height up the normal) in the plane's
+    /// coordinates, a weight each, and `poles + degree + 1` knots repeated as often as they occur.
+    /// What Project makes; it lies in the plane when every height is zero.
+    Nurbs { degree: usize, poles: Vec<[f64; 3]>, weights: Vec<f64>, knots: Vec<f64> },
 }
 
 impl Curve {
@@ -103,6 +107,9 @@ impl Curve {
             CurveShape::Spline { points, closed: true } if points.len() >= 3 => Some(Profile::Spline(points.iter().map(|p| (p[0], p[1])).collect())),
             CurveShape::Cv { points, closed: true } if points.len() >= 3 => Some(Profile::Cv(points.iter().map(|p| (p[0], p[1])).collect())),
             CurveShape::Ellipse { center, major, minor } => Some(Profile::Ellipse { center: (center[0], center[1]), major: (major[0], major[1]), minor: *minor }),
+            CurveShape::Nurbs { degree, poles, weights, knots } if Self::flat_loop(poles) => Some(Profile::Nurbs {
+                degree: *degree, poles: poles.iter().map(|p| (p[0], p[1])).collect(), weights: weights.clone(), knots: knots.clone(),
+            }),
             CurveShape::Contour { pieces } if crate::join::loops(pieces) => {
                 let pts = |p: &Vec<[f64; 2]>| p.iter().map(|q| (q[0], q[1])).collect();
                 Some(Profile::Contour(pieces.iter().map(|p| match p {
@@ -119,6 +126,42 @@ impl Curve {
     /// The curve in model space, as a path to sweep along.
     pub fn path(&self) -> Path { Self::path_of(&self.frame(), &self.shape) }
 
+    /// Whether NURBS poles close up and lie in their plane, bounding a region.
+    fn flat_loop(poles: &[[f64; 3]]) -> bool {
+        let (Some(a), Some(b)) = (poles.first(), poles.last()) else { return false };
+        poles.len() >= 3 && poles.iter().all(|p| p[2].abs() < 1e-7) && (a[0] - b[0]).hypot(a[1] - b[1]) < 1e-7
+    }
+
+    /// A kernel's NURBS path as a curve. It lies in its own plane when it is flat (normal facing
+    /// back against `dir`, the way it was projected); otherwise its plane is square to `dir`.
+    pub fn from_nurbs(path: &Path, dir: DVec3) -> Result<Curve, KernelError> {
+        let Path::Nurbs { degree, poles, weights, knots } = path else { return Err(KernelError::Invalid("not a NURBS curve")) };
+        let first = *poles.first().ok_or(KernelError::Invalid("a curve needs poles"))?;
+        let size = poles.iter().map(|p| (*p - first).length()).fold(0.0, f64::max).max(1.0);
+        let back = -dir.try_normalize().ok_or(KernelError::Invalid("the projection has no direction"))?;
+        // The plane through the first pole, the farthest from it and the one farthest off that line.
+        let far = poles.iter().copied().max_by(|a, b| (*a - first).length().total_cmp(&(*b - first).length())).unwrap();
+        let side = poles.iter().map(|p| (far - first).cross(*p - first)).max_by(|a, b| a.length().total_cmp(&b.length())).unwrap();
+        let normal = side.try_normalize()
+            .filter(|n| poles.iter().all(|p| (*p - first).dot(*n).abs() < 1e-9 * size))
+            .map(|n| if n.dot(back) < 0.0 { -n } else { n })
+            .filter(|n| n.dot(back).abs() > 1e-9)
+            .unwrap_or(back);
+        let x = (far - first).try_normalize().filter(|x| x.cross(normal).length() > 1e-6)
+            .unwrap_or_else(|| normal.any_orthonormal_vector());
+        let f = Frame::new(first, x, normal);
+        let local = |p: DVec3| { let d = p - f.origin; [d.dot(f.x), d.dot(f.y()), d.dot(f.normal)] };
+        let mut poles: Vec<[f64; 3]> = poles.iter().map(|p| local(*p)).collect();
+        // Flat curves are flat exactly, so they bound regions.
+        if poles.iter().all(|p| p[2].abs() < 1e-9 * size) { for p in &mut poles { p[2] = 0.0 } }
+        let c = Curve {
+            origin: f.origin.to_array(), x: f.x.to_array(), normal: f.normal.to_array(),
+            shape: CurveShape::Nurbs { degree: *degree, poles, weights: weights.clone(), knots: knots.clone() },
+        };
+        c.check()?;
+        Ok(c)
+    }
+
     fn path_of(f: &Frame, shape: &CurveShape) -> Path {
         let f = *f;
         match shape {
@@ -129,6 +172,12 @@ impl Curve {
             CurveShape::Ellipse { center, major, minor } => Path::Ellipse { center: f.point((center[0], center[1])), normal: f.normal, major: f.point((major[0], major[1])) - f.origin, minor: *minor },
             CurveShape::Contour { pieces } => Path::Contour(pieces.iter().map(|p| Self::path_of(&f, p)).collect()),
             CurveShape::Cv { points, closed } => Path::Cv { points: points.iter().map(|p| f.point((p[0], p[1]))).collect(), closed: *closed },
+            CurveShape::Nurbs { degree, poles, weights, knots } => Path::Nurbs {
+                degree: *degree,
+                poles: poles.iter().map(|p| f.point((p[0], p[1])) + f.normal * p[2]).collect(),
+                weights: weights.clone(),
+                knots: knots.clone(),
+            },
             CurveShape::Spiral { radius, length, turns, left } => Path::Spiral { origin: f.origin, axis: f.normal, x: f.x, radius: *radius, length: *length, turns: *turns, left: *left },
         }
     }
@@ -179,6 +228,13 @@ impl Curve {
                     let (a, b) = (crate::join::ends(&w[0]).unwrap().1, crate::join::ends(&w[1]).unwrap().0);
                     if (a[0] - b[0]).hypot(a[1] - b[1]) > crate::join::MEET { return Err(KernelError::Invalid("the pieces of a contour must meet end to end")) }
                 }
+            }
+            CurveShape::Nurbs { degree, poles, weights, knots } => {
+                let (d, n) = (*degree, poles.len());
+                if d < 1 || n < d + 1 || weights.len() != n || knots.len() != n + d + 1 { return Err(KernelError::Invalid("a NURBS curve's knots and weights do not match its poles")) }
+                if !poles.iter().all(|p| finite(p)) || !finite(knots) { return Err(KernelError::Invalid("a point is not a number")) }
+                if !weights.iter().all(|w| w.is_finite() && *w > 0.0) { return Err(KernelError::Invalid("a NURBS curve's weights must be positive")) }
+                if knots.windows(2).any(|w| w[1] < w[0]) || knots[n] - knots[d] < 1e-12 { return Err(KernelError::Invalid("a NURBS curve's knots must increase")) }
             }
             CurveShape::Spiral { radius, length, turns, .. } => {
                 let ok = |v: f64| v.is_finite() && v > 1e-9;
@@ -683,6 +739,41 @@ impl<K: Kernel> Document<K> {
         self.replace_traced(body, traced);
         if consume { for id in curves { self.state.curves.remove(id); } }
         Ok(body)
+    }
+
+    /// Plasticity's Project Curve Body, without changing the document: the curves carried along
+    /// `dir` onto the body's numbered faces (all when empty), forwards only unless `both`, and only
+    /// where seen along `dir` when `hide`.
+    pub fn preview_project(&self, body: BodyId, faces: &[u32], curves: &[CurveId], dir: DVec3, both: bool, hide: bool) -> Result<Vec<Curve>, KernelError> {
+        if curves.is_empty() { return Err(KernelError::Invalid("select the curves to project")) }
+        let s = self.get(body).ok_or(KernelError::Invalid("that body no longer exists"))?;
+        let dir = dir.try_normalize().ok_or(KernelError::Invalid("the projection has no direction"))?;
+        let paths: Vec<(Path, DVec3)> = self.cutters(curves)?.into_iter().map(|(p, _)| (p, dir)).collect();
+        self.kernel.project(s, faces, &paths, SHEET, both, hide)?.iter().map(|p| Curve::from_nurbs(p, dir)).collect()
+    }
+
+    /// Plasticity's Project Body Body, without changing the document: the curves where two bodies meet.
+    pub fn preview_meet(&self, a: BodyId, b: BodyId) -> Result<Vec<Curve>, KernelError> {
+        if a == b { return Err(KernelError::Invalid("select two different bodies")) }
+        let (sa, sb) = (self.get(a), self.get(b));
+        let (Some(sa), Some(sb)) = (sa, sb) else { return Err(KernelError::Invalid("that body no longer exists")) };
+        // Curves that are not flat get a plane facing up.
+        self.kernel.meet(sa, sb)?.iter().map(|p| Curve::from_nurbs(p, DVec3::NEG_Y)).collect()
+    }
+
+    /// Plasticity's Project Curve Curve, without changing the document: where the two curves'
+    /// sheets, each swept along its own plane's normal, meet.
+    pub fn preview_project_curves(&self, a: CurveId, b: CurveId) -> Result<Vec<Curve>, KernelError> {
+        let cs = self.cutters(&[a, b])?;
+        if a == b { return Err(KernelError::Invalid("select two different curves")) }
+        let dir = cs[0].1;
+        self.kernel.project_curve_curve(&cs[0], &cs[1], SHEET)?.iter().map(|p| Curve::from_nurbs(p, -dir)).collect()
+    }
+
+    /// Any of the Project previews' curves added as one undoable step. The curves projected stay.
+    pub fn commit_project(&mut self, curves: Vec<Curve>) -> Result<Vec<CurveId>, KernelError> {
+        if curves.is_empty() { return Err(KernelError::Invalid("nothing was projected")) }
+        self.commit_curves(curves)
     }
 
     /// Plasticity's Draft Face, without changing the document.

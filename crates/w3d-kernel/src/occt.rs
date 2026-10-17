@@ -60,6 +60,9 @@ fn section(profile: &Profile, frame: &Frame) -> Result<Vec<f64>, KernelError> {
             for p in pts { v.extend(frame.point(*p).to_array()) }
             v
         }
+        Profile::Nurbs { degree, poles, weights, knots } => path_numbers(&Path::Nurbs {
+            degree: *degree, poles: poles.iter().map(|p| frame.point(*p)).collect(), weights: weights.clone(), knots: knots.clone(),
+        })?,
         Profile::Ellipse { center, major, minor } => {
             let (c, m) = (frame.point(*center), frame.point(*major) - frame.origin);
             ellipse_numbers(c, frame.normal, m, *minor)?
@@ -108,6 +111,15 @@ fn path_numbers(path: &Path) -> Result<Vec<f64>, KernelError> {
             if points.len() < 2 { return Err(KernelError::Invalid("a path needs two control points")) }
             let mut v = vec![8.0, points.len() as f64, if *closed { 1.0 } else { 0.0 }];
             for p in points { v.extend(p.to_array()) }
+            v
+        }
+        Path::Nurbs { degree, poles, weights, knots } => {
+            let (d, n) = (*degree, poles.len());
+            if d < 1 || n < d + 1 || weights.len() != n || knots.len() != n + d + 1 { return Err(KernelError::Invalid("a NURBS curve's knots and weights do not match its poles")) }
+            let mut v = vec![9.0, d as f64, n as f64, knots.len() as f64];
+            for p in poles { v.extend(p.to_array()) }
+            v.extend(weights);
+            v.extend(knots);
             v
         }
         Path::Arc { start, mid, end } => [4.0].into_iter().chain([start, mid, end].into_iter().flat_map(|p| p.to_array())).collect(),
@@ -276,6 +288,20 @@ impl Kernel for Occt {
         Ok(Traced { solid, history: history(h) })
     }
 
+    fn project(&self, s: &Shape, faces: &[u32], curves: &[(Path, DVec3)], length: f64, both: bool, hide: bool) -> Result<Vec<Path>, KernelError> {
+        if curves.is_empty() { return Err(KernelError::Invalid("select the curves to project")) }
+        let faces: Vec<usize> = faces.iter().map(|&f| f as usize).collect();
+        nurbs_paths(&s.project_curves(&faces, &cutter_numbers(curves)?, length, both, hide).map_err(shim)?)
+    }
+
+    fn meet(&self, a: &Shape, b: &Shape) -> Result<Vec<Path>, KernelError> {
+        nurbs_paths(&a.meet_curves(b).map_err(shim)?)
+    }
+
+    fn project_curve_curve(&self, a: &(Path, DVec3), b: &(Path, DVec3), length: f64) -> Result<Vec<Path>, KernelError> {
+        nurbs_paths(&Shape::project_curve_curve(&cutter_numbers(&[a.clone(), b.clone()])?, length).map_err(shim)?)
+    }
+
     fn draft_faces(&self, s: &Shape, faces: &[u32], pull: DVec3, origin: DVec3, angle: f64) -> Result<Traced<Shape>, KernelError> {
         let faces: Vec<usize> = faces.iter().map(|&f| f as usize).collect();
         let (solid, h) = s.draft_faces_with_history(&faces, pull, origin, angle).map_err(shim)?;
@@ -363,6 +389,29 @@ impl Kernel for Occt {
 }
 
 /// Cutting curves for the shim: [count, then per curve its plane normal and path numbers].
+/// The curves the shim writes for Project: a count, then each as NURBS numbers (kind 9).
+fn nurbs_paths(v: &[f64]) -> Result<Vec<Path>, KernelError> {
+    let bad = || KernelError::Failed("the kernel's curves are cut short".into());
+    let mut out = Vec::new();
+    let count = *v.first().ok_or_else(bad)? as usize;
+    let mut i = 1;
+    for _ in 0..count {
+        let head = v.get(i..i + 4).ok_or_else(bad)?;
+        if head[0] != 9.0 { return Err(bad()) }
+        let (degree, n, k) = (head[1] as usize, head[2] as usize, head[3] as usize);
+        i += 4;
+        let body = v.get(i..i + 4 * n + k).ok_or_else(bad)?;
+        i += 4 * n + k;
+        out.push(Path::Nurbs {
+            degree,
+            poles: body[..3 * n].chunks_exact(3).map(|p| DVec3::new(p[0], p[1], p[2])).collect(),
+            weights: body[3 * n..4 * n].to_vec(),
+            knots: body[4 * n..].to_vec(),
+        });
+    }
+    Ok(out)
+}
+
 fn cutter_numbers(cutters: &[(Path, DVec3)]) -> Result<Vec<f64>, KernelError> {
     let mut data = vec![cutters.len() as f64];
     for (path, n) in cutters {
