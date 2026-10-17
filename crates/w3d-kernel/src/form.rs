@@ -6,7 +6,7 @@
 use glam::DVec3;
 
 use crate::extrude::{combine, ExtrudeResult, Operation};
-use crate::{Frame, Kernel, KernelError, Path, Profile, Traced};
+use crate::{BooleanOp, Frame, Kernel, KernelError, Path, Profile, Traced};
 
 #[derive(Clone, Debug)]
 pub enum FormKind {
@@ -138,4 +138,29 @@ pub fn offset_faces<K: Kernel>(
         ));
     }
     Ok(traced)
+}
+
+/// Plasticity's Pipe: a tube of `radius` along `path`, its section a circle (`sides` 0) or a
+/// regular polygon with corners on the radius; with a `thickness` its walls are that thick and
+/// the middle is hollow. The section starts square to the path and is swept along it.
+pub fn pipe<K: Kernel>(k: &K, path: &Path, radius: f64, thickness: f64, sides: u32) -> Result<K::Solid, KernelError> {
+    if !radius.is_finite() || radius <= 1e-6 { return Err(KernelError::Invalid("the radius must be greater than zero")) }
+    if !thickness.is_finite() || thickness < 0.0 { return Err(KernelError::Invalid("the thickness can't be negative")) }
+    if thickness >= radius - 1e-6 { return Err(KernelError::Invalid("the wall is as thick as the pipe; use a thinner wall or leave it solid")) }
+    if sides == 1 || sides == 2 || sides > 256 { return Err(KernelError::Invalid("a pipe's section is round (0 sides) or has 3 to 256 sides")) }
+    let pts = k.sample(path, 4096)?;
+    if pts.len() < 2 { return Err(KernelError::Invalid("the path is too short")) }
+    let tangent = pts.iter().skip(1).map(|p| *p - pts[0]).find(|d| d.length() > 1e-9).ok_or(KernelError::Invalid("the path is too short"))?;
+    let normal = tangent.normalize();
+    let x = if normal.x.abs() < 0.9 { DVec3::X } else { DVec3::Y };
+    let frame = Frame::new(pts[0], x, normal);
+    let section = |r: f64| if sides == 0 {
+        Profile::Circle { center: (0.0, 0.0), radius: r }
+    } else {
+        Profile::Polygon((0..sides).map(|i| { let a = std::f64::consts::TAU * i as f64 / sides as f64; (r * a.cos(), r * a.sin()) }).collect())
+    };
+    let outer = k.sweep(&section(radius), &frame, path, 0.0, 1.0)?;
+    if thickness <= 1e-9 { return Ok(outer) }
+    let inner = k.sweep(&section(radius - thickness), &frame, path, 0.0, 1.0)?;
+    Ok(k.boolean(&outer, &inner, BooleanOp::Difference)?.solid)
 }

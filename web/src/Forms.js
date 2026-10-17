@@ -259,6 +259,44 @@ export function sweep(c, path, twist = 0, scale = 1) {
     return mk.Shape();
 }
 
+/**
+ * Plasticity's Pipe: a tube of `radius` along `path`, its section a circle (`sides` 0) or a regular
+ * polygon with corners on the radius; with a `thickness` the middle is hollow. As form.rs's pipe.
+ */
+export function pipe(path, radius, thickness = 0, sides = 0) {
+    const o = oc();
+    if (!Number.isFinite(radius) || radius <= 1e-6) throw new Error('the radius must be greater than zero');
+    if (!Number.isFinite(thickness) || thickness < 0) throw new Error("the thickness can't be negative");
+    if (thickness >= radius - 1e-6) throw new Error('the wall is as thick as the pipe; use a thinner wall or leave it solid');
+    if (!Number.isInteger(sides) || sides === 1 || sides === 2 || sides < 0 || sides > 256) throw new Error("a pipe's section is round (0 sides) or has 3 to 256 sides");
+    const g = geometry(path), start = along(g, 0);
+    const n = start.tangent.clone().normalize();
+    if (!(n.length() > 0.5)) throw new Error('the path is too short');
+    const x = (Math.abs(n.x) < 0.9 ? new THREE.Vector3(1, 0, 0) : new THREE.Vector3(0, 1, 0)).addScaledVector(n, -(Math.abs(n.x) < 0.9 ? n.x : n.y)).normalize();
+    const y = n.clone().cross(x);
+    const section = r => {
+        const mk = new o.BRepBuilderAPI_MakeWire();
+        if (sides === 0) mk.Add(new o.BRepBuilderAPI_MakeEdge(new o.gp_Circ(new o.gp_Ax2(pnt(start.point), dir(n), dir(x)), r)).Edge());
+        else {
+            const at = i => { const a = 2 * Math.PI * (i % sides) / sides; return start.point.clone().addScaledVector(x, r * Math.cos(a)).addScaledVector(y, r * Math.sin(a)); };
+            for (let i = 0; i < sides; i++) mk.Add(new o.BRepBuilderAPI_MakeEdge(pnt(at(i)), pnt(at(i + 1))).Edge());
+        }
+        return mk.Wire();
+    };
+    const tube = r => {
+        const mk = new o.BRepOffsetAPI_MakePipeShell(wireOf(g).Wire());
+        mk.SetMode(!!g.spiral);
+        mk.SetTransitionMode(o.BRepBuilderAPI_TransitionMode.BRepBuilderAPI_RightCorner);
+        mk.Add(section(r), false, false);
+        mk.Build(new o.Message_ProgressRange());
+        if (!mk.IsDone()) throw new Error('the pipe could not follow that curve; use a smaller radius');
+        if (!mk.MakeSolid()) throw new Error('the pipe did not close into a solid');
+        return mk.Shape();
+    };
+    const outer = tube(radius);
+    return thickness > 1e-9 ? boolean(outer, tube(radius - thickness), 'difference') : outer;
+}
+
 /** Flat faces pushed out (positive) or in; each face's slab is joined or cut. */
 export function offsetFlatFaces(shape, faces, distance, booleanWithHistory, chain) {
     let s = shape, history = null;

@@ -5,7 +5,7 @@ import * as THREE from 'three';
 import { ExtrudeFactory } from '../ExtrudeFactory.js';
 import { NoOpError } from '../GeometryFactory.js';
 import { arrayMotions, blendEdges, booleanWithHistory, bounds, box, count, draftFaces, faceSheet, imprintWithHistory, planeSheet, splitWithHistory, draftWithHistory, exportSTEP, facePlane, mirror, numberedEdges, oc, primitive, shellFaces, tessellate, transform, volume } from '../Kernel.js';
-import { cutSheets, loft, offsetFlatFaces, regionFace, revolve, splineSamples, sweep } from '../Forms.js';
+import { cutSheets, loft, offsetFlatFaces, pipe, regionFace, revolve, splineSamples, sweep } from '../Forms.js';
 import { curveFromNurbs, ends, join, loops, MEET, nurbsLoop } from '../curves.js';
 import { meetCurves, projectCurveCurve, projectCurves } from '../Project.js';
 import { isSheet, patch } from '../Patch.js';
@@ -518,6 +518,39 @@ export class LocalBackend {
         const id = this.nextId++;
         this.put(id, sheet);
         return { id, scene: this.bodies() };
+    }
+
+    /** Plasticity's Pipe: a tube along each of `curves`, round (`sides` 0) or polygonal, hollow with a `thickness`. */
+    pipeResult({ curves = [], radius, thickness = 0, sides = 0 }) {
+        if (!curves.length) throw new Error('select the curves to run pipes along');
+        const o = oc();
+        return curves.map(id => {
+            const c = this.curveMap.get(id);
+            if (!c) throw new Error('that curve no longer exists');
+            const tube = pipe(c, radius, thickness, sides);
+            if (!new o.BRepCheck_Analyzer(tube, true, false, false).IsValid() || count(tube, 'TopAbs_SOLID') === 0) throw new Error('the pipe crosses itself; use a smaller radius');
+            return tube;
+        });
+    }
+
+    /** The tubes as one preview shape. */
+    previewPipe(req) {
+        return this.latest(async () => {
+            const o = oc(), tubes = this.pipeResult(req);
+            if (tubes.length === 1) return this.body(0, tubes[0]);
+            const all = new o.TopoDS_Compound(), b = new o.BRep_Builder();
+            b.MakeCompound(all);
+            for (const t of tubes) b.Add(all, t);
+            return this.body(0, all);
+        });
+    }
+
+    /** Pipe as one undo step: each tube is a body of its own and the curves stay. */
+    async commitPipe(req) {
+        const tubes = this.pipeResult(req);
+        this.checkpoint();
+        const ids = tubes.map(t => { const id = this.nextId++; this.put(id, t); return id; });
+        return { ids, scene: this.bodies() };
     }
 
     /** Plasticity's Thicken: sheet `body` made solid, `front` along its normals and `back` behind. */
