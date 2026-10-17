@@ -1993,11 +1993,27 @@ inline std::unique_ptr<TopoDS_Shape> w3d_thicken(const TopoDS_Shape &shape, doub
       if (!off.IsDone() || off.Shape().IsNull()) throw std::runtime_error("the sheet can't be moved that far back; try a thinner back");
       base = off.Shape();
     }
-    BRepOffsetAPI_MakeThickSolid mk;
-    mk.MakeThickSolidBySimple(base, front + back);
-    if (!mk.IsDone() || mk.Shape().IsNull())
-      throw std::runtime_error("the sheet can't be thickened; its open edges must form clean loops and its faces join edge to edge");
-    TopoDS_Shape solid = mk.Shape();
+    // Faces meeting at an angle need their offsets joined (the simple offset leaves the corner
+    // between them malformed); a sheet of one face, or a join that fails, takes the simple one.
+    TopoDS_Shape solid;
+    if (faces.Extent() > 1) {
+      try {
+        BRepOffset_MakeOffset join;
+        join.Initialize(base, front + back, 1e-6, BRepOffset_Skin, Standard_False, Standard_False, GeomAbs_Intersection, Standard_True);
+        join.MakeOffsetShape();
+        if (join.IsDone() && !join.Shape().IsNull()) {
+          TopExp_Explorer js(join.Shape(), TopAbs_SOLID);
+          if (js.More() && w3d_is_valid(js.Current())) solid = join.Shape();
+        }
+      } catch (const Standard_Failure &) {}
+    }
+    if (solid.IsNull()) {
+      BRepOffsetAPI_MakeThickSolid mk;
+      mk.MakeThickSolidBySimple(base, front + back);
+      if (!mk.IsDone() || mk.Shape().IsNull())
+        throw std::runtime_error("the sheet can't be thickened; its open edges must form clean loops and its faces join edge to edge");
+      solid = mk.Shape();
+    }
     TopExp_Explorer ex(solid, TopAbs_SOLID);
     if (!ex.More()) throw std::runtime_error("the thickened sheet does not close into a solid");
     TopoDS_Solid one = TopoDS::Solid(ex.Current());
@@ -2214,6 +2230,62 @@ inline rust::Vec<double> w3d_hidden_lines(const TopoDS_Shape &shape, rust::Slice
     emit(out.OutLineHCompound(), 1);
     if (lines.empty()) throw std::runtime_error("nothing to draw seen from that view");
     return lines;
+  } catch (const Standard_Failure &f) {
+    throw w3d_kernel_error(f);
+  }
+}
+
+// One side of Plasticity's Thicken Face on a solid: the solid hollowed with every face but `faces`
+// open, by `offset` (out of the body when positive). What is left is a wall over just those faces,
+// its ends cut off where the open faces lie, the walls joined at their corners.
+inline TopoDS_Shape w3d_face_wall(const TopoDS_Shape &shape, const TopTools_IndexedMapOfShape &map, const std::vector<bool> &keep, double offset) {
+  TopTools_ListOfShape open;
+  for (int i = 1; i <= map.Extent(); i++) if (!keep[i - 1]) open.Append(map(i));
+  BRepOffsetAPI_MakeThickSolid mk;
+  mk.MakeThickSolidByJoin(shape, open, offset, 1e-6, BRepOffset_Skin, Standard_True, Standard_False, GeomAbs_Intersection);
+  if (!mk.IsDone() || mk.Shape().IsNull()) throw std::runtime_error("those faces can't be thickened that far; try a thinner wall");
+  TopExp_Explorer ex(mk.Shape(), TopAbs_SOLID);
+  if (!ex.More()) throw std::runtime_error("the thickened faces do not close into a solid");
+  TopoDS_Solid one = TopoDS::Solid(ex.Current());
+  BRepLib::OrientClosedSolid(one);
+  if (!w3d_is_valid(one)) throw std::runtime_error("that thickness folds the faces into themselves; try a thinner one");
+  return one;
+}
+
+// Plasticity's Thicken Face on a solid: `faces` made a solid of their own, `front` out of the body
+// and `back` into it. The body itself is not changed.
+inline std::unique_ptr<TopoDS_Shape> w3d_thicken_faces(const TopoDS_Shape &shape, rust::Slice<const int32_t> faces, double front, double back) {
+  if (!std::isfinite(front) || !std::isfinite(back)) throw std::runtime_error("the thickness is not a number");
+  if (front < 0.0 || back < 0.0) throw std::runtime_error("the thicknesses can't be below zero; swap front and back instead");
+  if (front + back < 1e-6) throw std::runtime_error("the faces need a thickness");
+  if (faces.empty()) throw std::runtime_error("select the faces to thicken");
+  if (w3d_solid_count(shape) == 0) throw std::runtime_error("thicken faces of a solid");
+  TopTools_IndexedMapOfShape map;
+  TopExp::MapShapes(shape, TopAbs_FACE, map);
+  std::vector<bool> keep(map.Extent(), false);
+  for (int32_t f : faces) {
+    if (f < 0 || f >= map.Extent()) throw std::out_of_range("no such face");
+    if (keep[f]) throw std::runtime_error("a face is picked twice");
+    keep[f] = true;
+  }
+  if (std::all_of(keep.begin(), keep.end(), [](bool k) { return k; })) throw std::runtime_error("leave at least one face unpicked; to thicken every face use Shell");
+  try {
+    TopoDS_Shape out;
+    if (front > 1e-9) out = w3d_face_wall(shape, map, keep, front);
+    if (back > 1e-9) {
+      TopoDS_Shape inner = w3d_face_wall(shape, map, keep, -back);
+      if (out.IsNull()) out = inner;
+      else {
+        BRepAlgoAPI_Fuse fuse(out, inner);
+        if (!fuse.IsDone()) throw std::runtime_error("the front and back of the faces could not be joined");
+        ShapeUpgrade_UnifySameDomain unify(fuse.Shape(), Standard_True, Standard_True, Standard_True);
+        unify.Build();
+        TopExp_Explorer ex(unify.Shape(), TopAbs_SOLID);
+        if (!ex.More()) throw std::runtime_error("the front and back of the faces could not be joined");
+        out = ex.Current();
+      }
+    }
+    return std::unique_ptr<TopoDS_Shape>(new TopoDS_Shape(out));
   } catch (const Standard_Failure &f) {
     throw w3d_kernel_error(f);
   }

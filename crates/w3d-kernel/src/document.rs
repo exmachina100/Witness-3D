@@ -830,6 +830,34 @@ impl<K: Kernel> Document<K> {
         Ok(body)
     }
 
+    /// Plasticity's Thicken Face, without changing the document: `faces` of `body` made a solid of
+    /// their own, `front` along their normals (out of the body) and `back` behind them. On a sheet the
+    /// faces are copied into a sheet of their own and thickened.
+    pub fn preview_thicken_faces(&self, body: BodyId, faces: &[u32], front: f64, back: f64) -> Result<K::Solid, KernelError> {
+        let s = self.get(body).ok_or(KernelError::Invalid("that body no longer exists"))?;
+        if faces.is_empty() { return Err(KernelError::Invalid("select the faces to thicken")) }
+        if !self.kernel.is_sheet(s) { return self.kernel.thicken_faces(s, faces, front, back) }
+        // A body of one face is its own sheet.
+        if self.kernel.face_count(s) == 1 {
+            if faces != [0] { return Err(KernelError::Invalid("no such face")) }
+            return self.kernel.thicken(s, front, back);
+        }
+        let mut pieces: Vec<Option<K::Solid>> = self.kernel.unjoin(s, true)?.into_iter().map(Some).collect();
+        let mut picked = vec![];
+        for &f in faces {
+            let piece = pieces.get_mut(f as usize).ok_or(KernelError::Invalid("no such face"))?;
+            picked.push(piece.take().ok_or(KernelError::Invalid("a face is picked twice"))?);
+        }
+        let sheet = if picked.len() == 1 { picked.pop().unwrap() } else { self.kernel.join_sheets(&picked.iter().collect::<Vec<_>>())? };
+        self.kernel.thicken(&sheet, front, back)
+    }
+
+    /// Thicken Face as one undoable step: the solid is a new body and the faces' body stays.
+    pub fn commit_thicken_faces(&mut self, body: BodyId, faces: &[u32], front: f64, back: f64) -> Result<BodyId, KernelError> {
+        let solid = self.preview_thicken_faces(body, faces, front, back)?;
+        Ok(self.add(solid))
+    }
+
     /// Plasticity's Extend Sheet, without changing the document: sheet `body` grown past its open `edge`.
     pub fn preview_extend_sheet(&self, body: BodyId, edge: u32, distance: f64) -> Result<K::Solid, KernelError> {
         let sheet = self.get(body).ok_or(KernelError::Invalid("that body no longer exists"))?;
