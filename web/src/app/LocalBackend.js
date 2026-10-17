@@ -9,6 +9,7 @@ import { cutSheets, loft, offsetFlatFaces, regionFace, revolve, splineSamples, s
 import { curveFromNurbs, ends, join, loops, MEET, nurbsLoop } from '../curves.js';
 import { meetCurves, projectCurveCurve, projectCurves } from '../Project.js';
 import { isSheet, patch } from '../Patch.js';
+import { bridgeSurface } from '../BridgeSurface.js';
 
 const v3 = a => new THREE.Vector3(...a);
 
@@ -465,6 +466,23 @@ export class LocalBackend {
         this.put(req.body, shape, history);
         if (req.consume) for (const id of req.curves ?? []) this.curveMap.delete(id);
         return { id: req.body, scene: this.bodies() };
+    }
+
+    /** Plasticity's Bridge Surface: a sheet from one body edge to another, tangent to their faces. */
+    bridgeSurfaceResult({ a, b, tension = 1 }) {
+        const side = ({ body, edge }) => { const shape = this.shapes.get(body); if (!shape) throw new Error('that body no longer exists'); return { shape, n: edge }; };
+        return bridgeSurface(side(a), side(b), tension);
+    }
+
+    previewBridgeSurface(req) { return this.latest(async () => this.body(0, this.bridgeSurfaceResult(req))) }
+
+    /** Bridge Surface as one undo step: the sheet becomes a body of its own. */
+    async commitBridgeSurface(req) {
+        const sheet = this.bridgeSurfaceResult(req);
+        this.checkpoint();
+        const id = this.nextId++;
+        this.put(id, sheet);
+        return { id, scene: this.bodies() };
     }
 
     /** Plasticity's Patch: a sheet filling one closed loop of curves and body edges. */

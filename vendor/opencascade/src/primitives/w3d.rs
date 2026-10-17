@@ -247,6 +247,18 @@ impl Shape {
         Ok(Shape::from_shape(&sheet))
     }
 
+    /// Plasticity's Bridge Surface from edge `a` of `sa` to edge `b` of `sb`, tangent to their faces
+    /// (see `w3d_bridge_surface`). The shapes may be the same.
+    pub fn bridge_surface(sa: &Shape, a: usize, sb: &Shape, b: usize, same: bool, tension: f64) -> Result<Shape, String> {
+        let (all, b) = if same {
+            (Shape::from(crate::primitives::Compound::from_shapes([sa])), b)
+        } else {
+            (Shape::from(crate::primitives::Compound::from_shapes([sa, sb])), b + ffi::w3d::w3d_count(&sa.inner, false) as usize)
+        };
+        let sheet = ffi::w3d::w3d_bridge_surface(&all.inner, a as i32, b as i32, tension).map_err(reason)?;
+        Ok(Shape::from_shape(&sheet))
+    }
+
     /// Whether the shape holds no solid: a sheet of faces, as Patch makes.
     pub fn is_sheet(&self) -> bool { ffi::w3d::w3d_solid_count(&self.inner) == 0 }
 

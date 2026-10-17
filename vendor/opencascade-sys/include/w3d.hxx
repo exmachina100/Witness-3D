@@ -19,6 +19,12 @@
 #include <BRepOffsetAPI_MakeOffset.hxx>
 #include <BRepOffsetAPI_MakeFilling.hxx>
 #include <BRepLib_FindSurface.hxx>
+#include <BRepAdaptor_Curve.hxx>
+#include <BRepGProp_Face.hxx>
+#include <Geom_BSplineSurface.hxx>
+#include <Geom2d_Curve.hxx>
+#include <TColStd_HArray1OfReal.hxx>
+#include <TColgp_Array2OfPnt.hxx>
 #include <BRepOffsetAPI_MakePipeShell.hxx>
 #include <BRepPrimAPI_MakePrism.hxx>
 #include <GC_MakeArcOfCircle.hxx>
@@ -1466,6 +1472,141 @@ inline std::unique_ptr<TopoDS_Shape> w3d_patch(rust::Slice<const double> data, c
       throw std::runtime_error(why.str());
     }
     return std::unique_ptr<TopoDS_Shape>(new TopoDS_Shape(fill.Shape()));
+  } catch (const Standard_Failure &f) {
+    throw w3d_kernel_error(f);
+  }
+}
+
+
+// One side of a Bridge Surface: points along an edge and, at each, the way out of its face (in
+// the face's tangent plane, square to the edge, away from the face).
+struct W3dBridgeSide {
+  std::vector<gp_Pnt> at;
+  std::vector<gp_Vec> out;
+  bool closed = false;
+};
+
+inline W3dBridgeSide w3d_bridge_side(const TopoDS_Shape &shape, int32_t index, int n, double shift, bool backwards) {
+  TopTools_IndexedMapOfShape map;
+  TopExp::MapShapes(shape, TopAbs_EDGE, map);
+  if (index < 0 || index >= map.Extent()) throw std::out_of_range("that edge no longer exists");
+  TopoDS_Edge edge = TopoDS::Edge(map(index + 1));
+  TopTools_IndexedDataMapOfShapeListOfShape faces;
+  TopExp::MapShapesAndAncestors(shape, TopAbs_EDGE, TopAbs_FACE, faces);
+  const TopTools_ListOfShape &around = faces.FindFromKey(edge);
+  if (around.IsEmpty()) throw std::runtime_error("bridge edges of sheets or solids; a loose edge has no face to leave");
+  TopoDS_Face face = TopoDS::Face(around.First());
+  // The edge as the face's wire runs it: the face lies on its left.
+  TopoDS_Edge inFace = edge;
+  for (TopExp_Explorer ex(face, TopAbs_EDGE); ex.More(); ex.Next())
+    if (ex.Current().IsSame(edge)) { inFace = TopoDS::Edge(ex.Current()); break; }
+  BRepAdaptor_Curve curve(inFace);
+  double f, l;
+  Handle(Geom2d_Curve) uv = BRep_Tool::CurveOnSurface(inFace, face, f, l);
+  if (uv.IsNull()) throw std::runtime_error("that edge has no curve on its face");
+  BRepGProp_Face props(face);
+  W3dBridgeSide side;
+  side.closed = BRep_Tool::IsClosed(edge) || curve.Value(curve.FirstParameter()).Distance(curve.Value(curve.LastParameter())) < 1e-7;
+  double a = curve.FirstParameter(), b = curve.LastParameter();
+  int count = side.closed ? n : n + 1;
+  for (int i = 0; i < count; i++) {
+    double s = (side.closed ? std::fmod(double(i) / n + shift + 1.0, 1.0) : double(i) / n);
+    if (backwards) s = side.closed ? std::fmod(1.0 - s + 1.0, 1.0) : 1.0 - s;
+    double t = a + (b - a) * s;
+    gp_Pnt p;
+    gp_Vec d;
+    curve.D1(t, p, d);
+    if (inFace.Orientation() == TopAbs_REVERSED) d.Reverse();
+    gp_Pnt2d q = uv->Value(t);
+    gp_Pnt on;
+    gp_Vec normal;
+    props.Normal(q.X(), q.Y(), on, normal);
+    gp_Vec out = d.Crossed(normal);
+    if (out.Magnitude() < 1e-12) throw std::runtime_error("the face is degenerate along that edge");
+    side.at.push_back(p);
+    side.out.push_back(out.Normalized());
+  }
+  return side;
+}
+
+// Plasticity's Bridge Surface: a sheet from edge `a` to edge `b` of `shape`, leaving each tangent
+// to its face (G1). `tension` scales how far each side carries on before turning (1 is a smooth
+// cubic). Open edges pair end to end the shorter way; closed ones start opposite each other.
+inline std::unique_ptr<TopoDS_Shape> w3d_bridge_surface(const TopoDS_Shape &shape, int32_t a, int32_t b, double tension) {
+  if (a == b) throw std::runtime_error("select two different edges");
+  if (!(tension > 0)) throw std::runtime_error("the tension must be above zero");
+  try {
+    const int n = 48;
+    W3dBridgeSide A = w3d_bridge_side(shape, a, n, 0.0, false);
+    W3dBridgeSide B = w3d_bridge_side(shape, b, n, 0.0, false);
+    if (A.closed != B.closed) throw std::runtime_error("bridge two open edges or two closed ones");
+    bool backwards;
+    double shift = 0.0;
+    if (!A.closed) {
+      backwards = A.at.front().Distance(B.at.front()) + A.at.back().Distance(B.at.back()) >
+                  A.at.front().Distance(B.at.back()) + A.at.back().Distance(B.at.front());
+    } else {
+      // Start B where it is nearest A's start, then run it the way that keeps them together.
+      W3dBridgeSide fine = w3d_bridge_side(shape, b, 720, 0.0, false);
+      int best = 0;
+      for (int i = 1; i < 720; i++)
+        if (fine.at[i].Distance(A.at[0]) < fine.at[best].Distance(A.at[0])) best = i;
+      shift = best / 720.0;
+      W3dBridgeSide f1 = w3d_bridge_side(shape, b, n, shift, false), f2 = w3d_bridge_side(shape, b, n, 1.0 - shift, true);
+      double d1 = 0, d2 = 0;
+      for (int i = 0; i < n; i++) { d1 += A.at[i].Distance(f1.at[i]); d2 += A.at[i].Distance(f2.at[i]); }
+      backwards = d2 < d1;
+      shift = backwards ? 1.0 - shift : shift;
+    }
+    B = w3d_bridge_side(shape, b, n, shift, backwards);
+    // Four rows of points: the edges and, between, each carried out along its face. A closed
+    // pair repeats its first points at the end, and the seam is made smooth with matching tangents.
+    int k = int(A.at.size()), m = A.closed ? k + 1 : k;
+    std::vector<std::vector<gp_Pnt>> pts(4, std::vector<gp_Pnt>(k));
+    for (int i = 0; i < k; i++) {
+      double h = tension * A.at[i].Distance(B.at[i]) / 3.0;
+      pts[0][i] = A.at[i];
+      pts[1][i] = A.at[i].Translated(A.out[i] * h);
+      pts[2][i] = B.at[i].Translated(B.out[i] * h);
+      pts[3][i] = B.at[i];
+    }
+    Handle(TColStd_HArray1OfReal) params = new TColStd_HArray1OfReal(1, m);
+    for (int i = 0; i < m; i++) params->SetValue(i + 1, double(i) / (m - 1));
+    std::vector<Handle(Geom_BSplineCurve)> fits;
+    for (auto &row : pts) {
+      Handle(TColgp_HArray1OfPnt) r = new TColgp_HArray1OfPnt(1, m);
+      for (int i = 0; i < m; i++) r->SetValue(i + 1, row[i % k]);
+      GeomAPI_Interpolate fit(r, params, Standard_False, 1e-9);
+      if (A.closed) {
+        gp_Vec seam(row[k - 1], row[1]);
+        seam *= (m - 1) / 2.0;
+        fit.Load(seam, seam, Standard_False);
+      }
+      fit.Perform();
+      if (!fit.IsDone()) throw std::runtime_error("the bridge could not be fitted between those edges");
+      fits.push_back(fit.Curve());
+    }
+    const Handle(Geom_BSplineCurve) &c0 = fits[0];
+    int np = c0->NbPoles();
+    TColgp_Array2OfPnt poles(1, np, 1, 4);
+    for (int j = 0; j < 4; j++) {
+      if (fits[j]->NbPoles() != np) throw std::runtime_error("the bridge's rows do not match");
+      for (int i = 1; i <= np; i++) poles.SetValue(i, j + 1, fits[j]->Pole(i));
+    }
+    TColStd_Array1OfReal vk(1, 2);
+    vk.SetValue(1, 0.0);
+    vk.SetValue(2, 1.0);
+    TColStd_Array1OfInteger vm(1, 2);
+    vm.SetValue(1, 4);
+    vm.SetValue(2, 4);
+    TColStd_Array1OfReal uk(1, c0->NbKnots());
+    TColStd_Array1OfInteger um(1, c0->NbKnots());
+    c0->Knots(uk);
+    c0->Multiplicities(um);
+    Handle(Geom_BSplineSurface) surf = new Geom_BSplineSurface(poles, uk, vk, um, vm, c0->Degree(), 3, Standard_False, Standard_False);
+    BRepBuilderAPI_MakeFace mk(surf, 1e-6);
+    if (!mk.IsDone()) throw std::runtime_error("the bridge could not be made into a face");
+    return std::unique_ptr<TopoDS_Shape>(new TopoDS_Shape(mk.Face()));
   } catch (const Standard_Failure &f) {
     throw w3d_kernel_error(f);
   }

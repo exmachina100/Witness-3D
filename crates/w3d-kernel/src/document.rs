@@ -776,6 +776,21 @@ impl<K: Kernel> Document<K> {
         self.commit_curves(curves)
     }
 
+    /// Plasticity's Bridge Surface, without changing the document: a sheet from edge `a` to edge
+    /// `b` (each a body and its edge number), tangent to their faces, with `tension`.
+    pub fn preview_bridge_surface(&self, a: (BodyId, u32), b: (BodyId, u32), tension: f64) -> Result<K::Solid, KernelError> {
+        if a == b { return Err(KernelError::Invalid("select two different edges")) }
+        let sa = self.get(a.0).ok_or(KernelError::Invalid("that body no longer exists"))?;
+        let sb = self.get(b.0).ok_or(KernelError::Invalid("that body no longer exists"))?;
+        self.kernel.bridge_surface((sa, a.1), (sb, b.1), a.0 == b.0, tension)
+    }
+
+    /// Bridge Surface as one undoable step: the sheet becomes a body of its own.
+    pub fn commit_bridge_surface(&mut self, a: (BodyId, u32), b: (BodyId, u32), tension: f64) -> Result<BodyId, KernelError> {
+        let sheet = self.preview_bridge_surface(a, b, tension)?;
+        Ok(self.add(sheet))
+    }
+
     /// Plasticity's Patch, without changing the document: a sheet filling one closed loop of
     /// `curves` and body `edges`, each edge with whether the sheet leaves it tangent to its body.
     pub fn preview_patch(&self, curves: &[CurveId], edges: &[(BodyId, u32, bool)]) -> Result<K::Solid, KernelError> {

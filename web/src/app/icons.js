@@ -67,6 +67,8 @@ const ICONS = {
     through: `<path d="M12 2v20" stroke-dasharray="2 2"/><path ${A} d="M8 8h8v8H8z"/>`,
     cut: `<path d="M3 9l6-3 6 3v9l-6 3-6-3z"/><path d="M3 9l6 3 6-3M9 12v9"/><path ${A} d="M17 10l4 2v8l-4 2"/><path ${A} d="M16 2v20" stroke-dasharray="2 2"/>`,
     project: `<path d="M3 15l9 4 9-4-9-4z"/><path d="M6 3c2 2 4 2 6 0s4-2 6 0"/><path d="M9 5v6M15 5v6" stroke-dasharray="2 2"/><path ${A} d="M6 14.4c2 1.6 4 1.6 6 0s4-1.6 6 0"/>`,
+    // Two sheets with the bridge between them in the accent.
+    'bridge-surface': `<path d="M2 16l6-3M16 13l6 3"/><path d="M2 12l6-3M16 9l6 3"/><path ${A} d="M8 13c3-2 5-2 8 0M8 9c3-2 5-2 8 0"/>`,
     // A loop of curves with the sheet filling it, the sheet in the accent.
     patch: `<path d="M4 16c2-6 5-10 9-10s7 3 7 6-4 7-9 7-7-1-7-3z"/><path ${A} d="M7 15c2-4 4-6 6.5-6s4 2 4 3.5-2.5 4-5.5 4-5-.5-5-1.5z" style="fill: var(--accent); fill-opacity: .35"/>`,
     imprint: `<path d="M4 8l8-4 8 4v9l-8 4-8-4z"/><path d="M4 8l8 4 8-4M12 12v9"/><path ${A} d="M8 6l8 4"/>`,
