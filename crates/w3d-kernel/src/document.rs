@@ -770,6 +770,15 @@ impl<K: Kernel> Document<K> {
         self.kernel.project_curve_curve(&cs[0], &cs[1], SHEET)?.iter().map(|p| Curve::from_nurbs(p, -dir)).collect()
     }
 
+    /// Plasticity's Project Outline, without changing the document: the body's outline seen along
+    /// the plane's normal, as flat curves on the plane.
+    pub fn preview_outline(&self, body: BodyId, origin: DVec3, normal: DVec3, x: DVec3) -> Result<Vec<Curve>, KernelError> {
+        let s = self.get(body).ok_or(KernelError::Invalid("that body no longer exists"))?;
+        let normal = normal.try_normalize().ok_or(KernelError::Invalid("the plane has no direction"))?;
+        let x = x.reject_from(normal).try_normalize().ok_or(KernelError::Invalid("the plane's x lies along its normal"))?;
+        self.kernel.project_outline(s, origin, normal, x)?.iter().map(|p| Curve::from_nurbs(p, -normal)).collect()
+    }
+
     /// Any of the Project previews' curves added as one undoable step. The curves projected stay.
     pub fn commit_project(&mut self, curves: Vec<Curve>) -> Result<Vec<CurveId>, KernelError> {
         if curves.is_empty() { return Err(KernelError::Invalid("nothing was projected")) }

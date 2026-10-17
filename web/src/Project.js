@@ -36,7 +36,7 @@ function meet(a, b) {
 }
 
 /** An edge's curve between `t0` and `t1` as a B-spline. */
-function bspline(edge, t0, t1) {
+export function bspline(edge, t0, t1) {
     const o = oc();
     const { returnValue: curve, First, Last } = o.BRep_Tool.Curve(edge, 0, 0);
     if (!curve) return null;
@@ -69,7 +69,7 @@ function append(a, b) {
 }
 
 /** The B-splines joined end to end into chains, each chain one NURBS curve. */
-function chains(splines) {
+export function chains(splines) {
     const items = splines.filter(Boolean).map(b => ({ b, ends: ends(b) }));
     const used = items.map(() => false), out = [];
     for (let s = 0; s < items.length; s++) {
@@ -112,7 +112,7 @@ function samples(wire, per = 256) {
 }
 
 /** The triangles of `shape`'s faces, for casting rays. */
-function triangles(shape) {
+export function triangles(shape) {
     const { mesh } = tessellate(shape, { deflection: 0.001, angle: 0.1 });
     const pos = mesh.getAttribute('position'), idx = mesh.getIndex().array, out = [];
     const v = i => new THREE.Vector3().fromBufferAttribute(pos, i);

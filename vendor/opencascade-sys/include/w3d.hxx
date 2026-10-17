@@ -21,6 +21,13 @@
 #include <BRepLib_FindSurface.hxx>
 #include <BRepAdaptor_Curve.hxx>
 #include <BRepGProp_Face.hxx>
+#include <HLRBRep_Algo.hxx>
+#include <ElSLib.hxx>
+#include <BRepBuilderAPI_Sewing.hxx>
+#include <HLRBRep_HLRToShape.hxx>
+#include <HLRAlgo_Projector.hxx>
+#include <BRepClass_FaceClassifier.hxx>
+#include <BRepAlgoAPI_Splitter.hxx>
 #include <Geom_BSplineSurface.hxx>
 #include <Geom2d_Curve.hxx>
 #include <TColStd_HArray1OfReal.hxx>
@@ -1607,6 +1614,109 @@ inline std::unique_ptr<TopoDS_Shape> w3d_bridge_surface(const TopoDS_Shape &shap
     BRepBuilderAPI_MakeFace mk(surf, 1e-6);
     if (!mk.IsDone()) throw std::runtime_error("the bridge could not be made into a face");
     return std::unique_ptr<TopoDS_Shape>(new TopoDS_Shape(mk.Face()));
+  } catch (const Standard_Failure &f) {
+    throw w3d_kernel_error(f);
+  }
+}
+
+
+// Plasticity's Project Outline: the outline of `shape` seen along the plane's normal, drawn on the
+// plane (plane[0..3] a point, plane[3..6] its normal, plane[6..9] its x). Hidden-line removal gives
+// every sharp edge and silhouette in the plane; they split a sheet covering them, the pieces the body
+// casts its shadow on are kept and merged, and the merged region's boundary is the outline, holes
+// through the body included. Returns the curves as w3d_curves_out does.
+inline rust::Vec<double> w3d_project_outline(const TopoDS_Shape &shape, rust::Slice<const double> plane) {
+  if (plane.size() != 9) throw std::runtime_error("a plane is a point, a normal and an x direction");
+  try {
+    gp_Ax2 frame(gp_Pnt(plane[0], plane[1], plane[2]), gp_Dir(plane[3], plane[4], plane[5]), gp_Dir(plane[6], plane[7], plane[8]));
+    Handle(HLRBRep_Algo) hlr = new HLRBRep_Algo();
+    hlr->Add(shape);
+    hlr->Projector(HLRAlgo_Projector(frame));
+    hlr->Update();
+    hlr->Hide();
+    HLRBRep_HLRToShape out(hlr);
+    // HLR draws in the frame's own x, y; carry it back onto the plane in model space.
+    gp_Trsf place;
+    place.SetTransformation(gp_Ax3(frame), gp_Ax3());
+    TopTools_ListOfShape tools;
+    Bnd_Box box;
+    for (const TopoDS_Shape &c : {out.VCompound(), out.OutLineVCompound(), out.HCompound(), out.OutLineHCompound(), out.Rg1LineVCompound()}) {
+      if (c.IsNull()) continue;
+      for (TopExp_Explorer ex(c, TopAbs_EDGE); ex.More(); ex.Next()) {
+        TopoDS_Shape e = ex.Current();
+        BRepLib::BuildCurves3d(TopoDS::Edge(e));
+        TopoDS_Shape moved = BRepBuilderAPI_Transform(e, place, Standard_True).Shape();
+        tools.Append(moved);
+        BRepBndLib::Add(moved, box);
+      }
+    }
+    if (tools.IsEmpty() || box.IsVoid()) throw std::runtime_error("the body has no outline seen along that plane's normal");
+    // A sheet on the plane covering every line, split by them.
+    double x0, y0, z0, x1, y1, z1;
+    box.Get(x0, y0, z0, x1, y1, z1);
+    double size = gp_Pnt(x0, y0, z0).Distance(gp_Pnt(x1, y1, z1)) + 10.0;
+    gp_Pln pln(frame.Location(), frame.Direction());
+    TopoDS_Face sheet = BRepBuilderAPI_MakeFace(pln, -size, size, -size, size).Face();
+    BRepAlgoAPI_Splitter split;
+    TopTools_ListOfShape args;
+    args.Append(sheet);
+    split.SetArguments(args);
+    split.SetTools(tools);
+    split.Build();
+    if (!split.IsDone()) throw std::runtime_error("the outline could not be traced");
+    // Keep the pieces in the body's shadow: a line through a point inside each, along the normal, meets the body.
+    IntCurvesFace_ShapeIntersector hits;
+    hits.Load(shape, 1e-7);
+    gp_Dir n = frame.Direction();
+    TopTools_ListOfShape shadow;
+    for (TopExp_Explorer ex(split.Shape(), TopAbs_FACE); ex.More(); ex.Next()) {
+      TopoDS_Face f = TopoDS::Face(ex.Current());
+      BRepAdaptor_Surface s(f);
+      double u0 = s.FirstUParameter(), u1 = s.LastUParameter(), v0 = s.FirstVParameter(), v1 = s.LastVParameter();
+      Bnd_Box fb;
+      BRepBndLib::Add(f, fb);
+      // Find a point inside the piece: try a grid until the classifier says IN.
+      double fx0, fy0, fz0, fx1, fy1, fz1;
+      fb.Get(fx0, fy0, fz0, fx1, fy1, fz1);
+      bool found = false;
+      gp_Pnt inside;
+      for (int k = 1; k < 24 && !found; k++) {
+        for (int i = 1; i < 2 * k && !found; i++) for (int j = 1; j < 2 * k && !found; j++) {
+          gp_Pnt p(fx0 + (fx1 - fx0) * i / (2.0 * k), fy0 + (fy1 - fy0) * j / (2.0 * k), fz0 + (fz1 - fz0) * i / (2.0 * k));
+          // The box is flat along the normal only when the plane is axis-aligned; project onto the plane.
+          gp_Vec off(frame.Location(), p);
+          p.Translate(gp_Vec(n) * -off.Dot(gp_Vec(n)));
+          double pu, pv;
+          ElSLib::Parameters(pln, p, pu, pv);
+          if (pu < u0 || pu > u1 || pv < v0 || pv > v1) continue;
+          BRepClass_FaceClassifier cls(f, gp_Pnt2d(pu, pv), 1e-7);
+          if (cls.State() == TopAbs_IN) { inside = p; found = true; }
+        }
+      }
+      if (!found) continue;
+      hits.Perform(gp_Lin(inside, n), -RealLast(), RealLast());
+      if (hits.IsDone() && hits.NbPnt() > 0) shadow.Append(f);
+    }
+    if (shadow.IsEmpty()) throw std::runtime_error("the body casts no shadow on that plane");
+    // Merge the shadow into as few faces as it makes; their wires are the outline.
+    TopoDS_Compound all;
+    BRep_Builder b;
+    b.MakeCompound(all);
+    for (const TopoDS_Shape &f : shadow) b.Add(all, f);
+    BRepBuilderAPI_Sewing sew(1e-6);
+    sew.Add(all);
+    sew.Perform();
+    ShapeUpgrade_UnifySameDomain unify(sew.SewedShape(), Standard_True, Standard_True, Standard_True);
+    unify.Build();
+    TopoDS_Shape merged = unify.Shape();
+    // The outline is the edges bounding the shadow: those on one shadow face only.
+    TopTools_IndexedDataMapOfShapeListOfShape owners;
+    TopExp::MapShapesAndAncestors(merged, TopAbs_EDGE, TopAbs_FACE, owners);
+    std::vector<TopoDS_Edge> rim;
+    for (int i = 1; i <= owners.Extent(); i++)
+      if (owners(i).Extent() == 1) rim.push_back(TopoDS::Edge(owners.FindKey(i)));
+    if (rim.empty()) throw std::runtime_error("the outline could not be traced");
+    return w3d_curves_out(rim);
   } catch (const Standard_Failure &f) {
     throw w3d_kernel_error(f);
   }

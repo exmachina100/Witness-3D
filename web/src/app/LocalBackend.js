@@ -10,6 +10,7 @@ import { curveFromNurbs, ends, join, loops, MEET, nurbsLoop } from '../curves.js
 import { meetCurves, projectCurveCurve, projectCurves } from '../Project.js';
 import { isSheet, patch } from '../Patch.js';
 import { bridgeSurface } from '../BridgeSurface.js';
+import { projectOutline } from '../Outline.js';
 
 const v3 = a => new THREE.Vector3(...a);
 
@@ -437,6 +438,15 @@ export class LocalBackend {
             if (req.curves[0] === req.curves[1]) throw new Error('select two different curves');
             const [a, b] = req.curves.map(curve);
             return projectCurveCurve(a, b, this.sheetSize()).map(p => curveFromNurbs(p, a.normal.map(v => -v)));
+        }
+        if (req.mode === 'outline') {
+            const normal = new THREE.Vector3(...req.normal);
+            if (!(normal.length() > 1e-12)) throw new Error('the plane has no normal');
+            normal.normalize();
+            const x = Math.abs(normal.x) < 0.9 ? new THREE.Vector3(1, 0, 0) : new THREE.Vector3(0, 1, 0);
+            x.addScaledVector(normal, -x.dot(normal)).normalize();
+            const out = projectOutline(shape(req.body), new THREE.Vector3(...req.origin), normal, x);
+            return out.map(p => curveFromNurbs(p, normal.clone().negate().toArray()));
         }
         if (!req.curves?.length) throw new Error('select the curves to project');
         const dir = new THREE.Vector3(...req.dir);

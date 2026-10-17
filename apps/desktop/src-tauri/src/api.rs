@@ -1011,6 +1011,8 @@ pub enum ProjectRequest {
         hide: bool,
     },
     BodyBody { bodies: [BodyId; 2] },
+    /// The body's outline seen along `normal`, drawn on the plane through `origin`.
+    Outline { body: BodyId, origin: [f64; 3], normal: [f64; 3] },
     CurveCurve { curves: [CurveId; 2] },
 }
 
@@ -1019,6 +1021,10 @@ pub fn preview_project(m: &Model, req: ProjectRequest) -> Option<Result<Vec<Curv
     m.preview(move |doc| Ok(match req {
         ProjectRequest::CurveBody { body, faces, curves, dir, both, hide } => doc.preview_project(body, &faces, &curves, DVec3::from(dir), both, hide)?,
         ProjectRequest::BodyBody { bodies: [a, b] } => doc.preview_meet(a, b)?,
+        ProjectRequest::Outline { body, origin, normal } => {
+            let normal = DVec3::from(normal);
+            doc.preview_outline(body, DVec3::from(origin), normal, normal.any_orthonormal_vector())?
+        }
         ProjectRequest::CurveCurve { curves: [a, b] } => doc.preview_project_curves(a, b)?,
     }))
 }
