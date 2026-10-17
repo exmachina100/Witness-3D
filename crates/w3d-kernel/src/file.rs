@@ -31,6 +31,9 @@ struct File {
     curves: Vec<FileCurve>,
     #[serde(default)]
     next_curve: CurveId,
+    /// The app's own state for the document (see [`Document::app_state`]); added after version 1.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    app: Option<serde_json::Value>,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -65,7 +68,7 @@ pub fn write<K: Kernel>(doc: &Document<K>) -> Result<String, KernelError> {
         edge_refs: doc.refs(id).map(|r| r.edges.clone()),
     })).collect::<Result<_, KernelError>>()?;
     let curves = doc.curve_ids().into_iter().map(|id| FileCurve { id, curve: doc.curve(id).unwrap().clone() }).collect();
-    let file = File { format: FORMAT.into(), version: VERSION, units: UNITS.into(), tolerance: TOLERANCE, next_id: doc.next_id(), next_ref: doc.next_ref(), bodies, curves, next_curve: doc.next_curve() };
+    let file = File { format: FORMAT.into(), version: VERSION, units: UNITS.into(), tolerance: TOLERANCE, next_id: doc.next_id(), next_ref: doc.next_ref(), bodies, curves, next_curve: doc.next_curve(), app: doc.app_state.clone() };
     serde_json::to_string(&file).map_err(err)
 }
 
@@ -94,6 +97,7 @@ pub fn read<K: Kernel>(doc: &mut Document<K>, text: &str) -> Result<(), KernelEr
     }
     doc.replace_all(bodies, file.next_id, file.next_ref);
     doc.replace_curves(file.curves.into_iter().map(|c| (c.id, c.curve)), file.next_curve);
+    doc.app_state = file.app;
     Ok(())
 }
 

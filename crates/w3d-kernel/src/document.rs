@@ -280,11 +280,14 @@ pub struct Document<K: Kernel> {
     undo: Vec<Snapshot<K::Solid>>,
     redo: Vec<Snapshot<K::Solid>>,
     revision: u64,
+    /// What the app keeps with the document and the kernel never reads (groups, hidden and locked
+    /// bodies, materials), saved in the file as it is.
+    pub app_state: Option<serde_json::Value>,
 }
 
 impl<K: Kernel> Document<K> {
     pub fn new(kernel: K) -> Self {
-        Document { kernel, state: Snapshot::empty(1, 1), undo: vec![], redo: vec![], revision: 0 }
+        Document { kernel, state: Snapshot::empty(1, 1), undo: vec![], redo: vec![], revision: 0, app_state: None }
     }
 
     pub fn ids(&self) -> Vec<BodyId> { self.state.bodies.keys().copied().collect() }

@@ -86,5 +86,23 @@ export class Organise {
         for (const c of this.groups) if (c.parent === gid) c.parent = g.parent;
         this.groups = this.groups.filter(x => x !== g);
     }
+    /** What is kept in the file: groups, the group of each body, hidden and locked. Isolation is a view and isn't kept. */
+    toJSON() {
+        return { groups: this.groups.map(g => ({ ...g })), groupOf: [...this.groupOf], hidden: [...this.hidden], locked: [...this.locked], nextGroup: this.nextGroup };
+    }
+    /** Back from toJSON(); anything missing or malformed is left empty. */
+    static from(data) {
+        const o = new Organise();
+        if (!data || typeof data !== 'object') return o;
+        const ids = list => Array.isArray(list) ? list.filter(Number.isInteger) : [];
+        o.hidden = new Set(ids(data.hidden));
+        o.locked = new Set(ids(data.locked));
+        o.groups = Array.isArray(data.groups) ? data.groups.filter(g => Number.isInteger(g?.id)).map(g => ({ id: g.id, name: String(g.name ?? `GROUP ${g.id}`), parent: Number.isInteger(g.parent) ? g.parent : null, open: g.open !== false })) : [];
+        const known = new Set(o.groups.map(g => g.id));
+        for (const g of o.groups) if (!known.has(g.parent)) g.parent = null;
+        o.groupOf = new Map((Array.isArray(data.groupOf) ? data.groupOf : []).filter(([b, g]) => Number.isInteger(b) && known.has(g)));
+        o.nextGroup = Math.max(Number.isInteger(data.nextGroup) ? data.nextGroup : 1, ...o.groups.map(g => g.id + 1));
+        return o;
+    }
     rename(gid, name) { const g = this.group(gid); if (g && name.trim()) g.name = name.trim().toUpperCase(); }
 }
