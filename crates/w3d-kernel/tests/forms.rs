@@ -244,6 +244,7 @@ fn loft_makes_a_frustum_between_two_squares_and_two_circles() {
             frame: ground(0.0),
             kind: FormKind::Loft {
                 more: vec![(square(10.0), ground(30.0))],
+                guides: vec![],
             },
             operation: Operation::NewBody,
         },
@@ -261,6 +262,7 @@ fn loft_makes_a_frustum_between_two_squares_and_two_circles() {
             frame: ground(0.0),
             kind: FormKind::Loft {
                 more: vec![(circle(5.0), ground(20.0))],
+                guides: vec![],
             },
             operation: Operation::NewBody,
         },
@@ -274,7 +276,7 @@ fn loft_makes_a_frustum_between_two_squares_and_two_circles() {
     let one = FormParams {
         profile: square(20.0),
         frame: ground(0.0),
-        kind: FormKind::Loft { more: vec![] },
+        kind: FormKind::Loft { more: vec![], guides: vec![] },
         operation: Operation::NewBody,
     };
     assert!(form::tool(&k, &one).is_err());
@@ -310,6 +312,9 @@ fn sweep(
                 },
                 twist,
                 scale,
+                guide: None,
+                method: Default::default(),
+                align: Default::default(),
             },
             operation: Operation::NewBody,
         },

@@ -259,6 +259,217 @@ export function sweep(c, path, twist = 0, scale = 1) {
     return mk.Shape();
 }
 
+const V3 = p => new THREE.Vector3(p.X(), p.Y(), p.Z());
+
+/** A wire as a curve: its parameter range, points and tangents. */
+function adaptor(wire) {
+    const a = new (oc().BRepAdaptor_CompCurve)(wire, false), t0 = a.FirstParameter(), t1 = a.LastParameter();
+    const at = t => V3(a.Value(Math.min(t1, Math.max(t0, t))));
+    const h = (t1 - t0) * 1e-6;
+    return { t0, t1, at, tangent: t => at(t + h).sub(at(t - h)).normalize() };
+}
+
+/** The nearest points of two shapes and the gap between them. */
+function nearest(a, b) {
+    const d = new (oc().BRepExtrema_DistShapeShape)(a, b);
+    if (!d.IsDone()) throw new Error('the guide could not be measured against the profile');
+    return { gap: d.Value(), on1: V3(d.PointOnShape1(1)), on2: V3(d.PointOnShape2(1)) };
+}
+
+/** A guide wire turned, if need be, to start nearer `from`; with its start point. */
+function guideFrom(c, from) {
+    const o = oc(), w = curveWire(c), g = adaptor(w);
+    const vertex = p => new o.BRepBuilderAPI_MakeVertex(pnt(p)).Shape();
+    const reversed = nearest(vertex(g.at(g.t1)), from).gap < nearest(vertex(g.at(g.t0)), from).gap - 1e-9;
+    return reversed ? o.TopoDS.Wire(w.Reversed()) : w;
+}
+
+/** Where curve `g` crosses the plane through `p` square to `n`; the crossing nearest `near`. As w3d_crossing. */
+function crossing(g, p, n, near) {
+    const side = t => g.at(t).sub(p).dot(n), steps = 400;
+    let best = null, prev = side(g.t0);
+    for (let i = 1; i <= steps; i++) {
+        let a = g.t0 + (g.t1 - g.t0) * (i - 1) / steps, b = g.t0 + (g.t1 - g.t0) * i / steps;
+        const now = side(b);
+        if (Math.abs(prev) < 1e-12 || prev * now <= 0) {
+            let sa = prev;
+            for (let k = 0; k < 80; k++) { const m = (a + b) / 2, sm = side(m); if (sa * sm <= 0) b = m; else { a = m; sa = sm; } }
+            const q = g.at((a + b) / 2);
+            if (!best || q.distanceTo(near) < best.distanceTo(near)) best = q;
+        }
+        prev = now;
+    }
+    if (!best) throw new Error('the guide does not run beside the path all the way; it must reach as far as the path does');
+    return best;
+}
+
+/** Turn about `axis` through `pivot` taking `from` toward `to`, scaled to reach it when `grow`. As w3d_onto. */
+function onto(pivot, axis, from, to, grow) {
+    const o = oc(), n = axis.clone().normalize();
+    const u = from.clone().sub(pivot), v = to.clone().sub(pivot);
+    u.addScaledVector(n, -u.dot(n));
+    v.addScaledVector(n, -v.dot(n));
+    if (u.length() < 1e-7) throw new Error('the guide must touch the profile away from the path');
+    if (v.length() < 1e-7) throw new Error('the guide crosses the path; keep it to one side');
+    const angle = Math.atan2(u.clone().cross(v).dot(n), u.dot(v));
+    const turn = new o.gp_Trsf(), scale = new o.gp_Trsf();
+    turn.SetRotation(new o.gp_Ax1(pnt(pivot), dir(n)), angle);
+    if (grow) scale.SetScale(pnt(pivot), v.length() / u.length());
+    return scale.Multiplied(turn);
+}
+
+/**
+ * Plasticity's Sweep with a guide (`method` 'point' scales the section to keep touching it,
+ * 'chord' and 'curve' only turn it) or, without one, `align` 'parallel' to keep the section at its
+ * drawn angle. As w3d_sweep_guided.
+ */
+export function sweepGuided(c, path, guide, method = 'point', align = 'normal') {
+    const o = oc(), prof = section(c), g = geometry(path), spine = wireOf(g).Wire();
+    if (!guide) {
+        const mk = new o.BRepOffsetAPI_MakePipeShell(spine);
+        if (align === 'parallel') mk.SetMode(new o.gp_Ax2());
+        else mk.SetMode(!!g.spiral);
+        mk.SetTransitionMode(o.BRepBuilderAPI_TransitionMode.BRepBuilderAPI_RightCorner);
+        mk.Add(prof.wire, false, false);
+        mk.Build(new o.Message_ProgressRange());
+        if (!mk.IsDone()) throw new Error('the profile could not be swept along that path');
+        if (!mk.MakeSolid()) throw new Error('the sweep did not close into a solid');
+        return mk.Shape();
+    }
+    if (!['point', 'chord', 'curve'].includes(method)) throw new Error('the guide method is Point, Chord or Curve');
+    if (g.circle || g.closed) throw new Error('a guide needs a path with two ends');
+    const gw = guideFrom(guide, prof.wire);
+    const along = adaptor(spine), rail = adaptor(gw);
+    const touch = nearest(new o.BRepBuilderAPI_MakeVertex(pnt(rail.at(rail.t0))).Shape(), prof.wire);
+    if (touch.gap > 0.01) throw new Error('the guide does not touch the profile; snap its end onto it');
+    const contact = touch.on2;
+    // The guide's length to each of many samples, for Curve.
+    const samples = 2000, lengths = [0];
+    for (let i = 1; i <= samples; i++) lengths.push(lengths[i - 1] + rail.at(rail.t0 + (rail.t1 - rail.t0) * i / samples).distanceTo(rail.at(rail.t0 + (rail.t1 - rail.t0) * (i - 1) / samples)));
+    const byLength = f => {
+        const want = f * lengths[samples];
+        let i = lengths.findIndex(l => l >= want);
+        if (i <= 0) return rail.at(i < 0 ? rail.t1 : rail.t0);
+        const k = (want - lengths[i - 1]) / Math.max(1e-12, lengths[i] - lengths[i - 1]);
+        return rail.at(rail.t0 + (rail.t1 - rail.t0) * (i - 1 + k) / samples);
+    };
+    const stations = 32, sub = 8, start = along.at(along.t0);
+    const mk = new o.BRepOffsetAPI_ThruSections(true, false, 1e-6);
+    const carry = new THREE.Quaternion();
+    let prev = along.tangent(along.t0), lastG = contact;
+    for (let i = 0; i <= stations; i++) {
+        if (i > 0) for (let k = 1; k <= sub; k++) {
+            const tan = along.tangent(along.t0 + (along.t1 - along.t0) * ((i - 1) * sub + k) / (stations * sub));
+            carry.premultiply(new THREE.Quaternion().setFromUnitVectors(prev, tan));
+            prev = tan;
+        }
+        const t = along.t0 + (along.t1 - along.t0) * i / stations, p = along.at(t), tan = along.tangent(t);
+        const r = new o.gp_Trsf(), move = new o.gp_Trsf();
+        const ax = new THREE.Vector3(carry.x, carry.y, carry.z);
+        if (ax.length() > 1e-12) r.SetRotation(new o.gp_Ax1(pnt(start), dir(ax.clone().normalize())), 2 * Math.acos(Math.min(1, Math.max(-1, carry.w))));
+        move.SetTranslation(pnt(start), pnt(p));
+        const place = move.Multiplied(r);
+        const cNow = contact.clone().sub(start).applyQuaternion(carry).add(p);
+        const target = method === 'curve' ? byLength(i / stations) : i === 0 ? contact : i === stations ? rail.at(rail.t1) : crossing(rail, p, tan, lastG);
+        lastG = target;
+        const all = onto(p, tan, cNow, target, method === 'point').Multiplied(place);
+        mk.AddWire(o.TopoDS.Wire(new o.BRepBuilderAPI_Transform(prof.wire, all, true, false).Shape()));
+    }
+    mk.CheckCompatibility(false);
+    mk.Build(new o.Message_ProgressRange());
+    if (!mk.IsDone()) throw new Error('the profile could not follow that guide; check it runs beside the path all along');
+    return mk.Shape();
+}
+
+/** A region's area centre and the normal of its plane. */
+function planeOf(c) {
+    const o = oc(), f = face(section(c).wire), g = new o.GProp_GProps();
+    o.BRepGProp.SurfaceProperties(f, g, false, false);
+    return { centre: V3(g.CentreOfMass()), normal: plane(c).n.clone().normalize() };
+}
+
+/** Section edges joined into wires. */
+function wiresOf(edges) {
+    const o = oc(), wires = [];
+    let left = [...edges];
+    while (left.length) {
+        const mk = new o.BRepBuilderAPI_MakeWire();
+        mk.Add(left.shift());
+        for (let added = true; added && left.length;) {
+            added = false;
+            for (let i = 0; i < left.length; i++) {
+                mk.Add(left[i]);
+                if (mk.IsDone() && mk.Error() === o.BRepBuilderAPI_WireError.BRepBuilderAPI_WireDone) { left.splice(i, 1); added = true; break; }
+            }
+        }
+        wires.push(mk.Wire());
+    }
+    return wires;
+}
+
+/**
+ * Plasticity's Loft with guides: the plain loft cut at stations between each pair of regions, each
+ * cut moved onto the one guide, or turned and scaled in its plane onto the two, and the regions and
+ * cuts lofted. As w3d_loft_guided.
+ */
+export function loftGuided(cs, guides) {
+    const o = oc();
+    if (cs.length < 2) throw new Error('select two regions or more to loft');
+    if (!guides.length) throw new Error('select the guide curves');
+    if (guides.length > 2) throw new Error('this build follows up to two guides; select fewer');
+    const profiles = cs.map(c => section(c).wire);
+    const rails = guides.map(g => guideFrom(g, profiles[0]));
+    const curves = rails.map(adaptor);
+    const touch = rails.map(r => profiles.map(w => {
+        const d = nearest(r, w);
+        if (d.gap > 0.01) throw new Error('a guide does not touch every profile; snap it onto each one');
+        return d.on2;
+    }));
+    const plain = loft(cs), planes = cs.map(planeOf);
+    const stations = 16;
+    const mk = new o.BRepOffsetAPI_ThruSections(true, false, 1e-6);
+    mk.AddWire(profiles[0]);
+    for (let i = 0; i + 1 < cs.length; i++) {
+        const { centre: ca } = planes[i], { centre: cb } = planes[i + 1];
+        const span = cb.clone().sub(ca);
+        const na = planes[i].normal.clone(), nb = planes[i + 1].normal.clone();
+        if (na.dot(span) < 0) na.negate();
+        if (nb.dot(span) < 0) nb.negate();
+        for (let k = 1; k < stations; k++) {
+            const s = k / stations, at = ca.clone().lerp(cb, s), n = na.clone().multiplyScalar(1 - s).addScaledVector(nb, s);
+            if (n.length() < 1e-9) throw new Error('the profiles face opposite ways');
+            n.normalize();
+            const cutter = new o.BRepBuilderAPI_MakeFace(new o.gp_Pln(pnt(at), dir(n)), -1e5, 1e5, -1e5, 1e5).Face();
+            const cut = new o.BRepAlgoAPI_Section(plain, cutter, false);
+            cut.Approximation(true);
+            cut.Build(new o.Message_ProgressRange());
+            if (!cut.IsDone()) throw new Error('the loft could not be cut between its profiles');
+            const edges = [];
+            for (const ex = new o.TopExp_Explorer(cut.Shape(), o.TopAbs_ShapeEnum.TopAbs_EDGE, o.TopAbs_ShapeEnum.TopAbs_SHAPE); ex.More(); ex.Next()) edges.push(o.TopoDS.Edge(ex.Current()));
+            const ws = wiresOf(edges);
+            if (ws.length !== 1) throw new Error('the loft between those profiles folds over; guides need a simple loft');
+            const w = ws[0], r = [], gs = [];
+            curves.forEach((g, j) => {
+                const guess = touch[j][i].clone().lerp(touch[j][i + 1], s);
+                gs.push(crossing(g, at, n, guess));
+                r.push(nearest(new o.BRepBuilderAPI_MakeVertex(pnt(guess)).Shape(), w).on2);
+            });
+            let t = new o.gp_Trsf();
+            if (curves.length === 1) t.SetTranslation(pnt(r[0]), pnt(gs[0]));
+            else {
+                const move = new o.gp_Trsf();
+                move.SetTranslation(pnt(r[0]), pnt(gs[0]));
+                t = move.Multiplied(onto(r[0], n, r[1], r[0].clone().add(gs[1].clone().sub(gs[0])), true));
+            }
+            mk.AddWire(o.TopoDS.Wire(new o.BRepBuilderAPI_Transform(w, t, true, false).Shape()));
+        }
+        mk.AddWire(profiles[i + 1]);
+    }
+    mk.Build(new o.Message_ProgressRange());
+    if (!mk.IsDone()) throw new Error('no surface could be lofted along those guides; check they run from the first profile to the last');
+    return mk.Shape();
+}
+
 /**
  * Plasticity's Pipe: a tube of `radius` along `path`, its section a circle (`sides` 0) or a regular
  * polygon with corners on the radius; with a `thickness` the middle is hollow. As form.rs's pipe.

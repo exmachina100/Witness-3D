@@ -152,6 +152,19 @@ impl Shape {
         Ok(Shape::from_shape(&s))
     }
 
+    /// The profile swept along `path` following `guide` (empty for none) by `method` (0 Point,
+    /// 1 Chord, 2 Curve), or kept at its drawn orientation when `parallel`.
+    pub fn sweep_guided(section: &[f64], path: &[f64], guide: &[f64], method: i32, parallel: bool) -> Result<Shape, String> {
+        let s = ffi::w3d::w3d_sweep_guided(section, path, guide, method, parallel).map_err(reason)?;
+        Ok(Shape::from_shape(&s))
+    }
+
+    /// A solid through the profiles, given one after another, its sides along the guides.
+    pub fn loft_guided(sections: &[f64], guides: &[f64]) -> Result<Shape, String> {
+        let s = ffi::w3d::w3d_loft_guided(sections, guides).map_err(reason)?;
+        Ok(Shape::from_shape(&s))
+    }
+
     /// The numbered faces moved `distance` along their normals, neighbours following, with history.
     /// The profile extruded along `dir` by `distance`, and `back` the other way; its sides lean in
     /// by `angle` radians and `thickness` leaves walls instead of a filled solid.

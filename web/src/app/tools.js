@@ -72,13 +72,15 @@ export const TOOLS = [
     },
     {
         id: 'loft', label: 'LOFT', key: 'l', group: 'shape', selects: 'regions', toolbar: false,
-        summary: 'Pass a solid through two regions or more, in the order given.',
+        summary: 'Pass a solid through two regions or more, in the order given; give guide curves by id in curves (up to two, each touching every region) and its sides run along them.',
         params: {},
     },
     {
         id: 'sweep', label: 'SWEEP', key: 'shift-p', group: 'shape', selects: 'region', toolbar: false,
-        summary: 'Sweep the region inside a closed curve along another curve into a solid.',
+        summary: 'Sweep the region inside a closed curve along another curve into a solid; give one guide curve by id in curves (touching the region) and the section follows it.',
         params: {
+            method: { type: 'enum', values: ['point', 'chord', 'curve'], default: 'point', describe: 'how the section follows the guide: point turns and scales it to keep touching, chord and curve only turn it' },
+            align: { type: 'enum', values: ['normal', 'parallel'], default: 'normal', describe: 'normal turns the section with the path; parallel keeps it at its drawn angle' },
             twist: { type: 'number', unit: 'deg', default: 0, describe: 'how far the far end turns about the profile' },
             scale: { type: 'number', above: 0, default: 1, describe: 'the far end\'s size relative to the profile' },
             op: { type: 'enum', values: ['new', 'union', 'difference', 'intersect'], default: 'new', describe: 'a new body, or a boolean with the body the region lies on' },

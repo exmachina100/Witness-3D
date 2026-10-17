@@ -279,11 +279,28 @@ pub struct FormRequest {
     /// New body unless Q, W or Shift+E asks for a boolean.
     #[serde(default = "new_op")]
     pub op: OpChoice,
+    /// Loft and Sweep: guide curves the sides run along.
+    #[serde(default)]
+    pub guides: Vec<CurveId>,
+    /// Sweep: how the section follows its guide.
+    #[serde(default)]
+    pub method: GuideName,
+    /// Sweep: whether the section turns with the path or stays parallel to itself.
+    #[serde(default)]
+    pub align: AlignName,
 }
 
 #[derive(Deserialize, Debug, Clone, Copy, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
 pub enum FormName { Revolve, Loft, Sweep }
+
+#[derive(Deserialize, Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[serde(rename_all = "lowercase")]
+pub enum GuideName { #[default] Point, Chord, Curve }
+
+#[derive(Deserialize, Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[serde(rename_all = "lowercase")]
+pub enum AlignName { #[default] Normal, Parallel }
 
 fn turn() -> f64 { std::f64::consts::TAU }
 fn new_op() -> OpChoice { OpChoice::New }
@@ -292,8 +309,20 @@ impl FormRequest {
     fn params(&self, doc: &Document<Occt>) -> Result<FormParams, ApiError> {
         let kind = match self.kind {
             FormName::Revolve => FormKindRequest::Revolve { axis_point: DVec3::from_array(self.axis_point), axis_dir: DVec3::from_array(self.axis_dir), angle: self.angle, thickness: self.thickness },
-            FormName::Loft => FormKindRequest::Loft,
-            FormName::Sweep => FormKindRequest::Sweep { path: self.path.ok_or_else(|| ApiError::from(String::from("pick the path to sweep along")))?, twist: self.twist, scale: self.scale },
+            FormName::Loft if self.guides.is_empty() => FormKindRequest::Loft,
+            FormName::Loft => FormKindRequest::LoftGuided { guides: self.guides.clone() },
+            FormName::Sweep => {
+                let path = self.path.ok_or_else(|| ApiError::from(String::from("pick the path to sweep along")))?;
+                if self.guides.len() > 1 { return Err(String::from("this build's Sweep follows one guide; select just one").into()) }
+                if self.guides.is_empty() && self.align == AlignName::Normal {
+                    FormKindRequest::Sweep { path, twist: self.twist, scale: self.scale }
+                } else {
+                    if self.twist.abs() > 1e-12 || (self.scale - 1.0).abs() > 1e-12 { return Err(String::from("twist and scale don't go with a guide or Parallel alignment; set them back to 0 and 1").into()) }
+                    let method = match self.method { GuideName::Point => form::GuideMethod::Point, GuideName::Chord => form::GuideMethod::Chord, GuideName::Curve => form::GuideMethod::Curve };
+                    let align = match self.align { AlignName::Normal => form::Alignment::Normal, AlignName::Parallel => form::Alignment::Parallel };
+                    FormKindRequest::SweepGuided { path, guide: self.guides.first().copied(), method, align }
+                }
+            }
         };
         let operation = match self.op {
             OpChoice::Union => Operation::Union,

@@ -12,6 +12,9 @@
 #include <BRepBuilderAPI_MakeWire.hxx>
 #include <BRepBuilderAPI_Transform.hxx>
 #include <BRepAdaptor_CompCurve.hxx>
+#include <GCPnts_AbscissaPoint.hxx>
+#include <BRepBuilderAPI_MakeVertex.hxx>
+#include <TopTools_HSequenceOfShape.hxx>
 #include <BRepAdaptor_Surface.hxx>
 #include <BRepGProp.hxx>
 #include <BRepGProp_Face.hxx>
@@ -667,6 +670,244 @@ inline std::unique_ptr<TopoDS_Shape> w3d_sweep(rust::Slice<const double> section
     mk.Build();
     if (!mk.IsDone()) throw std::runtime_error("the profile could not be swept along that path");
     if (!mk.MakeSolid()) throw std::runtime_error("the sweep did not close into a solid");
+    return std::unique_ptr<TopoDS_Shape>(new TopoDS_Shape(mk.Shape()));
+  } catch (const Standard_Failure &f) {
+    throw w3d_kernel_error(f);
+  }
+}
+
+// A guide wire turned, if need be, to run the same way as the sections: it starts nearer `from`.
+inline TopoDS_Wire w3d_guide_from(const TopoDS_Wire &guide, const TopoDS_Shape &from) {
+  TopoDS_Vertex first, last;
+  TopExp::Vertices(guide, first, last);
+  if (first.IsNull() || last.IsNull()) return guide;
+  BRepExtrema_DistShapeShape a(first, from), b(last, from);
+  if (a.IsDone() && b.IsDone() && b.Value() < a.Value() - 1e-9) return TopoDS::Wire(guide.Reversed());
+  return guide;
+}
+
+// The shortest gap between a guide and a section, to refuse guides that miss the profiles.
+inline double w3d_gap(const TopoDS_Shape &a, const TopoDS_Shape &b) {
+  BRepExtrema_DistShapeShape d(a, b);
+  return d.IsDone() ? d.Value() : 1e100;
+}
+
+// The point where `guide` crosses the plane through `o` square to `n`, searched between curve
+// parameters `t0` and `t1`; the crossing nearest `near` when there are several.
+inline gp_Pnt w3d_crossing(const BRepAdaptor_CompCurve &guide, double t0, double t1, const gp_Pnt &o, const gp_Vec &n, const gp_Pnt &near) {
+  auto side = [&](double t) { return gp_Vec(o, guide.Value(t)).Dot(n); };
+  const int steps = 400;
+  bool found = false;
+  gp_Pnt best;
+  double prev = side(t0);
+  for (int i = 1; i <= steps; i++) {
+    double a = t0 + (t1 - t0) * (i - 1) / steps, b = t0 + (t1 - t0) * i / steps, now = side(b);
+    if (std::fabs(prev) < 1e-12 || prev * now <= 0) {
+      double sa = prev;
+      for (int k = 0; k < 80; k++) {
+        double m = (a + b) / 2, sm = side(m);
+        if (sa * sm <= 0) b = m; else { a = m; sa = sm; }
+      }
+      gp_Pnt p = guide.Value((a + b) / 2);
+      if (!found || p.Distance(near) < best.Distance(near)) best = p;
+      found = true;
+    }
+    prev = now;
+  }
+  if (!found) throw std::runtime_error("the guide does not run beside the path all the way; it must reach as far as the path does");
+  return best;
+}
+
+// The transform that moves `r` to `g` (one guide) or takes the pair `r1`, `r2` onto `g1`, `g2`
+// by turning about `axis` through `pivot`, scaling there and moving (two guides).
+inline gp_Trsf w3d_onto(const gp_Pnt &pivot, const gp_Vec &axis, const gp_Pnt &from, const gp_Pnt &to, bool grow) {
+  gp_Vec n = axis.Normalized(), u(pivot, from), v(pivot, to);
+  u -= n * u.Dot(n);
+  v -= n * v.Dot(n);
+  if (u.Magnitude() < 1e-7) throw std::runtime_error("the guide must touch the profile away from the path");
+  if (v.Magnitude() < 1e-7) throw std::runtime_error("the guide crosses the path; keep it to one side");
+  gp_Trsf turn, scale;
+  turn.SetRotation(gp_Ax1(pivot, gp_Dir(n)), u.AngleWithRef(v, n));
+  if (grow) scale.SetScale(pivot, v.Magnitude() / u.Magnitude());
+  return scale * turn;
+}
+
+// Plasticity's Sweep with a guide or an alignment. With a `guide` (empty for none) the section is
+// carried along the path as in a plain sweep and then, at each of many stations, turned about the
+// path toward the guide: `method` 0 (Point) also scales it so the point that touched the guide
+// stays on it; 1 (Chord) and 2 (Curve) only turn it, Chord meeting the guide where it crosses the
+// section's plane and Curve at the same fraction of the guide's length. The stations are lofted.
+// Without a guide, `parallel` keeps the section at its drawn orientation all along (Alignment:
+// Parallel) instead of turning with the path (Normal).
+inline std::unique_ptr<TopoDS_Shape> w3d_sweep_guided(rust::Slice<const double> section, rust::Slice<const double> path,
+                                                      rust::Slice<const double> guide, int32_t method, bool parallel) {
+  try {
+    TopoDS_Wire profile = w3d_one_section(section);
+    TopoDS_Wire spine = w3d_one_section(path);
+    if (guide.size() == 0) {
+      BRepOffsetAPI_MakePipeShell mk(spine);
+      if (parallel) mk.SetMode(gp_Ax2());
+      else mk.SetMode(path.size() > 0 && int(path[0]) == 7 ? Standard_True : Standard_False);
+      mk.SetTransitionMode(BRepBuilderAPI_RightCorner);
+      mk.Add(profile, Standard_False, Standard_False);
+      mk.Build();
+      if (!mk.IsDone()) throw std::runtime_error("the profile could not be swept along that path");
+      if (!mk.MakeSolid()) throw std::runtime_error("the sweep did not close into a solid");
+      return std::unique_ptr<TopoDS_Shape>(new TopoDS_Shape(mk.Shape()));
+    }
+    if (method < 0 || method > 2) throw std::runtime_error("the guide method is Point, Chord or Curve");
+    if (spine.Closed()) throw std::runtime_error("a guide needs a path with two ends");
+    TopoDS_Wire g = w3d_guide_from(w3d_one_section(guide), profile);
+    if (w3d_gap(g, profile) > 0.01) throw std::runtime_error("the guide does not touch the profile; snap its end onto it");
+    BRepAdaptor_CompCurve along(spine), rail(g);
+    TopoDS_Vertex g0, g1;
+    TopExp::Vertices(g, g0, g1);
+    BRepExtrema_DistShapeShape touch(g0, profile);
+    gp_Pnt contact = touch.PointOnShape2(1);
+    double rail_length = GCPnts_AbscissaPoint::Length(rail);
+
+    double t0 = along.FirstParameter(), t1 = along.LastParameter();
+    const int stations = 32, sub = 8;
+    BRepOffsetAPI_ThruSections mk(Standard_True, Standard_False, 1e-6);
+    gp_Trsf carry;
+    gp_Pnt start, p, last_g = contact;
+    gp_Vec prev, tan;
+    along.D1(t0, start, prev);
+    for (int i = 0; i <= stations; i++) {
+      // Carried by the path's own turn (parallel transport) from the last station.
+      if (i > 0) {
+        for (int k = 1; k <= sub; k++) {
+          along.D1(t0 + (t1 - t0) * ((i - 1) * sub + k) / (stations * sub), p, tan);
+          if (prev.Magnitude() > 1e-12 && tan.Magnitude() > 1e-12 && !prev.IsParallel(tan, 1e-9)) {
+            gp_Trsf r;
+            r.SetRotation(gp_Ax1(gp::Origin(), gp_Dir(prev.Crossed(tan))), prev.Angle(tan));
+            carry = r * carry;
+          }
+          prev = tan;
+        }
+      }
+      double t = t0 + (t1 - t0) * i / stations;
+      along.D1(t, p, tan);
+      gp_Trsf move, at_start, back;
+      at_start.SetTranslation(start, gp::Origin());
+      move.SetTranslation(gp::Origin(), p);
+      gp_Trsf place = move * carry * at_start;
+      gp_Pnt c = contact.Transformed(place);
+      gp_Pnt target;
+      if (method == 2) {
+        GCPnts_AbscissaPoint at(rail, rail_length * i / stations, rail.FirstParameter());
+        target = rail.Value(at.Parameter());
+      } else if (i == 0) {
+        target = contact;
+      } else if (i == stations) {
+        target = BRep_Tool::Pnt(g1);
+      } else {
+        target = w3d_crossing(rail, rail.FirstParameter(), rail.LastParameter(), p, tan, last_g);
+      }
+      last_g = target;
+      gp_Trsf all = w3d_onto(p, tan, c, target, method == 0) * place;
+      mk.AddWire(TopoDS::Wire(BRepBuilderAPI_Transform(profile, all, Standard_True).Shape()));
+    }
+    mk.CheckCompatibility(Standard_False);
+    mk.Build();
+    if (!mk.IsDone()) throw std::runtime_error("the profile could not follow that guide; check it runs beside the path all along");
+    return std::unique_ptr<TopoDS_Shape>(new TopoDS_Shape(mk.Shape()));
+  } catch (const Standard_Failure &f) {
+    throw w3d_kernel_error(f);
+  }
+}
+
+// The region's centre and the normal of its plane.
+inline std::pair<gp_Pnt, gp_Vec> w3d_plane_of(const TopoDS_Wire &w) {
+  TopoDS_Face face = BRepBuilderAPI_MakeFace(w, Standard_True).Face();
+  GProp_GProps props;
+  BRepGProp::SurfaceProperties(face, props);
+  BRepGProp_Face at(face);
+  double u0, u1, v0, v1;
+  at.Bounds(u0, u1, v0, v1);
+  gp_Pnt pt;
+  gp_Vec n;
+  at.Normal((u0 + u1) / 2, (v0 + v1) / 2, pt, n);
+  return {props.CentreOfMass(), n.Normalized()};
+}
+
+// Plasticity's Loft with guides: a solid through the sections, in order, its sides running along
+// the guides. The plain loft is cut at stations between each pair of sections; each cut is moved
+// so its point nearest one guide lies on it, or, with two guides, turned and scaled in its plane so
+// it meets both; then the sections and cuts are lofted. Every guide must touch every section.
+inline std::unique_ptr<TopoDS_Shape> w3d_loft_guided(rust::Slice<const double> sections, rust::Slice<const double> guides) {
+  try {
+    std::vector<TopoDS_Wire> profiles, rails;
+    for (const double *p = sections.data(), *end = p + sections.size(); p < end;) profiles.push_back(w3d_section(p, end));
+    for (const double *p = guides.data(), *end = p + guides.size(); p < end;) rails.push_back(w3d_section(p, end));
+    if (profiles.size() < 2) throw std::runtime_error("a loft needs two profiles or more");
+    if (rails.empty()) throw std::runtime_error("select the guide curves");
+    if (rails.size() > 2) throw std::runtime_error("this build follows up to two guides; select fewer");
+    // Where each guide touches each profile, and its curve parameter there.
+    std::vector<BRepAdaptor_CompCurve> curves;
+    std::vector<std::vector<gp_Pnt>> touch(rails.size());
+    for (size_t j = 0; j < rails.size(); j++) {
+      rails[j] = w3d_guide_from(rails[j], profiles.front());
+      curves.emplace_back(rails[j]);
+      for (const auto &w : profiles) {
+        BRepExtrema_DistShapeShape d(rails[j], w);
+        if (!d.IsDone() || d.Value() > 0.01) throw std::runtime_error("a guide does not touch every profile; snap it onto each one");
+        touch[j].push_back(d.PointOnShape2(1));
+      }
+    }
+    BRepOffsetAPI_ThruSections plain_mk(Standard_True, Standard_False);
+    for (const auto &w : profiles) plain_mk.AddWire(w);
+    plain_mk.Build();
+    if (!plain_mk.IsDone()) throw std::runtime_error("no surface could be lofted through those profiles");
+    TopoDS_Shape plain = plain_mk.Shape();
+
+    const int stations = 16;
+    BRepOffsetAPI_ThruSections mk(Standard_True, Standard_False, 1e-6);
+    mk.AddWire(profiles[0]);
+    for (size_t i = 0; i + 1 < profiles.size(); i++) {
+      auto [ca, na] = w3d_plane_of(profiles[i]);
+      auto [cb, nb] = w3d_plane_of(profiles[i + 1]);
+      gp_Vec span(ca, cb);
+      if (na.Dot(span) < 0) na.Reverse();
+      if (nb.Dot(span) < 0) nb.Reverse();
+      for (int k = 1; k < stations; k++) {
+        double s = double(k) / stations;
+        gp_Pnt o(ca.XYZ() * (1 - s) + cb.XYZ() * s);
+        gp_Vec n = na * (1 - s) + nb * s;
+        if (n.Magnitude() < 1e-9) throw std::runtime_error("the profiles face opposite ways");
+        n.Normalize();
+        BRepAlgoAPI_Section cut(plain, gp_Pln(o, gp_Dir(n)), Standard_False);
+        cut.ComputePCurveOn1(Standard_False);
+        cut.Approximation(Standard_True);
+        cut.Build();
+        if (!cut.IsDone()) throw std::runtime_error("the loft could not be cut between its profiles");
+        Handle(TopTools_HSequenceOfShape) edges = new TopTools_HSequenceOfShape, wires;
+        for (TopExp_Explorer e(cut.Shape(), TopAbs_EDGE); e.More(); e.Next()) edges->Append(e.Current());
+        ShapeAnalysis_FreeBounds::ConnectEdgesToWires(edges, 1e-6, Standard_False, wires);
+        if (wires->Length() != 1) throw std::runtime_error("the loft between those profiles folds over; guides need a simple loft");
+        TopoDS_Wire w = TopoDS::Wire(wires->Value(1));
+        // Where each guide and the plain loft's side cross this cut.
+        std::vector<gp_Pnt> r, g;
+        for (size_t j = 0; j < rails.size(); j++) {
+          gp_Pnt guess(touch[j][i].XYZ() * (1 - s) + touch[j][i + 1].XYZ() * s);
+          g.push_back(w3d_crossing(curves[j], curves[j].FirstParameter(), curves[j].LastParameter(), o, n, guess));
+          BRepExtrema_DistShapeShape near(BRepBuilderAPI_MakeVertex(guess).Vertex(), w);
+          r.push_back(near.PointOnShape2(1));
+        }
+        gp_Trsf t;
+        if (rails.size() == 1) {
+          t.SetTranslation(r[0], g[0]);
+        } else {
+          gp_Trsf onto = w3d_onto(r[0], n, r[1], gp_Pnt(r[0].XYZ() + (g[1].XYZ() - g[0].XYZ())), true), move;
+          move.SetTranslation(r[0], g[0]);
+          t = move * onto;
+        }
+        mk.AddWire(TopoDS::Wire(BRepBuilderAPI_Transform(w, t, Standard_True).Shape()));
+      }
+      mk.AddWire(profiles[i + 1]);
+    }
+    mk.Build();
+    if (!mk.IsDone()) throw std::runtime_error("no surface could be lofted along those guides; check they run from the first profile to the last");
     return std::unique_ptr<TopoDS_Shape>(new TopoDS_Shape(mk.Shape()));
   } catch (const Standard_Failure &f) {
     throw w3d_kernel_error(f);
