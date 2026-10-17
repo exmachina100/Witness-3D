@@ -304,6 +304,10 @@ pub trait Kernel {
     fn patch(&self, _curves: &[Path], _edges: &[(&Self::Solid, Vec<(u32, bool)>)]) -> Result<Self::Solid, KernelError> {
         Err(KernelError::Invalid("this kernel cannot patch"))
     }
+    /// Plasticity's Thicken: a sheet made solid, `front` along its faces' normals and `back` behind them.
+    fn thicken(&self, _s: &Self::Solid, _front: f64, _back: f64) -> Result<Self::Solid, KernelError> {
+        Err(KernelError::Invalid("this kernel cannot thicken"))
+    }
     fn face_sheet(&self, _s: &Self::Solid, _face: u32, _size: f64) -> Result<Self::Solid, KernelError> {
         Err(KernelError::Invalid("this kernel cannot cut with faces"))
     }

@@ -800,6 +800,20 @@ impl<K: Kernel> Document<K> {
         Ok(self.add(sheet))
     }
 
+    /// Plasticity's Thicken, without changing the document: sheet `body` made solid.
+    pub fn preview_thicken(&self, body: BodyId, front: f64, back: f64) -> Result<K::Solid, KernelError> {
+        let sheet = self.get(body).ok_or(KernelError::Invalid("that body no longer exists"))?;
+        self.kernel.thicken(sheet, front, back)
+    }
+
+    /// Thicken as one undoable step: the sheet becomes the solid, keeping its body.
+    pub fn commit_thicken(&mut self, body: BodyId, front: f64, back: f64) -> Result<BodyId, KernelError> {
+        let solid = self.preview_thicken(body, front, back)?;
+        self.checkpoint();
+        self.replace_traced(body, Traced { solid, history: History::default() });
+        Ok(body)
+    }
+
     /// Plasticity's Patch, without changing the document: a sheet filling one closed loop of
     /// `curves` and body `edges`, each edge with whether the sheet leaves it tangent to its body.
     pub fn preview_patch(&self, curves: &[CurveId], edges: &[(BodyId, u32, bool)]) -> Result<K::Solid, KernelError> {

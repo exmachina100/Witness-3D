@@ -210,6 +210,15 @@ export const TOOLS = [
             tension: { type: 'number', above: 0, default: 1, describe: 'how far each side carries on before it turns; 1 is a smooth curve' },
         },
     },
+    // Plasticity's Thicken: a sheet made solid.
+    {
+        id: 'thicken', label: 'THICKEN', key: '', group: 'shape', selects: 'solid', toolbar: false,
+        summary: "Make a sheet body solid by giving it thickness along its faces' normals (front) and behind them (back); the sheet body becomes the solid.",
+        params: {
+            front: { type: 'number', unit: 'mm', min: 0, default: 1, describe: "how far the solid reaches along the sheet's normals" },
+            back: { type: 'number', unit: 'mm', min: 0, default: 0, describe: 'how far it reaches behind the sheet' },
+        },
+    },
     // Plasticity's Patch (and the fill its Xnurbs tool makes): a sheet in a closed loop.
     {
         id: 'patch', label: 'PATCH', key: '', group: 'shape', selects: 'curves', toolbar: false,

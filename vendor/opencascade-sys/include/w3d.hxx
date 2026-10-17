@@ -40,6 +40,7 @@
 #include <BRepOffsetAPI_ThruSections.hxx>
 #include <BRepOffset_MakeOffset.hxx>
 #include <BRepOffsetAPI_MakeThickSolid.hxx>
+#include <BRepOffsetAPI_MakeOffsetShape.hxx>
 #include <BRepAlgoAPI_Defeaturing.hxx>
 #include <BRepAlgoAPI_Splitter.hxx>
 #include <BRepAlgoAPI_Section.hxx>
@@ -1717,6 +1718,42 @@ inline rust::Vec<double> w3d_project_outline(const TopoDS_Shape &shape, rust::Sl
       if (owners(i).Extent() == 1) rim.push_back(TopoDS::Edge(owners.FindKey(i)));
     if (rim.empty()) throw std::runtime_error("the outline could not be traced");
     return w3d_curves_out(rim);
+  } catch (const Standard_Failure &f) {
+    throw w3d_kernel_error(f);
+  }
+}
+
+// Plasticity's Thicken: a sheet made solid, `front` along its faces' normals and `back` behind
+// them. The sheet is first moved back, then grown by the whole thickness with walls along its
+// open edges (the simple offset: each face moves along its own normal, so smooth sheets join
+// cleanly and the walls are ruled between each edge and its image).
+inline std::unique_ptr<TopoDS_Shape> w3d_thicken(const TopoDS_Shape &shape, double front, double back) {
+  if (!std::isfinite(front) || !std::isfinite(back)) throw std::runtime_error("the thickness is not a number");
+  if (front < 0.0 || back < 0.0) throw std::runtime_error("the thicknesses can't be below zero; swap front and back instead");
+  if (front + back < 1e-6) throw std::runtime_error("the sheet needs a thickness");
+  if (w3d_solid_count(shape) != 0) throw std::runtime_error("thicken sheets; that body is already solid");
+  TopTools_IndexedMapOfShape faces;
+  TopExp::MapShapes(shape, TopAbs_FACE, faces);
+  if (faces.IsEmpty()) throw std::runtime_error("that body has no faces to thicken");
+  try {
+    TopoDS_Shape base = shape;
+    if (back > 0.0) {
+      BRepOffsetAPI_MakeOffsetShape off;
+      off.PerformBySimple(shape, -back);
+      if (!off.IsDone() || off.Shape().IsNull()) throw std::runtime_error("the sheet can't be moved that far back; try a thinner back");
+      base = off.Shape();
+    }
+    BRepOffsetAPI_MakeThickSolid mk;
+    mk.MakeThickSolidBySimple(base, front + back);
+    if (!mk.IsDone() || mk.Shape().IsNull())
+      throw std::runtime_error("the sheet can't be thickened; its open edges must form clean loops and its faces join edge to edge");
+    TopoDS_Shape solid = mk.Shape();
+    TopExp_Explorer ex(solid, TopAbs_SOLID);
+    if (!ex.More()) throw std::runtime_error("the thickened sheet does not close into a solid");
+    TopoDS_Solid one = TopoDS::Solid(ex.Current());
+    BRepLib::OrientClosedSolid(one);
+    if (!w3d_is_valid(one)) throw std::runtime_error("that thickness folds the sheet into itself; try a thinner one");
+    return std::unique_ptr<TopoDS_Shape>(new TopoDS_Shape(one));
   } catch (const Standard_Failure &f) {
     throw w3d_kernel_error(f);
   }

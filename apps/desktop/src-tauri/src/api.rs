@@ -1053,3 +1053,26 @@ pub fn commit_draft(m: &Model, req: DraftRequest) -> Result<Committed, ApiError>
         Ok(Committed { id, scene: bodies(doc)? })
     })
 }
+
+/// Thicken: a sheet body made solid, `front` along its faces' normals and `back` behind them.
+#[derive(Deserialize, Debug, Clone)]
+pub struct ThickenRequest {
+    pub body: BodyId,
+    pub front: f64,
+    #[serde(default)]
+    pub back: f64,
+}
+
+pub fn preview_thicken(m: &Model, req: ThickenRequest) -> Option<Result<Body, ApiError>> {
+    m.preview(move |doc| {
+        let solid = doc.preview_thicken(req.body, req.front, req.back)?;
+        Ok(body(&doc.kernel, req.body, &solid)?)
+    })
+}
+
+pub fn commit_thicken(m: &Model, req: ThickenRequest) -> Result<Committed, ApiError> {
+    m.call(move |doc| {
+        let id = doc.commit_thicken(req.body, req.front, req.back)?;
+        Ok(Committed { id, scene: bodies(doc)? })
+    })
+}
