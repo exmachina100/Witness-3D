@@ -98,7 +98,7 @@ a flat face imprints that face and is used up (round 10).
 | Fillet | Fillet, Fillet Shell (shell shape, Y-blend) | Fillet and chamfer done; variable radius and Fillet Shell missing |
 | Hollow and Thicken | Hollow, Thicken, Thicken Face | Hollow done (as Shell). Thicken done in both builds: a selected sheet body becomes a solid, D typing the front thickness (along its normals) and B the back; walls are ruled along its open edges. Thicken Face missing |
 | Imprint | Imprint, Imprint Body Body, Imprint Curve Body (method, complete, bidirectional, hide occluded) | Imprint Curve Body and Imprint Body Body done (both builds; curves projected along their plane normals, or where another solid meets the body, onto chosen faces or all faces); the projection options missing |
-| Join and Unjoin | Join, Join Sheets, Unjoin, Unjoin Faces, Unjoin Shells | Missing |
+| Join and Unjoin | Join, Join Sheets, Unjoin, Unjoin Faces, Unjoin Shells | Done in both builds: J joins selected sheets that meet edge to edge (within 0.01 mm) into one body, a solid when they close; Unjoin Faces makes each face of a body its own sheet and Unjoin Shells splits a body into its separate pieces (F search or Shift+F) |
 | Offset | Offset Edge, Offset Face (face-change grow, transform-face step), Offset Face Loop | Offset Face done (+ angle); grow, step, edge and loop missing |
 | Rebuild and Refine | Isoparam, Match Face (side option), Raise (Surface) Degree, Rebuild Face, Reverse Sheet | Missing |
 | Trim and Unwrap | Untrim, Unwrap Face | Missing |

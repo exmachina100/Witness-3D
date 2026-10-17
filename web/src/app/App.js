@@ -4547,9 +4547,26 @@ export async function mount(root, backend) {
       await showScene(list);
     } catch (e) { toast(say(e)); }
   }
-  /** Plasticity's Join Curves (J): the selected curves that meet end to end become one, which bounds a region when it closes. */
+  /**
+   * Plasticity's Join (J): the selected curves that meet end to end become one, which bounds a
+   * region when it closes; selected sheets that meet edge to edge become one body, a solid when
+   * they close.
+   */
   async function joinSelected() {
     if (cmd) await finish();
+    const sheets = sel.solids.filter(id => current.find(b => b.id === id)?.sheet);
+    if (!sel.curves.length && sel.solids.length > 1) {
+      if (sheets.length !== sel.solids.length) return toast('JOIN SHEETS; USE BOOLEAN TO JOIN SOLIDS');
+      if (!backend.commitJoinSheets) return toast('JOINING SHEETS IS NOT IN THIS BUILD YET');
+      try {
+        const { id, scene: list } = await backend.commitJoinSheets({ bodies: sheets });
+        record(`JOIN ${sheets.map(label).join(' ')}`, id);
+        await showScene(list);
+        sel.replace({ kind: 'solid', body: id });
+        selectionChanged({ quiet: true });
+      } catch (e) { toast(say(e)); }
+      return;
+    }
     const ids = sel.curves;
     if (ids.length < 2) return toast('SELECT TWO CURVES OR MORE TO JOIN');
     if (!backend.joinCurves) return toast('JOIN IS NOT IN THIS BUILD YET');
@@ -4559,6 +4576,21 @@ export async function mount(root, backend) {
       sel.clear();
       await loadCurves();
       for (const id of joined) sel.add({ kind: curveList.find(c => c.id === id && isClosed(c)) ? 'region' : 'curve', id });
+      selectionChanged({ quiet: true });
+    } catch (e) { toast(say(e)); }
+  }
+  /** Plasticity's Unjoin: the selected body taken apart into its faces (as sheets) or its separate pieces. */
+  async function unjoinSelected(faces) {
+    if (cmd) await finish();
+    const ids = targetBodies();
+    if (ids.length !== 1) return toast(ids.length ? 'UNJOIN ONE BODY AT A TIME' : 'SELECT A BODY TO UNJOIN');
+    if (!backend.commitUnjoin) return toast('UNJOIN IS NOT IN THIS BUILD YET');
+    try {
+      const { ids: pieces, scene: list } = await backend.commitUnjoin({ body: ids[0], faces });
+      record(`UNJOIN ${faces ? 'FACES' : 'SHELLS'} ${label(ids[0])} ×${pieces.length}`, pieces[0]);
+      await showScene(list);
+      sel.clear();
+      for (const id of pieces) sel.add({ kind: 'solid', body: id });
       selectionChanged({ quiet: true });
     } catch (e) { toast(say(e)); }
   }
@@ -4631,6 +4663,7 @@ export async function mount(root, backend) {
       }
       case 'export': if (arg === 'mesh') await startTool('export-mesh'); else exportSelected(); return true;
       case 'import': $('import').hidden ? toast('NOT IN THE BROWSER YET') : $('import').click(); return true;
+      case 'unjoin': await unjoinSelected(arg !== 'pieces'); return true;
     }
     switch (a) {
       case 'palette': openPalette(false); return true;
@@ -4674,6 +4707,8 @@ export async function mount(root, backend) {
     if (kinds.has('edge')) out.push('tool:fillet', 'tool:patch', 'measure:radius');
     if (sel.list('edge').length === 2) out.push('tool:bridge-surface');
     if (sel.solids.some(id => current.find(b => b.id === id)?.sheet)) out.push('tool:thicken');
+    if (sel.solids.length > 1 && sel.solids.every(id => current.find(b => b.id === id)?.sheet)) out.push('join');
+    if (sel.solids.length === 1) out.push('unjoin:faces', 'unjoin:pieces');
     if (sel.list('edge').some(e => current.find(b => b.id === e.body)?.sheet)) out.push('tool:extend-sheet');
     if (kinds.has('region')) out.push('tool:extrude', 'tool:revolve', 'tool:loft', 'tool:sweep');
     if (kinds.has('curve') || kinds.has('region')) {

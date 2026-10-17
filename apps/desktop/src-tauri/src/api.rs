@@ -1098,3 +1098,38 @@ pub fn commit_extend_sheet(m: &Model, req: ExtendSheetRequest) -> Result<Committ
         Ok(Committed { id, scene: bodies(doc)? })
     })
 }
+
+/// Join sheets: the bodies sewn into one where their open edges meet; closed, a solid.
+#[derive(Deserialize, Debug, Clone)]
+pub struct JoinSheetsRequest {
+    pub bodies: Vec<BodyId>,
+}
+
+pub fn preview_join_sheets(m: &Model, req: JoinSheetsRequest) -> Option<Result<Body, ApiError>> {
+    m.preview(move |doc| {
+        let joined = doc.preview_join_sheets(&req.bodies)?;
+        Ok(body(&doc.kernel, req.bodies[0], &joined)?)
+    })
+}
+
+pub fn commit_join_sheets(m: &Model, req: JoinSheetsRequest) -> Result<Committed, ApiError> {
+    m.call(move |doc| {
+        let id = doc.commit_join_sheets(&req.bodies)?;
+        Ok(Committed { id, scene: bodies(doc)? })
+    })
+}
+
+/// Unjoin: a body taken apart into its faces (`faces`) or its separate pieces.
+#[derive(Deserialize, Debug, Clone)]
+pub struct UnjoinRequest {
+    pub body: BodyId,
+    #[serde(default)]
+    pub faces: bool,
+}
+
+pub fn commit_unjoin(m: &Model, req: UnjoinRequest) -> Result<Duplicated, ApiError> {
+    m.call(move |doc| {
+        let ids = doc.commit_unjoin(req.body, req.faces)?;
+        Ok(Duplicated { ids, scene: bodies(doc)? })
+    })
+}

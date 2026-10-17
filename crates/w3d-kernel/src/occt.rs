@@ -333,6 +333,14 @@ impl Kernel for Occt {
         s.extend_sheet(edge as usize, distance).map_err(shim)
     }
 
+    fn join_sheets(&self, sheets: &[&Shape]) -> Result<Shape, KernelError> {
+        Shape::join_sheets(sheets, JOIN_TOLERANCE).map_err(shim)
+    }
+
+    fn unjoin(&self, s: &Shape, faces: bool) -> Result<Vec<Shape>, KernelError> {
+        s.unjoin(faces).map_err(shim)
+    }
+
     fn face_sheet(&self, s: &Shape, face: u32, size: f64) -> Result<Shape, KernelError> {
         s.face_sheet(face as usize, size).map_err(shim)
     }
@@ -439,6 +447,8 @@ fn nurbs_paths(v: &[f64]) -> Result<Vec<Path>, KernelError> {
 
 /// How far apart a patch's boundary pieces may be and still join, and a tenth of how far the patch may stray from them: within the 0.01 mm bar.
 const PATCH_TOLERANCE: f64 = 1e-3;
+/// How far apart sheet edges may be and still be joined: the 0.01 mm gap bar.
+const JOIN_TOLERANCE: f64 = 1e-2;
 
 fn cutter_numbers(cutters: &[(Path, DVec3)]) -> Result<Vec<f64>, KernelError> {
     let mut data = vec![cutters.len() as f64];
