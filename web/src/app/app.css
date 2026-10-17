@@ -50,7 +50,7 @@ button:focus-visible, input:focus-visible { outline: 1px solid var(--accent); ou
 .tabs button[aria-selected="true"] { background: var(--ink); color: var(--on-accent); }
 .list { flex: 1; overflow: auto; padding-bottom: 8px; }
 .group-title { padding: 12px 14px 6px; color: var(--muted); }
-.row-item { display: flex; gap: 10px; align-items: center; padding: 8px 14px; cursor: pointer; }
+.row-item { display: flex; gap: 10px; align-items: center; padding: 8px 14px; cursor: pointer; user-select: none; -webkit-user-select: none; }
 .row-item:hover { background: var(--hover); }
 .row-item[aria-current="true"] { color: var(--accent); background: rgba(255, 77, 0, 0.06); }
 .row-item .sq { width: 8px; height: 8px; border: 1px solid currentColor; flex: none; }
@@ -93,7 +93,18 @@ button:focus-visible, input:focus-visible { outline: 1px solid var(--accent); ou
 .keys span { color: var(--muted); }
 .toast { position: absolute; left: 50%; top: 12px; transform: translateX(-50%); padding: 4px 8px; border: 1px solid var(--accent); color: var(--accent); background: var(--ground); white-space: nowrap; }
 .loading { position: absolute; inset: 0; display: grid; place-items: center; background: var(--ground); color: var(--muted); }
-.loading[hidden], .toast[hidden], .snap-tag[hidden] { display: none; }
+.loading[hidden], .toast[hidden], .snap-tag[hidden], .isolated[hidden] { display: none; }
+.isolated { position: absolute; left: 50%; top: 40px; transform: translateX(-50%); display: flex; align-items: center; gap: 6px; padding: 4px 10px; border: 1px solid var(--accent); color: var(--on-accent); background: var(--accent); font-weight: 700; white-space: nowrap; }
+.isolated .ico { width: 14px; height: 14px; }
+.row-item .lk { color: var(--dim); padding: 0 2px; display: grid; place-items: center; }
+.row-item .lk[aria-pressed="true"] { color: var(--accent); }
+.row-item .lk .ico { width: 13px; height: 13px; }
+.row-item.locked .name { color: var(--muted); }
+.row-item.off .name { color: var(--dim); }
+.row-item.folder { padding-left: 14px; }
+.row-item.folder .tw { width: 10px; flex: none; color: var(--muted); }
+.row-item.folder.empty-group .name { color: var(--dim); }
+.row-item .name[contenteditable="true"] { user-select: text; -webkit-user-select: text; outline: 1px solid var(--accent); color: var(--ink); }
 .snap-tag { position: absolute; left: 14px; top: 40px; padding: 2px 6px; border: 1px solid var(--ink); color: var(--ink); background: var(--ground); font-size: 10px; pointer-events: none; }
 .sec > .label output { color: var(--accent); margin-left: 6px; }
 
