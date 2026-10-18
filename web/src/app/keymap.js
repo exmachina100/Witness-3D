@@ -164,7 +164,7 @@ export const ACTIONS = {
     'undo': 'Undo', 'redo': 'Redo', 'file:new': 'New', 'file:open': 'Open…', 'file:save': 'Save',
     'file:save-as': 'Save as…', 'file:save-version': 'Quick save version', 'file:export': 'Export…', 'file:recent': 'Recent files', 'app:quit': 'Quit', 'app:menu': 'File menu (P-Menu)',
     'radial:selection-mode': 'Radial menu: selection mode', 'radial:viewport-settings': 'Radial menu: viewport settings',
-    'export:step': 'Export STEP', 'export:mesh': 'Export mesh (OBJ, STL)', 'export:drawing': 'Export drawing (SVG, DXF)', 'import:step': 'Import STEP',
+    'export:step': 'Export STEP', 'export:mesh': 'Export mesh (OBJ, STL)', 'export:drawing': 'Export drawing (SVG, DXF)', 'import:step': 'Import (STEP, IGES, DXF)',
 };
 
 /** The key bound to an action, for display ('SHIFT X'), or ''. */
