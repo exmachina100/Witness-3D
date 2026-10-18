@@ -597,6 +597,175 @@ function flipShape(c) {
     }
 }
 
+// --- Rebuild Curve ----------------------------------------------------------------------------------
+
+/** The values of the `count` B-spline basis functions of degree `p` on `knots` at `t`. */
+function basisAll(knots, p, count, t) {
+    let k = p;
+    while (k < count - 1 && t >= knots[k + 1]) k++;
+    const N = new Array(p + 1).fill(0), L = [], R = [];
+    N[0] = 1;
+    for (let j = 1; j <= p; j++) {
+        L[j] = t - knots[k + 1 - j]; R[j] = knots[k + j] - t;
+        let saved = 0;
+        for (let r = 0; r < j; r++) {
+            const den = R[r + 1] + L[j - r], tmp = den ? N[r] / den : 0;
+            N[r] = saved + R[r + 1] * tmp;
+            saved = L[j - r] * tmp;
+        }
+        N[j] = saved;
+    }
+    const out = new Array(count).fill(0);
+    for (let j = 0; j <= p; j++) out[k - p + j] = N[j];
+    return out;
+}
+
+/** Solve A x = B for x (B has two columns), by Gaussian elimination with partial pivoting. */
+function solve2(A, B) {
+    const n = A.length, M = A.map((r, i) => [...r, ...B[i]]);
+    for (let c = 0; c < n; c++) {
+        let piv = c;
+        for (let r = c + 1; r < n; r++) if (Math.abs(M[r][c]) > Math.abs(M[piv][c])) piv = r;
+        if (Math.abs(M[piv][c]) < 1e-14) throw new Error('too many control points for this curve: try fewer');
+        [M[c], M[piv]] = [M[piv], M[c]];
+        for (let r = 0; r < n; r++) {
+            if (r === c) continue;
+            const f = M[r][c] / M[c][c];
+            if (f) for (let k = c; k < n + 2; k++) M[r][k] -= f * M[c][k];
+        }
+    }
+    return M.map((r, i) => [r[n] / r[i], r[n + 1] / r[i]]);
+}
+
+/** Least-squares poles for basis rows `rows` (one per sample) against samples `Q`, with poles in `fixed` held. */
+function fitPoles(rows, Q, count, fixed) {
+    const free = [...Array(count).keys()].filter(i => !fixed.has(i));
+    const at = new Map(free.map((i, j) => [i, j]));
+    const A = free.map(() => new Array(free.length).fill(0)), B = free.map(() => [0, 0]);
+    rows.forEach((N, k) => {
+        let r = Q[k];
+        for (const [i, P] of fixed) if (N[i]) r = sub(r, mul(P, N[i]));
+        for (const i of free) {
+            if (!N[i]) continue;
+            const a = at.get(i);
+            B[a][0] += N[i] * r[0]; B[a][1] += N[i] * r[1];
+            for (const j of free) if (N[j]) A[a][at.get(j)] += N[i] * N[j];
+        }
+    });
+    const x = free.length ? solve2(A, B) : [];
+    return [...Array(count).keys()].map(i => fixed.get(i) ?? x[at.get(i)]);
+}
+
+/** Chord-length parameters in [0, 1] of the points (the last back at the first when `closed`). */
+function chordParams(pts) {
+    const d = [0];
+    for (let i = 1; i < pts.length; i++) d.push(d[i - 1] + dist(pts[i], pts[i - 1]));
+    const total = d.at(-1);
+    if (!(total > EPS)) throw new Error('that curve has no length');
+    return d.map(v => v / total);
+}
+
+/**
+ * Knot insertion (Boehm): the same NURBS curve with `u` added to its knots once more, so it has one
+ * more control point and traces exactly the same points.
+ */
+export function insertKnot(c, u) {
+    const { degree: p, knots } = c;
+    let k = p;
+    while (k < c.poles.length - 1 && u >= knots[k + 1]) k++;
+    const hom = c.poles.map((q, i) => [q[0] * c.weights[i], q[1] * c.weights[i], q[2] * c.weights[i], c.weights[i]]);
+    const out = [];
+    for (let i = 0; i <= hom.length; i++) {
+        if (i <= k - p) out.push(hom[i]);
+        else if (i > k) out.push(hom[i - 1]);
+        else {
+            const den = knots[i + p] - knots[i], a = den ? (u - knots[i]) / den : 0;
+            out.push(hom[i].map((v, m) => a * v + (1 - a) * hom[i - 1][m]));
+        }
+    }
+    return { ...c, poles: out.map(([x, y, z, w]) => [x / w, y / w, z / w]), weights: out.map(h => h[3]), knots: [...knots.slice(0, k + 1), u, ...knots.slice(k + 1)] };
+}
+
+/**
+ * Plasticity's Rebuild Curve: the curve refitted as one smooth NURBS curve with `count` control
+ * points of degree `degree`, by least squares on points along it. Open curves keep their ends; a
+ * closed curve comes back closed and smooth all round (a periodic fit, then clamped at its start).
+ * Returns the curve and `deviation`, the furthest the new curve strays from the old, in mm.
+ */
+export function rebuildCurve(c, count = 8, degree = 3) {
+    const p = Math.round(degree), n = Math.round(count);
+    if (!(p >= 1 && p <= 7)) throw new Error('the degree is from 1 to 7');
+    const { points, closed } = samples(c, 256);
+    let Q, t;
+    if (c.kind === 'nurbs' && !closed) {
+        // Keep a NURBS curve's own parameters, so a curve rebuilt as itself comes back unchanged.
+        const k0 = c.knots[c.degree], k1 = c.knots[c.poles.length], per = Math.ceil(Math.max(256, 8 * n) / (c.poles.length - c.degree));
+        const pts = nurbsPoints(c, per);
+        t = [];
+        for (let k = c.degree; k < c.poles.length; k++) {
+            const a = c.knots[k], b = c.knots[k + 1];
+            if (!(b > a)) continue;
+            for (let i = t.length ? 1 : 0; i <= per; i++) t.push((a + (b - a) * i / per - k0) / (k1 - k0));
+        }
+        Q = pts.map(([x, y]) => [x, y]);
+    } else {
+        Q = resample(dedupe(closed ? [...points, points[0]] : points), Math.max(256, 8 * n));
+        t = chordParams(Q);
+    }
+    let shape;
+    if (!closed) {
+        if (n < p + 1) throw new Error(`a degree ${p} curve needs at least ${p + 1} control points`);
+        // Knots by averaging the parameters (The NURBS Book, eq. 9.69), so every span holds samples.
+        const d = Q.length / (n - p), inner = [];
+        for (let j = 1; j < n - p; j++) { const i = Math.floor(j * d), a = j * d - i; inner.push((1 - a) * t[i - 1 < 0 ? 0 : i - 1] + a * t[i]); }
+        const knots = [...Array(p + 1).fill(0), ...inner, ...Array(p + 1).fill(1)];
+        const rows = t.map(u => basisAll(knots, p, n, u));
+        const P = fitPoles(rows, Q, n, new Map([[0, Q[0]], [n - 1, Q.at(-1)]]));
+        shape = { kind: 'nurbs', degree: p, poles: P.map(([x, y]) => [x, y, 0]), weights: P.map(() => 1), knots };
+    } else {
+        if (n < p + 1 || n < 3) throw new Error(`a closed degree ${p} curve needs at least ${Math.max(3, p + 1)} control points`);
+        // A uniform periodic B-spline: poles wrap round, so the seam is as smooth as the rest.
+        const knots = Array.from({ length: n + 2 * p + 1 }, (_, j) => (j - p) / n);
+        const rows = t.slice(0, -1).map(u => {
+            const N = basisAll(knots, p, n + p, Math.min(u, 1 - 1e-12)), w = new Array(n).fill(0);
+            N.forEach((v, i) => { w[i % n] += v; });
+            return w;
+        });
+        const P = fitPoles(rows, Q.slice(0, -1), n, new Map());
+        let s = { kind: 'nurbs', degree: p, poles: [...P, ...P.slice(0, p)].map(([x, y]) => [x, y, 0]), weights: new Array(n + p).fill(1), knots };
+        // Clamp at 0 and 1: insert each to multiplicity p, then keep the poles between.
+        for (const u of [0, 1]) while (s.knots.filter(k => Math.abs(k - u) < 1e-12).length < p) s = insertKnot(s, u);
+        const a = s.knots.findIndex(k => Math.abs(k) < 1e-12), b = s.knots.findLastIndex(k => Math.abs(k - 1) < 1e-12);
+        const poles = s.poles.slice(a - 1, b - p + 1);
+        poles[poles.length - 1] = [...poles[0]];
+        shape = { kind: 'nurbs', degree: p, poles, weights: poles.map(() => 1), knots: [0, ...s.knots.slice(a, b + 1).map(k => Math.abs(k) < 1e-12 ? 0 : Math.abs(k - 1) < 1e-12 ? 1 : k), 1] };
+    }
+    const fitted = nurbsPoints(shape, 32).map(([x, y]) => [x, y]);
+    let deviation = 0;
+    for (const q of points) {
+        let best = Infinity;
+        for (let i = 0; i < fitted.length - 1; i++) best = Math.min(best, segDist(q, fitted[i], fitted[i + 1]));
+        deviation = Math.max(deviation, best);
+    }
+    return { curve: withShape(c, shape), deviation };
+}
+/** `count` points evenly spaced along the polyline, its ends kept, so every span has samples. */
+function resample(pts, count) {
+    if (pts.length < 2) throw new Error('that curve has no length');
+    const t = chordParams(pts), out = [];
+    for (let i = 0, k = 0; i < count; i++) {
+        const u = i / (count - 1);
+        while (k < pts.length - 2 && t[k + 1] < u) k++;
+        const span = t[k + 1] - t[k], a = span > 0 ? Math.min(1, Math.max(0, (u - t[k]) / span)) : 0;
+        out.push(add(pts[k], mul(sub(pts[k + 1], pts[k]), a)));
+    }
+    return out;
+}
+function segDist(q, a, b) {
+    const ab = sub(b, a), l2 = dot2(ab, ab), s = l2 ? Math.max(0, Math.min(1, dot2(sub(q, a), ab) / l2)) : 0;
+    return dist(q, add(a, mul(ab, s)));
+}
+
 // --- Trim -----------------------------------------------------------------------------------------
 
 const v3 = { sub: (a, b) => a.map((v, i) => v - b[i]), dot: (a, b) => a.reduce((s, v, i) => s + v * b[i], 0) };

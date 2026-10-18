@@ -66,7 +66,7 @@ import { icon } from './icons.js';
 import { limitEdges, toObj, toStl } from '../meshExport.js';
 import { flatten, toDxf, toSvg } from '../drawingExport.js';
 import { readDxf } from '../dxf.js';
-import { BRIDGE_CONTINUITY, bridgeContinuous, continuity, curvatureComb, curveVertices, explode, EXTEND_SHAPES, extendCurve, filletCurve, nearestEnd, OFFSET_CORNERS, offsetCurve, offsetSlot, offsetThrough, unionLoops, moveVertices, alignedInPlane, offsetVertex, reverseCurve, splitCurve, tangentCircle, trim } from '../curveEdit.js';
+import { BRIDGE_CONTINUITY, bridgeContinuous, continuity, curvatureComb, curveVertices, explode, EXTEND_SHAPES, extendCurve, filletCurve, nearestEnd, OFFSET_CORNERS, offsetCurve, offsetSlot, offsetThrough, unionLoops, moveVertices, alignedInPlane, offsetVertex, rebuildCurve, reverseCurve, splitCurve, tangentCircle, trim } from '../curveEdit.js';
 import { ViewGizmo } from './ViewGizmo.js';
 import { Toolbar } from './Toolbar.js';
 import { arcPoints, circleThrough, cvPoints, ellipsePoints, endTangent, helixPoints, loops, nurbsLoop, nurbsPoints, polygonCorners, spiralAngle, tangentArc } from '../curves.js';
@@ -102,6 +102,7 @@ const KEYS = {
   spiral: [['CLICK', 'AXIS START · END · RADIUS'], ['X Y Z', 'AXIS'], ['A', 'ANGLE'], ['D', 'LENGTH'], ['R', 'RADIUS'], ['⏎ / RMB', 'OK']],
   'offset-vertex': [['DRAG DOT', 'DISTANCE'], ['D', 'DISTANCE'], ['⏎ / RMB', 'OK']],
   'align-vertex': [['X / Y / Z', 'AXIS'], ['V', 'VALUE'], ['⏎ / RMB', 'OK']],
+  rebuild: [['C', 'CONTROL POINTS'], ['D', 'DEGREE'], ['⏎ / RMB', 'OK']],
   'fillet-vertex': [['DRAG DOT', 'IN ROUND · OUT CHAMFER'], ['D', 'FILLET DISTANCE'], ['C', 'CHAMFER DISTANCE'], ['⏎ / RMB', 'OK']],
   'offset-curve': [['DRAG DOT', 'DISTANCE'], ['D', 'DISTANCE'], ['V / C', 'GAP FILL'], ['S', 'BOTH SIDES'], ['F', 'FREESTYLE: CLICK'], ['O', 'SLOT'], ['I', 'COMBINED'], ['⏎ / RMB', 'OK']],
   'fillet-curve': [['D', 'RADIUS'], ['TYPE', 'IN PANEL'], ['⏎ / RMB', 'OK']],
@@ -151,7 +152,7 @@ const CLICKS = { rect: 2, 'center-rect': 2, rect3: 3, circle: 2, circle2: 2, cir
 const FORMS = { revolve: true, loft: true, sweep: true };
 const PRIMS = { box: true, 'center-box': true, box3: true, cylinder: true, sphere: true };
 // Commands that aren't tools in the registry (they act on a click, not on settings).
-const EDITS = { 'offset-vertex': 'OFFSET VERTEX', 'fillet-vertex': 'FILLET VERTEX', 'align-vertex': 'ALIGN VERTEX', material: 'SET MATERIAL', 'export-mesh': 'EXPORT MESH', 'export-drawing': 'EXPORT DRAWING', 'measure-continuity': 'MEASURE CONTINUITY', trim: 'TRIM', extend: 'EXTEND CURVE', 'tangent-circle': 'TANGENT CIRCLE', split: 'SPLIT CURVE', 'measure-distance': 'MEASURE DISTANCE', 'measure-radius': 'MEASURE RADIUS' };
+const EDITS = { 'offset-vertex': 'OFFSET VERTEX', 'fillet-vertex': 'FILLET VERTEX', 'align-vertex': 'ALIGN VERTEX', rebuild: 'REBUILD CURVE', material: 'SET MATERIAL', 'export-mesh': 'EXPORT MESH', 'export-drawing': 'EXPORT DRAWING', 'measure-continuity': 'MEASURE CONTINUITY', trim: 'TRIM', extend: 'EXTEND CURVE', 'tangent-circle': 'TANGENT CIRCLE', split: 'SPLIT CURVE', 'measure-distance': 'MEASURE DISTANCE', 'measure-radius': 'MEASURE RADIUS' };
 const keysHtml = id => KEYS[id].map(([k, v]) => `<kbd>${k}</kbd><span>${v}</span>`).join('');
 // The Command Bar, exactly the manual's list (Plasticity Essentials › Command Bar).
 const BAR = [['palette', 'F', 'SEARCH'], ['tool:move', 'G', 'MOVE'], ['tool:rotate', 'R', 'ROTATE'], ['tool:scale', 'S', 'SCALE'], ['duplicate', '⇧D', 'DUPLICATE'], ['tool:boolean', 'Q', 'BOOLEAN'], ['tool:rect-array', '', 'RECTANGULAR ARRAY'], ['tool:radial-array', '', 'RADIAL ARRAY'], ['suggest', '⇧F', 'SUGGESTED COMMANDS']];
@@ -336,6 +337,11 @@ const SHELL = `
         <button data-avaxis="z" aria-pressed="false" title="They share one z (height)"><kbd>Z</kbd>Z</button>
       </div>
       <div class="field"><label for="w3d-av-v">VALUE</label><input id="w3d-av-v" data-id="av-v" type="number" step="0.5" value="0"></div>
+    </div>
+    <div class="sec" data-panel="rebuild" hidden>
+      <span class="hint" data-id="rb-hint">—</span>
+      <div class="field"><label for="w3d-rb-n">CONTROL POINTS</label><input id="w3d-rb-n" data-id="rb-n" type="number" step="1" min="2" max="64" value="8"></div>
+      <div class="field"><label for="w3d-rb-p">DEGREE</label><input id="w3d-rb-p" data-id="rb-p" type="number" step="1" min="1" max="7" value="3"></div>
     </div>
     <div class="sec" data-panel="fillet-vertex" hidden>
       <span class="hint" data-id="fv-hint">—</span>
@@ -3635,6 +3641,66 @@ export async function mount(root, backend) {
     setAxis('x');
   }
 
+  /**
+   * Plasticity's Rebuild Curve: refit the selected curves as smooth NURBS curves with a set number
+   * of control points and degree. The new control polygon shows while you set them, and the hint
+   * gives how far the new curve strays from the old.
+   */
+  const hullDots = new THREE.PointsMaterial({ color: COLORS.accent, size: 6, sizeAttenuation: false });
+  async function startRebuild() {
+    if (cmd) await finish();
+    if (!backend.replaceCurves) return toast('REBUILD IS NOT IN THIS BUILD YET');
+    const ids = sel.curves.filter(curveById);
+    if (!ids.length) return toast('SELECT A CURVE TO REBUILD');
+    const c = cmd = { id: 'rebuild', out: null };
+    lastTool = 'rebuild';
+    showTool('rebuild');
+    setState('none');
+    setTarget(ids.length > 1 ? `${ids.length} CURVES` : curveLabel(ids[0]));
+    const first = curveById(ids[0]);
+    $('rb-n').value = first.kind === 'nurbs' ? first.poles.length - (isClosed(first) ? 1 : 0) : first.kind === 'cv' ? first.points.length : 8;
+    $('rb-p').value = first.kind === 'nurbs' ? first.degree : 3;
+    c.preview = () => {
+      clearPreview();
+      const n = num('rb-n'), p = num('rb-p');
+      try {
+        if (!Number.isInteger(n) || !Number.isInteger(p)) throw new Error('type whole numbers');
+        const made = ids.map(id => rebuildCurve(curveById(id), n, p));
+        c.out = made.map(m => m.curve);
+        showCurvePreview(c.out);
+        for (const r of c.out) {
+          const f = curveFrame(r), hull = r.poles.map(([x, y]) => lift(f, { x, y }, 0.03));
+          previewGroup.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints(hull), curveMat.normal));
+          previewGroup.add(new THREE.Points(new THREE.BufferGeometry().setFromPoints(hull), hullDots));
+        }
+        const dev = Math.max(...made.map(m => m.deviation));
+        $('rb-hint').textContent = `MAX DEVIATION ${dev < 0.001 ? dev.toExponential(1) : dev.toFixed(3)} MM`;
+        setHud(`REBUILD ${n} POINTS · DEGREE ${p}`);
+        setState('updated');
+      } catch (e) { c.out = null; $('rb-hint').textContent = say(e); setHud('REBUILD FAILED'); setState('failed'); }
+    };
+    c.key = action => {
+      const field = action === 'count' ? 'rb-n' : action === 'degree' ? 'rb-p' : null;
+      if (!field) return false;
+      const label = action === 'count' ? 'CONTROL POINTS' : 'DEGREE';
+      c.entry = { label, text: '', apply: v => { $(field).value = v; c.preview(); } };
+      setHud(`${label} _`);
+      return true;
+    };
+    c.finish = async () => {
+      if (!c.out) return toast($('rb-hint').textContent);
+      try {
+        const { ids: made } = await backend.replaceCurves(ids, c.out);
+        endCmd('committed');
+        record(`REBUILD ${ids.map(curveLabel).join(' ')}`, made[0], `${num('rb-n')} POINTS · DEGREE ${num('rb-p')}`);
+        await curvesChanged(made);
+      } catch (e) { setState('failed'); toast(say(e)); }
+    };
+    c.abort = () => endCmd('cancelled');
+    c.cleanup = () => clearPreview();
+    c.preview();
+  }
+
   /** Plasticity's Trim: click pieces of curves to cut them away where other curves cross them. */
   function startTrim() {
     if (!backend.replaceCurves) return toast('TRIM IS NOT IN THIS BUILD YET');
@@ -5688,6 +5754,7 @@ export async function mount(root, backend) {
       case 'explode': await explodeSelected(); return true;
       case 'reverse': await reverseSelected(); return true;
       case 'align-vertex': await startAlignVertex(); return true;
+      case 'rebuild': await startRebuild(); return true;
       case 'hide': setHidden(sel.bodies, true); return true;
       case 'hide-others': setHidden(current.map(b => b.id).filter(id => !sel.bodies.includes(id)), true); return true;
       case 'unhide-all': setHidden([...org.hidden], false); return true;
@@ -5847,7 +5914,7 @@ export async function mount(root, backend) {
       out.push('trim', 'split', 'extend', 'tool:offset-curve', 'tool:fillet-curve');
       if (sel.curves.length === 2) out.push('tool:bridge');
       if (sel.curves.length > 1) out.push('join');
-      out.push('explode', 'reverse', 'measure:continuity', 'delete');
+      out.push('explode', 'reverse', 'rebuild', 'measure:continuity', 'delete');
     }
     // Curve vertices: Fillet Vertex (B), Offset Vertex and, with two ends, Bridge Vertex.
     if (kinds.has('vertex')) out.push('tool:fillet', 'tool:offset-curve', 'align-vertex', ...(sel.list('vertex').length === 2 ? ['tool:bridge'] : []));
@@ -6223,6 +6290,7 @@ export async function mount(root, backend) {
   $('dr-hidden').onclick = () => cmd?.id === 'export-drawing' && cmd.key('hidden');
   $('dr-curves').onclick = () => cmd?.id === 'export-drawing' && cmd.key('curves');
   $('av-v').addEventListener('input', () => cmd?.id === 'align-vertex' && cmd.preview());
+  for (const id of ['rb-n', 'rb-p']) $(id).addEventListener('input', () => cmd?.id === 'rebuild' && cmd.preview());
   for (const b of $$('[data-avaxis]')) b.onclick = () => cmd?.id === 'align-vertex' && cmd.setAxis(b.dataset.avaxis);
   for (const id of ['oc-d', 'fc-r', 'ov-d', 'fv-r']) $(id).addEventListener('input', () => ['offset-curve', 'fillet-curve', 'offset-vertex', 'fillet-vertex'].includes(cmd?.id) && cmd.preview());
   $('br-start').onclick = () => cmd?.id === 'bridge' && cmd.cycleEnd(0);
