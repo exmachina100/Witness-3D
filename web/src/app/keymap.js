@@ -44,7 +44,7 @@ export const VIEWPORT = {
     // Sketching (manual: Line is Shift+A; 0.6.30 for the rectangle and circle, which 26.1 leaves unbound)
     'shift-q': 'draw:rect', 'shift-w': 'draw:circle', 'shift-a': 'draw:line',
     'shift-x': 'delete', 'shift-delete': 'delete', 'shift-backspace': 'delete',
-    'shift-d': 'duplicate',
+    'shift-d': 'duplicate', 'alt-d': 'alt-duplicate',
     // Place (manual: Ctrl+D)
     'ctrl-d': 'place',
     // Dimension (manual: =)
@@ -179,7 +179,7 @@ export const ACTIONS = {
     'mode:solid': 'Selection mode: solids', 'mode:all': 'Selection mode: all',
     'convert:edge': 'Convert selection to edges', 'convert:face': 'Convert selection to faces', 'convert:solid': 'Convert selection to solids',
     'select:all': 'Select all', 'select:none': 'Deselect all', 'select:invert': 'Invert selection',
-    'repeat': 'Repeat last command', 'ask': 'Ask for a command in words', 'delete': 'Delete', 'duplicate': 'Duplicate',
+    'repeat': 'Repeat last command', 'ask': 'Ask for a command in words', 'delete': 'Delete', 'duplicate': 'Duplicate', 'alt-duplicate': 'Alternative duplicate onto the plane',
     'hide': 'Hide selected', 'hide-others': 'Hide unselected', 'unhide-all': 'Unhide all', 'invert-hidden': 'Invert hidden',
     'isolate': 'Isolate selected', 'unisolate': 'Unisolate', 'group': 'Group selected', 'ungroup': 'Ungroup',
     'lock': 'Lock selected', 'unlock-all': 'Unlock all',

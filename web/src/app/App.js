@@ -61,6 +61,7 @@ import { Selection, faceEdges } from './Selection.js';
 import { edgeOffsetsBothSides, edgeOffsetsOnFace, faceLoopOffsets } from '../edgeOffset.js';
 import { curveArrayMotions } from '../curveArray.js';
 import { curveDimensions, faceDimensions, solidDimensions } from '../dimension.js';
+import { edgeCurve, flattenCurve } from '../altDuplicate.js';
 import { Organise } from './Organise.js';
 import { P_MENU, RADIALS, mergeKeys, parseRadial, shortLabel, showKey, sliceAt, slicePosition } from './menus.js';
 import { ENVIRONMENTS, SHADERS, SHADER_OPTIONS, checkMaterial, formatMass, massOf, newMaterial, shader } from './shading.js';
@@ -6833,6 +6834,35 @@ export async function mount(root, backend) {
       startTransform('move', { follow: 'screen' });
     } catch (e) { toast(say(e)); }
   }
+  /**
+   * Plasticity's Alternative Duplicate / Duplicate Curve and Project (Alt+D): the selected curves and
+   * edges copied flat onto the construction plane as new curves, then the Move gizmo to place them.
+   */
+  async function altDuplicate() {
+    if (cmd) await finish();
+    if (!backend.addCurves) return toast('DRAWING IS NOT IN THIS BUILD YET');
+    const plane = { origin: cplane.origin.toArray(), x: frameFor(cplane.normal).toArray(), normal: cplane.normal.toArray() };
+    const out = [];
+    for (const id of sel.curves.filter(curveById)) {
+      const src = curveById(id), f = curveFrame(src);
+      out.push(flattenCurve(src, plane, curve2d(src).map(p => lift(f, p).toArray())));
+    }
+    for (const e of sel.list('edge')) {
+      const xyz = bodyOf(e.body)?.edges[e.n];
+      if (!xyz) continue;
+      const pts = [];
+      for (let i = 0; i + 2 < xyz.length; i += 3) pts.push([xyz[i], xyz[i + 1], xyz[i + 2]]);
+      out.push(edgeCurve(pts, plane));
+    }
+    const made = out.filter(Boolean);
+    if (!made.length) return toast(out.length ? 'NOTHING TO COPY: THOSE RUN STRAIGHT DOWN ONTO THE PLANE' : 'SELECT CURVES OR EDGES TO DUPLICATE ONTO THE PLANE');
+    try {
+      const { ids } = await backend.addCurves(made);
+      record(`ALTERNATIVE DUPLICATE ×${ids.length} ONTO ${cplane.name}`, ids[0], curveLabel(ids[0]));
+      await curvesChanged(ids);
+      startTransform('move');
+    } catch (e) { setState('failed'); toast(say(e)); }
+  }
   function setHidden(ids, hide) {
     org.setHidden(ids, hide);
     organised();
@@ -6953,6 +6983,7 @@ export async function mount(root, backend) {
       case 'repeat': if (lastTool) await startTool(lastTool); else toast('NO COMMAND TO REPEAT'); return true;
       case 'delete': await deleteSelected(); return true;
       case 'duplicate': await duplicateSelected(); return true;
+      case 'alt-duplicate': await altDuplicate(); return true;
       case 'join': await joinSelected(); return true;
       case 'trim': await startTool('trim'); return true;
       case 'extend': await startTool('extend'); return true;
@@ -7121,7 +7152,7 @@ export async function mount(root, backend) {
     if (sel.solids.length === 2) out.push('tool:project');
     if (kinds.has('solid')) out.push('tool:move', 'tool:rotate', 'tool:scale', 'duplicate', 'place', 'dimension', 'tool:mirror', 'tool:rect-array', 'tool:radial-array', 'tool:curve-array', 'unify', 'boundary-edges', 'remove-fillets', 'raise-degree', 'delete', 'hide', 'isolate', 'group', 'lock', 'material:set', 'export:step', 'export:mesh', 'export:drawing');
     if (kinds.has('face')) out.push('tool:extrude', 'tool:offset', 'tool:thicken', 'tool:shell', 'tool:hole', 'tool:remove-face', 'remove-fillets', 'isoparam', 'rebuild', 'raise-degree', 'match-face', 'untrim', 'unwrap', 'plane:selection', 'plane:selection-keep-view');
-    if (kinds.has('edge')) out.push('tool:fillet', 'tool:patch', 'measure:radius', 'view:surface-curvature');
+    if (kinds.has('edge')) out.push('tool:fillet', 'tool:patch', 'alt-duplicate', 'measure:radius', 'view:surface-curvature');
     if (sel.list('edge').length === 2) out.push('tool:bridge-surface');
     if (sel.solids.some(id => current.find(b => b.id === id)?.sheet)) out.push('tool:thicken', 'reverse-sheet');
     if (sel.solids.length > 1 && sel.solids.every(id => current.find(b => b.id === id)?.sheet)) out.push('join');
@@ -7131,7 +7162,7 @@ export async function mount(root, backend) {
     if (kinds.has('curve') || kinds.has('region')) {
       if (kinds.has('solid')) out.push('tool:project', 'tool:cut', 'tool:imprint');
       if (sel.curves.length === 2) out.push('tool:project');
-      out.push('tool:patch', 'tool:pipe');
+      out.push('tool:patch', 'tool:pipe', 'alt-duplicate');
       if (kinds.has('face')) out.push('tool:imprint');
       if (kinds.has('face')) out.push('tool:draft');
       out.push('trim', 'split', 'extend', 'tool:offset-curve', 'slot', 'tool:fillet-curve');
