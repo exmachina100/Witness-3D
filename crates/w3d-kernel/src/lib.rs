@@ -410,6 +410,11 @@ pub trait Kernel {
     fn raise_faces(&self, _s: &Self::Solid, _faces: &[u32]) -> Result<(Self::Solid, Vec<RebuiltFace>), KernelError> {
         Err(KernelError::Invalid("this kernel cannot raise the degree of faces"))
     }
+    /// Plasticity's Match Face: `faces` of the solid replaced by the surface of `target`'s face
+    /// `tface`, the body grown out to it or cut back to it.
+    fn match_faces(&self, _s: &Self::Solid, _faces: &[u32], _target: &Self::Solid, _tface: u32) -> Result<Self::Solid, KernelError> {
+        Err(KernelError::Invalid("this kernel cannot match faces"))
+    }
     /// Extend Sheet's Limit: the sheet carried on past its open `edge` until it first meets `target`.
     fn extend_sheet_to(&self, _s: &Self::Solid, _edge: u32, _target: &Self::Solid, _shape: SheetExtension) -> Result<Self::Solid, KernelError> {
         Err(KernelError::Invalid("this kernel cannot extend sheets to a body"))

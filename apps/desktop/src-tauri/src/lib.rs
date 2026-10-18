@@ -298,6 +298,24 @@ async fn commit_unjoin(
 }
 
 #[tauri::command]
+async fn preview_match_faces(
+    model: State<'_, Model>,
+    req: api::MatchFacesRequest,
+) -> Result<Option<api::Body>, api::ApiError> {
+    on_model(&model, move |m| api::preview_match_faces(m, req))
+        .await?
+        .transpose()
+}
+
+#[tauri::command]
+async fn commit_match_faces(
+    model: State<'_, Model>,
+    req: api::MatchFacesRequest,
+) -> Result<api::Committed, api::ApiError> {
+    on_model(&model, move |m| api::commit_match_faces(m, req)).await?
+}
+
+#[tauri::command]
 async fn commit_raise_faces(
     model: State<'_, Model>,
     req: api::RaiseFacesRequest,
@@ -719,6 +737,8 @@ pub fn run() {
             preview_join_sheets,
             commit_join_sheets,
             commit_unjoin,
+            preview_match_faces,
+            commit_match_faces,
             commit_raise_faces,
             preview_rebuild_faces,
             commit_rebuild_faces,

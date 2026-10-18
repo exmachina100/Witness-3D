@@ -14,6 +14,7 @@ import { projectOutline } from '../Outline.js';
 import { thicken, thickenFaces } from '../Thicken.js';
 import { extendSheet, extendSheetTo } from '../ExtendSheet.js';
 import { raiseFaces, rebuildFaces } from '../rebuildFace.js';
+import { matchFaces } from '../matchFace.js';
 import { joinSheets, unjoin } from '../Join.js';
 import { hiddenLines } from '../Drawing.js';
 
@@ -648,6 +649,25 @@ export class LocalBackend {
 
     previewRebuildFaces(req) {
         return this.latest(async () => { const { shape, rebuilt } = this.rebuildResult(req); return { ...this.body(req.body, shape), rebuilt }; });
+    }
+
+    /** Plasticity's Match Face: `faces` of `body` replaced by the surface of face `tface` of body `target`. */
+    matchResult({ body, faces, target, tface }) {
+        const s = this.shapes.get(body), t = this.shapes.get(target);
+        if (!s) throw new Error('that body no longer exists');
+        if (!t) throw new Error('the target body no longer exists');
+        if (target === body && faces.includes(tface)) throw new Error('match the faces to another face, not one of themselves');
+        return matchFaces(s, faces, t, tface);
+    }
+
+    previewMatchFaces(req) { return this.latest(async () => this.body(req.body, this.matchResult(req))) }
+
+    /** Match Face as one undo step: the body keeps its id. */
+    async commitMatchFaces(req) {
+        const shape = this.matchResult(req);
+        this.checkpoint();
+        this.put(req.body, shape);
+        return { id: req.body, scene: this.bodies() };
     }
 
     /** Plasticity's Raise Surface Degree as one undo step: `faces` of `body`, or all of them. */

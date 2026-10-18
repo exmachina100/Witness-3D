@@ -390,6 +390,11 @@ impl Kernel for Occt {
         Ok((made, info))
     }
 
+    fn match_faces(&self, s: &Shape, faces: &[u32], target: &Shape, tface: u32) -> Result<Shape, KernelError> {
+        let idx: Vec<usize> = faces.iter().map(|&f| f as usize).collect();
+        s.match_faces(&idx, target, tface as usize).map_err(shim)
+    }
+
     fn raise_faces(&self, s: &Shape, faces: &[u32]) -> Result<(Shape, Vec<RebuiltFace>), KernelError> {
         let idx: Vec<usize> = faces.iter().map(|&f| f as usize).collect();
         let made = s.raise_faces(&idx).map_err(shim)?;
