@@ -58,7 +58,7 @@ import { MagnitudeGizmo, typed } from '../MagnitudeGizmo.js';
 import { TOOLS, check, tool as toolInfo, withDefaults } from './tools.js';
 import { ACTIONS, COMMAND, VIEWPORT, keyFor, keyOf } from './keymap.js';
 import { Selection, faceEdges } from './Selection.js';
-import { edgeOffsetsOnFace, faceLoopOffsets } from '../edgeOffset.js';
+import { edgeOffsetsBothSides, edgeOffsetsOnFace, faceLoopOffsets } from '../edgeOffset.js';
 import { curveArrayMotions } from '../curveArray.js';
 import { Organise } from './Organise.js';
 import { P_MENU, RADIALS, mergeKeys, parseRadial, shortLabel, showKey, sliceAt, slicePosition } from './menus.js';
@@ -130,7 +130,7 @@ const KEYS = {
   bridge: [['T / D', 'TENSION'], ['TAB', 'CONTINUITY G0 G1 G2'], ['⏎ / RMB', 'OK']],
   trim: [['CLICK', 'PIECE TO CUT AWAY'], ['CTRL Z', 'UNDO ONE'], ['ESC / ⏎', 'DONE']],
   'insert-knot': [['CLICK', 'ADD A CONTROL POINT'], ['ESC / ⏎', 'DONE']],
-  'offset-edge': [['D', 'DISTANCE'], ['−', 'OTHER FACE'], ['V', 'GAP FILL'], ['⏎ / RMB', 'OK']],
+  'offset-edge': [['D', 'DISTANCE'], ['−', 'OTHER FACE'], ['S', 'BOTH SIDES'], ['V', 'GAP FILL'], ['⏎ / RMB', 'OK']],
   box: [['CLICK', 'CORNER · CORNER · HEIGHT'], ['C', 'FROM CENTRE'], ['S', 'SQUARE'], ['TAB', 'TYPE'], ['H', 'HEIGHT'], ['Q W ⇧E ⇧Q', 'BOOLEAN'], ['B', 'NEW BODY'], ['⏎ / RMB', 'OK']],
   'center-box': [['CLICK', 'CENTRE · CORNER · HEIGHT'], ['C', 'FROM CORNER'], ['S', 'SQUARE'], ['TAB', 'TYPE'], ['H', 'HEIGHT'], ['Q W ⇧E ⇧Q', 'BOOLEAN'], ['B', 'NEW BODY'], ['⏎ / RMB', 'OK']],
   box3: [['CLICK', 'CORNER · SIDE · WIDTH · HEIGHT'], ['X Y Z', 'AXIS'], ['TAB', 'TYPE'], ['Q W ⇧E ⇧Q', 'BOOLEAN'], ['B', 'NEW BODY'], ['⏎ / RMB', 'OK']],
@@ -334,6 +334,7 @@ const SHELL = `
       <div class="field"><label for="w3d-oe-d">DISTANCE</label><input id="w3d-oe-d" data-id="oe-d" type="number" step="0.5" value="2"></div>
       <span class="label">GAP FILL</span>
       <div class="chips"><button data-oecorner="linear" aria-pressed="true">LINEAR</button><button data-oecorner="round" aria-pressed="false">ROUND</button><button data-oecorner="natural" aria-pressed="false">NATURAL</button></div>
+      <div class="chips"><button data-id="oe-both" aria-pressed="false" title="Offset onto both faces of the edge at once"><kbd>S</kbd>BOTH SIDES</button></div>
     </div>
     <div class="sec" data-panel="offset-vertex" hidden>
       <span class="hint" data-id="ov-hint">—</span>
@@ -3708,7 +3709,8 @@ export async function mount(root, backend) {
   /**
    * Plasticity's Offset Edge (edges picked) and Offset Face Loop (a face picked), on one flat face:
    * the edges moved across the face by the distance and imprinted there, splitting the face. For an
-   * edge between two flat faces, a negative distance goes onto the other face. V cycles the gap fill.
+   * edge between two flat faces, a negative distance goes onto the other face and S offsets onto
+   * both at once. V cycles the gap fill.
    */
   function startEdgeOffset() {
     if (!backend.previewImprint) return toast('OFFSET EDGE IS NOT IN THIS BUILD YET');
@@ -3721,7 +3723,7 @@ export async function mount(root, backend) {
     // The flat faces the picked edges all lie on: those an edge offset can run across.
     const sides = loop ? [picked[0]] : body.facePlanes.map((_, f) => f).filter(f => flat(f) !== null && picked.every(n => faceEdges(body, f).includes(n)));
     if (!sides.length) return toast('PICK EDGES THAT ALL BORDER ONE FLAT FACE');
-    const c = cmd = { id: 'offset-edge', body: id, corner: 'linear', shapes: null, face: null, sent: 0, shown: 0 };
+    const c = cmd = { id: 'offset-edge', body: id, corner: 'linear', both: false, shapes: null, faces: [], sent: 0, shown: 0 };
     lastTool = 'offset-edge';
     showTool('offset-edge');
     setState('none');
@@ -3736,18 +3738,31 @@ export async function mount(root, backend) {
       const d = num('oe-d');
       try {
         if (!Number.isFinite(d) || Math.abs(d) < 1e-9) throw new Error('type a distance');
-        c.face = d < 0 && sides.length > 1 ? sides[1] : sides[0];
-        const edges = faceEdges(body, c.face);
-        c.shapes = loop ? faceLoopOffsets(body, c.face, edges, d, c.corner) : edgeOffsetsOnFace(body, c.face, edges, picked, Math.abs(d), c.corner);
+        if (c.both) {
+          if (loop || sides.length < 2) throw new Error('both sides works on edges between two flat faces');
+          c.faces = sides.slice(0, 2);
+          c.shapes = edgeOffsetsBothSides(body, sides[0], sides[1], f => faceEdges(body, f), picked, Math.abs(d));
+        } else {
+          const face = d < 0 && sides.length > 1 ? sides[1] : sides[0];
+          const edges = faceEdges(body, face);
+          c.faces = [face];
+          c.shapes = loop ? faceLoopOffsets(body, face, edges, d, c.corner) : edgeOffsetsOnFace(body, face, edges, picked, Math.abs(d), c.corner);
+        }
       } catch (e) { c.shapes = null; $('oe-hint').textContent = say(e); setState('failed'); return; }
       showCurvePreview(c.shapes);
-      $('oe-hint').textContent = `${c.shapes.length} ${loop ? 'LOOP' : 'OFFSET'}${c.shapes.length > 1 ? 'S' : ''} ON FACE ${c.face}${sides.length > 1 ? ' · − FOR THE OTHER FACE' : ''}`;
-      livePreview(c, () => backend.previewImprint(c.request()), b => { showPreviewBody(b); showCurvePreview(c.shapes); setHud(`${loop ? 'OFFSET FACE LOOP' : 'OFFSET EDGE'} ${d} MM · ${c.corner.toUpperCase()}`); }, 'oe-hint');
+      $('oe-hint').textContent = `${c.shapes.length} ${loop ? 'LOOP' : 'OFFSET'}${c.shapes.length > 1 ? 'S' : ''} ON FACE${c.faces.length > 1 ? 'S' : ''} ${c.faces.join(' AND ')}${sides.length > 1 && !c.both ? ' · − FOR THE OTHER FACE, S FOR BOTH' : ''}`;
+      livePreview(c, () => backend.previewImprint(c.request()), b => { showPreviewBody(b); showCurvePreview(c.shapes); setHud(`${loop ? 'OFFSET FACE LOOP' : 'OFFSET EDGE'} ${d} MM · ${c.both ? 'BOTH SIDES' : c.corner.toUpperCase()}`); }, 'oe-hint');
     };
-    c.request = () => ({ body: c.body, faces: [c.face], curves: [], tools: { shapes: c.shapes } });
+    c.request = () => ({ body: c.body, faces: c.faces, curves: [], tools: { shapes: c.shapes } });
     c.setCorner = setCorner;
+    c.setBoth = on => {
+      c.both = on;
+      $('oe-both').setAttribute('aria-pressed', String(on));
+      c.preview();
+    };
     c.key = action => {
       if (action === 'corner') { setCorner(OFFSET_CORNERS[(OFFSET_CORNERS.indexOf(c.corner) + 1) % OFFSET_CORNERS.length]); return true; }
+      if (action === 'both') { c.setBoth(!c.both); return true; }
       if (action !== 'distance') return false;
       c.entry = { label: 'DISTANCE', text: '', apply: v => { $('oe-d').value = v; c.preview(); } };
       setHud('DISTANCE _');
@@ -3758,7 +3773,7 @@ export async function mount(root, backend) {
       try {
         const { id: made, scene: list } = await backend.commitImprint(c.request());
         endCmd('committed');
-        record(`${loop ? 'OFFSET FACE LOOP' : 'OFFSET EDGE'} ${num('oe-d')} MM`, made);
+        record(`${loop ? 'OFFSET FACE LOOP' : 'OFFSET EDGE'} ${num('oe-d')} MM${c.both ? ' BOTH SIDES' : ''}`, made);
         await showScene(list);
         sel.replace({ kind: 'solid', body: made });
         selectionChanged({ quiet: true });
@@ -6602,6 +6617,7 @@ export async function mount(root, backend) {
   for (const id of ['rb-n', 'rb-p']) $(id).addEventListener('input', () => cmd?.id === 'rebuild' && cmd.preview());
   $('oe-d').addEventListener('input', () => cmd?.id === 'offset-edge' && cmd.preview());
   for (const b of $$('[data-oecorner]')) b.onclick = () => cmd?.id === 'offset-edge' && cmd.setCorner(b.dataset.oecorner);
+  $('oe-both').onclick = () => cmd?.id === 'offset-edge' && cmd.setBoth(!cmd.both);
   for (const b of $$('[data-avaxis]')) b.onclick = () => cmd?.id === 'align-vertex' && cmd.setAxis(b.dataset.avaxis);
   for (const id of ['oc-d', 'fc-r', 'ov-d', 'fv-r']) $(id).addEventListener('input', () => ['offset-curve', 'fillet-curve', 'offset-vertex', 'fillet-vertex'].includes(cmd?.id) && cmd.preview());
   $('br-start').onclick = () => cmd?.id === 'bridge' && cmd.cycleEnd(0);

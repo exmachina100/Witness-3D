@@ -111,7 +111,7 @@ export const COMMAND = {
     'offset-curve': { d: 'distance', c: 'corner', v: 'corner', s: 'lock', f: 'freestyle', o: 'slot', i: 'combine' },
     'offset-vertex': { d: 'distance' },
     // Offset Edge / Offset Face Loop (manual: D distance, V gap fill)
-    'offset-edge': { d: 'distance', v: 'corner' },
+    'offset-edge': { d: 'distance', v: 'corner', s: 'both' },
     'fillet-vertex': { d: 'distance', c: 'chamfer' },
     'align-vertex': { x: 'x', y: 'y', z: 'z', v: 'value' },
     extend: { s: 'shape' },
