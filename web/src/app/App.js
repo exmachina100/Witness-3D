@@ -68,6 +68,7 @@ import { icon } from './icons.js';
 import { limitEdges, toObj, toStl } from '../meshExport.js';
 import { flatten, toDxf, toSvg } from '../drawingExport.js';
 import { readDxf } from '../dxf.js';
+import { distanceToFace } from '../dependentOffset.js';
 import { BRIDGE_CONTINUITY, bridgeContinuous, continuity, curvatureComb, curveVertices, explode, EXTEND_SHAPES, extendCurve, filletCurve, nearestEnd, OFFSET_CORNERS, offsetCurve, offsetSlot, offsetThrough, unionLoops, moveVertices, alignedInPlane, offsetVertex, rebuildCurve, convertVertices, insertKnotAt, raiseDegree, reverseCurve, transformCurve, moveVerticesTo, splitCurve, tangentCircle, trim } from '../curveEdit.js';
 import { ViewGizmo } from './ViewGizmo.js';
 import { Toolbar } from './Toolbar.js';
@@ -82,7 +83,7 @@ const KEYS = {
   scale: [['S', 'UNIFORM'], ['CTRL', '0.1'], ['⏎ / RMB', 'OK']],
   extrude: [['DRAG DOT', 'DISTANCE'], ['D', 'DISTANCE'], ['F', 'FREESTYLE: CLICK START · END'], ['V', 'PIVOT: CLICK'], ['I', 'INDIVIDUAL'], ['A', 'ANGLE'], ['⇧T', 'THICKNESS'], ['S', 'BOTH SIDES'], ['Q', 'UNION'], ['W', 'DIFFERENCE'], ['⇧E', 'INTERSECT'], ['⇧Q', 'SLICE'], ['B', 'NEW BODY'], ['⏎ / RMB', 'OK']],
   boolean: [['Q', 'UNION'], ['W', 'DIFFERENCE'], ['⇧E', 'INTERSECT'], ['⇧Q', 'SLICE'], ['T', 'KEEP TOOLS'], ['⏎ / RMB', 'OK']],
-  offset: [['DRAG DOT', 'DISTANCE'], ['D', 'DISTANCE'], ['A', 'ANGLE ADJACENT'], ['TAB', 'GROW MODE'], ['⇧ CLICK', 'FACES'], ['⏎ / RMB', 'OK']],
+  offset: [['DRAG DOT', 'DISTANCE'], ['D', 'DISTANCE'], ['A', 'ANGLE ADJACENT'], ['TAB', 'GROW MODE'], ['⇧ CLICK', 'FACES'], ['ALT+CLICK', 'A FACE TO MATCH'], ['⏎ / RMB', 'OK']],
   revolve: [['CLICK', 'AXIS START · END'], ['A', 'ANGLE'], ['⇧T', 'THICKNESS'], ['Q', 'UNION'], ['W', 'DIFFERENCE'], ['⇧E', 'INTERSECT'], ['B', 'NEW BODY'], ['⏎ / RMB', 'OK']],
   loft: [['CLICK', 'GUIDES (OPTIONAL)'], ['⏎ / RMB', 'OK'], ['ESC', 'CANCEL']],
   sweep: [['CLICK', 'PATH · THEN A GUIDE'], ['M', 'GUIDE METHOD'], ['N', 'ALIGNMENT'], ['D', 'TWIST'], ['Q', 'UNION'], ['W', 'DIFFERENCE'], ['⇧E', 'INTERSECT'], ['B', 'NEW BODY'], ['⏎ / RMB', 'OK']],
@@ -3333,6 +3334,16 @@ export async function mount(root, backend) {
     };
     c.click = e => {
       const hit = pickAt(e);
+      // Dependent offset: Alt-click another face and the offset runs to meet it.
+      if (hit?.kind === 'face' && e.altKey && !(hit.body === c.body && c.faces.includes(hit.n))) {
+        const f = faceFrame(bodyOf(c.body), c.faces.at(-1));
+        const d = f && distanceToFace(bodyOf(hit.body), hit.n, f.at.toArray(), f.normal.toArray());
+        if (d == null) { toast('THAT FACE IS NOT IN LINE WITH THE OFFSET FACE'); return true; }
+        c.auto = false;
+        setOffsetDistance(Math.abs(d) < 1e-9 ? 0 : d, false);
+        $('off-hint').textContent = `MATCHING ${label(hit.body)} · ${fmt(d)}`;
+        return true;
+      }
       if (hit?.kind !== 'face' || !(e.ctrlKey || e.metaKey || e.shiftKey)) return !c.auto;
       sel.toggle({ kind: 'face', body: hit.body, n: hit.n });
       for (const x of sel.list('solid')) sel.remove(x);
