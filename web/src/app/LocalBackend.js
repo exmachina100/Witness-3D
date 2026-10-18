@@ -252,7 +252,7 @@ export class LocalBackend {
     }
 
     /** Offset Face. This build has no per-face offset, so flat faces are pushed by joining or cutting slabs. */
-    offset({ body, faces, distance, angle = 0 }) {
+    offset({ body, faces, distance, angle = 0, grow = 'moving' }) {
         const shape = this.shapes.get(body);
         if (!shape) throw new Error('that body no longer exists');
         if (!faces?.length) throw new Error('select at least one face');
@@ -261,7 +261,7 @@ export class LocalBackend {
         if (Math.abs(distance) < 1e-9 && Math.abs(angle) < 1e-9) return null;
         if (faces.some(f => !facePlane(shape, f))) throw new Error('the browser demo offsets flat faces only; the desktop app offsets any face');
         const picked = [...new Set(faces)];
-        let r = Math.abs(distance) < 1e-9 ? null : offsetFlatFaces(shape, picked, distance, booleanWithHistory, chain);
+        let r = Math.abs(distance) < 1e-9 ? null : offsetFlatFaces(shape, picked, distance, booleanWithHistory, chain, grow);
         if (Math.abs(angle) < 1e-9) return r;
         // Then the adjacent angle (A) on what the picked faces became.
         const now = r ? picked.flatMap(f => r.history.faces[0].filter(([a]) => a === f).map(([, b]) => b)) : picked;

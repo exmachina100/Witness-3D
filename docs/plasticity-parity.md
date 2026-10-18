@@ -99,7 +99,7 @@ a flat face imprints that face and is used up (round 10).
 | Hollow and Thicken | Hollow, Thicken, Thicken Face | Hollow done (as Shell). Thicken done in both builds: a selected sheet body becomes a solid, D typing the front thickness (along its normals) and B the back; walls are ruled along its open edges (on the desktop, faces meeting at an angle are joined at the corner; the browser still uses the simple offset there). Thicken Face done in both builds: faces picked on a solid (Alt+click) become a solid of their own, front out of the body and back into it, the ends cut where the other faces lie and corners joined; faces of a sheet are copied out and thickened; the body stays |
 | Imprint | Imprint, Imprint Body Body, Imprint Curve Body (method, complete, bidirectional, hide occluded) | Imprint Curve Body and Imprint Body Body done (both builds; curves projected along their plane normals, or where another solid meets the body, onto chosen faces or all faces); the projection options missing |
 | Join and Unjoin | Join, Join Sheets, Unjoin, Unjoin Faces, Unjoin Shells | Done in both builds: J joins selected sheets that meet edge to edge (within 0.01 mm) into one body, a solid when they close; Unjoin Faces makes each face of a body its own sheet and Unjoin Shells splits a body into its separate pieces (F search or Shift+F) |
-| Offset | Offset Edge, Offset Face (face-change grow, transform-face step), Offset Face Loop | Offset Face done (+ angle); grow, step, edge and loop missing |
+| Offset | Offset Edge, Offset Face (face-change grow, transform-face step), Offset Face Loop | Offset Face done (+ angle) with its Tab grow modes in both builds: an inner flat face pushed out past the body's outer wall takes the wall along (Moving), stops at it (Fixed) or carries on past it (None). Dependent offset (match a second face), step, edge and loop missing |
 | Rebuild and Refine | Isoparam, Match Face (side option), Raise (Surface) Degree, Rebuild Face, Reverse Sheet | Missing |
 | Trim and Unwrap | Untrim, Unwrap Face | Missing |
 | Display and Analysis | Find Boundary Edges, Toggle Surface Curvature | Missing |
@@ -165,4 +165,3 @@ Quality bar for every feature, reported with numbers when missed:
 - Every operation in the three test workflows (enclosure, mirror housing, handle) succeeds on the
   benchmark models; a failure shows a message and leaves the model as it was
 
-Also still open from earlier rounds: Offset Face Tab.

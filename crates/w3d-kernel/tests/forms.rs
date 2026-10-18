@@ -57,11 +57,11 @@ fn offset_face_moves_the_top_and_keeps_its_refs() {
     );
     let top_ref = doc.refs(a).unwrap().faces[top[0] as usize];
     close(
-        volume(&doc.kernel, &doc.preview_offset(a, &top, -5.0, 0.0).unwrap()),
+        volume(&doc.kernel, &doc.preview_offset(a, &top, -5.0, 0.0, Grow::Moving).unwrap()),
         80.0 * 25.0 * 50.0,
         1e-3,
     );
-    doc.commit_offset(a, &top, 5.0, 0.0).unwrap();
+    doc.commit_offset(a, &top, 5.0, 0.0, Grow::Moving).unwrap();
     let s = doc.get(a).unwrap();
     close(volume(&doc.kernel, s), 80.0 * 35.0 * 50.0, 1e-3);
     assert_eq!(doc.kernel.face_count(s), 6);
@@ -470,4 +470,36 @@ fn forms_from_drawn_regions_join_or_cut_the_body_they_sit_on() {
     assert!(doc.undo());
     assert!(doc.undo());
     close(volume(&doc.kernel, doc.get(a).unwrap()), 120_000.0, 1e-3);
+}
+
+/// A step: a 10 wide, 20 tall block with a 20 long, 5 tall ledge beyond it (all 20 deep). The
+/// block's inner wall over the ledge, at x = 10, is the concave face the grow modes are about.
+fn step(k: &Occt) -> Shape {
+    let tall = k.box_from_corners(DVec3::ZERO, DVec3::new(10.0, 20.0, 20.0));
+    let ledge = k.box_from_corners(DVec3::new(10.0, 0.0, 0.0), DVec3::new(30.0, 20.0, 5.0));
+    k.boolean(&tall, &ledge, BooleanOp::Union).unwrap().solid
+}
+
+#[test]
+fn offset_face_grow_modes_past_the_outer_wall() {
+    let k = Occt;
+    let body = step(&k);
+    let wall = faces_facing(&k, &body, DVec3::new(10.0, 0.0, 0.0), DVec3::X);
+    assert_eq!(wall.len(), 1);
+    let start = volume(&k, &body);
+    close(start, 10.0 * 20.0 * 20.0 + 20.0 * 20.0 * 5.0, 0.5);
+    let grown = |d: f64, g: Grow| volume(&k, &offset_faces_grow(&k, &body, &wall, d, 0.0, g).unwrap().solid);
+    // Short of the outer wall (20 away) the modes agree: the block widens over the ledge.
+    for g in [Grow::Moving, Grow::Fixed, Grow::None] {
+        close(grown(8.0, g), start + 8.0 * 20.0 * 15.0, 0.5);
+    }
+    // 25 out: Fixed stops at the wall, so the block fills the ledge to x = 30.
+    close(grown(25.0, Grow::Fixed), 30.0 * 20.0 * 20.0, 0.5);
+    // None carries on by itself: the block overhangs to x = 35, the ledge still ends at x = 30.
+    close(grown(25.0, Grow::None), 30.0 * 20.0 * 20.0 + 5.0 * 20.0 * 15.0, 0.5);
+    // Moving takes the wall along: everything ends at x = 35.
+    close(grown(25.0, Grow::Moving), 35.0 * 20.0 * 20.0, 0.5);
+    let moved = offset_faces_grow(&k, &body, &wall, 25.0, 0.0, Grow::Moving).unwrap().solid;
+    assert!(k.is_valid(&moved));
+    assert_eq!(k.face_count(&moved), 6, "a plain block");
 }

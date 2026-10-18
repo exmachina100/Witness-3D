@@ -16,7 +16,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::blend::{blend, BlendParams};
 use crate::extrude::{extrude, ExtrudeParams, ExtrudeResult, Operation};
-use crate::form::{form, offset_faces, FormKind, FormParams};
+use crate::form::{form, offset_faces_grow, FormKind, FormParams, Grow};
 use crate::solids::{ArraySpec, Primitive};
 use crate::{BooleanOp, Frame, History, Kernel, KernelError, Motion, Path, Profile, Segment, Traced};
 
@@ -639,15 +639,15 @@ impl<K: Kernel> Document<K> {
     }
 
     /// Compute an Offset Face without changing the document.
-    pub fn preview_offset(&self, body: BodyId, faces: &[u32], distance: f64, angle: f64) -> Result<K::Solid, KernelError> {
+    pub fn preview_offset(&self, body: BodyId, faces: &[u32], distance: f64, angle: f64, grow: Grow) -> Result<K::Solid, KernelError> {
         let solid = self.get(body).ok_or(KernelError::Invalid("that body no longer exists"))?;
-        Ok(offset_faces(&self.kernel, solid, faces, distance, angle)?.solid)
+        Ok(offset_faces_grow(&self.kernel, solid, faces, distance, angle, grow)?.solid)
     }
 
     /// Run an Offset Face as one undoable step; faces and edges keep their refs.
-    pub fn commit_offset(&mut self, body: BodyId, faces: &[u32], distance: f64, angle: f64) -> Result<BodyId, KernelError> {
+    pub fn commit_offset(&mut self, body: BodyId, faces: &[u32], distance: f64, angle: f64, grow: Grow) -> Result<BodyId, KernelError> {
         let solid = self.get(body).ok_or(KernelError::Invalid("that body no longer exists"))?;
-        let t = offset_faces(&self.kernel, solid, faces, distance, angle)?;
+        let t = offset_faces_grow(&self.kernel, solid, faces, distance, angle, grow)?;
         self.checkpoint();
         self.replace_traced(body, t);
         Ok(body)

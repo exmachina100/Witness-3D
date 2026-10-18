@@ -72,8 +72,8 @@ export const COMMAND = {
     // (manual: A angle, Shift+T thickness, S lock both sides, Shift+Q slice)
     extrude: { f: 'freestyle', v: 'pivot', i: 'individual', d: 'distance', a: 'angle', 'shift-t': 'thickness', s: 'lock', q: 'union', w: 'difference', 'shift-e': 'intersect', 'shift-q': 'slice', b: 'new' },
     boolean: { q: 'union', w: 'difference', 'shift-e': 'intersect', 'shift-q': 'slice', t: 'keep' },
-    // Offset Face (manual: D distance; its A angle and Tab grow modes are not here yet)
-    offset: { d: 'distance', a: 'angle' },
+    // Offset Face (manual: D distance, A angle adjacent, Tab grow mode)
+    offset: { d: 'distance', a: 'angle', tab: 'grow' },
     // Revolve and Sweep (manual: A angle, Shift+T thickness, D twist, Q W Shift+E B as in Extrude)
     revolve: { a: 'angle', 'shift-t': 'thickness', q: 'union', w: 'difference', 'shift-e': 'intersect', b: 'new' },
     sweep: { m: 'method', n: 'align', d: 'twist', q: 'union', w: 'difference', 'shift-e': 'intersect', b: 'new' },

@@ -508,11 +508,33 @@ export function pipe(path, radius, thickness = 0, sides = 0) {
     return thickness > 1e-9 ? boolean(outer, tube(radius - thickness), 'difference') : outer;
 }
 
-/** Flat faces pushed out (positive) or in; each face's slab is joined or cut. */
-export function offsetFlatFaces(shape, faces, distance, booleanWithHistory, chain) {
+/**
+ * Flat faces pushed out (positive) or in; each face's slab is joined or cut. Pushed out past the
+ * body's outer wall beyond it, `grow` (Offset Face's Tab, as document.rs) stops the slab at the wall
+ * ('fixed'), lets it carry on ('none'), or pushes the wall's faces out with it ('moving').
+ */
+export function offsetFlatFaces(shape, faces, distance, booleanWithHistory, chain, grow = 'moving') {
+    const o = oc();
     let s = shape, history = null;
+    const points = [];
+    for (const ex = new o.TopExp_Explorer(shape, o.TopAbs_ShapeEnum.TopAbs_VERTEX, o.TopAbs_ShapeEnum.TopAbs_SHAPE); ex.More(); ex.Next()) {
+        const p = o.BRep_Tool.Pnt(o.TopoDS.Vertex(ex.Current()));
+        points.push(new THREE.Vector3(p.X(), p.Y(), p.Z()));
+    }
+    const planes = Array.from({ length: count(shape, 'TopAbs_FACE') }, (_, j) => facePlane(shape, j));
     // Later faces keep their numbers only until the first boolean, so take their slabs up front.
-    const slabs = faces.map(f => extrudeFace(shape, f, distance));
+    const slabs = [];
+    for (const f of faces) {
+        const p = planes[f];
+        const wall = distance > 0 ? Math.max(0, ...points.map(q => q.clone().sub(p.origin).dot(p.normal))) : 0;
+        const past = wall > 1e-6 && distance >= wall - 1e-6;
+        slabs.push(extrudeFace(shape, f, past && grow === 'fixed' ? wall : distance));
+        if (past && grow === 'moving' && distance > wall + 1e-6) {
+            planes.forEach((q, g) => {
+                if (q && q.normal.dot(p.normal) > 1 - 1e-9 && Math.abs(q.origin.clone().sub(p.origin).dot(p.normal) - wall) < 1e-5) slabs.push(extrudeFace(shape, g, distance - wall));
+            });
+        }
+    }
     for (const slab of slabs) {
         const r = booleanWithHistory(s, slab, distance > 0 ? 'union' : 'difference');
         history = history ? chain(history, r.history) : r.history;
@@ -522,7 +544,7 @@ export function offsetFlatFaces(shape, faces, distance, booleanWithHistory, chai
     // desktop, so it keeps its ref.
     const moved = [];
     for (const f of faces) {
-        const p = facePlane(shape, f), at = p.origin.clone().addScaledVector(p.normal, distance);
+        const p = planes[f], at = p.origin.clone().addScaledVector(p.normal, distance);
         for (let j = 0; j < count(s, 'TopAbs_FACE'); j++) {
             const q = facePlane(s, j);
             if (q && q.normal.dot(p.normal) > 1 - 1e-9 && Math.abs(q.origin.clone().sub(at).dot(p.normal)) < 1e-6) moved.push([f, j]);
