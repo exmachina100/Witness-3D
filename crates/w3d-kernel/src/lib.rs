@@ -500,6 +500,8 @@ pub trait Kernel {
     fn edge_angles(&self, _s: &Self::Solid) -> Vec<f64> { Vec::new() }
     /// Per numbered face, the surface it lies on when Dimension can size it.
     fn face_surfaces(&self, _s: &Self::Solid) -> Vec<FaceSurface> { Vec::new() }
+    /// Per numbered face, its surface's control points as rows (u slowest); empty where it has none.
+    fn face_poles(&self, _s: &Self::Solid) -> Vec<Vec<Vec<DVec3>>> { Vec::new() }
     /// What `rounded` (the body with a round) took off `body`, kept only on the side each plane
     /// (a point and the normal pointing to the side kept) faces: a fillet's limit points.
     fn round_piece(&self, _body: &Self::Solid, _rounded: &Self::Solid, _a: (DVec3, DVec3), _b: (DVec3, DVec3)) -> Result<Self::Solid, KernelError> {

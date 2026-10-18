@@ -198,6 +198,8 @@ const ICONS = {
     'alt-duplicate': `<path d="M3 20l4-4h14l-4 4z"/><path d="M8 6c2-3 6-3 8 0"/><path ${A} d="M9 17c2-2 4-2 6 0M12 8v6M10 12l2 2 2-2"/>`,
     // Create Outline: a block with its outline drawn round it.
     'create-outline': `<path d="M5 9l7-4 7 4v7l-7 4-7-4z" stroke-dasharray="2 2"/><path ${A} d="M5 9l7-4 7 4M5 9v7l7 4 7-4V9"/>`,
+    // Toggle Points: a curve with its control net and points.
+    'toggle-points': `<path d="M4 18C7 6 17 6 20 18"/><path ${A} d="M4 18L8 7l8 0 4 11" stroke-dasharray="2 2"/><path ${A} d="M4 18h0M8 7h0M16 7h0M20 18h0" stroke-width="3.5" stroke-linecap="round"/>`,
     // Place: a copy set down on a surface from a reference point.
     place: `<path d="M2 20h20"/><rect x="3" y="4" width="6" height="6"/><rect ${A} x="13" y="12" width="8" height="8"/><path ${A} d="M9 7c4 0 7 1 8 5"/>`,
     'place-normal': `<path d="M3 19h18"/><path ${A} d="M12 19V5M9 8l3-3 3 3"/>`,

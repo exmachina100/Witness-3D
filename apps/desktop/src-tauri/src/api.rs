@@ -1604,6 +1604,11 @@ pub fn commit_place(m: &Model, req: PlaceRequest) -> Result<Duplicated, ApiError
     })
 }
 
+/// Toggle Points: each face's control points, as rows of [x, y, z] (u slowest).
+pub fn face_poles(m: &Model, req: FaceSurfacesRequest) -> Result<Vec<Vec<Vec<[f64; 3]>>>, ApiError> {
+    m.call(move |doc| Ok(doc.face_poles(req.body)?.into_iter().map(|rows| rows.into_iter().map(|r| r.into_iter().map(|p| p.to_array()).collect()).collect()).collect()))
+}
+
 /// Dimension: what each face of a body lies on, with its size.
 #[derive(Deserialize, Debug, Clone)]
 pub struct FaceSurfacesRequest {

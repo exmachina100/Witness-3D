@@ -1213,6 +1213,11 @@ impl<K: Kernel> Document<K> {
     }
 
     /// Per face of a body, the surface it lies on (Dimension's sizes).
+    /// Toggle Points: each face's control points, as rows.
+    pub fn face_poles(&self, body: BodyId) -> Result<Vec<Vec<Vec<DVec3>>>, KernelError> {
+        Ok(self.kernel.face_poles(self.get(body).ok_or(KernelError::Invalid("that body no longer exists"))?))
+    }
+
     pub fn face_surfaces(&self, body: BodyId) -> Result<Vec<crate::FaceSurface>, KernelError> {
         Ok(self.kernel.face_surfaces(self.get(body).ok_or(KernelError::Invalid("that body no longer exists"))?))
     }
