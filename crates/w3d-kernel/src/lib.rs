@@ -346,8 +346,9 @@ pub trait Kernel {
     fn thicken_faces(&self, _s: &Self::Solid, _faces: &[u32], _front: f64, _back: f64) -> Result<Self::Solid, KernelError> {
         Err(KernelError::Invalid("this kernel cannot thicken faces"))
     }
-    /// Plasticity's Extend Sheet: the sheet grown `distance` past its open `edge`, carrying straight on.
-    fn extend_sheet(&self, _s: &Self::Solid, _edge: u32, _distance: f64) -> Result<Self::Solid, KernelError> {
+    /// Plasticity's Extend Sheet: the sheet grown `distance` past its open `edge`, carrying straight on
+    /// (Linear) or, when `natural`, bending on with the surface's curvature (Natural).
+    fn extend_sheet(&self, _s: &Self::Solid, _edge: u32, _distance: f64, _natural: bool) -> Result<Self::Solid, KernelError> {
         Err(KernelError::Invalid("this kernel cannot extend sheets"))
     }
     /// Plasticity's Join for sheets: the sheets sewn where their open edges meet into one body; a

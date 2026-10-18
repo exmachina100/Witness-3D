@@ -2139,7 +2139,7 @@ inline int w3d_iso_side(const TopoDS_Edge &edge, const TopoDS_Face &face, double
 // Plasticity's Extend Sheet: the sheet grown `distance` past its open edge `index`, carrying on
 // in a straight line from the face (linear). An edge along a side of the face's surface extends
 // that surface (GeomLib); a straight edge of a flat face extends the plane with a strip.
-inline std::unique_ptr<TopoDS_Shape> w3d_extend_sheet(const TopoDS_Shape &shape, int32_t index, double distance) {
+inline std::unique_ptr<TopoDS_Shape> w3d_extend_sheet(const TopoDS_Shape &shape, int32_t index, double distance, bool natural) {
   if (!std::isfinite(distance) || !(distance > 1e-6)) throw std::runtime_error("the distance must be above zero");
   TopTools_IndexedMapOfShape map;
   TopExp::MapShapes(shape, TopAbs_EDGE, map);
@@ -2163,7 +2163,8 @@ inline std::unique_ptr<TopoDS_Shape> w3d_extend_sheet(const TopoDS_Shape &shape,
     if (side >= 0 && untrimmed) {
       Handle(Geom_Surface) surface = BRep_Tool::Surface(face);
       Handle(Geom_BoundedSurface) bs = GeomConvert::SurfaceToBSplineSurface(new Geom_RectangularTrimmedSurface(surface, u0, u1, v0, v1));
-      GeomLib::ExtendSurfByLength(bs, distance, 1, side < 2, side % 2 == 1);
+      // Linear carries the side's tangent on (C1); Natural its curvature too (C2).
+      GeomLib::ExtendSurfByLength(bs, distance, natural ? 2 : 1, side < 2, side % 2 == 1);
       BRepBuilderAPI_MakeFace mk(bs, 1e-7);
       if (!mk.IsDone()) throw std::runtime_error("the extended surface could not be made into a face");
       grown = mk.Face();

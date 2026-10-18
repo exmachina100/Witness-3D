@@ -131,7 +131,7 @@ export const COMMAND = {
     thicken: { d: 'front', b: 'back' },
     // Pipe: R radius, T wall thickness, V sides.
     pipe: { r: 'radius', t: 'thickness', v: 'sides' },
-    'extend-sheet': { d: 'distance' },
+    'extend-sheet': { d: 'distance', tab: 'shape' },
     // Export drawing: H leaves hidden lines out (or back in), C the curves.
     'export-drawing': { h: 'hidden', c: 'curves' },
     // Draft Face: A types the angle.

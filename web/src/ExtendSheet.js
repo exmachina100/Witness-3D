@@ -9,6 +9,7 @@
 import * as THREE from 'three';
 import { numbered, numberedEdges, oc } from './Kernel.js';
 import { isSheet } from './Patch.js';
+import { insertKnot } from './curveEdit.js';
 
 const v3 = p => new THREE.Vector3(p.X(), p.Y(), p.Z());
 
@@ -31,8 +32,31 @@ function isoSide(edge, face, surface, b) {
     return -1;
 }
 
-/** `s` (a non-rational B-spline surface) run straight on `distance` past side `side` (0..3 as u0, u1, v0, v1). */
-function extendBSpline(s, side, distance) {
+/** The Bezier with control points `B` (arrays) at the blossom arguments `ts`: de Casteljau, one argument per level. */
+function blossom(B, ts) {
+    let b = B.map(q => [...q]);
+    for (const t of ts) b = b.slice(1).map((q, i) => q.map((v, m) => (1 - t) * b[i][m] + t * v));
+    return b[0];
+}
+
+/**
+ * The `p` poles that carry a clamped B-spline row (`pts`, knots `flat`) on past its end by `T` in
+ * its parameter, following its last span's polynomial (Natural): that span cut out as a Bezier,
+ * then its continuation past 1 by blossoming. Ordered away from the end.
+ */
+function naturalRun(pts, flat, p, T) {
+    let c = { degree: p, poles: pts.map(q => [q.x, q.y, q.z]), weights: pts.map(() => 1), knots: [...flat] };
+    const n = pts.length, a = flat[n - 1], b = flat[n];
+    while (c.knots.filter(k => k === a).length < p && a > flat[0]) c = insertKnot(c, a);
+    const B = c.poles.slice(-(p + 1)), t = 1 + T / (b - a);
+    return Array.from({ length: p }, (_, k) => { const [x, y, z] = blossom(B, [...Array(p - k - 1).fill(1), ...Array(k + 1).fill(t)]); return new THREE.Vector3(x, y, z); });
+}
+
+/**
+ * `s` (a non-rational B-spline surface) run on `distance` past side `side` (0..3 as u0, u1, v0, v1):
+ * straight on (Linear) or following its curvature there (Natural).
+ */
+function extendBSpline(s, side, distance, natural = false) {
     const o = oc();
     const inU = side < 2, after = side % 2 === 1;
     const nu = s.NbUPoles(), nv = s.NbVPoles();
@@ -54,7 +78,16 @@ function extendBSpline(s, side, distance) {
     const speed = d.reduce((t, v) => t + v.length(), 0) / d.length;
     if (!(speed > 1e-12)) throw new Error('the sheet is degenerate along that edge');
     const T = distance / speed;
-    const extra = Array.from({ length: p }, (_, k) => edge.map((q, j) => q.clone().addScaledVector(d[j], T * (k + 1) / p)));
+    let extra = Array.from({ length: p }, (_, k) => edge.map((q, j) => q.clone().addScaledVector(d[j], T * (k + 1) / p)));
+    if (natural) {
+        // Each row across the side carried on by its own last span; the start side as the end of the row reversed.
+        const a0 = flat[0], a1 = flat.at(-1);
+        const runs = Array.from({ length: m }, (_, j) => {
+            const row = P.map(r => r[j]);
+            return after ? naturalRun(row, flat, p, T) : naturalRun([...row].reverse(), flat.map(k => a0 + a1 - k).reverse(), p, T);
+        });
+        extra = Array.from({ length: p }, (_, k) => runs.map(r => r[k]));
+    }
     let rows, ks, ms;
     if (after) {
         rows = [...P, ...extra];
@@ -81,8 +114,11 @@ function extendBSpline(s, side, distance) {
     return new o.Geom_BSplineSurface(poles, uk, vk, um, vm, s.UDegree(), s.VDegree(), s.IsUPeriodic(), s.IsVPeriodic());
 }
 
-/** Sheet `shape` grown `distance` past its open edge number `n`; throws saying why when it cannot be. */
-export function extendSheet(shape, n, distance) {
+/**
+ * Sheet `shape` grown `distance` past its open edge number `n`, straight on or, when `natural`,
+ * following the surface's curvature; throws saying why when it cannot be.
+ */
+export function extendSheet(shape, n, distance, natural = false) {
     const o = oc();
     if (!Number.isFinite(distance) || !(distance > 1e-6)) throw new Error('the distance must be above zero');
     if (!isSheet(shape)) throw new Error('extend edges of sheets; that body is solid');
@@ -104,7 +140,7 @@ export function extendSheet(shape, n, distance) {
         const untrimmed = full && numberedEdges(face).every(e => o.BRep_Tool.Degenerated(e) || isoSide(e, face, surface, b) >= 0);
         if (side >= 0 && untrimmed) {
             if (s.IsURational() || s.IsVRational()) throw new Error('this build extends polynomial sheets only; the desktop app extends this one');
-            const mk = new o.BRepBuilderAPI_MakeFace(extendBSpline(s, side, distance), 1e-7);
+            const mk = new o.BRepBuilderAPI_MakeFace(extendBSpline(s, side, distance, natural), 1e-7);
             if (!mk.IsDone()) throw new Error('the extended surface could not be made into a face');
             grown = mk.Face();
             if (face.Orientation() === o.TopAbs_Orientation.TopAbs_REVERSED) grown.Reverse();

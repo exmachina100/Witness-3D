@@ -113,7 +113,7 @@ const KEYS = {
   imprint: [['⇧ CLICK', 'FACES · CURVES'], ['⇧ ALT CLICK', 'BODY THAT IMPRINTS'], ['⏎ / RMB', 'OK']],
   project: [['⇧ CLICK', 'SOLID · CURVES'], ['X Y Z', 'VECTOR'], ['S', 'SCREEN SPACE'], ['⏎ / RMB', 'OK']],
   'bridge-surface': [['⇧ CLICK', 'TWO EDGES'], ['T', 'TENSION'], ['⏎ / RMB', 'OK']],
-  'extend-sheet': [['CLICK', "A SHEET'S EDGE"], ['D', 'DISTANCE'], ['⏎ / RMB', 'OK']],
+  'extend-sheet': [['CLICK', "A SHEET'S EDGE"], ['D', 'DISTANCE'], ['TAB', 'NATURAL · LINEAR'], ['⏎ / RMB', 'OK']],
   thicken: [['CLICK', 'A SHEET'], ['ALT CLICK', 'FACES (THICKEN FACE)'], ['D', 'FRONT'], ['B', 'BACK'], ['⏎ / RMB', 'OK']],
   pipe: [['⇧ CLICK', 'CURVES'], ['R', 'RADIUS'], ['T', 'THICKNESS'], ['V', 'SIDES'], ['⏎ / RMB', 'OK']],
   patch: [['⇧ CLICK', 'CURVES · EDGES'], ['T', 'TANGENT TO FACES'], ['⏎ / RMB', 'OK']],
@@ -411,6 +411,8 @@ const SHELL = `
     <div class="sec" data-panel="extend-sheet" hidden>
       <span class="hint" data-id="es-hint">—</span>
       <div class="field"><label for="w3d-es-d">DISTANCE</label><input id="w3d-es-d" data-id="es-d" type="number" step="0.5" min="0.01" value="5"></div>
+      <span class="label">SHAPE</span>
+      <div class="chips"><button data-esshape="natural" aria-pressed="true" title="Carry on with the surface's curvature (Tab)"><kbd>TAB</kbd>NATURAL</button><button data-esshape="linear" aria-pressed="false" title="Carry straight on from the edge (Tab)">LINEAR</button></div>
     </div>
     <div class="sec" data-panel="thicken" hidden>
       <span class="hint" data-id="th-hint">—</span>
@@ -4125,24 +4127,30 @@ export async function mount(root, backend) {
   }
 
   /**
-   * Plasticity's Extend on a sheet's edge: the sheet grown past the selected open edge, carrying
-   * straight on from its face. D types the distance; the sheet keeps its body.
+   * Plasticity's Extend on a sheet's edge: the sheet grown past the selected open edge, following its
+   * curvature (Natural) or straight on from its face (Linear); Tab cycles them, D types the distance.
+   * The sheet keeps its body.
    */
   function startExtendSheet() {
     if (!backend.previewExtendSheet) return toast('EXTEND SHEET IS NOT IN THIS BUILD YET');
     const isSheetBody = id => !!current.find(b => b.id === id)?.sheet;
     const picked = () => { const es = sel.list('edge'); return es.length === 1 && isSheetBody(es[0].body) ? es[0] : null; };
     if (!picked()) return toast('SELECT ONE EDGE OF A SHEET');
-    const c = cmd = { id: 'extend-sheet', edge: picked(), sent: 0, shown: 0 };
+    const c = cmd = { id: 'extend-sheet', edge: picked(), shape: 'natural', sent: 0, shown: 0 };
     lastTool = 'extend-sheet';
     showTool('extend-sheet');
     setState('none');
-    c.request = () => ({ body: c.edge.body, edge: c.edge.n, distance: num('es-d') });
+    c.request = () => ({ body: c.edge.body, edge: c.edge.n, distance: num('es-d'), natural: c.shape === 'natural' });
+    c.setShape = k => {
+      c.shape = k;
+      for (const b of $$('[data-esshape]')) b.setAttribute('aria-pressed', String(b.dataset.esshape === k));
+      c.preview();
+    };
     c.preview = () => livePreview(c, () => backend.previewExtendSheet(c.request()), b => {
       const m = showPreviewBody(b, phantom.add.face, phantom.add.edge);
       m.renderOrder = 5;
       $('es-hint').textContent = `${label(c.edge.body)} · ${num('es-d')} MM PAST THE EDGE`;
-      setHud(`EXTEND SHEET ${num('es-d')} MM`);
+      setHud(`EXTEND SHEET ${num('es-d')} MM · ${c.shape.toUpperCase()}`);
     }, 'es-hint');
     c.onSelection = () => {
       drawOverlays();
@@ -4158,6 +4166,7 @@ export async function mount(root, backend) {
       c.preview();
     };
     c.key = action => {
+      if (action === 'shape') { c.setShape(c.shape === 'natural' ? 'linear' : 'natural'); return true; }
       if (action !== 'distance') return false;
       c.entry = { label: 'DISTANCE', text: '', apply: v => { if (v > 0) { $('es-d').value = v; c.preview(); } else toast('THE DISTANCE MUST BE ABOVE ZERO'); } };
       setHud('DISTANCE _');
@@ -4168,7 +4177,7 @@ export async function mount(root, backend) {
       try {
         const { id, scene: list } = await backend.commitExtendSheet(c.request());
         endCmd('committed');
-        record(`EXTEND SHEET ${num('es-d')} MM`, id);
+        record(`EXTEND SHEET ${num('es-d')} MM ${c.shape.toUpperCase()}`, id);
         await showScene(list);
         sel.replace({ kind: 'solid', body: id });
         selectionChanged({ quiet: true });
@@ -6498,6 +6507,7 @@ export async function mount(root, backend) {
   $('cut-plane').onclick = () => cmd?.id === 'cut' && cmd.key('plane');
   $('bs-t').addEventListener('input', () => cmd?.id === 'bridge-surface' && cmd.preview());
   $('es-d').addEventListener('input', () => cmd?.id === 'extend-sheet' && cmd.preview());
+  for (const b of $$('[data-esshape]')) b.onclick = () => cmd?.id === 'extend-sheet' && cmd.setShape(b.dataset.esshape);
   for (const f of ['th-f', 'th-b']) $(f).addEventListener('input', () => cmd?.id === 'thicken' && cmd.preview());
   for (const f of ['pipe-r', 'pipe-t', 'pipe-v']) $(f).addEventListener('input', () => cmd?.id === 'pipe' && cmd.preview());
   $('patch-tangent').onclick = () => cmd?.id === 'patch' && cmd.key('tangent');
