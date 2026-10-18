@@ -304,6 +304,37 @@ export function offsetCurve(c, d, corner = 'linear') {
     if (out.length < (closed ? 3 : 2)) throw new Error('the curve would shrink to nothing; use a smaller distance');
     return withShape(c, { kind: 'spline', points: out, closed });
 }
+
+/** A shape as contour pieces in its plane (lines, arcs and splines). */
+function piecesOf(shape) {
+    if (shape.kind === 'contour') return shape.pieces.map(p => ({ ...p }));
+    if (shape.kind === 'arc') return [{ kind: 'arc', start: shape.start, mid: shape.mid, end: shape.end }];
+    if (shape.kind === 'polyline') return [{ kind: 'polyline', points: shape.points.map(p => [...p]), closed: false }];
+    return [{ kind: 'spline', points: samples(shape).points, closed: false }];
+}
+const flipPiece = p => p.kind === 'arc' ? { kind: 'arc', start: p.end, mid: p.mid, end: p.start } : { ...p, points: [...p.points].reverse() };
+
+/**
+ * Plasticity's Offset Region O (slot): an open curve offset `d` to both sides, the two offsets closed
+ * by half circles round its ends, as one closed contour.
+ */
+export function offsetSlot(c, d, corner = 'linear') {
+    if (!(Number.isFinite(d) && d > 1e-6)) throw new Error('the distance must be greater than zero');
+    if (c.kind === 'circle' || c.kind === 'ellipse') throw new Error('a slot is drawn round an open curve');
+    const { points, closed } = samples(c);
+    if (closed) throw new Error('a slot is drawn round an open curve');
+    if (points.length < 2) throw new Error('the curve is too short to offset');
+    const left = piecesOf(offsetCurve(c, d, corner)), right = piecesOf(offsetCurve(c, -d, corner)).reverse().map(flipPiece);
+    // The ends of the curve and the way out of it there: each cap bulges out by d.
+    const start = points[0], end = points.at(-1);
+    const outStart = norm(sub(points[0], points[1])), outEnd = norm(sub(end, points.at(-2)));
+    const cap = (from, to, at, out) => ({ kind: 'arc', start: from, mid: add(at, mul(out, d)), end: to });
+    const Le = pieceEnd(left.at(-1)), Rs = pieceStart(right[0]), Re = pieceEnd(right.at(-1)), Ls = pieceStart(left[0]);
+    for (const [a, b, at] of [[Le, Rs, end], [Re, Ls, start]]) {
+        if (Math.abs(dist(a, at) - d) > 1e-3 * Math.max(1, d) || Math.abs(dist(b, at) - d) > 1e-3 * Math.max(1, d)) throw new Error('the offsets do not meet the ends; use a smaller distance');
+    }
+    return withShape(c, { kind: 'contour', pieces: [...left, cap(Le, Rs, end, outEnd), ...right, cap(Re, Ls, start, outStart)] });
+}
 const dedupe = pts => pts.filter((p, i) => i === 0 || dist(p, pts[i - 1]) > 1e-6);
 
 // --- Fillet Curve ---------------------------------------------------------------------------------
