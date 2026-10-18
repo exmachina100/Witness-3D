@@ -717,14 +717,14 @@ export class LocalBackend {
         return { id: req.body, scene: this.bodies(), rebuilt };
     }
 
-    extendSheetResult({ body, edge, distance, natural = false, shape, limit }) {
+    extendSheetResult({ body, edge, distance, natural = false, shape, limit, outside = false }) {
         const s = this.shapes.get(body);
         if (!s) throw new Error('that body no longer exists');
         if (limit != null) {
             if (limit === body) throw new Error('limit the sheet by another body, not itself');
             const t = this.shapes.get(limit);
             if (!t) throw new Error('the limiting body no longer exists');
-            return extendSheetTo(s, edge, t, shape ?? (natural ? 'natural' : 'linear'));
+            return extendSheetTo(s, edge, t, shape ?? (natural ? 'natural' : 'linear'), outside);
         }
         return extendSheet(s, edge, distance, shape ?? natural);
     }

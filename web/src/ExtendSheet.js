@@ -291,12 +291,13 @@ export function extendSheet(shape, n, distance, natural = false) {
 }
 
 /**
- * Extend Sheet's Limit (Plasticity's Minimal), as w3d_extend_sheet_to does it on the desktop: sheet
- * `shape` carried on past its open edge `n` in shape `kind` until it first meets `target`. The sheet
- * is extended well past the target, split by it, and the pieces reached from the edge without
- * crossing the target are kept.
+ * Extend Sheet's Limit, as w3d_extend_sheet_to does it on the desktop: sheet `shape` carried on past
+ * its open edge `n` in shape `kind` until it first meets `target` (Plasticity's Minimal) or, with
+ * `outside`, on through a solid target until it comes out of the far side. The sheet is extended
+ * well past the target, split by it, and the pieces reached from the edge are kept; the sheet's own
+ * pieces always are.
  */
-export function extendSheetTo(shape, n, target, kind = 'natural') {
+export function extendSheetTo(shape, n, target, kind = 'natural', outside = false) {
     const o = oc();
     if (kind === 'reflective') throw new Error("reflective mirrors only as much sheet as there is, so it can't reach to a body; pick another shape");
     const edge = numberedEdges(shape)[n];
@@ -331,17 +332,35 @@ export function extendSheetTo(shape, n, target, kind = 'natural') {
         meets.set(e, on);
         return on;
     };
-    const keep = faces.map(f => near(mid, f, 1e-6));
+    const centre = f => { const g = new o.GProp_GProps(); o.BRepGProp.SurfaceProperties(f, g, false, false); return g.CentreOfMass(); };
+    // Which pieces lie inside the target, for Outside: only a solid has an inside.
+    let inside = faces.map(() => false);
+    if (outside && numbered(target, 'TopAbs_SOLID').length) {
+        // A point inside a solid is at no distance from it, an inner solution.
+        inside = faces.map(f => {
+            const d = new o.BRepExtrema_DistShapeShape(new o.BRepBuilderAPI_MakeVertex(centre(f)).Shape(), target);
+            return d.IsDone() && d.InnerSolution() && d.Value() < 1e-9;
+        });
+    }
+    const keep = faces.map(f => near(mid, f, 1e-6) || near(new o.BRepBuilderAPI_MakeVertex(centre(f)).Shape(), shape, 1e-6));
     const todo = keep.flatMap((k, i) => k ? [i] : []);
     if (!todo.length) throw new Error('the extension lost track of its edge');
     let reached = false;
     while (todo.length) {
         const f = todo.pop();
         for (const e of edgesOf[f]) {
-            if (onTarget(e)) { reached = true; continue; }
+            const crossing = onTarget(e);
+            let across = 0;
             edgesOf.forEach((es, g) => {
-                if (!keep[g] && es.some(x => x.IsSame(e))) { keep[g] = true; todo.push(g); }
+                if (g === f || !es.some(x => x.IsSame(e))) return;
+                across++;
+                if (keep[g]) return;
+                // Across the target only into it, on Outside; coming out again is as far as it goes.
+                if (crossing && !(inside[g] && !inside[f])) { reached = true; return; }
+                keep[g] = true;
+                todo.push(g);
             });
+            if (crossing && !across) reached = true;
         }
     }
     if (!reached) throw new Error('the extension never meets that body; pick a body the edge points at');

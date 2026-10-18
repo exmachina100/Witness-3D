@@ -96,6 +96,7 @@
 #include <BRepFilletAPI_MakeChamfer.hxx>
 #include <BRepFilletAPI_MakeFillet.hxx>
 #include <BRepTools.hxx>
+#include <BRepClass3d_SolidClassifier.hxx>
 #include <BRepLib.hxx>
 #include <BRepOffsetAPI_DraftAngle.hxx>
 #include <Geom_CylindricalSurface.hxx>
@@ -2605,7 +2606,9 @@ inline std::unique_ptr<TopoDS_Shape> w3d_extend_sheet(const TopoDS_Shape &shape,
 // Extend Sheet's Limit (Plasticity's Minimal): the sheet carried on past its open edge `index` in
 // shape `kind` until it first meets `target`, and no further. The sheet is extended well past the
 // target, split by it, and the pieces reached from the edge without crossing the target are kept.
-inline std::unique_ptr<TopoDS_Shape> w3d_extend_sheet_to(const TopoDS_Shape &shape, int32_t index, const TopoDS_Shape &target, int32_t kind) {
+// With `through` (Plasticity's Outside) the extension goes on into a solid target and stops where
+// it comes out of the far side; otherwise (Minimal) it stops where it first meets the target.
+inline std::unique_ptr<TopoDS_Shape> w3d_extend_sheet_to(const TopoDS_Shape &shape, int32_t index, const TopoDS_Shape &target, int32_t kind, bool through) {
   if (kind == 3) throw std::runtime_error("reflective mirrors only as much sheet as there is, so it can't reach to a body; pick another shape");
   TopTools_IndexedMapOfShape map;
   TopExp::MapShapes(shape, TopAbs_EDGE, map);
@@ -2651,10 +2654,26 @@ inline std::unique_ptr<TopoDS_Shape> w3d_extend_sheet_to(const TopoDS_Shape &sha
       }
       return onTarget[e] = on;
     };
+    // Which pieces lie inside the target, for Outside: only a solid has an inside.
+    std::vector<bool> inside(faces.Extent() + 1, false);
+    if (through && TopExp_Explorer(target, TopAbs_SOLID).More()) {
+      BRepClass3d_SolidClassifier in(target);
+      for (int i = 1; i <= faces.Extent(); i++) {
+        GProp_GProps props;
+        BRepGProp::SurfaceProperties(faces(i), props);
+        in.Perform(props.CentreOfMass(), 1e-6);
+        inside[i] = in.State() == TopAbs_IN;
+      }
+    }
+    // The sheet's own pieces are always kept, whatever the target cuts of them.
     std::vector<bool> keep(faces.Extent() + 1, false);
     std::vector<int> todo;
-    for (int i = 1; i <= faces.Extent(); i++)
-      if (near(mid, faces(i), 1e-6)) { keep[i] = true; todo.push_back(i); }
+    for (int i = 1; i <= faces.Extent(); i++) {
+      GProp_GProps props;
+      BRepGProp::SurfaceProperties(faces(i), props);
+      const TopoDS_Vertex at = BRepBuilderAPI_MakeVertex(props.CentreOfMass()).Vertex();
+      if (near(mid, faces(i), 1e-6) || near(at, shape, 1e-6)) { keep[i] = true; todo.push_back(i); }
+    }
     if (todo.empty()) throw std::runtime_error("the extension lost track of its edge");
     bool reached = false;
     while (!todo.empty()) {
@@ -2663,11 +2682,16 @@ inline std::unique_ptr<TopoDS_Shape> w3d_extend_sheet_to(const TopoDS_Shape &sha
       for (TopExp_Explorer ex(faces(f), TopAbs_EDGE); ex.More(); ex.Next()) {
         const int e = owners.FindIndex(ex.Current());
         if (e == 0) continue;
-        if (meets(e)) { reached = true; continue; }
+        const bool crossing = meets(e);
         for (TopTools_ListIteratorOfListOfShape it(owners(e)); it.More(); it.Next()) {
           const int g = faces.FindIndex(it.Value());
-          if (g > 0 && !keep[g]) { keep[g] = true; todo.push_back(g); }
+          if (g <= 0 || g == f || keep[g]) continue;
+          // Across the target only into it, on Outside; coming out again is as far as it goes.
+          if (crossing && !(inside[g] && !inside[f])) { reached = true; continue; }
+          keep[g] = true;
+          todo.push_back(g);
         }
+        if (crossing && owners(e).Extent() < 2) reached = true;
       }
     }
     if (!reached) throw std::runtime_error("the extension never meets that body; pick a body the edge points at");
