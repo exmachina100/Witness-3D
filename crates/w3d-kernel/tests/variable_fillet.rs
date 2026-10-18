@@ -26,7 +26,7 @@ fn block(k: &Occt) -> (Shape, u32) {
 }
 
 fn params(edge: u32, variable: Vec<VariablePoint>) -> BlendParams {
-    BlendParams { edges: vec![edge], size: 3.0, kind: Blend::Fillet, angle: EQUAL, variable }
+    BlendParams { edges: vec![edge], size: 3.0, kind: Blend::Fillet, angle: EQUAL, variable, shape: w3d_kernel::blend::FilletShape::Round, tension: 0.5, limits: vec![] }
 }
 
 /// What a body keeps of the block below (or above) y = 15.

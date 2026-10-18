@@ -4,7 +4,7 @@
 
 use glam::DVec3;
 
-use crate::{Kernel, KernelError, Traced};
+use crate::{BooleanOp, Kernel, KernelError, Traced};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Blend {
@@ -25,6 +25,27 @@ pub struct BlendParams {
     pub angle: f64,
     /// Plasticity's variable points (V): fillets only, ignored for chamfers.
     pub variable: Vec<VariablePoint>,
+    /// Plasticity's fillet Shape: fillets only.
+    pub shape: FilletShape,
+    /// The Conic shape's rho, or how far toward the corner the G2 shape reaches (0.05 to 0.95).
+    pub tension: f64,
+    /// Plasticity's limit points (L): none, or two points on the edges; the round runs only
+    /// between the planes square to the edge through them, ending flat.
+    pub limits: Vec<DVec3>,
+}
+
+/// Plasticity's fillet Shape: the section across a round.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum FilletShape {
+    /// A circular arc of the radius.
+    #[default]
+    Round,
+    /// A circular arc whose chord (the width across the round) is the distance.
+    Chordal,
+    /// A conic between the same spring lines as the round, its rho the tension.
+    Conic,
+    /// A curve leaving both faces with no curvature (curvature continuous to flat faces).
+    G2,
 }
 
 /// A point on a rounded edge where the radius is `size` × `scale`; the radius runs smoothly from
@@ -76,7 +97,44 @@ pub fn blend<K: Kernel>(k: &K, body: &K::Solid, p: &BlendParams) -> Result<Trace
             return Err(KernelError::Invalid("a variable point's radius must be greater than zero"));
         }
     }
-    let traced = k.blend(body, &edges, p.size, p.kind, p.angle, variable)?;
+    let shape = if p.kind == Blend::Fillet { p.shape } else { FilletShape::Round };
+    if matches!(shape, FilletShape::Conic | FilletShape::G2) && !(p.tension >= 0.05 && p.tension <= 0.95) {
+        return Err(KernelError::Invalid("the tension must be between 0.05 and 0.95"));
+    }
+    let mut size = p.size;
+    let mut chordal = Vec::new();
+    if shape == FilletShape::Chordal {
+        if !variable.is_empty() { return Err(KernelError::Invalid("a chordal round takes one distance; remove the variable points")) }
+        // The radius whose arc spans the distance between the faces' spring lines: the arc turns
+        // through the angle between the faces' normals.
+        let angles = k.edge_angles(body);
+        let radii: Vec<f64> = edges.iter().map(|&e| {
+            let turn = angles.get(e as usize).copied().unwrap_or(-1.0).to_radians();
+            if turn > 1e-6 { Ok(p.size / (2.0 * (turn / 2.0).sin())) } else { Err(KernelError::Invalid("a chordal round needs faces that meet at an angle")) }
+        }).collect::<Result<_, _>>()?;
+        size = radii[0];
+        if radii.iter().any(|r| (r - size).abs() > 1e-9 * size) {
+            // Edges at different angles: each edge's own radius, held along it as variable points.
+            let t = k.tessellate(body, 0.01)?;
+            for (&e, &r) in edges.iter().zip(&radii) {
+                let line = t.edges.get(e as usize).filter(|l| !l.is_empty()).ok_or(KernelError::Invalid("an edge in the selection is not on this body; select the edges again"))?;
+                for at in [line[0], line[line.len() / 2], line[line.len() - 1]] {
+                    chordal.push(VariablePoint { edge: e, point: DVec3::from_array(at), scale: r / size });
+                }
+            }
+        }
+    }
+    let variable = if chordal.is_empty() { variable } else { &chordal[..] };
+    let mut traced = k.blend(body, &edges, size, p.kind, p.angle, variable)?;
+    if matches!(shape, FilletShape::Conic | FilletShape::G2) {
+        let mut rounds: Vec<u32> = traced.history.generated_faces.iter().map(|&(_, f)| f).collect();
+        rounds.sort_unstable();
+        rounds.dedup();
+        traced.solid = k.reshape_fillets(&traced.solid, &rounds, shape == FilletShape::G2, p.tension)?;
+    }
+    if !p.limits.is_empty() {
+        traced = limited(k, body, &traced.solid, &edges, &p.limits)?;
+    }
     let result = &traced.solid;
     if !k.is_valid(result) {
         return Err(KernelError::Blend {
@@ -89,4 +147,33 @@ pub fn blend<K: Kernel>(k: &K, body: &K::Solid, p: &BlendParams) -> Result<Trace
         return Err(KernelError::Blend { edges, reason: "the result split the body apart; try a smaller size".into() });
     }
     Ok(traced)
+}
+
+/// The round `rounded` kept only between the planes square to `edges` through the two `limits`:
+/// the material it took off the body between them, taken off the body.
+fn limited<K: Kernel>(k: &K, body: &K::Solid, rounded: &K::Solid, edges: &[u32], limits: &[DVec3]) -> Result<Traced<K::Solid>, KernelError> {
+    let [a, b] = limits else { return Err(KernelError::Invalid("place two limit points, one at each end of the stretch to round")) };
+    if a.distance(*b) < 1e-6 { return Err(KernelError::Invalid("the limit points are on top of each other")) }
+    let t = k.tessellate(body, 0.01)?;
+    // The edge's direction at a point: along the nearest piece of the picked edges' polylines.
+    let along = |p: DVec3| -> Result<DVec3, KernelError> {
+        let mut best = (f64::INFINITY, DVec3::ZERO);
+        for &e in edges {
+            for w in t.edges.get(e as usize).map(|l| &l[..]).unwrap_or(&[]).windows(2) {
+                let (s, f) = (DVec3::from_array(w[0]), DVec3::from_array(w[1]));
+                let d = f - s;
+                if d.length_squared() < 1e-24 { continue }
+                let q = s + d * ((p - s).dot(d) / d.length_squared()).clamp(0.0, 1.0);
+                if q.distance(p) < best.0 { best = (q.distance(p), d.normalize()) }
+            }
+        }
+        if best.0 > 1e-3 { return Err(KernelError::Invalid("a limit point is not on an edge being rounded")) }
+        Ok(best.1)
+    };
+    let (ta, tb) = (along(*a)?, along(*b)?);
+    // Each plane faces the other point: the round is kept on that side of both.
+    let na = if ta.dot(*b - *a) >= 0.0 { ta } else { -ta };
+    let nb = if tb.dot(*a - *b) >= 0.0 { tb } else { -tb };
+    let piece = k.round_piece(body, rounded, (*a, na), (*b, nb))?;
+    k.boolean(body, &piece, BooleanOp::Difference)
 }

@@ -86,6 +86,9 @@ mod inner {
         pub fn w3d_match_faces(shape: &TopoDS_Shape, faces: &[i32], target: &TopoDS_Shape, tface: i32, caps: &[f64]) -> Result<UniquePtr<TopoDS_Shape>>;
         pub fn w3d_offset_edge_faces(shape: &TopoDS_Shape, edges: &[i32], side: i32) -> Result<Vec<i32>>;
         pub fn w3d_edge_tube(shape: &TopoDS_Shape, edges: &[i32], d: f64) -> Result<UniquePtr<TopoDS_Shape>>;
+        pub fn w3d_reshape_fillets(shape: &TopoDS_Shape, faces: &[i32], kind: i32, tension: f64) -> Result<UniquePtr<TopoDS_Shape>>;
+        pub fn w3d_volume(shape: &TopoDS_Shape) -> Result<f64>;
+        pub fn w3d_round_piece(body: &TopoDS_Shape, rounded: &TopoDS_Shape, planes: &[f64]) -> Result<UniquePtr<TopoDS_Shape>>;
         pub fn w3d_untrim_face(shape: &TopoDS_Shape, index: i32, keep: bool) -> Result<UniquePtr<TopoDS_Shape>>;
         pub fn w3d_edge_curvature(shape: &TopoDS_Shape, index: i32, n: i32) -> Result<Vec<f64>>;
         pub fn w3d_face_deviation(a: &TopoDS_Shape, b: &TopoDS_Shape, index: i32) -> Result<f64>;

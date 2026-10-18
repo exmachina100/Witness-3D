@@ -39,6 +39,7 @@
 #include <cstdio>
 #include <BRepOffsetAPI_MakePipeShell.hxx>
 #include <BRepPrimAPI_MakeSphere.hxx>
+#include <BRepPrimAPI_MakeHalfSpace.hxx>
 #include <BRepPrimAPI_MakeCylinder.hxx>
 #include <BRepPrimAPI_MakePrism.hxx>
 #include <GC_MakeArcOfCircle.hxx>
@@ -65,6 +66,9 @@
 #include <Geom_RectangularTrimmedSurface.hxx>
 #include <BRepTools_ReShape.hxx>
 #include <ShapeAnalysis_Edge.hxx>
+#include <ShapeFix_Edge.hxx>
+#include <TopTools_MapOfShape.hxx>
+#include <GeomAPI_PointsToBSpline.hxx>
 #include <GeomAdaptor_Surface.hxx>
 #include <GeomConvert_CompCurveToBSplineCurve.hxx>
 #include <Geom_TrimmedCurve.hxx>
@@ -2952,8 +2956,8 @@ inline std::vector<std::vector<double>> w3d_fit_matrix(const std::vector<double>
 // `surface` over [u0, u1] x [v0, v1] refitted as a polynomial B-spline of degree (du, dv) with
 // (su, sv) uniform spans, keeping the parameters: the new surface at (u, v) is close to the old one
 // at (u, v), so the face's curves on it still hold.
-inline Handle(Geom_BSplineSurface) w3d_refit(const Handle(Geom_Surface) &surface, double u0, double u1, double v0, double v1,
-                                             int du, int dv, int su, int sv) {
+inline Handle(Geom_BSplineSurface) w3d_refit_fn(const std::function<gp_XYZ(double, double)> &at, double u0, double u1, double v0, double v1,
+                                                int du, int dv, int su, int sv) {
   auto knots = [](int p, int s, double a, double b) {
     std::vector<double> T;
     for (int i = 0; i <= p; i++) T.push_back(a);
@@ -2967,7 +2971,7 @@ inline Handle(Geom_BSplineSurface) w3d_refit(const Handle(Geom_Surface) &surface
   auto Fu = w3d_fit_matrix(Tu, du, nu, mu, u0, u1), Fv = w3d_fit_matrix(Tv, dv, nv, mv, v0, v1);
   std::vector<std::vector<gp_XYZ>> G(mu, std::vector<gp_XYZ>(mv));
   for (int i = 0; i < mu; i++)
-    for (int j = 0; j < mv; j++) G[i][j] = surface->Value(u0 + (u1 - u0) * i / (mu - 1), v0 + (v1 - v0) * j / (mv - 1)).XYZ();
+    for (int j = 0; j < mv; j++) G[i][j] = at(u0 + (u1 - u0) * i / (mu - 1), v0 + (v1 - v0) * j / (mv - 1));
   std::vector<std::vector<gp_XYZ>> C(mu, std::vector<gp_XYZ>(nv, gp_XYZ(0, 0, 0)));
   for (int i = 0; i < mu; i++)
     for (int r = 0; r < nv; r++)
@@ -2987,6 +2991,11 @@ inline Handle(Geom_BSplineSurface) w3d_refit(const Handle(Geom_Surface) &surface
   flat(su, u0, u1, du, ku, mu_);
   flat(sv, v0, v1, dv, kv, mv_);
   return new Geom_BSplineSurface(poles, ku, kv, mu_, mv_, du, dv);
+}
+
+inline Handle(Geom_BSplineSurface) w3d_refit(const Handle(Geom_Surface) &surface, double u0, double u1, double v0, double v1,
+                                             int du, int dv, int su, int sv) {
+  return w3d_refit_fn([&](double u, double v) { return surface->Value(u, v).XYZ(); }, u0, u1, v0, v1, du, dv, su, sv);
 }
 
 // The furthest `b`'s surface strays from `a`'s over `a`'s face `index` (the same parameters on both).
@@ -3132,6 +3141,218 @@ inline std::unique_ptr<TopoDS_Shape> w3d_rebuild_faces(const TopoDS_Shape &shape
     }
     TopoDS_Shape result = rs->Apply(work);
     if (!w3d_is_valid(result)) throw std::runtime_error("the rebuilt face is not valid; try more spans or a higher degree");
+    return std::unique_ptr<TopoDS_Shape>(new TopoDS_Shape(result));
+  } catch (const Standard_Failure &f) {
+    throw w3d_kernel_error(f);
+  }
+}
+
+// A point of a conic (kind 2) or G2 (kind 3) round's section from p0 to p1, whose sides would
+// meet at the corner c, at s in [0, 1]. The conic is a rational quadratic with rho `tension` (0.5
+// a parabola, nearer 1 tighter into the corner); the G2 section is a quintic Bézier with three
+// control points on each side's line, so it leaves both faces with no curvature.
+inline gp_XYZ w3d_round_section(const gp_XYZ &p0, const gp_XYZ &c, const gp_XYZ &p1, int kind, double tension, double s) {
+  if (kind == 2) {
+    const double w = tension / (1.0 - tension), b0 = (1 - s) * (1 - s), b1 = 2 * s * (1 - s) * w, b2 = s * s;
+    return (p0 * b0 + c * b1 + p1 * b2) / (b0 + b1 + b2);
+  }
+  gp_XYZ q[6] = {p0, p0 + (c - p0) * (tension / 2), p0 + (c - p0) * tension, p1 + (c - p1) * tension, p1 + (c - p1) * (tension / 2), p1};
+  for (int n = 5; n > 0; n--)
+    for (int i = 0; i < n; i++) q[i] = q[i] * (1 - s) + q[i + 1] * s;
+  return q[0];
+}
+
+// The outward normal of face `f` (its own surface `s`, in the face's frame) at (u, v).
+inline gp_Vec w3d_face_normal_at(const TopoDS_Face &f, const Handle(Geom_Surface) &s, double u, double v) {
+  gp_Pnt p;
+  gp_Vec du, dv;
+  s->D1(u, v, p, du, dv);
+  gp_Vec n = du.Crossed(dv);
+  if (f.Orientation() == TopAbs_REVERSED) n.Reverse();
+  return n;
+}
+
+// Plasticity's Conic and G2 fillet shapes: each of `faces` (rounds a fillet made) given the section
+// of w3d_round_section between the same spring lines, so the round meets its faces where it did,
+// tangent to them. Faces and edges keep their numbers. kind is 2 (Conic) or 3 (G2). The ends of a
+// round must be square to its edge (as on a block) or run into another of `faces`.
+inline std::unique_ptr<TopoDS_Shape> w3d_reshape_fillets(const TopoDS_Shape &shape, rust::Slice<const int32_t> faces, int32_t kind, double tension) {
+  if (kind != 2 && kind != 3) throw std::runtime_error("a fillet shape is conic or G2");
+  if (!(tension >= 0.05 && tension <= 0.95)) throw std::runtime_error("the tension must be between 0.05 and 0.95");
+  if (faces.empty()) throw std::runtime_error("no rounds to shape");
+  const char *corner = "conic and G2 rounds don't go round corners yet; round those edges with the round shape";
+  try {
+    TopoDS_Shape work = BRepBuilderAPI_Copy(shape).Shape();
+    TopTools_IndexedMapOfShape fmap;
+    TopExp::MapShapes(work, TopAbs_FACE, fmap);
+    TopTools_IndexedDataMapOfShapeListOfShape edgeFaces;
+    TopExp::MapShapesAndAncestors(work, TopAbs_EDGE, TopAbs_FACE, edgeFaces);
+    std::set<int> mine;
+    for (int32_t f : faces) {
+      if (f < 0 || f >= fmap.Extent()) throw std::out_of_range("that face no longer exists");
+      mine.insert(f + 1);
+    }
+    BRep_Builder B;
+    Handle(BRepTools_ReShape) rs = new BRepTools_ReShape();
+    TopTools_MapOfShape remade;
+    // Each round's new section evaluator, in its own face's frame, by face number.
+    std::map<int, std::function<gp_XYZ(double, double)>> shaped;
+    std::map<int, TopLoc_Location> frames;
+    for (int pass = 0; pass < 2; pass++)
+    for (int fi : mine) {
+      const TopoDS_Face f = TopoDS::Face(fmap(fi));
+      TopLoc_Location loc;
+      Handle(Geom_Surface) s = BRep_Tool::Surface(f, loc);
+      double u0, u1, v0, v1;
+      BRepTools::UVBounds(f, u0, u1, v0, v1);
+      const double tu = 1e-6 * std::max(1.0, u1 - u0), tv = 1e-6 * std::max(1.0, v1 - v0);
+      // The spring lines: edges to faces the round leaves tangent, lying along an isoline at the
+      // edge of the face's parameters. Their direction is the round's across direction.
+      std::vector<TopoDS_Edge> ends;
+      bool spring[2][2] = {{false, false}, {false, false}};
+      auto otherFace = [&](const TopoDS_Edge &e) {
+        for (TopTools_ListIteratorOfListOfShape it(edgeFaces.FindFromKey(e)); it.More(); it.Next())
+          if (!it.Value().IsSame(f)) return TopoDS::Face(it.Value());
+        return TopoDS_Face();
+      };
+      for (TopExp_Explorer ex(f, TopAbs_EDGE); ex.More(); ex.Next()) {
+        const TopoDS_Edge e = TopoDS::Edge(ex.Current());
+        if (BRep_Tool::Degenerated(e)) continue;
+        double a, b;
+        Handle(Geom2d_Curve) c2 = BRep_Tool::CurveOnSurface(e, f, a, b);
+        if (c2.IsNull()) throw std::runtime_error(corner);
+        const gp_Pnt2d A = c2->Value(a), M = c2->Value((a + b) / 2), Z = c2->Value(b);
+        const TopoDS_Face g = otherFace(e);
+        bool isSpring = false;
+        if (!g.IsNull() && !mine.count(fmap.FindIndex(g))) {
+          TopLoc_Location gl;
+          Handle(Geom_Surface) gs = BRep_Tool::Surface(g, gl);
+          double ga, gb;
+          Handle(Geom2d_Curve) g2 = BRep_Tool::CurveOnSurface(e, g, ga, gb);
+          if (!g2.IsNull()) {
+            const gp_Pnt2d gm = g2->Value((ga + gb) / 2);
+            gp_Vec nf = w3d_face_normal_at(f, s, M.X(), M.Y()).Transformed(loc.Transformation());
+            gp_Vec ng = w3d_face_normal_at(g, gs, gm.X(), gm.Y()).Transformed(gl.Transformation());
+            isSpring = nf.Magnitude() > 1e-12 && ng.Magnitude() > 1e-12 && nf.Angle(ng) < 1e-3;
+          }
+        }
+        for (int dir = 0; dir < 2 && isSpring; dir++) {
+          const double x = dir ? A.Y() : A.X(), t = dir ? tv : tu, lo = dir ? v0 : u0, hi = dir ? v1 : u1;
+          if (std::fabs(x - (dir ? M.Y() : M.X())) > t || std::fabs(x - (dir ? Z.Y() : Z.X())) > t) continue;
+          if (std::fabs(x - lo) <= t) spring[dir][0] = true;
+          else if (std::fabs(x - hi) <= t) spring[dir][1] = true;
+        }
+        if (!isSpring) ends.push_back(e);
+      }
+      const int across = spring[0][0] && spring[0][1] ? 0 : spring[1][0] && spring[1][1] ? 1 : -1;
+      if (across < 0) throw std::runtime_error(corner);
+      const double a0 = across ? v0 : u0, a1 = across ? v1 : u1;
+      // The new round at (u, v): the section across through the old round's spring points there.
+      std::function<gp_XYZ(double, double)> at = [s, across, a0, a1, kind, tension](double u, double v) {
+        const double a = across ? v : u, b = across ? u : v;
+        gp_Pnt p0, p1;
+        gp_Vec d0u, d0v, d1u, d1v;
+        if (across) { s->D1(b, a0, p0, d0u, d0v); s->D1(b, a1, p1, d1u, d1v); }
+        else { s->D1(a0, b, p0, d0u, d0v); s->D1(a1, b, p1, d1u, d1v); }
+        const gp_Vec t0 = across ? d0v : d0u, t1 = across ? d1v : d1u;
+        // Where the round's sides, carried on along their tangents, come closest.
+        const gp_Vec w(p1, p0);
+        const double aa = t0.Dot(t0), bb = t0.Dot(t1), cc = t1.Dot(t1), d = t0.Dot(w), e = t1.Dot(w), den = aa * cc - bb * bb;
+        if (!(den > 1e-12 * aa * cc)) throw std::runtime_error("that round turns too far for a conic or G2 shape");
+        const double x = (bb * e - cc * d) / den, y = (aa * e - bb * d) / den;
+        if (!(x > 0) || !(y < 0)) throw std::runtime_error("that round turns too far for a conic or G2 shape");
+        const gp_XYZ c = (p0.XYZ() + t0.XYZ() * x + p1.XYZ() + t1.XYZ() * y) / 2;
+        return w3d_round_section(p0.XYZ(), c, p1.XYZ(), kind, tension, (a - a0) / (a1 - a0));
+      };
+      if (pass == 0) { shaped[fi] = at; frames[fi] = loc; continue; }
+      auto deviation = [&](const Handle(Geom_Surface) &t) {
+        const int n = 24;
+        double worst = 0.0;
+        for (int i = 0; i <= n; i++)
+          for (int j = 0; j <= n; j++) {
+            const double u = u0 + (u1 - u0) * i / n, v = v0 + (v1 - v0) * j / n;
+            worst = std::max(worst, t->Value(u, v).XYZ().Subtracted(at(u, v)).Modulus());
+          }
+        return worst;
+      };
+      Handle(Geom_BSplineSurface) made;
+      double dev = 0.0;
+      // Spans across and along grow in turn until the fit holds the new round within 1e-6 mm.
+      int ka = 2, kb = 2;
+      for (int round = 0; round < 12; round++) {
+        made = w3d_refit_fn(at, u0, u1, v0, v1, 3, 3, across ? kb : ka, across ? ka : kb);
+        dev = deviation(made);
+        if (dev <= 1e-6) break;
+        // Which way the fit is worse: along the middle isoline across the round, or along it.
+        auto worst = [&](bool alongAcross) {
+          double w = 0.0;
+          for (int i = 0; i <= 48; i++) {
+            const double x = double(i) / 48;
+            const double uu = alongAcross == (across == 0) ? u0 + (u1 - u0) * x : (u0 + u1) / 2;
+            const double vv = alongAcross == (across == 0) ? (v0 + v1) / 2 : v0 + (v1 - v0) * x;
+            w = std::max(w, made->Value(uu, vv).XYZ().Subtracted(at(uu, vv)).Modulus());
+          }
+          return w;
+        };
+        if (worst(true) >= worst(false)) ka = std::min(64, ka * 2); else kb = std::min(64, kb * 2);
+        if (ka == 64 && kb == 64) { made = w3d_refit_fn(at, u0, u1, v0, v1, 3, 3, 64, 64); dev = deviation(made); break; }
+      }
+      if (dev > 1e-3) throw std::runtime_error("the shaped round could not be fitted closely enough; try the round shape");
+      // The round's ends take the new section, on the faces they run into.
+      for (const TopoDS_Edge &e : ends) {
+        double a, b;
+        Handle(Geom2d_Curve) c2 = BRep_Tool::CurveOnSurface(e, f, a, b);
+        const int n = 32;
+        TColgp_Array1OfPnt pts(1, n + 1);
+        TColStd_Array1OfReal prm(1, n + 1);
+        for (int i = 0; i <= n; i++) {
+          const double t = a + (b - a) * i / n;
+          const gp_Pnt2d q = c2->Value(t);
+          pts.SetValue(i + 1, gp_Pnt(at(q.X(), q.Y())));
+          prm.SetValue(i + 1, t);
+        }
+        const TopoDS_Face g = otherFace(e);
+        const bool shared = !g.IsNull() && mine.count(fmap.FindIndex(g));
+        if (shared) {
+          // Two rounds meeting at a corner: their new sections must still meet along the edge.
+          const int gi = fmap.FindIndex(g);
+          double ga, gb;
+          Handle(Geom2d_Curve) g2 = BRep_Tool::CurveOnSurface(e, g, ga, gb);
+          if (g2.IsNull()) throw std::runtime_error(corner);
+          const gp_Trsf tf = loc.Transformation(), tg = frames[gi].Transformation();
+          // An edge has one parameter on both its faces.
+          for (int i = 0; i <= n; i++) {
+            const double t = a + (b - a) * i / n;
+            const gp_Pnt2d q = c2->Value(t), r = g2->Value(t);
+            const gp_Pnt here = gp_Pnt(at(q.X(), q.Y())).Transformed(tf), there = gp_Pnt(shaped[gi](r.X(), r.Y())).Transformed(tg);
+            if (here.Distance(there) > 1e-4) throw std::runtime_error(corner);
+          }
+        }
+        if (!g.IsNull() && !shared) {
+          Handle(Geom_Surface) gs = BRep_Tool::Surface(g);
+          for (int i = 1; i <= n + 1; i++) {
+            GeomAPI_ProjectPointOnSurf pr(pts(i).Transformed(loc.Transformation()), gs);
+            if (!pr.NbPoints() || pr.LowerDistance() > 1e-4) throw std::runtime_error("a conic or G2 round needs its ends square to the edge; use the round shape here");
+          }
+        }
+        if (remade.Contains(e)) continue;
+        remade.Add(e);
+        GeomAPI_PointsToBSpline fit(pts, prm, 3, 8, GeomAbs_C2, 1e-7);
+        if (!fit.IsDone()) throw std::runtime_error("the end of a shaped round could not be made");
+        TopoDS_Edge ed = e;
+        B.UpdateEdge(ed, fit.Curve(), loc, 1e-6);
+        B.Range(ed, a, b, true);
+        if (!g.IsNull() && !shared) {
+          TopLoc_Location gl;
+          Handle(Geom_Surface) gs = BRep_Tool::Surface(g, gl);
+          B.UpdateEdge(ed, Handle(Geom2d_Curve)(), gs, gl, 1e-6);
+          ShapeFix_Edge().FixAddPCurve(ed, g, false, 1e-6);
+        }
+      }
+      rs->Replace(f, w3d_face_on(f, made, loc, dev));
+    }
+    TopoDS_Shape result = rs->Apply(work);
+    if (!w3d_is_valid(result)) throw std::runtime_error("the shaped round is not valid; try the round shape");
     return std::unique_ptr<TopoDS_Shape>(new TopoDS_Shape(result));
   } catch (const Standard_Failure &f) {
     throw w3d_kernel_error(f);
@@ -3542,6 +3763,45 @@ inline std::unique_ptr<TopoDS_Shape> w3d_edge_tube(const TopoDS_Shape &shape, ru
       tube = f.Shape();
     }
     return std::unique_ptr<TopoDS_Shape>(new TopoDS_Shape(tube));
+  } catch (const Standard_Failure &f) {
+    throw w3d_kernel_error(f);
+  }
+}
+
+// The solid's exact volume (mm³), from its surfaces rather than a mesh.
+inline double w3d_volume(const TopoDS_Shape &shape) {
+  try {
+    GProp_GProps g;
+    BRepGProp::VolumeProperties(shape, g);
+    return g.Mass();
+  } catch (const Standard_Failure &f) {
+    throw w3d_kernel_error(f);
+  }
+}
+
+// A fillet's limit points: what `rounded` (the body with a round) took off `body`, kept only on the
+// side of both planes in `planes` ([point, normal] twice, the normal pointing to the side kept).
+inline std::unique_ptr<TopoDS_Shape> w3d_round_piece(const TopoDS_Shape &body, const TopoDS_Shape &rounded, rust::Slice<const double> planes) {
+  if (planes.size() != 12) throw std::runtime_error("limits are two planes");
+  try {
+    BRepAlgoAPI_Cut cut(body, rounded);
+    if (!cut.IsDone() || cut.HasErrors()) throw std::runtime_error("the round could not be measured against the body");
+    TopoDS_Shape piece = cut.Shape();
+    Bnd_Box box;
+    BRepBndLib::Add(body, box);
+    const double size = std::sqrt(box.SquareExtent()) * 4;
+    for (int i = 0; i < 2; i++) {
+      const gp_Pnt p(planes[6 * i], planes[6 * i + 1], planes[6 * i + 2]);
+      const gp_Vec n(planes[6 * i + 3], planes[6 * i + 4], planes[6 * i + 5]);
+      if (n.Magnitude() < 1e-12) throw std::runtime_error("a limit has no direction");
+      const TopoDS_Face face = BRepBuilderAPI_MakeFace(gp_Pln(p, gp_Dir(n)), -size, size, -size, size).Face();
+      const TopoDS_Shape half = BRepPrimAPI_MakeHalfSpace(face, p.Translated(gp_Vec(gp_Dir(n)) * size / 2)).Solid();
+      BRepAlgoAPI_Common keep(piece, half);
+      if (!keep.IsDone() || keep.HasErrors()) throw std::runtime_error("the round could not be cut at a limit point");
+      piece = keep.Shape();
+    }
+    if (!TopExp_Explorer(piece, TopAbs_SOLID).More()) throw std::runtime_error("the limit points leave nothing of the round");
+    return std::unique_ptr<TopoDS_Shape>(new TopoDS_Shape(piece));
   } catch (const Standard_Failure &f) {
     throw w3d_kernel_error(f);
   }

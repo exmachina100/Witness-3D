@@ -100,6 +100,9 @@ fn offset_face_stretches_slanted_neighbours() {
             kind: Blend::Chamfer,
             angle: blend::EQUAL,
             variable: vec![],
+            shape: w3d_kernel::blend::FilletShape::Round,
+            tension: 0.5,
+            limits: vec![],
         },
     )
     .unwrap()

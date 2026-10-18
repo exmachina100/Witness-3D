@@ -161,6 +161,10 @@ const ICONS = {
     'convert-vertex': `<path d="M3 18L12 5l9 13" stroke-dasharray="2 2"/><path ${A} d="M3 18C8 9 16 9 21 18"/><path ${A} d="M12 5h0" stroke-width="3" stroke-linecap="round"/>`,
     rebuild: `<path d="M3 17L7 6l6 9 4-8 4 2" stroke-dasharray="2 2"/><path ${A} d="M3 17C7 5 11 5 13 11s6 7 8-2"/>`,
     // Match Face: a block's top face taking the curve of a surface above it.
+    'fillet-round': `<path d="M5 3v8M13 19h8"/><path ${A} d="M5 11a8 8 0 0 0 8 8"/>`,
+    'fillet-chordal': `<path d="M5 3v8M13 19h8"/><path ${A} d="M5 11a8 8 0 0 0 8 8"/><path d="M5 11l8 8" stroke-dasharray="2 2"/>`,
+    'fillet-conic': `<path d="M5 3v8M13 19h8"/><path ${A} d="M5 11Q5 19 13 19"/><circle cx="5" cy="19" r="1.2"/>`,
+    'fillet-g2': `<path d="M5 3v6M15 19h6"/><path ${A} d="M5 9C5 16 8 19 15 19"/>`,
     'limit-minimal': `<path d="M15 3v18"/><path ${A} d="M3 12h12"/><path ${A} d="M11 8l4 4-4 4"/>`,
     'limit-outside': `<path d="M9 3v18M15 3v18"/><path ${A} d="M3 12h18"/><path ${A} d="M17 8l4 4-4 4"/>`,
     untrim: `<path d="M3 5h18v14H3z" stroke-dasharray="2 2"/><path ${A} d="M7 9c3-2 7-2 10 0v6c-3 2-7 2-10 0z"/><path ${A} d="M14 12l5-5M19 7h-3M19 7v3"/>`,

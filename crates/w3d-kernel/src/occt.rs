@@ -401,6 +401,16 @@ impl Kernel for Occt {
         Ok((faces.into_iter().map(|f| f as u32).collect(), tube))
     }
 
+    fn round_piece(&self, body: &Shape, rounded: &Shape, a: (DVec3, DVec3), b: (DVec3, DVec3)) -> Result<Shape, KernelError> {
+        let planes = [a.0.x, a.0.y, a.0.z, a.1.x, a.1.y, a.1.z, b.0.x, b.0.y, b.0.z, b.1.x, b.1.y, b.1.z];
+        body.round_piece(rounded, &planes).map_err(shim)
+    }
+
+    fn reshape_fillets(&self, s: &Shape, faces: &[u32], g2: bool, tension: f64) -> Result<Shape, KernelError> {
+        let faces: Vec<usize> = faces.iter().map(|&f| f as usize).collect();
+        s.reshape_fillets(&faces, if g2 { 3 } else { 2 }, tension).map_err(shim)
+    }
+
     fn untrim_face(&self, s: &Shape, face: u32, keep_edges: bool) -> Result<Shape, KernelError> {
         s.untrim_face(face as usize, keep_edges).map_err(shim)
     }

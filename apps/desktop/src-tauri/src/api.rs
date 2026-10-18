@@ -8,6 +8,7 @@ use serde::{Deserialize, Serialize};
 use w3d_kernel::document::{BodyId, Document, FormRequest as FormKindRequest, Tools};
 use w3d_kernel::engine::Engine;
 use w3d_kernel::occt::Occt;
+use w3d_kernel::blend::FilletShape;
 use w3d_kernel::{extrude, file, form, ArraySpec, Primitive, FormParams, Blend, BlendParams, BooleanOp, Curve, CurveId, CurveShape, ExtrudeParams, ExtrudeResult, Frame, Kernel, KernelError, Motion, Operation, Profile, Ref, Refs, FaceRebuild, RebuiltFace, SheetExtension, Tessellation};
 
 /// Chord tolerance for display meshes, in millimetres.
@@ -597,7 +598,18 @@ pub struct BlendRequest {
     /// Variable points of a fillet: radius `size` × scale at a point on one of the edges.
     #[serde(default)]
     pub variable: Vec<VariableIn>,
+    /// Plasticity's fillet Shape: "round" (the default), "chordal", "conic" or "g2".
+    #[serde(default)]
+    pub shape: String,
+    /// The Conic shape's rho, or how far the G2 shape reaches toward the corner.
+    #[serde(default = "half")]
+    pub tension: f64,
+    /// Limit points (L): none, or two points on the edges between which the round runs.
+    #[serde(default)]
+    pub limits: Vec<[f64; 3]>,
 }
+
+fn half() -> f64 { 0.5 }
 
 #[derive(Deserialize, Debug, Clone, Copy)]
 pub struct VariableIn {
@@ -616,6 +628,14 @@ impl BlendRequest {
             kind: if self.kind == BlendKind::Chamfer { Blend::Chamfer } else { Blend::Fillet },
             angle: self.angle,
             variable: self.variable.iter().map(|v| w3d_kernel::blend::VariablePoint { edge: v.edge, point: v.point.into(), scale: v.scale }).collect(),
+            shape: match self.shape.as_str() {
+                "chordal" => FilletShape::Chordal,
+                "conic" => FilletShape::Conic,
+                "g2" => FilletShape::G2,
+                _ => FilletShape::Round,
+            },
+            tension: self.tension,
+            limits: self.limits.iter().map(|&p| p.into()).collect(),
         }
     }
 }
