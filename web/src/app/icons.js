@@ -144,6 +144,7 @@ const ICONS = {
     ungroup: `<rect x="3" y="3" width="8" height="8"/><rect ${A} x="13" y="13" width="8" height="8"/><path d="M14 4l6 6M20 4l-6 6"/>`,
     // Offset Face grow modes: a step side on, the block's wall pushed out past the ledge's end.
     // Align Vertex: scattered points brought onto one accent line.
+    rebuild: `<path d="M3 17L7 6l6 9 4-8 4 2" stroke-dasharray="2 2"/><path ${A} d="M3 17C7 5 11 5 13 11s6 7 8-2"/>`,
     'align-vertex': `<path d="M6 5h0M17 8h0M8 19h0" stroke-width="3" stroke-linecap="round"/><path ${A} d="M12 3v18"/><path ${A} d="M12 12h0" stroke-width="3" stroke-linecap="round"/>`,
     'axis-x': `<path d="M4 20h16"/><path ${A} d="M8 6l8 8M16 6l-8 8"/>`,
     'axis-y': `<path d="M4 20h16"/><path ${A} d="M8 5l4 5 4-5M12 10v7"/>`,
