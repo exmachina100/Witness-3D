@@ -341,7 +341,7 @@ const SHELL = `
       <span class="hint" data-id="oe-hint">—</span>
       <div class="field"><label for="w3d-oe-d">DISTANCE</label><input id="w3d-oe-d" data-id="oe-d" type="number" step="0.5" value="2"></div>
       <span class="label">GAP FILL</span>
-      <div class="chips"><button data-oecorner="linear" aria-pressed="true">LINEAR</button><button data-oecorner="round" aria-pressed="false">ROUND</button><button data-oecorner="natural" aria-pressed="false">NATURAL</button></div>
+      <div class="chips"><button data-oecorner="linear" aria-pressed="true" title="Offsets meet in a sharp corner">LINEAR</button><button data-oecorner="round" aria-pressed="false" title="An arc round the corner">ROUND</button><button data-oecorner="natural" aria-pressed="false" title="The offsets run on into each other smoothly">NATURAL</button></div>
       <div class="chips"><button data-id="oe-both" aria-pressed="false" title="Offset onto both faces of the edge at once"><kbd>S</kbd>BOTH SIDES</button></div>
     </div>
     <div class="sec" data-panel="isoparam" hidden>
@@ -708,9 +708,9 @@ const VIEWS = {
 export async function mount(root, backend) {
   root.innerHTML = SHELL;
   // Panel options carry their icon ahead of the key and name.
-  for (const b of root.querySelectorAll('[data-draw],[data-bop],[data-xop],[data-fop],[data-spiral],[data-toggle],[data-gmethod],[data-galign],[data-grow],[data-mfgrow],[data-eslimit],[data-flshape],[data-avaxis],[data-extshape],[data-esshape],[data-isodir],[data-id="oe-both"],[data-id="ex-lock"],[data-id="bool-keep"],[data-id="ex-free"],[data-id="ex-pivot"],[data-id="ex-individual"],[data-id="dr-hidden"],[data-id="dr-curves"],[data-id="oc-lock"],[data-id="oc-free"],[data-id="oc-slot"],[data-id="oc-combine"],[data-id="es-unlimit"],[data-rbmethod],[data-id="rf-shrink"],[data-id="ut-keep"]')) {
+  for (const b of root.querySelectorAll('[data-draw],[data-bop],[data-xop],[data-fop],[data-spiral],[data-toggle],[data-gmethod],[data-galign],[data-grow],[data-mfgrow],[data-eslimit],[data-flshape],[data-avaxis],[data-extshape],[data-esshape],[data-isodir],[data-id="oe-both"],[data-id="ex-lock"],[data-id="bool-keep"],[data-id="ex-free"],[data-id="ex-pivot"],[data-id="ex-individual"],[data-id="dr-hidden"],[data-id="dr-curves"],[data-id="oc-lock"],[data-id="oc-free"],[data-id="oc-slot"],[data-id="oc-combine"],[data-id="es-unlimit"],[data-rbmethod],[data-oecorner],[data-id="rf-shrink"],[data-id="ut-keep"]')) {
     const name = b.dataset.draw ?? b.dataset.bop ?? b.dataset.xop ?? b.dataset.fop ?? b.dataset.spiral ?? (b.dataset.toggle && `view-${b.dataset.toggle}`)
-      ?? (b.dataset.gmethod && `guide-${b.dataset.gmethod}`) ?? (b.dataset.galign && `align-${b.dataset.galign}`) ?? (b.dataset.grow && `grow-${b.dataset.grow}`) ?? (b.dataset.mfgrow && `grow-${b.dataset.mfgrow}`) ?? (b.dataset.eslimit && `limit-${b.dataset.eslimit}`) ?? (b.dataset.flshape && `fillet-${b.dataset.flshape}`) ?? (b.dataset.avaxis && `axis-${b.dataset.avaxis}`) ?? (b.dataset.extshape && `extend-${b.dataset.extshape}`) ?? (b.dataset.esshape && `extend-${b.dataset.esshape}`) ?? (b.dataset.isodir && `iso-${b.dataset.isodir}`) ?? (b.dataset.rbmethod && `rebuild-${b.dataset.rbmethod}`)
+      ?? (b.dataset.gmethod && `guide-${b.dataset.gmethod}`) ?? (b.dataset.galign && `align-${b.dataset.galign}`) ?? (b.dataset.grow && `grow-${b.dataset.grow}`) ?? (b.dataset.mfgrow && `grow-${b.dataset.mfgrow}`) ?? (b.dataset.eslimit && `limit-${b.dataset.eslimit}`) ?? (b.dataset.flshape && `fillet-${b.dataset.flshape}`) ?? (b.dataset.avaxis && `axis-${b.dataset.avaxis}`) ?? (b.dataset.extshape && `extend-${b.dataset.extshape}`) ?? (b.dataset.esshape && `extend-${b.dataset.esshape}`) ?? (b.dataset.isodir && `iso-${b.dataset.isodir}`) ?? (b.dataset.rbmethod && `rebuild-${b.dataset.rbmethod}`) ?? (b.dataset.oecorner && `corner-${b.dataset.oecorner}`)
       ?? { 'ex-lock': 'lock', 'bool-keep': 'keep', 'ex-free': 'freestyle', 'ex-pivot': 'pivot', 'ex-individual': 'individual', 'dr-hidden': 'hidden-lines', 'dr-curves': 'drawing-curves', 'oc-lock': 'lock', 'oc-free': 'freestyle', 'oc-slot': 'slot', 'oc-combine': 'combine', 'oe-both': 'both-sides', 'es-unlimit': 'unlimit', 'rf-shrink': 'shrink', 'ut-keep': 'keep-edges' }[b.dataset.id];
     b.insertAdjacentHTML('afterbegin', icon(name));
   }
@@ -1863,6 +1863,9 @@ export async function mount(root, backend) {
     for (const b of $$('[data-flshape]')) b.setAttribute('aria-pressed', String(b.dataset.flshape === 'round'));
     $('blend-tension-row').hidden = true;
     $('blend-tension').value = 0.5;
+    $('blend-kind').textContent = 'ROUND';
+    $('blend-limits').textContent = 0;
+    for (const o of [...limitMarks.children]) dispose(o);
     setState('none');
     c.onSelection = () => {
       drawOverlays();
@@ -2080,6 +2083,7 @@ export async function mount(root, backend) {
     c.shape = shape;
     for (const b of $$('[data-flshape]')) b.setAttribute('aria-pressed', String(b.dataset.flshape === shape));
     $('blend-tension-row').hidden = shape !== 'conic' && shape !== 'g2';
+    if (c.value >= 0) $('blend-kind').textContent = shape === 'g2' ? 'G2' : shape.toUpperCase();
     c.good = c.bad = null;
     previewFillet();
   }
