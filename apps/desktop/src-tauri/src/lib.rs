@@ -272,6 +272,24 @@ async fn commit_imprint(
 }
 
 #[tauri::command]
+async fn preview_offset_edges(
+    model: State<'_, Model>,
+    req: api::OffsetEdgesRequest,
+) -> Result<Option<api::Body>, api::ApiError> {
+    on_model(&model, move |m| api::preview_offset_edges(m, req))
+        .await?
+        .transpose()
+}
+
+#[tauri::command]
+async fn commit_offset_edges(
+    model: State<'_, Model>,
+    req: api::OffsetEdgesRequest,
+) -> Result<api::Committed, api::ApiError> {
+    on_model(&model, move |m| api::commit_offset_edges(m, req)).await?
+}
+
+#[tauri::command]
 async fn preview_join_sheets(
     model: State<'_, Model>,
     req: api::JoinSheetsRequest,
@@ -758,6 +776,8 @@ pub fn run() {
             commit_cut,
             preview_imprint,
             commit_imprint,
+            preview_offset_edges,
+            commit_offset_edges,
             preview_patch,
             commit_patch,
             preview_join_sheets,

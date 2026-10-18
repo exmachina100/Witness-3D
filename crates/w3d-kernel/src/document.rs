@@ -816,6 +816,27 @@ impl<K: Kernel> Document<K> {
         Ok(body)
     }
 
+    /// Plasticity's Offset Edge on curved faces or several faces, without changing the document:
+    /// `edges` moved `distance` across the faces on `side` (0 or 1, 2 for both) and imprinted there.
+    /// With `away`, the side is instead the one without that face.
+    pub fn preview_offset_edges(&self, body: BodyId, edges: &[u32], distance: f64, side: u32, away: Option<u32>) -> Result<Traced<K::Solid>, KernelError> {
+        if edges.is_empty() { return Err(KernelError::Invalid("select the edges to offset")) }
+        let s = self.get(body).ok_or(KernelError::Invalid("that body no longer exists"))?;
+        let (mut faces, mut tube) = self.kernel.offset_edge_tools(s, edges, distance, if away.is_some() { 0 } else { side })?;
+        if let Some(f) = away {
+            if faces.contains(&f) { (faces, tube) = self.kernel.offset_edge_tools(s, edges, distance, 1)? }
+        }
+        self.kernel.imprint(s, &faces, &[], &[&tube], SHEET)
+    }
+
+    /// Offset Edge on any faces as one undoable step.
+    pub fn commit_offset_edges(&mut self, body: BodyId, edges: &[u32], distance: f64, side: u32, away: Option<u32>) -> Result<BodyId, KernelError> {
+        let traced = self.preview_offset_edges(body, edges, distance, side, away)?;
+        self.checkpoint();
+        self.replace_traced(body, traced);
+        Ok(body)
+    }
+
     /// Plasticity's Project Curve Body, without changing the document: the curves carried along
     /// `dir` onto the body's numbered faces (all when empty), forwards only unless `both`, and only
     /// where seen along `dir` when `hide`.

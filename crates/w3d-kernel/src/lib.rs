@@ -423,6 +423,11 @@ pub trait Kernel {
     fn edge_curvature(&self, _s: &Self::Solid, _edge: u32, _n: usize) -> Result<Vec<CombTooth>, KernelError> {
         Err(KernelError::Invalid("this kernel cannot measure edge curvature"))
     }
+    /// Plasticity's Offset Edge on any faces: the faces either side of `edges` of `s` on `side` (0
+    /// or 1, 2 for both), and the tube of radius `d` round the edges that meets them at the offset.
+    fn offset_edge_tools(&self, _s: &Self::Solid, _edges: &[u32], _d: f64, _side: u32) -> Result<(Vec<u32>, Self::Solid), KernelError> {
+        Err(KernelError::Invalid("this kernel cannot offset edges"))
+    }
     /// Plasticity's Untrim: a sheet of the whole surface under face `face` of `s`, with the face's
     /// edges imprinted on it when `keep_edges`.
     fn untrim_face(&self, _s: &Self::Solid, _face: u32, _keep_edges: bool) -> Result<Self::Solid, KernelError> {

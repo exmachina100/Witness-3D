@@ -38,6 +38,8 @@
 #include <TColgp_Array2OfPnt.hxx>
 #include <cstdio>
 #include <BRepOffsetAPI_MakePipeShell.hxx>
+#include <BRepPrimAPI_MakeSphere.hxx>
+#include <BRepPrimAPI_MakeCylinder.hxx>
 #include <BRepPrimAPI_MakePrism.hxx>
 #include <GC_MakeArcOfCircle.hxx>
 #include <GeomAPI_Interpolate.hxx>
@@ -3413,4 +3415,134 @@ inline rust::Vec<double> w3d_edge_curvature(const TopoDS_Shape &shape, int32_t i
     throw w3d_kernel_error(f);
   }
   return out;
+}
+
+// Plasticity's Offset Edge on any faces, curved or several: the picked `edges` of the solid moved
+// `d` across the faces on one side of them and imprinted there. The offset is where the tube of
+// w3d_edge_tube meets those faces, so it keeps `d` from the edges in space and joins round at
+// corners. This gives the faces either side of the picked edges, split into the two sides of the
+// run, those of `side` (0 or 1, 2 for both) as face numbers.
+inline rust::Vec<int32_t> w3d_offset_edge_faces(const TopoDS_Shape &shape, rust::Slice<const int32_t> edges, int32_t side) {
+  if (edges.empty()) throw std::runtime_error("select the edges to offset");
+  TopTools_IndexedMapOfShape emap, fmap;
+  TopExp::MapShapes(shape, TopAbs_EDGE, emap);
+  TopExp::MapShapes(shape, TopAbs_FACE, fmap);
+  TopTools_IndexedDataMapOfShapeListOfShape edgeFaces;
+  TopExp::MapShapesAndAncestors(shape, TopAbs_EDGE, TopAbs_FACE, edgeFaces);
+  std::set<int> picked;
+  for (int32_t e : edges) {
+    if (e < 0 || e >= emap.Extent()) throw std::out_of_range("that edge no longer exists");
+    picked.insert(e + 1);
+  }
+  try {
+    // The faces either side of the picked edges, coloured 0 and 1: across a picked edge the colour
+    // changes, across any other edge between two of these faces it stays.
+    std::map<int, int> colour;
+    auto facesOf = [&](int e) {
+      std::vector<int> out;
+      for (TopTools_ListIteratorOfListOfShape it(edgeFaces.FindFromKey(emap(e))); it.More(); it.Next()) {
+        const int f = fmap.FindIndex(it.Value());
+        if (f > 0 && std::find(out.begin(), out.end(), f) == out.end()) out.push_back(f);
+      }
+      return out;
+    };
+    std::set<int> touched;
+    for (int e : picked) {
+      const auto fs = facesOf(e);
+      if (fs.size() != 2) throw std::runtime_error("offset edges between two faces of a solid");
+      touched.insert(fs.begin(), fs.end());
+    }
+    std::vector<int> todo;
+    const int seed = facesOf(*picked.begin())[0];
+    colour[seed] = 0;
+    todo.push_back(seed);
+    while (!todo.empty()) {
+      const int f = todo.back();
+      todo.pop_back();
+      TopTools_IndexedMapOfShape fe;
+      TopExp::MapShapes(fmap(f), TopAbs_EDGE, fe);
+      for (int i = 1; i <= fe.Extent(); i++) {
+        const int e = emap.FindIndex(fe(i));
+        if (e == 0) continue;
+        for (int g : facesOf(e)) {
+          if (g == f || !touched.count(g)) continue;
+          const int want = picked.count(e) ? 1 - colour[f] : colour[f];
+          auto it = colour.find(g);
+          if (it == colour.end()) { colour[g] = want; todo.push_back(g); }
+          else if (it->second != want) throw std::runtime_error("those edges don't run along one side of the faces; offset them in parts");
+        }
+      }
+    }
+    for (int f : touched) if (!colour.count(f)) throw std::runtime_error("those edges don't join up; offset each run on its own");
+    rust::Vec<int32_t> out;
+    for (auto &[f, c] : colour) if (side == 2 || c == side) out.push_back(f - 1);
+    if (out.empty()) throw std::runtime_error("no faces on that side");
+    return out;
+  } catch (const Standard_Failure &f) {
+    throw w3d_kernel_error(f);
+  }
+}
+
+// The tube Offset Edge cuts the faces with: a pipe of radius `d` round each picked edge, a ball
+// where two picked edges meet, and straight on past the ends of each run.
+inline std::unique_ptr<TopoDS_Shape> w3d_edge_tube(const TopoDS_Shape &shape, rust::Slice<const int32_t> edges, double d) {
+  if (edges.empty()) throw std::runtime_error("select the edges to offset");
+  if (!(d > 1e-6)) throw std::runtime_error("the distance must be greater than zero");
+  TopTools_IndexedMapOfShape emap;
+  TopExp::MapShapes(shape, TopAbs_EDGE, emap);
+  TopTools_IndexedDataMapOfShapeListOfShape vertexEdges;
+  TopExp::MapShapesAndAncestors(shape, TopAbs_VERTEX, TopAbs_EDGE, vertexEdges);
+  std::set<int> picked;
+  for (int32_t e : edges) {
+    if (e < 0 || e >= emap.Extent()) throw std::out_of_range("that edge no longer exists");
+    picked.insert(e + 1);
+  }
+  try {
+    Bnd_Box box;
+    BRepBndLib::Add(shape, box);
+    const double far = std::sqrt(box.SquareExtent()) * 1.5;
+    std::vector<TopoDS_Shape> parts;
+    for (int e : picked) {
+      const TopoDS_Edge edge = TopoDS::Edge(emap(e));
+      BRepAdaptor_Curve c(edge);
+      gp_Pnt p;
+      gp_Vec t;
+      c.D1(c.FirstParameter(), p, t);
+      if (t.Magnitude() < 1e-12) throw std::runtime_error("an edge has no direction at its start");
+      const TopoDS_Wire ring = BRepBuilderAPI_MakeWire(BRepBuilderAPI_MakeEdge(gp_Circ(gp_Ax2(p, gp_Dir(t)), d)).Edge()).Wire();
+      BRepOffsetAPI_MakePipeShell pipe(BRepBuilderAPI_MakeWire(edge).Wire());
+      pipe.Add(ring);
+      pipe.Build();
+      if (!pipe.IsDone() || !pipe.MakeSolid()) throw std::runtime_error("the edge bends tighter than that distance; use a smaller one");
+      parts.push_back(pipe.Shape());
+      for (int end = 0; end < 2; end++) {
+        // The vertex at that end of the curve's parameters, whichever way the edge is used.
+        const TopoDS_Vertex v = end ? TopExp::LastVertex(edge) : TopExp::FirstVertex(edge);
+        // A closed edge runs on into itself.
+        if (v.IsNull() || TopExp::FirstVertex(edge).IsSame(TopExp::LastVertex(edge))) continue;
+        int meeting = 0;
+        for (TopTools_ListIteratorOfListOfShape it(vertexEdges.FindFromKey(v)); it.More(); it.Next()) {
+          const int g = emap.FindIndex(it.Value());
+          if (g != e && picked.count(g)) meeting++;
+        }
+        const gp_Pnt at = BRep_Tool::Pnt(v);
+        if (meeting) { parts.push_back(BRepPrimAPI_MakeSphere(at, d).Shape()); continue; }
+        gp_Pnt q;
+        gp_Vec dir;
+        c.D1(end ? c.LastParameter() : c.FirstParameter(), q, dir);
+        if (!end) dir.Reverse();
+        if (dir.Magnitude() < 1e-12) continue;
+        parts.push_back(BRepPrimAPI_MakeCylinder(gp_Ax2(at, gp_Dir(dir)), d, far).Shape());
+      }
+    }
+    TopoDS_Shape tube = parts[0];
+    for (size_t i = 1; i < parts.size(); i++) {
+      BRepAlgoAPI_Fuse f(tube, parts[i]);
+      if (!f.IsDone() || f.HasErrors()) throw std::runtime_error("the offsets round the edges could not be joined");
+      tube = f.Shape();
+    }
+    return std::unique_ptr<TopoDS_Shape>(new TopoDS_Shape(tube));
+  } catch (const Standard_Failure &f) {
+    throw w3d_kernel_error(f);
+  }
 }
