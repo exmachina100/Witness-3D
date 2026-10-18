@@ -5,7 +5,7 @@ pub mod api;
 pub mod bridge;
 
 use std::path::PathBuf;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 use tauri::{Manager, State};
 
@@ -514,6 +514,23 @@ async fn open(model: State<'_, Model>, path: PathBuf) -> Result<Vec<api::Body>, 
     on_model(&model, move |m| api::open(m, path)).await?
 }
 
+/// A .w3d the app was started with (double-clicked in the file manager, or `witness-3d model.w3d`),
+/// handed to the UI once, which opens it as File › Open would.
+struct StartupFile(Mutex<Option<PathBuf>>);
+
+/// The first argument that names a .w3d file.
+fn w3d_arg(args: impl IntoIterator<Item = String>) -> Option<PathBuf> {
+    args.into_iter()
+        .skip(1)
+        .map(PathBuf::from)
+        .find(|p| p.extension().and_then(|e| e.to_str()).is_some_and(|e| e.eq_ignore_ascii_case("w3d")))
+}
+
+#[tauri::command]
+fn startup_file(file: State<'_, StartupFile>) -> Option<PathBuf> {
+    file.0.lock().ok()?.take()
+}
+
 #[tauri::command]
 async fn import_step(model: State<'_, Model>, path: PathBuf) -> Result<api::Committed, String> {
     on_model(&model, move |m| api::import_step(m, path)).await?
@@ -602,6 +619,20 @@ fn set_ai_key(app: tauri::AppHandle, key: String) -> Result<(), String> {
         .map_err(|e| e.to_string())
 }
 
+#[cfg(test)]
+mod tests {
+    use super::w3d_arg;
+    use std::path::PathBuf;
+
+    #[test]
+    fn finds_the_model_argument() {
+        let args = |a: &[&str]| a.iter().map(|s| s.to_string()).collect::<Vec<_>>();
+        assert_eq!(w3d_arg(args(&["witness-3d", "--flag", "C:\\models\\Part.W3D"])), Some(PathBuf::from("C:\\models\\Part.W3D")));
+        assert_eq!(w3d_arg(args(&["witness-3d", "notes.txt"])), None);
+        assert_eq!(w3d_arg(args(&["part.w3d"])), None);
+    }
+}
+
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
@@ -614,6 +645,7 @@ pub fn run() {
                 .ok();
             app.manage(Model(model));
             app.manage(bridge);
+            app.manage(StartupFile(Mutex::new(w3d_arg(std::env::args()))));
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -678,6 +710,7 @@ pub fn run() {
             app_state,
             set_app_state,
             open,
+            startup_file,
             import_step,
             export_step,
             bridge_changed,
@@ -685,6 +718,19 @@ pub fn run() {
             ai_key,
             set_ai_key,
         ])
-        .run(tauri::generate_context!())
-        .expect("error while running Witness 3D");
+        .build(tauri::generate_context!())
+        .expect("error while building Witness 3D")
+        .run(|_app, _event| {
+            // macOS hands double-clicked files over as an event rather than as arguments: keep the
+            // first for start-up, and tell a running window to open it.
+            #[cfg(target_os = "macos")]
+            if let tauri::RunEvent::Opened { urls } = _event {
+                use tauri::Emitter;
+                let path = urls.iter().filter_map(|u| u.to_file_path().ok()).find(|p| w3d_arg(["".into(), p.to_string_lossy().into()]).is_some());
+                if let Some(path) = path {
+                    if let Some(file) = _app.try_state::<StartupFile>() { if let Ok(mut f) = file.0.lock() { *f = Some(path.clone()) } }
+                    let _ = _app.emit("open-file", path);
+                }
+            }
+        });
 }

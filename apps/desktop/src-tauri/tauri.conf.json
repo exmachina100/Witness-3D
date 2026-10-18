@@ -11,12 +11,62 @@
   },
   "app": {
     "withGlobalTauri": true,
-    "windows": [{ "title": "Witness 3D", "width": 1280, "height": 800, "minWidth": 640, "minHeight": 480 }],
-    "security": { "csp": "default-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self' ipc: http://ipc.localhost https://api.anthropic.com" }
+    "windows": [
+      {
+        "title": "Witness 3D",
+        "width": 1280,
+        "height": 800,
+        "minWidth": 640,
+        "minHeight": 480
+      }
+    ],
+    "security": {
+      "csp": "default-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self' ipc: http://ipc.localhost https://api.anthropic.com"
+    }
   },
   "bundle": {
     "active": true,
     "targets": "all",
-    "icon": ["icons/icon.png", "icons/icon.ico"]
+    "icon": [
+      "icons/icon.png",
+      "icons/icon.ico"
+    ],
+    "publisher": "exmachina100",
+    "category": "GraphicsAndDesign",
+    "shortDescription": "A direct modeler in the OpenCascade kernel.",
+    "fileAssociations": [
+      {
+        "ext": [
+          "w3d"
+        ],
+        "name": "Witness 3D model",
+        "description": "Witness 3D model",
+        "role": "Editor",
+        "mimeType": "application/x-witness3d"
+      }
+    ],
+    "windows": {
+      "nsis": {
+        "installMode": "currentUser"
+      },
+      "wix": {
+        "language": "en-US"
+      }
+    },
+    "linux": {
+      "deb": {
+        "section": "graphics",
+        "desktopTemplate": "linux/witness-3d.desktop",
+        "files": {
+          "/usr/share/mime/packages/witness3d.xml": "linux/witness3d-mime.xml"
+        }
+      },
+      "rpm": {
+        "desktopTemplate": "linux/witness-3d.desktop",
+        "files": {
+          "/usr/share/mime/packages/witness3d.xml": "linux/witness3d-mime.xml"
+        }
+      }
+    }
   }
 }

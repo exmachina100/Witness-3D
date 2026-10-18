@@ -118,6 +118,10 @@ const rust = {
     return { name: baseName(path), scene };
   },
   get filePath() { return filePath; },
+  // A .w3d the app was opened with (a double-click in the file manager), once; and, on macOS, files
+  // handed to the running app.
+  startupFile: () => tauri.core.invoke('startup_file'),
+  onOpenFile: fn => tauri.event.listen('open-file', () => fn()),
   appState: () => tauri.core.invoke('app_state'),
   setAppState: state => tauri.core.invoke('set_app_state', { state }),
   version: () => tauri.app.getVersion(),
