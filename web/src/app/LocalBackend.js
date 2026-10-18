@@ -10,6 +10,7 @@ import { curveFromNurbs, ends, join, loops, MEET, nurbsLoop } from '../curves.js
 import { isoparam, meetCurves, projectCurveCurve, projectCurves } from '../Project.js';
 import { isSheet, patch } from '../Patch.js';
 import { offsetEdges } from '../edgeTube.js';
+import { chordal, limitRound } from '../filletShape.js';
 import { bridgeSurface } from '../BridgeSurface.js';
 import { projectOutline } from '../Outline.js';
 import { thicken, thickenFaces } from '../Thicken.js';
@@ -829,13 +830,30 @@ export class LocalBackend {
         return this.latest(async () => this.body(req.body, this.blend(req)));
     }
 
-    blend({ body, edges, size, kind, angle = Math.PI / 4, variable = [] }, withHistory = false) {
+    blend(req, withHistory = false) {
+        const { body, edges, kind, limits = [] } = req;
+        if (kind === 'chamfer' || !limits.length) return this.blendWhole(req, withHistory);
+        const shape = this.shapes.get(body);
+        if (!shape) throw new Error('that body no longer exists');
+        const rounded = this.blendWhole(req, false);
+        const r = limitRound(shape, rounded, [...new Set(edges)], limits, booleanWithHistory);
+        return withHistory ? r : r.shape;
+    }
+
+    blendWhole({ body, edges, size, kind, angle = Math.PI / 4, variable = [], shape: section = 'round' }, withHistory = false) {
         const shape = this.shapes.get(body);
         if (!shape) throw new Error('that body no longer exists');
         if (!edges.length) throw new Error('select at least one edge');
         if (!(size > 0)) throw new Error(`the ${kind === 'chamfer' ? 'distance' : 'radius'} must be greater than zero`);
         if (kind === 'chamfer' && !(angle > 0 && angle < Math.PI / 2)) throw new Error('the chamfer angle must be between 0 and 90 degrees');
-        return blendEdges(shape, [...new Set(edges)], size, kind === 'chamfer', withHistory, angle, variable);
+        const unique = [...new Set(edges)];
+        if (kind !== 'chamfer' && (section === 'conic' || section === 'g2')) throw new Error('conic and G2 rounds are in the desktop app; this build makes round and chordal ones');
+        if (kind !== 'chamfer' && section === 'chordal') {
+            if (variable.length) throw new Error('a chordal round takes one distance; remove the variable points');
+            const c = chordal(shape, unique, size);
+            return blendEdges(shape, unique, c.size, false, withHistory, angle, c.variable);
+        }
+        return blendEdges(shape, unique, size, kind === 'chamfer', withHistory, angle, variable);
     }
 
     async commitBlend(req) {

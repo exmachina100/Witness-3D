@@ -77,7 +77,7 @@ import { arcPoints, circleThrough, cvPoints, ellipsePoints, endTangent, helixPoi
 const KEYS = {
   material: [['FORK', 'OWN COPY'], ['⏎ / RMB', 'OK'], ['ESC', 'CANCEL']],
   idle: [['CLICK', 'SELECT'], ['⇧ CLICK', 'ADD'], ['CTRL CLICK', 'REMOVE'], ['DRAG', 'BOX'], ['MMB', 'ORBIT'], ['RMB', 'PAN'], ['F', 'SEARCH']],
-  fillet: [['DRAG DOT', 'RADIUS'], ['IN', 'CHAMFER'], ['D', 'DISTANCE'], ['C', 'CHAMFER'], ['A', 'ANGLE'], ['V', 'VARIABLE POINT'], ['CTRL CLICK', 'EDGES'], ['⏎ / RMB', 'OK']],
+  fillet: [['DRAG DOT', 'RADIUS'], ['IN', 'CHAMFER'], ['D', 'DISTANCE'], ['C', 'CHAMFER'], ['A', 'ANGLE'], ['V', 'VARIABLE POINT'], ['L', 'LIMIT POINTS'], ['CTRL CLICK', 'EDGES'], ['⏎ / RMB', 'OK']],
   move: [['X Y Z', 'AXIS'], ['⇧ X Y Z', 'PLANE'], ['G', 'SCREEN'], ['CTRL', 'SNAP'], ['⏎ / RMB', 'OK']],
   rotate: [['X Y Z', 'AXIS'], ['R', 'SCREEN'], ['CTRL', '15°'], ['⏎ / RMB', 'OK']],
   scale: [['S', 'UNIFORM'], ['CTRL', '0.1'], ['⏎ / RMB', 'OK']],
@@ -241,8 +241,11 @@ const SHELL = `
       <div class="field"><label for="w3d-blend-distance">DISTANCE</label><input id="w3d-blend-distance" data-id="blend-distance" type="number" step="0.5" value="0" title="Negative makes a chamfer"></div>
       <div class="field"><label for="w3d-blend-angle">ANGLE °</label><input id="w3d-blend-angle" data-id="blend-angle" type="number" step="5" min="1" max="89" value="45" title="The chamfer's angle"></div>
       <div class="field"><label>SHAPE</label><output data-id="blend-kind">ROUND</output></div>
+      <div class="seg" role="group" aria-label="Fillet shape"><button data-flshape="round" aria-pressed="true" title="A circular round of the radius">ROUND</button><button data-flshape="chordal" aria-pressed="false" title="The distance is the width across the round">CHORDAL</button><button data-flshape="conic" aria-pressed="false" title="A conic between the same lines; Tension is its rho">CONIC</button><button data-flshape="g2" aria-pressed="false" title="Curvature continuous with the faces it joins">G2</button></div>
+      <div class="field" data-id="blend-tension-row" hidden><label for="w3d-blend-tension">TENSION</label><input id="w3d-blend-tension" data-id="blend-tension" type="number" step="0.05" min="0.05" max="0.95" value="0.5" title="Conic: its rho (0.5 a parabola, higher pulls into the corner). G2: how far toward the corner it reaches"></div>
       <div class="field"><label>EDGES</label><output data-id="blend-count">0</output></div>
       <div class="field"><label>VARIABLE POINTS</label><output data-id="blend-vars" title="V adds one on a rounded edge; drag its dot for the radius there">0</output></div>
+      <div class="field"><label>LIMIT POINTS</label><output data-id="blend-limits" title="L adds one on a rounded edge; with two the round runs only between them">0</output></div>
     </div>
     <div class="sec" data-panel="spiral" hidden>
       <span class="hint" data-id="spiral-hint">CLICK THE START OF THE AXIS</span>
@@ -705,9 +708,9 @@ const VIEWS = {
 export async function mount(root, backend) {
   root.innerHTML = SHELL;
   // Panel options carry their icon ahead of the key and name.
-  for (const b of root.querySelectorAll('[data-draw],[data-bop],[data-xop],[data-fop],[data-spiral],[data-toggle],[data-gmethod],[data-galign],[data-grow],[data-mfgrow],[data-eslimit],[data-avaxis],[data-extshape],[data-esshape],[data-isodir],[data-id="oe-both"],[data-id="ex-lock"],[data-id="bool-keep"],[data-id="ex-free"],[data-id="ex-pivot"],[data-id="ex-individual"],[data-id="dr-hidden"],[data-id="dr-curves"],[data-id="oc-lock"],[data-id="oc-free"],[data-id="oc-slot"],[data-id="oc-combine"],[data-id="es-unlimit"],[data-rbmethod],[data-id="rf-shrink"],[data-id="ut-keep"]')) {
+  for (const b of root.querySelectorAll('[data-draw],[data-bop],[data-xop],[data-fop],[data-spiral],[data-toggle],[data-gmethod],[data-galign],[data-grow],[data-mfgrow],[data-eslimit],[data-flshape],[data-avaxis],[data-extshape],[data-esshape],[data-isodir],[data-id="oe-both"],[data-id="ex-lock"],[data-id="bool-keep"],[data-id="ex-free"],[data-id="ex-pivot"],[data-id="ex-individual"],[data-id="dr-hidden"],[data-id="dr-curves"],[data-id="oc-lock"],[data-id="oc-free"],[data-id="oc-slot"],[data-id="oc-combine"],[data-id="es-unlimit"],[data-rbmethod],[data-id="rf-shrink"],[data-id="ut-keep"]')) {
     const name = b.dataset.draw ?? b.dataset.bop ?? b.dataset.xop ?? b.dataset.fop ?? b.dataset.spiral ?? (b.dataset.toggle && `view-${b.dataset.toggle}`)
-      ?? (b.dataset.gmethod && `guide-${b.dataset.gmethod}`) ?? (b.dataset.galign && `align-${b.dataset.galign}`) ?? (b.dataset.grow && `grow-${b.dataset.grow}`) ?? (b.dataset.mfgrow && `grow-${b.dataset.mfgrow}`) ?? (b.dataset.eslimit && `limit-${b.dataset.eslimit}`) ?? (b.dataset.avaxis && `axis-${b.dataset.avaxis}`) ?? (b.dataset.extshape && `extend-${b.dataset.extshape}`) ?? (b.dataset.esshape && `extend-${b.dataset.esshape}`) ?? (b.dataset.isodir && `iso-${b.dataset.isodir}`) ?? (b.dataset.rbmethod && `rebuild-${b.dataset.rbmethod}`)
+      ?? (b.dataset.gmethod && `guide-${b.dataset.gmethod}`) ?? (b.dataset.galign && `align-${b.dataset.galign}`) ?? (b.dataset.grow && `grow-${b.dataset.grow}`) ?? (b.dataset.mfgrow && `grow-${b.dataset.mfgrow}`) ?? (b.dataset.eslimit && `limit-${b.dataset.eslimit}`) ?? (b.dataset.flshape && `fillet-${b.dataset.flshape}`) ?? (b.dataset.avaxis && `axis-${b.dataset.avaxis}`) ?? (b.dataset.extshape && `extend-${b.dataset.extshape}`) ?? (b.dataset.esshape && `extend-${b.dataset.esshape}`) ?? (b.dataset.isodir && `iso-${b.dataset.isodir}`) ?? (b.dataset.rbmethod && `rebuild-${b.dataset.rbmethod}`)
       ?? { 'ex-lock': 'lock', 'bool-keep': 'keep', 'ex-free': 'freestyle', 'ex-pivot': 'pivot', 'ex-individual': 'individual', 'dr-hidden': 'hidden-lines', 'dr-curves': 'drawing-curves', 'oc-lock': 'lock', 'oc-free': 'freestyle', 'oc-slot': 'slot', 'oc-combine': 'combine', 'oe-both': 'both-sides', 'es-unlimit': 'unlimit', 'rf-shrink': 'shrink', 'ut-keep': 'keep-edges' }[b.dataset.id];
     b.insertAdjacentHTML('afterbegin', icon(name));
   }
@@ -1141,6 +1144,9 @@ export async function mount(root, backend) {
 
   // Plasticity's Toggle Surface Curvature: the same combs on the edges of bodies, toggled edge by
   // edge. Each keeps its edge's ref, so it follows the edge through later changes to the body.
+  // Fillet's limit points (L): a dot on the edge where the round stops.
+  const limitMarks = new THREE.Group();
+  scene.add(limitMarks);
   let surfaceCombs = [];
   const surfaceCombGroup = new THREE.Group();
   scene.add(surfaceCombGroup);
@@ -1846,14 +1852,17 @@ export async function mount(root, backend) {
       if (!sel.allows('edge')) sel.toggleMode('edge'), renderModes();
     }
     const c = cmd = {
-      id: 'fillet', auto, value: 0, angle: 45, sent: 0, shown: 0, good: null, bad: null, body: null, edges: [],
+      id: 'fillet', auto, value: 0, angle: 45, shape: 'round', tension: 0.5, sent: 0, shown: 0, good: null, bad: null, body: null, edges: [],
       gizmo: null, entry: null, entryDone: () => previewFillet(),
       // Plasticity's variable points (V): { edge, point, scale, gizmo }, the radius there being value × scale.
-      vars: [], placing: false, extraGizmos() { return this.vars.map(v => v.gizmo) },
+      vars: [], limits: [], placing: null, extraGizmos() { return this.vars.map(v => v.gizmo) },
       get kind() { return this.value < 0 ? 'chamfer' : 'fillet' },
     };
     lastTool = 'fillet';
     showTool('fillet');
+    for (const b of $$('[data-flshape]')) b.setAttribute('aria-pressed', String(b.dataset.flshape === 'round'));
+    $('blend-tension-row').hidden = true;
+    $('blend-tension').value = 0.5;
     setState('none');
     c.onSelection = () => {
       drawOverlays();
@@ -1862,6 +1871,9 @@ export async function mount(root, backend) {
         // In Plasticity the default command goes when the selection stops being edges.
         if (c.auto && c.value === 0) return abortFillet(null);
         for (const v of [...c.vars]) dropVariable(v);
+        c.limits = [];
+        for (const o of [...limitMarks.children]) dispose(o);
+        $('blend-limits').textContent = 0;
         c.body = null; c.edges = [];
         c.gizmo?.dispose(); c.gizmo = null;
         clearPreview();
@@ -1893,8 +1905,15 @@ export async function mount(root, backend) {
       if (action === 'variable') {
         if (!(c.value > 0)) { toast('DRAG THE DOT OUT TO A ROUND FIRST'); return true; }
         c.auto = false;
-        c.placing = true;
+        c.placing = 'variable';
         setHud('CLICK A ROUNDED EDGE · VARIABLE POINT');
+        return true;
+      }
+      if (action === 'limit') {
+        if (!(c.value > 0)) { toast('DRAG THE DOT OUT TO A ROUND FIRST'); return true; }
+        c.auto = false;
+        c.placing = 'limit';
+        setHud(`CLICK A ROUNDED EDGE · LIMIT POINT ${Math.min(c.limits.length, 1) + 1} OF 2`);
         return true;
       }
       if (action === 'angle') {
@@ -1907,9 +1926,11 @@ export async function mount(root, backend) {
     c.click = e => {
       const hit = pickAt(e);
       if (c.placing) {
-        c.placing = false;
+        const what = c.placing;
+        c.placing = null;
         if (hit?.kind !== 'edge' || hit.body !== c.body || !c.edges.includes(hit.n)) { toast('CLICK ONE OF THE ROUNDED EDGES'); previewFillet(); return true; }
-        addVariable(hit.n, hit.point);
+        if (what === 'limit') addLimit(hit.n, hit.point);
+        else addVariable(hit.n, hit.point);
         return true;
       }
       // Ctrl+click (or Shift) adds or removes an edge; with nothing picked yet a plain click picks.
@@ -1927,6 +1948,7 @@ export async function mount(root, backend) {
     c.cleanup = () => {
       c.gizmo?.dispose();
       for (const v of c.vars) v.gizmo.dispose();
+      for (const o of [...limitMarks.children]) dispose(o);
       clearPreview();
       failedEdges = [];
       drawOverlays();
@@ -1984,6 +2006,28 @@ export async function mount(root, backend) {
     $('blend-vars').textContent = c.vars.length;
     setHud(`VARIABLE POINT ${c.vars.length} · DRAG ITS DOT`);
   }
+  /**
+   * A limit point on edge `n` nearest `near` (Plasticity's L). With two, the round runs only between
+   * the planes square to the edge through them and ends flat; a third replaces the oldest.
+   */
+  function addLimit(n, near) {
+    const c = cmd, e = bodyOf(c.body)?.edges[n];
+    if (!e) return;
+    let best = Infinity, at = null;
+    for (let i = 3; i < e.length; i += 3) {
+      const q = new THREE.Line3(new THREE.Vector3().fromArray(e, i - 3), new THREE.Vector3().fromArray(e, i)).closestPointToPoint(near, true, new THREE.Vector3());
+      if (q.distanceTo(near) < best) { best = q.distanceTo(near); at = q; }
+    }
+    if (!at) return;
+    if (c.limits.length === 2) c.limits.shift();
+    c.limits.push({ edge: n, point: at });
+    for (const o of [...limitMarks.children]) dispose(o);
+    limitMarks.add(new THREE.Points(new THREE.BufferGeometry().setFromPoints(c.limits.map(l => l.point)), hullDots));
+    $('blend-limits').textContent = c.limits.length;
+    c.good = c.bad = null;
+    if (c.limits.length < 2) setHud('L AGAIN FOR THE OTHER END');
+    previewFillet();
+  }
   function dropVariable(v) {
     const c = cmd;
     v.gizmo.dispose();
@@ -2018,14 +2062,27 @@ export async function mount(root, backend) {
     // Variable points keep their share of the radius; a chamfer has none.
     for (const p of c.vars) { p.gizmo.visible = v > 0; if (v > 0) p.gizmo.render(v * p.scale); }
     if (document.activeElement !== $('blend-distance')) $('blend-distance').value = +v.toFixed(3);
-    $('blend-kind').textContent = v < 0 ? 'CHAMFER' : 'ROUND';
+    $('blend-kind').textContent = v < 0 ? 'CHAMFER' : (c.shape === 'g2' ? 'G2' : c.shape.toUpperCase());
     previewFillet();
   }
 
   const filletRequest = (c, v = c.value) => ({
     body: c.body, edges: c.edges, size: Math.abs(v), kind: v < 0 ? 'chamfer' : 'fillet', angle: c.angle * DEG,
     variable: v > 0 ? c.vars.map(p => ({ edge: p.edge, point: p.point.toArray(), scale: p.scale })) : [],
+    shape: c.shape, tension: c.tension,
+    limits: v > 0 && c.limits.length === 2 ? c.limits.map(l => l.point.toArray()) : [],
   });
+
+  /** Plasticity's fillet Shape: Round, Chordal (the distance spans the round), Conic or G2 (with Tension). */
+  function setFilletShape(shape) {
+    const c = cmd;
+    if (c?.id !== 'fillet') return;
+    c.shape = shape;
+    for (const b of $$('[data-flshape]')) b.setAttribute('aria-pressed', String(b.dataset.flshape === shape));
+    $('blend-tension-row').hidden = shape !== 'conic' && shape !== 'g2';
+    c.good = c.bad = null;
+    previewFillet();
+  }
 
   async function previewFillet() {
     const c = cmd;
@@ -2093,7 +2150,7 @@ export async function mount(root, backend) {
     if (c.body === null || c.value === 0) return abortFillet(c.auto ? null : 'cancelled');
     if (c.bad !== null && Math.abs(c.value) >= Math.abs(c.bad)) c.value = c.good;
     const req = filletRequest(c);
-    const text = `${req.kind === 'chamfer' ? 'CHAMFER' : 'FILLET'} ${req.size.toFixed(2)} ×${req.edges.length}`;
+    const text = `${req.kind === 'chamfer' ? 'CHAMFER' : req.shape === 'round' ? 'FILLET' : `FILLET ${req.shape === 'g2' ? 'G2' : req.shape.toUpperCase()}`} ${req.size.toFixed(2)} ×${req.edges.length}`;
     try {
       const { id, scene: list } = await backend.commitBlend(req);
       endCmd('committed');
@@ -7131,6 +7188,11 @@ export async function mount(root, backend) {
   $('bs-t').addEventListener('input', () => cmd?.id === 'bridge-surface' && cmd.preview());
   $('es-d').addEventListener('input', () => cmd?.id === 'extend-sheet' && cmd.preview());
   for (const b of $$('[data-esshape]')) b.onclick = () => cmd?.id === 'extend-sheet' && cmd.setShape(b.dataset.esshape);
+  for (const b of $$('[data-flshape]')) b.onclick = () => setFilletShape(b.dataset.flshape);
+  $('blend-tension').addEventListener('input', () => {
+    const t = parseFloat($('blend-tension').value);
+    if (cmd?.id === 'fillet' && t >= 0.05 && t <= 0.95) { cmd.tension = t; cmd.good = cmd.bad = null; previewFillet(); }
+  });
   for (const b of $$('[data-eslimit]')) b.onclick = () => cmd?.id === 'extend-sheet' && cmd.setOutside(b.dataset.eslimit === 'outside');
   $('es-unlimit').onclick = () => cmd?.id === 'extend-sheet' && cmd.setLimit(null);
   for (const f of ['th-f', 'th-b']) $(f).addEventListener('input', () => cmd?.id === 'thicken' && cmd.preview());

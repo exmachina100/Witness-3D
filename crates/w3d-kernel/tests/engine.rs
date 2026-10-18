@@ -85,7 +85,7 @@ fn native_files_keep_ids_and_refuse_what_they_cannot_read() {
 #[test]
 fn blend_checks_its_inputs_before_the_kernel() {
     let k = NoKernel;
-    let p = |edges: Vec<u32>, size| BlendParams { edges, size, kind: Blend::Fillet, angle: w3d_kernel::blend::EQUAL, variable: vec![] };
+    let p = |edges: Vec<u32>, size| BlendParams { edges, size, kind: Blend::Fillet, angle: w3d_kernel::blend::EQUAL, variable: vec![], shape: w3d_kernel::blend::FilletShape::Round, tension: 0.5, limits: vec![] };
     assert!(blend(&k, &(), &p(vec![0, 1], 2.0)).is_ok());
     assert!(matches!(blend(&k, &(), &p(vec![], 2.0)), Err(KernelError::Invalid(_))));
     assert!(matches!(blend(&k, &(), &p(vec![0], 0.0)), Err(KernelError::Invalid(_))));

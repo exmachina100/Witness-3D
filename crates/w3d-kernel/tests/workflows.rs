@@ -77,7 +77,7 @@ fn g1(doc: &Document<Occt>, name: &str, id: BodyId, smooth: usize) -> f64 {
 
 fn fillet(edges: Vec<u32>, size: f64) -> BlendParams {
     assert!(!edges.is_empty(), "no edges to round");
-    BlendParams { edges, size, kind: Blend::Fillet, angle: w3d_kernel::blend::EQUAL, variable: vec![] }
+    BlendParams { edges, size, kind: Blend::Fillet, angle: w3d_kernel::blend::EQUAL, variable: vec![], shape: w3d_kernel::blend::FilletShape::Round, tension: 0.5, limits: vec![] }
 }
 
 /// Save to a scratch file and reopen: the same bodies with the same volumes and faces.

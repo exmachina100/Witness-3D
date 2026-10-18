@@ -69,7 +69,7 @@ export const VIEWPORT = {
 /** Keys inside a running command, by tool. Each names the value the cursor then sets (see App.js). */
 export const COMMAND = {
     // Fillet (manual: V adds a variable point)
-    fillet: { d: 'distance', c: 'chamfer', a: 'angle', v: 'variable' },
+    fillet: { d: 'distance', c: 'chamfer', a: 'angle', v: 'variable', l: 'limit' },
     move: { x: 'x', y: 'y', z: 'z', 'shift-x': 'yz', 'shift-y': 'xz', 'shift-z': 'xy', g: 'screen' },
     rotate: { x: 'x', y: 'y', z: 'z', r: 'screen' },
     scale: { s: 'uniform' },

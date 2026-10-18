@@ -359,6 +359,24 @@ impl Shape {
         Ok(Shape::from_shape(&tube))
     }
 
+    /// Plasticity's Conic (`kind` 2) and G2 (3) fillet shapes on the round `faces` (see `w3d_reshape_fillets`).
+    pub fn reshape_fillets(&self, faces: &[usize], kind: i32, tension: f64) -> Result<Shape, String> {
+        let faces: Vec<i32> = faces.iter().map(|&f| f as i32).collect();
+        let shape = ffi::w3d::w3d_reshape_fillets(&self.inner, &faces, kind, tension).map_err(reason)?;
+        Ok(Shape::from_shape(&shape))
+    }
+
+    /// The solid's exact volume, from its surfaces rather than a mesh.
+    pub fn exact_volume(&self) -> Result<f64, String> {
+        ffi::w3d::w3d_volume(&self.inner).map_err(reason)
+    }
+
+    /// What `rounded` took off this body, between two planes (see `w3d_round_piece`).
+    pub fn round_piece(&self, rounded: &Shape, planes: &[f64]) -> Result<Shape, String> {
+        let piece = ffi::w3d::w3d_round_piece(&self.inner, &rounded.inner, planes).map_err(reason)?;
+        Ok(Shape::from_shape(&piece))
+    }
+
     /// Plasticity's Untrim: a sheet of the whole surface under face `face`, with its edges
     /// imprinted when `keep`.
     pub fn untrim_face(&self, face: usize, keep: bool) -> Result<Shape, String> {
