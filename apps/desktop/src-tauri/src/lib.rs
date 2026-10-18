@@ -146,6 +146,14 @@ async fn commit_mirror(
 }
 
 #[tauri::command]
+async fn face_surfaces(
+    model: State<'_, Model>,
+    req: api::FaceSurfacesRequest,
+) -> Result<Vec<api::FaceSurfaceOut>, api::ApiError> {
+    on_model(&model, move |m| api::face_surfaces(m, req)).await?
+}
+
+#[tauri::command]
 async fn preview_place(
     model: State<'_, Model>,
     req: api::PlaceRequest,
@@ -857,6 +865,7 @@ pub fn run() {
             commit_mirror,
             preview_array,
             commit_array,
+            face_surfaces,
             preview_place,
             commit_place,
             commit_motion,

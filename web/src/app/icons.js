@@ -192,6 +192,8 @@ const ICONS = {
     // Shrink: the outer net pulled in to the face's own edges.
     shrink: `<path d="M3 3h18v18H3z" stroke-dasharray="2 2"/><path ${A} d="M8 8h8v8H8z"/><path d="M4 4l3 3M20 4l-3 3M4 20l3-3M20 20l-3-3"/>`,
     'align-vertex': `<path d="M6 5h0M17 8h0M8 19h0" stroke-width="3" stroke-linecap="round"/><path ${A} d="M12 3v18"/><path ${A} d="M12 12h0" stroke-width="3" stroke-linecap="round"/>`,
+    // Dimension: a size line with its ends over a block's side.
+    dimension: `<rect x="4" y="11" width="16" height="9"/><path ${A} d="M4 4v5M20 4v5M4 6.5h16M7 4.5l-3 2 3 2M17 4.5l3 2-3 2"/>`,
     // Place: a copy set down on a surface from a reference point.
     place: `<path d="M2 20h20"/><rect x="3" y="4" width="6" height="6"/><rect ${A} x="13" y="12" width="8" height="8"/><path ${A} d="M9 7c4 0 7 1 8 5"/>`,
     'place-normal': `<path d="M3 19h18"/><path ${A} d="M12 19V5M9 8l3-3 3 3"/>`,

@@ -229,6 +229,12 @@ impl Shape {
         ffi::w3d::w3d_edge_angles(&self.inner).into_iter().collect()
     }
 
+    /// Per face, nine numbers: kind (0 other, 1 plane, 2 cylinder, 3 sphere), radius, a point, a
+    /// direction and +1 for a boss or ball, -1 for a hole (see w3d.hxx).
+    pub fn face_surfaces(&self) -> Vec<f64> {
+        ffi::w3d::w3d_face_surfaces(&self.inner).into_iter().collect()
+    }
+
     /// Numbers of the faces that look like fillets; with `seeds`, the fillet chains holding them.
     pub fn fillet_faces(&self, seeds: &[usize]) -> Vec<usize> {
         let seeds: Vec<i32> = seeds.iter().map(|&i| i as i32).collect();

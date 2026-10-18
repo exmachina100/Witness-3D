@@ -93,6 +93,7 @@ const rust = {
   commitMirror: req => tauri.core.invoke('commit_mirror', { req }),
   previewArray: req => tauri.core.invoke('preview_array', { req }),
   commitArray: req => tauri.core.invoke('commit_array', { req }),
+  faceSurfaces: req => tauri.core.invoke('face_surfaces', { req }),
   previewPlace: req => tauri.core.invoke('preview_place', { req }),
   commitPlace: req => tauri.core.invoke('commit_place', { req }),
   // The Anthropic key for AI commands lives in the app's config folder (or ANTHROPIC_API_KEY).

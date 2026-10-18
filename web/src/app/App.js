@@ -60,6 +60,7 @@ import { ACTIONS, COMMAND, VIEWPORT, keyFor, keyOf } from './keymap.js';
 import { Selection, faceEdges } from './Selection.js';
 import { edgeOffsetsBothSides, edgeOffsetsOnFace, faceLoopOffsets } from '../edgeOffset.js';
 import { curveArrayMotions } from '../curveArray.js';
+import { curveDimensions, faceDimensions, solidDimensions } from '../dimension.js';
 import { Organise } from './Organise.js';
 import { P_MENU, RADIALS, mergeKeys, parseRadial, shortLabel, showKey, sliceAt, slicePosition } from './menus.js';
 import { ENVIRONMENTS, SHADERS, SHADER_OPTIONS, checkMaterial, formatMass, massOf, newMaterial, shader } from './shading.js';
@@ -110,6 +111,7 @@ const KEYS = {
   untrim: [['TAB', 'KEEP EDGES'], ['⇧ CLICK', 'FACES'], ['⏎ / RMB', 'OK']],
   unwrap: [['⇧ CLICK', 'FACES'], ['⏎ / RMB', 'OK']],
   section: [['D', 'DISTANCE'], ['F', 'FLIP'], ['⏎ / RMB', 'OK']],
+  dimension: [['TAB', 'NEXT SIZE'], ['TYPE', 'NEW VALUE'], ['⏎ / RMB', 'OK']],
   place: [['CLICK', 'FROM, THEN TO'], ['S', 'SCALE'], ['A', 'ANGLE'], ['D', 'OFFSET'], ['F', 'FLIP'], ['X Y Z', 'AXIS'], ['Q W ⇧E ⇧Q B', 'BOOLEAN'], ['CLICK', 'PLACE ANOTHER'], ['⏎ / RMB', 'OK']],
   'rebuild-face': [['M', 'METHOD'], ['T', 'TOLERANCE'], ['D', 'DEGREE'], ['S', 'SPANS'], ['E', 'EXTEND'], ['H', 'SHRINK'], ['⇧ CLICK', 'FACES'], ['⏎ / RMB', 'OK']],
   'fillet-vertex': [['DRAG DOT', 'IN ROUND · OUT CHAMFER'], ['D', 'FILLET DISTANCE'], ['C', 'CHAMFER DISTANCE'], ['⏎ / RMB', 'OK']],
@@ -165,7 +167,7 @@ const CLICKS = { rect: 2, 'center-rect': 2, rect3: 3, circle: 2, circle2: 2, cir
 const FORMS = { revolve: true, loft: true, sweep: true };
 const PRIMS = { box: true, 'center-box': true, box3: true, cylinder: true, sphere: true };
 // Commands that aren't tools in the registry (they act on a click, not on settings).
-const EDITS = { isoparam: 'ISOPARAM', 'offset-vertex': 'OFFSET VERTEX', 'fillet-vertex': 'FILLET VERTEX', 'align-vertex': 'ALIGN VERTEX', rebuild: 'REBUILD CURVE', 'rebuild-face': 'REBUILD FACE', 'match-face': 'MATCH FACE', untrim: 'UNTRIM', unwrap: 'UNWRAP FACE', section: 'SECTION ANALYSIS', place: 'PLACE', 'insert-knot': 'INSERT KNOT', 'offset-edge': 'OFFSET EDGE', material: 'SET MATERIAL', 'export-mesh': 'EXPORT MESH', 'export-drawing': 'EXPORT DRAWING', 'measure-continuity': 'MEASURE CONTINUITY', trim: 'TRIM', extend: 'EXTEND CURVE', 'tangent-circle': 'TANGENT CIRCLE', split: 'SPLIT CURVE', 'measure-distance': 'MEASURE DISTANCE', 'measure-radius': 'MEASURE RADIUS' };
+const EDITS = { isoparam: 'ISOPARAM', 'offset-vertex': 'OFFSET VERTEX', 'fillet-vertex': 'FILLET VERTEX', 'align-vertex': 'ALIGN VERTEX', rebuild: 'REBUILD CURVE', 'rebuild-face': 'REBUILD FACE', 'match-face': 'MATCH FACE', untrim: 'UNTRIM', unwrap: 'UNWRAP FACE', section: 'SECTION ANALYSIS', place: 'PLACE', dimension: 'DIMENSION', 'insert-knot': 'INSERT KNOT', 'offset-edge': 'OFFSET EDGE', material: 'SET MATERIAL', 'export-mesh': 'EXPORT MESH', 'export-drawing': 'EXPORT DRAWING', 'measure-continuity': 'MEASURE CONTINUITY', trim: 'TRIM', extend: 'EXTEND CURVE', 'tangent-circle': 'TANGENT CIRCLE', split: 'SPLIT CURVE', 'measure-distance': 'MEASURE DISTANCE', 'measure-radius': 'MEASURE RADIUS' };
 const keysHtml = id => KEYS[id].map(([k, v]) => `<kbd>${k}</kbd><span>${v}</span>`).join('');
 // The Command Bar, exactly the manual's list (Plasticity Essentials › Command Bar).
 const BAR = [['palette', 'F', 'SEARCH'], ['tool:move', 'G', 'MOVE'], ['tool:rotate', 'R', 'ROTATE'], ['tool:scale', 'S', 'SCALE'], ['duplicate', '⇧D', 'DUPLICATE'], ['tool:boolean', 'Q', 'BOOLEAN'], ['tool:rect-array', '', 'RECTANGULAR ARRAY'], ['tool:radial-array', '', 'RADIAL ARRAY'], ['suggest', '⇧F', 'SUGGESTED COMMANDS']];
@@ -391,6 +393,10 @@ const SHELL = `
       <div class="seg" role="group" aria-label="Section plane"><button data-saplane="selection" aria-pressed="true" title="The selected face">SELECTION</button><button data-saplane="previous" aria-pressed="false" title="Where the last section was">PREVIOUS</button><button data-saplane="cplane" aria-pressed="false" title="The construction plane">CPLANE</button></div>
       <div class="field"><label for="w3d-sa-d">DISTANCE</label><input id="w3d-sa-d" data-id="sa-d" type="number" step="1" value="0" title="How far the slice moves into the model (D)"></div>
       <div class="chips"><button data-id="sa-flip" aria-pressed="false" title="Keep the other side (F)"><kbd>F</kbd>FLIP</button></div>
+    </div>
+    <div class="sec" data-panel="dimension" hidden>
+      <span class="hint" data-id="dm-hint">—</span>
+      <div data-id="dm-fields"></div>
     </div>
     <div class="sec" data-panel="place" hidden>
       <span class="hint" data-id="pl-hint">—</span>
@@ -4281,6 +4287,97 @@ export async function mount(root, backend) {
   }
 
   /**
+   * Plasticity's Dimension (=): the sizes of what is selected, each typed anew. A circle or arc has
+   * its diameter and a rectangle its two sides; one round face its diameter; two flat faces of one
+   * body the distance between them (the second moves); a block its width, length and height and a
+   * ball its diameter. Tab steps through the sizes typing each; Enter applies the changed ones.
+   */
+  async function startDimension() {
+    const curves = sel.curves.filter(curveById), faces = sel.list('face'), solids = targetBodies();
+    const which = curves.length === 1 && sel.size === 1 ? { curve: curves[0] }
+      : faces.length && faceBody() !== null ? { body: faceBody(), faces: faces.map(f => f.n) }
+      : solids.length === 1 && sel.list().every(it => it.kind === 'solid') ? { solid: solids[0] } : null;
+    const ask = 'SELECT A CIRCLE, ARC OR RECTANGLE, A ROUND FACE, TWO FLAT FACES, OR A BLOCK OR BALL';
+    if (!which) return toast(ask);
+    if (which.curve === undefined && !backend.faceSurfaces) return toast('DIMENSION IS NOT IN THIS BUILD YET');
+    /** The sizes as they are now, measured afresh (an edit can renumber faces). */
+    const measure = async () => {
+      if (which.curve !== undefined) return curveDimensions(curveById(which.curve));
+      const surfaces = await backend.faceSurfaces({ body: which.body ?? which.solid });
+      return which.solid !== undefined ? solidDimensions(which.solid, surfaces) : faceDimensions(which.body, which.faces, surfaces);
+    };
+    let dims;
+    try { dims = await measure(); } catch (e) { return toast(say(e)); }
+    if (!dims.length) return toast(`NO SIZE TO SET THERE: ${ask}`);
+    const c = cmd = { id: 'dimension', dims, active: -1, values: dims.map(d => d.value), sent: 0, shown: 0 };
+    lastTool = 'dimension';
+    showTool('dimension');
+    setState('none');
+    setTarget(which.curve !== undefined ? curveLabel(which.curve) : label(which.body ?? which.solid));
+    const box = $('dm-fields');
+    box.innerHTML = dims.map((d, i) => `<div class="field"><label for="w3d-dm-${i}">${d.label}</label><input id="w3d-dm-${i}" data-dm="${i}" type="number" step="0.1" min="0.001" value="${+d.value.toFixed(3)}"></div>`).join('');
+    const fields = [...box.querySelectorAll('[data-dm]')];
+    const show = () => {
+      setHud(dims.map((d, i) => `${i === c.active ? '▸ ' : ''}${d.label} ${c.values[i].toFixed(3)}`).join(' · '));
+      $('dm-hint').textContent = 'TAB TO TYPE A SIZE · ⏎ TO APPLY';
+    };
+    /** What the first changed size would do, drawn when it is an Offset Face. */
+    c.preview = () => {
+      show();
+      clearPreview();
+      const i = c.values.findIndex((v, k) => Math.abs(v - dims[k].value) > 1e-9);
+      const edit = i >= 0 && c.values[i] > 0 ? dims[i].edit(c.values[i]) : null;
+      if (edit?.op === 'offset' && backend.previewOffset) livePreview(c, () => backend.previewOffset({ ...editRequest(edit) }), b => showPreviewBody(b), 'dm-hint');
+    };
+    const editRequest = edit => ({ body: edit.body, faces: edit.faces, distance: edit.distance, angle: 0, grow: 'moving' });
+    fields.forEach((f, i) => { f.oninput = () => { const v = parseFloat(f.value); if (Number.isFinite(v)) { c.values[i] = v; c.preview(); } }; });
+    c.key = action => {
+      if (action !== 'typed') return false;
+      c.active = (c.active + 1) % dims.length;
+      const i = c.active;
+      c.entry = { label: dims[i].label, text: '', apply: v => { c.values[i] = v; fields[i].value = v; c.preview(); }, next: () => c.key('typed') };
+      show();
+      setHud(`${dims[i].label} _`);
+      return true;
+    };
+    c.entryDone = () => { if (c.entry) setHud(`${c.entry.label} ${c.entry.text}_`); };
+    c.finish = async () => {
+      const changed = dims.map((d, i) => [d.label, c.values[i], Math.abs(c.values[i] - d.value) > 1e-9]).filter(x => x[2]);
+      if (!changed.length) return endCmd(null);
+      if (changed.some(([, v]) => !(v > 0))) { setState('failed'); return toast('A SIZE MUST BE ABOVE ZERO'); }
+      let made = null;
+      try {
+        const tag = () => which.curve !== undefined ? curveLabel(which.curve) : label(which.body ?? which.solid);
+        // Each size is its own undo step, listed as such.
+        for (const [name, v] of changed) {
+          // Each size from the shape as the last one left it.
+          const now = (await measure()).find(d => d.label === name);
+          if (!now) throw new Error(`the ${name.toLowerCase()} is no longer there to set`);
+          const edit = now.edit(v);
+          if (edit.op === 'offset') ({ scene: made } = await backend.commitOffset(editRequest(edit)));
+          else if (edit.op === 'scale') ({ scene: made } = await backend.commitMotion({ bodies: [edit.body], pivot: edit.pivot, scale: edit.scale }));
+          else {
+            const { id, ...curve } = edit.curve;
+            const { ids } = await backend.replaceCurves([which.curve], [curve]);
+            which.curve = ids[0];
+          }
+          record(`DIMENSION ${name} ${v}`, which.curve ?? which.body ?? which.solid, tag());
+        }
+        endCmd('committed');
+        if (made) await showScene(made);
+        if (which.curve !== undefined) await curvesChanged([which.curve]);
+      } catch (e) {
+        // Sizes set before the failure stay set (each its own undo step).
+        if (made) await showScene(made);
+        setState('failed'); toast(say(e));
+      }
+    };
+    c.abort = () => endCmd('cancelled');
+    c.cleanup = () => { clearPreview(); box.innerHTML = ''; };
+    show();
+  }
+
+  /**
    * Plasticity's Place (Ctrl+D): click a reference point on the selected solids, then a destination;
    * a copy lands there, its reference face against the destination face (or its up along the
    * construction plane's normal off a face). S scales, A turns about the axis, D stands it off, F
@@ -6874,6 +6971,7 @@ export async function mount(root, backend) {
       case 'match-face': if (cmd) await finish(); startMatchFace(); return true;
       case 'untrim': if (cmd) await finish(); startUntrim(); return true;
       case 'unwrap': if (cmd) await finish(); startUnwrap(); return true;
+      case 'dimension': if (cmd) await finish(); await startDimension(); return true;
       case 'place': if (cmd) await finish(); startPlace(); return true;
       case 'section': if (cmd && cmd.id !== 'section') await finish(); if (cmd?.id !== 'section') startSection(); return true;
       case 'reverse-sheet': await reverseSheets(); return true;
@@ -7021,7 +7119,7 @@ export async function mount(root, backend) {
     const out = [];
     if (sel.solids.length > 1) out.push('tool:boolean');
     if (sel.solids.length === 2) out.push('tool:project');
-    if (kinds.has('solid')) out.push('tool:move', 'tool:rotate', 'tool:scale', 'duplicate', 'place', 'tool:mirror', 'tool:rect-array', 'tool:radial-array', 'tool:curve-array', 'unify', 'boundary-edges', 'remove-fillets', 'raise-degree', 'delete', 'hide', 'isolate', 'group', 'lock', 'material:set', 'export:step', 'export:mesh', 'export:drawing');
+    if (kinds.has('solid')) out.push('tool:move', 'tool:rotate', 'tool:scale', 'duplicate', 'place', 'dimension', 'tool:mirror', 'tool:rect-array', 'tool:radial-array', 'tool:curve-array', 'unify', 'boundary-edges', 'remove-fillets', 'raise-degree', 'delete', 'hide', 'isolate', 'group', 'lock', 'material:set', 'export:step', 'export:mesh', 'export:drawing');
     if (kinds.has('face')) out.push('tool:extrude', 'tool:offset', 'tool:thicken', 'tool:shell', 'tool:hole', 'tool:remove-face', 'remove-fillets', 'isoparam', 'rebuild', 'raise-degree', 'match-face', 'untrim', 'unwrap', 'plane:selection', 'plane:selection-keep-view');
     if (kinds.has('edge')) out.push('tool:fillet', 'tool:patch', 'measure:radius', 'view:surface-curvature');
     if (sel.list('edge').length === 2) out.push('tool:bridge-surface');
@@ -7516,6 +7614,8 @@ export async function mount(root, backend) {
       e.preventDefault();
       if (e.key === 'Escape') { cmd.entry = null; setHud(null); return cmd.entryDone?.(); }
       if (e.key === 'Enter') { cmd.entry = null; const v = typed(entry.text); if (v !== undefined) entry.apply(v); return cmd?.entryDone?.(); }
+      // Tab takes the value and moves to the next one, where a command has several (Dimension).
+      if (e.key === 'Tab' && entry.next) { cmd.entry = null; const v = typed(entry.text); if (v !== undefined) entry.apply(v); return entry.next(); }
       if (/^[0-9.\-]$/.test(e.key)) entry.text += e.key;
       else if (e.key === 'Backspace') entry.text = entry.text.slice(0, -1);
       return setHud(`${entry.label} ${entry.text}_`);
