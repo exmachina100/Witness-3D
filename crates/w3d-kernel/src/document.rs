@@ -925,6 +925,12 @@ impl<K: Kernel> Document<K> {
         Ok(self.add(solid))
     }
 
+    /// Plasticity's Toggle Surface Curvature: `n + 1` comb teeth along edge `edge` of `body`.
+    pub fn edge_curvature(&self, body: BodyId, edge: u32, n: usize) -> Result<Vec<crate::CombTooth>, KernelError> {
+        let s = self.get(body).ok_or(KernelError::Invalid("that body no longer exists"))?;
+        self.kernel.edge_curvature(s, edge, n)
+    }
+
     /// Plasticity's Untrim, without changing the document: for each of `faces` of `body`, a sheet
     /// of the whole surface under it, with the face's edges imprinted when `keep_edges`.
     pub fn preview_untrim(&self, body: BodyId, faces: &[u32], keep_edges: bool) -> Result<Vec<K::Solid>, KernelError> {

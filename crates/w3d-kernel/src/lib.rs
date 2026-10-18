@@ -135,6 +135,15 @@ pub struct Tessellation {
     pub edges: Vec<Vec<[f64; 3]>>,
 }
 
+/// One tooth of a curvature comb: where it stands, which way it points (away from the centre of
+/// the bend; zero where the curve is straight) and the curvature there (1 / radius).
+#[derive(Debug, Clone, Copy, PartialEq, serde::Serialize)]
+pub struct CombTooth {
+    pub at: [f64; 3],
+    pub dir: [f64; 3],
+    pub k: f64,
+}
+
 /// One line of a hidden-line drawing, in the drawing's own x, y (model units).
 #[derive(Debug, Clone, PartialEq)]
 pub struct DrawnLine {
@@ -409,6 +418,10 @@ pub trait Kernel {
     /// that isn't a B-spline is first fitted as one), faces and edges keeping their numbers.
     fn raise_faces(&self, _s: &Self::Solid, _faces: &[u32]) -> Result<(Self::Solid, Vec<RebuiltFace>), KernelError> {
         Err(KernelError::Invalid("this kernel cannot raise the degree of faces"))
+    }
+    /// Plasticity's Toggle Surface Curvature: `n + 1` comb teeth along edge `edge` of `s`.
+    fn edge_curvature(&self, _s: &Self::Solid, _edge: u32, _n: usize) -> Result<Vec<CombTooth>, KernelError> {
+        Err(KernelError::Invalid("this kernel cannot measure edge curvature"))
     }
     /// Plasticity's Untrim: a sheet of the whole surface under face `face` of `s`, with the face's
     /// edges imprinted on it when `keep_edges`.

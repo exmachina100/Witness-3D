@@ -1270,6 +1270,19 @@ pub fn commit_pipe(m: &Model, req: PipeRequest) -> Result<Duplicated, ApiError> 
     })
 }
 
+/// Toggle Surface Curvature: comb teeth along edge `edge` of `body`, `n` spans (160 if left out).
+#[derive(Deserialize, Debug, Clone)]
+pub struct EdgeCurvatureRequest {
+    pub body: BodyId,
+    pub edge: u32,
+    #[serde(default)]
+    pub n: Option<usize>,
+}
+
+pub fn edge_curvature(m: &Model, req: EdgeCurvatureRequest) -> Result<Vec<w3d_kernel::CombTooth>, ApiError> {
+    m.call(move |doc| Ok(doc.edge_curvature(req.body, req.edge, req.n.unwrap_or(160).clamp(1, 2000))?))
+}
+
 /// Untrim: a sheet of the whole surface under each of `faces` of `body`, with the faces' edges
 /// imprinted on it with `keep`.
 #[derive(Deserialize, Debug, Clone)]

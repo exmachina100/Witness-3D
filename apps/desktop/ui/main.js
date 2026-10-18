@@ -65,6 +65,7 @@ const rust = {
   commitExtendSheet: req => tauri.core.invoke('commit_extend_sheet', { req }),
   previewThicken: req => tauri.core.invoke('preview_thicken', { req }),
   commitThicken: req => tauri.core.invoke('commit_thicken', { req }),
+  edgeCurvature: req => tauri.core.invoke('edge_curvature', { req }),
   previewUntrim: req => tauri.core.invoke('preview_untrim', { req }),
   commitUntrim: req => tauri.core.invoke('commit_untrim', { req }),
   previewPipe: req => tauri.core.invoke('preview_pipe', { req }),

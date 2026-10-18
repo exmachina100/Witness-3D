@@ -631,6 +631,7 @@ const SHELL = `
         <button data-toggle="curvature" aria-pressed="false" title="Curvature combs on curves (Toggle Curvature)">CURVATURE</button>
         <button data-toggle="render" aria-pressed="false" title="Render mode: lit by an environment, with the materials' roughness and metal">RENDER</button>
       </div>
+      <div class="field"><label for="w3d-comb-scale">COMB SCALE</label><input id="w3d-comb-scale" data-id="comb-scale" type="range" min="0.1" max="4" step="0.1" value="1" title="Length of the curvature combs on curves and edges"></div>
       <span class="label">SHADER <output data-id="shader-name">CERAMIC DARK</output></span>
       <div class="swatches" role="group" aria-label="Shader mode">${SHADERS.map(s => `<button data-shader="${s.id}" aria-pressed="${s.id === 'ceramic-dark'}" aria-label="${s.name}" title="${s.name}: ${s.use}" style="background: ${s.swatch}"></button>`).join('')}</div>
       <div class="stepper" data-id="shader-option" hidden><span data-id="shader-option-label">STRIPES</span><button data-id="shader-option-dec" aria-label="Less">−</button><output data-id="shader-option-value">24</output><button data-id="shader-option-inc" aria-label="More">+</button></div>
@@ -1036,6 +1037,12 @@ export async function mount(root, backend) {
   function showScene(list) {
     // The selection is kept as refs across the change and turned back into the new numbers.
     const saved = sel.toRefs(current);
+    const combRefs = surfaceCombs.map(c => ({ body: c.body, ref: current.find(b => b.id === c.body)?.edgeRefs?.[c.n] }));
+    surfaceCombs = combRefs.flatMap(({ body, ref }) => {
+      const n = ref === undefined ? -1 : list.find(b => b.id === body)?.edgeRefs?.indexOf(ref) ?? -1;
+      return n < 0 ? [] : [{ body, n, teeth: null }];
+    });
+    refreshSurfaceCombs();
     current = list;
     sel.fromRefs(saved, list);
     org.prune(list.map(b => b.id));
@@ -1105,14 +1112,16 @@ export async function mount(root, backend) {
   const combGroup = new THREE.Group();
   scene.add(combGroup);
   const combMat = new THREE.LineBasicMaterial({ color: 0x6cbf5f, transparent: true, opacity: 0.7, depthTest: false });
+  const combScale = () => Number($('comb-scale').value) || 1;
   function drawCombs() {
+    drawSurfaceCombs();
     for (const o of [...combGroup.children]) dispose(o);
     if (!view.curvature || !curveList.length) return;
     const combs = curveList.filter(c => c.kind !== 'spiral' && c.kind !== 'nurbs').map(c => { try { return { c, comb: curvatureComb(c) }; } catch { return null; } }).filter(Boolean);
     const kMax = Math.max(1e-12, ...combs.flatMap(x => x.comb.map(t => t.k)));
     const box = new THREE.Box3();
     for (const o of curveGroup.children) box.expandByObject(o);
-    const scale = 0.25 * box.getSize(new THREE.Vector3()).length() / kMax;
+    const scale = combScale() * 0.25 * box.getSize(new THREE.Vector3()).length() / kMax;
     for (const { c, comb } of combs) {
       const f = curveFrame(c), at = (p, h = 0.04) => lift(f, { x: p[0], y: p[1] }, h);
       const teeth = [], envelope = [];
@@ -1125,6 +1134,56 @@ export async function mount(root, backend) {
       tl.renderOrder = el.renderOrder = 11;
       combGroup.add(tl, el);
     }
+  }
+
+  // Plasticity's Toggle Surface Curvature: the same combs on the edges of bodies, toggled edge by
+  // edge. Each keeps its edge's ref, so it follows the edge through later changes to the body.
+  let surfaceCombs = [];
+  const surfaceCombGroup = new THREE.Group();
+  scene.add(surfaceCombGroup);
+  function drawSurfaceCombs() {
+    for (const o of [...surfaceCombGroup.children]) dispose(o);
+    const shown = surfaceCombs.filter(c => c.teeth && org.shows(c.body));
+    if (!shown.length) return;
+    const kMax = Math.max(1e-12, ...shown.flatMap(c => c.teeth.map(t => t.k)));
+    const box = new THREE.Box3();
+    for (const c of shown) for (const t of c.teeth) box.expandByPoint(new THREE.Vector3(...t.at));
+    for (const m of bodies.children) if (shown.some(c => c.body === m.userData.id)) box.expandByObject(m);
+    const scale = combScale() * 0.25 * box.getSize(new THREE.Vector3()).length() / kMax;
+    for (const c of shown) {
+      const teeth = [], envelope = [];
+      for (const t of c.teeth) {
+        const at = new THREE.Vector3(...t.at), tip = at.clone().addScaledVector(new THREE.Vector3(...t.dir), t.k * scale);
+        teeth.push(at, tip);
+        envelope.push(tip);
+      }
+      const tl = new THREE.LineSegments(new THREE.BufferGeometry().setFromPoints(teeth), combMat), el = new THREE.Line(new THREE.BufferGeometry().setFromPoints(envelope), combMat);
+      tl.renderOrder = el.renderOrder = 11;
+      surfaceCombGroup.add(tl, el);
+    }
+  }
+  /** Fetch the teeth of every surface comb again, after the bodies changed. */
+  async function refreshSurfaceCombs() {
+    if (!surfaceCombs.length) return drawSurfaceCombs();
+    const list = surfaceCombs;
+    await Promise.all(list.map(async c => { try { c.teeth = await backend.edgeCurvature({ body: c.body, edge: c.n }); } catch { c.teeth = null; } }));
+    if (list === surfaceCombs) { surfaceCombs = list.filter(c => c.teeth); drawSurfaceCombs(); }
+  }
+  async function toggleSurfaceCurvature() {
+    if (!backend.edgeCurvature) return toast('SURFACE CURVATURE IS NOT IN THIS BUILD YET');
+    const edges = sel.list('edge');
+    if (!edges.length) {
+      if (!surfaceCombs.length) return toast('SELECT THE EDGES TO SHOW CURVATURE ON');
+      surfaceCombs = [];
+      drawSurfaceCombs();
+      return toast('SURFACE CURVATURE OFF');
+    }
+    const on = c => edges.some(e => e.body === c.body && e.n === c.n);
+    if (edges.every(e => surfaceCombs.some(c => c.body === e.body && c.n === e.n))) surfaceCombs = surfaceCombs.filter(c => !on(c));
+    else surfaceCombs = [...surfaceCombs.filter(c => !on(c)), ...edges.map(e => ({ body: e.body, n: e.n, teeth: null }))];
+    await refreshSurfaceCombs();
+    const k = Math.max(0, ...surfaceCombs.filter(on).flatMap(c => c.teeth.map(t => t.k)));
+    toast(surfaceCombs.some(on) ? `CURVATURE ON ${edges.length} EDGE${edges.length > 1 ? 'S' : ''}${k > 0 ? ` · TIGHTEST RADIUS ${(1 / k).toFixed(3)} MM` : ' · STRAIGHT'}` : 'SURFACE CURVATURE OFF');
   }
 
   async function loadCurves() {
@@ -6382,6 +6441,7 @@ export async function mount(root, backend) {
         else if (arg === 'focus') focus();
         else if (arg === 'xray') { view.xray = !view.xray; applyView(); }
         else if (arg === 'curvature') { view.curvature = !view.curvature; applyView(); }
+        else if (arg === 'surface-curvature') await toggleSurfaceCurvature();
         else if (arg === 'zebra' || arg === 'draft') { view.shader = view.shader === (arg === 'zebra' ? 'zebra-v' : 'draft') ? 'ceramic-dark' : arg === 'zebra' ? 'zebra-v' : 'draft'; view.render = false; applyView(); }
         else if (arg === 'render') { view.render = !view.render; applyView(); }
         else if (arg === 'edges' || arg === 'faces' || arg === 'curves') { view[arg] = !view[arg]; applyView(); }
@@ -6604,7 +6664,7 @@ export async function mount(root, backend) {
     if (sel.solids.length === 2) out.push('tool:project');
     if (kinds.has('solid')) out.push('tool:move', 'tool:rotate', 'tool:scale', 'duplicate', 'tool:mirror', 'tool:rect-array', 'tool:radial-array', 'tool:curve-array', 'unify', 'boundary-edges', 'remove-fillets', 'raise-degree', 'delete', 'hide', 'isolate', 'group', 'lock', 'material:set', 'export:step', 'export:mesh', 'export:drawing');
     if (kinds.has('face')) out.push('tool:extrude', 'tool:offset', 'tool:thicken', 'tool:shell', 'tool:hole', 'tool:remove-face', 'remove-fillets', 'isoparam', 'rebuild', 'raise-degree', 'match-face', 'untrim', 'plane:selection', 'plane:selection-keep-view');
-    if (kinds.has('edge')) out.push('tool:fillet', 'tool:patch', 'measure:radius');
+    if (kinds.has('edge')) out.push('tool:fillet', 'tool:patch', 'measure:radius', 'view:surface-curvature');
     if (sel.list('edge').length === 2) out.push('tool:bridge-surface');
     if (sel.solids.some(id => current.find(b => b.id === id)?.sheet)) out.push('tool:thicken', 'reverse-sheet');
     if (sel.solids.length > 1 && sel.solids.every(id => current.find(b => b.id === id)?.sheet)) out.push('join');
@@ -6984,6 +7044,7 @@ export async function mount(root, backend) {
   $('mat-remove').onclick = () => cmd?.id === 'material' && cmd.remove();
   for (const b of $$('[data-shader]')) b.onclick = () => { view.shader = b.dataset.shader; view.render = false; applyView(); };
   for (const b of $$('[data-env]')) b.onclick = () => { view.environment = b.dataset.env; applyView(); };
+  $('comb-scale').addEventListener('input', () => drawCombs());
   $('env-rot').addEventListener('input', e => { view.envRotation = parseFloat(e.target.value); applyView(); });
   $('env-int').addEventListener('input', e => { view.envIntensity = parseFloat(e.target.value); applyView(); });
   for (const [id, dir] of [['shader-option-dec', -1], ['shader-option-inc', 1]]) $(id).onclick = () => {
