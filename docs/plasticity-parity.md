@@ -68,7 +68,7 @@ a flat face imprints that face and is used up (round 10).
 
 | Group | Commands | Status |
 |---|---|---|
-| Bridge and Connect | Bridge, Bridge Curve, Bridge Edge, Bridge Vertex | Bridge Curve done; others missing |
+| Bridge and Connect | Bridge, Bridge Curve, Bridge Edge, Bridge Vertex | Bridge Curve and Bridge Vertex done (G0, G1, G2 per end, Tab cycles, tension T); G3 and Bridge Edge missing |
 | Cut and Trim | Cut Curve, Trim, Split Segment | Trim partial; others missing |
 | Deform and Slide | Deform, Deform Curve, Slide, Slide Curve CV | Missing |
 | Align | Align, Align Vertex | Missing |

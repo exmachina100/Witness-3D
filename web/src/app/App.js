@@ -66,7 +66,7 @@ import { icon } from './icons.js';
 import { limitEdges, toObj, toStl } from '../meshExport.js';
 import { flatten, toDxf, toSvg } from '../drawingExport.js';
 import { readDxf } from '../dxf.js';
-import { bridgeCurves, continuity, curvatureComb, curveVertices, explode, extendCurve, filletCurve, nearestEnd, OFFSET_CORNERS, offsetCurve, offsetThrough, offsetVertex, splitCurve, tangentCircle, trim } from '../curveEdit.js';
+import { BRIDGE_CONTINUITY, bridgeContinuous, continuity, curvatureComb, curveVertices, explode, extendCurve, filletCurve, nearestEnd, OFFSET_CORNERS, offsetCurve, offsetThrough, offsetVertex, splitCurve, tangentCircle, trim } from '../curveEdit.js';
 import { ViewGizmo } from './ViewGizmo.js';
 import { Toolbar } from './Toolbar.js';
 import { arcPoints, circleThrough, cvPoints, ellipsePoints, endTangent, helixPoints, loops, nurbsLoop, nurbsPoints, polygonCorners, spiralAngle, tangentArc } from '../curves.js';
@@ -123,7 +123,7 @@ const KEYS = {
   'export-drawing': [['VIEW', 'AS THE CAMERA SEES IT'], ['H', 'HIDDEN LINES'], ['C', 'CURVES'], ['⏎ / RMB', 'SAVE'], ['ESC', 'CANCEL']],
   'tangent-circle': [['CLICK', 'FIRST · SECOND CURVE · SIZE'], ['F', 'FREEZE'], ['TAB', 'RADIUS'], ['ESC', 'CANCEL']],
   extend: [['CLICK', 'NEAR AN END'], ['TYPE', 'LENGTH IN PANEL'], ['ESC / ⏎', 'DONE']],
-  bridge: [['T', 'TENSION'], ['⏎ / RMB', 'OK']],
+  bridge: [['T / D', 'TENSION'], ['TAB', 'CONTINUITY G0 G1 G2'], ['⏎ / RMB', 'OK']],
   trim: [['CLICK', 'PIECE TO CUT AWAY'], ['CTRL Z', 'UNDO ONE'], ['ESC / ⏎', 'DONE']],
   box: [['CLICK', 'CORNER · CORNER · HEIGHT'], ['C', 'FROM CENTRE'], ['S', 'SQUARE'], ['TAB', 'TYPE'], ['H', 'HEIGHT'], ['Q W ⇧E ⇧Q', 'BOOLEAN'], ['B', 'NEW BODY'], ['⏎ / RMB', 'OK']],
   'center-box': [['CLICK', 'CENTRE · CORNER · HEIGHT'], ['C', 'FROM CORNER'], ['S', 'SQUARE'], ['TAB', 'TYPE'], ['H', 'HEIGHT'], ['Q W ⇧E ⇧Q', 'BOOLEAN'], ['B', 'NEW BODY'], ['⏎ / RMB', 'OK']],
@@ -410,6 +410,8 @@ const SHELL = `
     <div class="sec" data-panel="bridge" hidden>
       <span class="hint" data-id="br-hint">—</span>
       <div class="field"><label for="w3d-br-t">TENSION</label><input id="w3d-br-t" data-id="br-t" type="number" step="0.1" min="0.05" value="1"></div>
+      <span class="label">CONTINUITY</span>
+      <div class="chips"><button data-id="br-start" title="Continuity at the start (click to cycle)">START G1</button><button data-id="br-end" title="Continuity at the end (click to cycle)">END G1</button></div>
     </div>
     <div class="sec" data-panel="trim" hidden>
       <span class="hint" data-id="trim-hint">CLICK THE PIECE OF A CURVE TO CUT AWAY; IT ENDS WHERE OTHER CURVES CROSS IT</span>
@@ -4588,18 +4590,30 @@ export async function mount(root, backend) {
 
   /** Plasticity's Bridge Curves: a smooth curve between the nearest ends of two selected open curves. */
   function startBridge() {
-    const ids = sel.curves.filter(curveById);
-    if (ids.length !== 2) return toast('SELECT TWO OPEN CURVES TO BRIDGE');
     if (!backend.addCurves) return toast('BRIDGE IS NOT IN THIS BUILD YET');
-    const [a, b] = ids.map(curveById);
-    // The nearest pair of ends, measured in the viewport.
-    const endPoint = (cv, w) => { const f = curveFrame(cv), p = curve2d(cv), q = w ? p[p.length - 1] : p[0]; return lift(f, q); };
-    let pick = null;
-    for (const ea of [0, 1]) for (const eb of [0, 1]) {
-      const d = endPoint(a, ea).distanceTo(endPoint(b, eb));
-      if (!pick || d < pick.d) pick = { d, ea, eb };
+    // Bridge Vertex: two picked end vertices say which ends; else the nearest ends of two curves.
+    const verts = sel.list('vertex').filter(v => curveById(v.id));
+    let a, b, pick = null;
+    if (verts.length === 2 && verts[0].id !== verts[1].id) {
+      const endOfVertex = v => { const last = curveVertices(curveById(v.id)).length - 1; return v.n === 0 ? 0 : v.n === last ? 1 : null; };
+      const [ea, eb] = verts.map(endOfVertex);
+      if (ea === null || eb === null) return toast('BRIDGE VERTEX JOINS THE END VERTICES OF TWO OPEN CURVES');
+      [a, b] = verts.map(v => curveById(v.id));
+      pick = { ea, eb };
+    } else {
+      const ids = sel.curves.filter(curveById);
+      if (ids.length !== 2) return toast('SELECT TWO OPEN CURVES, OR TWO END VERTICES, TO BRIDGE');
+      [a, b] = ids.map(curveById);
+      // The nearest pair of ends, measured in the viewport.
+      const endPoint = (cv, w) => { const f = curveFrame(cv), p = curve2d(cv), q = w ? p[p.length - 1] : p[0]; return lift(f, q); };
+      for (const ea of [0, 1]) for (const eb of [0, 1]) {
+        const d = endPoint(a, ea).distanceTo(endPoint(b, eb));
+        if (!pick || d < pick.d) pick = { d, ea, eb };
+      }
     }
-    const c = cmd = { id: 'bridge', out: null };
+    const c = cmd = { id: 'bridge', out: null, continuity: ['G1', 'G1'] };
+    const cycle = g => BRIDGE_CONTINUITY[(BRIDGE_CONTINUITY.indexOf(g) + 1) % BRIDGE_CONTINUITY.length];
+    c.cycleEnd = i => { c.continuity[i] = cycle(c.continuity[i]); c.preview(); };
     lastTool = 'bridge';
     showTool('bridge');
     setState('none');
@@ -4607,14 +4621,23 @@ export async function mount(root, backend) {
     c.preview = () => {
       clearPreview();
       try {
-        c.out = bridgeCurves(a, pick.ea, b, pick.eb, num('br-t'));
+        $('br-start').textContent = `START ${c.continuity[0]}`;
+        $('br-end').textContent = `END ${c.continuity[1]}`;
+        c.out = bridgeContinuous(a, pick.ea, b, pick.eb, { tension: num('br-t'), continuity: c.continuity });
         showCurvePreview([c.out]);
         $('br-hint').textContent = `${curveLabel(a.id)} TO ${curveLabel(b.id)}`;
-        setHud(`BRIDGE · TENSION ${num('br-t')}`);
+        setHud(`BRIDGE · ${c.continuity.join(' / ')} · TENSION ${num('br-t')}`);
         setState('updated');
       } catch (e) { c.out = null; $('br-hint').textContent = say(e); setHud('BRIDGE FAILED'); setState('failed'); }
     };
     c.key = action => {
+      if (action === 'continuity') {
+        // Tab steps both ends together, as Plasticity's Tab cycles G0 to G3; the buttons set each end.
+        const next = cycle(c.continuity[0]);
+        c.continuity = [next, next];
+        c.preview();
+        return true;
+      }
       if (action !== 'tension') return false;
       c.entry = { label: 'TENSION', text: '', apply: v => { $('br-t').value = v; c.preview(); } };
       setHud('TENSION _');
@@ -5686,6 +5709,8 @@ export async function mount(root, backend) {
       if (sel.curves.length > 1) out.push('join');
       out.push('explode', 'measure:continuity', 'delete');
     }
+    // Curve vertices: Fillet Vertex (B), Offset Vertex and, with two ends, Bridge Vertex.
+    if (kinds.has('vertex')) out.push('tool:fillet', 'tool:offset-curve', ...(sel.list('vertex').length === 2 ? ['tool:bridge'] : []));
     if (kinds.size) out.push('convert:solid', 'select:invert', 'view:focus');
     else out.push('draw:line', 'draw:spline', 'draw:rect', 'draw:circle', 'draw:arc3', 'tool:box', 'tool:cylinder', 'tool:sphere', 'select:all', 'unhide-all', 'plane:view');
     if (!kinds.size && org.layers.length) out.push('isolate', 'unisolate');
@@ -6058,6 +6083,8 @@ export async function mount(root, backend) {
   $('dr-hidden').onclick = () => cmd?.id === 'export-drawing' && cmd.key('hidden');
   $('dr-curves').onclick = () => cmd?.id === 'export-drawing' && cmd.key('curves');
   for (const id of ['oc-d', 'fc-r', 'ov-d', 'fv-r']) $(id).addEventListener('input', () => ['offset-curve', 'fillet-curve', 'offset-vertex', 'fillet-vertex'].includes(cmd?.id) && cmd.preview());
+  $('br-start').onclick = () => cmd?.id === 'bridge' && cmd.cycleEnd(0);
+  $('br-end').onclick = () => cmd?.id === 'bridge' && cmd.cycleEnd(1);
   $('oc-lock').onclick = () => cmd?.id === 'offset-curve' && cmd.key('lock');
   $('oc-free').onclick = () => cmd?.id === 'offset-curve' && cmd.key('freestyle');
   for (const k of OFFSET_CORNERS) $(`oc-${k}`).onclick = () => {
