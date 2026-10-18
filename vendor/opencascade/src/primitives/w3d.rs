@@ -378,8 +378,8 @@ impl Shape {
     }
 
     /// Extend Sheet's Limit: this sheet carried on past `edge` in shape `kind` until it meets `target`.
-    pub fn extend_sheet_to(&self, edge: usize, target: &Shape, kind: i32) -> Result<Shape, String> {
-        let sheet = ffi::w3d::w3d_extend_sheet_to(&self.inner, edge as i32, &target.inner, kind).map_err(reason)?;
+    pub fn extend_sheet_to(&self, edge: usize, target: &Shape, kind: i32, through: bool) -> Result<Shape, String> {
+        let sheet = ffi::w3d::w3d_extend_sheet_to(&self.inner, edge as i32, &target.inner, kind, through).map_err(reason)?;
         Ok(Shape::from_shape(&sheet))
     }
 

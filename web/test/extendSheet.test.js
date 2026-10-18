@@ -154,3 +154,18 @@ test('limit carries the sheet on until it meets the body', async () => {
     close(range(points(be.shapes.get(sheet)), 'x')[1], 20, 1e-6);
     await assert.rejects(be.previewExtendSheet({ body: sheet, edge: n, distance: 1, limit: sheet }), /not itself/);
 });
+
+test('outside carries the sheet on through the body, and a sheet already crossing it keeps all of itself', () => {
+    const a = square(0, 0);
+    const e = edgeWhere(a, p => Math.abs(p.x - 10) < 1e-9);
+    const post = primitive({ kind: 'cylinder', frame: { origin: [30, -5, 0], x: [1, 0, 0], normal: [0, 1, 0] }, radius: 8, height: 20 });
+    const s = extendSheetTo(a, e, post, 'linear', true);
+    const [lo, hi] = range(points(s), 'x');
+    close(lo, 0, 1e-9);
+    close(hi, 38, 1e-6);
+    close(meshArea(s), 380, 1e-6);
+    const block = box(new THREE.Vector3(5, -5, -5), new THREE.Vector3(15, 15, 5));
+    const m = extendSheetTo(a, e, block, 'linear');
+    close(range(points(m), 'x')[1], 15, 1e-6);
+    close(meshArea(m), 150, 1e-6);
+});

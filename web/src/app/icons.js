@@ -161,6 +161,8 @@ const ICONS = {
     'convert-vertex': `<path d="M3 18L12 5l9 13" stroke-dasharray="2 2"/><path ${A} d="M3 18C8 9 16 9 21 18"/><path ${A} d="M12 5h0" stroke-width="3" stroke-linecap="round"/>`,
     rebuild: `<path d="M3 17L7 6l6 9 4-8 4 2" stroke-dasharray="2 2"/><path ${A} d="M3 17C7 5 11 5 13 11s6 7 8-2"/>`,
     // Match Face: a block's top face taking the curve of a surface above it.
+    'limit-minimal': `<path d="M15 3v18"/><path ${A} d="M3 12h12"/><path ${A} d="M11 8l4 4-4 4"/>`,
+    'limit-outside': `<path d="M9 3v18M15 3v18"/><path ${A} d="M3 12h18"/><path ${A} d="M17 8l4 4-4 4"/>`,
     untrim: `<path d="M3 5h18v14H3z" stroke-dasharray="2 2"/><path ${A} d="M7 9c3-2 7-2 10 0v6c-3 2-7 2-10 0z"/><path ${A} d="M14 12l5-5M19 7h-3M19 7v3"/>`,
     'keep-edges': `<path d="M3 5h18v14H3z"/><path ${A} d="M8 9h8v6H8z" stroke-dasharray="2 2"/><circle cx="8" cy="9" r="1.2"/><circle cx="16" cy="15" r="1.2"/>`,
     'match-face': `<path d="M4 20V12h16v8z"/><path d="M4 12l16 0" stroke-dasharray="2 2"/><path ${A} d="M3 9c5-5 13 2 18-3"/><path ${A} d="M12 11V8"/>`,

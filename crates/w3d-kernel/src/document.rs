@@ -995,19 +995,19 @@ impl<K: Kernel> Document<K> {
     }
 
     /// Plasticity's Extend Sheet, without changing the document: sheet `body` grown past its open `edge`,
-    /// by `distance` or, with `limit`, until it meets that body.
-    pub fn preview_extend_sheet(&self, body: BodyId, edge: u32, distance: f64, shape: SheetExtension, limit: Option<BodyId>) -> Result<K::Solid, KernelError> {
+    /// by `distance` or, with `limit`, until it meets that body (on through it with `outside`).
+    pub fn preview_extend_sheet(&self, body: BodyId, edge: u32, distance: f64, shape: SheetExtension, limit: Option<BodyId>, outside: bool) -> Result<K::Solid, KernelError> {
         let sheet = self.get(body).ok_or(KernelError::Invalid("that body no longer exists"))?;
         match limit {
             Some(t) if t == body => Err(KernelError::Invalid("limit the sheet by another body, not itself")),
-            Some(t) => self.kernel.extend_sheet_to(sheet, edge, self.get(t).ok_or(KernelError::Invalid("the limiting body no longer exists"))?, shape),
+            Some(t) => self.kernel.extend_sheet_to(sheet, edge, self.get(t).ok_or(KernelError::Invalid("the limiting body no longer exists"))?, shape, outside),
             None => self.kernel.extend_sheet(sheet, edge, distance, shape),
         }
     }
 
     /// Extend Sheet as one undoable step: the sheet keeps its body.
-    pub fn commit_extend_sheet(&mut self, body: BodyId, edge: u32, distance: f64, shape: SheetExtension, limit: Option<BodyId>) -> Result<BodyId, KernelError> {
-        let sheet = self.preview_extend_sheet(body, edge, distance, shape, limit)?;
+    pub fn commit_extend_sheet(&mut self, body: BodyId, edge: u32, distance: f64, shape: SheetExtension, limit: Option<BodyId>, outside: bool) -> Result<BodyId, KernelError> {
+        let sheet = self.preview_extend_sheet(body, edge, distance, shape, limit, outside)?;
         self.checkpoint();
         self.replace_traced(body, Traced { solid: sheet, history: History::default() });
         Ok(body)

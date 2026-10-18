@@ -1327,6 +1327,9 @@ pub struct ExtendSheetRequest {
     /// Limit: carry on until this body, instead of by `distance`.
     #[serde(default)]
     pub limit: Option<BodyId>,
+    /// Limit Outside: on through the body until the sheet comes out of its far side.
+    #[serde(default)]
+    pub outside: bool,
 }
 
 impl ExtendSheetRequest {
@@ -1416,14 +1419,14 @@ pub fn commit_rebuild_faces(m: &Model, req: RebuildFacesRequest) -> Result<Rebui
 
 pub fn preview_extend_sheet(m: &Model, req: ExtendSheetRequest) -> Option<Result<Body, ApiError>> {
     m.preview(move |doc| {
-        let sheet = doc.preview_extend_sheet(req.body, req.edge, req.distance, req.shape(), req.limit)?;
+        let sheet = doc.preview_extend_sheet(req.body, req.edge, req.distance, req.shape(), req.limit, req.outside)?;
         Ok(body(&doc.kernel, req.body, &sheet)?)
     })
 }
 
 pub fn commit_extend_sheet(m: &Model, req: ExtendSheetRequest) -> Result<Committed, ApiError> {
     m.call(move |doc| {
-        let id = doc.commit_extend_sheet(req.body, req.edge, req.distance, req.shape(), req.limit)?;
+        let id = doc.commit_extend_sheet(req.body, req.edge, req.distance, req.shape(), req.limit, req.outside)?;
         Ok(Committed { id, scene: bodies(doc)? })
     })
 }

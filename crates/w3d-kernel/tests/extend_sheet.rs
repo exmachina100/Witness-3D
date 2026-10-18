@@ -169,7 +169,7 @@ fn the_document_extends_the_sheet_in_its_body_in_one_undo_step() {
     let sheet = doc.commit_patch(&[id], &[]).unwrap();
     doc.clear_history();
     let e = edge_where(&doc.kernel, doc.get(sheet).unwrap(), |p| (p[1] - 10.0).abs() < 1e-9);
-    assert_eq!(doc.commit_extend_sheet(sheet, e, 4.0, SheetExtension::Linear, None).unwrap(), sheet);
+    assert_eq!(doc.commit_extend_sheet(sheet, e, 4.0, SheetExtension::Linear, None, false).unwrap(), sheet);
     let t = doc.kernel.tessellate(doc.get(sheet).unwrap(), 0.001).unwrap();
     assert!((area(&t) - 140.0).abs() < 1e-6, "area {}", area(&t));
     assert!(doc.undo());
@@ -185,26 +185,56 @@ fn limit_carries_the_sheet_on_until_it_meets_the_body() {
     let e = edge_where(&k, &a, |p| (p[0] - 10.0).abs() < 1e-9);
     // A wall standing square across the sheet's path at x = 20: the sheet reaches it and stops.
     let wall = k.box_from_corners(DVec3::new(20.0, -5.0, -5.0), DVec3::new(30.0, 15.0, 5.0));
-    let s = k.extend_sheet_to(&a, e, &wall, SheetExtension::Linear).unwrap();
+    let s = k.extend_sheet_to(&a, e, &wall, SheetExtension::Linear, false).unwrap();
     assert!(k.is_valid(&s) && k.is_sheet(&s));
     let t = k.tessellate(&s, 0.001).unwrap();
     assert!((area(&t) - 200.0).abs() < 1e-6, "area {}", area(&t));
     // A round post lying across the path (axis along y at x = 30, radius 8): the sheet stops at its
     // near side, x = 22, and nothing of it carries on inside or beyond.
     let post = primitive(&k, &Primitive::Cylinder { frame: Frame::new(DVec3::new(30.0, -5.0, 0.0), DVec3::X, DVec3::Y), radius: 8.0, height: 20.0 }).unwrap();
-    let t = k.tessellate(&k.extend_sheet_to(&a, e, &post, SheetExtension::Linear).unwrap(), 0.001).unwrap();
+    let t = k.tessellate(&k.extend_sheet_to(&a, e, &post, SheetExtension::Linear, false).unwrap(), 0.001).unwrap();
     let (lo, hi) = range(&t, 0);
     assert!(lo.abs() < 1e-9 && (hi - 22.0).abs() < 1e-6, "x {lo}..{hi}");
     assert!((area(&t) - 220.0).abs() < 1e-6, "area {}", area(&t));
     // Natural and Soft reach it too; Reflective cannot, and a body off to the side is never met.
     for shape in [SheetExtension::Natural, SheetExtension::Soft] {
-        let s = k.extend_sheet_to(&a, e, &wall, shape).unwrap_or_else(|e| panic!("{shape:?}: {e}"));
+        let s = k.extend_sheet_to(&a, e, &wall, shape, false).unwrap_or_else(|e| panic!("{shape:?}: {e}"));
         assert!(k.is_valid(&s), "{shape:?}");
         assert!((range(&k.tessellate(&s, 0.001).unwrap(), 0).1 - 20.0).abs() < 1e-6, "{shape:?}");
     }
-    let err = k.extend_sheet_to(&a, e, &wall, SheetExtension::Reflective).err().expect("refused").to_string();
+    let err = k.extend_sheet_to(&a, e, &wall, SheetExtension::Reflective, false).err().expect("refused").to_string();
     assert!(err.contains("reflective"), "{err}");
     let above = k.box_from_corners(DVec3::new(20.0, -5.0, 10.0), DVec3::new(30.0, 15.0, 20.0));
-    let err = k.extend_sheet_to(&a, e, &above, SheetExtension::Linear).err().expect("refused").to_string();
+    let err = k.extend_sheet_to(&a, e, &above, SheetExtension::Linear, false).err().expect("refused").to_string();
     assert!(err.contains("never meets"), "{err}");
+}
+
+#[test]
+fn outside_carries_the_sheet_on_through_the_body() {
+    use w3d_kernel::solids::{primitive, Primitive};
+    let k = Occt;
+    let a = square(&k, 0.0, 0.0);
+    let e = edge_where(&k, &a, |p| (p[0] - 10.0).abs() < 1e-9);
+    // The round post across the path (x 22..38 at the sheet): Outside goes on to its far side.
+    let post = primitive(&k, &Primitive::Cylinder { frame: Frame::new(DVec3::new(30.0, -5.0, 0.0), DVec3::X, DVec3::Y), radius: 8.0, height: 20.0 }).unwrap();
+    let s = k.extend_sheet_to(&a, e, &post, SheetExtension::Linear, true).unwrap();
+    assert!(k.is_valid(&s));
+    let t = k.tessellate(&s, 0.001).unwrap();
+    let (lo, hi) = range(&t, 0);
+    assert!(lo.abs() < 1e-9 && (hi - 38.0).abs() < 1e-6, "x {lo}..{hi}");
+    assert!((area(&t) - 380.0).abs() < 1e-6, "area {}", area(&t));
+}
+
+#[test]
+fn a_sheet_already_crossing_the_body_keeps_all_of_itself() {
+    let k = Occt;
+    let a = square(&k, 0.0, 0.0);
+    let e = edge_where(&k, &a, |p| (p[0] - 10.0).abs() < 1e-9);
+    // A block over x 5..15: the edge is inside it. Minimal stops where the extension comes out
+    // (x = 15) and keeps the sheet's own part outside the block (x 0..5) too.
+    let block = k.box_from_corners(DVec3::new(5.0, -5.0, -5.0), DVec3::new(15.0, 15.0, 5.0));
+    let t = k.tessellate(&k.extend_sheet_to(&a, e, &block, SheetExtension::Linear, false).unwrap(), 0.001).unwrap();
+    let (lo, hi) = range(&t, 0);
+    assert!(lo.abs() < 1e-9 && (hi - 15.0).abs() < 1e-6, "x {lo}..{hi}");
+    assert!((area(&t) - 150.0).abs() < 1e-6, "area {}", area(&t));
 }

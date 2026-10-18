@@ -89,7 +89,7 @@ mod inner {
         pub fn w3d_face_deviation(a: &TopoDS_Shape, b: &TopoDS_Shape, index: i32) -> Result<f64>;
         pub fn w3d_face_spline(shape: &TopoDS_Shape, index: i32) -> Result<Vec<i32>>;
         pub fn w3d_extend_sheet(shape: &TopoDS_Shape, index: i32, distance: f64, kind: i32) -> Result<UniquePtr<TopoDS_Shape>>;
-        pub fn w3d_extend_sheet_to(shape: &TopoDS_Shape, index: i32, target: &TopoDS_Shape, kind: i32) -> Result<UniquePtr<TopoDS_Shape>>;
+        pub fn w3d_extend_sheet_to(shape: &TopoDS_Shape, index: i32, target: &TopoDS_Shape, kind: i32, through: bool) -> Result<UniquePtr<TopoDS_Shape>>;
         pub fn w3d_child_count(shape: &TopoDS_Shape) -> i32;
         pub fn w3d_child_at(shape: &TopoDS_Shape, index: i32) -> Result<UniquePtr<TopoDS_Shape>>;
         pub fn w3d_join_sheets(all: &TopoDS_Shape, tol: f64) -> Result<UniquePtr<TopoDS_Shape>>;

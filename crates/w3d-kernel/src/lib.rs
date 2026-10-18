@@ -434,8 +434,9 @@ pub trait Kernel {
     fn match_faces(&self, _s: &Self::Solid, _faces: &[u32], _target: &Self::Solid, _tface: u32, _caps: &[f64]) -> Result<Self::Solid, KernelError> {
         Err(KernelError::Invalid("this kernel cannot match faces"))
     }
-    /// Extend Sheet's Limit: the sheet carried on past its open `edge` until it first meets `target`.
-    fn extend_sheet_to(&self, _s: &Self::Solid, _edge: u32, _target: &Self::Solid, _shape: SheetExtension) -> Result<Self::Solid, KernelError> {
+    /// Extend Sheet's Limit: the sheet carried on past its open `edge` until it first meets `target`
+    /// (Minimal) or, with `outside`, on through a solid target until it comes out of the far side.
+    fn extend_sheet_to(&self, _s: &Self::Solid, _edge: u32, _target: &Self::Solid, _shape: SheetExtension, _outside: bool) -> Result<Self::Solid, KernelError> {
         Err(KernelError::Invalid("this kernel cannot extend sheets to a body"))
     }
     /// Plasticity's Extend Sheet: the sheet grown `distance` past its open `edge` in the given shape.
