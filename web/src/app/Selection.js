@@ -5,11 +5,13 @@
 //
 // An item is { kind: 'solid', body }, { kind: 'edge' | 'face', body, n }, or a drawn curve or the
 // region inside a closed one, { kind: 'curve' | 'region', id } (Plasticity's mode 2 picks curves
-// with edges, mode 3 regions with faces).
+// with edges, mode 3 regions with faces), or a curve's vertex, { kind: 'vertex', id, n } (mode 1,
+// points).
 
 export const KINDS = ['point', 'edge', 'face', 'solid'];
 
-const keyOf = it => it.kind === 'solid' ? `s:${it.body}` : it.kind === 'curve' || it.kind === 'region' ? `${it.kind}:${it.id}` : `${it.kind[0]}:${it.body}:${it.n}`;
+const keyOf = it => it.kind === 'solid' ? `s:${it.body}` : it.kind === 'curve' || it.kind === 'region' ? `${it.kind}:${it.id}`
+    : it.kind === 'vertex' ? `vertex:${it.id}:${it.n}` : `${it.kind[0]}:${it.body}:${it.n}`;
 const onBody = it => it.body !== undefined;
 
 export class Selection {

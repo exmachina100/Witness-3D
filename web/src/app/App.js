@@ -66,7 +66,7 @@ import { icon } from './icons.js';
 import { limitEdges, toObj, toStl } from '../meshExport.js';
 import { flatten, toDxf, toSvg } from '../drawingExport.js';
 import { readDxf } from '../dxf.js';
-import { bridgeCurves, continuity, curvatureComb, explode, extendCurve, filletCurve, nearestEnd, OFFSET_CORNERS, offsetCurve, offsetThrough, splitCurve, tangentCircle, trim } from '../curveEdit.js';
+import { bridgeCurves, continuity, curvatureComb, curveVertices, explode, extendCurve, filletCurve, nearestEnd, OFFSET_CORNERS, offsetCurve, offsetThrough, offsetVertex, splitCurve, tangentCircle, trim } from '../curveEdit.js';
 import { ViewGizmo } from './ViewGizmo.js';
 import { Toolbar } from './Toolbar.js';
 import { arcPoints, circleThrough, cvPoints, ellipsePoints, endTangent, helixPoints, loops, nurbsLoop, nurbsPoints, polygonCorners, spiralAngle, tangentArc } from '../curves.js';
@@ -100,6 +100,7 @@ const KEYS = {
   spline: [['CLICK', 'POINTS'], ['CLICK START', 'CLOSE'], ['TAB', 'CONTROL POINTS'], ['X Y Z', 'AXIS'], ['CTRL Z', 'BACK'], ['⏎ / RMB', 'DONE']],
   'tangent-arc': [['CLICK', 'CURVE END · SIZE'], ['D', 'FLIP'], ['ALT', 'NO SNAP'], ['ESC', 'CANCEL']],
   spiral: [['CLICK', 'AXIS START · END · RADIUS'], ['X Y Z', 'AXIS'], ['A', 'ANGLE'], ['D', 'LENGTH'], ['R', 'RADIUS'], ['⏎ / RMB', 'OK']],
+  'offset-vertex': [['DRAG DOT', 'DISTANCE'], ['D', 'DISTANCE'], ['⏎ / RMB', 'OK']],
   'offset-curve': [['DRAG DOT', 'DISTANCE'], ['D', 'DISTANCE'], ['V / C', 'GAP FILL'], ['S', 'BOTH SIDES'], ['F', 'FREESTYLE: CLICK'], ['⏎ / RMB', 'OK']],
   'fillet-curve': [['D', 'RADIUS'], ['TYPE', 'IN PANEL'], ['⏎ / RMB', 'OK']],
   'remove-face': [['⇧ CLICK', 'FACES'], ['⏎ / RMB', 'OK']],
@@ -148,7 +149,7 @@ const CLICKS = { rect: 2, 'center-rect': 2, rect3: 3, circle: 2, circle2: 2, cir
 const FORMS = { revolve: true, loft: true, sweep: true };
 const PRIMS = { box: true, 'center-box': true, box3: true, cylinder: true, sphere: true };
 // Commands that aren't tools in the registry (they act on a click, not on settings).
-const EDITS = { material: 'SET MATERIAL', 'export-mesh': 'EXPORT MESH', 'export-drawing': 'EXPORT DRAWING', 'measure-continuity': 'MEASURE CONTINUITY', trim: 'TRIM', extend: 'EXTEND CURVE', 'tangent-circle': 'TANGENT CIRCLE', split: 'SPLIT CURVE', 'measure-distance': 'MEASURE DISTANCE', 'measure-radius': 'MEASURE RADIUS' };
+const EDITS = { 'offset-vertex': 'OFFSET VERTEX', material: 'SET MATERIAL', 'export-mesh': 'EXPORT MESH', 'export-drawing': 'EXPORT DRAWING', 'measure-continuity': 'MEASURE CONTINUITY', trim: 'TRIM', extend: 'EXTEND CURVE', 'tangent-circle': 'TANGENT CIRCLE', split: 'SPLIT CURVE', 'measure-distance': 'MEASURE DISTANCE', 'measure-radius': 'MEASURE RADIUS' };
 const keysHtml = id => KEYS[id].map(([k, v]) => `<kbd>${k}</kbd><span>${v}</span>`).join('');
 // The Command Bar, exactly the manual's list (Plasticity Essentials › Command Bar).
 const BAR = [['palette', 'F', 'SEARCH'], ['tool:move', 'G', 'MOVE'], ['tool:rotate', 'R', 'ROTATE'], ['tool:scale', 'S', 'SCALE'], ['duplicate', '⇧D', 'DUPLICATE'], ['tool:boolean', 'Q', 'BOOLEAN'], ['tool:rect-array', '', 'RECTANGULAR ARRAY'], ['tool:radial-array', '', 'RADIAL ARRAY'], ['suggest', '⇧F', 'SUGGESTED COMMANDS']];
@@ -319,6 +320,10 @@ const SHELL = `
       <span class="label">GAP FILL</span>
       <div class="chips"><button data-id="oc-linear" aria-pressed="true">LINEAR</button><button data-id="oc-round" aria-pressed="false">ROUND</button><button data-id="oc-natural" aria-pressed="false">NATURAL</button></div>
       <div class="chips"><button data-id="oc-lock" aria-pressed="false" title="Lock distances: offset both sides (S)"><kbd>S</kbd>BOTH SIDES</button><button data-id="oc-free" aria-pressed="false" title="Freestyle: click where the offset goes (F)"><kbd>F</kbd>FREESTYLE</button></div>
+    </div>
+    <div class="sec" data-panel="offset-vertex" hidden>
+      <span class="hint" data-id="ov-hint">—</span>
+      <div class="field"><label for="w3d-ov-d">DISTANCE</label><input id="w3d-ov-d" data-id="ov-d" type="number" step="0.5" min="0.001" value="2"></div>
     </div>
     <div class="sec" data-panel="fillet-curve" hidden>
       <span class="hint" data-id="fc-hint">—</span>
@@ -1058,8 +1063,49 @@ export async function mount(root, backend) {
     const is = (kind, id) => sel.has({ kind, id }) ? 'selected' : hover?.kind === kind && hover.id === id ? 'hover' : 'normal';
     for (const o of curveGroup.children) {
       if (o.userData.curve !== undefined) o.material = curveMat[is('curve', o.userData.curve) === 'normal' && sel.has({ kind: 'region', id: o.userData.curve }) ? 'selected' : is('curve', o.userData.curve)];
-      else o.material = regionMat[is('region', o.userData.region)];
+      else if (o.userData.region !== undefined) o.material = regionMat[is('region', o.userData.region)];
     }
+    paintVertices();
+  }
+  // Curve vertices (point mode): every vertex a small grey dot, the hovered one white, selected ones orange.
+  const vertexDots = new THREE.Group();
+  const vertexMat = Object.fromEntries(Object.entries({ normal: [0x9a968c, 5], hover: [0xffffff, 9], selected: [COLORS.accent, 9] })
+    .map(([k, [color, size]]) => [k, new THREE.PointsMaterial({ color, size, sizeAttenuation: false, depthTest: false })]));
+  scene.add(vertexDots);
+  /** Each shown curve's vertices in model space: [{ id, n, at }]. */
+  function vertexList() {
+    const out = [];
+    for (const c of curveList) {
+      const f = curveFrame(c);
+      curveVertices(c).forEach(([x, y], n) => out.push({ id: c.id, n, at: lift(f, { x, y }, 0.02) }));
+    }
+    return out;
+  }
+  function paintVertices() {
+    for (const o of [...vertexDots.children]) dispose(o);
+    if (!sel.allows('point')) return;
+    const look = v => sel.has({ kind: 'vertex', id: v.id, n: v.n }) ? 'selected' : hover?.kind === 'vertex' && hover.id === v.id && hover.n === v.n ? 'hover' : 'normal';
+    // Grey dots only on curves in play (selected, hovered or with a vertex picked), so drawings stay clean.
+    const live = new Set([...sel.list().filter(it => it.id !== undefined).map(it => it.id), ...(hover?.id !== undefined ? [hover.id] : [])]);
+    const groups = { normal: [], hover: [], selected: [] };
+    for (const v of vertexList()) { const k = look(v); if (k !== 'normal' || live.has(v.id)) groups[k].push(v.at); }
+    for (const [k, pts] of Object.entries(groups)) {
+      if (!pts.length) continue;
+      const dots = new THREE.Points(new THREE.BufferGeometry().setFromPoints(pts), vertexMat[k]);
+      dots.renderOrder = k === 'normal' ? 11 : 12;
+      vertexDots.add(dots);
+    }
+  }
+  /** The curve vertex within a few pixels of a canvas point, nearest first. */
+  function vertexAt(p, px = 7) {
+    let best = null, bestD = px;
+    for (const v of vertexList()) {
+      const s = screenOf(v.at);
+      if (s.behind) continue;
+      const d = Math.hypot(s.x - p.x, s.y - p.y);
+      if (d <= bestD) { bestD = d; best = { kind: 'vertex', id: v.id, n: v.n, point: v.at.clone() }; }
+    }
+    return best;
   }
   /** The centre of a region, in the viewport. */
   function regionCentre(c) {
@@ -1260,6 +1306,8 @@ export async function mount(root, backend) {
    */
   function pickAt(e) {
     ray(e);
+    const vertex = sel.allows('point') && vertexAt(local(e));
+    if (vertex) return vertex;
     const meshes = shownMeshes().filter(m => !org.locked.has(m.userData.id));
     const faceHit = raycaster.intersectObjects(meshes, false)[0];
     const reach = faceHit ? faceHit.distance * 1.01 + 0.5 : Infinity; // in front of the face, or on it
@@ -1292,7 +1340,7 @@ export async function mount(root, backend) {
   // a double-click takes the solid, and a click on nothing clears.
   function clickTarget(hit, mod) {
     if (!hit) return null;
-    if (hit.body === undefined) return { kind: hit.kind, id: hit.id };
+    if (hit.body === undefined) return hit.kind === 'vertex' ? { kind: 'vertex', id: hit.id, n: hit.n } : { kind: hit.kind, id: hit.id };
     const solid = { kind: 'solid', body: hit.body };
     if (hit.kind === 'solid') return solid;
     if (sel.allows('solid')) {
@@ -3263,6 +3311,8 @@ export async function mount(root, backend) {
   function startCurveEdit(id) {
     const ids = sel.curves.filter(curveById);
     const offset = id === 'offset-curve';
+    // With curve vertices picked instead of curves, Offset Curve is Offset Vertex (manual: Sketch › Offset Vertex).
+    if (offset && !ids.length && sel.list('vertex').length) return startOffsetVertex();
     if (!ids.length) return toast(`SELECT A CURVE TO ${offset ? 'OFFSET' : 'FILLET'}`);
     if (!backend.addCurves || (!offset && !backend.replaceCurves)) return toast(`${toolInfo(id).label} IS NOT IN THIS BUILD YET`);
     const field = offset ? 'oc-d' : 'fc-r', hint = offset ? 'oc-hint' : 'fc-hint';
@@ -3333,6 +3383,62 @@ export async function mount(root, backend) {
         const { ids: made } = offset ? await backend.addCurves(c.out) : await backend.replaceCurves(ids, c.out);
         endCmd('committed');
         record(`${toolInfo(id).label} ${num(field)} MM`, made[0], curveLabel(made[0]));
+        await curvesChanged(made);
+      } catch (e) { setState('failed'); toast(say(e)); }
+    };
+    c.abort = () => endCmd('cancelled');
+    c.cleanup = () => { c.gizmo?.dispose(); clearPreview(); };
+    c.preview();
+  }
+
+  /**
+   * Plasticity's Offset Vertex: new vertices the distance along the curve either side of each
+   * picked vertex; the curve keeps its shape. The dot at the first vertex drags the distance.
+   */
+  function startOffsetVertex() {
+    if (!backend.replaceCurves) return toast('OFFSET VERTEX IS NOT IN THIS BUILD YET');
+    const picked = sel.list('vertex').filter(v => curveById(v.id));
+    const c = cmd = { id: 'offset-vertex', out: null, gizmo: null };
+    lastTool = 'offset-curve';
+    showTool('offset-vertex');
+    setState('none');
+    const curves = [...new Set(picked.map(v => v.id))];
+    setTarget(curves.length === 1 ? curveLabel(curves[0]) : `${curves.length} CURVES`);
+    // Per curve, its vertices from the last back, so earlier numbers hold while new ones go in.
+    c.compute = () => curves.map(id => picked.filter(v => v.id === id).map(v => v.n).sort((a, b) => b - a)
+      .reduce((cur, n) => offsetVertex(cur, n, num('ov-d')), curveById(id)));
+    c.preview = () => {
+      clearPreview();
+      c.gizmo?.render(num('ov-d'));
+      try {
+        c.out = c.compute();
+        showCurvePreview(c.out);
+        $('ov-hint').textContent = `${picked.length} VERT${picked.length > 1 ? 'ICES' : 'EX'} ON ${curves.length} CURVE${curves.length > 1 ? 'S' : ''}`;
+        setHud(`OFFSET VERTEX ${num('ov-d')} MM`);
+        setState('updated');
+      } catch (e) { c.out = null; $('ov-hint').textContent = say(e); setHud('OFFSET VERTEX FAILED'); setState('failed'); }
+    };
+    {
+      // The dot sits on the first vertex, pointing along the curve to the next one.
+      const first = picked[0], src = curveById(first.id), f = curveFrame(src), vs = curveVertices(src);
+      const here = vs[first.n], next = vs[first.n + 1] ?? (isClosed(src) ? vs[0] : vs[first.n - 1]);
+      if (here && next) {
+        const at = lift(f, { x: here[0], y: here[1] }), dir = lift(f, { x: next[0], y: next[1] }).sub(at).normalize();
+        c.gizmo = dot(at, dir, v => { $('ov-d').value = +Math.abs(v).toFixed(3); c.preview(); });
+      }
+    }
+    c.key = action => {
+      if (action !== 'distance') return false;
+      c.entry = { label: 'DISTANCE', text: '', apply: v => { $('ov-d').value = v; c.preview(); } };
+      setHud('DISTANCE _');
+      return true;
+    };
+    c.finish = async () => {
+      if (!c.out) return toast($('ov-hint').textContent);
+      try {
+        const { ids: made } = await backend.replaceCurves(curves, c.out);
+        endCmd('committed');
+        record(`OFFSET VERTEX ${num('ov-d')} MM`, made[0], curveLabel(made[0]));
         await curvesChanged(made);
       } catch (e) { setState('failed'); toast(say(e)); }
     };
@@ -5271,6 +5377,7 @@ export async function mount(root, backend) {
   function renderModes() {
     const all = ['point', 'edge', 'face', 'solid'].every(k => sel.allows(k));
     for (const b of $$('[data-mode]')) b.setAttribute('aria-pressed', b.dataset.mode === 'all' ? all : sel.allows(b.dataset.mode));
+    paintVertices();
   }
 
   /** Run a named action (keymap.js); returns false for names it doesn't know. */
@@ -5879,7 +5986,7 @@ export async function mount(root, backend) {
   for (const b of $$('[data-grow]')) b.onclick = () => setOffsetGrow(b.dataset.grow);
   $('dr-hidden').onclick = () => cmd?.id === 'export-drawing' && cmd.key('hidden');
   $('dr-curves').onclick = () => cmd?.id === 'export-drawing' && cmd.key('curves');
-  for (const id of ['oc-d', 'fc-r']) $(id).addEventListener('input', () => (cmd?.id === 'offset-curve' || cmd?.id === 'fillet-curve') && cmd.preview());
+  for (const id of ['oc-d', 'fc-r', 'ov-d']) $(id).addEventListener('input', () => (cmd?.id === 'offset-curve' || cmd?.id === 'fillet-curve' || cmd?.id === 'offset-vertex') && cmd.preview());
   $('oc-lock').onclick = () => cmd?.id === 'offset-curve' && cmd.key('lock');
   $('oc-free').onclick = () => cmd?.id === 'offset-curve' && cmd.key('freestyle');
   for (const k of OFFSET_CORNERS) $(`oc-${k}`).onclick = () => {

@@ -107,6 +107,7 @@ export const COMMAND = {
     // Round 7: D types the distance or radius.
     // Offset Curve (manual: D distance, V gap fill, S lock distances, F freestyle; C kept for the gap fill)
     'offset-curve': { d: 'distance', c: 'corner', v: 'corner', s: 'lock', f: 'freestyle' },
+    'offset-vertex': { d: 'distance' },
     'fillet-curve': { d: 'radius' },
     bridge: { t: 'tension' },
     hole: { t: 'through' },

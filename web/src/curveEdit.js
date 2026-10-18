@@ -803,3 +803,117 @@ function endInfo(shape, which) {
     const k = shape.kind === 'polyline' || n < 3 ? 0 : Math.abs(curvature3(which ? pts[n - 3] : pts[2], q, p));
     return { at: p, out: norm(sub(p, q)), k };
 }
+
+// --- Vertices: the corners and points a curve is drawn through (Plasticity's point selection) ---
+
+/** A polyline or contour as its pieces, and whether it closes; null for curves without vertices to edit. */
+function asPieces(c) {
+    if (c.kind === 'polyline') {
+        const pts = c.points.map(p => [...p]);
+        return { pieces: [{ kind: 'polyline', points: c.closed ? [...pts, [...pts[0]]] : pts, closed: false }], closed: !!c.closed };
+    }
+    if (c.kind === 'arc') return { pieces: [{ kind: 'arc', start: c.start, mid: c.mid, end: c.end }], closed: false };
+    if (c.kind === 'contour') return { pieces: c.pieces.map(p => ({ ...p })), closed: loops(c.pieces) };
+    return null;
+}
+
+/** Where each vertex of a piece list sits: point `at` of piece `piece`, 'end' for an open curve's last point. */
+function vertexEntries({ pieces, closed }) {
+    const out = [];
+    pieces.forEach((p, k) => {
+        if (p.kind === 'polyline') for (let j = 0; j < p.points.length - 1; j++) out.push({ piece: k, at: j });
+        else out.push({ piece: k, at: 0 });
+    });
+    if (!closed && pieces.length) out.push({ piece: pieces.length - 1, at: 'end' });
+    return out;
+}
+const pieceStart = p => p.kind === 'arc' ? p.start : p.points[0];
+const pieceEnd = p => p.kind === 'arc' ? p.end : p.points.at(-1);
+
+/**
+ * The curve's vertices in its plane, in order: a polyline's points, the corners and joints of a
+ * contour, an arc's two ends, the points a spline or control-point curve was drawn from. Circles,
+ * ellipses and spirals have none.
+ */
+export function curveVertices(c) {
+    if (c.kind === 'spline' || c.kind === 'cv') return c.points.map(p => [...p]);
+    if (c.kind === 'nurbs') return c.poles.length ? [[c.poles[0][0], c.poles[0][1]], [c.poles.at(-1)[0], c.poles.at(-1)[1]]] : [];
+    const a = asPieces(c);
+    if (!a) return [];
+    return vertexEntries(a).map(({ piece, at }) => {
+        const p = a.pieces[piece];
+        return [...(at === 'end' ? pieceEnd(p) : p.kind === 'arc' ? p.start : p.points[at])];
+    });
+}
+
+const pieceLength = p => {
+    if (p.kind === 'arc') { const g = arcGeometry(p.start, p.mid, p.end); return g ? Math.abs(g.sweep) * g.radius : dist(p.start, p.end); }
+    let l = 0;
+    for (let i = 1; i < p.points.length; i++) l += dist(p.points[i - 1], p.points[i]);
+    return l;
+};
+
+/** The piece cut `s` along from its start into two. */
+function splitPiece(p, s) {
+    if (!(s > EPS) || s >= pieceLength(p) - EPS) throw new Error('the distance runs past the next vertex; use a smaller distance');
+    if (p.kind === 'arc') {
+        const g = arcGeometry(p.start, p.mid, p.end), t = s / pieceLength(p);
+        return [arcPiece(g, 0, t), arcPiece(g, t, 1)];
+    }
+    let walked = 0;
+    for (let i = 1; i < p.points.length; i++) {
+        const a = p.points[i - 1], b = p.points[i], l = dist(a, b);
+        if (walked + l > s + EPS) {
+            const q = add(a, mul(sub(b, a), (s - walked) / l));
+            const before = [...p.points.slice(0, i), q], after = [q, ...p.points.slice(i)];
+            return [{ ...p, points: before }, { ...p, points: after }];
+        }
+        walked += l;
+    }
+    throw new Error('the distance runs past the next vertex; use a smaller distance');
+}
+const reversePiece = p => p.kind === 'arc' ? { ...p, start: p.end, end: p.start } : { ...p, points: [...p.points].reverse() };
+
+/**
+ * Plasticity's Offset Vertex: new vertices `d` along the curve on both sides of vertex `n` (one
+ * side at an open end). The curve keeps its shape; lines and arcs are cut where the new vertices go.
+ */
+export function offsetVertex(c, n, d) {
+    if (!Number.isFinite(d) || !(d > EPS)) throw new Error('the distance must be above zero');
+    if (c.kind === 'polyline' && c.closed && n === 0 && c.points.length > 2) {
+        // Start the loop one point earlier so the corner sits inside it.
+        const k = c.points.length;
+        return offsetVertex({ ...c, points: [c.points[k - 1], ...c.points.slice(0, k - 1)] }, 1, d);
+    }
+    const a = asPieces(c);
+    if (!a) throw new Error('Offset Vertex works on lines, arcs and contours of them');
+    let { pieces } = a;
+    const entries = vertexEntries(a);
+    const v = entries[n];
+    if (!v) throw new Error('no such vertex');
+    // The vertex as the joint between piece r - 1 (ending there) and piece r (starting there).
+    let r;
+    if (v.at === 'end') r = pieces.length;
+    else if (v.at === 0) r = v.piece;
+    else {
+        const p = pieces[v.piece];
+        pieces = [...pieces.slice(0, v.piece), { ...p, points: p.points.slice(0, v.at + 1) }, { ...p, points: p.points.slice(v.at) }, ...pieces.slice(v.piece + 1)];
+        r = v.piece + 1;
+    }
+    const m = pieces.length;
+    const l = r > 0 ? r - 1 : a.closed ? m - 1 : -1;
+    const right = r < m ? r : -1;
+    if (l === right) throw new Error('the curve is a single closed piece; Offset Vertex needs a corner');
+    const out = pieces.map(p => [p]);
+    if (right >= 0) out[right] = splitPiece(pieces[right], d);
+    if (l >= 0) out[l] = splitPiece(reversePiece(pieces[l]), d).map(reversePiece).reverse();
+    const flat = out.flat();
+    if (c.kind === 'polyline' && flat.every(p => p.kind === 'polyline')) {
+        const points = [flat[0].points[0]];
+        for (const p of flat) points.push(...p.points.slice(1));
+        // A closed polyline went round from vertex 0; put the corner back first.
+        if (a.closed) points.pop();
+        return withShape(c, { kind: 'polyline', points, closed: a.closed });
+    }
+    return withShape(c, { kind: 'contour', pieces: flat });
+}
