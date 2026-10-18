@@ -36,6 +36,7 @@
 #include <Geom2d_Curve.hxx>
 #include <TColStd_HArray1OfReal.hxx>
 #include <TColgp_Array2OfPnt.hxx>
+#include <cstdio>
 #include <BRepOffsetAPI_MakePipeShell.hxx>
 #include <BRepPrimAPI_MakePrism.hxx>
 #include <GC_MakeArcOfCircle.hxx>
@@ -2384,10 +2385,128 @@ inline int w3d_iso_side(const TopoDS_Edge &edge, const TopoDS_Face &face, double
   return -1;
 }
 
-// Plasticity's Extend Sheet: the sheet grown `distance` past its open edge `index`, carrying on
-// in a straight line from the face (linear). An edge along a side of the face's surface extends
-// that surface (GeomLib); a straight edge of a flat face extends the plane with a strip.
-inline std::unique_ptr<TopoDS_Shape> w3d_extend_sheet(const TopoDS_Shape &shape, int32_t index, double distance, bool natural) {
+// Extend Sheet's Soft and Reflective shapes: a face of its own beyond side `side` (0..3 as u0, u1,
+// v0, v1) of the clamped polynomial B-spline `s`, sharing that side's poles so the two faces meet
+// exactly. Built across the side in pole space, keeping the surface's knots along it:
+// - Soft: per pole column, the cubic leaving the side with the column's position, tangent and
+//   curvature (G2), its curvature fading to nothing at the far end.
+// - Reflective: the strip of the surface `distance` deep inside the side, turned through the side
+//   (every point taken to the far side of its side point: 2 e(v) - S(u, v)). Tangent carries on (G1)
+//   and the curvature mirrors, so a bulge becomes an S.
+inline TopoDS_Face w3d_extension_face(const Handle(Geom_BSplineSurface) &s, int side, double distance, bool reflective) {
+  if (s->IsURational() || s->IsVRational()) throw std::runtime_error("soft and reflective extend polynomial sheets only; try natural or linear");
+  const bool inU = side < 2, after = side % 2 == 1;
+  if (inU ? s->IsUPeriodic() : s->IsVPeriodic()) throw std::runtime_error("that sheet is periodic across the edge; it has no side to extend");
+  const int p = inU ? s->UDegree() : s->VDegree(), q = inU ? s->VDegree() : s->UDegree();
+  const int nk = inU ? s->NbUKnots() : s->NbVKnots(), ok = inU ? s->NbVKnots() : s->NbUKnots();
+  TColStd_Array1OfReal knots(1, nk), oknots(1, ok);
+  TColStd_Array1OfInteger mults(1, nk), omults(1, ok);
+  if (inU) { s->UKnots(knots); s->UMultiplicities(mults); s->VKnots(oknots); s->VMultiplicities(omults); }
+  else { s->VKnots(knots); s->VMultiplicities(mults); s->UKnots(oknots); s->UMultiplicities(omults); }
+  const double a = knots(1), b = knots(nk), at = after ? b : a;
+  // rows[k][j]: k across, outward from the side; j along it.
+  std::vector<std::vector<gp_Pnt>> rows;
+  std::vector<double> ks;
+  std::vector<int> ms;
+  int degree = p;
+  if (!reflective) {
+    const int n = inU ? s->NbUPoles() : s->NbVPoles(), m = inU ? s->NbVPoles() : s->NbUPoles();
+    std::vector<gp_Pnt> e(m);
+    std::vector<gp_Vec> d1(m), d2(m);
+    double speed = 0;
+    for (int j = 1; j <= m; j++) {
+      TColgp_Array1OfPnt column(1, n);
+      for (int i = 1; i <= n; i++) column(i) = inU ? s->Pole(i, j) : s->Pole(j, i);
+      Geom_BSplineCurve c(column, knots, mults, p);
+      c.D2(at, e[j - 1], d1[j - 1], d2[j - 1]);
+      if (!after) d1[j - 1].Reverse();  // outward runs down the parameter
+      speed += d1[j - 1].Magnitude() / m;
+    }
+    if (!(speed > 1e-12)) throw std::runtime_error("the sheet is degenerate along that edge");
+    // By length across the side: unit tangent v and curvature vector w (d2's part square to d1,
+    // over the speed squared). E(t) = e + v t + w (t^2/2 - t^3/(6T)), a cubic Bezier on [0, T].
+    const double T = distance;
+    rows.assign(4, std::vector<gp_Pnt>(m));
+    for (int j = 0; j < m; j++) {
+      const double sp = d1[j].Magnitude();
+      if (!(sp > 1e-12)) throw std::runtime_error("the sheet is degenerate along that edge");
+      const gp_XYZ o = e[j].XYZ(), v = d1[j].XYZ() / sp;
+      const gp_XYZ w = (d2[j].XYZ() - v * d2[j].XYZ().Dot(v)) / (sp * sp);
+      rows[0][j] = gp_Pnt(o);
+      rows[1][j] = gp_Pnt(o + v * (T / 3));
+      rows[2][j] = gp_Pnt(o + v * (2 * T / 3) + w * (T * T / 6));
+      rows[3][j] = gp_Pnt(o + v * T + w * (T * T / 3));
+    }
+    degree = 3;
+    ks = {0.0, T};
+    ms = {4, 4};
+  } else {
+    // How deep inside the side `distance` reaches, along the middle of it.
+    const double mid = (oknots(1) + oknots(ok)) / 2;
+    auto at_ = [&](double t) { return inU ? s->Value(t, mid) : s->Value(mid, t); };
+    const int N = 1024;
+    double run = 0, depth = -1;
+    gp_Pnt last = at_(at);
+    for (int i = 1; i <= N && depth < 0; i++) {
+      const double t = after ? b - (b - a) * i / N : a + (b - a) * i / N;
+      gp_Pnt here = at_(t);
+      const double step = last.Distance(here);
+      if (run + step >= distance) depth = std::abs(t - at) - (b - a) / N * (1 - (distance - run) / std::max(step, 1e-300));
+      run += step;
+      last = here;
+    }
+    if (depth <= 0) {
+      char why[160];
+      std::snprintf(why, sizeof why, "reflective mirrors the sheet itself, which is only %.3g mm across there; extend less", run);
+      throw std::runtime_error(why);
+    }
+    Handle(Geom_BSplineSurface) strip = Handle(Geom_BSplineSurface)::DownCast(s->Copy());
+    const double lo = after ? b - depth : a, hi = after ? b : a + depth;
+    if (inU) strip->Segment(lo, hi, oknots(1), oknots(ok)); else strip->Segment(oknots(1), oknots(ok), lo, hi);
+    const int n = inU ? strip->NbUPoles() : strip->NbVPoles(), m = inU ? strip->NbVPoles() : strip->NbUPoles();
+    const int sk = inU ? strip->NbUKnots() : strip->NbVKnots();
+    TColStd_Array1OfReal sknots(1, sk);
+    TColStd_Array1OfInteger smults(1, sk);
+    if (inU) { strip->UKnots(sknots); strip->UMultiplicities(smults); } else { strip->VKnots(sknots); strip->VMultiplicities(smults); }
+    auto pole = [&](int i, int j) { return inU ? strip->Pole(i, j) : strip->Pole(j, i); };
+    const int edgeRow = after ? n : 1;
+    for (int k = 0; k < n; k++) {
+      const int i = after ? n - k : k + 1;
+      std::vector<gp_Pnt> row(m);
+      for (int j = 1; j <= m; j++) row[j - 1] = gp_Pnt(pole(edgeRow, j).XYZ() * 2 - pole(i, j).XYZ());
+      rows.push_back(row);
+    }
+    for (int k = 0; k < sk; k++) {
+      const int i = after ? sk - k : k + 1;
+      ks.push_back(std::abs(sknots(i) - at));
+      ms.push_back(smults(i));
+    }
+  }
+  const int R = (int)rows.size(), m = (int)rows[0].size();
+  TColgp_Array2OfPnt poles(1, inU ? R : m, 1, inU ? m : R);
+  for (int k = 0; k < R; k++)
+    for (int j = 0; j < m; j++) {
+      if (inU) poles(k + 1, j + 1) = rows[k][j]; else poles(j + 1, k + 1) = rows[k][j];
+    }
+  TColStd_Array1OfReal xk(1, (int)ks.size());
+  TColStd_Array1OfInteger xm(1, (int)ms.size());
+  for (size_t i = 0; i < ks.size(); i++) { xk((int)i + 1) = ks[i]; xm((int)i + 1) = ms[i]; }
+  Handle(Geom_BSplineSurface) out = inU
+      ? new Geom_BSplineSurface(poles, xk, oknots, xm, omults, degree, q)
+      : new Geom_BSplineSurface(poles, oknots, xk, omults, xm, q, degree);
+  BRepBuilderAPI_MakeFace mk(out, 1e-7);
+  if (!mk.IsDone()) throw std::runtime_error("the extension could not be made into a face");
+  return mk.Face();
+}
+
+// Plasticity's Extend Sheet: the sheet grown `distance` past its open edge `index`. `shape` is
+// 0 Linear (straight on from the face), 1 Natural (on with its curvature), 2 Soft or 3 Reflective
+// (see `w3d_extension_face`). Linear and Natural on a side of the face's surface extend that
+// surface (GeomLib); Linear on a straight edge of a flat face extends the plane with a strip. Soft
+// and Reflective add a face of their own along a side of a B-spline surface.
+inline std::unique_ptr<TopoDS_Shape> w3d_extend_sheet(const TopoDS_Shape &shape, int32_t index, double distance, int32_t kind) {
+  if (kind < 0 || kind > 3) throw std::runtime_error("that is not an extension shape");
+  const bool natural = kind == 1;
   if (!std::isfinite(distance) || !(distance > 1e-6)) throw std::runtime_error("the distance must be above zero");
   TopTools_IndexedMapOfShape map;
   TopExp::MapShapes(shape, TopAbs_EDGE, map);
@@ -2407,6 +2526,28 @@ inline std::unique_ptr<TopoDS_Shape> w3d_extend_sheet(const TopoDS_Shape &shape,
     for (TopExp_Explorer ex(face, TopAbs_EDGE); ex.More() && untrimmed; ex.Next()) {
       TopoDS_Edge e = TopoDS::Edge(ex.Current());
       untrimmed = BRep_Tool::Degenerated(e) || w3d_iso_side(e, face, u0, u1, v0, v1) >= 0;
+    }
+    if (kind >= 2) {
+      if (side < 0 || !untrimmed) throw std::runtime_error("soft and reflective extend a side of the sheet's surface; that edge is trimmed across it");
+      Handle(Geom_Surface) surface = BRep_Tool::Surface(face);
+      Handle(Geom_BSplineSurface) bs = GeomConvert::SurfaceToBSplineSurface(new Geom_RectangularTrimmedSurface(surface, u0, u1, v0, v1));
+      TopoDS_Face more = w3d_extension_face(bs, side, distance, kind == 3);
+      BRepBuilderAPI_Sewing sew(1e-6);
+      sew.Add(shape);
+      sew.Add(more);
+      sew.Perform();
+      TopoDS_Shape result = sew.SewedShape();
+      TopTools_IndexedDataMapOfShapeListOfShape after;
+      TopExp::MapShapesAndAncestors(result, TopAbs_EDGE, TopAbs_FACE, after);
+      int shared = 0;
+      for (int i = 1; i <= after.Extent(); i++) if (after(i).Extent() == 2) shared++;
+      TopTools_IndexedDataMapOfShapeListOfShape before;
+      TopExp::MapShapesAndAncestors(shape, TopAbs_EDGE, TopAbs_FACE, before);
+      int had = 0;
+      for (int i = 1; i <= before.Extent(); i++) if (before(i).Extent() == 2) had++;
+      if (shared != had + 1) throw std::runtime_error("the extension could not be joined to the sheet");
+      if (!w3d_is_valid(result)) throw std::runtime_error("the extended sheet is not valid; try a shorter distance");
+      return std::unique_ptr<TopoDS_Shape>(new TopoDS_Shape(result));
     }
     if (side >= 0 && untrimmed) {
       Handle(Geom_Surface) surface = BRep_Tool::Surface(face);

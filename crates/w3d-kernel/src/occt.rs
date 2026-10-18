@@ -6,7 +6,7 @@ use std::path::Path as FilePath;
 use glam::DVec3;
 use opencascade::primitives::{BooleanKind, Edge, Face, Shape, ShapeHistory, ShapeType, Wire};
 
-use crate::{Blend, BooleanOp, DrawnLine, Extent, Frame, History, Kernel, KernelError, Motion, Path, Plane, Profile, Segment, Tessellation, Traced};
+use crate::{Blend, BooleanOp, DrawnLine, Extent, Frame, History, Kernel, KernelError, Motion, Path, Plane, Profile, Segment, SheetExtension, Tessellation, Traced};
 
 pub struct Occt;
 
@@ -378,9 +378,9 @@ impl Kernel for Occt {
         s.thicken_faces(&faces.iter().map(|&f| f as usize).collect::<Vec<_>>(), front, back).map_err(shim)
     }
 
-    fn extend_sheet(&self, s: &Shape, edge: u32, distance: f64, natural: bool) -> Result<Shape, KernelError> {
+    fn extend_sheet(&self, s: &Shape, edge: u32, distance: f64, shape: SheetExtension) -> Result<Shape, KernelError> {
         if !s.is_sheet() { return Err(KernelError::Invalid("extend edges of sheets; that body is solid")) }
-        s.extend_sheet(edge as usize, distance, natural).map_err(shim)
+        s.extend_sheet(edge as usize, distance, shape as i32).map_err(shim)
     }
 
     fn join_sheets(&self, sheets: &[&Shape]) -> Result<Shape, KernelError> {

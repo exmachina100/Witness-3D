@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 import { before, test } from 'node:test';
 import * as THREE from 'three';
 import { LocalBackend } from '../src/app/LocalBackend.js';
-import { count, loadKernel, numberedEdges, oc, tessellate } from '../src/Kernel.js';
+import { count, loadKernel, numbered, numberedEdges, oc, tessellate } from '../src/Kernel.js';
 import { bridgeSurface } from '../src/BridgeSurface.js';
 import { extendSheet } from '../src/ExtendSheet.js';
 import { patch } from '../src/Patch.js';
@@ -56,6 +56,35 @@ test('a curved sheet carries straight on, level past the edge it left level', ()
     const side = extendSheet(s, edgeWhere(s, p => Math.abs(p.y) < 1e-6), 2);
     const [ylo] = range(points(side), 'y');
     close(ylo, -2, 0.01);
+});
+
+function bridgeLow() {
+    const a = square(0, 0), b = square(20, 5);
+    const s = bridgeSurface({ shape: a, n: edgeWhere(a, p => Math.abs(p.x - 10) < 1e-9) }, { shape: b, n: edgeWhere(b, p => Math.abs(p.x - 20) < 1e-9) }, 1);
+    return [s, edgeWhere(s, p => Math.abs(p.x - 10) < 1e-6 && Math.abs(p.z) < 1e-6)];
+}
+
+test('soft leaves tangent with its curvature fading out, as a face of its own', () => {
+    const [s, low] = bridgeLow();
+    const grown = extendSheet(s, low, 3, 'soft');
+    assert.equal(numbered(grown, 'TopAbs_FACE').length, 2);
+    const past = points(grown).filter(p => p.x < 10 - 1e-6);
+    close(Math.min(...past.map(p => p.x)), 7, 0.05);
+    const soft = Math.max(...past.map(p => p.z));
+    const inside = Math.max(...points(s).filter(p => p.x < 13).map(p => p.z));
+    assert.ok(soft > 0.5 * inside && soft < 0.85 * inside, `soft rises ${soft}, the bridge ${inside}`);
+});
+
+test('reflective turns the sheet through its edge', () => {
+    const [s, low] = bridgeLow();
+    const grown = extendSheet(s, low, 3, 'reflective');
+    assert.equal(numbered(grown, 'TopAbs_FACE').length, 2);
+    const past = points(grown).filter(p => p.x < 10 - 1e-6);
+    const lo = Math.min(...past.map(p => p.x)), fall = Math.min(...past.map(p => p.z));
+    assert.ok(lo > 7 && lo < 7.3, `3 mm along the sheet: x down to ${lo}`);
+    const inside = Math.max(...points(s).filter(p => p.x < 20 - lo + 1e-6).map(p => p.z));
+    assert.ok(fall < -0.01 && Math.abs(fall + inside) < 0.01, `falls ${fall}, the bridge rises ${inside}`);
+    assert.throws(() => extendSheet(s, low, 50, 'reflective'), /extend less/);
 });
 
 test('natural bends on with the sheet where linear goes straight', () => {

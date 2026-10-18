@@ -18,7 +18,7 @@ use crate::blend::{blend, BlendParams};
 use crate::extrude::{extrude, ExtrudeParams, ExtrudeResult, Operation};
 use crate::form::{form, offset_faces_grow, FormKind, FormParams, Grow};
 use crate::solids::{ArraySpec, Primitive};
-use crate::{BooleanOp, Frame, History, Kernel, KernelError, Motion, Path, Profile, Segment, Traced};
+use crate::{BooleanOp, Frame, History, Kernel, KernelError, Motion, Path, Profile, Segment, SheetExtension, Traced};
 
 /// Length unit of every coordinate in a document. Fixed for now; stored in files so a later
 /// version can convert.
@@ -926,14 +926,14 @@ impl<K: Kernel> Document<K> {
     }
 
     /// Plasticity's Extend Sheet, without changing the document: sheet `body` grown past its open `edge`.
-    pub fn preview_extend_sheet(&self, body: BodyId, edge: u32, distance: f64, natural: bool) -> Result<K::Solid, KernelError> {
+    pub fn preview_extend_sheet(&self, body: BodyId, edge: u32, distance: f64, shape: SheetExtension) -> Result<K::Solid, KernelError> {
         let sheet = self.get(body).ok_or(KernelError::Invalid("that body no longer exists"))?;
-        self.kernel.extend_sheet(sheet, edge, distance, natural)
+        self.kernel.extend_sheet(sheet, edge, distance, shape)
     }
 
     /// Extend Sheet as one undoable step: the sheet keeps its body.
-    pub fn commit_extend_sheet(&mut self, body: BodyId, edge: u32, distance: f64, natural: bool) -> Result<BodyId, KernelError> {
-        let sheet = self.preview_extend_sheet(body, edge, distance, natural)?;
+    pub fn commit_extend_sheet(&mut self, body: BodyId, edge: u32, distance: f64, shape: SheetExtension) -> Result<BodyId, KernelError> {
+        let sheet = self.preview_extend_sheet(body, edge, distance, shape)?;
         self.checkpoint();
         self.replace_traced(body, Traced { solid: sheet, history: History::default() });
         Ok(body)

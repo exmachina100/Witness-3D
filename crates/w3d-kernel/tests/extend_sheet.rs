@@ -35,7 +35,7 @@ fn a_flat_sheet_grows_past_its_edge_in_its_plane() {
     let k = Occt;
     let a = square(&k, 0.0, 0.0);
     let e = edge_where(&k, &a, |p| (p[0] - 10.0).abs() < 1e-9);
-    let s = k.extend_sheet(&a, e, 5.0, false).unwrap();
+    let s = k.extend_sheet(&a, e, 5.0, SheetExtension::Linear).unwrap();
     assert!(k.is_valid(&s) && k.is_sheet(&s));
     assert_eq!(k.face_count(&s), 1, "one face, not a strip beside it");
     let t = k.tessellate(&s, 0.001).unwrap();
@@ -54,7 +54,7 @@ fn a_curved_sheet_carries_straight_on_from_its_edge() {
     let eb = edge_where(&k, &b, |p| (p[0] - 20.0).abs() < 1e-9);
     let s = k.bridge_surface((&a, ea), (&b, eb), false, 1.0).unwrap();
     let low = edge_where(&k, &s, |p| (p[0] - 10.0).abs() < 1e-6 && p[2].abs() < 1e-6);
-    let grown = k.extend_sheet(&s, low, 3.0, false).unwrap();
+    let grown = k.extend_sheet(&s, low, 3.0, SheetExtension::Linear).unwrap();
     assert!(k.is_valid(&grown));
     assert_eq!(k.face_count(&grown), 1);
     let t = k.tessellate(&grown, 0.0005).unwrap();
@@ -66,7 +66,7 @@ fn a_curved_sheet_carries_straight_on_from_its_edge() {
     }
     // Sideways off the edge at y = 0, the sheet widens by 2 along its whole run.
     let side = edge_where(&k, &s, |p| p[1].abs() < 1e-6);
-    let t = k.tessellate(&k.extend_sheet(&s, side, 2.0, false).unwrap(), 0.0005).unwrap();
+    let t = k.tessellate(&k.extend_sheet(&s, side, 2.0, SheetExtension::Linear).unwrap(), 0.0005).unwrap();
     let (lo, hi) = range(&t, 1);
     assert!((lo + 2.0).abs() < 0.01 && (hi - 10.0).abs() < 1e-6, "y {lo}..{hi}");
     let (zlo, zhi) = range(&t, 2);
@@ -83,7 +83,7 @@ fn natural_bends_on_with_the_sheet_where_linear_goes_straight() {
     let low = edge_where(&k, &s, |p| (p[0] - 10.0).abs() < 1e-6 && p[2].abs() < 1e-6);
     // The bridge curves up away from its low edge, so carried on backwards it rises again.
     let rise = |natural| {
-        let t = k.tessellate(&k.extend_sheet(&s, low, 3.0, natural).unwrap(), 0.0005).unwrap();
+        let t = k.tessellate(&k.extend_sheet(&s, low, 3.0, if natural { SheetExtension::Natural } else { SheetExtension::Linear }).unwrap(), 0.0005).unwrap();
         t.positions.iter().filter(|p| p[0] < 10.0 - 1e-6).map(|p| p[2]).fold(0.0, f64::max)
     };
     let (straight, bent) = (rise(false), rise(true));
@@ -91,19 +91,73 @@ fn natural_bends_on_with_the_sheet_where_linear_goes_straight() {
     assert!(bent > 0.01, "natural follows the curvature: {bent}");
 }
 
+/// The bridge from `natural_bends_on…` and its low edge (x = 10, z = 0), where it leaves level.
+fn bridge(k: &Occt) -> (Shape, u32) {
+    let (a, b) = (square(k, 0.0, 0.0), square(k, 20.0, 5.0));
+    let ea = edge_where(k, &a, |p| (p[0] - 10.0).abs() < 1e-9);
+    let eb = edge_where(k, &b, |p| (p[0] - 20.0).abs() < 1e-9);
+    let s = k.bridge_surface((&a, ea), (&b, eb), false, 1.0).unwrap();
+    let low = edge_where(k, &s, |p| (p[0] - 10.0).abs() < 1e-6 && p[2].abs() < 1e-6);
+    (s, low)
+}
+
+/// The extension's points (those past the low edge) and the angle where it meets the sheet.
+fn past_low_edge(k: &Occt, grown: &Shape) -> (Vec<[f64; 3]>, f64) {
+    assert!(k.is_valid(grown) && k.is_sheet(grown));
+    assert_eq!(k.face_count(grown), 2, "a face of its own beside the sheet's");
+    let t = k.tessellate(grown, 0.0005).unwrap();
+    let join = edge_where(k, grown, |p| (p[0] - 10.0).abs() < 1e-6 && p[2].abs() < 1e-6);
+    let angle = k.edge_angles(grown)[join as usize];
+    (t.positions.into_iter().filter(|p| p[0] < 10.0 - 1e-6).collect(), angle)
+}
+
+#[test]
+fn soft_leaves_tangent_with_its_curvature_fading_out() {
+    let k = Occt;
+    let (s, low) = bridge(&k);
+    let (pts, angle) = past_low_edge(&k, &k.extend_sheet(&s, low, 3.0, SheetExtension::Soft).unwrap());
+    assert!(angle >= 0.0 && angle < 0.01, "tangent where it leaves: {angle}°");
+    let lo = pts.iter().map(|p| p[0]).fold(f64::MAX, f64::min);
+    assert!((lo - 7.0).abs() < 0.05, "3 mm on: x down to {lo}");
+    // The bridge curves up from the edge by about 1 mm in 3; carrying that bend on undiminished
+    // would rise the same, and Soft's fading bend about two thirds of it.
+    let soft = pts.iter().map(|p| p[2]).fold(0.0, f64::max);
+    let t = k.tessellate(&s, 0.0005).unwrap();
+    let inside = t.positions.iter().filter(|p| p[0] < 13.0).map(|p| p[2]).fold(0.0, f64::max);
+    assert!(soft > 0.5 * inside && soft < 0.85 * inside, "soft rises {soft}, the bridge {inside}");
+}
+
+#[test]
+fn reflective_turns_the_sheet_through_its_edge() {
+    let k = Occt;
+    let (s, low) = bridge(&k);
+    let (pts, angle) = past_low_edge(&k, &k.extend_sheet(&s, low, 3.0, SheetExtension::Reflective).unwrap());
+    assert!(angle >= 0.0 && angle < 0.01, "tangent where it leaves: {angle}°");
+    // The bridge rises inside the edge, so its reflection falls outside it, as deep as the bridge
+    // rises over the same run inside it; 3 mm along the curving sheet is a little under 3 in x.
+    let fall = pts.iter().map(|p| p[2]).fold(0.0, f64::min);
+    let lo = pts.iter().map(|p| p[0]).fold(f64::MAX, f64::min);
+    assert!(lo > 7.0 && lo < 7.3, "3 mm along the sheet: x down to {lo}");
+    let t = k.tessellate(&s, 0.0005).unwrap();
+    let inside = t.positions.iter().filter(|p| p[0] < 20.0 - lo + 1e-6).map(|p| p[2]).fold(0.0, f64::max);
+    assert!(fall < -0.01 && (fall + inside).abs() < 0.01, "falls {fall}, the bridge rises {inside}");
+    let err = k.extend_sheet(&s, low, 50.0, SheetExtension::Reflective).err().expect("refused").to_string();
+    assert!(err.contains("extend less"), "{err}");
+}
+
 #[test]
 fn trimmed_edges_solids_and_no_distance_are_refused() {
     let k = Occt;
     let ring = Path::Circle { center: DVec3::ZERO, normal: DVec3::Z, radius: 5.0 };
     let disc = k.patch(&[ring], &[]).unwrap();
-    let err = k.extend_sheet(&disc, 0, 2.0, false).err().expect("refused").to_string();
+    let err = k.extend_sheet(&disc, 0, 2.0, SheetExtension::Linear).err().expect("refused").to_string();
     assert!(err.contains("trimmed"), "{err}");
     let block = k.box_from_corners(DVec3::ZERO, DVec3::splat(10.0));
-    let err = k.extend_sheet(&block, 0, 2.0, false).err().expect("refused").to_string();
+    let err = k.extend_sheet(&block, 0, 2.0, SheetExtension::Linear).err().expect("refused").to_string();
     assert!(err.contains("solid"), "{err}");
     let a = square(&k, 0.0, 0.0);
-    assert!(k.extend_sheet(&a, 0, 0.0, false).is_err());
-    assert!(k.extend_sheet(&a, 99, 1.0, false).is_err());
+    assert!(k.extend_sheet(&a, 0, 0.0, SheetExtension::Linear).is_err());
+    assert!(k.extend_sheet(&a, 99, 1.0, SheetExtension::Linear).is_err());
 }
 
 #[test]
@@ -115,7 +169,7 @@ fn the_document_extends_the_sheet_in_its_body_in_one_undo_step() {
     let sheet = doc.commit_patch(&[id], &[]).unwrap();
     doc.clear_history();
     let e = edge_where(&doc.kernel, doc.get(sheet).unwrap(), |p| (p[1] - 10.0).abs() < 1e-9);
-    assert_eq!(doc.commit_extend_sheet(sheet, e, 4.0, false).unwrap(), sheet);
+    assert_eq!(doc.commit_extend_sheet(sheet, e, 4.0, SheetExtension::Linear).unwrap(), sheet);
     let t = doc.kernel.tessellate(doc.get(sheet).unwrap(), 0.001).unwrap();
     assert!((area(&t) - 140.0).abs() < 1e-6, "area {}", area(&t));
     assert!(doc.undo());

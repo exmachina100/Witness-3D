@@ -114,7 +114,7 @@ const KEYS = {
   imprint: [['⇧ CLICK', 'FACES · CURVES'], ['⇧ ALT CLICK', 'BODY THAT IMPRINTS'], ['⏎ / RMB', 'OK']],
   project: [['⇧ CLICK', 'SOLID · CURVES'], ['X Y Z', 'VECTOR'], ['S', 'SCREEN SPACE'], ['⏎ / RMB', 'OK']],
   'bridge-surface': [['⇧ CLICK', 'TWO EDGES'], ['T', 'TENSION'], ['⏎ / RMB', 'OK']],
-  'extend-sheet': [['CLICK', "A SHEET'S EDGE"], ['D', 'DISTANCE'], ['TAB', 'NATURAL · LINEAR'], ['⏎ / RMB', 'OK']],
+  'extend-sheet': [['CLICK', "A SHEET'S EDGE"], ['D', 'DISTANCE'], ['TAB', 'NATURAL · LINEAR · SOFT · REFLECTIVE'], ['⏎ / RMB', 'OK']],
   thicken: [['CLICK', 'A SHEET'], ['ALT CLICK', 'FACES (THICKEN FACE)'], ['D', 'FRONT'], ['B', 'BACK'], ['⏎ / RMB', 'OK']],
   pipe: [['⇧ CLICK', 'CURVES'], ['R', 'RADIUS'], ['T', 'THICKNESS'], ['V', 'SIDES'], ['⏎ / RMB', 'OK']],
   patch: [['⇧ CLICK', 'CURVES · EDGES'], ['T', 'TANGENT TO FACES'], ['⏎ / RMB', 'OK']],
@@ -424,7 +424,7 @@ const SHELL = `
       <span class="hint" data-id="es-hint">—</span>
       <div class="field"><label for="w3d-es-d">DISTANCE</label><input id="w3d-es-d" data-id="es-d" type="number" step="0.5" min="0.01" value="5"></div>
       <span class="label">SHAPE</span>
-      <div class="chips"><button data-esshape="natural" aria-pressed="true" title="Carry on with the surface's curvature (Tab)"><kbd>TAB</kbd>NATURAL</button><button data-esshape="linear" aria-pressed="false" title="Carry straight on from the edge (Tab)">LINEAR</button></div>
+      <div class="chips"><button data-esshape="natural" aria-pressed="true" title="Carry on with the surface's curvature (Tab)"><kbd>TAB</kbd>NATURAL</button><button data-esshape="linear" aria-pressed="false" title="Carry straight on from the edge (Tab)">LINEAR</button><button data-esshape="soft" aria-pressed="false" title="Leave tangent and with the same curvature, easing out flat (Tab)">SOFT</button><button data-esshape="reflective" aria-pressed="false" title="Mirror the sheet's shape through the edge (Tab)">REFLECTIVE</button></div>
     </div>
     <div class="sec" data-panel="thicken" hidden>
       <span class="hint" data-id="th-hint">—</span>
@@ -672,9 +672,9 @@ const VIEWS = {
 export async function mount(root, backend) {
   root.innerHTML = SHELL;
   // Panel options carry their icon ahead of the key and name.
-  for (const b of root.querySelectorAll('[data-draw],[data-bop],[data-xop],[data-fop],[data-spiral],[data-toggle],[data-gmethod],[data-galign],[data-grow],[data-avaxis],[data-extshape],[data-isodir],[data-id="oe-both"],[data-id="ex-lock"],[data-id="bool-keep"],[data-id="ex-free"],[data-id="ex-pivot"],[data-id="ex-individual"],[data-id="dr-hidden"],[data-id="dr-curves"],[data-id="oc-lock"],[data-id="oc-free"],[data-id="oc-slot"],[data-id="oc-combine"]')) {
+  for (const b of root.querySelectorAll('[data-draw],[data-bop],[data-xop],[data-fop],[data-spiral],[data-toggle],[data-gmethod],[data-galign],[data-grow],[data-avaxis],[data-extshape],[data-esshape],[data-isodir],[data-id="oe-both"],[data-id="ex-lock"],[data-id="bool-keep"],[data-id="ex-free"],[data-id="ex-pivot"],[data-id="ex-individual"],[data-id="dr-hidden"],[data-id="dr-curves"],[data-id="oc-lock"],[data-id="oc-free"],[data-id="oc-slot"],[data-id="oc-combine"]')) {
     const name = b.dataset.draw ?? b.dataset.bop ?? b.dataset.xop ?? b.dataset.fop ?? b.dataset.spiral ?? (b.dataset.toggle && `view-${b.dataset.toggle}`)
-      ?? (b.dataset.gmethod && `guide-${b.dataset.gmethod}`) ?? (b.dataset.galign && `align-${b.dataset.galign}`) ?? (b.dataset.grow && `grow-${b.dataset.grow}`) ?? (b.dataset.avaxis && `axis-${b.dataset.avaxis}`) ?? (b.dataset.extshape && `extend-${b.dataset.extshape}`) ?? (b.dataset.isodir && `iso-${b.dataset.isodir}`)
+      ?? (b.dataset.gmethod && `guide-${b.dataset.gmethod}`) ?? (b.dataset.galign && `align-${b.dataset.galign}`) ?? (b.dataset.grow && `grow-${b.dataset.grow}`) ?? (b.dataset.avaxis && `axis-${b.dataset.avaxis}`) ?? (b.dataset.extshape && `extend-${b.dataset.extshape}`) ?? (b.dataset.esshape && `extend-${b.dataset.esshape}`) ?? (b.dataset.isodir && `iso-${b.dataset.isodir}`)
       ?? { 'ex-lock': 'lock', 'bool-keep': 'keep', 'ex-free': 'freestyle', 'ex-pivot': 'pivot', 'ex-individual': 'individual', 'dr-hidden': 'hidden-lines', 'dr-curves': 'drawing-curves', 'oc-lock': 'lock', 'oc-free': 'freestyle', 'oc-slot': 'slot', 'oc-combine': 'combine', 'oe-both': 'both-sides' }[b.dataset.id];
     b.insertAdjacentHTML('afterbegin', icon(name));
   }
@@ -4250,7 +4250,7 @@ export async function mount(root, backend) {
     lastTool = 'extend-sheet';
     showTool('extend-sheet');
     setState('none');
-    c.request = () => ({ body: c.edge.body, edge: c.edge.n, distance: num('es-d'), natural: c.shape === 'natural' });
+    c.request = () => ({ body: c.edge.body, edge: c.edge.n, distance: num('es-d'), natural: c.shape === 'natural', shape: c.shape });
     c.setShape = k => {
       c.shape = k;
       for (const b of $$('[data-esshape]')) b.setAttribute('aria-pressed', String(b.dataset.esshape === k));
@@ -4276,7 +4276,7 @@ export async function mount(root, backend) {
       c.preview();
     };
     c.key = action => {
-      if (action === 'shape') { c.setShape(c.shape === 'natural' ? 'linear' : 'natural'); return true; }
+      if (action === 'shape') { const all = ['natural', 'linear', 'soft', 'reflective']; c.setShape(all[(all.indexOf(c.shape) + 1) % all.length]); return true; }
       if (action !== 'distance') return false;
       c.entry = { label: 'DISTANCE', text: '', apply: v => { if (v > 0) { $('es-d').value = v; c.preview(); } else toast('THE DISTANCE MUST BE ABOVE ZERO'); } };
       setHud('DISTANCE _');

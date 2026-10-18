@@ -8,7 +8,7 @@ use serde::{Deserialize, Serialize};
 use w3d_kernel::document::{BodyId, Document, FormRequest as FormKindRequest, Tools};
 use w3d_kernel::engine::Engine;
 use w3d_kernel::occt::Occt;
-use w3d_kernel::{extrude, file, form, ArraySpec, Primitive, FormParams, Blend, BlendParams, BooleanOp, Curve, CurveId, CurveShape, ExtrudeParams, ExtrudeResult, Frame, Kernel, KernelError, Motion, Operation, Profile, Ref, Refs, Tessellation};
+use w3d_kernel::{extrude, file, form, ArraySpec, Primitive, FormParams, Blend, BlendParams, BooleanOp, Curve, CurveId, CurveShape, ExtrudeParams, ExtrudeResult, Frame, Kernel, KernelError, Motion, Operation, Profile, Ref, Refs, SheetExtension, Tessellation};
 
 /// Chord tolerance for display meshes, in millimetres.
 const MESH_TOLERANCE: f64 = 0.05;
@@ -1276,21 +1276,30 @@ pub struct ExtendSheetRequest {
     pub body: BodyId,
     pub edge: u32,
     pub distance: f64,
-    /// Natural (follow the curvature) rather than Linear (straight on).
+    /// Natural (follow the curvature) rather than Linear (straight on), when `shape` is not given.
     #[serde(default)]
     pub natural: bool,
+    /// linear, natural, soft or reflective.
+    #[serde(default)]
+    pub shape: Option<SheetExtension>,
+}
+
+impl ExtendSheetRequest {
+    fn shape(&self) -> SheetExtension {
+        self.shape.unwrap_or(if self.natural { SheetExtension::Natural } else { SheetExtension::Linear })
+    }
 }
 
 pub fn preview_extend_sheet(m: &Model, req: ExtendSheetRequest) -> Option<Result<Body, ApiError>> {
     m.preview(move |doc| {
-        let sheet = doc.preview_extend_sheet(req.body, req.edge, req.distance, req.natural)?;
+        let sheet = doc.preview_extend_sheet(req.body, req.edge, req.distance, req.shape())?;
         Ok(body(&doc.kernel, req.body, &sheet)?)
     })
 }
 
 pub fn commit_extend_sheet(m: &Model, req: ExtendSheetRequest) -> Result<Committed, ApiError> {
     m.call(move |doc| {
-        let id = doc.commit_extend_sheet(req.body, req.edge, req.distance, req.natural)?;
+        let id = doc.commit_extend_sheet(req.body, req.edge, req.distance, req.shape())?;
         Ok(Committed { id, scene: bodies(doc)? })
     })
 }
