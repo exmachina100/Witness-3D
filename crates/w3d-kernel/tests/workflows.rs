@@ -61,6 +61,20 @@ fn faces_facing(k: &Occt, s: &Shape, point: DVec3, normal: DVec3) -> Vec<u32> {
         .collect()
 }
 
+/// The quality bar's G1 check: every join is either tangent (faces within 0.5° of each other all
+/// along it) or a deliberate crease (more than 5°), never a near miss in between, and at least
+/// `smooth` joins are tangent. Returns the worst tangent join in degrees.
+fn g1(doc: &Document<Occt>, name: &str, id: BodyId, smooth: usize) -> f64 {
+    let angles = doc.kernel.edge_angles(doc.get(id).unwrap());
+    let near: Vec<f64> = angles.iter().copied().filter(|&a| a > 0.5 && a < 5.0).collect();
+    assert!(near.is_empty(), "{name}: joins that are almost but not quite tangent: {near:?}");
+    let tangent: Vec<f64> = angles.iter().copied().filter(|&a| (0.0..=0.5).contains(&a)).collect();
+    let worst = tangent.iter().copied().fold(0.0, f64::max);
+    println!("  {:<44} {} tangent joins, worst {worst:.4}°", format!("G1 after {name}"), tangent.len());
+    assert!(tangent.len() >= smooth, "{name}: {} tangent joins, expected at least {smooth}", tangent.len());
+    worst
+}
+
 fn fillet(edges: Vec<u32>, size: f64) -> BlendParams {
     assert!(!edges.is_empty(), "no edges to round");
     BlendParams { edges, size, kind: Blend::Fillet, angle: w3d_kernel::blend::EQUAL, variable: vec![] }
@@ -107,12 +121,14 @@ fn enclosure() {
     assert_eq!(corners.len(), 4);
     doc.commit_blend(a, &fillet(corners, 8.0)).unwrap();
     close(step(&doc, "fillet the 4 corners r8", a), 120_000.0 - 4.0 * (64.0 - PI * 16.0) * 30.0, 3.0);
+    g1(&doc, "corners r8", a, 8);
 
     let top = edges_where(&doc.kernel, doc.get(a).unwrap(), |p| (p.y - 30.0).abs() < 1e-6);
     assert_eq!(top.len(), 8, "four sides and four corner arcs round the top");
     refused(&doc, "fillet the top r40 (taller than the box)", a, doc.preview_blend(a, &fillet(top.clone(), 40.0)));
     doc.commit_blend(a, &fillet(top, 3.0)).unwrap();
     let rounded = step(&doc, "fillet the top r3", a);
+    g1(&doc, "top r3", a, 32);
     assert!(rounded < 120_000.0 - 4.0 * (64.0 - PI * 16.0) * 30.0);
 
     let bottom = faces_facing(&doc.kernel, doc.get(a).unwrap(), DVec3::ZERO, DVec3::NEG_Y);
@@ -136,6 +152,7 @@ fn enclosure() {
     let drilled = step(&doc, "drill each boss r1.25, 16 mm deep", a);
     close(drilled, bossed - 4.0 * PI * 1.25 * 1.25 * 16.0, 1.0);
 
+    g1(&doc, "the whole enclosure", a, 64);
     saves_and_reopens(&doc, "enclosure");
     // The twelve steps undo back to the box.
     for _ in 0..12 { assert!(doc.undo()) }
@@ -174,6 +191,7 @@ fn mirror_housing() {
     assert!(!cap.is_empty(), "the cap's outer edge");
     doc.commit_blend(a, &fillet(cap, 1.5)).unwrap();
     let rounded = step(&doc, "fillet the cap edge r1.5", a);
+    g1(&doc, "cap r1.5", a, 2);
     assert!(rounded < shelled);
 
     let pair = doc.commit_mirror(&[a], DVec3::new(-200.0, 0.0, 0.0), DVec3::X, false).unwrap();
@@ -220,6 +238,7 @@ fn handle() {
     refused(&doc, "fillet the seams r30", plate, doc.preview_blend(plate, &fillet(seams.clone(), 30.0)));
     doc.commit_blend(plate, &fillet(seams, 2.0)).unwrap();
     let rounded = step(&doc, "fillet the seams r2", plate);
+    g1(&doc, "seams r2", plate, 4);
     assert!(rounded > joined, "a fillet in a concave corner adds material");
 
     // Rounded outer edges of the plate.
@@ -227,6 +246,7 @@ fn handle() {
     assert_eq!(rim.len(), 4);
     doc.commit_blend(plate, &fillet(rim, 2.0)).unwrap();
     step(&doc, "fillet the plate's top rim r2", plate);
+    g1(&doc, "rim r2", plate, 12);
 
     saves_and_reopens(&doc, "handle");
 }

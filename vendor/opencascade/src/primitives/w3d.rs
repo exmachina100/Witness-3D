@@ -223,6 +223,12 @@ impl Shape {
         ffi::w3d::w3d_boundary_edges(&self.inner).into_iter().map(|i| i as usize).collect()
     }
 
+    /// Per edge, the largest angle in degrees between its two faces' normals (0 = tangent); -1 for
+    /// edges that do not join two faces.
+    pub fn edge_angles(&self) -> Vec<f64> {
+        ffi::w3d::w3d_edge_angles(&self.inner).into_iter().collect()
+    }
+
     /// Numbers of the faces that look like fillets; with `seeds`, the fillet chains holding them.
     pub fn fillet_faces(&self, seeds: &[usize]) -> Vec<usize> {
         let seeds: Vec<i32> = seeds.iter().map(|&i| i as i32).collect();

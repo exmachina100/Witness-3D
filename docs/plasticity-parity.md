@@ -180,6 +180,9 @@ The browser build runs the same three in `web/test/workflows.test.js` through Lo
 volumes now use Gauss–Kronrod integration: the plain Gauss rule read the shelled loft as 44 225 mm³
 against 40 054 mm³ (desktop 40 053, mesh 40 042) and made a 1.5 mm cap round look like it added
 material.
-Not covered yet: G1 checks at the joins (fillets are tangent by construction; Measure Continuity
-runs in the app, not in these tests).
+G1 at the joins (desktop): after every rounding step each edge's two faces are compared at 17
+points along it (`Kernel::edge_angles`). Every join must be tangent (within 0.5°) or a real crease
+(over 5°), with nothing in between, and the expected number must be tangent. Results: enclosure
+64 tangent joins, worst 0.0000°; mirror housing cap 2, worst 0.0002°; handle 12, worst 0.0004°.
+Not covered yet: the same G1 check in the browser build.
 
