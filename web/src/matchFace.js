@@ -5,7 +5,7 @@
 // lies on the face's inner side of that surface, grown out to it where the face stood short.
 
 import * as THREE from 'three';
-import { numbered, oc } from './Kernel.js';
+import { facePlane, numbered, oc, tessellate } from './Kernel.js';
 import { extendBSpline } from './ExtendSheet.js';
 import { refit } from './rebuildFace.js';
 
@@ -46,8 +46,11 @@ function wideSurface(tf, far) {
     return s;
 }
 
-/** `shape` (a solid) with `faces` replaced by the surface of face `tface` of `target`. */
-export function matchFaces(shape, faces, target, tface) {
+/**
+ * `shape` (a solid) with `faces` replaced by the surface of face `tface` of `target`. A positive
+ * `caps[i]` stops face `i` growing further out than that (Grow Fixed).
+ */
+export function matchFaces(shape, faces, target, tface, caps = []) {
     const o = oc();
     if (!faces?.length) throw new Error('select the faces to match');
     if (!numbered(shape, 'TopAbs_SOLID').length) throw new Error('Match Face works on the faces of a solid');
@@ -73,14 +76,15 @@ export function matchFaces(shape, faces, target, tface) {
     };
     const columns = [], outs = [];
     let sense = 0;
-    for (const n of faces) {
+    for (const [i, n] of faces.entries()) {
         const f = all[n];
         if (!f) throw new Error('that face no longer exists');
+        const grow = caps[i] > 0 ? caps[i] : far;
         const d = faceOut(f), t = new o.gp_Trsf();
         t.SetTranslation(new o.gp_Vec(-d.x * far, -d.y * far, -d.z * far));
         const low = new o.BRepBuilderAPI_Transform(f, t, true, false).Shape();
         columns.push(new o.BRepPrimAPI_MakePrism(low, new o.gp_Vec(d.x * 2 * far, d.y * 2 * far, d.z * 2 * far), false, true).Shape());
-        outs.push(new o.BRepPrimAPI_MakePrism(f, new o.gp_Vec(d.x * far, d.y * far, d.z * far), false, true).Shape());
+        outs.push(new o.BRepPrimAPI_MakePrism(f, new o.gp_Vec(d.x * grow, d.y * grow, d.z * grow), false, true).Shape());
         const g = new o.GProp_GProps();
         o.BRepGProp.SurfaceProperties(f, g, false, false);
         const at = foot(v3(g.CentreOfMass()));
@@ -127,4 +131,39 @@ export function matchFaces(shape, faces, target, tface) {
     if (solids !== 1) throw new Error(solids ? 'matching to that surface splits the body in pieces' : 'matching to that surface leaves nothing of the body');
     if (!new o.BRepCheck_Analyzer(result, true, false, false).IsValid()) throw new Error('matching to that surface breaks the body');
     return result;
+}
+
+/** Points over a shape's faces and edges, for how far it reaches along a direction. */
+function points(shape) {
+    const a = tessellate(shape, { deflection: 0.1 }).mesh.getAttribute('position').array, out = [];
+    for (let i = 0; i < a.length; i += 3) out.push(new THREE.Vector3(a[i], a[i + 1], a[i + 2]));
+    return out;
+}
+
+/**
+ * Match Face with its grow mode, as match_faces_grow on the desktop, for an inner flat face matched
+ * to a surface beyond the body's outer wall: 'moving' takes the wall's own faces to the surface too,
+ * 'fixed' stops at the wall, 'none' carries on past it by itself. `keep` is a face never to take along.
+ */
+export function matchFacesGrow(shape, faces, target, tface, grow = 'moving', keep = -1) {
+    const TOL = 1e-6, before = points(shape);
+    const reach = (pts, p) => Math.max(0, ...pts.map(q => q.clone().sub(p.origin).dot(p.normal)));
+    const walls = faces.map(f => {
+        const p = facePlane(shape, f);
+        if (!p) return null;
+        const w = reach(before, p);
+        return w > TOL ? { p, w } : null;
+    });
+    const matched = matchFaces(shape, faces, target, tface, walls.map(w => grow === 'fixed' && w ? w.w : 0));
+    if (grow !== 'moving' || walls.every(w => !w)) return matched;
+    const after = points(matched), all = [...faces];
+    const planes = numbered(shape, 'TopAbs_FACE').map((_, g) => facePlane(shape, g));
+    for (const wall of walls) {
+        if (!wall || reach(after, wall.p) <= wall.w + TOL) continue;
+        // Past the wall: the flat faces facing the same way at the far end of the body go too.
+        planes.forEach((q, g) => {
+            if (q && q.normal.dot(wall.p.normal) > 1 - 1e-9 && Math.abs(q.origin.clone().sub(wall.p.origin).dot(wall.p.normal) - wall.w) < TOL * 10 && !all.includes(g) && g !== keep) all.push(g);
+        });
+    }
+    return all.length === faces.length ? matched : matchFaces(shape, all, target, tface);
 }

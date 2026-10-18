@@ -20,7 +20,7 @@ pub mod occt;
 pub use blend::{blend, Blend, BlendParams};
 pub use document::{Ref, Refs};
 pub use extrude::{extrude, ExtrudeParams, ExtrudeResult, Operation};
-pub use form::{form, offset_faces, offset_faces_grow, FormKind, FormParams, Grow};
+pub use form::{form, match_faces_grow, offset_faces, offset_faces_grow, FormKind, FormParams, Grow};
 pub use solids::{ArraySpec, Primitive};
 pub use document::{Curve, CurveId, CurveShape};
 pub mod join;
@@ -429,8 +429,9 @@ pub trait Kernel {
         Err(KernelError::Invalid("this kernel cannot untrim faces"))
     }
     /// Plasticity's Match Face: `faces` of the solid replaced by the surface of `target`'s face
-    /// `tface`, the body grown out to it or cut back to it.
-    fn match_faces(&self, _s: &Self::Solid, _faces: &[u32], _target: &Self::Solid, _tface: u32) -> Result<Self::Solid, KernelError> {
+    /// `tface`, the body grown out to it or cut back to it. A positive `caps[i]` stops face `i`
+    /// growing further out than that (Grow Fixed).
+    fn match_faces(&self, _s: &Self::Solid, _faces: &[u32], _target: &Self::Solid, _tface: u32, _caps: &[f64]) -> Result<Self::Solid, KernelError> {
         Err(KernelError::Invalid("this kernel cannot match faces"))
     }
     /// Extend Sheet's Limit: the sheet carried on past its open `edge` until it first meets `target`.

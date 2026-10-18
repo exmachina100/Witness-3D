@@ -340,9 +340,9 @@ impl Shape {
     }
 
     /// Plasticity's Match Face: `faces` of this solid replaced by the surface of `target`'s face `tface`.
-    pub fn match_faces(&self, faces: &[usize], target: &Shape, tface: usize) -> Result<Shape, String> {
+    pub fn match_faces(&self, faces: &[usize], target: &Shape, tface: usize, caps: &[f64]) -> Result<Shape, String> {
         let faces: Vec<i32> = faces.iter().map(|&f| f as i32).collect();
-        let shape = ffi::w3d::w3d_match_faces(&self.inner, &faces, &target.inner, tface as i32).map_err(reason)?;
+        let shape = ffi::w3d::w3d_match_faces(&self.inner, &faces, &target.inner, tface as i32, caps).map_err(reason)?;
         Ok(Shape::from_shape(&shape))
     }
 

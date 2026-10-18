@@ -255,6 +255,48 @@ fn grown_past_wall<K: Kernel>(
     Ok(Some(k.boolean(body, &tool, BooleanOp::Union)?))
 }
 
+/// Match Face with its grow mode, for an inner flat face matched to a surface beyond the body's
+/// outer wall (manual, solid/match-face): Moving takes the wall's own faces to the surface too,
+/// Fixed stops at the wall, None carries on past it by itself. `keep` is a face of the body never
+/// to take along (the target, when it is on the same body).
+pub fn match_faces_grow<K: Kernel>(
+    k: &K,
+    body: &K::Solid,
+    faces: &[u32],
+    target: &K::Solid,
+    tface: u32,
+    grow: Grow,
+    keep: Option<u32>,
+) -> Result<K::Solid, KernelError> {
+    const TOL: f64 = 1e-6;
+    let mesh = k.tessellate(body, 0.1)?;
+    let reach = |positions: &[[f64; 3]], p: &crate::Plane| {
+        positions.iter().map(|q| (DVec3::from(*q) - p.origin).dot(p.normal)).fold(0.0, f64::max)
+    };
+    // Each flat face's plane and how far the body reaches beyond it: its outer wall.
+    let walls: Vec<Option<(crate::Plane, f64)>> = faces.iter().map(|&f| {
+        mesh.face_planes.get(f as usize).copied().flatten().map(|p| (p, reach(&mesh.positions, &p))).filter(|(_, w)| *w > TOL)
+    }).collect();
+    let caps: Vec<f64> = walls.iter().map(|w| match (grow, w) { (Grow::Fixed, Some((_, w))) => *w, _ => 0.0 }).collect();
+    let matched = k.match_faces(body, faces, target, tface, &caps)?;
+    if grow != Grow::Moving || walls.iter().all(Option::is_none) { return Ok(matched) }
+    let after = k.tessellate(&matched, 0.1)?;
+    let mut all = faces.to_vec();
+    for (p, w) in walls.iter().flatten() {
+        if reach(&after.positions, p) <= w + TOL { continue }
+        // Past the wall: the flat faces facing the same way at the far end of the body go too.
+        for (g, q) in mesh.face_planes.iter().enumerate() {
+            let Some(q) = q else { continue };
+            let g = g as u32;
+            if q.normal.dot(p.normal) > 1.0 - 1e-9 && ((q.origin - p.origin).dot(p.normal) - w).abs() < TOL * 10.0 && !all.contains(&g) && keep != Some(g) {
+                all.push(g);
+            }
+        }
+    }
+    if all.len() == faces.len() { return Ok(matched) }
+    k.match_faces(body, &all, target, tface, &[])
+}
+
 /// Plasticity's Pipe: a tube of `radius` along `path`, its section a circle (`sides` 0) or a
 /// regular polygon with corners on the radius; with a `thickness` its walls are that thick and
 /// the middle is hollow. The section starts square to the path and is swept along it.

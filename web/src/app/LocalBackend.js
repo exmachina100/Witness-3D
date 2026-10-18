@@ -14,7 +14,7 @@ import { projectOutline } from '../Outline.js';
 import { thicken, thickenFaces } from '../Thicken.js';
 import { extendSheet, extendSheetTo } from '../ExtendSheet.js';
 import { raiseFaces, rebuildFaces } from '../rebuildFace.js';
-import { matchFaces } from '../matchFace.js';
+import { matchFacesGrow } from '../matchFace.js';
 import { compound, untrimFace } from '../untrim.js';
 import { edgeCurvature } from '../edgeCurvature.js';
 import { joinSheets, unjoin } from '../Join.js';
@@ -654,12 +654,12 @@ export class LocalBackend {
     }
 
     /** Plasticity's Match Face: `faces` of `body` replaced by the surface of face `tface` of body `target`. */
-    matchResult({ body, faces, target, tface }) {
+    matchResult({ body, faces, target, tface, grow = 'moving' }) {
         const s = this.shapes.get(body), t = this.shapes.get(target);
         if (!s) throw new Error('that body no longer exists');
         if (!t) throw new Error('the target body no longer exists');
         if (target === body && faces.includes(tface)) throw new Error('match the faces to another face, not one of themselves');
-        return matchFaces(s, faces, t, tface);
+        return matchFacesGrow(s, faces, t, tface, grow || 'moving', target === body ? tface : -1);
     }
 
     previewMatchFaces(req) { return this.latest(async () => this.body(req.body, this.matchResult(req))) }

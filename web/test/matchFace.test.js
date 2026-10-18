@@ -2,9 +2,9 @@
 import assert from 'node:assert/strict';
 import { before, test } from 'node:test';
 import * as THREE from 'three';
-import { box, count, loadKernel, numbered, numberedEdges, oc, volume } from '../src/Kernel.js';
+import { boolean, box, count, loadKernel, numbered, numberedEdges, oc, volume } from '../src/Kernel.js';
 import { bridgeSurface } from '../src/BridgeSurface.js';
-import { matchFaces } from '../src/matchFace.js';
+import { matchFaces, matchFacesGrow } from '../src/matchFace.js';
 import { patch } from '../src/Patch.js';
 
 before(async () => { await loadKernel() });
@@ -62,4 +62,15 @@ test('a surface along the face, or a sheet to match, is refused', () => {
     });
     assert.throws(() => matchFaces(b, [faceAt(b, 10)], b, side), /along/);
     assert.throws(() => matchFaces(square(0, 0, 10, 15), [0], b, faceAt(b, 10)), /solid/);
+});
+
+test('grow decides what a pocket floor does past the top', () => {
+    const b = box(new THREE.Vector3(0, 0, 0), new THREE.Vector3(20, 20, 10));
+    const s = boolean(b, box(new THREE.Vector3(5, 5, 4), new THREE.Vector3(15, 15, 11)), 'difference');
+    const floor = faceAt(s, 4);
+    const above = square(-10, -10, 40, 13), inside = square(-10, -10, 40, 8);
+    close(volume(matchFacesGrow(s, [floor], above, 0, 'none')), 4300, 1e-4);
+    close(volume(matchFacesGrow(s, [floor], above, 0, 'fixed')), 4000, 1e-4);
+    close(volume(matchFacesGrow(s, [floor], above, 0, 'moving')), 5200, 1e-4);
+    for (const grow of ['none', 'fixed', 'moving']) close(volume(matchFacesGrow(s, [floor], inside, 0, grow)), 3800, 1e-4);
 });
