@@ -110,6 +110,7 @@ const KEYS = {
   untrim: [['TAB', 'KEEP EDGES'], ['⇧ CLICK', 'FACES'], ['⏎ / RMB', 'OK']],
   unwrap: [['⇧ CLICK', 'FACES'], ['⏎ / RMB', 'OK']],
   section: [['D', 'DISTANCE'], ['F', 'FLIP'], ['⏎ / RMB', 'OK']],
+  place: [['CLICK', 'FROM, THEN TO'], ['S', 'SCALE'], ['A', 'ANGLE'], ['D', 'OFFSET'], ['F', 'FLIP'], ['X Y Z', 'AXIS'], ['Q W ⇧E ⇧Q B', 'BOOLEAN'], ['CLICK', 'PLACE ANOTHER'], ['⏎ / RMB', 'OK']],
   'rebuild-face': [['M', 'METHOD'], ['T', 'TOLERANCE'], ['D', 'DEGREE'], ['S', 'SPANS'], ['E', 'EXTEND'], ['H', 'SHRINK'], ['⇧ CLICK', 'FACES'], ['⏎ / RMB', 'OK']],
   'fillet-vertex': [['DRAG DOT', 'IN ROUND · OUT CHAMFER'], ['D', 'FILLET DISTANCE'], ['C', 'CHAMFER DISTANCE'], ['⏎ / RMB', 'OK']],
   'offset-curve': [['DRAG DOT', 'DISTANCE'], ['D', 'DISTANCE'], ['V / C', 'GAP FILL'], ['S', 'BOTH SIDES'], ['F', 'FREESTYLE: CLICK'], ['O', 'SLOT'], ['I', 'COMBINED'], ['⏎ / RMB', 'OK']],
@@ -164,7 +165,7 @@ const CLICKS = { rect: 2, 'center-rect': 2, rect3: 3, circle: 2, circle2: 2, cir
 const FORMS = { revolve: true, loft: true, sweep: true };
 const PRIMS = { box: true, 'center-box': true, box3: true, cylinder: true, sphere: true };
 // Commands that aren't tools in the registry (they act on a click, not on settings).
-const EDITS = { isoparam: 'ISOPARAM', 'offset-vertex': 'OFFSET VERTEX', 'fillet-vertex': 'FILLET VERTEX', 'align-vertex': 'ALIGN VERTEX', rebuild: 'REBUILD CURVE', 'rebuild-face': 'REBUILD FACE', 'match-face': 'MATCH FACE', untrim: 'UNTRIM', unwrap: 'UNWRAP FACE', section: 'SECTION ANALYSIS', 'insert-knot': 'INSERT KNOT', 'offset-edge': 'OFFSET EDGE', material: 'SET MATERIAL', 'export-mesh': 'EXPORT MESH', 'export-drawing': 'EXPORT DRAWING', 'measure-continuity': 'MEASURE CONTINUITY', trim: 'TRIM', extend: 'EXTEND CURVE', 'tangent-circle': 'TANGENT CIRCLE', split: 'SPLIT CURVE', 'measure-distance': 'MEASURE DISTANCE', 'measure-radius': 'MEASURE RADIUS' };
+const EDITS = { isoparam: 'ISOPARAM', 'offset-vertex': 'OFFSET VERTEX', 'fillet-vertex': 'FILLET VERTEX', 'align-vertex': 'ALIGN VERTEX', rebuild: 'REBUILD CURVE', 'rebuild-face': 'REBUILD FACE', 'match-face': 'MATCH FACE', untrim: 'UNTRIM', unwrap: 'UNWRAP FACE', section: 'SECTION ANALYSIS', place: 'PLACE', 'insert-knot': 'INSERT KNOT', 'offset-edge': 'OFFSET EDGE', material: 'SET MATERIAL', 'export-mesh': 'EXPORT MESH', 'export-drawing': 'EXPORT DRAWING', 'measure-continuity': 'MEASURE CONTINUITY', trim: 'TRIM', extend: 'EXTEND CURVE', 'tangent-circle': 'TANGENT CIRCLE', split: 'SPLIT CURVE', 'measure-distance': 'MEASURE DISTANCE', 'measure-radius': 'MEASURE RADIUS' };
 const keysHtml = id => KEYS[id].map(([k, v]) => `<kbd>${k}</kbd><span>${v}</span>`).join('');
 // The Command Bar, exactly the manual's list (Plasticity Essentials › Command Bar).
 const BAR = [['palette', 'F', 'SEARCH'], ['tool:move', 'G', 'MOVE'], ['tool:rotate', 'R', 'ROTATE'], ['tool:scale', 'S', 'SCALE'], ['duplicate', '⇧D', 'DUPLICATE'], ['tool:boolean', 'Q', 'BOOLEAN'], ['tool:rect-array', '', 'RECTANGULAR ARRAY'], ['tool:radial-array', '', 'RADIAL ARRAY'], ['suggest', '⇧F', 'SUGGESTED COMMANDS']];
@@ -390,6 +391,23 @@ const SHELL = `
       <div class="seg" role="group" aria-label="Section plane"><button data-saplane="selection" aria-pressed="true" title="The selected face">SELECTION</button><button data-saplane="previous" aria-pressed="false" title="Where the last section was">PREVIOUS</button><button data-saplane="cplane" aria-pressed="false" title="The construction plane">CPLANE</button></div>
       <div class="field"><label for="w3d-sa-d">DISTANCE</label><input id="w3d-sa-d" data-id="sa-d" type="number" step="1" value="0" title="How far the slice moves into the model (D)"></div>
       <div class="chips"><button data-id="sa-flip" aria-pressed="false" title="Keep the other side (F)"><kbd>F</kbd>FLIP</button></div>
+    </div>
+    <div class="sec" data-panel="place" hidden>
+      <span class="hint" data-id="pl-hint">—</span>
+      <div class="field"><label for="w3d-pl-scale">SCALE</label><input id="w3d-pl-scale" data-id="pl-scale" type="number" step="0.1" min="0.001" value="1" title="How big the copy is against the original (S)"></div>
+      <div class="field"><label for="w3d-pl-angle">ANGLE</label><input id="w3d-pl-angle" data-id="pl-angle" type="number" step="15" value="0" title="The copy's turn about the axis, in degrees (A)"></div>
+      <div class="field"><label for="w3d-pl-d">OFFSET</label><input id="w3d-pl-d" data-id="pl-d" type="number" step="1" value="0" title="How far the copy stands off the destination along the axis (D)"></div>
+      <span class="label">AXIS</span>
+      <div class="seg" role="group" aria-label="Place axis"><button data-plaxis="normal" aria-pressed="true" title="The destination's normal">NORMAL</button><button data-plaxis="x" aria-pressed="false" title="Along X (X)"><kbd>X</kbd></button><button data-plaxis="y" aria-pressed="false" title="Along Y (Y)"><kbd>Y</kbd></button><button data-plaxis="z" aria-pressed="false" title="Along Z (Z)"><kbd>Z</kbd></button></div>
+      <div class="chips"><button data-id="pl-flip" aria-pressed="false" title="Turn the copy over (F)"><kbd>F</kbd>FLIP</button></div>
+      <span class="label">TARGET</span>
+      <div class="seg" role="group" aria-label="Boolean with the body at the destination">
+        <button data-plop="union" aria-pressed="false" title="Join the copy to the body it lands on (Q)"><kbd>Q</kbd>UNION</button>
+        <button data-plop="difference" aria-pressed="false" title="Cut the copy from the body it lands on (W)"><kbd>W</kbd>DIFF</button>
+        <button data-plop="intersect" aria-pressed="false" title="Keep where the copy and the body overlap (Shift+E)"><kbd>⇧E</kbd>INTER</button>
+        <button data-plop="slice" aria-pressed="false" title="Cut the body in two along the copy (Shift+Q)"><kbd>⇧Q</kbd>SLICE</button>
+        <button data-plop="new" aria-pressed="true" title="A separate new body (B)"><kbd>B</kbd>NEW</button>
+      </div>
     </div>
     <div class="sec" data-panel="unwrap" hidden>
       <span class="hint" data-id="uw-hint">—</span>
@@ -721,10 +739,10 @@ const VIEWS = {
 export async function mount(root, backend) {
   root.innerHTML = SHELL;
   // Panel options carry their icon ahead of the key and name.
-  for (const b of root.querySelectorAll('[data-draw],[data-bop],[data-xop],[data-fop],[data-spiral],[data-toggle],[data-gmethod],[data-galign],[data-grow],[data-mfgrow],[data-eslimit],[data-flshape],[data-avaxis],[data-extshape],[data-esshape],[data-isodir],[data-id="oe-both"],[data-id="ex-lock"],[data-id="bool-keep"],[data-id="ex-free"],[data-id="ex-pivot"],[data-id="ex-individual"],[data-id="dr-hidden"],[data-id="dr-curves"],[data-id="oc-lock"],[data-id="oc-free"],[data-id="oc-slot"],[data-id="oc-combine"],[data-id="es-unlimit"],[data-rbmethod],[data-oecorner],[data-saplane],[data-id="section-btn"],[data-id="sa-flip"],[data-id="rf-shrink"],[data-id="ut-keep"]')) {
+  for (const b of root.querySelectorAll('[data-draw],[data-bop],[data-xop],[data-fop],[data-spiral],[data-toggle],[data-gmethod],[data-galign],[data-grow],[data-mfgrow],[data-eslimit],[data-flshape],[data-avaxis],[data-extshape],[data-esshape],[data-isodir],[data-id="oe-both"],[data-id="ex-lock"],[data-id="bool-keep"],[data-id="ex-free"],[data-id="ex-pivot"],[data-id="ex-individual"],[data-id="dr-hidden"],[data-id="dr-curves"],[data-id="oc-lock"],[data-id="oc-free"],[data-id="oc-slot"],[data-id="oc-combine"],[data-id="es-unlimit"],[data-rbmethod],[data-oecorner],[data-saplane],[data-plaxis],[data-plop],[data-id="pl-flip"],[data-id="section-btn"],[data-id="sa-flip"],[data-id="rf-shrink"],[data-id="ut-keep"]')) {
     const name = b.dataset.draw ?? b.dataset.bop ?? b.dataset.xop ?? b.dataset.fop ?? b.dataset.spiral ?? (b.dataset.toggle && `view-${b.dataset.toggle}`)
-      ?? (b.dataset.gmethod && `guide-${b.dataset.gmethod}`) ?? (b.dataset.galign && `align-${b.dataset.galign}`) ?? (b.dataset.grow && `grow-${b.dataset.grow}`) ?? (b.dataset.mfgrow && `grow-${b.dataset.mfgrow}`) ?? (b.dataset.eslimit && `limit-${b.dataset.eslimit}`) ?? (b.dataset.flshape && `fillet-${b.dataset.flshape}`) ?? (b.dataset.avaxis && `axis-${b.dataset.avaxis}`) ?? (b.dataset.extshape && `extend-${b.dataset.extshape}`) ?? (b.dataset.esshape && `extend-${b.dataset.esshape}`) ?? (b.dataset.isodir && `iso-${b.dataset.isodir}`) ?? (b.dataset.rbmethod && `rebuild-${b.dataset.rbmethod}`) ?? (b.dataset.oecorner && `corner-${b.dataset.oecorner}`) ?? (b.dataset.saplane && `section-${b.dataset.saplane}`)
-      ?? { 'ex-lock': 'lock', 'bool-keep': 'keep', 'ex-free': 'freestyle', 'ex-pivot': 'pivot', 'ex-individual': 'individual', 'dr-hidden': 'hidden-lines', 'dr-curves': 'drawing-curves', 'oc-lock': 'lock', 'oc-free': 'freestyle', 'oc-slot': 'slot', 'oc-combine': 'combine', 'oe-both': 'both-sides', 'es-unlimit': 'unlimit', 'rf-shrink': 'shrink', 'ut-keep': 'keep-edges', 'section-btn': 'view-section', 'sa-flip': 'flip' }[b.dataset.id];
+      ?? (b.dataset.gmethod && `guide-${b.dataset.gmethod}`) ?? (b.dataset.galign && `align-${b.dataset.galign}`) ?? (b.dataset.grow && `grow-${b.dataset.grow}`) ?? (b.dataset.mfgrow && `grow-${b.dataset.mfgrow}`) ?? (b.dataset.eslimit && `limit-${b.dataset.eslimit}`) ?? (b.dataset.flshape && `fillet-${b.dataset.flshape}`) ?? (b.dataset.avaxis && `axis-${b.dataset.avaxis}`) ?? (b.dataset.extshape && `extend-${b.dataset.extshape}`) ?? (b.dataset.esshape && `extend-${b.dataset.esshape}`) ?? (b.dataset.isodir && `iso-${b.dataset.isodir}`) ?? (b.dataset.rbmethod && `rebuild-${b.dataset.rbmethod}`) ?? (b.dataset.oecorner && `corner-${b.dataset.oecorner}`) ?? (b.dataset.saplane && `section-${b.dataset.saplane}`) ?? (b.dataset.plaxis && (b.dataset.plaxis === 'normal' ? 'place-normal' : `axis-${b.dataset.plaxis}`)) ?? b.dataset.plop
+      ?? { 'ex-lock': 'lock', 'bool-keep': 'keep', 'ex-free': 'freestyle', 'ex-pivot': 'pivot', 'ex-individual': 'individual', 'dr-hidden': 'hidden-lines', 'dr-curves': 'drawing-curves', 'oc-lock': 'lock', 'oc-free': 'freestyle', 'oc-slot': 'slot', 'oc-combine': 'combine', 'oe-both': 'both-sides', 'es-unlimit': 'unlimit', 'rf-shrink': 'shrink', 'ut-keep': 'keep-edges', 'section-btn': 'view-section', 'sa-flip': 'flip', 'pl-flip': 'flip' }[b.dataset.id];
     b.insertAdjacentHTML('afterbegin', icon(name));
   }
   const $ = id => root.querySelector(`[data-id="${id}"]`);
@@ -4263,6 +4281,121 @@ export async function mount(root, backend) {
   }
 
   /**
+   * Plasticity's Place (Ctrl+D): click a reference point on the selected solids, then a destination;
+   * a copy lands there, its reference face against the destination face (or its up along the
+   * construction plane's normal off a face). S scales, A turns about the axis, D stands it off, F
+   * turns it over, X/Y/Z set the axis instead of the destination's normal, and Q W Shift+E Shift+Q
+   * combine it with the body it lands on (B keeps it separate). A click places it and starts
+   * another; Enter or right-click places it and ends; Escape ends.
+   */
+  function startPlace() {
+    const ids = targetBodies().filter(b => org.shows(b));
+    if (!ids.length) return toast('SELECT THE SOLIDS TO PLACE');
+    if (!backend.previewPlace) return toast('PLACE IS NOT IN THIS BUILD YET');
+    const c = cmd = { id: 'place', ids, stage: 'from', from: null, to: null, axis: 'normal', flip: false, op: 'new', placed: 0, sent: 0, shown: 0 };
+    lastTool = 'place';
+    showTool('place');
+    setState('none');
+    setTarget(ids.length === 1 ? label(ids[0]) : `${ids.length} SOLIDS`);
+    const hint = t => { $('pl-hint').textContent = t; setHud(t); };
+    // A point with the way out of the surface there: a face's normal, else the construction plane's.
+    const pointAt = e => {
+      const p = placeAt(e);
+      if (p && !p.curved) return { origin: p.origin.clone(), normal: p.normal.clone(), target: p.target, snap: p.snap };
+      ray(e);
+      const hit = raycaster.intersectObjects(shownMeshes(), false)[0];
+      if (!hit?.face) return null;
+      return { origin: hit.point.clone(), normal: hit.face.normal.clone().transformDirection(hit.object.matrixWorld), target: hit.object.userData.id };
+    };
+    const sync = () => {
+      for (const b of $$('[data-plaxis]')) b.setAttribute('aria-pressed', String(b.dataset.plaxis === c.axis));
+      for (const b of $$('[data-plop]')) b.setAttribute('aria-pressed', String(b.dataset.plop === c.op));
+      $('pl-flip').setAttribute('aria-pressed', String(c.flip));
+    };
+    /** The copy's motion: its up (out of the reference face) turned onto the axis, then A about it. */
+    c.motion = () => {
+      const up = c.from.up.clone().normalize();
+      const dir = (c.axis === 'normal' ? c.to.normal.clone() : worldAxis(c.axis)).normalize();
+      if (c.flip) dir.negate();
+      const q = new THREE.Quaternion().setFromUnitVectors(up, dir);
+      q.premultiply(new THREE.Quaternion().setFromAxisAngle(dir, (num('pl-angle') || 0) * DEG));
+      const angle = 2 * Math.acos(Math.min(1, Math.abs(q.w))), sign = q.w < 0 ? -1 : 1;
+      const axis = angle < 1e-12 ? [0, 1, 0] : [q.x, q.y, q.z].map(v => sign * v / Math.sin(angle / 2));
+      const at = c.to.origin.clone().addScaledVector(dir, num('pl-d') || 0);
+      return { pivot: c.from.origin.toArray(), offset: at.sub(c.from.origin).toArray(), axis, angle, scale: num('pl-scale') };
+    };
+    c.request = () => ({ bodies: c.ids, motion: c.motion(), target: c.op === 'new' ? null : c.to.target ?? null, op: c.op });
+    c.preview = () => {
+      sync();
+      if (!c.to) return;
+      livePreview(c, () => backend.previewPlace(c.request()), p => {
+        if (p.result) showPreviewBody(p.result);
+        const look = phantom[c.op === 'difference' || c.op === 'slice' ? 'cut' : 'add'];
+        for (const t of p.tools) { const m = meshOf(t, look.face, look.edge); m.renderOrder = 5; previewGroup.add(m); }
+        for (const t of p.pieces) { const m = meshOf(t, phantom.add.face, phantom.add.edge); m.renderOrder = 6; previewGroup.add(m); }
+        setHud(`PLACE · ${({ new: 'NEW BODY', union: 'UNION', difference: 'DIFFERENCE', intersect: 'INTERSECT', slice: 'SLICE' })[c.op]}`);
+      }, 'pl-hint');
+    };
+    c.move = e => {
+      if (c.stage === 'adjust') return;
+      const p = pointAt(e);
+      showSnap(p?.snap, e);
+      if (c.stage === 'to' && p) { c.to = p; c.preview(); }
+    };
+    c.click = e => {
+      if (c.stage === 'adjust') { place(true); return true; }
+      const p = pointAt(e);
+      if (!p) return true;
+      if (c.stage === 'from') {
+        // Off a face the copy's up is the way out of it; on the plane, the plane's normal.
+        c.from = { origin: p.origin, up: p.target !== null && p.target !== undefined ? p.normal.clone().negate() : cplane.normal.clone() };
+        c.stage = 'to';
+        hint('CLICK THE DESTINATION');
+        return true;
+      }
+      c.to = p;
+      c.stage = 'adjust';
+      c.preview();
+      hint('S A D F X Y Z · Q W ⇧E ⇧Q B · CLICK TO PLACE');
+      return true;
+    };
+    c.key = action => {
+      if (action === 'flip') { c.flip = !c.flip; c.preview(); return true; }
+      if (action.startsWith('axis-')) { const a = action.slice(5); c.axis = c.axis === a ? 'normal' : a; c.preview(); return true; }
+      if (['union', 'difference', 'intersect', 'slice', 'new'].includes(action)) {
+        if (action !== 'new' && c.to && (c.to.target === null || c.to.target === undefined)) { toast('PLACE IT ON A SOLID TO COMBINE WITH IT'); return true; }
+        c.op = action; c.preview(); return true;
+      }
+      const field = { scale: ['pl-scale', 'SCALE'], angle: ['pl-angle', 'ANGLE'], offset: ['pl-d', 'OFFSET'] }[action];
+      if (!field) return false;
+      c.entry = { label: field[1], text: '', apply: v => { $(field[0]).value = v; c.preview(); } };
+      setHud(`${field[1]} _`);
+      return true;
+    };
+    c.entryDone = () => { if (c.entry) setHud(`${c.entry.label} ${c.entry.text}_`); };
+    /** Place the copy where it is shown; `again` waits for the next destination. */
+    async function place(again) {
+      try {
+        const { ids: made, scene: list } = await backend.commitPlace(c.request());
+        c.placed++;
+        record(`PLACE${c.op !== 'new' ? ` · ${c.op.toUpperCase()}` : ''}`, made[0], made.length > 1 ? `${made.length} BODIES` : label(made[0]));
+        await showScene(list);
+        if (!again) return endCmd('committed');
+        clearPreview();
+        c.stage = 'to';
+        setState('committed');
+        hint('CLICK WHERE THE NEXT GOES · ESC TO END');
+      } catch (e) { setState('failed'); toast(say(e)); }
+    }
+    c.finish = async () => { if (c.stage === 'adjust') return place(false); endCmd(c.placed ? 'committed' : 'cancelled'); };
+    c.abort = () => endCmd(c.placed ? 'committed' : 'cancelled');
+    c.cleanup = () => clearPreview();
+    for (const [id, v] of [['pl-scale', 1], ['pl-angle', 0], ['pl-d', 0]]) $(id).value = v;
+    sync();
+    hint(`CLICK A POINT ON ${ids.length === 1 ? label(ids[0]) : 'THE SOLIDS'} TO PLACE FROM`);
+  }
+
+  /**
    * Plasticity's Unwrap Face: each selected face laid flat on the XY plane as a new sheet under where
    * it was; the body stays. Planes, cylinders and cones keep their lengths; other faces are
    * flattened conformally, keeping their area.
@@ -6741,6 +6874,7 @@ export async function mount(root, backend) {
       case 'match-face': if (cmd) await finish(); startMatchFace(); return true;
       case 'untrim': if (cmd) await finish(); startUntrim(); return true;
       case 'unwrap': if (cmd) await finish(); startUnwrap(); return true;
+      case 'place': if (cmd) await finish(); startPlace(); return true;
       case 'section': if (cmd && cmd.id !== 'section') await finish(); if (cmd?.id !== 'section') startSection(); return true;
       case 'reverse-sheet': await reverseSheets(); return true;
       // Plasticity's Slot: Offset Curve with Offset Region's slot on (an open curve closed round its ends).
@@ -6887,7 +7021,7 @@ export async function mount(root, backend) {
     const out = [];
     if (sel.solids.length > 1) out.push('tool:boolean');
     if (sel.solids.length === 2) out.push('tool:project');
-    if (kinds.has('solid')) out.push('tool:move', 'tool:rotate', 'tool:scale', 'duplicate', 'tool:mirror', 'tool:rect-array', 'tool:radial-array', 'tool:curve-array', 'unify', 'boundary-edges', 'remove-fillets', 'raise-degree', 'delete', 'hide', 'isolate', 'group', 'lock', 'material:set', 'export:step', 'export:mesh', 'export:drawing');
+    if (kinds.has('solid')) out.push('tool:move', 'tool:rotate', 'tool:scale', 'duplicate', 'place', 'tool:mirror', 'tool:rect-array', 'tool:radial-array', 'tool:curve-array', 'unify', 'boundary-edges', 'remove-fillets', 'raise-degree', 'delete', 'hide', 'isolate', 'group', 'lock', 'material:set', 'export:step', 'export:mesh', 'export:drawing');
     if (kinds.has('face')) out.push('tool:extrude', 'tool:offset', 'tool:thicken', 'tool:shell', 'tool:hole', 'tool:remove-face', 'remove-fillets', 'isoparam', 'rebuild', 'raise-degree', 'match-face', 'untrim', 'unwrap', 'plane:selection', 'plane:selection-keep-view');
     if (kinds.has('edge')) out.push('tool:fillet', 'tool:patch', 'measure:radius', 'view:surface-curvature');
     if (sel.list('edge').length === 2) out.push('tool:bridge-surface');
@@ -7291,6 +7425,10 @@ export async function mount(root, backend) {
   for (const b of $$('[data-mfgrow]')) b.onclick = () => cmd?.id === 'match-face' && cmd.setGrow(b.dataset.mfgrow);
   $('ut-keep').onclick = () => cmd?.id === 'untrim' && cmd.setKeep(!cmd.keep);
   $('section-btn').onclick = () => doAction('section');
+  $('pl-flip').onclick = () => cmd?.id === 'place' && cmd.key('flip');
+  for (const id of ['pl-scale', 'pl-angle', 'pl-d']) $(id).oninput = () => cmd?.id === 'place' && cmd.preview();
+  for (const b of $$('[data-plaxis]')) b.onclick = () => cmd?.id === 'place' && cmd.key(b.dataset.plaxis === 'normal' ? 'axis-normal' : `axis-${b.dataset.plaxis}`);
+  for (const b of $$('[data-plop]')) b.onclick = () => cmd?.id === 'place' && cmd.key(b.dataset.plop);
   $('sa-flip').onclick = () => cmd?.id === 'section' && cmd.key('flip');
   $('sa-d').oninput = () => cmd?.id === 'section' && cmd.preview();
   for (const b of $$('[data-saplane]')) b.onclick = () => cmd?.id === 'section' && cmd.setHow(b.dataset.saplane);

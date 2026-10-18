@@ -1212,6 +1212,44 @@ impl<K: Kernel> Document<K> {
         self.place_copies(all, join)
     }
 
+    /// Plasticity's Place: the bodies copied by `motion`, and with a target combined with it by
+    /// `operation` one copy at a time. Nothing changes.
+    pub fn preview_place(&self, bodies: &[BodyId], motion: &Motion, target: Option<BodyId>, operation: Operation) -> Result<Placed<K::Solid>, KernelError> {
+        crate::solids::check_motion(motion)?;
+        let copies: Vec<K::Solid> = self.copies(bodies, |s| Ok(vec![self.kernel.transform(s, motion)]))?.into_iter().flat_map(|(_, c)| c).collect();
+        let Some(target) = target.filter(|_| operation != Operation::NewBody && operation != Operation::Auto) else {
+            return Ok(Placed { copies, result: None, pieces: vec![], loose: vec![] });
+        };
+        if bodies.contains(&target) { return Err(KernelError::Invalid("place the copies on another body to combine with it")) }
+        let mut cur: Option<Traced<K::Solid>> = None;
+        let (mut pieces, mut loose) = (vec![], vec![]);
+        for c in &copies {
+            let base = match &cur { Some(t) => &t.solid, None => self.get(target).ok_or(KernelError::Invalid("that body no longer exists"))? };
+            let step = match crate::extrude::combine(&self.kernel, Some(base), self.kernel.transform(c, &Motion::translation(DVec3::ZERO)), operation, true, "the copy does not meet the body")? {
+                ExtrudeResult::New(s) => { loose.push(s); continue }
+                ExtrudeResult::Replace { solid, history, .. } => Traced { solid, history },
+                ExtrudeResult::Slice { solid, history, piece } => { pieces.push(piece); Traced { solid, history } }
+            };
+            cur = Some(match cur { Some(prev) => Traced { solid: step.solid, history: chain(&prev.history, &step.history) }, None => step });
+        }
+        Ok(Placed { copies, result: cur, pieces, loose })
+    }
+
+    /// Place as one undoable step. Returns the bodies made, the target first when it changed.
+    pub fn commit_place(&mut self, bodies: &[BodyId], motion: &Motion, target: Option<BodyId>, operation: Operation) -> Result<Vec<BodyId>, KernelError> {
+        let p = self.preview_place(bodies, motion, target, operation)?;
+        self.checkpoint();
+        let mut ids = vec![];
+        match p.result {
+            Some(t) => { let id = target.expect("a result has a target"); self.replace_traced(id, t); ids.push(id); }
+            // Combining keeps only what the booleans made; a missed Union's copies come back as loose.
+            None if p.pieces.is_empty() && p.loose.is_empty() => ids.extend(p.copies.into_iter().map(|s| self.add_unrecorded(s))),
+            None => {}
+        }
+        ids.extend(p.pieces.into_iter().chain(p.loose).map(|s| self.add_unrecorded(s)));
+        Ok(ids)
+    }
+
     /// Extrude a closed curve's region (Plasticity's Extrude on a region).
     pub fn region_params(&self, curve: CurveId, distance: f64, operation: crate::Operation) -> Result<ExtrudeParams, KernelError> {
         let c = self.curve(curve).ok_or(KernelError::Invalid("that curve no longer exists"))?;
@@ -1232,6 +1270,15 @@ impl<K: Kernel> Document<K> {
         self.revision += 1;
         true
     }
+}
+
+/// Place's outcome: the copies, and with a target the body after them (Slice's pieces and copies a
+/// Union missed become new bodies).
+pub struct Placed<S> {
+    pub copies: Vec<S>,
+    pub result: Option<Traced<S>>,
+    pub pieces: Vec<S>,
+    pub loose: Vec<S>,
 }
 
 /// The history of doing `a` then `b`: input-0 pairs composed through the intermediate shape.

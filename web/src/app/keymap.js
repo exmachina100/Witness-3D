@@ -45,6 +45,8 @@ export const VIEWPORT = {
     'shift-q': 'draw:rect', 'shift-w': 'draw:circle', 'shift-a': 'draw:line',
     'shift-x': 'delete', 'shift-delete': 'delete', 'shift-backspace': 'delete',
     'shift-d': 'duplicate',
+    // Place (manual: Ctrl+D)
+    'ctrl-d': 'place',
     // Curves (0.6.30's default keymap: J joins curves; 26.1 keeps it)
     j: 'join',
     // Raise Degree (manual: Raise Surface Degree is Shift+S; curves by what is selected)
@@ -155,6 +157,8 @@ export const COMMAND = {
     'rect-array': { j: 'join' },
     'radial-array': { x: 'x', y: 'y', z: 'z', j: 'join' },
     'curve-array': { a: 'align', j: 'join' },
+    // Place (manual: S scale, A angle, D offset, F flip, X/Y/Z axis, Q W Shift+E Shift+Q B boolean)
+    place: { s: 'scale', a: 'angle', d: 'offset', f: 'flip', x: 'axis-x', y: 'axis-y', z: 'axis-z', q: 'union', w: 'difference', 'shift-e': 'intersect', 'shift-q': 'slice', b: 'new' },
     spiral: { x: 'axis-x', y: 'axis-y', z: 'axis-z', a: 'angle', d: 'length', r: 'radius' },
     ellipse: {},
     ellipse3: {},
@@ -183,7 +187,7 @@ export const ACTIONS = {
     'draw:center-rect': 'Center rectangle', 'draw:rect3': 'Three point rectangle', 'draw:circle2': 'Two point circle',
     'draw:circle3': 'Three point circle', 'draw:arc3': 'Three point arc', 'draw:arc': 'Center point arc',
     'draw:polygon': 'Regular polygon', 'draw:spline': 'Spline curve', 'draw:ellipse': 'Center ellipse',
-    'draw:ellipse3': 'Three point ellipse', 'draw:tangent-arc': 'Tangent arc', 'draw:spiral': 'Spiral', 'draw:cv': 'Control point curve', 'draw:tangent-circle': 'Tangent circle', 'split': 'Split curve at point', 'measure:distance': 'Measure distance', 'measure:radius': 'Measure radius', 'measure:continuity': 'Measure continuity', 'view:curvature': 'Toggle curvature', 'view:surface-curvature': 'Toggle surface curvature', 'view:zebra': 'Shader: vertical zebra', 'view:draft': 'Shader: draft angle', 'join': 'Join curves or sheets', 'unjoin:faces': 'Unjoin faces', 'unjoin:pieces': 'Unjoin shells', 'trim': 'Trim curves', 'explode': 'Explode curve', 'reverse': 'Reverse curve', 'rebuild': 'Rebuild curve or face', 'insert-knot': 'Insert knot', 'raise-degree': 'Raise curve or surface degree', 'convert-vertex': 'Convert vertex', 'unify': 'Delete redundant topology', 'slot': 'Slot', 'boundary-edges': 'Find boundary edges', 'remove-fillets': 'Remove fillets', 'isoparam': 'Isoparam', 'match-face': 'Match face', 'untrim': 'Untrim', 'unwrap': 'Unwrap face', 'section': 'Section analysis', 'reverse-sheet': 'Reverse sheet', 'align-vertex': 'Align vertex', 'extend': 'Extend curve',
+    'draw:ellipse3': 'Three point ellipse', 'draw:tangent-arc': 'Tangent arc', 'draw:spiral': 'Spiral', 'draw:cv': 'Control point curve', 'draw:tangent-circle': 'Tangent circle', 'split': 'Split curve at point', 'measure:distance': 'Measure distance', 'measure:radius': 'Measure radius', 'measure:continuity': 'Measure continuity', 'view:curvature': 'Toggle curvature', 'view:surface-curvature': 'Toggle surface curvature', 'view:zebra': 'Shader: vertical zebra', 'view:draft': 'Shader: draft angle', 'join': 'Join curves or sheets', 'unjoin:faces': 'Unjoin faces', 'unjoin:pieces': 'Unjoin shells', 'trim': 'Trim curves', 'explode': 'Explode curve', 'reverse': 'Reverse curve', 'rebuild': 'Rebuild curve or face', 'insert-knot': 'Insert knot', 'raise-degree': 'Raise curve or surface degree', 'convert-vertex': 'Convert vertex', 'unify': 'Delete redundant topology', 'slot': 'Slot', 'boundary-edges': 'Find boundary edges', 'remove-fillets': 'Remove fillets', 'isoparam': 'Isoparam', 'match-face': 'Match face', 'untrim': 'Untrim', 'unwrap': 'Unwrap face', 'section': 'Section analysis', 'place': 'Place', 'reverse-sheet': 'Reverse sheet', 'align-vertex': 'Align vertex', 'extend': 'Extend curve',
     'undo': 'Undo', 'redo': 'Redo', 'file:new': 'New', 'file:open': 'Open…', 'file:save': 'Save',
     'file:save-as': 'Save as…', 'file:save-version': 'Quick save version', 'file:export': 'Export…', 'file:recent': 'Recent files', 'app:quit': 'Quit', 'app:menu': 'File menu (P-Menu)',
     'radial:selection-mode': 'Radial menu: selection mode', 'radial:viewport-settings': 'Radial menu: viewport settings',
