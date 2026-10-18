@@ -156,3 +156,19 @@ fn the_document_keeps_a_patch_as_a_sheet_body_in_one_undo_step() {
     assert!(doc.undo());
     assert!(doc.get(sheet).is_none());
 }
+
+#[test]
+fn find_boundary_edges_lists_a_sheets_open_sides_and_none_on_a_solid() {
+    let k = Occt;
+    let sheet = k.patch(&saddle(0.0), &[]).unwrap();
+    let mut open = k.boundary_edges(&sheet);
+    open.sort();
+    assert_eq!(open, (0..k.edge_count(&sheet) as u32).collect::<Vec<_>>(), "every side of one face is open");
+    assert_eq!(open.len(), 4);
+    // A disc's rim is one edge, and a closed solid has none.
+    let ring = Path::Circle { center: DVec3::ZERO, normal: DVec3::Z, radius: 5.0 };
+    assert_eq!(k.boundary_edges(&k.patch(&[ring], &[]).unwrap()).len(), 1);
+    assert!(k.boundary_edges(&k.box_from_corners(DVec3::ZERO, DVec3::splat(10.0))).is_empty());
+    let cyl = primitive(&k, &w3d_kernel::solids::Primitive::Cylinder { frame: Frame::new(DVec3::ZERO, DVec3::X, DVec3::Z), radius: 3.0, height: 5.0 }).unwrap();
+    assert!(k.boundary_edges(&cyl).is_empty(), "a cylinder's seam is not open");
+}

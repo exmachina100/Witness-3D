@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { before, test } from 'node:test';
 import * as THREE from 'three';
 import { LocalBackend } from '../src/app/LocalBackend.js';
-import { arrayMotions, bounds, box, count, loadKernel, mirror, primitive, shellFaces, volume } from '../src/Kernel.js';
+import { arrayMotions, boundaryEdges, bounds, box, count, loadKernel, planeSheet, mirror, primitive, shellFaces, volume } from '../src/Kernel.js';
 
 before(async () => { await loadKernel() });
 
@@ -236,4 +236,11 @@ test('draft face closes the sides of a block in along the pull, as one undo step
     be.undo();
     close(be.scene().find(b => b.id === id).volume, 8000, 1e-3);
     await assert.rejects(async () => be.commitDraft({ body: id, faces: sides, pull: [0, 1, 0], origin: [0, 0, 0], angle: 0 }), /not be zero/);
+});
+
+test('Find Boundary Edges: a sheet\'s open sides, none on a solid or at a seam', () => {
+    const sheet = planeSheet([0, 0, 0], [0, 1, 0], 20);
+    assert.deepEqual(boundaryEdges(sheet), [0, 1, 2, 3]);
+    assert.deepEqual(boundaryEdges(cube()), []);
+    assert.deepEqual(boundaryEdges(primitive({ kind: 'cylinder', frame: ground, radius: 5, height: 10 })), []);
 });

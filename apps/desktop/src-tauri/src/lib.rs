@@ -222,6 +222,14 @@ async fn commit_cut(
 }
 
 #[tauri::command]
+async fn boundary_edges(
+    model: State<'_, Model>,
+    req: api::UnifyRequest,
+) -> Result<Vec<api::BoundaryEdges>, api::ApiError> {
+    on_model(&model, move |m| api::boundary_edges(m, req)).await?
+}
+
+#[tauri::command]
 async fn commit_unify(
     model: State<'_, Model>,
     req: api::UnifyRequest,
@@ -686,6 +694,7 @@ pub fn run() {
             preview_remove_faces,
             commit_remove_faces,
             commit_unify,
+            boundary_edges,
             preview_primitive,
             commit_primitive,
             preview_shell,

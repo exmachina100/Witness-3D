@@ -4,7 +4,7 @@
 import * as THREE from 'three';
 import { ExtrudeFactory } from '../ExtrudeFactory.js';
 import { NoOpError } from '../GeometryFactory.js';
-import { arrayMotions, blendEdges, booleanWithHistory, bounds, box, count, draftFaces, faceSheet, imprintWithHistory, planeSheet, unifyWithHistory, splitWithHistory, draftWithHistory, exportSTEP, facePlane, mirror, numberedEdges, oc, primitive, shellFaces, tessellate, transform, volume } from '../Kernel.js';
+import { arrayMotions, blendEdges, booleanWithHistory, bounds, box, count, draftFaces, faceSheet, imprintWithHistory, planeSheet, unifyWithHistory, boundaryEdges, splitWithHistory, draftWithHistory, exportSTEP, facePlane, mirror, numberedEdges, oc, primitive, shellFaces, tessellate, transform, volume } from '../Kernel.js';
 import { cutSheets, loft, loftGuided, offsetFlatFaces, pipe, regionFace, revolve, splineSamples, sweep, sweepGuided } from '../Forms.js';
 import { curveFromNurbs, ends, join, loops, MEET, nurbsLoop } from '../curves.js';
 import { meetCurves, projectCurveCurve, projectCurves } from '../Project.js';
@@ -487,6 +487,15 @@ export class LocalBackend {
     }
 
     previewImprint(req) { return this.latest(async () => this.body(req.body, this.imprintResult(req).shape)) }
+
+    /** Plasticity's Find Boundary Edges: each body's edges that bound only one face. */
+    async boundaryEdges({ bodies }) {
+        return bodies.map(id => {
+            const s = this.shapes.get(id);
+            if (!s) throw new Error('that body no longer exists');
+            return { body: id, edges: boundaryEdges(s) };
+        });
+    }
 
     /** Plasticity's Delete Redundant Topology on the bodies, as one undo step; says how many faces and edges went. */
     async commitUnify({ bodies }) {

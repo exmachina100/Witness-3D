@@ -1363,6 +1363,26 @@ inline std::unique_ptr<W3dResult> w3d_unify(const TopoDS_Shape &shape) {
   }
 }
 
+// Plasticity's Find Boundary Edges: the numbers (TopExp::MapShapes order) of the edges that bound
+// only one face, the open sides of sheets. Seams and degenerate edges are skipped.
+inline rust::Vec<int32_t> w3d_boundary_edges(const TopoDS_Shape &shape) {
+  TopTools_IndexedMapOfShape edges;
+  TopExp::MapShapes(shape, TopAbs_EDGE, edges);
+  TopTools_IndexedDataMapOfShapeListOfShape faces;
+  TopExp::MapShapesAndAncestors(shape, TopAbs_EDGE, TopAbs_FACE, faces);
+  rust::Vec<int32_t> out;
+  for (int i = 1; i <= edges.Extent(); i++) {
+    const TopoDS_Edge &e = TopoDS::Edge(edges(i));
+    if (BRep_Tool::Degenerated(e) || !faces.Contains(e)) continue;
+    TopTools_IndexedMapOfShape distinct;
+    for (TopTools_ListIteratorOfListOfShape it(faces.FindFromKey(e)); it.More(); it.Next()) distinct.Add(it.Value());
+    if (distinct.Extent() != 1) continue;
+    if (BRep_Tool::IsClosed(e, TopoDS::Face(distinct(1)))) continue;
+    out.push_back(i - 1);
+  }
+  return out;
+}
+
 // The solids in a shape, counted and fetched by number (TopExp::MapShapes order).
 inline int32_t w3d_solid_count(const TopoDS_Shape &shape) {
   TopTools_IndexedMapOfShape map;

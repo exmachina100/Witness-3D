@@ -927,6 +927,18 @@ pub struct Unified {
     pub scene: Vec<Body>,
 }
 
+#[derive(Serialize, Debug)]
+pub struct BoundaryEdges {
+    pub body: BodyId,
+    pub edges: Vec<u32>,
+}
+
+pub fn boundary_edges(m: &Model, req: UnifyRequest) -> Result<Vec<BoundaryEdges>, ApiError> {
+    m.call(move |doc| {
+        Ok(doc.boundary_edges(&req.bodies)?.into_iter().map(|(body, edges)| BoundaryEdges { body, edges }).collect())
+    })
+}
+
 pub fn commit_unify(m: &Model, req: UnifyRequest) -> Result<Unified, ApiError> {
     m.call(move |doc| {
         let (faces, edges) = doc.commit_unify(&req.bodies)?;
