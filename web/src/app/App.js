@@ -106,7 +106,7 @@ const KEYS = {
   'offset-vertex': [['DRAG DOT', 'DISTANCE'], ['D', 'DISTANCE'], ['⏎ / RMB', 'OK']],
   'align-vertex': [['X / Y / Z', 'AXIS'], ['V', 'VALUE'], ['⏎ / RMB', 'OK']],
   rebuild: [['C', 'CONTROL POINTS'], ['D', 'DEGREE'], ['⏎ / RMB', 'OK']],
-  'match-face': [['CLICK', 'TARGET FACE'], ['⇧ CLICK', 'FACES'], ['⏎ / RMB', 'OK']],
+  'match-face': [['CLICK', 'TARGET FACE'], ['⇧ CLICK', 'FACES'], ['TAB', 'GROW'], ['⏎ / RMB', 'OK']],
   untrim: [['TAB', 'KEEP EDGES'], ['⇧ CLICK', 'FACES'], ['⏎ / RMB', 'OK']],
   'rebuild-face': [['M', 'METHOD'], ['T', 'TOLERANCE'], ['D', 'DEGREE'], ['S', 'SPANS'], ['E', 'EXTEND'], ['H', 'SHRINK'], ['⇧ CLICK', 'FACES'], ['⏎ / RMB', 'OK']],
   'fillet-vertex': [['DRAG DOT', 'IN ROUND · OUT CHAMFER'], ['D', 'FILLET DISTANCE'], ['C', 'CHAMFER DISTANCE'], ['⏎ / RMB', 'OK']],
@@ -372,6 +372,8 @@ const SHELL = `
       <span class="hint" data-id="mf-hint">—</span>
       <div class="field"><label>FACES</label><output data-id="mf-count">0</output></div>
       <div class="field"><label>TARGET</label><output data-id="mf-target" title="Click the face whose surface the faces should take">—</output></div>
+      <span class="label">GROW</span>
+      <div class="seg" role="group" aria-label="Grow mode"><button data-mfgrow="moving" aria-pressed="true" title="An inner face matched past the outer wall takes the wall with it (Tab)">MOVING</button><button data-mfgrow="fixed" aria-pressed="false" title="Stop at the outer wall (Tab)">FIXED</button><button data-mfgrow="none" aria-pressed="false" title="Carry on past the outer wall by itself (Tab)">NONE</button></div>
     </div>
     <div class="sec" data-panel="untrim" hidden>
       <span class="hint" data-id="ut-hint">—</span>
@@ -702,9 +704,9 @@ const VIEWS = {
 export async function mount(root, backend) {
   root.innerHTML = SHELL;
   // Panel options carry their icon ahead of the key and name.
-  for (const b of root.querySelectorAll('[data-draw],[data-bop],[data-xop],[data-fop],[data-spiral],[data-toggle],[data-gmethod],[data-galign],[data-grow],[data-avaxis],[data-extshape],[data-esshape],[data-isodir],[data-id="oe-both"],[data-id="ex-lock"],[data-id="bool-keep"],[data-id="ex-free"],[data-id="ex-pivot"],[data-id="ex-individual"],[data-id="dr-hidden"],[data-id="dr-curves"],[data-id="oc-lock"],[data-id="oc-free"],[data-id="oc-slot"],[data-id="oc-combine"],[data-id="es-unlimit"],[data-rbmethod],[data-id="rf-shrink"],[data-id="ut-keep"]')) {
+  for (const b of root.querySelectorAll('[data-draw],[data-bop],[data-xop],[data-fop],[data-spiral],[data-toggle],[data-gmethod],[data-galign],[data-grow],[data-mfgrow],[data-avaxis],[data-extshape],[data-esshape],[data-isodir],[data-id="oe-both"],[data-id="ex-lock"],[data-id="bool-keep"],[data-id="ex-free"],[data-id="ex-pivot"],[data-id="ex-individual"],[data-id="dr-hidden"],[data-id="dr-curves"],[data-id="oc-lock"],[data-id="oc-free"],[data-id="oc-slot"],[data-id="oc-combine"],[data-id="es-unlimit"],[data-rbmethod],[data-id="rf-shrink"],[data-id="ut-keep"]')) {
     const name = b.dataset.draw ?? b.dataset.bop ?? b.dataset.xop ?? b.dataset.fop ?? b.dataset.spiral ?? (b.dataset.toggle && `view-${b.dataset.toggle}`)
-      ?? (b.dataset.gmethod && `guide-${b.dataset.gmethod}`) ?? (b.dataset.galign && `align-${b.dataset.galign}`) ?? (b.dataset.grow && `grow-${b.dataset.grow}`) ?? (b.dataset.avaxis && `axis-${b.dataset.avaxis}`) ?? (b.dataset.extshape && `extend-${b.dataset.extshape}`) ?? (b.dataset.esshape && `extend-${b.dataset.esshape}`) ?? (b.dataset.isodir && `iso-${b.dataset.isodir}`) ?? (b.dataset.rbmethod && `rebuild-${b.dataset.rbmethod}`)
+      ?? (b.dataset.gmethod && `guide-${b.dataset.gmethod}`) ?? (b.dataset.galign && `align-${b.dataset.galign}`) ?? (b.dataset.grow && `grow-${b.dataset.grow}`) ?? (b.dataset.mfgrow && `grow-${b.dataset.mfgrow}`) ?? (b.dataset.avaxis && `axis-${b.dataset.avaxis}`) ?? (b.dataset.extshape && `extend-${b.dataset.extshape}`) ?? (b.dataset.esshape && `extend-${b.dataset.esshape}`) ?? (b.dataset.isodir && `iso-${b.dataset.isodir}`) ?? (b.dataset.rbmethod && `rebuild-${b.dataset.rbmethod}`)
       ?? { 'ex-lock': 'lock', 'bool-keep': 'keep', 'ex-free': 'freestyle', 'ex-pivot': 'pivot', 'ex-individual': 'individual', 'dr-hidden': 'hidden-lines', 'dr-curves': 'drawing-curves', 'oc-lock': 'lock', 'oc-free': 'freestyle', 'oc-slot': 'slot', 'oc-combine': 'combine', 'oe-both': 'both-sides', 'es-unlimit': 'unlimit', 'rf-shrink': 'shrink', 'ut-keep': 'keep-edges' }[b.dataset.id];
     b.insertAdjacentHTML('afterbegin', icon(name));
   }
@@ -3984,17 +3986,29 @@ export async function mount(root, backend) {
     const body = faceBody();
     if (body === null) return toast(sel.list('face').length ? 'MATCH THE FACES OF ONE SOLID AT A TIME' : 'SELECT THE FACES TO MATCH');
     if (!backend.previewMatchFaces) return toast('MATCH FACE IS NOT IN THIS BUILD YET');
-    const c = cmd = { id: 'match-face', body, faces: [], target: null, sent: 0, shown: 0 };
+    const c = cmd = { id: 'match-face', body, faces: [], target: null, grow: 'moving', sent: 0, shown: 0 };
     lastTool = 'match-face';
     showTool('match-face');
     setState('none');
-    c.request = () => ({ body: c.body, faces: c.faces, target: c.target.body, tface: c.target.n });
+    c.request = () => ({ body: c.body, faces: c.faces, target: c.target.body, tface: c.target.n, grow: c.grow });
+    c.setGrow = g => {
+      c.grow = g;
+      for (const b of $$('[data-mfgrow]')) b.setAttribute('aria-pressed', String(b.dataset.mfgrow === g));
+      c.preview();
+    };
+    c.key = action => {
+      if (action !== 'grow') return false;
+      const order = ['moving', 'fixed', 'none'];
+      c.setGrow(order[(order.indexOf(c.grow) + 1) % 3]);
+      toast(`GROW ${c.grow.toUpperCase()}`);
+      return true;
+    };
     c.preview = () => {
       if (!c.target) { clearPreview(); $('mf-hint').textContent = 'CLICK THE FACE TO MATCH TO'; return setHud('CLICK THE TARGET FACE'); }
       livePreview(c, () => backend.previewMatchFaces(c.request()), b => {
         showPreviewBody(b);
         $('mf-hint').textContent = `${c.faces.length} FACE${c.faces.length > 1 ? 'S' : ''} OF ${label(c.body)} TO ${label(c.target.body)}`;
-        setHud('MATCH FACE');
+        setHud(`MATCH FACE · GROW ${c.grow.toUpperCase()}`);
       }, 'mf-hint');
     };
     c.onSelection = () => {
@@ -4036,6 +4050,7 @@ export async function mount(root, backend) {
     c.abort = () => endCmd('cancelled');
     c.cleanup = () => clearPreview();
     $('mf-target').textContent = '—';
+    for (const b of $$('[data-mfgrow]')) b.setAttribute('aria-pressed', String(b.dataset.mfgrow === 'moving'));
     c.onSelection();
   }
 
@@ -7063,6 +7078,7 @@ export async function mount(root, backend) {
   for (const id of ['rf-tol', 'rf-du', 'rf-dv', 'rf-su', 'rf-sv', 'rf-eu', 'rf-ev']) $(id).addEventListener('input', () => cmd?.id === 'rebuild-face' && cmd.preview());
   for (const b of $$('[data-rbmethod]')) b.onclick = () => cmd?.id === 'rebuild-face' && cmd.setMethod(b.dataset.rbmethod);
   $('rf-shrink').onclick = () => cmd?.id === 'rebuild-face' && cmd.setShrink(!cmd.shrink);
+  for (const b of $$('[data-mfgrow]')) b.onclick = () => cmd?.id === 'match-face' && cmd.setGrow(b.dataset.mfgrow);
   $('ut-keep').onclick = () => cmd?.id === 'untrim' && cmd.setKeep(!cmd.keep);
   $('oe-d').addEventListener('input', () => cmd?.id === 'offset-edge' && cmd.preview());
   for (const b of $$('[data-oecorner]')) b.onclick = () => cmd?.id === 'offset-edge' && cmd.setCorner(b.dataset.oecorner);

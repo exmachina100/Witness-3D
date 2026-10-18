@@ -1366,18 +1366,21 @@ pub struct MatchFacesRequest {
     pub faces: Vec<u32>,
     pub target: BodyId,
     pub tface: u32,
+    /// "moving" (the default), "fixed" or "none": what an inner face does past the outer wall.
+    #[serde(default)]
+    pub grow: String,
 }
 
 pub fn preview_match_faces(m: &Model, req: MatchFacesRequest) -> Option<Result<Body, ApiError>> {
     m.preview(move |doc| {
-        let solid = doc.preview_match_faces(req.body, &req.faces, req.target, req.tface)?;
+        let solid = doc.preview_match_faces(req.body, &req.faces, req.target, req.tface, grow_of(&req.grow))?;
         Ok(body(&doc.kernel, req.body, &solid)?)
     })
 }
 
 pub fn commit_match_faces(m: &Model, req: MatchFacesRequest) -> Result<Committed, ApiError> {
     m.call(move |doc| {
-        let id = doc.commit_match_faces(req.body, &req.faces, req.target, req.tface)?;
+        let id = doc.commit_match_faces(req.body, &req.faces, req.target, req.tface, grow_of(&req.grow))?;
         Ok(Committed { id, scene: bodies(doc)? })
     })
 }

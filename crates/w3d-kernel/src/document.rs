@@ -16,7 +16,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::blend::{blend, BlendParams};
 use crate::extrude::{extrude, ExtrudeParams, ExtrudeResult, Operation};
-use crate::form::{form, offset_faces_grow, FormKind, FormParams, Grow};
+use crate::form::{form, match_faces_grow, offset_faces_grow, FormKind, FormParams, Grow};
 use crate::solids::{ArraySpec, Primitive};
 use crate::{BooleanOp, FaceRebuild, Frame, History, Kernel, KernelError, Motion, Path, Profile, RebuiltFace, Segment, SheetExtension, Traced};
 
@@ -964,18 +964,19 @@ impl<K: Kernel> Document<K> {
     }
 
     /// Plasticity's Match Face, without changing the document: `faces` of `body` replaced by the
-    /// surface of face `tface` of body `target`.
-    pub fn preview_match_faces(&self, body: BodyId, faces: &[u32], target: BodyId, tface: u32) -> Result<K::Solid, KernelError> {
+    /// surface of face `tface` of body `target`, with Plasticity's grow mode for an inner face matched
+    /// past the body's outer wall.
+    pub fn preview_match_faces(&self, body: BodyId, faces: &[u32], target: BodyId, tface: u32, grow: Grow) -> Result<K::Solid, KernelError> {
         let s = self.get(body).ok_or(KernelError::Invalid("that body no longer exists"))?;
         let t = self.get(target).ok_or(KernelError::Invalid("the target body no longer exists"))?;
         if faces.is_empty() { return Err(KernelError::Invalid("select the faces to match")) }
         if target == body && faces.contains(&tface) { return Err(KernelError::Invalid("match the faces to another face, not one of themselves")) }
-        self.kernel.match_faces(s, faces, t, tface)
+        match_faces_grow(&self.kernel, s, faces, t, tface, grow, (target == body).then_some(tface))
     }
 
     /// Match Face as one undoable step: the body keeps its id.
-    pub fn commit_match_faces(&mut self, body: BodyId, faces: &[u32], target: BodyId, tface: u32) -> Result<BodyId, KernelError> {
-        let solid = self.preview_match_faces(body, faces, target, tface)?;
+    pub fn commit_match_faces(&mut self, body: BodyId, faces: &[u32], target: BodyId, tface: u32, grow: Grow) -> Result<BodyId, KernelError> {
+        let solid = self.preview_match_faces(body, faces, target, tface, grow)?;
         self.checkpoint();
         self.replace_traced(body, Traced { solid, history: History::default() });
         Ok(body)

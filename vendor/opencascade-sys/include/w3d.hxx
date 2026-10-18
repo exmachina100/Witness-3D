@@ -3177,7 +3177,7 @@ inline gp_Dir w3d_face_out(const TopoDS_Face &f) {
 // well past its edges; inside the columns the body keeps only what lies on the face's inner side
 // of that surface, grown out to it where the face stood short.
 inline std::unique_ptr<TopoDS_Shape> w3d_match_faces(const TopoDS_Shape &shape, rust::Slice<const int32_t> faces,
-                                                     const TopoDS_Shape &target, int32_t tface) {
+                                                     const TopoDS_Shape &target, int32_t tface, rust::Slice<const double> caps) {
   if (faces.empty()) throw std::runtime_error("select the faces to match");
   TopTools_IndexedMapOfShape map, tmap;
   TopExp::MapShapes(shape, TopAbs_FACE, map);
@@ -3225,15 +3225,18 @@ inline std::unique_ptr<TopoDS_Shape> w3d_match_faces(const TopoDS_Shape &shape, 
     B.MakeCompound(cc);
     B.MakeCompound(oc);
     std::vector<std::pair<gp_Pnt, gp_Dir>> marks;
-    for (int32_t index : faces) {
+    for (size_t i = 0; i < faces.size(); i++) {
+      const int32_t index = faces[i];
       if (index < 0 || index >= map.Extent()) throw std::out_of_range("that face no longer exists");
       const TopoDS_Face f = TopoDS::Face(map(index + 1));
       const gp_Dir n = w3d_face_out(f);
+      // Grow Fixed: the face grows no further out than its cap (the body's outer wall).
+      const double grow = i < caps.size() && caps[i] > 0 ? caps[i] : far;
       gp_Trsf back;
       back.SetTranslation(gp_Vec(n) * -far);
       const TopoDS_Shape low = BRepBuilderAPI_Transform(f, back, true).Shape();
       B.Add(cc, BRepPrimAPI_MakePrism(low, gp_Vec(n) * (2 * far)).Shape());
-      B.Add(oc, BRepPrimAPI_MakePrism(f, gp_Vec(n) * far).Shape());
+      B.Add(oc, BRepPrimAPI_MakePrism(f, gp_Vec(n) * grow).Shape());
       GProp_GProps props;
       BRepGProp::SurfaceProperties(f, props);
       marks.emplace_back(props.CentreOfMass(), n);

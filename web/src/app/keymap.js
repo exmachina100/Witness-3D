@@ -123,6 +123,7 @@ export const COMMAND = {
     rebuild: { c: 'count', d: 'degree' },
     // Rebuild Face: M method, T tolerance, D degree, S spans, E extend, H shrink.
     untrim: { tab: 'keep-edges' },
+    'match-face': { tab: 'grow' },
     'rebuild-face': { m: 'method', t: 'tolerance', d: 'degree', s: 'spans', e: 'extend', h: 'shrink' },
     'fillet-curve': { d: 'radius' },
     // Bridge Curve / Bridge Vertex (manual: Tab continuity, D tension)
