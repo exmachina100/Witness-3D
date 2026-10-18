@@ -325,10 +325,10 @@ impl Shape {
         Ok(Shape::from_shape(&solid))
     }
 
-    /// Plasticity's Extend Sheet: this sheet grown `distance` past its open edge `edge`, straight on or,
-    /// when `natural`, following its curvature (see `w3d_extend_sheet`).
-    pub fn extend_sheet(&self, edge: usize, distance: f64, natural: bool) -> Result<Shape, String> {
-        let sheet = ffi::w3d::w3d_extend_sheet(&self.inner, edge as i32, distance, natural).map_err(reason)?;
+    /// Plasticity's Extend Sheet: this sheet grown `distance` past its open edge `edge`; `kind` is 0
+    /// Linear, 1 Natural, 2 Soft or 3 Reflective (see `w3d_extend_sheet`).
+    pub fn extend_sheet(&self, edge: usize, distance: f64, kind: i32) -> Result<Shape, String> {
+        let sheet = ffi::w3d::w3d_extend_sheet(&self.inner, edge as i32, distance, kind).map_err(reason)?;
         Ok(Shape::from_shape(&sheet))
     }
 

@@ -114,11 +114,104 @@ function extendBSpline(s, side, distance, natural = false) {
     return new o.Geom_BSplineSurface(poles, uk, vk, um, vm, s.UDegree(), s.VDegree(), s.IsUPeriodic(), s.IsVPeriodic());
 }
 
+/** The poles, knots and degree of a clamped B-spline's derivative. */
+function derivative({ poles, flat, p }) {
+    const q = poles.slice(1).map((v, i) => v.clone().sub(poles[i]).multiplyScalar(p / (flat[i + p + 1] - flat[i + 1])));
+    return { poles: q, flat: flat.slice(1, -1), p: p - 1 };
+}
+
+/** Rows `rows[k][j]` (k across, j along) as a B-spline surface keeping `s`'s knots along side `side`. */
+function rowsSurface(s, inU, rows, ks, ms, degree) {
+    const o = oc();
+    const R = rows.length, m = rows[0].length;
+    const poles = inU ? new o.NCollection_Array2_gp_Pnt(1, R, 1, m) : new o.NCollection_Array2_gp_Pnt(1, m, 1, R);
+    rows.forEach((row, k) => row.forEach((q, j) => {
+        const pt = new o.gp_Pnt(q.x, q.y, q.z);
+        if (inU) poles.SetValue(k + 1, j + 1, pt); else poles.SetValue(j + 1, k + 1, pt);
+    }));
+    const arr = (vals, Type) => { const a = new Type(1, vals.length); vals.forEach((v, i) => a.SetValue(i + 1, v)); return a; };
+    const other = inU ? 'V' : 'U';
+    const ok = [], om = [];
+    for (let i = 1; i <= s[`Nb${other}Knots`](); i++) { ok.push(s[`${other}Knot`](i)); om.push(s[`${other}Multiplicity`](i)); }
+    const [xk, xm, yk, ym] = [arr(ks, o.NCollection_Array1_double), arr(ms, o.NCollection_Array1_int), arr(ok, o.NCollection_Array1_double), arr(om, o.NCollection_Array1_int)];
+    const od = inU ? s.VDegree() : s.UDegree();
+    return inU ? new o.Geom_BSplineSurface(poles, xk, yk, xm, ym, degree, od, false, false)
+        : new o.Geom_BSplineSurface(poles, yk, xk, ym, xm, od, degree, false, false);
+}
+
 /**
- * Sheet `shape` grown `distance` past its open edge number `n`, straight on or, when `natural`,
- * following the surface's curvature; throws saying why when it cannot be.
+ * Soft and Reflective, as w3d_extension_face makes them on the desktop: a face of its own past side
+ * `side` of the clamped polynomial B-spline `s`, sharing that side's poles. Soft: per pole column, a
+ * cubic leaving with the column's tangent and curvature (G2), the curvature fading out by its far
+ * end. Reflective: the strip `distance` deep inside the side turned through it (2 e(v) − S(u, v)).
+ */
+function extensionFace(s, side, distance, reflective) {
+    const o = oc();
+    const inU = side < 2, after = side % 2 === 1;
+    if (s.IsURational() || s.IsVRational()) throw new Error('soft and reflective extend polynomial sheets only; try natural or linear');
+    if (inU ? s.IsUPeriodic() : s.IsVPeriodic()) throw new Error('that sheet is periodic across the edge; it has no side to extend');
+    const grid = g => {
+        const nu = g.NbUPoles(), nv = g.NbVPoles(), n = inU ? nu : nv, m = inU ? nv : nu;
+        const P = Array.from({ length: n }, (_, i) => Array.from({ length: m }, (_, j) => v3(inU ? g.Pole(i + 1, j + 1) : g.Pole(j + 1, i + 1))));
+        const nk = inU ? g.NbUKnots() : g.NbVKnots(), knots = [], mults = [];
+        for (let i = 1; i <= nk; i++) { knots.push(inU ? g.UKnot(i) : g.VKnot(i)); mults.push(inU ? g.UMultiplicity(i) : g.VMultiplicity(i)); }
+        return { P, n, m, knots, mults, flat: knots.flatMap((k, i) => Array(mults[i]).fill(k)) };
+    };
+    const p = inU ? s.UDegree() : s.VDegree();
+    const { P, n, m, knots, mults, flat } = grid(s);
+    const a = knots[0], b = knots.at(-1), at = after ? b : a;
+    if (!reflective) {
+        const rows = [[], [], [], []], T = distance;
+        for (let j = 0; j < m; j++) {
+            const c0 = { poles: P.map(r => r[j]), flat, p };
+            const c1 = derivative(c0), c2 = p > 1 ? derivative(c1) : null;
+            const end = c => after ? c.poles.at(-1) : c.poles[0];
+            const e = end(c0), d1 = end(c1).clone(), d2 = c2 ? end(c2).clone() : new THREE.Vector3();
+            if (!after) d1.negate();
+            const sp = d1.length();
+            if (!(sp > 1e-12)) throw new Error('the sheet is degenerate along that edge');
+            const v = d1.divideScalar(sp), w = d2.addScaledVector(v, -d2.dot(v)).divideScalar(sp * sp);
+            rows[0].push(e.clone());
+            rows[1].push(e.clone().addScaledVector(v, T / 3));
+            rows[2].push(e.clone().addScaledVector(v, 2 * T / 3).addScaledVector(w, T * T / 6));
+            rows[3].push(e.clone().addScaledVector(v, T).addScaledVector(w, T * T / 3));
+        }
+        return rowsSurface(s, inU, rows, [0, T], [4, 4], 3);
+    }
+    // How deep inside the side `distance` reaches, along the middle of it.
+    const ok = inU ? [s.VKnot(1), s.VKnot(s.NbVKnots())] : [s.UKnot(1), s.UKnot(s.NbUKnots())];
+    const mid = (ok[0] + ok[1]) / 2, N = 1024;
+    const at_ = t => v3(inU ? s.Value(t, mid) : s.Value(mid, t));
+    let run = 0, depth = -1, last = at_(at);
+    for (let i = 1; i <= N && depth < 0; i++) {
+        const t = after ? b - (b - a) * i / N : a + (b - a) * i / N;
+        const here = at_(t), step = last.distanceTo(here);
+        if (run + step >= distance) depth = Math.abs(t - at) - (b - a) / N * (1 - (distance - run) / Math.max(step, 1e-300));
+        run += step;
+        last = here;
+    }
+    if (depth <= 0) throw new Error(`reflective mirrors the sheet itself, which is only ${+run.toPrecision(3)} mm across there; extend less`);
+    const strip = new o.Geom_BSplineSurface(s);
+    const [lo, hi] = after ? [b - depth, b] : [a, a + depth];
+    if (inU) strip.Segment(lo, hi, ok[0], ok[1], 1e-9, 1e-9); else strip.Segment(ok[0], ok[1], lo, hi, 1e-9, 1e-9);
+    const g = grid(strip);
+    const edgeRow = after ? g.P[g.n - 1] : g.P[0];
+    const order = after ? [...g.P].reverse() : g.P;
+    const rows = order.map(row => row.map((q, j) => edgeRow[j].clone().multiplyScalar(2).sub(q)));
+    const ks = (after ? [...g.knots].reverse() : g.knots).map(k => Math.abs(k - at));
+    const ms = after ? [...g.mults].reverse() : g.mults;
+    return rowsSurface(s, inU, rows, ks, ms, p);
+}
+
+/**
+ * Sheet `shape` grown `distance` past its open edge number `n`: `natural` is the shape's name
+ * ('linear', 'natural', 'soft' or 'reflective'), or true for Natural and false for Linear. Linear goes
+ * straight on, Natural follows the surface's curvature, Soft and Reflective add a face of their own
+ * (see extensionFace); throws saying why when it cannot be.
  */
 export function extendSheet(shape, n, distance, natural = false) {
+    const kind = typeof natural === 'string' ? natural : natural ? 'natural' : 'linear';
+    if (!['linear', 'natural', 'soft', 'reflective'].includes(kind)) throw new Error('that is not an extension shape');
     const o = oc();
     if (!Number.isFinite(distance) || !(distance > 1e-6)) throw new Error('the distance must be above zero');
     if (!isSheet(shape)) throw new Error('extend edges of sheets; that body is solid');
@@ -138,15 +231,29 @@ export function extendSheet(shape, n, distance, natural = false) {
         const full = Math.abs(UMin - s.UKnot(1)) < 1e-9 && Math.abs(UMax - s.UKnot(s.NbUKnots())) < 1e-9 && Math.abs(VMin - s.VKnot(1)) < 1e-9 && Math.abs(VMax - s.VKnot(s.NbVKnots())) < 1e-9;
         const side = isoSide(edge, face, surface, b);
         const untrimmed = full && numberedEdges(face).every(e => o.BRep_Tool.Degenerated(e) || isoSide(e, face, surface, b) >= 0);
+        if ((kind === 'soft' || kind === 'reflective') && side >= 0 && untrimmed) {
+            const mk = new o.BRepBuilderAPI_MakeFace(extensionFace(s, side, distance, kind === 'reflective'), 1e-7);
+            if (!mk.IsDone()) throw new Error('the extension could not be made into a face');
+            const sew = new o.BRepBuilderAPI_Sewing(1e-6, true, true, true, false);
+            sew.Add(shape);
+            sew.Add(mk.Face());
+            sew.Perform(new o.Message_ProgressRange());
+            const result = sew.SewedShape();
+            const shared = x => numberedEdges(x).filter(e => numbered(x, 'TopAbs_FACE').filter(f => numberedEdges(f).some(g => g.IsSame(e))).length === 2).length;
+            if (shared(result) !== shared(shape) + 1) throw new Error('the extension could not be joined to the sheet');
+            if (!new o.BRepCheck_Analyzer(result, true, false, false).IsValid()) throw new Error('the extended sheet is not valid; try a shorter distance');
+            return result;
+        }
         if (side >= 0 && untrimmed) {
             if (s.IsURational() || s.IsVRational()) throw new Error('this build extends polynomial sheets only; the desktop app extends this one');
-            const mk = new o.BRepBuilderAPI_MakeFace(extendBSpline(s, side, distance, natural), 1e-7);
+            const mk = new o.BRepBuilderAPI_MakeFace(extendBSpline(s, side, distance, kind === 'natural'), 1e-7);
             if (!mk.IsDone()) throw new Error('the extended surface could not be made into a face');
             grown = mk.Face();
             if (face.Orientation() === o.TopAbs_Orientation.TopAbs_REVERSED) grown.Reverse();
         }
     }
     if (!grown) {
+        if (kind === 'soft' || kind === 'reflective') throw new Error("soft and reflective extend a side of the sheet's surface; that edge is trimmed across it");
         const curve = new o.BRepAdaptor_Curve(edge);
         if (ad.GetType() !== o.GeomAbs_SurfaceType.GeomAbs_Plane || curve.GetType() !== o.GeomAbs_CurveType.GeomAbs_Line) {
             throw new Error("extend a side of the sheet's surface, or a straight edge of a flat sheet; that edge is trimmed across its surface");
