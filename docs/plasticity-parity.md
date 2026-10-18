@@ -176,6 +176,10 @@ prints each step):
   it now falls back to the rounded join in both builds. A 40 mm shell is refused.
 - Handle: r6 bar swept along an arch, joined to a base plate, seams r2, plate rim r2. A r30 seam
   round is refused.
+The browser build runs the same three in `web/test/workflows.test.js` through LocalBackend. Its
+volumes now use Gauss–Kronrod integration: the plain Gauss rule read the shelled loft as 44 225 mm³
+against 40 054 mm³ (desktop 40 053, mesh 40 042) and made a 1.5 mm cap round look like it added
+material.
 Not covered yet: G1 checks at the joins (fillets are tangent by construction; Measure Continuity
-runs in the app, not in these tests) and the same runs in the browser build.
+runs in the app, not in these tests).
 

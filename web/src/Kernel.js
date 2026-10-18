@@ -223,10 +223,12 @@ export function transform(shape, { offset = [0, 0, 0], pivot = [0, 0, 0], axis =
     return new o.BRepBuilderAPI_Transform(shape, move, true, false).Shape();
 }
 
+// Gauss–Kronrod to a relative error of 1e-6: the plain Gauss rule misreads B-spline faces such as
+// shelled lofts and fillets by several percent.
 export function volume(shape) {
     const o = oc();
     const props = new o.GProp_GProps();
-    o.BRepGProp.VolumeProperties(shape, props, false, false, false);
+    o.BRepGProp.VolumePropertiesGK(shape, props, 1e-6, true, true, false, false, false);
     return props.Mass();
 }
 

@@ -186,7 +186,7 @@ fn a_closed_spline_is_a_region() {
     let blob = Profile::Spline(vec![(0.0, 0.0), (10.0, 0.0), (10.0, 10.0), (0.0, 10.0)]);
     let s = k.extrude(&blob, &ground(0.0), &Extent::to(5.0)).unwrap();
     assert!(k.is_valid(&s));
-    // The same periodic spline in the browser's OpenCascade encloses 160.003 mm²; the display mesh
+    // The same periodic spline in the browser's OpenCascade encloses 160.000 mm²; the display mesh
     // that measures it here cuts a little off the curve.
     close(volume(&k, &s), 800.015, 0.3);
     let s = k
