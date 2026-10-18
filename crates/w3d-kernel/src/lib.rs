@@ -410,6 +410,11 @@ pub trait Kernel {
     fn raise_faces(&self, _s: &Self::Solid, _faces: &[u32]) -> Result<(Self::Solid, Vec<RebuiltFace>), KernelError> {
         Err(KernelError::Invalid("this kernel cannot raise the degree of faces"))
     }
+    /// Plasticity's Untrim: a sheet of the whole surface under face `face` of `s`, with the face's
+    /// edges imprinted on it when `keep_edges`.
+    fn untrim_face(&self, _s: &Self::Solid, _face: u32, _keep_edges: bool) -> Result<Self::Solid, KernelError> {
+        Err(KernelError::Invalid("this kernel cannot untrim faces"))
+    }
     /// Plasticity's Match Face: `faces` of the solid replaced by the surface of `target`'s face
     /// `tface`, the body grown out to it or cut back to it.
     fn match_faces(&self, _s: &Self::Solid, _faces: &[u32], _target: &Self::Solid, _tface: u32) -> Result<Self::Solid, KernelError> {

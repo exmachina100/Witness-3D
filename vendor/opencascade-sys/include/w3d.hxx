@@ -3304,3 +3304,50 @@ inline std::unique_ptr<TopoDS_Shape> w3d_match_faces(const TopoDS_Shape &shape, 
     throw w3d_kernel_error(f);
   }
 }
+
+// Plasticity's Untrim: a sheet of the whole surface under face `index` of `shape`, out to the
+// surface's own bounds (a plane, or the open direction of a cylinder or cone, out to the face's
+// extent). With `keep`, the face's edges are imprinted on the sheet.
+inline std::unique_ptr<TopoDS_Shape> w3d_untrim_face(const TopoDS_Shape &shape, int32_t index, bool keep) {
+  TopTools_IndexedMapOfShape map;
+  TopExp::MapShapes(shape, TopAbs_FACE, map);
+  if (index < 0 || index >= map.Extent()) throw std::out_of_range("that face no longer exists");
+  try {
+    const TopoDS_Face f = TopoDS::Face(map(index + 1));
+    TopLoc_Location loc;
+    Handle(Geom_Surface) s = BRep_Tool::Surface(f, loc);
+    double u0, u1, v0, v1, fu0, fu1, fv0, fv1;
+    s->Bounds(u0, u1, v0, v1);
+    BRepTools::UVBounds(f, fu0, fu1, fv0, fv1);
+    if (Precision::IsInfinite(u0) || Precision::IsInfinite(u1)) { u0 = fu0; u1 = fu1; }
+    if (Precision::IsInfinite(v0) || Precision::IsInfinite(v1)) { v0 = fv0; v1 = fv1; }
+    BRepBuilderAPI_MakeFace mk(s, u0, u1, v0, v1, Precision::Confusion());
+    if (!mk.IsDone()) throw std::runtime_error("the face's surface could not be made into a sheet");
+    TopoDS_Shape sheet = mk.Face().Located(loc);
+    sheet.Orientation(f.Orientation());
+    if (keep) {
+      TopoDS_Compound edges;
+      BRep_Builder B;
+      B.MakeCompound(edges);
+      for (TopExp_Explorer ex(f, TopAbs_EDGE); ex.More(); ex.Next())
+        if (!BRep_Tool::Degenerated(TopoDS::Edge(ex.Current()))) B.Add(edges, ex.Current());
+      BRepAlgoAPI_Splitter split;
+      TopTools_ListOfShape args, tools;
+      args.Append(sheet);
+      tools.Append(edges);
+      split.SetArguments(args);
+      split.SetTools(tools);
+      split.SetFuzzyValue(1e-6);
+      split.Build();
+      if (!split.IsDone() || split.HasErrors()) throw std::runtime_error("the face's edges could not be imprinted on the sheet");
+      TopoDS_Shell shell;
+      B.MakeShell(shell);
+      int n = 0;
+      for (TopExp_Explorer ex(split.Shape(), TopAbs_FACE); ex.More(); ex.Next(), n++) B.Add(shell, ex.Current());
+      if (n > 1) sheet = shell;
+    }
+    return std::unique_ptr<TopoDS_Shape>(new TopoDS_Shape(sheet));
+  } catch (const Standard_Failure &f) {
+    throw w3d_kernel_error(f);
+  }
+}

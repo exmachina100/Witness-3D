@@ -346,6 +346,13 @@ impl Shape {
         Ok(Shape::from_shape(&shape))
     }
 
+    /// Plasticity's Untrim: a sheet of the whole surface under face `face`, with its edges
+    /// imprinted when `keep`.
+    pub fn untrim_face(&self, face: usize, keep: bool) -> Result<Shape, String> {
+        let shape = ffi::w3d::w3d_untrim_face(&self.inner, face as i32, keep).map_err(reason)?;
+        Ok(Shape::from_shape(&shape))
+    }
+
     /// How far `other`'s face `face` strays from this shape's, at the same surface parameters.
     pub fn face_deviation(&self, other: &Shape, face: usize) -> Result<f64, String> {
         ffi::w3d::w3d_face_deviation(&self.inner, &other.inner, face as i32).map_err(reason)

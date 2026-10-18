@@ -15,6 +15,7 @@ import { thicken, thickenFaces } from '../Thicken.js';
 import { extendSheet, extendSheetTo } from '../ExtendSheet.js';
 import { raiseFaces, rebuildFaces } from '../rebuildFace.js';
 import { matchFaces } from '../matchFace.js';
+import { compound, untrimFace } from '../untrim.js';
 import { joinSheets, unjoin } from '../Join.js';
 import { hiddenLines } from '../Drawing.js';
 
@@ -668,6 +669,26 @@ export class LocalBackend {
         this.checkpoint();
         this.put(req.body, shape);
         return { id: req.body, scene: this.bodies() };
+    }
+
+    /** Plasticity's Untrim: a sheet of the whole surface under each of `faces` of `body`, edges imprinted with `keep`. */
+    untrimResult({ body, faces = [], keep = false }) {
+        const s = this.shapes.get(body);
+        if (!s) throw new Error('that body no longer exists');
+        if (!faces.length) throw new Error('select the faces to untrim');
+        return faces.map(f => untrimFace(s, f, keep));
+    }
+
+    previewUntrim(req) {
+        return this.latest(async () => { const sheets = this.untrimResult(req); return this.body(0, sheets.length === 1 ? sheets[0] : compound(sheets)); });
+    }
+
+    /** Untrim as one undo step: each sheet is a body of its own and the faces' body stays. */
+    async commitUntrim(req) {
+        const sheets = this.untrimResult(req);
+        this.checkpoint();
+        const ids = sheets.map(s => { const id = this.nextId++; this.put(id, s); return id; });
+        return { ids, scene: this.bodies() };
     }
 
     /** Plasticity's Raise Surface Degree as one undo step: `faces` of `body`, or all of them. */

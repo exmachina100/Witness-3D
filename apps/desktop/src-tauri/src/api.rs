@@ -1270,6 +1270,35 @@ pub fn commit_pipe(m: &Model, req: PipeRequest) -> Result<Duplicated, ApiError> 
     })
 }
 
+/// Untrim: a sheet of the whole surface under each of `faces` of `body`, with the faces' edges
+/// imprinted on it with `keep`.
+#[derive(Deserialize, Debug, Clone)]
+pub struct UntrimRequest {
+    pub body: BodyId,
+    pub faces: Vec<u32>,
+    /// Keep edges: the faces' edges imprinted on the sheets.
+    #[serde(default)]
+    pub keep: bool,
+}
+
+pub fn preview_untrim(m: &Model, req: UntrimRequest) -> Option<Result<Body, ApiError>> {
+    m.preview(move |doc| {
+        let sheets = doc.preview_untrim(req.body, &req.faces, req.keep)?;
+        let mut sheets = sheets.into_iter();
+        let first = sheets.next().ok_or(KernelError::Invalid("select the faces to untrim"))?;
+        // Several sheets show as one preview body.
+        let all = sheets.try_fold(first, |a, s| doc.kernel.boolean(&a, &s, BooleanOp::Union).map(|r| r.solid))?;
+        Ok(body(&doc.kernel, 0, &all)?)
+    })
+}
+
+pub fn commit_untrim(m: &Model, req: UntrimRequest) -> Result<Duplicated, ApiError> {
+    m.call(move |doc| {
+        let ids = doc.commit_untrim(req.body, &req.faces, req.keep)?;
+        Ok(Duplicated { ids, scene: bodies(doc)? })
+    })
+}
+
 /// Extend Sheet: a sheet body grown `distance` past its open edge `edge`.
 #[derive(Deserialize, Debug, Clone)]
 pub struct ExtendSheetRequest {
