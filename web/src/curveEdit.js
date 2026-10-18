@@ -392,6 +392,32 @@ export function explode(c) {
     throw new Error('explode lines, rectangles, polygons and joined curves');
 }
 
+// --- Reverse Curve --------------------------------------------------------------------------------
+
+/**
+ * Plasticity's Reverse Curve: the same curve running the other way, so its start becomes its end
+ * (offset sides, bridge ends and sweep directions follow). Circles and ellipses are stored without
+ * a direction here, so there is nothing to turn round.
+ */
+export function reverseCurve(c) {
+    const { origin, x, normal, ...shape } = c;
+    return withShape(c, flipShape(shape));
+}
+function flipShape(c) {
+    switch (c.kind) {
+        // A closed outline keeps its first vertex and runs round the other way.
+        case 'polyline': case 'cv': return { kind: c.kind, points: c.closed ? [c.points[0], ...c.points.slice(1).reverse()] : [...c.points].reverse(), closed: !!c.closed };
+        case 'spline': return { kind: 'spline', points: [...c.points].reverse(), closed: !!c.closed, ...(c.samples ? { samples: [...c.samples].reverse() } : {}) };
+        case 'arc': return { kind: 'arc', start: c.end, mid: c.mid, end: c.start };
+        case 'nurbs': {
+            const a = c.knots[0], b = c.knots.at(-1);
+            return { kind: 'nurbs', degree: c.degree, poles: [...c.poles].reverse(), weights: [...c.weights].reverse(), knots: c.knots.map(k => a + b - k).reverse() };
+        }
+        case 'contour': return { kind: 'contour', pieces: [...c.pieces].reverse().map(flipShape) };
+        default: throw new Error('circles and ellipses have no direction to reverse');
+    }
+}
+
 // --- Trim -----------------------------------------------------------------------------------------
 
 const v3 = { sub: (a, b) => a.map((v, i) => v - b[i]), dot: (a, b) => a.reduce((s, v, i) => s + v * b[i], 0) };
