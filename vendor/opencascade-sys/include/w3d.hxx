@@ -2300,7 +2300,10 @@ inline rust::Vec<double> w3d_project_outline(const TopoDS_Shape &shape, rust::Sl
     // A sheet on the plane covering every line, split by them.
     double x0, y0, z0, x1, y1, z1;
     box.Get(x0, y0, z0, x1, y1, z1);
-    double size = gp_Pnt(x0, y0, z0).Distance(gp_Pnt(x1, y1, z1)) + 10.0;
+    // Round the plane's origin, out past the farthest line (the body need not sit over the origin).
+    double size = 0.0;
+    for (double x : {x0, x1}) for (double y : {y0, y1}) for (double z : {z0, z1}) size = std::max(size, frame.Location().Distance(gp_Pnt(x, y, z)));
+    size += 10.0;
     gp_Pln pln(frame.Location(), frame.Direction());
     TopoDS_Face sheet = BRepBuilderAPI_MakeFace(pln, -size, size, -size, size).Face();
     BRepAlgoAPI_Splitter split;
@@ -2317,26 +2320,17 @@ inline rust::Vec<double> w3d_project_outline(const TopoDS_Shape &shape, rust::Sl
     TopTools_ListOfShape shadow;
     for (TopExp_Explorer ex(split.Shape(), TopAbs_FACE); ex.More(); ex.Next()) {
       TopoDS_Face f = TopoDS::Face(ex.Current());
-      BRepAdaptor_Surface s(f);
-      double u0 = s.FirstUParameter(), u1 = s.LastUParameter(), v0 = s.FirstVParameter(), v1 = s.LastVParameter();
-      Bnd_Box fb;
-      BRepBndLib::Add(f, fb);
-      // Find a point inside the piece: try a grid until the classifier says IN.
-      double fx0, fy0, fz0, fx1, fy1, fz1;
-      fb.Get(fx0, fy0, fz0, fx1, fy1, fz1);
+      // Find a point inside the piece: a grid over its own (u, v) bounds until the classifier says IN.
+      double u0, u1, v0, v1;
+      BRepTools::UVBounds(f, u0, u1, v0, v1);
+      Handle(Geom_Surface) surf = BRep_Tool::Surface(f);
       bool found = false;
       gp_Pnt inside;
       for (int k = 1; k < 24 && !found; k++) {
         for (int i = 1; i < 2 * k && !found; i++) for (int j = 1; j < 2 * k && !found; j++) {
-          gp_Pnt p(fx0 + (fx1 - fx0) * i / (2.0 * k), fy0 + (fy1 - fy0) * j / (2.0 * k), fz0 + (fz1 - fz0) * i / (2.0 * k));
-          // The box is flat along the normal only when the plane is axis-aligned; project onto the plane.
-          gp_Vec off(frame.Location(), p);
-          p.Translate(gp_Vec(n) * -off.Dot(gp_Vec(n)));
-          double pu, pv;
-          ElSLib::Parameters(pln, p, pu, pv);
-          if (pu < u0 || pu > u1 || pv < v0 || pv > v1) continue;
-          BRepClass_FaceClassifier cls(f, gp_Pnt2d(pu, pv), 1e-7);
-          if (cls.State() == TopAbs_IN) { inside = p; found = true; }
+          gp_Pnt2d uv(u0 + (u1 - u0) * i / (2.0 * k), v0 + (v1 - v0) * j / (2.0 * k));
+          BRepClass_FaceClassifier cls(f, uv, 1e-7);
+          if (cls.State() == TopAbs_IN) { inside = surf->Value(uv.X(), uv.Y()); found = true; }
         }
       }
       if (!found) continue;
