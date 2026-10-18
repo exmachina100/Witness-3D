@@ -66,7 +66,7 @@ import { icon } from './icons.js';
 import { limitEdges, toObj, toStl } from '../meshExport.js';
 import { flatten, toDxf, toSvg } from '../drawingExport.js';
 import { readDxf } from '../dxf.js';
-import { BRIDGE_CONTINUITY, bridgeContinuous, continuity, curvatureComb, curveVertices, explode, EXTEND_SHAPES, extendCurve, filletCurve, nearestEnd, OFFSET_CORNERS, offsetCurve, offsetSlot, offsetThrough, unionLoops, moveVertices, alignedInPlane, offsetVertex, rebuildCurve, insertKnotAt, raiseDegree, reverseCurve, transformCurve, moveVerticesTo, splitCurve, tangentCircle, trim } from '../curveEdit.js';
+import { BRIDGE_CONTINUITY, bridgeContinuous, continuity, curvatureComb, curveVertices, explode, EXTEND_SHAPES, extendCurve, filletCurve, nearestEnd, OFFSET_CORNERS, offsetCurve, offsetSlot, offsetThrough, unionLoops, moveVertices, alignedInPlane, offsetVertex, rebuildCurve, convertVertices, insertKnotAt, raiseDegree, reverseCurve, transformCurve, moveVerticesTo, splitCurve, tangentCircle, trim } from '../curveEdit.js';
 import { ViewGizmo } from './ViewGizmo.js';
 import { Toolbar } from './Toolbar.js';
 import { arcPoints, circleThrough, cvPoints, ellipsePoints, endTangent, helixPoints, loops, nurbsLoop, nurbsPoints, polygonCorners, spiralAngle, tangentArc } from '../curves.js';
@@ -1035,7 +1035,7 @@ export async function mount(root, backend) {
   }
   const isClosed = c => c.kind === 'circle' || c.kind === 'ellipse' || (c.kind === 'contour' ? loops(c.pieces) : c.kind === 'nurbs' ? nurbsLoop(c) : c.kind !== 'arc' && c.closed && c.points.length >= 3);
   // Control-point curves draw from their control points with the same B-spline the kernels make.
-  const curveName = c => ({ circle: 'CIRCLE', arc: 'ARC', spline: 'SPLINE', cv: 'CV CURVE', ellipse: 'ELLIPSE', contour: 'CONTOUR', spiral: 'SPIRAL', nurbs: 'PROJECTED CURVE' })[c.kind] ?? (!c.closed ? 'LINE' : c.points.length === 4 ? 'RECTANGLE' : 'POLYGON');
+  const curveName = c => ({ circle: 'CIRCLE', arc: 'ARC', spline: 'SPLINE', cv: 'CV CURVE', ellipse: 'ELLIPSE', contour: 'CONTOUR', spiral: 'SPIRAL', nurbs: 'NURBS CURVE' })[c.kind] ?? (!c.closed ? 'LINE' : c.points.length === 4 ? 'RECTANGLE' : 'POLYGON');
   /** A spline through the points for drawing before the kernel has made it (the kernel's own fit
    * is close to this chordal Catmull-Rom curve, not the same). */
   function splinePreview(points, closed) {
@@ -4918,6 +4918,20 @@ export async function mount(root, backend) {
     } catch (e) { toast(say(e)); }
   }
 
+  /** Plasticity's Convert Vertex: picked corners of lines become control vertices, one undo step. */
+  async function convertSelected(picked = sel.list('vertex').filter(v => curveById(v.id))) {
+    if (cmd) await finish();
+    if (!picked.length) return toast('SELECT CORNERS OF A LINE TO CONVERT');
+    if (!backend.replaceCurves) return toast('CONVERT VERTEX IS NOT IN THIS BUILD YET');
+    try {
+      const ids = [...new Set(picked.map(v => v.id))];
+      const list = ids.map(id => convertVertices(curveById(id), picked.filter(v => v.id === id).map(v => v.n)));
+      const { ids: made } = await backend.replaceCurves(ids, list);
+      record(`CONVERT VERTEX ${ids.map(curveLabel).join(' ')}`, made[0], `${picked.length} VERTICES`);
+      await curvesChanged(made);
+    } catch (e) { toast(say(e)); }
+  }
+
   /** Plasticity's Raise Degree: the selected curves one degree higher, same shape, one undo step. */
   async function raiseSelected() {
     if (cmd) await finish();
@@ -5845,6 +5859,7 @@ export async function mount(root, backend) {
       case 'align-vertex': await startAlignVertex(); return true;
       case 'rebuild': await startRebuild(); return true;
       case 'raise-degree': await raiseSelected(); return true;
+      case 'convert-vertex': await convertSelected(); return true;
       case 'insert-knot': if (cmd) await finish(); startInsertKnot(); return true;
       case 'hide': setHidden(sel.bodies, true); return true;
       case 'hide-others': setHidden(current.map(b => b.id).filter(id => !sel.bodies.includes(id)), true); return true;
@@ -6008,7 +6023,7 @@ export async function mount(root, backend) {
       out.push('explode', 'reverse', 'rebuild', 'insert-knot', 'raise-degree', 'measure:continuity', 'delete');
     }
     // Curve vertices: Fillet Vertex (B), Offset Vertex and, with two ends, Bridge Vertex.
-    if (kinds.has('vertex')) out.push('tool:fillet', 'tool:offset-curve', 'align-vertex', ...(sel.list('vertex').length === 2 ? ['tool:bridge'] : []));
+    if (kinds.has('vertex')) out.push('tool:fillet', 'tool:offset-curve', 'align-vertex', 'convert-vertex', ...(sel.list('vertex').length === 2 ? ['tool:bridge'] : []));
     if (kinds.size) out.push('convert:solid', 'select:invert', 'view:focus');
     else out.push('draw:line', 'draw:spline', 'draw:rect', 'draw:circle', 'draw:arc3', 'tool:box', 'tool:cylinder', 'tool:sphere', 'select:all', 'unhide-all', 'plane:view');
     if (!kinds.size && org.layers.length) out.push('isolate', 'unisolate');
@@ -6304,6 +6319,8 @@ export async function mount(root, backend) {
   canvas.addEventListener('dblclick', e => {
     if (cmd && !cmd.auto) return;
     const hit = pickAt(e);
+    // Plasticity: double-click a curve vertex to convert it into a control vertex.
+    if (hit?.kind === 'vertex' && curveById(hit.id)) { convertSelected([{ id: hit.id, n: hit.n }]); return; }
     if (!hit || hit.body === undefined) return;
     applySelect({ kind: 'solid', body: hit.body }, e.shiftKey ? 'add' : 'replace');
     selectionChanged();

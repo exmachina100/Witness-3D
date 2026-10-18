@@ -597,6 +597,59 @@ function flipShape(c) {
     }
 }
 
+// --- Convert Vertex ---------------------------------------------------------------------------------
+
+/** A Bezier's control points one degree higher, same curve. */
+function elevateBezier(P) {
+    const m = P.length - 1;
+    return [P[0], ...P.slice(1).map((q, i) => { const a = (i + 1) / (m + 1); return add(mul(P[i], a), mul(q, 1 - a)); }), P[m]];
+}
+
+/**
+ * Plasticity's Convert Vertex: the picked corners of a line become control vertices, so the line
+ * runs smoothly past them instead of through them. Between each pair of corners kept, the converted
+ * vertices are the control points of one smooth span (a Bezier, or a cubic B-spline when there are
+ * more than two); the whole comes back as one NURBS curve, or a control-point curve when every
+ * vertex but the ends is converted. `ns` are vertex numbers as curveVertices lists them.
+ */
+export function convertVertices(c, ns) {
+    let pts, closed;
+    if (c.kind === 'polyline') { pts = c.points.map(p => [...p]); closed = !!c.closed; }
+    else if (c.kind === 'contour' && c.pieces.every(p => p.kind === 'polyline')) {
+        pts = dedupe(c.pieces.flatMap(p => p.points.map(q => [...q])));
+        closed = loops(c.pieces);
+        if (closed && dist(pts[0], pts.at(-1)) < 1e-6) pts.pop();
+    } else throw new Error('Convert Vertex works on the corners of lines');
+    const soft = new Set(ns.filter(n => n >= 0 && n < pts.length && (closed || (n > 0 && n < pts.length - 1))));
+    if (!soft.size) throw new Error(closed ? 'pick corners to convert' : 'pick corners between the ends; the ends stay put');
+    const frame = frameOf(c);
+    if (soft.size === pts.length || (!closed && soft.size === pts.length - 2)) return { ...frame, kind: 'cv', points: pts, closed };
+    // Start a closed outline at a corner that stays, and come back to it.
+    let order = pts.map((_, i) => i);
+    if (closed) { const s = order.find(i => !soft.has(i)); order = [...order.slice(s), ...order.slice(0, s), s]; }
+    const spans = [];
+    let run = [order[0]];
+    for (const i of order.slice(1)) {
+        run.push(i);
+        if (!soft.has(i)) { spans.push(run.map(j => pts[j])); run = [i]; }
+    }
+    const d = Math.min(3, Math.max(...spans.map(s => s.length - 1)));
+    const poles = [], knots = [...Array(d + 1).fill(0)];
+    spans.forEach((s, k) => {
+        let P = s, inner = [];
+        if (s.length - 1 <= d) while (P.length - 1 < d) P = elevateBezier(P);
+        else {
+            // A clamped cubic B-spline through this run's control points, its own knots inside the span.
+            const spansIn = s.length - d;
+            inner = Array.from({ length: spansIn - 1 }, (_, i) => k + (i + 1) / spansIn);
+        }
+        poles.push(...(k ? P.slice(1) : P));
+        knots.push(...inner, ...Array(k === spans.length - 1 ? d + 1 : d).fill(k + 1));
+    });
+    const total = spans.length;
+    return { ...frame, kind: 'nurbs', degree: d, poles: poles.map(([x, y]) => [x, y, 0]), weights: poles.map(() => 1), knots: knots.map(v => v / total) };
+}
+
 // --- Rebuild Curve ----------------------------------------------------------------------------------
 
 /** The values of the `count` B-spline basis functions of degree `p` on `knots` at `t`. */
