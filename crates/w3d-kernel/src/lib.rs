@@ -405,6 +405,11 @@ pub trait Kernel {
     fn rebuild_faces(&self, _s: &Self::Solid, _faces: &[u32], _how: &FaceRebuild) -> Result<(Self::Solid, Vec<RebuiltFace>), KernelError> {
         Err(KernelError::Invalid("this kernel cannot rebuild faces"))
     }
+    /// Plasticity's Raise Surface Degree: `faces` with their U and V degree raised by one (a face
+    /// that isn't a B-spline is first fitted as one), faces and edges keeping their numbers.
+    fn raise_faces(&self, _s: &Self::Solid, _faces: &[u32]) -> Result<(Self::Solid, Vec<RebuiltFace>), KernelError> {
+        Err(KernelError::Invalid("this kernel cannot raise the degree of faces"))
+    }
     /// Extend Sheet's Limit: the sheet carried on past its open `edge` until it first meets `target`.
     fn extend_sheet_to(&self, _s: &Self::Solid, _edge: u32, _target: &Self::Solid, _shape: SheetExtension) -> Result<Self::Solid, KernelError> {
         Err(KernelError::Invalid("this kernel cannot extend sheets to a body"))

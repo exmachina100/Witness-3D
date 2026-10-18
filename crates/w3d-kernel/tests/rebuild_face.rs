@@ -164,3 +164,29 @@ fn bad_settings_are_refused_and_leave_the_body_alone() {
     assert!(k.rebuild_faces(&s, &[5], &FaceRebuild::default()).is_err());
     assert!(k.is_valid(&s));
 }
+
+#[test]
+fn raise_degree_adds_a_row_and_column_without_moving_the_face() {
+    let k = Occt;
+    let s = bridge(&k);
+    let (_, before) = k.rebuild_faces(&s, &[0], &explicit([3, 3], [2, 2])).unwrap();
+    let (r, info) = k.raise_faces(&k.rebuild_faces(&s, &[0], &explicit([3, 3], [2, 2])).unwrap().0, &[0]).unwrap();
+    assert!(k.is_valid(&r));
+    assert_eq!(info[0].degree, [4, 4]);
+    assert!(info[0].poles[0] > before[0].poles[0] && info[0].poles[1] > before[0].poles[1], "more CVs each way: {before:?} -> {info:?}");
+    assert!(info[0].deviation < 1e-9, "raising is exact: {info:?}");
+}
+
+#[test]
+fn raise_degree_on_a_solid_fits_its_flat_and_round_faces_first() {
+    let k = Occt;
+    let ground = Frame::new(DVec3::ZERO, DVec3::X, DVec3::Y);
+    let c = primitive(&k, &w3d_kernel::solids::Primitive::Cylinder { frame: ground, radius: 5.0, height: 10.0 }).unwrap();
+    let all: Vec<u32> = (0..k.face_count(&c) as u32).collect();
+    let (r, info) = k.raise_faces(&c, &all).unwrap();
+    assert!(k.is_valid(&r) && !k.is_sheet(&r));
+    assert_eq!(k.face_count(&r), k.face_count(&c));
+    assert!(info.iter().all(|f| f.degree == [4, 4] && f.deviation <= 1e-3), "{info:?}");
+    let v = k.tessellate(&r, 0.001).unwrap().volume();
+    assert!((v - PI * 250.0).abs() < 0.5, "volume {v}");
+}

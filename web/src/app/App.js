@@ -5335,10 +5335,37 @@ export async function mount(root, backend) {
   }
 
   /** Plasticity's Raise Degree: the selected curves one degree higher, same shape, one undo step. */
+  /**
+   * Plasticity's Raise Surface Degree (Shift+S): the selected faces, or every face of the selected
+   * solids, get one more degree each way, so more control points without changing shape.
+   */
+  async function raiseSurfaces() {
+    if (!backend.commitRaiseFaces) return toast('RAISE SURFACE DEGREE IS NOT IN THIS BUILD YET');
+    const byBody = new Map();
+    for (const it of sel.list('face')) byBody.set(it.body, [...(byBody.get(it.body) ?? []), it.n]);
+    for (const id of sel.solids) byBody.set(id, []);
+    try {
+      let list = null, last = null;
+      const done = [];
+      for (const [body, faces] of byBody) {
+        const r = await backend.commitRaiseFaces({ body, faces });
+        list = r.scene; last = r.id;
+        done.push(...r.rebuilt);
+        record(`RAISE DEGREE ${faces.length ? `×${faces.length}` : 'ALL FACES'}`, r.id);
+      }
+      await showScene(list);
+      sel.replace({ kind: 'solid', body: last });
+      selectionChanged({ quiet: true });
+      const degrees = [...new Set(done.map(f => `${f.degree[0]}×${f.degree[1]}`))].join(', ');
+      toast(`${done.length} FACE${done.length > 1 ? 'S' : ''} RAISED TO DEGREE ${degrees}`);
+    } catch (e) { toast(say(e)); }
+  }
+
   async function raiseSelected() {
     if (cmd) await finish();
     const ids = sel.curves.filter(curveById);
-    if (!ids.length) return toast('SELECT A CURVE TO RAISE ITS DEGREE');
+    if (!ids.length && (sel.list('face').length || sel.solids.length)) return raiseSurfaces();
+    if (!ids.length) return toast('SELECT A CURVE, FACES OR SOLIDS TO RAISE THEIR DEGREE');
     if (!backend.replaceCurves) return toast('RAISE DEGREE IS NOT IN THIS BUILD YET');
     try {
       const list = ids.map(id => raiseDegree(curveById(id)));
@@ -6443,8 +6470,8 @@ export async function mount(root, backend) {
     const out = [];
     if (sel.solids.length > 1) out.push('tool:boolean');
     if (sel.solids.length === 2) out.push('tool:project');
-    if (kinds.has('solid')) out.push('tool:move', 'tool:rotate', 'tool:scale', 'duplicate', 'tool:mirror', 'tool:rect-array', 'tool:radial-array', 'tool:curve-array', 'unify', 'boundary-edges', 'remove-fillets', 'delete', 'hide', 'isolate', 'group', 'lock', 'material:set', 'export:step', 'export:mesh', 'export:drawing');
-    if (kinds.has('face')) out.push('tool:extrude', 'tool:offset', 'tool:thicken', 'tool:shell', 'tool:hole', 'tool:remove-face', 'remove-fillets', 'isoparam', 'rebuild', 'plane:selection', 'plane:selection-keep-view');
+    if (kinds.has('solid')) out.push('tool:move', 'tool:rotate', 'tool:scale', 'duplicate', 'tool:mirror', 'tool:rect-array', 'tool:radial-array', 'tool:curve-array', 'unify', 'boundary-edges', 'remove-fillets', 'raise-degree', 'delete', 'hide', 'isolate', 'group', 'lock', 'material:set', 'export:step', 'export:mesh', 'export:drawing');
+    if (kinds.has('face')) out.push('tool:extrude', 'tool:offset', 'tool:thicken', 'tool:shell', 'tool:hole', 'tool:remove-face', 'remove-fillets', 'isoparam', 'rebuild', 'raise-degree', 'plane:selection', 'plane:selection-keep-view');
     if (kinds.has('edge')) out.push('tool:fillet', 'tool:patch', 'measure:radius');
     if (sel.list('edge').length === 2) out.push('tool:bridge-surface');
     if (sel.solids.some(id => current.find(b => b.id === id)?.sheet)) out.push('tool:thicken', 'reverse-sheet');

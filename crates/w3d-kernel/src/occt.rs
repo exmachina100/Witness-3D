@@ -386,11 +386,14 @@ impl Kernel for Occt {
             how.tolerance, how.extend[0], how.extend[1], if how.shrink { 1.0 } else { 0.0 },
         ];
         let made = s.rebuild_faces(&idx, &p).map_err(shim)?;
-        let mut info = Vec::with_capacity(faces.len());
-        for &f in faces {
-            let [du, dv, nu, nv] = made.face_spline(f as usize).map_err(shim)?.ok_or(KernelError::Invalid("the rebuilt face is not a B-spline"))?;
-            info.push(RebuiltFace { face: f, degree: [du, dv], poles: [nu, nv], deviation: s.face_deviation(&made, f as usize).map_err(shim)? });
-        }
+        let info = rebuilt(s, &made, faces)?;
+        Ok((made, info))
+    }
+
+    fn raise_faces(&self, s: &Shape, faces: &[u32]) -> Result<(Shape, Vec<RebuiltFace>), KernelError> {
+        let idx: Vec<usize> = faces.iter().map(|&f| f as usize).collect();
+        let made = s.raise_faces(&idx).map_err(shim)?;
+        let info = rebuilt(s, &made, faces)?;
         Ok((made, info))
     }
 
@@ -547,4 +550,12 @@ fn cutter_numbers(cutters: &[(Path, DVec3)]) -> Result<Vec<f64>, KernelError> {
         data.extend(path_numbers(path)?);
     }
     Ok(data)
+}
+
+/// What each of `faces` became from `old` to `new`: its surface's degree and poles, and how far it moved.
+fn rebuilt(old: &Shape, new: &Shape, faces: &[u32]) -> Result<Vec<RebuiltFace>, KernelError> {
+    faces.iter().map(|&f| {
+        let [du, dv, nu, nv] = new.face_spline(f as usize).map_err(shim)?.ok_or(KernelError::Invalid("the new face is not a B-spline"))?;
+        Ok(RebuiltFace { face: f, degree: [du, dv], poles: [nu, nv], deviation: old.face_deviation(new, f as usize).map_err(shim)? })
+    }).collect()
 }

@@ -13,7 +13,7 @@ import { bridgeSurface } from '../BridgeSurface.js';
 import { projectOutline } from '../Outline.js';
 import { thicken, thickenFaces } from '../Thicken.js';
 import { extendSheet, extendSheetTo } from '../ExtendSheet.js';
-import { rebuildFaces } from '../rebuildFace.js';
+import { raiseFaces, rebuildFaces } from '../rebuildFace.js';
 import { joinSheets, unjoin } from '../Join.js';
 import { hiddenLines } from '../Drawing.js';
 
@@ -648,6 +648,16 @@ export class LocalBackend {
 
     previewRebuildFaces(req) {
         return this.latest(async () => { const { shape, rebuilt } = this.rebuildResult(req); return { ...this.body(req.body, shape), rebuilt }; });
+    }
+
+    /** Plasticity's Raise Surface Degree as one undo step: `faces` of `body`, or all of them. */
+    async commitRaiseFaces({ body, faces = [] }) {
+        const s = this.shapes.get(body);
+        if (!s) throw new Error('that body no longer exists');
+        const { shape, rebuilt } = raiseFaces(s, faces);
+        this.checkpoint();
+        this.put(body, shape);
+        return { id: body, scene: this.bodies(), rebuilt };
     }
 
     /** Rebuild Face as one undo step: the body keeps its id. */

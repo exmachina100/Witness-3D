@@ -70,6 +70,7 @@ const rust = {
   previewBridgeSurface: req => tauri.core.invoke('preview_bridge_surface', { req }),
   commitBridgeSurface: req => tauri.core.invoke('commit_bridge_surface', { req }),
   previewProject: req => tauri.core.invoke('preview_project', { req }),
+  commitRaiseFaces: req => tauri.core.invoke('commit_raise_faces', { req }),
   previewRebuildFaces: req => tauri.core.invoke('preview_rebuild_faces', { req }),
   commitRebuildFaces: req => tauri.core.invoke('commit_rebuild_faces', { req }),
   previewDraft: req => tauri.core.invoke('preview_draft', { req }),

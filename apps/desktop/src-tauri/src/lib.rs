@@ -298,6 +298,14 @@ async fn commit_unjoin(
 }
 
 #[tauri::command]
+async fn commit_raise_faces(
+    model: State<'_, Model>,
+    req: api::RaiseFacesRequest,
+) -> Result<api::RebuildCommitted, api::ApiError> {
+    on_model(&model, move |m| api::commit_raise_faces(m, req)).await?
+}
+
+#[tauri::command]
 async fn preview_rebuild_faces(
     model: State<'_, Model>,
     req: api::RebuildFacesRequest,
@@ -711,6 +719,7 @@ pub fn run() {
             preview_join_sheets,
             commit_join_sheets,
             commit_unjoin,
+            commit_raise_faces,
             preview_rebuild_faces,
             commit_rebuild_faces,
             preview_extend_sheet,

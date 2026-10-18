@@ -6,7 +6,7 @@ import * as THREE from 'three';
 import { blendEdges, boolean, box, count, loadKernel, numbered, numberedEdges, oc, primitive, volume } from '../src/Kernel.js';
 import { bridgeSurface } from '../src/BridgeSurface.js';
 import { patch } from '../src/Patch.js';
-import { rebuildFaces } from '../src/rebuildFace.js';
+import { raiseFaces, rebuildFaces } from '../src/rebuildFace.js';
 
 before(async () => { await loadKernel() });
 
@@ -119,4 +119,22 @@ test('bad settings are refused', () => {
     assert.throws(() => rebuildFaces(s, [0], { tolerance: 0 }), /tolerance/);
     assert.throws(() => rebuildFaces(s, [5], {}), /no longer exists/);
     assert.throws(() => rebuildFaces(s, [], {}), /select/);
+});
+
+test('raise degree adds control points without moving the face', () => {
+    const s = rebuildFaces(bridge(), [0], { explicit: true, degree: [3, 3], spans: [2, 2] }).shape;
+    const { shape, rebuilt } = raiseFaces(s, [0]);
+    assert.deepEqual(rebuilt[0].degree, [4, 4]);
+    assert.ok(rebuilt[0].poles[0] > 5 && rebuilt[0].poles[1] > 5, JSON.stringify(rebuilt));
+    assert.ok(rebuilt[0].deviation < 1e-9, JSON.stringify(rebuilt));
+    close(area(shape), area(s), 1e-6);
+});
+
+test('raise degree on a whole solid fits its flat and round faces first', () => {
+    const c = primitive({ kind: 'cylinder', frame: ground, radius: 5, height: 10 });
+    const { shape, rebuilt } = raiseFaces(c);
+    assert.equal(rebuilt.length, count(c, 'TopAbs_FACE'));
+    assert.ok(rebuilt.every(f => f.degree[0] === 4 && f.deviation <= 1e-3), JSON.stringify(rebuilt));
+    assert.equal(count(shape, 'TopAbs_SOLID'), 1);
+    close(volume(shape), Math.PI * 250, 0.5);
 });

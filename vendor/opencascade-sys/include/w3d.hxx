@@ -2998,6 +2998,45 @@ inline rust::Vec<int32_t> w3d_face_spline(const TopoDS_Shape &shape, int32_t ind
   return out;
 }
 
+// Face `f` (of a copied shape: its edges are updated in place) on the surface `made`, which keeps
+// `f`'s surface parameters to within `dev` mm: the same edges and wires, their curves on the face
+// carried over and their tolerances raised to cover how far they now lie from the surface.
+inline TopoDS_Face w3d_face_on(const TopoDS_Face &f, const Handle(Geom_Surface) &made, const TopLoc_Location &loc, double dev) {
+  BRep_Builder B;
+  const double t = std::max(dev * 1.01, Precision::Confusion());
+  // Built forward (Add would turn the wires of a reversed face), then turned like the old one. The
+  // wires come with their locations in full, since Add takes the face's own location off them.
+  TopoDS_Face nf = TopoDS::Face(f.Oriented(TopAbs_FORWARD).EmptyCopied());
+  B.UpdateFace(nf, made, loc, t);
+  for (TopoDS_Iterator it(f, false, true); it.More(); it.Next()) B.Add(nf, it.Value());
+  nf.Orientation(f.Orientation());
+  TopTools_IndexedMapOfShape edges;
+  TopExp::MapShapes(f, TopAbs_EDGE, edges);
+  const TopoDS_Face ff = TopoDS::Face(f.Oriented(TopAbs_FORWARD));
+  for (int i = 1; i <= edges.Extent(); i++) {
+    TopoDS_Edge e = TopoDS::Edge(edges(i));
+    double a, b;
+    if (BRep_Tool::IsClosed(e, f)) {
+      TopoDS_Edge ef = TopoDS::Edge(e.Oriented(TopAbs_FORWARD)), er = TopoDS::Edge(e.Oriented(TopAbs_REVERSED));
+      Handle(Geom2d_Curve) c1 = BRep_Tool::CurveOnSurface(ef, ff, a, b), c2 = BRep_Tool::CurveOnSurface(er, ff, a, b);
+      B.UpdateEdge(ef, c1, c2, made, loc, t);
+    } else {
+      Handle(Geom2d_Curve) c = BRep_Tool::CurveOnSurface(e, ff, a, b);
+      if (c.IsNull()) throw std::runtime_error("an edge of that face has no curve on it");
+      B.UpdateEdge(e, c, made, loc, t);
+    }
+    B.Range(e, made, loc, a, b);
+    // The edge's tolerance covers how far its curve now lies from the new surface.
+    double off = 0.0;
+    ShapeAnalysis_Edge().CheckSameParameter(e, off, 64);
+    const double et = std::max(t, off * 1.05);
+    B.UpdateEdge(e, et);
+    B.UpdateVertex(TopExp::FirstVertex(e), et);
+    B.UpdateVertex(TopExp::LastVertex(e), et);
+  }
+  return nf;
+}
+
 // Plasticity's Rebuild Face: each of `faces` given a new polynomial B-spline surface, its edges and
 // trims kept. `p` is [explicit, degree u, degree v, spans u, spans v, tolerance, extend u, extend v,
 // shrink]. Explicit fits the given degree and spans; otherwise degree 3 with as few uniform spans as
@@ -3018,7 +3057,6 @@ inline std::unique_ptr<TopoDS_Shape> w3d_rebuild_faces(const TopoDS_Shape &shape
     TopTools_IndexedMapOfShape map;
     TopExp::MapShapes(work, TopAbs_FACE, map);
     Handle(BRepTools_ReShape) rs = new BRepTools_ReShape();
-    BRep_Builder B;
     for (int32_t index : faces) {
       if (index < 0 || index >= map.Extent()) throw std::out_of_range("that face no longer exists");
       TopoDS_Face f = TopoDS::Face(map(index + 1));
@@ -3064,40 +3102,55 @@ inline std::unique_ptr<TopoDS_Shape> w3d_rebuild_faces(const TopoDS_Shape &shape
         if (made.IsNull()) throw std::runtime_error("the rebuilt face could not be extended");
       }
       const double dev = deviation(made);
-      const double t = std::max(dev * 1.01, Precision::Confusion());
-      // Built forward (Add would turn the wires of a reversed face), then turned like the old one.
-      TopoDS_Face nf = TopoDS::Face(f.Oriented(TopAbs_FORWARD).EmptyCopied());
-      B.UpdateFace(nf, made, loc, t);
-      for (TopoDS_Iterator it(f, false, false); it.More(); it.Next()) B.Add(nf, it.Value());
-      nf.Orientation(f.Orientation());
-      TopTools_IndexedMapOfShape edges;
-      TopExp::MapShapes(f, TopAbs_EDGE, edges);
-      const TopoDS_Face ff = TopoDS::Face(f.Oriented(TopAbs_FORWARD));
-      for (int i = 1; i <= edges.Extent(); i++) {
-        TopoDS_Edge e = TopoDS::Edge(edges(i));
-        double a, b;
-        if (BRep_Tool::IsClosed(e, f)) {
-          TopoDS_Edge ef = TopoDS::Edge(e.Oriented(TopAbs_FORWARD)), er = TopoDS::Edge(e.Oriented(TopAbs_REVERSED));
-          Handle(Geom2d_Curve) c1 = BRep_Tool::CurveOnSurface(ef, ff, a, b), c2 = BRep_Tool::CurveOnSurface(er, ff, a, b);
-          B.UpdateEdge(ef, c1, c2, made, loc, t);
-        } else {
-          Handle(Geom2d_Curve) c = BRep_Tool::CurveOnSurface(e, ff, a, b);
-          if (c.IsNull()) throw std::runtime_error("an edge of that face has no curve on it");
-          B.UpdateEdge(e, c, made, loc, t);
-        }
-        B.Range(e, made, loc, a, b);
-        // The edge's tolerance covers how far its curve now lies from the new surface.
-        double off = 0.0;
-        ShapeAnalysis_Edge().CheckSameParameter(e, off, 64);
-        const double et = std::max(t, off * 1.05);
-        B.UpdateEdge(e, et);
-        B.UpdateVertex(TopExp::FirstVertex(e), et);
-        B.UpdateVertex(TopExp::LastVertex(e), et);
-      }
-      rs->Replace(f, nf);
+      rs->Replace(f, w3d_face_on(f, made, loc, dev));
     }
     TopoDS_Shape result = rs->Apply(work);
     if (!w3d_is_valid(result)) throw std::runtime_error("the rebuilt face is not valid; try more spans or a higher degree");
+    return std::unique_ptr<TopoDS_Shape>(new TopoDS_Shape(result));
+  } catch (const Standard_Failure &f) {
+    throw w3d_kernel_error(f);
+  }
+}
+
+// Plasticity's Raise Surface Degree: each of `faces` with its surface's U and V degree raised by one,
+// which adds a row and a column of control points without changing its shape. A face that is not
+// a B-spline (a plane, cylinder, sphere...) is first fitted as one, degree 3, within 1e-3 mm.
+inline std::unique_ptr<TopoDS_Shape> w3d_raise_faces(const TopoDS_Shape &shape, rust::Slice<const int32_t> faces) {
+  if (faces.empty()) throw std::runtime_error("select the faces or solids to raise");
+  try {
+    TopoDS_Shape work = BRepBuilderAPI_Copy(shape).Shape();
+    TopTools_IndexedMapOfShape map;
+    TopExp::MapShapes(work, TopAbs_FACE, map);
+    Handle(BRepTools_ReShape) rs = new BRepTools_ReShape();
+    for (int32_t index : faces) {
+      if (index < 0 || index >= map.Extent()) throw std::out_of_range("that face no longer exists");
+      TopoDS_Face f = TopoDS::Face(map(index + 1));
+      TopLoc_Location loc;
+      Handle(Geom_Surface) s = BRep_Tool::Surface(f, loc);
+      double u0, u1, v0, v1;
+      BRepTools::UVBounds(f, u0, u1, v0, v1);
+      Handle(Geom_BSplineSurface) bs = Handle(Geom_BSplineSurface)::DownCast(s);
+      double dev = 0.0;
+      if (!bs.IsNull()) bs = Handle(Geom_BSplineSurface)::DownCast(bs->Copy());
+      else {
+        for (int k : {1, 2, 3, 4, 6, 8, 12, 16, 24, 32, 48}) {
+          bs = w3d_refit(s, u0, u1, v0, v1, 3, 3, k, k);
+          dev = 0.0;
+          for (int i = 0; i <= 24; i++)
+            for (int j = 0; j <= 24; j++) {
+              double u = u0 + (u1 - u0) * i / 24, v = v0 + (v1 - v0) * j / 24;
+              dev = std::max(dev, s->Value(u, v).Distance(bs->Value(u, v)));
+            }
+          if (dev <= 1e-3) break;
+        }
+      }
+      const int du = std::min(bs->UDegree() + 1, Geom_BSplineSurface::MaxDegree()), dv = std::min(bs->VDegree() + 1, Geom_BSplineSurface::MaxDegree());
+      if (du == bs->UDegree() && dv == bs->VDegree()) throw std::runtime_error("that face is already at the highest degree");
+      bs->IncreaseDegree(du, dv);
+      rs->Replace(f, w3d_face_on(f, bs, loc, dev));
+    }
+    TopoDS_Shape result = rs->Apply(work);
+    if (!w3d_is_valid(result)) throw std::runtime_error("raising the degree breaks the body");
     return std::unique_ptr<TopoDS_Shape>(new TopoDS_Shape(result));
   } catch (const Standard_Failure &f) {
     throw w3d_kernel_error(f);

@@ -942,6 +942,18 @@ impl<K: Kernel> Document<K> {
         Ok(info)
     }
 
+    /// Plasticity's Raise Surface Degree as one undoable step, on `faces` of `body` (all its faces
+    /// when empty). Faces and edges keep their numbers and refs.
+    pub fn commit_raise_faces(&mut self, body: BodyId, faces: &[u32]) -> Result<Vec<RebuiltFace>, KernelError> {
+        let b = self.state.bodies.get(&body).ok_or(KernelError::Invalid("that body no longer exists"))?;
+        let all: Vec<u32> = if faces.is_empty() { (0..self.kernel.face_count(&b.solid) as u32).collect() } else { faces.to_vec() };
+        let (solid, info) = self.kernel.raise_faces(&b.solid, &all)?;
+        let refs = b.refs.clone();
+        self.checkpoint();
+        self.state.bodies.insert(body, Rc::new(Body { solid, refs }));
+        Ok(info)
+    }
+
     /// Plasticity's Extend Sheet, without changing the document: sheet `body` grown past its open `edge`,
     /// by `distance` or, with `limit`, until it meets that body.
     pub fn preview_extend_sheet(&self, body: BodyId, edge: u32, distance: f64, shape: SheetExtension, limit: Option<BodyId>) -> Result<K::Solid, KernelError> {
