@@ -63,7 +63,7 @@ a flat face imprints that face and is used up (round 10).
 | Set / Fork / Remove Material | Done in both builds: M sets a material on the selected solids and sheets (color, roughness, metalness, IOR, opacity, density); bodies that share a material change together, FORK gives them their own copy, REMOVE (or the palette's Remove Material) takes it off. Mass from density shows in the panel and under the outliner. The advanced parameters (clearcoat, sheen, iridescence, transmission) and materials on curves are missing; materials are saved in the .w3d file |
 | Measure Distance | Done (Measure distance, radius and continuity; see Inspect) |
 | Section Analysis | Done in both builds (view only): the VIEW section button or the palette slices the viewport through a selected flat face, the previous section or the construction plane; D sets how far in, F flips the kept side, the cut-open inside shows in the accent colour, and the button again ends it. The model is not changed |
-| Dimension | Missing |
+| Dimension | Done in both builds: = (or the palette) shows the selection's sizes and Tab types each in turn (Tab again moves on), Enter applies. A circle or arc's diameter and a rectangle's two sides; one round face's diameter (desktop; the browser offsets flat faces only); two parallel flat faces' distance (the second moves); a block's width, length and height; a ball's diameter. Each size changed is its own undo step. A fillet's size is missing |
 | Complete Edge · Subdivide | Missing |
 | Publish to Plasticity Share | Not planned (Plasticity's own service) |
 

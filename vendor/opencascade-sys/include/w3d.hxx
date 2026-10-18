@@ -1477,6 +1477,49 @@ inline rust::Vec<double> w3d_edge_angles(const TopoDS_Shape &shape) {
   return out;
 }
 
+// For each face (TopExp::MapShapes order), nine numbers for Dimension: the kind (0 other, 1 plane,
+// 2 cylinder, 3 sphere), the radius (0 for a plane), a point (plane origin, cylinder axis point,
+// sphere centre), a direction (outward plane normal, cylinder axis) and +1 where the outward normal
+// points away from the axis or centre (a boss or ball), -1 where it points towards it (a hole).
+inline rust::Vec<double> w3d_face_surfaces(const TopoDS_Shape &shape) {
+  TopTools_IndexedMapOfShape faces;
+  TopExp::MapShapes(shape, TopAbs_FACE, faces);
+  rust::Vec<double> out;
+  for (int i = 1; i <= faces.Extent(); i++) {
+    const TopoDS_Face &f = TopoDS::Face(faces(i));
+    BRepAdaptor_Surface sa(f);
+    double u = (sa.FirstUParameter() + sa.LastUParameter()) / 2, v = (sa.FirstVParameter() + sa.LastVParameter()) / 2;
+    gp_Pnt p; gp_Vec du, dv;
+    sa.D1(u, v, p, du, dv);
+    gp_Vec n = du.Crossed(dv);
+    if (f.Orientation() == TopAbs_REVERSED) n.Reverse();
+    double kind = 0, r = 0, side = 1;
+    gp_Pnt at(0, 0, 0); gp_Dir dir(0, 0, 1);
+    switch (sa.GetType()) {
+    case GeomAbs_Plane: {
+      kind = 1; at = sa.Plane().Location();
+      if (n.Magnitude() > 1e-12) dir = gp_Dir(n);
+      break;
+    }
+    case GeomAbs_Cylinder: {
+      kind = 2; r = sa.Cylinder().Radius(); at = sa.Cylinder().Location(); dir = sa.Cylinder().Axis().Direction();
+      gp_Vec w(at, p);
+      gp_Vec radial = w - gp_Vec(dir) * w.Dot(gp_Vec(dir));
+      side = n.Dot(radial) >= 0 ? 1 : -1;
+      break;
+    }
+    case GeomAbs_Sphere: {
+      kind = 3; r = sa.Sphere().Radius(); at = sa.Sphere().Location();
+      side = n.Dot(gp_Vec(at, p)) >= 0 ? 1 : -1;
+      break;
+    }
+    default: break;
+    }
+    for (double x : {kind, r, at.X(), at.Y(), at.Z(), dir.X(), dir.Y(), dir.Z(), side}) out.push_back(x);
+  }
+  return out;
+}
+
 // Whether two faces lie on one surface (two halves of a cylinder, say), for the analytic kinds.
 inline bool w3d_same_surface(const TopoDS_Face &a, const TopoDS_Face &b) {
   BRepAdaptor_Surface sa(a), sb(b);

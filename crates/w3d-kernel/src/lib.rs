@@ -152,6 +152,16 @@ pub struct DrawnLine {
     pub points: Vec<[f64; 2]>,
 }
 
+/// What a face lies on, for Dimension. `outward` is false for a hole (a cylinder or sphere whose
+/// outward normal points to its axis or centre).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum FaceSurface {
+    Other,
+    Plane { origin: DVec3, normal: DVec3 },
+    Cylinder { origin: DVec3, axis: DVec3, radius: f64, outward: bool },
+    Sphere { centre: DVec3, radius: f64, outward: bool },
+}
+
 /// A point on a flat face and its outward normal.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Plane {
@@ -488,6 +498,8 @@ pub trait Kernel {
     /// Per numbered edge, the largest angle in degrees between the normals of the two faces it
     /// joins: 0 for a tangent (G1) join, -1 where it does not join two faces.
     fn edge_angles(&self, _s: &Self::Solid) -> Vec<f64> { Vec::new() }
+    /// Per numbered face, the surface it lies on when Dimension can size it.
+    fn face_surfaces(&self, _s: &Self::Solid) -> Vec<FaceSurface> { Vec::new() }
     /// What `rounded` (the body with a round) took off `body`, kept only on the side each plane
     /// (a point and the normal pointing to the side kept) faces: a fillet's limit points.
     fn round_piece(&self, _body: &Self::Solid, _rounded: &Self::Solid, _a: (DVec3, DVec3), _b: (DVec3, DVec3)) -> Result<Self::Solid, KernelError> {

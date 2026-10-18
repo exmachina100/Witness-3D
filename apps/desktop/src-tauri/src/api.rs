@@ -1603,3 +1603,29 @@ pub fn commit_place(m: &Model, req: PlaceRequest) -> Result<Duplicated, ApiError
         Ok(Duplicated { ids, scene: bodies(doc)? })
     })
 }
+
+/// Dimension: what each face of a body lies on, with its size.
+#[derive(Deserialize, Debug, Clone)]
+pub struct FaceSurfacesRequest {
+    pub body: BodyId,
+}
+
+#[derive(Serialize, Debug)]
+#[serde(tag = "kind", rename_all = "lowercase")]
+pub enum FaceSurfaceOut {
+    Other,
+    Plane { origin: [f64; 3], normal: [f64; 3] },
+    Cylinder { origin: [f64; 3], axis: [f64; 3], radius: f64, outward: bool },
+    Sphere { centre: [f64; 3], radius: f64, outward: bool },
+}
+
+pub fn face_surfaces(m: &Model, req: FaceSurfacesRequest) -> Result<Vec<FaceSurfaceOut>, ApiError> {
+    m.call(move |doc| {
+        Ok(doc.face_surfaces(req.body)?.into_iter().map(|f| match f {
+            w3d_kernel::FaceSurface::Other => FaceSurfaceOut::Other,
+            w3d_kernel::FaceSurface::Plane { origin, normal } => FaceSurfaceOut::Plane { origin: origin.to_array(), normal: normal.to_array() },
+            w3d_kernel::FaceSurface::Cylinder { origin, axis, radius, outward } => FaceSurfaceOut::Cylinder { origin: origin.to_array(), axis: axis.to_array(), radius, outward },
+            w3d_kernel::FaceSurface::Sphere { centre, radius, outward } => FaceSurfaceOut::Sphere { centre: centre.to_array(), radius, outward },
+        }).collect())
+    })
+}

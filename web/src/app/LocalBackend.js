@@ -10,6 +10,7 @@ import { curveFromNurbs, ends, join, loops, MEET, nurbsLoop } from '../curves.js
 import { isoparam, meetCurves, projectCurveCurve, projectCurves } from '../Project.js';
 import { isSheet, patch } from '../Patch.js';
 import { offsetEdges } from '../edgeTube.js';
+import { faceSurfaces } from '../dimension.js';
 import { chordal, limitRound } from '../filletShape.js';
 import { bridgeSurface } from '../BridgeSurface.js';
 import { projectOutline } from '../Outline.js';
@@ -390,6 +391,13 @@ export class LocalBackend {
     }
     previewArray(req) { return this.latest(async () => this.arrayCopies(req).flatMap(([, cs]) => cs.map(c => this.body(0, c)))) }
     async commitArray(req) { return this.placeCopies(this.arrayCopies(req), !!req.join) }
+
+    /** Dimension: what each face of a body lies on (see dimension.js). */
+    async faceSurfaces({ body }) {
+        const shape = this.shapes.get(body);
+        if (!shape) throw new Error('that body no longer exists');
+        return faceSurfaces(shape);
+    }
 
     /**
      * Plasticity's Place: the bodies copied by one motion (scale, then turn, about the pivot, then

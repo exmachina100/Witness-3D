@@ -1212,6 +1212,11 @@ impl<K: Kernel> Document<K> {
         self.place_copies(all, join)
     }
 
+    /// Per face of a body, the surface it lies on (Dimension's sizes).
+    pub fn face_surfaces(&self, body: BodyId) -> Result<Vec<crate::FaceSurface>, KernelError> {
+        Ok(self.kernel.face_surfaces(self.get(body).ok_or(KernelError::Invalid("that body no longer exists"))?))
+    }
+
     /// Plasticity's Place: the bodies copied by `motion`, and with a target combined with it by
     /// `operation` one copy at a time. Nothing changes.
     pub fn preview_place(&self, bodies: &[BodyId], motion: &Motion, target: Option<BodyId>, operation: Operation) -> Result<Placed<K::Solid>, KernelError> {
