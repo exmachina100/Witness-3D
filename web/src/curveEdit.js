@@ -932,6 +932,81 @@ export function curveVertices(c) {
     });
 }
 
+/** The arc from `start` to `end` with the same sweep as `p`, its middle kept on the same side. */
+function refitArc(p, start, end) {
+    const chord = dist(p.start, p.end);
+    if (chord < EPS) throw new Error('that arc has no length');
+    const m = mul(add(p.start, p.end), 0.5), off = sub(p.mid, m), dir = norm(sub(p.end, p.start));
+    // The middle's place across and along the chord, scaled to the new chord.
+    const across = cross2(dir, off) / chord, along = dot2(dir, off) / chord;
+    const c2 = dist(start, end);
+    if (c2 < EPS) throw new Error('the two ends of an arc would meet');
+    const d2 = norm(sub(end, start)), m2 = mul(add(start, end), 0.5);
+    return { kind: 'arc', start, mid: add(m2, add(mul(d2, along * c2), mul(left(d2), across * c2))), end };
+}
+
+/**
+ * The curve with some vertices moved: `moves` maps a vertex number (as curveVertices lists them) to
+ * its new place in the curve's plane. Lines and splines go through the new points; an arc keeps
+ * its sweep; a joint moves both pieces that meet there.
+ */
+export function moveVertices(c, moves) {
+    const at = n => moves.get(n);
+    if (c.kind === 'spline' || c.kind === 'cv') {
+        const { samples: _, ...rest } = c;
+        return { ...rest, points: c.points.map((p, n) => at(n) ? [...at(n)] : [...p]) };
+    }
+    if (c.kind === 'nurbs') {
+        const poles = c.poles.map(q => [...q]), last = poles.length - 1;
+        if (at(0)) poles[0] = [...at(0), poles[0][2]];
+        if (at(1)) poles[last] = [...at(1), poles[last][2]];
+        return { ...c, poles };
+    }
+    const a = asPieces(c);
+    if (!a) throw new Error('circles, ellipses and spirals have no vertices to move');
+    const entries = vertexEntries(a);
+    // Where every piece starts and ends after the move, then each piece rebuilt between them.
+    const pieces = a.pieces.map(p => p.kind === 'polyline' ? { ...p, points: p.points.map(q => [...q]) } : { ...p });
+    const starts = pieces.map(pieceStart), ends = pieces.map(pieceEnd);
+    entries.forEach((v, n) => {
+        const to = at(n);
+        if (!to) return;
+        if (v.at === 'end') { ends[v.piece] = to; return; }
+        const p = pieces[v.piece];
+        if (p.kind === 'polyline' && v.at > 0) { p.points[v.at] = [...to]; return; }
+        starts[v.piece] = to;
+        const before = v.piece > 0 ? v.piece - 1 : a.closed ? pieces.length - 1 : -1;
+        if (before >= 0) ends[before] = to;
+    });
+    const out = pieces.map((p, k) => {
+        if (p.kind === 'arc') return refitArc(p, [...starts[k]], [...ends[k]]);
+        const pts = p.points;
+        pts[0] = [...starts[k]]; pts[pts.length - 1] = [...ends[k]];
+        return p;
+    });
+    if (c.kind === 'arc') return withShape(c, out[0]);
+    if (c.kind === 'polyline') {
+        const points = out[0].points;
+        if (a.closed) points.pop();
+        return withShape(c, { kind: 'polyline', points, closed: !!c.closed });
+    }
+    return withShape(c, { kind: 'contour', pieces: out });
+}
+
+/**
+ * Where a vertex at `p` in curve `c`'s plane goes so that its coordinate along `axis` (a model-space
+ * unit vector) is `value`: the shortest move that stays in the curve's plane.
+ */
+export function alignedInPlane(c, p, axis, value) {
+    const { origin, x, normal } = frameOf(c);
+    const y = [normal[1] * x[2] - normal[2] * x[1], normal[2] * x[0] - normal[0] * x[2], normal[0] * x[1] - normal[1] * x[0]];
+    const d3 = (u, v) => u[0] * v[0] + u[1] * v[1] + u[2] * v[2];
+    const inPlane = [d3(axis, x), d3(axis, y)], l2 = dot2(inPlane, inPlane);
+    if (l2 < 1e-9) throw new Error('that axis points straight out of the curve\'s plane');
+    const now = d3(origin, axis) + p[0] * inPlane[0] + p[1] * inPlane[1];
+    return add(p, mul(inPlane, (value - now) / l2));
+}
+
 const pieceLength = p => {
     if (p.kind === 'arc') { const g = arcGeometry(p.start, p.mid, p.end); return g ? Math.abs(g.sweep) * g.radius : dist(p.start, p.end); }
     let l = 0;

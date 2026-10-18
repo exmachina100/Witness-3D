@@ -66,7 +66,7 @@ import { icon } from './icons.js';
 import { limitEdges, toObj, toStl } from '../meshExport.js';
 import { flatten, toDxf, toSvg } from '../drawingExport.js';
 import { readDxf } from '../dxf.js';
-import { BRIDGE_CONTINUITY, bridgeContinuous, continuity, curvatureComb, curveVertices, explode, extendCurve, filletCurve, nearestEnd, OFFSET_CORNERS, offsetCurve, offsetThrough, offsetVertex, reverseCurve, splitCurve, tangentCircle, trim } from '../curveEdit.js';
+import { BRIDGE_CONTINUITY, bridgeContinuous, continuity, curvatureComb, curveVertices, explode, extendCurve, filletCurve, nearestEnd, OFFSET_CORNERS, offsetCurve, offsetThrough, moveVertices, alignedInPlane, offsetVertex, reverseCurve, splitCurve, tangentCircle, trim } from '../curveEdit.js';
 import { ViewGizmo } from './ViewGizmo.js';
 import { Toolbar } from './Toolbar.js';
 import { arcPoints, circleThrough, cvPoints, ellipsePoints, endTangent, helixPoints, loops, nurbsLoop, nurbsPoints, polygonCorners, spiralAngle, tangentArc } from '../curves.js';
@@ -101,6 +101,7 @@ const KEYS = {
   'tangent-arc': [['CLICK', 'CURVE END · SIZE'], ['D', 'FLIP'], ['ALT', 'NO SNAP'], ['ESC', 'CANCEL']],
   spiral: [['CLICK', 'AXIS START · END · RADIUS'], ['X Y Z', 'AXIS'], ['A', 'ANGLE'], ['D', 'LENGTH'], ['R', 'RADIUS'], ['⏎ / RMB', 'OK']],
   'offset-vertex': [['DRAG DOT', 'DISTANCE'], ['D', 'DISTANCE'], ['⏎ / RMB', 'OK']],
+  'align-vertex': [['X / Y / Z', 'AXIS'], ['V', 'VALUE'], ['⏎ / RMB', 'OK']],
   'fillet-vertex': [['DRAG DOT', 'IN ROUND · OUT CHAMFER'], ['D', 'FILLET DISTANCE'], ['C', 'CHAMFER DISTANCE'], ['⏎ / RMB', 'OK']],
   'offset-curve': [['DRAG DOT', 'DISTANCE'], ['D', 'DISTANCE'], ['V / C', 'GAP FILL'], ['S', 'BOTH SIDES'], ['F', 'FREESTYLE: CLICK'], ['⏎ / RMB', 'OK']],
   'fillet-curve': [['D', 'RADIUS'], ['TYPE', 'IN PANEL'], ['⏎ / RMB', 'OK']],
@@ -150,7 +151,7 @@ const CLICKS = { rect: 2, 'center-rect': 2, rect3: 3, circle: 2, circle2: 2, cir
 const FORMS = { revolve: true, loft: true, sweep: true };
 const PRIMS = { box: true, 'center-box': true, box3: true, cylinder: true, sphere: true };
 // Commands that aren't tools in the registry (they act on a click, not on settings).
-const EDITS = { 'offset-vertex': 'OFFSET VERTEX', 'fillet-vertex': 'FILLET VERTEX', material: 'SET MATERIAL', 'export-mesh': 'EXPORT MESH', 'export-drawing': 'EXPORT DRAWING', 'measure-continuity': 'MEASURE CONTINUITY', trim: 'TRIM', extend: 'EXTEND CURVE', 'tangent-circle': 'TANGENT CIRCLE', split: 'SPLIT CURVE', 'measure-distance': 'MEASURE DISTANCE', 'measure-radius': 'MEASURE RADIUS' };
+const EDITS = { 'offset-vertex': 'OFFSET VERTEX', 'fillet-vertex': 'FILLET VERTEX', 'align-vertex': 'ALIGN VERTEX', material: 'SET MATERIAL', 'export-mesh': 'EXPORT MESH', 'export-drawing': 'EXPORT DRAWING', 'measure-continuity': 'MEASURE CONTINUITY', trim: 'TRIM', extend: 'EXTEND CURVE', 'tangent-circle': 'TANGENT CIRCLE', split: 'SPLIT CURVE', 'measure-distance': 'MEASURE DISTANCE', 'measure-radius': 'MEASURE RADIUS' };
 const keysHtml = id => KEYS[id].map(([k, v]) => `<kbd>${k}</kbd><span>${v}</span>`).join('');
 // The Command Bar, exactly the manual's list (Plasticity Essentials › Command Bar).
 const BAR = [['palette', 'F', 'SEARCH'], ['tool:move', 'G', 'MOVE'], ['tool:rotate', 'R', 'ROTATE'], ['tool:scale', 'S', 'SCALE'], ['duplicate', '⇧D', 'DUPLICATE'], ['tool:boolean', 'Q', 'BOOLEAN'], ['tool:rect-array', '', 'RECTANGULAR ARRAY'], ['tool:radial-array', '', 'RADIAL ARRAY'], ['suggest', '⇧F', 'SUGGESTED COMMANDS']];
@@ -325,6 +326,16 @@ const SHELL = `
     <div class="sec" data-panel="offset-vertex" hidden>
       <span class="hint" data-id="ov-hint">—</span>
       <div class="field"><label for="w3d-ov-d">DISTANCE</label><input id="w3d-ov-d" data-id="ov-d" type="number" step="0.5" min="0.001" value="2"></div>
+    </div>
+    <div class="sec" data-panel="align-vertex" hidden>
+      <span class="hint" data-id="av-hint">—</span>
+      <span class="label">AXIS</span>
+      <div class="seg" role="group" aria-label="Axis">
+        <button data-avaxis="x" aria-pressed="true" title="Line the vertices up across x: they share one x"><kbd>X</kbd>X</button>
+        <button data-avaxis="y" aria-pressed="false" title="They share one y"><kbd>Y</kbd>Y</button>
+        <button data-avaxis="z" aria-pressed="false" title="They share one z (height)"><kbd>Z</kbd>Z</button>
+      </div>
+      <div class="field"><label for="w3d-av-v">VALUE</label><input id="w3d-av-v" data-id="av-v" type="number" step="0.5" value="0"></div>
     </div>
     <div class="sec" data-panel="fillet-vertex" hidden>
       <span class="hint" data-id="fv-hint">—</span>
@@ -619,9 +630,9 @@ const VIEWS = {
 export async function mount(root, backend) {
   root.innerHTML = SHELL;
   // Panel options carry their icon ahead of the key and name.
-  for (const b of root.querySelectorAll('[data-draw],[data-bop],[data-xop],[data-fop],[data-spiral],[data-toggle],[data-gmethod],[data-galign],[data-grow],[data-id="ex-lock"],[data-id="bool-keep"],[data-id="ex-free"],[data-id="ex-pivot"],[data-id="ex-individual"],[data-id="dr-hidden"],[data-id="dr-curves"],[data-id="oc-lock"],[data-id="oc-free"]')) {
+  for (const b of root.querySelectorAll('[data-draw],[data-bop],[data-xop],[data-fop],[data-spiral],[data-toggle],[data-gmethod],[data-galign],[data-grow],[data-avaxis],[data-id="ex-lock"],[data-id="bool-keep"],[data-id="ex-free"],[data-id="ex-pivot"],[data-id="ex-individual"],[data-id="dr-hidden"],[data-id="dr-curves"],[data-id="oc-lock"],[data-id="oc-free"]')) {
     const name = b.dataset.draw ?? b.dataset.bop ?? b.dataset.xop ?? b.dataset.fop ?? b.dataset.spiral ?? (b.dataset.toggle && `view-${b.dataset.toggle}`)
-      ?? (b.dataset.gmethod && `guide-${b.dataset.gmethod}`) ?? (b.dataset.galign && `align-${b.dataset.galign}`) ?? (b.dataset.grow && `grow-${b.dataset.grow}`)
+      ?? (b.dataset.gmethod && `guide-${b.dataset.gmethod}`) ?? (b.dataset.galign && `align-${b.dataset.galign}`) ?? (b.dataset.grow && `grow-${b.dataset.grow}`) ?? (b.dataset.avaxis && `axis-${b.dataset.avaxis}`)
       ?? { 'ex-lock': 'lock', 'bool-keep': 'keep', 'ex-free': 'freestyle', 'ex-pivot': 'pivot', 'ex-individual': 'individual', 'dr-hidden': 'hidden-lines', 'dr-curves': 'drawing-curves', 'oc-lock': 'lock', 'oc-free': 'freestyle' }[b.dataset.id];
     b.insertAdjacentHTML('afterbegin', icon(name));
   }
@@ -3542,6 +3553,72 @@ export async function mount(root, backend) {
     c.preview();
   }
 
+  /**
+   * Plasticity's Align Vertex: the selected curve vertices share one coordinate along X, Y or Z
+   * (the user's axes), each moving the shortest way within its curve's plane. The value starts at
+   * the first vertex's and can be typed.
+   */
+  async function startAlignVertex() {
+    if (cmd) await finish();
+    if (!backend.replaceCurves) return toast('ALIGN VERTEX IS NOT IN THIS BUILD YET');
+    const picked = sel.list('vertex').filter(v => curveById(v.id));
+    if (picked.length < 2) return toast('SELECT TWO OR MORE CURVE VERTICES TO ALIGN');
+    const c = cmd = { id: 'align-vertex', out: null, axis: 'x' };
+    lastTool = 'align-vertex';
+    showTool('align-vertex');
+    setState('none');
+    const curves = [...new Set(picked.map(v => v.id))];
+    setTarget(`${picked.length} VERTICES`);
+    // User x, y, z as model directions (the model is y-up: user y is model -z).
+    const AXES = { x: [1, 0, 0], y: [0, 0, -1], z: [0, 1, 0] };
+    const coordOf = (v, axis) => {
+      const src = curveById(v.id), [x, y] = curveVertices(src)[v.n], p = lift(curveFrame(src), { x, y });
+      return p.x * AXES[axis][0] + p.y * AXES[axis][1] + p.z * AXES[axis][2];
+    };
+    const setAxis = axis => {
+      c.axis = axis;
+      for (const b of $$('[data-avaxis]')) b.setAttribute('aria-pressed', String(b.dataset.avaxis === axis));
+      $('av-v').value = +coordOf(picked[0], axis).toFixed(4);
+      c.preview();
+    };
+    c.preview = () => {
+      clearPreview();
+      const value = num('av-v');
+      try {
+        if (!Number.isFinite(value)) throw new Error('type a value');
+        c.out = curves.map(id => {
+          const src = curveById(id), vs = curveVertices(src);
+          const moves = new Map(picked.filter(v => v.id === id).map(v => [v.n, alignedInPlane(src, vs[v.n], AXES[c.axis], value)]));
+          return moveVertices(src, moves);
+        });
+        showCurvePreview(c.out);
+        $('av-hint').textContent = `${picked.length} VERTICES ON ${curves.length} CURVE${curves.length > 1 ? 'S' : ''}`;
+        setHud(`ALIGN ${c.axis.toUpperCase()} = ${value} MM`);
+        setState('updated');
+      } catch (e) { c.out = null; $('av-hint').textContent = say(e); setHud('ALIGN FAILED'); setState('failed'); }
+    };
+    c.setAxis = setAxis;
+    c.key = action => {
+      if (action === 'x' || action === 'y' || action === 'z') { setAxis(action); return true; }
+      if (action !== 'value') return false;
+      c.entry = { label: `${c.axis.toUpperCase()} VALUE`, text: '', apply: v => { $('av-v').value = v; c.preview(); } };
+      setHud(`${c.axis.toUpperCase()} VALUE _`);
+      return true;
+    };
+    c.finish = async () => {
+      if (!c.out) return toast($('av-hint').textContent);
+      try {
+        const { ids: made } = await backend.replaceCurves(curves, c.out);
+        endCmd('committed');
+        record(`ALIGN VERTEX ${c.axis.toUpperCase()} ${num('av-v')} MM`, made[0], `${picked.length} VERTICES`);
+        await curvesChanged(made);
+      } catch (e) { setState('failed'); toast(say(e)); }
+    };
+    c.abort = () => endCmd('cancelled');
+    c.cleanup = () => clearPreview();
+    setAxis('x');
+  }
+
   /** Plasticity's Trim: click pieces of curves to cut them away where other curves cross them. */
   function startTrim() {
     if (!backend.replaceCurves) return toast('TRIM IS NOT IN THIS BUILD YET');
@@ -5586,6 +5663,7 @@ export async function mount(root, backend) {
       case 'measure': await startTool(arg === 'radius' ? 'measure-radius' : arg === 'continuity' ? 'measure-continuity' : 'measure-distance'); return true;
       case 'explode': await explodeSelected(); return true;
       case 'reverse': await reverseSelected(); return true;
+      case 'align-vertex': await startAlignVertex(); return true;
       case 'hide': setHidden(sel.bodies, true); return true;
       case 'hide-others': setHidden(current.map(b => b.id).filter(id => !sel.bodies.includes(id)), true); return true;
       case 'unhide-all': setHidden([...org.hidden], false); return true;
@@ -5748,7 +5826,7 @@ export async function mount(root, backend) {
       out.push('explode', 'reverse', 'measure:continuity', 'delete');
     }
     // Curve vertices: Fillet Vertex (B), Offset Vertex and, with two ends, Bridge Vertex.
-    if (kinds.has('vertex')) out.push('tool:fillet', 'tool:offset-curve', ...(sel.list('vertex').length === 2 ? ['tool:bridge'] : []));
+    if (kinds.has('vertex')) out.push('tool:fillet', 'tool:offset-curve', 'align-vertex', ...(sel.list('vertex').length === 2 ? ['tool:bridge'] : []));
     if (kinds.size) out.push('convert:solid', 'select:invert', 'view:focus');
     else out.push('draw:line', 'draw:spline', 'draw:rect', 'draw:circle', 'draw:arc3', 'tool:box', 'tool:cylinder', 'tool:sphere', 'select:all', 'unhide-all', 'plane:view');
     if (!kinds.size && org.layers.length) out.push('isolate', 'unisolate');
@@ -6120,6 +6198,8 @@ export async function mount(root, backend) {
   for (const b of $$('[data-grow]')) b.onclick = () => setOffsetGrow(b.dataset.grow);
   $('dr-hidden').onclick = () => cmd?.id === 'export-drawing' && cmd.key('hidden');
   $('dr-curves').onclick = () => cmd?.id === 'export-drawing' && cmd.key('curves');
+  $('av-v').addEventListener('input', () => cmd?.id === 'align-vertex' && cmd.preview());
+  for (const b of $$('[data-avaxis]')) b.onclick = () => cmd?.id === 'align-vertex' && cmd.setAxis(b.dataset.avaxis);
   for (const id of ['oc-d', 'fc-r', 'ov-d', 'fv-r']) $(id).addEventListener('input', () => ['offset-curve', 'fillet-curve', 'offset-vertex', 'fillet-vertex'].includes(cmd?.id) && cmd.preview());
   $('br-start').onclick = () => cmd?.id === 'bridge' && cmd.cycleEnd(0);
   $('br-end').onclick = () => cmd?.id === 'bridge' && cmd.cycleEnd(1);

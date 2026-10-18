@@ -71,7 +71,7 @@ a flat face imprints that face and is used up (round 10).
 | Bridge and Connect | Bridge, Bridge Curve, Bridge Edge, Bridge Vertex | Bridge Curve and Bridge Vertex done (G0, G1, G2 per end, Tab cycles, tension T); G3 and Bridge Edge missing |
 | Cut and Trim | Cut Curve, Trim, Split Segment | Trim partial; others missing |
 | Deform and Slide | Deform, Deform Curve, Slide, Slide Curve CV | Missing |
-| Align | Align, Align Vertex | Missing |
+| Align | Align, Align Vertex | Align Vertex done (X/Y/Z, value from the first vertex or typed; arcs keep their sweep); Align (bodies) missing |
 | Extend | Extend, Extend Curve (26.1: extend-curve shape option) | Extend Curve done (lines, arcs); shape option missing |
 | Fillet | Fillet, Fillet Curve, Fillet Vertex | Fillet Curve done (all corners). Fillet Vertex done: B with curve vertices picked rounds just those corners; the dot dragged into the corner rounds, out of it chamfers (D and C type them); chamfered polylines stay polylines |
 | Join and Unjoin | Join, Join Curves, Unjoin, Unjoin Curve | Join Curves done; Explode stands in for Unjoin Curve |
