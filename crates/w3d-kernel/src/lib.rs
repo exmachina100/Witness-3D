@@ -225,6 +225,39 @@ impl Motion {
     }
 }
 
+/// Rebuild Face's settings (Plasticity's Command Dialog): Explicit control fits `degree` and `spans`;
+/// Tolerance fits degree 3 with as few spans as keep the face within `tolerance` mm.
+#[derive(Clone, Copy, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+#[serde(default)]
+pub struct FaceRebuild {
+    pub explicit: bool,
+    /// U and V degree.
+    pub degree: [u32; 2],
+    /// U and V spans (knot intervals).
+    pub spans: [u32; 2],
+    pub tolerance: f64,
+    /// How far (mm) the rebuilt surface carries on past both sides in U and in V.
+    pub extend: [f64; 2],
+    /// Fit over the face's own extent rather than its whole underlying surface.
+    pub shrink: bool,
+}
+
+impl Default for FaceRebuild {
+    fn default() -> Self {
+        FaceRebuild { explicit: false, degree: [3, 3], spans: [4, 4], tolerance: 0.01, extend: [0.0, 0.0], shrink: true }
+    }
+}
+
+/// What Rebuild Face made of one face: its new surface's degree and pole counts (U, V) and the
+/// furthest it strays from the old surface over the face, in mm.
+#[derive(Clone, Copy, Debug, PartialEq, serde::Serialize)]
+pub struct RebuiltFace {
+    pub face: u32,
+    pub degree: [u32; 2],
+    pub poles: [u32; 2],
+    pub deviation: f64,
+}
+
 /// The shape of Extend Sheet's extension (Plasticity's Shape option, Tab cycling them).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Default, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "lowercase")]
@@ -366,6 +399,11 @@ pub trait Kernel {
     /// body and `back` into it, the ends cut where the other faces lie.
     fn thicken_faces(&self, _s: &Self::Solid, _faces: &[u32], _front: f64, _back: f64) -> Result<Self::Solid, KernelError> {
         Err(KernelError::Invalid("this kernel cannot thicken faces"))
+    }
+    /// Plasticity's Rebuild Face: `faces` given new B-spline surfaces, edges and trims kept, faces
+    /// and edges keeping their numbers.
+    fn rebuild_faces(&self, _s: &Self::Solid, _faces: &[u32], _how: &FaceRebuild) -> Result<(Self::Solid, Vec<RebuiltFace>), KernelError> {
+        Err(KernelError::Invalid("this kernel cannot rebuild faces"))
     }
     /// Extend Sheet's Limit: the sheet carried on past its open `edge` until it first meets `target`.
     fn extend_sheet_to(&self, _s: &Self::Solid, _edge: u32, _target: &Self::Solid, _shape: SheetExtension) -> Result<Self::Solid, KernelError> {

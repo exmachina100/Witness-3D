@@ -8,7 +8,7 @@ use serde::{Deserialize, Serialize};
 use w3d_kernel::document::{BodyId, Document, FormRequest as FormKindRequest, Tools};
 use w3d_kernel::engine::Engine;
 use w3d_kernel::occt::Occt;
-use w3d_kernel::{extrude, file, form, ArraySpec, Primitive, FormParams, Blend, BlendParams, BooleanOp, Curve, CurveId, CurveShape, ExtrudeParams, ExtrudeResult, Frame, Kernel, KernelError, Motion, Operation, Profile, Ref, Refs, SheetExtension, Tessellation};
+use w3d_kernel::{extrude, file, form, ArraySpec, Primitive, FormParams, Blend, BlendParams, BooleanOp, Curve, CurveId, CurveShape, ExtrudeParams, ExtrudeResult, Frame, Kernel, KernelError, Motion, Operation, Profile, Ref, Refs, FaceRebuild, RebuiltFace, SheetExtension, Tessellation};
 
 /// Chord tolerance for display meshes, in millimetres.
 const MESH_TOLERANCE: f64 = 0.05;
@@ -1291,6 +1291,44 @@ impl ExtendSheetRequest {
     fn shape(&self) -> SheetExtension {
         self.shape.unwrap_or(if self.natural { SheetExtension::Natural } else { SheetExtension::Linear })
     }
+}
+
+/// Rebuild Face: `faces` of `body` given new B-spline surfaces (see `FaceRebuild`).
+#[derive(Deserialize, Debug, Clone)]
+pub struct RebuildFacesRequest {
+    pub body: BodyId,
+    pub faces: Vec<u32>,
+    #[serde(flatten)]
+    pub how: FaceRebuild,
+}
+
+/// A Rebuild Face preview: the body, plus what each face became.
+#[derive(Serialize, Debug)]
+pub struct RebuildPreview {
+    #[serde(flatten)]
+    pub body: Body,
+    pub rebuilt: Vec<RebuiltFace>,
+}
+
+#[derive(Serialize, Debug)]
+pub struct RebuildCommitted {
+    pub id: BodyId,
+    pub scene: Vec<Body>,
+    pub rebuilt: Vec<RebuiltFace>,
+}
+
+pub fn preview_rebuild_faces(m: &Model, req: RebuildFacesRequest) -> Option<Result<RebuildPreview, ApiError>> {
+    m.preview(move |doc| {
+        let (solid, rebuilt) = doc.preview_rebuild_faces(req.body, &req.faces, &req.how)?;
+        Ok(RebuildPreview { body: body(&doc.kernel, req.body, &solid)?, rebuilt })
+    })
+}
+
+pub fn commit_rebuild_faces(m: &Model, req: RebuildFacesRequest) -> Result<RebuildCommitted, ApiError> {
+    m.call(move |doc| {
+        let rebuilt = doc.commit_rebuild_faces(req.body, &req.faces, &req.how)?;
+        Ok(RebuildCommitted { id: req.body, scene: bodies(doc)?, rebuilt })
+    })
 }
 
 pub fn preview_extend_sheet(m: &Model, req: ExtendSheetRequest) -> Option<Result<Body, ApiError>> {

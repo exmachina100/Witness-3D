@@ -14,7 +14,7 @@ import { insertKnot } from './curveEdit.js';
 const v3 = p => new THREE.Vector3(p.X(), p.Y(), p.Z());
 
 /** Which side of `face`'s surface (u0, u1, v0, v1 as 0..3) `edge` runs along, or -1. */
-function isoSide(edge, face, surface, b) {
+export function isoSide(edge, face, surface, b) {
     const o = oc();
     const { returnValue: g, First, Last } = o.BRep_Tool.Curve(edge, 0, 0);
     if (!g) return -1;
@@ -56,7 +56,7 @@ function naturalRun(pts, flat, p, T) {
  * `s` (a non-rational B-spline surface) run on `distance` past side `side` (0..3 as u0, u1, v0, v1):
  * straight on (Linear) or following its curvature there (Natural).
  */
-function extendBSpline(s, side, distance, natural = false) {
+export function extendBSpline(s, side, distance, natural = false) {
     const o = oc();
     const inU = side < 2, after = side % 2 === 1;
     const nu = s.NbUPoles(), nv = s.NbVPoles();
