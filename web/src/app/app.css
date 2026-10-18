@@ -297,3 +297,7 @@ input[type="range"] { accent-color: var(--accent); }
 .radial-item .ico { width: 20px; height: 20px; }
 .radial-item[aria-current="true"] { background: var(--accent); border-color: var(--accent); color: var(--on-accent); }
 .radial-item[aria-current="true"] .ico, .radial-item[aria-current="true"] .ico .ac { stroke: var(--on-accent); }
+/* The View toggles show their icon alone; the name is in the tooltip. */
+.chips.icons { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); }
+.chips.icons button { padding: 7px 0; }
+.chips.icons button .ico { margin-right: 0; width: 16px; height: 16px; }
