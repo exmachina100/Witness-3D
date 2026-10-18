@@ -5,7 +5,7 @@
 // A curve is { origin, x, normal, kind, ... } with points in its plane's coordinates (see
 // LocalBackend.checkCurve). Lengths are millimetres.
 
-import { arcPoints, circleThrough, cvPoints, ellipsePoints, loops, nurbsLoop, nurbsPoints } from './curves.js';
+import { arcPoints, circleThrough, cvDegree, cvPoints, ellipsePoints, loops, nurbsLoop, nurbsPoints } from './curves.js';
 
 const EPS = 1e-9, TAU = 2 * Math.PI;
 const sub = (a, b) => [a[0] - b[0], a[1] - b[1]], add = (a, b) => [a[0] + b[0], a[1] + b[1]];
@@ -620,9 +620,9 @@ function basisAll(knots, p, count, t) {
     return out;
 }
 
-/** Solve A x = B for x (B has two columns), by Gaussian elimination with partial pivoting. */
-function solve2(A, B) {
-    const n = A.length, M = A.map((r, i) => [...r, ...B[i]]);
+/** Solve A x = B for x (B has any number of columns), by Gaussian elimination with partial pivoting. */
+function solveN(A, B) {
+    const n = A.length, w = B[0].length, M = A.map((r, i) => [...r, ...B[i]]);
     for (let c = 0; c < n; c++) {
         let piv = c;
         for (let r = c + 1; r < n; r++) if (Math.abs(M[r][c]) > Math.abs(M[piv][c])) piv = r;
@@ -631,10 +631,10 @@ function solve2(A, B) {
         for (let r = 0; r < n; r++) {
             if (r === c) continue;
             const f = M[r][c] / M[c][c];
-            if (f) for (let k = c; k < n + 2; k++) M[r][k] -= f * M[c][k];
+            if (f) for (let k = c; k < n + w; k++) M[r][k] -= f * M[c][k];
         }
     }
-    return M.map((r, i) => [r[n] / r[i], r[n + 1] / r[i]]);
+    return M.map((r, i) => r.slice(n).map(v => v / r[i]));
 }
 
 /** Least-squares poles for basis rows `rows` (one per sample) against samples `Q`, with poles in `fixed` held. */
@@ -652,7 +652,7 @@ function fitPoles(rows, Q, count, fixed) {
             for (const j of free) if (N[j]) A[a][at.get(j)] += N[i] * N[j];
         }
     });
-    const x = free.length ? solve2(A, B) : [];
+    const x = free.length ? solveN(A, B) : [];
     return [...Array(count).keys()].map(i => fixed.get(i) ?? x[at.get(i)]);
 }
 
@@ -684,6 +684,146 @@ export function insertKnot(c, u) {
         }
     }
     return { ...c, poles: out.map(([x, y, z, w]) => [x / w, y / w, z / w]), weights: out.map(h => h[3]), knots: [...knots.slice(0, k + 1), u, ...knots.slice(k + 1)] };
+}
+
+/** A rational quadratic arc about `center` from angle `a0` through `sweep`, as poles, weights and knots. */
+function arcNurbs(center, r, a0, sweep) {
+    const segs = Math.max(1, Math.ceil(Math.abs(sweep) / (Math.PI / 2) - 1e-9)), d = sweep / segs, w = Math.cos(d / 2);
+    const at = a => [center[0] + r * Math.cos(a), center[1] + r * Math.sin(a), 0];
+    const poles = [at(a0)], weights = [1], knots = [0, 0, 0];
+    for (let i = 0; i < segs; i++) {
+        const m = a0 + d * (i + 0.5), e = a0 + d * (i + 1);
+        poles.push([center[0] + r / w * Math.cos(m), center[1] + r / w * Math.sin(m), 0], at(e));
+        weights.push(w, 1);
+        if (i < segs - 1) knots.push((i + 1) / segs, (i + 1) / segs);
+    }
+    knots.push(1, 1, 1);
+    return { kind: 'nurbs', degree: 2, poles, weights, knots };
+}
+
+/** A clamped NURBS shape from a periodic one whose last `p` poles repeat its first, cut at 0 and 1. */
+function clampPeriodic(s) {
+    const p = s.degree;
+    for (const u of [0, 1]) while (s.knots.filter(k => Math.abs(k - u) < 1e-12).length < p) s = insertKnot(s, u);
+    const a = s.knots.findIndex(k => Math.abs(k) < 1e-12), b = s.knots.findLastIndex(k => Math.abs(k - 1) < 1e-12);
+    const poles = s.poles.slice(a - 1, b - p + 1), weights = s.weights.slice(a - 1, b - p + 1);
+    poles[poles.length - 1] = [...poles[0]];
+    weights[weights.length - 1] = weights[0];
+    return { kind: 'nurbs', degree: p, poles, weights, knots: [0, ...s.knots.slice(a, b + 1).map(k => Math.abs(k) < 1e-12 ? 0 : Math.abs(k - 1) < 1e-12 ? 1 : k), 1] };
+}
+
+/**
+ * The curve as an exactly equal NURBS curve, for the tools that work on control points: lines,
+ * arcs, circles and control-point curves convert without changing shape; other curves need
+ * Rebuild Curve first.
+ */
+export function asNurbs(c) {
+    const frame = frameOf(c);
+    const flat = q => [q[0], q[1], 0];
+    switch (c.kind) {
+        case 'nurbs': return c;
+        case 'polyline': {
+            const pts = c.closed ? [...c.points, c.points[0]] : c.points, t = chordParams(pts);
+            return { ...frame, kind: 'nurbs', degree: 1, poles: pts.map(flat), weights: pts.map(() => 1), knots: [0, ...t, 1] };
+        }
+        case 'cv': {
+            const m = c.points.length, p = cvDegree(m, !!c.closed);
+            if (!c.closed) {
+                const inner = m - p, knots = [...Array(p + 1).fill(0)];
+                for (let i = 1; i < inner; i++) knots.push(i / inner);
+                knots.push(...Array(p + 1).fill(1));
+                return { ...frame, kind: 'nurbs', degree: p, poles: c.points.map(flat), weights: c.points.map(() => 1), knots };
+            }
+            const P = [...c.points, ...c.points.slice(0, p)];
+            return { ...frame, ...clampPeriodic({ kind: 'nurbs', degree: p, poles: P.map(flat), weights: P.map(() => 1), knots: Array.from({ length: P.length + p + 1 }, (_, i) => (i - p) / m) }) };
+        }
+        case 'arc': {
+            const g = arcGeometry(c.start, c.mid, c.end);
+            if (!g) return asNurbs({ ...frame, kind: 'polyline', points: [c.start, c.end], closed: false });
+            return { ...frame, ...arcNurbs(g.center, g.radius, g.start, g.sweep) };
+        }
+        case 'circle': return { ...frame, ...arcNurbs(c.center, c.radius, 0, TAU) };
+        default: throw new Error('rebuild this curve first (Rebuild Curve) to work on its control points');
+    }
+}
+
+/** The parameter of the NURBS curve `c` nearest the plane point `q`. */
+function nearestParam(c, q) {
+    const k0 = c.knots[c.degree], k1 = c.knots[c.poles.length];
+    let best = k0, bestD = Infinity;
+    const N = 400;
+    for (let i = 0; i <= N; i++) {
+        const u = k0 + (k1 - k0) * i / N, d = dist(evalNurbs(c, u), q);
+        if (d < bestD) { bestD = d; best = u; }
+    }
+    // Golden-section refinement in the bracketing step.
+    let a = Math.max(k0, best - (k1 - k0) / N), b = Math.min(k1, best + (k1 - k0) / N);
+    for (let i = 0; i < 60; i++) {
+        const m1 = a + (b - a) * 0.382, m2 = a + (b - a) * 0.618;
+        if (dist(evalNurbs(c, m1), q) < dist(evalNurbs(c, m2), q)) b = m2; else a = m1;
+    }
+    return (a + b) / 2;
+}
+/** The plane point of the NURBS curve `c` at parameter `u`. */
+function evalNurbs(c, u) {
+    const N = basisAll(c.knots, c.degree, c.poles.length, Math.min(u, c.knots[c.poles.length] - 1e-12));
+    let x = 0, y = 0, w = 0;
+    N.forEach((v, i) => { if (!v) return; const k = v * c.weights[i]; x += k * c.poles[i][0]; y += k * c.poles[i][1]; w += k; });
+    return [x / w, y / w];
+}
+
+/**
+ * Plasticity's Insert Knot: a control point added where the curve passes nearest `at` (plane
+ * coordinates), without changing its shape. Returns the curve as NURBS with the extra point.
+ */
+export function insertKnotAt(c, at) {
+    const n = asNurbs(c), u = nearestParam(n, at);
+    const k0 = n.knots[n.degree], k1 = n.knots[n.poles.length];
+    if (u - k0 < 1e-9 * (k1 - k0) || k1 - u < 1e-9 * (k1 - k0)) throw new Error('click along the curve, not at its end');
+    if (n.knots.filter(k => Math.abs(k - u) < 1e-12).length >= n.degree) throw new Error('there is already a sharp corner there');
+    return insertKnot(n, u);
+}
+
+/**
+ * Plasticity's Raise Degree: the same curve one degree higher, so it has more control points to
+ * shape with. Every knot gains a repeat, which keeps the curve exactly; the poles are solved for
+ * in homogeneous coordinates so rational curves (arcs, circles) stay exact too.
+ */
+export function raiseDegree(c) {
+    const n = asNurbs(c), p = n.degree, q = p + 1;
+    if (q > 7) throw new Error('7 is the highest degree');
+    const k0 = n.knots[p], k1 = n.knots[n.poles.length];
+    const distinct = [...new Set(n.knots.slice(p, n.poles.length + 1))];
+    const knots = [];
+    distinct.forEach((k, i) => {
+        const mult = n.knots.filter(v => v === k).length;
+        const times = i === 0 || i === distinct.length - 1 ? q + 1 : Math.min(q, mult + 1);
+        for (let j = 0; j < times; j++) knots.push(k);
+    });
+    const count = knots.length - q - 1;
+    // Samples in every span, then a least-squares solve that is exact up to rounding.
+    const us = [];
+    for (let i = 0; i < distinct.length - 1; i++) for (let j = 0; j <= 2 * q + 2; j++) us.push(distinct[i] + (distinct[i + 1] - distinct[i]) * (j + 0.5) / (2 * q + 3));
+    us.push(k0, k1 - 1e-12 * (k1 - k0));
+    const hom = u => {
+        const N = basisAll(n.knots, p, n.poles.length, Math.min(u, k1 - 1e-12 * (k1 - k0)));
+        const h = [0, 0, 0, 0];
+        N.forEach((v, i) => { if (!v) return; const w = v * n.weights[i]; h[0] += w * n.poles[i][0]; h[1] += w * n.poles[i][1]; h[2] += w * n.poles[i][2]; h[3] += w; });
+        return h;
+    };
+    const A = Array.from({ length: count }, () => new Array(count).fill(0)), B = Array.from({ length: count }, () => [0, 0, 0, 0]);
+    for (const u of us) {
+        const N = basisAll(knots, q, count, u), h = hom(u);
+        for (let i = 0; i < count; i++) {
+            if (!N[i]) continue;
+            for (let m = 0; m < 4; m++) B[i][m] += N[i] * h[m];
+            for (let j = 0; j < count; j++) if (N[j]) A[i][j] += N[i] * N[j];
+        }
+    }
+    const H = solveN(A, B);
+    const poles = H.map(([x, y, z, w]) => [x / w, y / w, z / w]), weights = H.map(h => h[3]);
+    if (nurbsLoop(n)) poles[poles.length - 1] = [...poles[0]];
+    return { ...frameOf(n), kind: 'nurbs', degree: q, poles, weights, knots };
 }
 
 /**
@@ -732,13 +872,7 @@ export function rebuildCurve(c, count = 8, degree = 3) {
             return w;
         });
         const P = fitPoles(rows, Q.slice(0, -1), n, new Map());
-        let s = { kind: 'nurbs', degree: p, poles: [...P, ...P.slice(0, p)].map(([x, y]) => [x, y, 0]), weights: new Array(n + p).fill(1), knots };
-        // Clamp at 0 and 1: insert each to multiplicity p, then keep the poles between.
-        for (const u of [0, 1]) while (s.knots.filter(k => Math.abs(k - u) < 1e-12).length < p) s = insertKnot(s, u);
-        const a = s.knots.findIndex(k => Math.abs(k) < 1e-12), b = s.knots.findLastIndex(k => Math.abs(k - 1) < 1e-12);
-        const poles = s.poles.slice(a - 1, b - p + 1);
-        poles[poles.length - 1] = [...poles[0]];
-        shape = { kind: 'nurbs', degree: p, poles, weights: poles.map(() => 1), knots: [0, ...s.knots.slice(a, b + 1).map(k => Math.abs(k) < 1e-12 ? 0 : Math.abs(k - 1) < 1e-12 ? 1 : k), 1] };
+        shape = clampPeriodic({ kind: 'nurbs', degree: p, poles: [...P, ...P.slice(0, p)].map(([x, y]) => [x, y, 0]), weights: new Array(n + p).fill(1), knots });
     }
     const fitted = nurbsPoints(shape, 32).map(([x, y]) => [x, y]);
     let deviation = 0;
