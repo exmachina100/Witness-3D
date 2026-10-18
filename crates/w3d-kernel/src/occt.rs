@@ -390,6 +390,10 @@ impl Kernel for Occt {
         Ok((made, info))
     }
 
+    fn untrim_face(&self, s: &Shape, face: u32, keep_edges: bool) -> Result<Shape, KernelError> {
+        s.untrim_face(face as usize, keep_edges).map_err(shim)
+    }
+
     fn match_faces(&self, s: &Shape, faces: &[u32], target: &Shape, tface: u32) -> Result<Shape, KernelError> {
         let idx: Vec<usize> = faces.iter().map(|&f| f as usize).collect();
         s.match_faces(&idx, target, tface as usize).map_err(shim)

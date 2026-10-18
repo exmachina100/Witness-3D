@@ -925,6 +925,21 @@ impl<K: Kernel> Document<K> {
         Ok(self.add(solid))
     }
 
+    /// Plasticity's Untrim, without changing the document: for each of `faces` of `body`, a sheet
+    /// of the whole surface under it, with the face's edges imprinted when `keep_edges`.
+    pub fn preview_untrim(&self, body: BodyId, faces: &[u32], keep_edges: bool) -> Result<Vec<K::Solid>, KernelError> {
+        let s = self.get(body).ok_or(KernelError::Invalid("that body no longer exists"))?;
+        if faces.is_empty() { return Err(KernelError::Invalid("select the faces to untrim")) }
+        faces.iter().map(|&f| self.kernel.untrim_face(s, f, keep_edges)).collect()
+    }
+
+    /// Untrim as one undoable step: each sheet is a body of its own and the faces' body stays.
+    pub fn commit_untrim(&mut self, body: BodyId, faces: &[u32], keep_edges: bool) -> Result<Vec<BodyId>, KernelError> {
+        let sheets = self.preview_untrim(body, faces, keep_edges)?;
+        self.checkpoint();
+        Ok(sheets.into_iter().map(|s| self.add_unrecorded(s)).collect())
+    }
+
     /// Plasticity's Rebuild Face, without changing the document: `faces` of `body` given new
     /// B-spline surfaces, with what each became.
     pub fn preview_rebuild_faces(&self, body: BodyId, faces: &[u32], how: &FaceRebuild) -> Result<(K::Solid, Vec<RebuiltFace>), KernelError> {

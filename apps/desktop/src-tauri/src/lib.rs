@@ -388,6 +388,24 @@ async fn commit_pipe(
 }
 
 #[tauri::command]
+async fn preview_untrim(
+    model: State<'_, Model>,
+    req: api::UntrimRequest,
+) -> Result<Option<api::Body>, api::ApiError> {
+    on_model(&model, move |m| api::preview_untrim(m, req))
+        .await?
+        .transpose()
+}
+
+#[tauri::command]
+async fn commit_untrim(
+    model: State<'_, Model>,
+    req: api::UntrimRequest,
+) -> Result<api::Duplicated, api::ApiError> {
+    on_model(&model, move |m| api::commit_untrim(m, req)).await?
+}
+
+#[tauri::command]
 async fn commit_thicken(
     model: State<'_, Model>,
     req: api::ThickenRequest,
@@ -746,6 +764,8 @@ pub fn run() {
             commit_extend_sheet,
             preview_thicken,
             commit_thicken,
+            preview_untrim,
+            commit_untrim,
             preview_pipe,
             commit_pipe,
             preview_bridge_surface,

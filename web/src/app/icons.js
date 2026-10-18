@@ -161,6 +161,8 @@ const ICONS = {
     'convert-vertex': `<path d="M3 18L12 5l9 13" stroke-dasharray="2 2"/><path ${A} d="M3 18C8 9 16 9 21 18"/><path ${A} d="M12 5h0" stroke-width="3" stroke-linecap="round"/>`,
     rebuild: `<path d="M3 17L7 6l6 9 4-8 4 2" stroke-dasharray="2 2"/><path ${A} d="M3 17C7 5 11 5 13 11s6 7 8-2"/>`,
     // Match Face: a block's top face taking the curve of a surface above it.
+    untrim: `<path d="M3 5h18v14H3z" stroke-dasharray="2 2"/><path ${A} d="M7 9c3-2 7-2 10 0v6c-3 2-7 2-10 0z"/><path ${A} d="M14 12l5-5M19 7h-3M19 7v3"/>`,
+    'keep-edges': `<path d="M3 5h18v14H3z"/><path ${A} d="M8 9h8v6H8z" stroke-dasharray="2 2"/><circle cx="8" cy="9" r="1.2"/><circle cx="16" cy="15" r="1.2"/>`,
     'match-face': `<path d="M4 20V12h16v8z"/><path d="M4 12l16 0" stroke-dasharray="2 2"/><path ${A} d="M3 9c5-5 13 2 18-3"/><path ${A} d="M12 11V8"/>`,
     // Rebuild Face: a curved patch with its new control net over it.
     'rebuild-face': `<path d="M3 17c4-6 14-6 18 0M3 9c4-6 14-6 18 0M3 9v8M21 9v8"/><path ${A} d="M3 13h18M12 5v12M7.5 6.5v10M16.5 6.5v10" stroke-dasharray="2 2"/>`,
