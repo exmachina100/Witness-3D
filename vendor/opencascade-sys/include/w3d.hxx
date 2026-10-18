@@ -1290,10 +1290,28 @@ inline std::unique_ptr<W3dResult> w3d_shell(const TopoDS_Shape &shape, rust::Sli
     closing.Append(map(f + 1));
   }
   try {
-    BRepOffsetAPI_MakeThickSolid mk;
-    mk.MakeThickSolidByJoin(shape, closing, -thickness, 1e-6, BRepOffset_Skin, Standard_False, Standard_False,
-                            GeomAbs_Intersection, Standard_False);
-    if (!mk.IsDone() || mk.Shape().IsNull())
+    TopTools_IndexedMapOfShape before;
+    TopExp::MapShapes(shape, TopAbs_FACE, before);
+    // A real shell adds an inner wall for every face it keeps. On some free-form bodies (a loft of
+    // closed splines) the intersection join hands the body back untouched; the arc join, which
+    // rounds the inner corners instead, often succeeds there.
+    auto hollowed = [&](BRepOffsetAPI_MakeThickSolid &m) {
+      if (!m.IsDone() || m.Shape().IsNull()) return false;
+      TopTools_IndexedMapOfShape after;
+      TopExp::MapShapes(m.Shape(), TopAbs_FACE, after);
+      return after.Extent() > before.Extent();
+    };
+    BRepOffsetAPI_MakeThickSolid join, arc;
+    join.MakeThickSolidByJoin(shape, closing, -thickness, 1e-6, BRepOffset_Skin, Standard_False, Standard_False,
+                              GeomAbs_Intersection, Standard_False);
+    BRepOffsetAPI_MakeThickSolid *done = &join;
+    if (!hollowed(join)) {
+      arc.MakeThickSolidByJoin(shape, closing, -thickness, 1e-6, BRepOffset_Skin, Standard_False, Standard_False,
+                               GeomAbs_Arc, Standard_False);
+      done = &arc;
+    }
+    BRepOffsetAPI_MakeThickSolid &mk = *done;
+    if (!hollowed(mk))
       throw std::runtime_error("the walls can't be that thick here; try a thinner shell");
     std::unique_ptr<W3dResult> r(new W3dResult());
     r->shape = mk.Shape();

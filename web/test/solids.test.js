@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { before, test } from 'node:test';
 import * as THREE from 'three';
 import { LocalBackend } from '../src/app/LocalBackend.js';
-import { arrayMotions, boundaryEdges, bounds, box, count, loadKernel, planeSheet, mirror, primitive, shellFaces, volume } from '../src/Kernel.js';
+import { arrayMotions, boundaryEdges, bounds, box, count, loadKernel, numbered, planeSheet, mirror, primitive, shellFaces, volume } from '../src/Kernel.js';
 
 before(async () => { await loadKernel() });
 
@@ -263,4 +263,16 @@ test('Reverse Sheet turns a sheet over as one undo step and refuses a solid', as
     await assert.rejects(be.commitReverseSheets({ bodies: [seed.id] }), /sheets/);
     be.undo();
     n0.forEach((v, i) => close(normal()[i], v));
+});
+
+test('a loft of closed splines shells (the arc join steps in where the sharp one gives up)', async () => {
+    const { loft } = await import('../src/Forms.js');
+    const oval = (z, w, h) => ({ origin: [0, 10, z], x: [1, 0, 0], normal: [0, 0, 1], kind: 'spline', closed: true,
+        points: Array.from({ length: 8 }, (_, i) => [w / 2 * Math.cos(i * Math.PI / 4), h / 2 * Math.sin(i * Math.PI / 4)]) });
+    const body = loft([oval(0, 60, 30), oval(40, 90, 50), oval(70, 70, 40)]);
+    const door = numbered(body, 'TopAbs_FACE').findIndex(f => Math.abs(bounds(f).max.z) < 1e-3);
+    assert.ok(door >= 0);
+    const { shape } = shellFaces(body, [door], 2.5);
+    assert.ok(count(shape, 'TopAbs_FACE') > count(body, 'TopAbs_FACE'));
+    assert.ok(volume(shape) < 0.3 * volume(body), `${volume(shape)} of ${volume(body)}`);
 });

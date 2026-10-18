@@ -599,11 +599,19 @@ export function shellFaces(shape, faces, thickness) {
     if (ids.length === all.length) throw new Error('leave at least one face closed');
     const closing = new o.NCollection_List_TopoDS_Shape();
     for (const i of ids) closing.Append(all[i]);
-    const mk = new o.BRepOffsetAPI_MakeThickSolid();
-    try {
-        mk.MakeThickSolidByJoin(shape, closing, -thickness, 1e-6, o.BRepOffset_Mode.BRepOffset_Skin, false, false, o.GeomAbs_JoinType.GeomAbs_Intersection, false, new o.Message_ProgressRange());
-    } catch { /* reported below */ }
-    if (!mk.IsDone()) throw new Error("the walls can't be that thick here; try a thinner shell");
+    // A real shell adds an inner wall for every face it keeps. On some free-form bodies (a loft of
+    // closed splines) the intersection join hands the body back untouched; the arc join, which
+    // rounds the inner corners instead, often succeeds there.
+    const before = count(shape, 'TopAbs_FACE');
+    const attempt = join => {
+        const m = new o.BRepOffsetAPI_MakeThickSolid();
+        try {
+            m.MakeThickSolidByJoin(shape, closing, -thickness, 1e-6, o.BRepOffset_Mode.BRepOffset_Skin, false, false, join, false, new o.Message_ProgressRange());
+        } catch { return null; }
+        return m.IsDone() && !m.Shape().IsNull() && count(m.Shape(), 'TopAbs_FACE') > before ? m : null;
+    };
+    const mk = attempt(o.GeomAbs_JoinType.GeomAbs_Intersection) ?? attempt(o.GeomAbs_JoinType.GeomAbs_Arc);
+    if (!mk) throw new Error("the walls can't be that thick here; try a thinner shell");
     const result = mk.Shape();
     if (!new o.BRepCheck_Analyzer(result, true, false, false).IsValid() || count(result, 'TopAbs_SOLID') !== count(shape, 'TopAbs_SOLID')) throw new Error('a shell that thick breaks the body; try a thinner one');
     return { shape: result, history: trace([shape], result, s => successors(mk, s)) };
