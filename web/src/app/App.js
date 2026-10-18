@@ -6605,6 +6605,12 @@ export async function mount(root, backend) {
   showTool(null);
   showScene(await backend.scene());
   $('loading').hidden = true;
+  // A model the app was started with opens straight away (desktop file association).
+  if (typeof backend.startupFile === 'function') {
+    const openStartup = async () => { try { const path = await backend.startupFile(); if (path) await openFile(path); } catch (e) { toast(say(e)); } };
+    openStartup();
+    backend.onOpenFile?.(openStartup);
+  }
 
   function resize(force = false) {
     const { clientWidth: w, clientHeight: h } = canvas;

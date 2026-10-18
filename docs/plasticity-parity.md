@@ -137,8 +137,8 @@ opencascade.js (which lacks IGES).
 
 | Distribution | Plasticity 26.1.4 | Witness 3D plan | Status |
 |---|---|---|---|
-| Installers | per-user Squirrel `Setup.exe` with auto-update; machine-wide WiX MSI wrapping it | Tauri bundler: NSIS per-user and WiX MSI per-machine; Tauri updater plugin | Missing |
-| File association | registered by the app at run time | `.w3d` through the bundler's `fileAssociations`, so it's there from install | Missing |
+| Installers | per-user Squirrel `Setup.exe` with auto-update; machine-wide WiX MSI wrapping it | Tauri bundler: NSIS per-user and WiX MSI per-machine (tauri.conf.json `bundle.windows`), .deb/.rpm/AppImage on Linux, .dmg on macOS. No auto-update yet (needs the updater plugin and a signing key) | Partial |
+| File association | registered by the app at run time | `.w3d` through the bundler's `fileAssociations`, so it's there from install. A double-clicked model opens on start (argument on Windows/Linux, open event on macOS) | Done |
 | Explorer thumbnails | `thumbnail_provider.dll` COM handler, registered with regsvr32 | A small thumbnail handler that reads the preview PNG a `.w3d` file stores | Missing |
 | Graphics fallback | ANGLE, then SwiftShader | WebView2 brings its own GPU fallback; the browser build needs WebGL2 | Covered by the platform |
 

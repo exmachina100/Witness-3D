@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Tells the desktop that *.w3d files are Witness 3D models, so they open in the app. -->
+<mime-info xmlns="http://www.freedesktop.org/standards/shared-mime-info">
+  <mime-type type="application/x-witness3d">
+    <comment>Witness 3D model</comment>
+    <glob pattern="*.w3d"/>
+  </mime-type>
+</mime-info>
