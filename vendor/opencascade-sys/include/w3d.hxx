@@ -1436,6 +1436,35 @@ inline bool w3d_tangent_along(const TopoDS_Edge &e, const TopoDS_Face &a, const 
   return true;
 }
 
+// For each edge (TopExp::MapShapes order), the largest angle in degrees between the two faces'
+// outward normals along it, sampled at 17 points: 0 where the faces meet tangentially (G1), 90 at
+// a square corner. -1 for edges that do not join two distinct faces (open sides, seams, poles).
+inline rust::Vec<double> w3d_edge_angles(const TopoDS_Shape &shape) {
+  TopTools_IndexedMapOfShape edges;
+  TopExp::MapShapes(shape, TopAbs_EDGE, edges);
+  TopTools_IndexedDataMapOfShapeListOfShape owners;
+  TopExp::MapShapesAndAncestors(shape, TopAbs_EDGE, TopAbs_FACE, owners);
+  rust::Vec<double> out;
+  for (int i = 1; i <= edges.Extent(); i++) {
+    const TopoDS_Edge &e = TopoDS::Edge(edges(i));
+    double worst = -1;
+    if (!BRep_Tool::Degenerated(e) && owners.Contains(e)) {
+      TopTools_IndexedMapOfShape distinct;
+      for (TopTools_ListIteratorOfListOfShape it(owners.FindFromKey(e)); it.More(); it.Next()) distinct.Add(it.Value());
+      if (distinct.Extent() == 2) {
+        TopoDS_Face a = TopoDS::Face(distinct(1)), b = TopoDS::Face(distinct(2));
+        for (int k = 0; k <= 16; k++) {
+          gp_Vec na, nb;
+          if (!w3d_normal_on_edge(e, a, k / 16.0, na) || !w3d_normal_on_edge(e, b, k / 16.0, nb)) continue;
+          worst = std::max(worst, na.Angle(nb) * 180.0 / M_PI);
+        }
+      }
+    }
+    out.push_back(worst);
+  }
+  return out;
+}
+
 // Whether two faces lie on one surface (two halves of a cylinder, say), for the analytic kinds.
 inline bool w3d_same_surface(const TopoDS_Face &a, const TopoDS_Face &b) {
   BRepAdaptor_Surface sa(a), sb(b);

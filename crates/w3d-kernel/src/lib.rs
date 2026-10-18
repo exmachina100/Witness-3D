@@ -386,6 +386,9 @@ pub trait Kernel {
     }
     /// Numbers of the edges that bound only one face, a sheet's open sides (Find Boundary Edges).
     fn boundary_edges(&self, _s: &Self::Solid) -> Vec<u32> { Vec::new() }
+    /// Per numbered edge, the largest angle in degrees between the normals of the two faces it
+    /// joins: 0 for a tangent (G1) join, -1 where it does not join two faces.
+    fn edge_angles(&self, _s: &Self::Solid) -> Vec<f64> { Vec::new() }
     /// Numbers of the faces that look like fillets; with `seeds`, the fillet chains holding them.
     fn fillet_faces(&self, _s: &Self::Solid, _seeds: &[u32]) -> Vec<u32> { Vec::new() }
     /// The numbered faces deleted and the gap closed by the faces around them (Remove Face).

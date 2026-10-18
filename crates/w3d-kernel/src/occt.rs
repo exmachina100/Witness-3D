@@ -410,6 +410,10 @@ impl Kernel for Occt {
         s.boundary_edges().into_iter().map(|i| i as u32).collect()
     }
 
+    fn edge_angles(&self, s: &Shape) -> Vec<f64> {
+        s.edge_angles()
+    }
+
     fn fillet_faces(&self, s: &Shape, seeds: &[u32]) -> Vec<u32> {
         let seeds: Vec<usize> = seeds.iter().map(|&i| i as usize).collect();
         s.fillet_faces(&seeds).into_iter().map(|i| i as u32).collect()
