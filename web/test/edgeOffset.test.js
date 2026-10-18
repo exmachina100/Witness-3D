@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { edgeOffsetsOnFace, edgePiece, faceFrame, faceLoopOffsets } from '../src/edgeOffset.js';
+import { edgeOffsetsBothSides, edgeOffsetsOnFace, edgePiece, faceFrame, faceLoopOffsets, lineSweptAlong } from '../src/edgeOffset.js';
 import { samples } from '../src/curveEdit.js';
 
 // The top face of a 40 × 20 block at height 10, with a round hole of radius 3 at (10, 10, 10).
@@ -41,4 +41,22 @@ test('offset edge runs across the face, inside it, from side to side', () => {
     const q = samples(l).points.map(p => model(l, p));
     assert.ok(q.some(p => Math.abs(p[0] - 36) < 1e-6 && Math.abs(p[2] - 4) < 1e-6), 'the corner moves in');
     assert.throws(() => edgeOffsetsOnFace(body, 0, all, [0], 25), /leave the face/);
+});
+
+test('both sides: a line on each face, framed to sweep along the other face', () => {
+    // A 40 × 10 × 20 block: top face 0 (y = 10) and front face 1 (z = 0) share the edge (0,10,0)-(40,10,0).
+    const block = {
+        facePlanes: [{ origin: [0, 10, 0], normal: [0, 1, 0] }, { origin: [0, 0, 0], normal: [0, 0, -1] }],
+        edges: [line([0, 10, 0], [40, 10, 0]), line([40, 10, 0], [40, 10, 20]), line([40, 10, 20], [0, 10, 20]), line([0, 10, 20], [0, 10, 0]),
+            line([40, 0, 0], [40, 10, 0]), line([0, 0, 0], [40, 0, 0]), line([0, 10, 0], [0, 0, 0])],
+    };
+    const faceEdges = f => f === 0 ? [0, 1, 2, 3] : [0, 4, 5, 6];
+    const [top, front] = edgeOffsetsBothSides(block, 0, 1, faceEdges, [0], 3);
+    const pts = c => samples(c).points.map(p => model(c, p));
+    for (const p of pts(top)) assert.ok(Math.abs(p[1] - 10) < 1e-9 && Math.abs(p[2] - 3) < 1e-9, `top ${p}`);
+    for (const p of pts(front)) assert.ok(Math.abs(p[1] - 7) < 1e-9 && Math.abs(p[2]) < 1e-9, `front ${p}`);
+    // Each sweeps along the other face: the top line straight down (in the front face), the front line along z (in the top face).
+    assert.ok(Math.abs(Math.abs(top.normal[1]) - 1) < 1e-9);
+    assert.ok(Math.abs(Math.abs(front.normal[2]) - 1) < 1e-9);
+    assert.throws(() => lineSweptAlong({ ...top, kind: 'arc' }, [0, 1, 0]), /straight/);
 });

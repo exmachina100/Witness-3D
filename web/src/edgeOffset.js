@@ -153,3 +153,39 @@ export function edgeOffsetsOnFace(body, face, faceEdgeIds, picked, d, corner = '
         return extendCurve(extendCurve(into, 0, size, 'linear'), 1, size, 'linear');
     });
 }
+
+/**
+ * A straight offset (a polyline whose points are in a row) put on another plane holding the same
+ * line: the one whose normal is `toward`, so Imprint sweeps it along `toward`. Offset Edge on both
+ * sides of an edge between two flat faces sweeps each side's line along the other face, so the
+ * sheet that splits one face runs beside the other and never cuts it.
+ */
+export function lineSweptAlong(c, toward) {
+    if (c.kind !== 'polyline' || c.closed) throw new Error('both sides work on straight edges between two flat faces');
+    const y = cross3(c.normal, c.x);
+    const pts = c.points.map(([u, v]) => [0, 1, 2].map(k => c.origin[k] + u * c.x[k] + v * y[k]));
+    const p0 = pts[0], d = unit3(sub3(pts.at(-1), p0));
+    let n = sub3(toward, d.map(v => v * dot3(toward, d)));
+    if (Math.hypot(...n) < 1e-9) throw new Error('the faces meet along the offset; both sides needs two faces at an angle');
+    n = unit3(n);
+    const ny = cross3(n, d);
+    return { ...c, origin: p0, x: d, normal: n, points: pts.map(p => { const q = sub3(p, p0); return [dot3(q, d), dot3(q, ny)]; }) };
+}
+
+/**
+ * Plasticity's Offset Edge on both sides (S): the picked straight edges, shared by flat faces `a`
+ * and `b`, moved `d` across each of them; each line comes back framed to sweep along the other face.
+ */
+export function edgeOffsetsBothSides(body, a, b, faceEdges, picked, d) {
+    const along = f => unit3(body.facePlanes[f].normal);
+    // A direction lying in face `f`, across the edge: the face's normal turned about the edge.
+    const across = (f, line) => {
+        const y = cross3(line.normal, line.x), p = line.points;
+        const model = ([u, v]) => [0, 1, 2].map(k => line.origin[k] + u * line.x[k] + v * y[k]);
+        const e = unit3(sub3(model(p.at(-1)), model(p[0])));
+        return cross3(along(f), e);
+    };
+    const sa = edgeOffsetsOnFace(body, a, faceEdges(a), picked, d, 'linear');
+    const sb = edgeOffsetsOnFace(body, b, faceEdges(b), picked, d, 'linear');
+    return [...sa.map(c => lineSweptAlong(c, across(b, c))), ...sb.map(c => lineSweptAlong(c, across(a, c)))];
+}
