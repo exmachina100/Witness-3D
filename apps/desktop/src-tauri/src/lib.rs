@@ -238,6 +238,14 @@ async fn boundary_edges(
 }
 
 #[tauri::command]
+async fn fillet_faces(
+    model: State<'_, Model>,
+    req: api::RemoveFacesRequest,
+) -> Result<Vec<u32>, api::ApiError> {
+    on_model(&model, move |m| api::fillet_faces(m, req)).await?
+}
+
+#[tauri::command]
 async fn commit_unify(
     model: State<'_, Model>,
     req: api::UnifyRequest,
@@ -703,6 +711,7 @@ pub fn run() {
             commit_remove_faces,
             commit_unify,
             boundary_edges,
+            fillet_faces,
             commit_reverse_sheets,
             preview_primitive,
             commit_primitive,

@@ -223,6 +223,12 @@ impl Shape {
         ffi::w3d::w3d_boundary_edges(&self.inner).into_iter().map(|i| i as usize).collect()
     }
 
+    /// Numbers of the faces that look like fillets; with `seeds`, the fillet chains holding them.
+    pub fn fillet_faces(&self, seeds: &[usize]) -> Vec<usize> {
+        let seeds: Vec<i32> = seeds.iter().map(|&i| i as i32).collect();
+        ffi::w3d::w3d_fillet_faces(&self.inner, &seeds).into_iter().map(|i| i as usize).collect()
+    }
+
     /// Split by sheets swept from curves (see `w3d_cut`): the biggest piece with its history, and the rest.
     /// `extra` are further tools (sheets or solids) beside the curves.
     pub fn cut_with_history(&self, data: &[f64], length: f64, extra: &[&Shape]) -> Result<(Shape, ShapeHistory, Vec<Shape>), String> {

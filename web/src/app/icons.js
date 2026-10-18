@@ -151,6 +151,7 @@ const ICONS = {
     // Reverse Sheet: a sheet with its normal flipped over.
     'reverse-sheet': `<path d="M4 14l8-4 8 4"/><path ${A} d="M12 10V3M9.5 5.5L12 3l2.5 2.5M12 12v8M9.5 17.5L12 20l2.5-2.5" stroke-dasharray="0"/>`,
     // Find Boundary Edges: a sheet with its open sides lit.
+    'remove-fillets': `<path d="M4 20V10a6 6 0 0 1 6-6h10" stroke-dasharray="2 2"/><path d="M4 20V4h16"/><path ${A} d="M14 14l5 5M19 14l-5 5"/>`,
     'boundary-edges': `<path d="M4 8l8-4 8 4-8 4z" stroke-dasharray="2 2"/><path ${A} d="M4 8v8l8 4 8-4V8"/>`,
     unify: `<path d="M4 6h16v12H4z"/><path ${A} d="M12 6v12" stroke-dasharray="2 2"/><path ${A} d="M9 10l-2 2 2 2M15 10l2 2-2 2"/>`,
     'convert-vertex': `<path d="M3 18L12 5l9 13" stroke-dasharray="2 2"/><path ${A} d="M3 18C8 9 16 9 21 18"/><path ${A} d="M12 5h0" stroke-width="3" stroke-linecap="round"/>`,

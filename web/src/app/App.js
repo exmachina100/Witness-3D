@@ -5041,6 +5041,32 @@ export async function mount(root, backend) {
     } catch (e) { toast(say(e)); }
   }
 
+  /**
+   * Plasticity's Remove Fillets: the fillets of the selected solid (or the fillet chains holding the
+   * selected faces) are found and handed to Remove Face, which previews the solid without them.
+   */
+  async function removeFillets() {
+    if (cmd) await finish();
+    if (!backend.filletFaces || !backend.previewRemoveFaces) return toast('REMOVE FILLETS NEEDS THE DESKTOP APP; THE BROWSER KERNEL CANNOT DO IT YET');
+    let body = faceBody(), seeds = [];
+    if (body !== null) seeds = sel.list('face').map(it => it.n);
+    else {
+      const ids = targetBodies();
+      if (ids.length !== 1) return toast('SELECT ONE SOLID, OR FACES OF ITS FILLETS');
+      body = ids[0];
+    }
+    try {
+      const faces = await backend.filletFaces({ body, faces: seeds });
+      sel.clear();
+      for (const n of faces) sel.add({ kind: 'face', body, n });
+      sel.modes.add('face');
+      renderModes();
+      selectionChanged({ quiet: true });
+      await startTool('remove-face');
+      toast(`${faces.length} FILLET FACE${faces.length === 1 ? '' : 'S'} ON ${label(body)}`);
+    } catch (e) { toast(say(e)); }
+  }
+
   /** Plasticity's Delete Redundant Topology: faces on one surface and edges on one curve merged, on the selected bodies. */
   async function unifySelected() {
     if (cmd) await finish();
@@ -6031,6 +6057,7 @@ export async function mount(root, backend) {
       case 'convert-vertex': await convertSelected(); return true;
       case 'unify': await unifySelected(); return true;
       case 'boundary-edges': await findBoundaryEdges(); return true;
+      case 'remove-fillets': await removeFillets(); return true;
       case 'reverse-sheet': await reverseSheets(); return true;
       // Plasticity's Slot: Offset Curve with Offset Region's slot on (an open curve closed round its ends).
       case 'slot': await startCurveEdit('offset-curve'); if (cmd?.id === 'offset-curve' && !cmd.slot) cmd.key('slot'); return true;
@@ -6176,8 +6203,8 @@ export async function mount(root, backend) {
     const out = [];
     if (sel.solids.length > 1) out.push('tool:boolean');
     if (sel.solids.length === 2) out.push('tool:project');
-    if (kinds.has('solid')) out.push('tool:move', 'tool:rotate', 'tool:scale', 'duplicate', 'tool:mirror', 'tool:rect-array', 'tool:radial-array', 'tool:curve-array', 'unify', 'boundary-edges', 'delete', 'hide', 'isolate', 'group', 'lock', 'material:set', 'export:step', 'export:mesh', 'export:drawing');
-    if (kinds.has('face')) out.push('tool:extrude', 'tool:offset', 'tool:thicken', 'tool:shell', 'tool:hole', 'tool:remove-face', 'plane:selection', 'plane:selection-keep-view');
+    if (kinds.has('solid')) out.push('tool:move', 'tool:rotate', 'tool:scale', 'duplicate', 'tool:mirror', 'tool:rect-array', 'tool:radial-array', 'tool:curve-array', 'unify', 'boundary-edges', 'remove-fillets', 'delete', 'hide', 'isolate', 'group', 'lock', 'material:set', 'export:step', 'export:mesh', 'export:drawing');
+    if (kinds.has('face')) out.push('tool:extrude', 'tool:offset', 'tool:thicken', 'tool:shell', 'tool:hole', 'tool:remove-face', 'remove-fillets', 'plane:selection', 'plane:selection-keep-view');
     if (kinds.has('edge')) out.push('tool:fillet', 'tool:patch', 'measure:radius');
     if (sel.list('edge').length === 2) out.push('tool:bridge-surface');
     if (sel.solids.some(id => current.find(b => b.id === id)?.sheet)) out.push('tool:thicken', 'reverse-sheet');
