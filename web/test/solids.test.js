@@ -178,6 +178,21 @@ test('imprint splits faces where curves cross them and keeps the body whole', as
     await assert.rejects(async () => be.commitImprint({ body: seed.id, curves: [miss] }), /do not cross/);
 });
 
+test('delete redundant topology merges the faces an imprint split, in one undo step', async () => {
+    const be = new LocalBackend();
+    const seed = be.scene()[0];
+    const faces = seed.faceRefs.length;
+    const { ids: [line] } = await be.addCurves([{ origin: [0, 0, 0], x: [1, 0, 0], normal: [0, 1, 0], kind: 'polyline', points: [[10, -100], [10, 100]], closed: false }]);
+    await be.commitImprint({ body: seed.id, curves: [line] });
+    assert.equal(be.scene()[0].faceRefs.length, faces + 4);
+    const r = await be.commitUnify({ bodies: [seed.id] });
+    assert.deepEqual([r.faces, r.edges], [4, 8]);
+    assert.equal(be.scene()[0].faceRefs.length, faces);
+    close(be.scene()[0].volume, seed.volume, 1e-3);
+    be.undo();
+    assert.equal(be.scene()[0].faceRefs.length, faces + 4);
+});
+
 test('cut with a plane or another body\'s face, and imprint one body on another', async () => {
     const be = new LocalBackend();
     const seed = be.scene()[0]; // 80 × 30 × 50, x −40..40, y 0..30

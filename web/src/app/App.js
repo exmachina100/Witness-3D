@@ -5001,6 +5001,20 @@ export async function mount(root, backend) {
     } catch (e) { toast(say(e)); }
   }
 
+  /** Plasticity's Delete Redundant Topology: faces on one surface and edges on one curve merged, on the selected bodies. */
+  async function unifySelected() {
+    if (cmd) await finish();
+    const ids = targetBodies().filter(id => org.shows(id));
+    if (!ids.length) return toast('SELECT A SOLID OR SHEET TO CLEAN UP');
+    if (!backend.commitUnify) return toast('DELETE REDUNDANT TOPOLOGY IS NOT IN THIS BUILD YET');
+    try {
+      const { faces, edges, scene: list } = await backend.commitUnify({ bodies: ids });
+      record(`DELETE REDUNDANT TOPOLOGY ${ids.map(label).join(' ')}`, ids[0], `−${faces} FACES −${edges} EDGES`);
+      await showScene(list);
+      toast(faces || edges ? `MERGED AWAY ${faces} FACE${faces === 1 ? '' : 'S'} AND ${edges} EDGE${edges === 1 ? '' : 'S'}` : 'NOTHING TO MERGE');
+    } catch (e) { toast(say(e)); }
+  }
+
   /** Plasticity's Convert Vertex: picked corners of lines become control vertices, one undo step. */
   async function convertSelected(picked = sel.list('vertex').filter(v => curveById(v.id))) {
     if (cmd) await finish();
@@ -5943,6 +5957,7 @@ export async function mount(root, backend) {
       case 'rebuild': await startRebuild(); return true;
       case 'raise-degree': await raiseSelected(); return true;
       case 'convert-vertex': await convertSelected(); return true;
+      case 'unify': await unifySelected(); return true;
       case 'insert-knot': if (cmd) await finish(); startInsertKnot(); return true;
       case 'hide': setHidden(sel.bodies, true); return true;
       case 'hide-others': setHidden(current.map(b => b.id).filter(id => !sel.bodies.includes(id)), true); return true;
@@ -6085,7 +6100,7 @@ export async function mount(root, backend) {
     const out = [];
     if (sel.solids.length > 1) out.push('tool:boolean');
     if (sel.solids.length === 2) out.push('tool:project');
-    if (kinds.has('solid')) out.push('tool:move', 'tool:rotate', 'tool:scale', 'duplicate', 'tool:mirror', 'tool:rect-array', 'tool:radial-array', 'delete', 'hide', 'isolate', 'group', 'lock', 'material:set', 'export:step', 'export:mesh', 'export:drawing');
+    if (kinds.has('solid')) out.push('tool:move', 'tool:rotate', 'tool:scale', 'duplicate', 'tool:mirror', 'tool:rect-array', 'tool:radial-array', 'unify', 'delete', 'hide', 'isolate', 'group', 'lock', 'material:set', 'export:step', 'export:mesh', 'export:drawing');
     if (kinds.has('face')) out.push('tool:extrude', 'tool:offset', 'tool:thicken', 'tool:shell', 'tool:hole', 'tool:remove-face', 'plane:selection', 'plane:selection-keep-view');
     if (kinds.has('edge')) out.push('tool:fillet', 'tool:patch', 'measure:radius');
     if (sel.list('edge').length === 2) out.push('tool:bridge-surface');

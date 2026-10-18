@@ -914,6 +914,26 @@ pub fn preview_remove_faces(m: &Model, req: RemoveFacesRequest) -> Option<Result
     })
 }
 
+/// Plasticity's Delete Redundant Topology on the bodies.
+#[derive(Deserialize, Debug, Clone)]
+pub struct UnifyRequest {
+    pub bodies: Vec<BodyId>,
+}
+
+#[derive(Serialize, Debug)]
+pub struct Unified {
+    pub faces: usize,
+    pub edges: usize,
+    pub scene: Vec<Body>,
+}
+
+pub fn commit_unify(m: &Model, req: UnifyRequest) -> Result<Unified, ApiError> {
+    m.call(move |doc| {
+        let (faces, edges) = doc.commit_unify(&req.bodies)?;
+        Ok(Unified { faces, edges, scene: bodies(doc)? })
+    })
+}
+
 pub fn commit_remove_faces(m: &Model, req: RemoveFacesRequest) -> Result<Committed, ApiError> {
     m.call(move |doc| {
         let id = doc.commit_remove_faces(req.body, &req.faces)?;

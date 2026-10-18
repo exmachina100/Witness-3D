@@ -372,6 +372,10 @@ pub trait Kernel {
     fn draft_faces(&self, _s: &Self::Solid, _faces: &[u32], _pull: DVec3, _origin: DVec3, _angle: f64) -> Result<Traced<Self::Solid>, KernelError> {
         Err(KernelError::Invalid("this kernel cannot draft faces"))
     }
+    /// Faces on one surface and edges on one curve merged (Delete Redundant Topology).
+    fn unify(&self, _s: &Self::Solid) -> Result<Traced<Self::Solid>, KernelError> {
+        Err(KernelError::Invalid("this kernel cannot merge faces"))
+    }
     /// The numbered faces deleted and the gap closed by the faces around them (Remove Face).
     fn remove_faces(&self, _s: &Self::Solid, _faces: &[u32]) -> Result<Traced<Self::Solid>, KernelError> {
         Err(KernelError::Invalid("this kernel cannot remove faces"))
