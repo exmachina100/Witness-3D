@@ -5958,6 +5958,8 @@ export async function mount(root, backend) {
       case 'raise-degree': await raiseSelected(); return true;
       case 'convert-vertex': await convertSelected(); return true;
       case 'unify': await unifySelected(); return true;
+      // Plasticity's Slot: Offset Curve with Offset Region's slot on (an open curve closed round its ends).
+      case 'slot': await startCurveEdit('offset-curve'); if (cmd?.id === 'offset-curve' && !cmd.slot) cmd.key('slot'); return true;
       case 'insert-knot': if (cmd) await finish(); startInsertKnot(); return true;
       case 'hide': setHidden(sel.bodies, true); return true;
       case 'hide-others': setHidden(current.map(b => b.id).filter(id => !sel.bodies.includes(id)), true); return true;
@@ -6115,7 +6117,7 @@ export async function mount(root, backend) {
       out.push('tool:patch', 'tool:pipe');
       if (kinds.has('face')) out.push('tool:imprint');
       if (kinds.has('face')) out.push('tool:draft');
-      out.push('trim', 'split', 'extend', 'tool:offset-curve', 'tool:fillet-curve');
+      out.push('trim', 'split', 'extend', 'tool:offset-curve', 'slot', 'tool:fillet-curve');
       if (sel.curves.length === 2) out.push('tool:bridge');
       if (sel.curves.length > 1) out.push('join');
       out.push('explode', 'reverse', 'rebuild', 'insert-knot', 'raise-degree', 'measure:continuity', 'delete');
