@@ -23,24 +23,24 @@ a flat face imprints that face and is used up (round 10).
 
 | Tool | Manual keys and steps | Status |
 |---|---|---|
-| Line (Shift+A) | points; Tab, K, Ctrl+Z, X/Y/Z | Partial: K |
-| Spline Curve | through points; Tab → Control Point Curve, K, Ctrl+Z, X/Y/Z | Partial: K |
-| Control Point Curve | clicked points are control points; Tab → Spline, K, Ctrl+Z, X/Y/Z | Partial: K (exact cubic B-spline in both kernels) |
+| Line (Shift+A) | points; Tab, K, Ctrl+Z, X/Y/Z | Done |
+| Spline Curve | through points; Tab → Control Point Curve, K, Ctrl+Z, X/Y/Z | Done |
+| Control Point Curve | clicked points are control points; Tab → Spline, K, Ctrl+Z, X/Y/Z | Done (exact cubic B-spline in both kernels) |
 | Bridge Curve | | Done |
 | Split Curve At Point | | Done for lines, arcs and open splines |
 | Insert CV At Point | | Missing (needs control-point curves) |
 | Trim | | Partial: splines, ellipses, joined curves |
-| Center Circle | centre, size; Tab, K, V, X/Y | Partial: K |
-| Two Point Circle | | Partial: K |
-| Three Point Circle | | Partial: K |
+| Center Circle | centre, size; Tab, K, V, X/Y | Done |
+| Two Point Circle | | Done |
+| Three Point Circle | | Done |
 | Tangent Circle | pick two curves (optional third edge), size; F freeze, Tab radius | Partial: third edge (exact for lines, circles, arcs) |
-| Ellipse (centre, three point) | | Partial: K |
-| Center Point Arc · Three Point Arc · Tangent Arc | | Partial: K |
-| Regular Polygon | | Partial: K |
+| Ellipse (centre, three point) | | Done |
+| Center Point Arc · Three Point Arc · Tangent Arc | | Done |
+| Regular Polygon | | Done |
 | Spiral | | Done |
-| Corner Rectangle | corner, corner; Tab, K, C → centre, S square | Partial: K |
-| Center Rectangle | centre, corner; Tab, K, C → corner, S square | Partial: K |
-| Three Point Rectangle | corner, edge point, size; Tab, K, X/Y/Z | Partial: K |
+| Corner Rectangle | corner, corner; Tab, K, C → centre, S square | Done |
+| Center Rectangle | centre, corner; Tab, K, C → corner, S square | Done |
+| Three Point Rectangle | corner, edge point, size; Tab, K, X/Y/Z | Done |
 | Corner Box | corner, corner, drag height; C → centre, S square, Tab; height step: Q W Shift+E B Shift+Q T (boolean with target bodies), H height; yellow dots; Width/Length/Height | Partial: yellow dots, T |
 | Center Box | as Corner Box from the centre | Partial: yellow dots, T |
 | Three Point Box | corner, edge point, size, height; X/Y/Z; target bodies | Done |
@@ -86,7 +86,7 @@ a flat face imprints that face and is used up (round 10).
 | Rebuild and Refine | Convert Vertex, Delete Redundant Topology, Insert Knot, Raise (Curve) Degree, Rebuild (Curve), Reverse (Curve) | Reverse Curve done (arrows show the new start; circles and ellipses have no stored direction). Rebuild Curve done: control points C and degree D, least-squares NURBS fit that keeps open ends and closes closed curves smoothly (periodic fit), new control polygon shown, max deviation in the hint (half circle r=10 with 8 points: 0.003 mm). Rebuilt curves' control points can be moved with G/R/S. Insert Knot done: click a curve to add a control point there, shape unchanged. Raise Degree done: one degree up, shape unchanged (exact in homogeneous coordinates, so arcs and circles stay round). Both turn lines, arcs, circles and control-point curves into exact NURBS first; splines, ellipses and joined curves need Rebuild Curve first. Convert Vertex done: picked corners of a line (command, or double-click a vertex in point mode) become control vertices the curve rounds past; the corners kept and the ends stay put, and converting every inner corner gives a control-point curve. The result is one NURBS curve, so its straight runs show extra control points at their middles. Delete Redundant Topology done (see Solid › Delete and Remove) |
 | Instances | Create / Realize (Curve) Instance | Missing |
 | Text | Text (Plasticity ships 21 typeface fonts) | Missing |
-| Display and Analysis | Toggle Curve Curvature, Toggle Points | Missing |
+| Display and Analysis | Toggle Curve Curvature, Toggle Points | Toggle Curve Curvature is the View panel's curvature toggle (done). Toggle Points done in both builds (palette, or Suggested Commands): the selected curves keep their vertices on show (a control point or NURBS curve its control polygon), faces their control net, a whole solid every face's; running it again on the same selection hides them. Faces' nets follow the body through later changes. The desktop converts each face's surface to a B-spline exactly; the browser does that for flat, B-spline and Bezier faces and fits a cubic B-spline to other round faces |
 
 ## 4. Solid commands
 

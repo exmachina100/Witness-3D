@@ -235,6 +235,11 @@ impl Shape {
         ffi::w3d::w3d_face_surfaces(&self.inner).into_iter().collect()
     }
 
+    /// Per face, its control points: nu, nv, then nu × nv points (see w3d.hxx).
+    pub fn face_poles(&self) -> Vec<f64> {
+        ffi::w3d::w3d_face_poles(&self.inner).into_iter().collect()
+    }
+
     /// Numbers of the faces that look like fillets; with `seeds`, the fillet chains holding them.
     pub fn fillet_faces(&self, seeds: &[usize]) -> Vec<usize> {
         let seeds: Vec<i32> = seeds.iter().map(|&i| i as i32).collect();

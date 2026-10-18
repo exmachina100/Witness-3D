@@ -1108,6 +1108,7 @@ export async function mount(root, backend) {
     hover = null;
     selectionChanged({ quiet: true });
     if (backend.sceneChanged) backend.sceneChanged().then(showBridge, () => {});
+    if (shownPoints.faces.size) refreshShownPoints(list);
     return loadCurves();
   }
 
@@ -1240,6 +1241,8 @@ export async function mount(root, backend) {
   async function loadCurves() {
     curveList = backend.curves ? await backend.curves() : [];
     sel.keepCurves(curveList.map(c => c.id));
+    for (const id of [...shownPoints.curves]) if (!curveById(id)) shownPoints.curves.delete(id);
+    paintShownPoints();
     for (const o of [...curveGroup.children]) dispose(o);
     for (const c of curveList) {
       const f = curveFrame(c), pts = curve2d(c);
@@ -1281,6 +1284,73 @@ export async function mount(root, backend) {
       curveVertices(c).forEach(([x, y], n) => out.push({ id: c.id, n, at: lift(f, { x, y }, 0.02) }));
     }
     return out;
+  }
+  // Toggle Points (Plasticity's): control points kept on show for the curves and faces it was run
+  // on: a curve's vertices (a control point curve's or NURBS curve's control polygon), a face's
+  // control net. Faces are kept per body, 'all' for a whole solid.
+  const shownPoints = { curves: new Set(), faces: new Map() };
+  let facePoleCache = new Map();
+  const pointsGroup = new THREE.Group();
+  scene.add(pointsGroup);
+  const netLine = new THREE.LineBasicMaterial({ color: 0x9a968c, transparent: true, opacity: 0.7, depthTest: false });
+  const facesShown = (body, n) => { const w = shownPoints.faces.get(body); return w === 'all' || !!w?.has(n); };
+  function paintShownPoints() {
+    for (const o of [...pointsGroup.children]) dispose(o);
+    const dots = [], segs = [];
+    for (const id of shownPoints.curves) {
+      const c = curveById(id);
+      if (!c) continue;
+      const f = curveFrame(c);
+      const net = c.kind === 'cv' ? c.points.map(([x, y]) => lift(f, { x, y }, 0.03)) : c.kind === 'nurbs' ? c.poles.map(([x, y, z]) => lift(f, { x, y, z }, 0.03)) : null;
+      if (!net) { dots.push(...curveVertices(c).map(([x, y]) => lift(f, { x, y }, 0.03))); continue; }
+      const run = c.kind === 'cv' && c.closed ? [...net, net[0]] : net;
+      for (let i = 1; i < run.length; i++) segs.push(run[i - 1], run[i]);
+      dots.push(...net);
+    }
+    for (const [body, which] of shownPoints.faces) {
+      const all = facePoleCache.get(body);
+      if (!all || !org.shows(body)) continue;
+      for (const n of which === 'all' ? all.keys() : which) {
+        const P = (all[n] ?? []).map(r => r.map(q => new THREE.Vector3(...q)));
+        if (!P.length) continue;
+        for (const r of P) { for (let j = 1; j < r.length; j++) segs.push(r[j - 1], r[j]); dots.push(...r); }
+        for (let j = 0; j < P[0].length; j++) for (let i = 1; i < P.length; i++) segs.push(P[i - 1][j], P[i][j]);
+      }
+    }
+    if (segs.length) { const l = new THREE.LineSegments(new THREE.BufferGeometry().setFromPoints(segs), netLine); l.renderOrder = 11; pointsGroup.add(l); }
+    if (dots.length) { const d = new THREE.Points(new THREE.BufferGeometry().setFromPoints(dots), vertexMat.normal); d.renderOrder = 11; pointsGroup.add(d); }
+  }
+  /** After the bodies change: the shown faces' control points again, gone bodies dropped. */
+  async function refreshShownPoints(list) {
+    for (const body of [...shownPoints.faces.keys()]) if (!list.some(b => b.id === body)) shownPoints.faces.delete(body);
+    const cache = new Map();
+    for (const body of shownPoints.faces.keys()) { try { cache.set(body, await backend.facePoles({ body })); } catch { shownPoints.faces.delete(body); } }
+    facePoleCache = cache;
+    paintShownPoints();
+  }
+  async function togglePoints() {
+    const curves = [...new Set([...sel.curves, ...sel.list('vertex').map(v => v.id)])].filter(curveById);
+    const faces = sel.list('face'), solids = sel.solids.filter(b => org.shows(b));
+    if (!curves.length && !faces.length && !solids.length) return toast('SELECT CURVES, FACES OR SOLIDS TO SHOW OR HIDE THEIR POINTS');
+    if ((faces.length || solids.length) && !backend.facePoles) return toast('FACE POINTS ARE NOT IN THIS BUILD YET');
+    // One switch for the whole selection: everything already showing hides, otherwise all show.
+    const show = ![...curves.map(id => shownPoints.curves.has(id)), ...faces.map(f => facesShown(f.body, f.n)), ...solids.map(b => shownPoints.faces.get(b) === 'all')].every(Boolean);
+    try {
+      for (const body of new Set([...faces.map(f => f.body), ...solids])) if (!facePoleCache.has(body)) facePoleCache.set(body, await backend.facePoles({ body }));
+    } catch (e) { return toast(say(e)); }
+    for (const id of curves) show ? shownPoints.curves.add(id) : shownPoints.curves.delete(id);
+    for (const b of solids) show ? shownPoints.faces.set(b, 'all') : shownPoints.faces.delete(b);
+    for (const { body, n } of faces) {
+      let w = shownPoints.faces.get(body);
+      if (w === 'all' && !show) w = new Set([...facePoleCache.get(body).keys()]);
+      if (w === 'all') continue;
+      w ??= new Set();
+      show ? w.add(n) : w.delete(n);
+      if (w.size) shownPoints.faces.set(body, w); else shownPoints.faces.delete(body);
+    }
+    paintShownPoints();
+    const what = [curves.length && `${curves.length} CURVE${curves.length > 1 ? 'S' : ''}`, faces.length && `${faces.length} FACE${faces.length > 1 ? 'S' : ''}`, solids.length && `${solids.length} SOLID${solids.length > 1 ? 'S' : ''}`].filter(Boolean).join(' · ');
+    toast(`POINTS ${show ? 'SHOWN' : 'HIDDEN'} · ${what}`);
   }
   // Which way curves run: a short arrow at each start, shown for a moment after Reverse Curve.
   const directionArrows = new THREE.Group();
@@ -7022,6 +7092,7 @@ export async function mount(root, backend) {
       case 'duplicate': await duplicateSelected(); return true;
       case 'alt-duplicate': await altDuplicate(); return true;
       case 'create-outline': await createOutline(); return true;
+      case 'toggle-points': await togglePoints(); return true;
       case 'join': await joinSelected(); return true;
       case 'trim': await startTool('trim'); return true;
       case 'extend': await startTool('extend'); return true;
@@ -7188,8 +7259,8 @@ export async function mount(root, backend) {
     const out = [];
     if (sel.solids.length > 1) out.push('tool:boolean');
     if (sel.solids.length === 2) out.push('tool:project');
-    if (kinds.has('solid')) out.push('tool:move', 'tool:rotate', 'tool:scale', 'duplicate', 'create-outline', 'place', 'dimension', 'tool:mirror', 'tool:rect-array', 'tool:radial-array', 'tool:curve-array', 'unify', 'boundary-edges', 'remove-fillets', 'raise-degree', 'delete', 'hide', 'isolate', 'group', 'lock', 'material:set', 'export:step', 'export:mesh', 'export:drawing');
-    if (kinds.has('face')) out.push('tool:extrude', 'tool:offset', 'tool:thicken', 'tool:shell', 'tool:hole', 'tool:remove-face', 'remove-fillets', 'isoparam', 'rebuild', 'raise-degree', 'match-face', 'untrim', 'unwrap', 'plane:selection', 'plane:selection-keep-view');
+    if (kinds.has('solid')) out.push('tool:move', 'tool:rotate', 'tool:scale', 'duplicate', 'create-outline', 'toggle-points', 'place', 'dimension', 'tool:mirror', 'tool:rect-array', 'tool:radial-array', 'tool:curve-array', 'unify', 'boundary-edges', 'remove-fillets', 'raise-degree', 'delete', 'hide', 'isolate', 'group', 'lock', 'material:set', 'export:step', 'export:mesh', 'export:drawing');
+    if (kinds.has('face')) out.push('tool:extrude', 'tool:offset', 'tool:thicken', 'tool:shell', 'tool:hole', 'tool:remove-face', 'remove-fillets', 'isoparam', 'rebuild', 'raise-degree', 'match-face', 'untrim', 'unwrap', 'toggle-points', 'plane:selection', 'plane:selection-keep-view');
     if (kinds.has('edge')) out.push('tool:fillet', 'tool:patch', 'alt-duplicate', 'measure:radius', 'view:surface-curvature');
     if (sel.list('edge').length === 2) out.push('tool:bridge-surface');
     if (sel.solids.some(id => current.find(b => b.id === id)?.sheet)) out.push('tool:thicken', 'reverse-sheet');
@@ -7200,7 +7271,7 @@ export async function mount(root, backend) {
     if (kinds.has('curve') || kinds.has('region')) {
       if (kinds.has('solid')) out.push('tool:project', 'tool:cut', 'tool:imprint');
       if (sel.curves.length === 2) out.push('tool:project');
-      out.push('tool:patch', 'tool:pipe', 'alt-duplicate');
+      out.push('tool:patch', 'tool:pipe', 'alt-duplicate', 'toggle-points');
       if (kinds.has('face')) out.push('tool:imprint');
       if (kinds.has('face')) out.push('tool:draft');
       out.push('trim', 'split', 'extend', 'tool:offset-curve', 'slot', 'tool:fillet-curve');

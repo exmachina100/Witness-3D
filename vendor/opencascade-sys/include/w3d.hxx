@@ -1520,6 +1520,33 @@ inline rust::Vec<double> w3d_face_surfaces(const TopoDS_Shape &shape) {
   return out;
 }
 
+// Toggle Points: each face's control points, its surface (trimmed to the face's (u, v) bounds) as a
+// B-spline. Per face: nu, nv, then nu × nv points (x, y, z), u running slowest; 0, 0 when it has none.
+inline rust::Vec<double> w3d_face_poles(const TopoDS_Shape &shape) {
+  TopTools_IndexedMapOfShape faces;
+  TopExp::MapShapes(shape, TopAbs_FACE, faces);
+  rust::Vec<double> out;
+  for (int i = 1; i <= faces.Extent(); i++) {
+    const TopoDS_Face &f = TopoDS::Face(faces(i));
+    try {
+      double u0, u1, v0, v1;
+      BRepTools::UVBounds(f, u0, u1, v0, v1);
+      Handle(Geom_Surface) s = BRep_Tool::Surface(f);
+      Handle(Geom_BSplineSurface) b = GeomConvert::SurfaceToBSplineSurface(new Geom_RectangularTrimmedSurface(s, u0, u1, v0, v1));
+      TopLoc_Location loc = f.Location();
+      out.push_back(b->NbUPoles());
+      out.push_back(b->NbVPoles());
+      for (int a = 1; a <= b->NbUPoles(); a++) for (int c = 1; c <= b->NbVPoles(); c++) {
+        gp_Pnt p = b->Pole(a, c).Transformed(loc.Transformation());
+        out.push_back(p.X()); out.push_back(p.Y()); out.push_back(p.Z());
+      }
+    } catch (const Standard_Failure &) {
+      out.push_back(0); out.push_back(0);
+    }
+  }
+  return out;
+}
+
 // Whether two faces lie on one surface (two halves of a cylinder, say), for the analytic kinds.
 inline bool w3d_same_surface(const TopoDS_Face &a, const TopoDS_Face &b) {
   BRepAdaptor_Surface sa(a), sb(b);
