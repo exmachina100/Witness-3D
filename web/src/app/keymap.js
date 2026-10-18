@@ -110,6 +110,7 @@ export const COMMAND = {
     'offset-vertex': { d: 'distance' },
     'fillet-vertex': { d: 'distance', c: 'chamfer' },
     'align-vertex': { x: 'x', y: 'y', z: 'z', v: 'value' },
+    extend: { s: 'shape' },
     'fillet-curve': { d: 'radius' },
     // Bridge Curve / Bridge Vertex (manual: Tab continuity, D tension)
     bridge: { t: 'tension', d: 'tension', tab: 'continuity' },
