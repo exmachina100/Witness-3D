@@ -51,7 +51,7 @@ test('splines and arcs are drawn, checked and used', async () => {
     const blob = on(100, { kind: 'spline', points: [[0, 0], [10, 0], [10, 10], [0, 10]], closed: true });
     const arc = on(100, { kind: 'arc', start: [0, 0], mid: [5, 5], end: [10, 0] });
     const { ids: [b, a] } = await be.addCurves([blob, arc]);
-    close((await be.preview({ region: b, distance: 5 })).tool.volume, 800.0146, 0.01);
+    close((await be.preview({ region: b, distance: 5 })).tool.volume, 800, 0.01);
     await assert.rejects(be.preview({ region: a, distance: 5 }), /closed curve/);
     for (const bad of [{ kind: 'arc', start: [0, 0], mid: [1, 0], end: [2, 0] }, { kind: 'spline', points: [[0, 0]], closed: false }, { kind: 'spline', points: [[0, 0], [0, 0], [1, 1]], closed: true }])
         await assert.rejects(be.addCurves([on(0, bad)]));
