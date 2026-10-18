@@ -109,6 +109,7 @@ const KEYS = {
   'match-face': [['CLICK', 'TARGET FACE'], ['⇧ CLICK', 'FACES'], ['TAB', 'GROW'], ['⏎ / RMB', 'OK']],
   untrim: [['TAB', 'KEEP EDGES'], ['⇧ CLICK', 'FACES'], ['⏎ / RMB', 'OK']],
   unwrap: [['⇧ CLICK', 'FACES'], ['⏎ / RMB', 'OK']],
+  section: [['D', 'DISTANCE'], ['F', 'FLIP'], ['⏎ / RMB', 'OK']],
   'rebuild-face': [['M', 'METHOD'], ['T', 'TOLERANCE'], ['D', 'DEGREE'], ['S', 'SPANS'], ['E', 'EXTEND'], ['H', 'SHRINK'], ['⇧ CLICK', 'FACES'], ['⏎ / RMB', 'OK']],
   'fillet-vertex': [['DRAG DOT', 'IN ROUND · OUT CHAMFER'], ['D', 'FILLET DISTANCE'], ['C', 'CHAMFER DISTANCE'], ['⏎ / RMB', 'OK']],
   'offset-curve': [['DRAG DOT', 'DISTANCE'], ['D', 'DISTANCE'], ['V / C', 'GAP FILL'], ['S', 'BOTH SIDES'], ['F', 'FREESTYLE: CLICK'], ['O', 'SLOT'], ['I', 'COMBINED'], ['⏎ / RMB', 'OK']],
@@ -163,7 +164,7 @@ const CLICKS = { rect: 2, 'center-rect': 2, rect3: 3, circle: 2, circle2: 2, cir
 const FORMS = { revolve: true, loft: true, sweep: true };
 const PRIMS = { box: true, 'center-box': true, box3: true, cylinder: true, sphere: true };
 // Commands that aren't tools in the registry (they act on a click, not on settings).
-const EDITS = { isoparam: 'ISOPARAM', 'offset-vertex': 'OFFSET VERTEX', 'fillet-vertex': 'FILLET VERTEX', 'align-vertex': 'ALIGN VERTEX', rebuild: 'REBUILD CURVE', 'rebuild-face': 'REBUILD FACE', 'match-face': 'MATCH FACE', untrim: 'UNTRIM', unwrap: 'UNWRAP FACE', 'insert-knot': 'INSERT KNOT', 'offset-edge': 'OFFSET EDGE', material: 'SET MATERIAL', 'export-mesh': 'EXPORT MESH', 'export-drawing': 'EXPORT DRAWING', 'measure-continuity': 'MEASURE CONTINUITY', trim: 'TRIM', extend: 'EXTEND CURVE', 'tangent-circle': 'TANGENT CIRCLE', split: 'SPLIT CURVE', 'measure-distance': 'MEASURE DISTANCE', 'measure-radius': 'MEASURE RADIUS' };
+const EDITS = { isoparam: 'ISOPARAM', 'offset-vertex': 'OFFSET VERTEX', 'fillet-vertex': 'FILLET VERTEX', 'align-vertex': 'ALIGN VERTEX', rebuild: 'REBUILD CURVE', 'rebuild-face': 'REBUILD FACE', 'match-face': 'MATCH FACE', untrim: 'UNTRIM', unwrap: 'UNWRAP FACE', section: 'SECTION ANALYSIS', 'insert-knot': 'INSERT KNOT', 'offset-edge': 'OFFSET EDGE', material: 'SET MATERIAL', 'export-mesh': 'EXPORT MESH', 'export-drawing': 'EXPORT DRAWING', 'measure-continuity': 'MEASURE CONTINUITY', trim: 'TRIM', extend: 'EXTEND CURVE', 'tangent-circle': 'TANGENT CIRCLE', split: 'SPLIT CURVE', 'measure-distance': 'MEASURE DISTANCE', 'measure-radius': 'MEASURE RADIUS' };
 const keysHtml = id => KEYS[id].map(([k, v]) => `<kbd>${k}</kbd><span>${v}</span>`).join('');
 // The Command Bar, exactly the manual's list (Plasticity Essentials › Command Bar).
 const BAR = [['palette', 'F', 'SEARCH'], ['tool:move', 'G', 'MOVE'], ['tool:rotate', 'R', 'ROTATE'], ['tool:scale', 'S', 'SCALE'], ['duplicate', '⇧D', 'DUPLICATE'], ['tool:boolean', 'Q', 'BOOLEAN'], ['tool:rect-array', '', 'RECTANGULAR ARRAY'], ['tool:radial-array', '', 'RADIAL ARRAY'], ['suggest', '⇧F', 'SUGGESTED COMMANDS']];
@@ -382,6 +383,13 @@ const SHELL = `
     <div class="sec" data-panel="untrim" hidden>
       <span class="hint" data-id="ut-hint">—</span>
       <div class="chips"><button data-id="ut-keep" aria-pressed="false" title="Imprint the face's edges on the sheet (Tab)"><kbd>TAB</kbd>KEEP EDGES</button></div>
+    </div>
+    <div class="sec" data-panel="section" hidden>
+      <span class="hint" data-id="sa-hint">—</span>
+      <span class="label">PLANE</span>
+      <div class="seg" role="group" aria-label="Section plane"><button data-saplane="selection" aria-pressed="true" title="The selected face">SELECTION</button><button data-saplane="previous" aria-pressed="false" title="Where the last section was">PREVIOUS</button><button data-saplane="cplane" aria-pressed="false" title="The construction plane">CPLANE</button></div>
+      <div class="field"><label for="w3d-sa-d">DISTANCE</label><input id="w3d-sa-d" data-id="sa-d" type="number" step="1" value="0" title="How far the slice moves into the model (D)"></div>
+      <div class="chips"><button data-id="sa-flip" aria-pressed="false" title="Keep the other side (F)"><kbd>F</kbd>FLIP</button></div>
     </div>
     <div class="sec" data-panel="unwrap" hidden>
       <span class="hint" data-id="uw-hint">—</span>
@@ -640,6 +648,7 @@ const SHELL = `
         <button data-toggle="curves" aria-pressed="true" aria-label="Curves" title="Curves: show or hide them in the viewport"></button>
         <button data-toggle="curvature" aria-pressed="false" aria-label="Curvature" title="Curvature combs on curves (Toggle Curvature)"></button>
         <button data-toggle="render" aria-pressed="false" aria-label="Render" title="Render mode: lit by an environment, with the materials' roughness and metal"></button>
+        <button data-id="section-btn" aria-pressed="false" aria-label="Section analysis" title="Section analysis: slice the view through a face or the construction plane; click again to end it"></button>
       </div>
       <div class="field"><label for="w3d-comb-scale">COMB SCALE</label><input id="w3d-comb-scale" data-id="comb-scale" type="range" min="0.1" max="4" step="0.1" value="1" title="Length of the curvature combs on curves and edges"></div>
       <span class="label">SHADER <output data-id="shader-name">CERAMIC DARK</output></span>
@@ -712,10 +721,10 @@ const VIEWS = {
 export async function mount(root, backend) {
   root.innerHTML = SHELL;
   // Panel options carry their icon ahead of the key and name.
-  for (const b of root.querySelectorAll('[data-draw],[data-bop],[data-xop],[data-fop],[data-spiral],[data-toggle],[data-gmethod],[data-galign],[data-grow],[data-mfgrow],[data-eslimit],[data-flshape],[data-avaxis],[data-extshape],[data-esshape],[data-isodir],[data-id="oe-both"],[data-id="ex-lock"],[data-id="bool-keep"],[data-id="ex-free"],[data-id="ex-pivot"],[data-id="ex-individual"],[data-id="dr-hidden"],[data-id="dr-curves"],[data-id="oc-lock"],[data-id="oc-free"],[data-id="oc-slot"],[data-id="oc-combine"],[data-id="es-unlimit"],[data-rbmethod],[data-oecorner],[data-id="rf-shrink"],[data-id="ut-keep"]')) {
+  for (const b of root.querySelectorAll('[data-draw],[data-bop],[data-xop],[data-fop],[data-spiral],[data-toggle],[data-gmethod],[data-galign],[data-grow],[data-mfgrow],[data-eslimit],[data-flshape],[data-avaxis],[data-extshape],[data-esshape],[data-isodir],[data-id="oe-both"],[data-id="ex-lock"],[data-id="bool-keep"],[data-id="ex-free"],[data-id="ex-pivot"],[data-id="ex-individual"],[data-id="dr-hidden"],[data-id="dr-curves"],[data-id="oc-lock"],[data-id="oc-free"],[data-id="oc-slot"],[data-id="oc-combine"],[data-id="es-unlimit"],[data-rbmethod],[data-oecorner],[data-saplane],[data-id="section-btn"],[data-id="sa-flip"],[data-id="rf-shrink"],[data-id="ut-keep"]')) {
     const name = b.dataset.draw ?? b.dataset.bop ?? b.dataset.xop ?? b.dataset.fop ?? b.dataset.spiral ?? (b.dataset.toggle && `view-${b.dataset.toggle}`)
-      ?? (b.dataset.gmethod && `guide-${b.dataset.gmethod}`) ?? (b.dataset.galign && `align-${b.dataset.galign}`) ?? (b.dataset.grow && `grow-${b.dataset.grow}`) ?? (b.dataset.mfgrow && `grow-${b.dataset.mfgrow}`) ?? (b.dataset.eslimit && `limit-${b.dataset.eslimit}`) ?? (b.dataset.flshape && `fillet-${b.dataset.flshape}`) ?? (b.dataset.avaxis && `axis-${b.dataset.avaxis}`) ?? (b.dataset.extshape && `extend-${b.dataset.extshape}`) ?? (b.dataset.esshape && `extend-${b.dataset.esshape}`) ?? (b.dataset.isodir && `iso-${b.dataset.isodir}`) ?? (b.dataset.rbmethod && `rebuild-${b.dataset.rbmethod}`) ?? (b.dataset.oecorner && `corner-${b.dataset.oecorner}`)
-      ?? { 'ex-lock': 'lock', 'bool-keep': 'keep', 'ex-free': 'freestyle', 'ex-pivot': 'pivot', 'ex-individual': 'individual', 'dr-hidden': 'hidden-lines', 'dr-curves': 'drawing-curves', 'oc-lock': 'lock', 'oc-free': 'freestyle', 'oc-slot': 'slot', 'oc-combine': 'combine', 'oe-both': 'both-sides', 'es-unlimit': 'unlimit', 'rf-shrink': 'shrink', 'ut-keep': 'keep-edges' }[b.dataset.id];
+      ?? (b.dataset.gmethod && `guide-${b.dataset.gmethod}`) ?? (b.dataset.galign && `align-${b.dataset.galign}`) ?? (b.dataset.grow && `grow-${b.dataset.grow}`) ?? (b.dataset.mfgrow && `grow-${b.dataset.mfgrow}`) ?? (b.dataset.eslimit && `limit-${b.dataset.eslimit}`) ?? (b.dataset.flshape && `fillet-${b.dataset.flshape}`) ?? (b.dataset.avaxis && `axis-${b.dataset.avaxis}`) ?? (b.dataset.extshape && `extend-${b.dataset.extshape}`) ?? (b.dataset.esshape && `extend-${b.dataset.esshape}`) ?? (b.dataset.isodir && `iso-${b.dataset.isodir}`) ?? (b.dataset.rbmethod && `rebuild-${b.dataset.rbmethod}`) ?? (b.dataset.oecorner && `corner-${b.dataset.oecorner}`) ?? (b.dataset.saplane && `section-${b.dataset.saplane}`)
+      ?? { 'ex-lock': 'lock', 'bool-keep': 'keep', 'ex-free': 'freestyle', 'ex-pivot': 'pivot', 'ex-individual': 'individual', 'dr-hidden': 'hidden-lines', 'dr-curves': 'drawing-curves', 'oc-lock': 'lock', 'oc-free': 'freestyle', 'oc-slot': 'slot', 'oc-combine': 'combine', 'oe-both': 'both-sides', 'es-unlimit': 'unlimit', 'rf-shrink': 'shrink', 'ut-keep': 'keep-edges', 'section-btn': 'view-section', 'sa-flip': 'flip' }[b.dataset.id];
     b.insertAdjacentHTML('afterbegin', icon(name));
   }
   const $ = id => root.querySelector(`[data-id="${id}"]`);
@@ -874,7 +883,7 @@ export async function mount(root, backend) {
   // --- drawing what the backend sends ---------------------------------------
   const view = { edges: true, faces: true, curves: true, xray: false, snap: false, curvature: false, shader: 'ceramic-dark', render: false, environment: 'studio', envRotation: 0, envIntensity: 1 };
   const shadeU = {
-    mode: { value: 0 }, pull: { value: new THREE.Vector3(0, 1, 0) }, stripes: { value: SHADER_OPTIONS.stripes.value },
+    mode: { value: 0 }, sectioned: { value: false }, pull: { value: new THREE.Vector3(0, 1, 0) }, stripes: { value: SHADER_OPTIONS.stripes.value },
     draftSin: { value: Math.sin(SHADER_OPTIONS.draft.value * DEG) }, spacing: { value: SHADER_OPTIONS.spacing.value },
   };
   const shaderOpts = Object.fromEntries(Object.entries(SHADER_OPTIONS).map(([k, o]) => [k, o.value]));
@@ -888,8 +897,8 @@ export async function mount(root, backend) {
   // images. Zebra stripes mirror even bands, so they stay smooth over G2 joins, kink at G1 ones and
   // break where faces only touch (G0). In render mode the faces keep the lit physical material.
   const shade = (own = false) => shader => {
-    Object.assign(shader.uniforms, { ownColor: { value: own }, shadeMode: shadeU.mode, pull: shadeU.pull, stripes: shadeU.stripes, draftSin: shadeU.draftSin, spacing: shadeU.spacing });
-    shader.fragmentShader = 'uniform bool ownColor;\nuniform int shadeMode;\nuniform vec3 pull;\nuniform float stripes;\nuniform float draftSin;\nuniform float spacing;\n' + shader.fragmentShader.replace('#include <dithering_fragment>', `
+    Object.assign(shader.uniforms, { ownColor: { value: own }, sectioned: shadeU.sectioned, shadeMode: shadeU.mode, pull: shadeU.pull, stripes: shadeU.stripes, draftSin: shadeU.draftSin, spacing: shadeU.spacing });
+    shader.fragmentShader = 'uniform bool ownColor;\nuniform bool sectioned;\nuniform int shadeMode;\nuniform vec3 pull;\nuniform float stripes;\nuniform float draftSin;\nuniform float spacing;\n' + shader.fragmentShader.replace('#include <dithering_fragment>', `
       // Faces draw both sides so a sheet shows from behind (Reverse Sheet); three.js has already
       // turned the normal of a back face towards the eye.
       vec3 n = normalize(normal);
@@ -934,6 +943,8 @@ export async function mount(root, backend) {
         float line = abs(fract(h - 0.5) - 0.5) / max(fwidth(h), 1e-6);
         gl_FragColor.rgb = mix(vec3(1.0, 0.30, 0.0), vec3(0.16 + 0.2 * lam), clamp(line, 0.0, 1.0));
       } else if (shadeMode == 13) gl_FragColor.rgb = (gl_FrontFacing ? vec3(0.24, 0.44, 0.85) : vec3(0.85, 0.29, 0.24)) * (0.45 + 0.55 * lam);
+      // Section Analysis: where the slice opens a solid, its inside shows flat in the accent.
+      if (sectioned && !gl_FrontFacing) gl_FragColor.rgb = vec3(1.0, 0.30, 0.0) * 0.7;
       #include <dithering_fragment>`);
   };
   faceMat.onBeforeCompile = shade();
@@ -949,6 +960,7 @@ export async function mount(root, backend) {
       mat = new THREE.MeshPhysicalMaterial({ side: THREE.DoubleSide, polygonOffset: true, polygonOffsetFactor: 1, polygonOffsetUnits: 1 });
       mat.onBeforeCompile = shade(true);
       mat.customProgramCacheKey = () => 'own';
+      mat.clippingPlanes = section.plane ? [section.plane] : null;
       bodyMats.set(id, mat);
     }
     mat.color.set(m.color);
@@ -4193,6 +4205,64 @@ export async function mount(root, backend) {
   }
 
   /**
+   * Plasticity's Section Analysis: a slice through the view along a plane, the model itself left
+   * alone. The plane is the selected flat face, the previous section or the construction plane; D
+   * moves it into the model, F flips which side stays. OK keeps the slice on; running it again (the
+   * View button or the palette) takes it off.
+   */
+  const section = { plane: null, last: null };
+  function applySection(plane) {
+    section.plane = plane;
+    renderer.localClippingEnabled = !!plane;
+    for (const m of [...faceMats(), edgeMat, ...Object.values(overlayMat)]) { m.clippingPlanes = plane ? [plane] : null; m.needsUpdate = true; }
+    shadeU.sectioned.value = !!plane;
+    $('section-btn').setAttribute('aria-pressed', String(!!plane));
+  }
+  function startSection() {
+    if (section.plane && cmd?.id !== 'section') { applySection(null); return toast('SECTION ANALYSIS OFF'); }
+    const f = sel.list('face').at(-1), b = f && bodyOf(f.body), p = b?.facePlanes[f.n];
+    const c = cmd = { id: 'section', how: p ? 'selection' : section.last ? 'previous' : 'cplane', flip: false, before: section.plane };
+    lastTool = 'section';
+    showTool('section');
+    setState('none');
+    // Each plane as where it sits and the way it looks into the model.
+    const base = () => {
+      if (c.how === 'selection' && p) return { origin: faceCentre(b, f.n), into: new THREE.Vector3(...p.normal).negate() };
+      if (c.how === 'previous' && section.last) return { origin: section.last.origin.clone(), into: section.last.into.clone() };
+      return { origin: cplane.origin.clone(), into: cplane.normal.clone().negate() };
+    };
+    c.preview = () => {
+      for (const btn of $$('[data-saplane]')) {
+        btn.setAttribute('aria-pressed', String(btn.dataset.saplane === c.how));
+        btn.disabled = (btn.dataset.saplane === 'selection' && !p) || (btn.dataset.saplane === 'previous' && !section.last);
+      }
+      $('sa-flip').setAttribute('aria-pressed', String(c.flip));
+      const d = num('sa-d') || 0, { origin, into } = base();
+      c.at = { origin: origin.clone().addScaledVector(into, d), into: into.clone() };
+      // three.js keeps what lies on the side the plane's normal points to: the model past the slice.
+      const keep = c.flip ? into.clone().negate() : into.clone();
+      applySection(new THREE.Plane().setFromNormalAndCoplanarPoint(keep, c.at.origin));
+      $('sa-hint').textContent = `${c.how === 'selection' ? 'THE SELECTED FACE' : c.how === 'previous' ? 'THE PREVIOUS SECTION' : `CPLANE ${cplane.name}`} · ${d} MM IN${c.flip ? ' · FLIPPED' : ''}`;
+      setHud(`SECTION ${d} MM`);
+    };
+    c.setHow = how => { c.how = how; c.preview(); };
+    c.key = action => {
+      if (action === 'flip') { c.flip = !c.flip; c.preview(); return true; }
+      if (action !== 'distance') return false;
+      c.entry = { label: 'DISTANCE', text: '', apply: v => { $('sa-d').value = v; c.preview(); } };
+      setHud('DISTANCE _');
+      return true;
+    };
+    c.finish = async () => {
+      section.last = c.at;
+      endCmd('committed');
+    };
+    c.abort = () => { applySection(c.before); endCmd('cancelled'); };
+    $('sa-d').value = 0;
+    c.preview();
+  }
+
+  /**
    * Plasticity's Unwrap Face: each selected face laid flat on the XY plane as a new sheet under where
    * it was; the body stays. Planes, cylinders and cones keep their lengths; other faces are
    * flattened conformally, keeping their area.
@@ -6671,6 +6741,7 @@ export async function mount(root, backend) {
       case 'match-face': if (cmd) await finish(); startMatchFace(); return true;
       case 'untrim': if (cmd) await finish(); startUntrim(); return true;
       case 'unwrap': if (cmd) await finish(); startUnwrap(); return true;
+      case 'section': if (cmd && cmd.id !== 'section') await finish(); if (cmd?.id !== 'section') startSection(); return true;
       case 'reverse-sheet': await reverseSheets(); return true;
       // Plasticity's Slot: Offset Curve with Offset Region's slot on (an open curve closed round its ends).
       case 'slot': await startCurveEdit('offset-curve'); if (cmd?.id === 'offset-curve' && !cmd.slot) cmd.key('slot'); return true;
@@ -7219,6 +7290,10 @@ export async function mount(root, backend) {
   $('rf-shrink').onclick = () => cmd?.id === 'rebuild-face' && cmd.setShrink(!cmd.shrink);
   for (const b of $$('[data-mfgrow]')) b.onclick = () => cmd?.id === 'match-face' && cmd.setGrow(b.dataset.mfgrow);
   $('ut-keep').onclick = () => cmd?.id === 'untrim' && cmd.setKeep(!cmd.keep);
+  $('section-btn').onclick = () => doAction('section');
+  $('sa-flip').onclick = () => cmd?.id === 'section' && cmd.key('flip');
+  $('sa-d').oninput = () => cmd?.id === 'section' && cmd.preview();
+  for (const b of $$('[data-saplane]')) b.onclick = () => cmd?.id === 'section' && cmd.setHow(b.dataset.saplane);
   $('oe-d').addEventListener('input', () => cmd?.id === 'offset-edge' && cmd.preview());
   for (const b of $$('[data-oecorner]')) b.onclick = () => cmd?.id === 'offset-edge' && cmd.setCorner(b.dataset.oecorner);
   $('oe-both').onclick = () => cmd?.id === 'offset-edge' && cmd.setBoth(!cmd.both);
