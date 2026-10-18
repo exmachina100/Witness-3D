@@ -942,6 +942,24 @@ impl<K: Kernel> Document<K> {
         Ok(info)
     }
 
+    /// Plasticity's Match Face, without changing the document: `faces` of `body` replaced by the
+    /// surface of face `tface` of body `target`.
+    pub fn preview_match_faces(&self, body: BodyId, faces: &[u32], target: BodyId, tface: u32) -> Result<K::Solid, KernelError> {
+        let s = self.get(body).ok_or(KernelError::Invalid("that body no longer exists"))?;
+        let t = self.get(target).ok_or(KernelError::Invalid("the target body no longer exists"))?;
+        if faces.is_empty() { return Err(KernelError::Invalid("select the faces to match")) }
+        if target == body && faces.contains(&tface) { return Err(KernelError::Invalid("match the faces to another face, not one of themselves")) }
+        self.kernel.match_faces(s, faces, t, tface)
+    }
+
+    /// Match Face as one undoable step: the body keeps its id.
+    pub fn commit_match_faces(&mut self, body: BodyId, faces: &[u32], target: BodyId, tface: u32) -> Result<BodyId, KernelError> {
+        let solid = self.preview_match_faces(body, faces, target, tface)?;
+        self.checkpoint();
+        self.replace_traced(body, Traced { solid, history: History::default() });
+        Ok(body)
+    }
+
     /// Plasticity's Raise Surface Degree as one undoable step, on `faces` of `body` (all its faces
     /// when empty). Faces and edges keep their numbers and refs.
     pub fn commit_raise_faces(&mut self, body: BodyId, faces: &[u32]) -> Result<Vec<RebuiltFace>, KernelError> {

@@ -1317,6 +1317,29 @@ pub struct RebuildCommitted {
     pub rebuilt: Vec<RebuiltFace>,
 }
 
+/// Match Face: `faces` of `body` replaced by the surface of face `tface` of body `target`.
+#[derive(Deserialize, Debug, Clone)]
+pub struct MatchFacesRequest {
+    pub body: BodyId,
+    pub faces: Vec<u32>,
+    pub target: BodyId,
+    pub tface: u32,
+}
+
+pub fn preview_match_faces(m: &Model, req: MatchFacesRequest) -> Option<Result<Body, ApiError>> {
+    m.preview(move |doc| {
+        let solid = doc.preview_match_faces(req.body, &req.faces, req.target, req.tface)?;
+        Ok(body(&doc.kernel, req.body, &solid)?)
+    })
+}
+
+pub fn commit_match_faces(m: &Model, req: MatchFacesRequest) -> Result<Committed, ApiError> {
+    m.call(move |doc| {
+        let id = doc.commit_match_faces(req.body, &req.faces, req.target, req.tface)?;
+        Ok(Committed { id, scene: bodies(doc)? })
+    })
+}
+
 /// Raise Surface Degree: `faces` of `body`, or all its faces when empty.
 #[derive(Deserialize, Debug, Clone)]
 pub struct RaiseFacesRequest {

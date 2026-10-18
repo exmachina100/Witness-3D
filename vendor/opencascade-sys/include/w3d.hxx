@@ -3156,3 +3156,151 @@ inline std::unique_ptr<TopoDS_Shape> w3d_raise_faces(const TopoDS_Shape &shape, 
     throw w3d_kernel_error(f);
   }
 }
+
+// A face's outward normal at the middle of its parameters.
+inline gp_Dir w3d_face_out(const TopoDS_Face &f) {
+  double u0, u1, v0, v1;
+  BRepTools::UVBounds(f, u0, u1, v0, v1);
+  BRepAdaptor_Surface s(f);
+  gp_Pnt p;
+  gp_Vec du, dv;
+  s.D1((u0 + u1) / 2, (v0 + v1) / 2, p, du, dv);
+  gp_Vec n = du.Crossed(dv);
+  if (n.Magnitude() < 1e-12) throw std::runtime_error("that face has no direction at its middle");
+  if (f.Orientation() == TopAbs_REVERSED) n.Reverse();
+  return gp_Dir(n);
+}
+
+// Plasticity's Match Face: `faces` of the solid `shape` replaced by the surface of face `tface` of
+// `target`, the body growing out to it or cut back to it. Each face's column (the face swept along
+// its outward normal, both ways, past everything) is split by the target's surface, carried on
+// well past its edges; inside the columns the body keeps only what lies on the face's inner side
+// of that surface, grown out to it where the face stood short.
+inline std::unique_ptr<TopoDS_Shape> w3d_match_faces(const TopoDS_Shape &shape, rust::Slice<const int32_t> faces,
+                                                     const TopoDS_Shape &target, int32_t tface) {
+  if (faces.empty()) throw std::runtime_error("select the faces to match");
+  TopTools_IndexedMapOfShape map, tmap;
+  TopExp::MapShapes(shape, TopAbs_FACE, map);
+  TopExp::MapShapes(target, TopAbs_FACE, tmap);
+  if (tface < 0 || tface >= tmap.Extent()) throw std::out_of_range("that target face no longer exists");
+  if (TopExp_Explorer(shape, TopAbs_SOLID).More() == false) throw std::runtime_error("Match Face works on the faces of a solid");
+  try {
+    Bnd_Box box;
+    BRepBndLib::Add(shape, box);
+    BRepBndLib::Add(target, box);
+    const double far = std::sqrt(box.SquareExtent()) * 2.0;
+    // The target's surface carried on far past its face: a B-spline, extended straight on each side.
+    const TopoDS_Face tf = TopoDS::Face(tmap(tface + 1));
+    TopLoc_Location tl;
+    Handle(Geom_Surface) ts = BRep_Tool::Surface(tf, tl);
+    double tu0, tu1, tv0, tv1;
+    BRepTools::UVBounds(tf, tu0, tu1, tv0, tv1);
+    Handle(Geom_BSplineSurface) wide = GeomConvert::SurfaceToBSplineSurface(new Geom_RectangularTrimmedSurface(ts, tu0, tu1, tv0, tv1));
+    for (int side = 0; side < 4; side++) {
+      const bool inU = side < 2;
+      if (inU ? wide->IsUClosed() : wide->IsVClosed()) continue;
+      Handle(Geom_BoundedSurface) g = wide;
+      GeomLib::ExtendSurfByLength(g, far, 1, inU, side % 2 == 1);
+      wide = Handle(Geom_BSplineSurface)::DownCast(g);
+    }
+    if (!tl.IsIdentity()) wide->Transform(tl.Transformation());
+    BRepBuilderAPI_MakeFace mkw(wide, 1e-7);
+    if (!mkw.IsDone()) throw std::runtime_error("the target surface could not be carried on past its edges");
+    const TopoDS_Face sheet = mkw.Face();
+    // Which side of the target each point is on, signed along the target's normal.
+    auto side = [&](const gp_Pnt &p, double &s) {
+      GeomAPI_ProjectPointOnSurf pr(p, wide);
+      if (!pr.NbPoints()) return false;
+      double u, v;
+      pr.LowerDistanceParameters(u, v);
+      gp_Pnt q;
+      gp_Vec du, dv;
+      wide->D1(u, v, q, du, dv);
+      s = gp_Vec(q, p).Dot(du.Crossed(dv));
+      return true;
+    };
+    TopoDS_Shape columns, outs;
+    BRep_Builder B;
+    TopoDS_Compound cc, oc;
+    B.MakeCompound(cc);
+    B.MakeCompound(oc);
+    std::vector<std::pair<gp_Pnt, gp_Dir>> marks;
+    for (int32_t index : faces) {
+      if (index < 0 || index >= map.Extent()) throw std::out_of_range("that face no longer exists");
+      const TopoDS_Face f = TopoDS::Face(map(index + 1));
+      const gp_Dir n = w3d_face_out(f);
+      gp_Trsf back;
+      back.SetTranslation(gp_Vec(n) * -far);
+      const TopoDS_Shape low = BRepBuilderAPI_Transform(f, back, true).Shape();
+      B.Add(cc, BRepPrimAPI_MakePrism(low, gp_Vec(n) * (2 * far)).Shape());
+      B.Add(oc, BRepPrimAPI_MakePrism(f, gp_Vec(n) * far).Shape());
+      GProp_GProps props;
+      BRepGProp::SurfaceProperties(f, props);
+      marks.emplace_back(props.CentreOfMass(), n);
+    }
+    // Each face's own sense of "inner side": the target's side that its normal points away from.
+    double sense = 0.0;
+    for (auto &m : marks) {
+      GeomAPI_ProjectPointOnSurf pr(m.first, wide);
+      if (!pr.NbPoints()) throw std::runtime_error("the target surface does not lie across that face");
+      double u, v;
+      pr.LowerDistanceParameters(u, v);
+      gp_Pnt q;
+      gp_Vec du, dv;
+      wide->D1(u, v, q, du, dv);
+      sense += gp_Vec(m.second).Dot(du.Crossed(dv).Normalized());
+    }
+    if (std::abs(sense) < 1e-6 * marks.size()) throw std::runtime_error("the target surface runs along that face, not across it");
+    const double inner = sense > 0 ? -1.0 : 1.0;
+    // The columns split by the target: keep the pieces on the inner side.
+    auto fuse = [](const TopoDS_Shape &all) {
+      TopoDS_Shape out;
+      for (TopoDS_Iterator it(all); it.More(); it.Next()) {
+        if (out.IsNull()) { out = it.Value(); continue; }
+        BRepAlgoAPI_Fuse f(out, it.Value());
+        if (!f.IsDone() || f.HasErrors()) throw std::runtime_error("the faces' columns could not be joined");
+        out = f.Shape();
+      }
+      return out;
+    };
+    columns = fuse(cc);
+    outs = fuse(oc);
+    BRepAlgoAPI_Splitter split;
+    TopTools_ListOfShape args, tools;
+    args.Append(columns);
+    tools.Append(sheet);
+    split.SetArguments(args);
+    split.SetTools(tools);
+    split.Build();
+    if (!split.IsDone() || split.HasErrors()) throw std::runtime_error("the target surface could not cut across the faces");
+    TopoDS_Compound below;
+    B.MakeCompound(below);
+    int kept = 0, pieces = 0;
+    for (TopExp_Explorer ex(split.Shape(), TopAbs_SOLID); ex.More(); ex.Next()) {
+      pieces++;
+      GProp_GProps props;
+      BRepGProp::VolumeProperties(ex.Current(), props);
+      double s;
+      if (side(props.CentreOfMass(), s) && s * inner > 0) { B.Add(below, ex.Current()); kept++; }
+    }
+    if (pieces < 2 || kept == 0) throw std::runtime_error("the target surface does not cut across the faces");
+    const TopoDS_Shape inside = fuse(below);
+    BRepAlgoAPI_Cut rest(shape, columns);
+    BRepAlgoAPI_Fuse grownBody(shape, outs);
+    if (!rest.IsDone() || rest.HasErrors() || !grownBody.IsDone() || grownBody.HasErrors()) throw std::runtime_error("the body could not be cut around the faces");
+    BRepAlgoAPI_Common within(grownBody.Shape(), inside);
+    if (!within.IsDone() || within.HasErrors()) throw std::runtime_error("the body could not be matched to the target");
+    BRepAlgoAPI_Fuse joined(rest.Shape(), within.Shape());
+    if (!joined.IsDone() || joined.HasErrors()) throw std::runtime_error("the matched part could not be joined back");
+    ShapeUpgrade_UnifySameDomain unify(joined.Shape(), true, true, false);
+    unify.Build();
+    TopoDS_Shape result = unify.Shape();
+    int solids = 0;
+    for (TopExp_Explorer ex(result, TopAbs_SOLID); ex.More(); ex.Next()) solids++;
+    if (solids != 1) throw std::runtime_error(solids ? "matching to that surface splits the body in pieces" : "matching to that surface leaves nothing of the body");
+    if (!w3d_is_valid(result)) throw std::runtime_error("matching to that surface breaks the body");
+    return std::unique_ptr<TopoDS_Shape>(new TopoDS_Shape(result));
+  } catch (const Standard_Failure &f) {
+    throw w3d_kernel_error(f);
+  }
+}

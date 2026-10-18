@@ -106,6 +106,7 @@ const KEYS = {
   'offset-vertex': [['DRAG DOT', 'DISTANCE'], ['D', 'DISTANCE'], ['⏎ / RMB', 'OK']],
   'align-vertex': [['X / Y / Z', 'AXIS'], ['V', 'VALUE'], ['⏎ / RMB', 'OK']],
   rebuild: [['C', 'CONTROL POINTS'], ['D', 'DEGREE'], ['⏎ / RMB', 'OK']],
+  'match-face': [['CLICK', 'TARGET FACE'], ['⇧ CLICK', 'FACES'], ['⏎ / RMB', 'OK']],
   'rebuild-face': [['M', 'METHOD'], ['T', 'TOLERANCE'], ['D', 'DEGREE'], ['S', 'SPANS'], ['E', 'EXTEND'], ['H', 'SHRINK'], ['⇧ CLICK', 'FACES'], ['⏎ / RMB', 'OK']],
   'fillet-vertex': [['DRAG DOT', 'IN ROUND · OUT CHAMFER'], ['D', 'FILLET DISTANCE'], ['C', 'CHAMFER DISTANCE'], ['⏎ / RMB', 'OK']],
   'offset-curve': [['DRAG DOT', 'DISTANCE'], ['D', 'DISTANCE'], ['V / C', 'GAP FILL'], ['S', 'BOTH SIDES'], ['F', 'FREESTYLE: CLICK'], ['O', 'SLOT'], ['I', 'COMBINED'], ['⏎ / RMB', 'OK']],
@@ -160,7 +161,7 @@ const CLICKS = { rect: 2, 'center-rect': 2, rect3: 3, circle: 2, circle2: 2, cir
 const FORMS = { revolve: true, loft: true, sweep: true };
 const PRIMS = { box: true, 'center-box': true, box3: true, cylinder: true, sphere: true };
 // Commands that aren't tools in the registry (they act on a click, not on settings).
-const EDITS = { isoparam: 'ISOPARAM', 'offset-vertex': 'OFFSET VERTEX', 'fillet-vertex': 'FILLET VERTEX', 'align-vertex': 'ALIGN VERTEX', rebuild: 'REBUILD CURVE', 'rebuild-face': 'REBUILD FACE', 'insert-knot': 'INSERT KNOT', 'offset-edge': 'OFFSET EDGE', material: 'SET MATERIAL', 'export-mesh': 'EXPORT MESH', 'export-drawing': 'EXPORT DRAWING', 'measure-continuity': 'MEASURE CONTINUITY', trim: 'TRIM', extend: 'EXTEND CURVE', 'tangent-circle': 'TANGENT CIRCLE', split: 'SPLIT CURVE', 'measure-distance': 'MEASURE DISTANCE', 'measure-radius': 'MEASURE RADIUS' };
+const EDITS = { isoparam: 'ISOPARAM', 'offset-vertex': 'OFFSET VERTEX', 'fillet-vertex': 'FILLET VERTEX', 'align-vertex': 'ALIGN VERTEX', rebuild: 'REBUILD CURVE', 'rebuild-face': 'REBUILD FACE', 'match-face': 'MATCH FACE', 'insert-knot': 'INSERT KNOT', 'offset-edge': 'OFFSET EDGE', material: 'SET MATERIAL', 'export-mesh': 'EXPORT MESH', 'export-drawing': 'EXPORT DRAWING', 'measure-continuity': 'MEASURE CONTINUITY', trim: 'TRIM', extend: 'EXTEND CURVE', 'tangent-circle': 'TANGENT CIRCLE', split: 'SPLIT CURVE', 'measure-distance': 'MEASURE DISTANCE', 'measure-radius': 'MEASURE RADIUS' };
 const keysHtml = id => KEYS[id].map(([k, v]) => `<kbd>${k}</kbd><span>${v}</span>`).join('');
 // The Command Bar, exactly the manual's list (Plasticity Essentials › Command Bar).
 const BAR = [['palette', 'F', 'SEARCH'], ['tool:move', 'G', 'MOVE'], ['tool:rotate', 'R', 'ROTATE'], ['tool:scale', 'S', 'SCALE'], ['duplicate', '⇧D', 'DUPLICATE'], ['tool:boolean', 'Q', 'BOOLEAN'], ['tool:rect-array', '', 'RECTANGULAR ARRAY'], ['tool:radial-array', '', 'RADIAL ARRAY'], ['suggest', '⇧F', 'SUGGESTED COMMANDS']];
@@ -365,6 +366,11 @@ const SHELL = `
       <span class="hint" data-id="rb-hint">—</span>
       <div class="field"><label for="w3d-rb-n">CONTROL POINTS</label><input id="w3d-rb-n" data-id="rb-n" type="number" step="1" min="2" max="64" value="8"></div>
       <div class="field"><label for="w3d-rb-p">DEGREE</label><input id="w3d-rb-p" data-id="rb-p" type="number" step="1" min="1" max="7" value="3"></div>
+    </div>
+    <div class="sec" data-panel="match-face" hidden>
+      <span class="hint" data-id="mf-hint">—</span>
+      <div class="field"><label>FACES</label><output data-id="mf-count">0</output></div>
+      <div class="field"><label>TARGET</label><output data-id="mf-target" title="Click the face whose surface the faces should take">—</output></div>
     </div>
     <div class="sec" data-panel="rebuild-face" hidden>
       <span class="hint" data-id="rf-hint">—</span>
@@ -3910,6 +3916,65 @@ export async function mount(root, backend) {
    * it; Explicit sets the U and V degree and spans. Extend carries the new surface on past the face,
    * and Shrink (H) fits the face's own extent rather than its whole underlying surface.
    */
+  function startMatchFace() {
+    const body = faceBody();
+    if (body === null) return toast(sel.list('face').length ? 'MATCH THE FACES OF ONE SOLID AT A TIME' : 'SELECT THE FACES TO MATCH');
+    if (!backend.previewMatchFaces) return toast('MATCH FACE IS NOT IN THIS BUILD YET');
+    const c = cmd = { id: 'match-face', body, faces: [], target: null, sent: 0, shown: 0 };
+    lastTool = 'match-face';
+    showTool('match-face');
+    setState('none');
+    c.request = () => ({ body: c.body, faces: c.faces, target: c.target.body, tface: c.target.n });
+    c.preview = () => {
+      if (!c.target) { clearPreview(); $('mf-hint').textContent = 'CLICK THE FACE TO MATCH TO'; return setHud('CLICK THE TARGET FACE'); }
+      livePreview(c, () => backend.previewMatchFaces(c.request()), b => {
+        showPreviewBody(b);
+        $('mf-hint').textContent = `${c.faces.length} FACE${c.faces.length > 1 ? 'S' : ''} OF ${label(c.body)} TO ${label(c.target.body)}`;
+        setHud('MATCH FACE');
+      }, 'mf-hint');
+    };
+    c.onSelection = () => {
+      drawOverlays();
+      const b = faceBody();
+      if (b === null) return setHud('SELECT FACES OF ONE SOLID TO MATCH');
+      c.body = b;
+      c.faces = sel.list('face').map(it => it.n).sort((x, y) => x - y);
+      setTarget(label(b));
+      $('mf-count').textContent = c.faces.length;
+      c.preview();
+    };
+    // Plasticity: select the faces, run Match Face, then pick the surface to match them to.
+    c.click = e => {
+      const hit = pickAt(e);
+      if (hit?.kind !== 'face') return true;
+      if (e.ctrlKey || e.metaKey || e.shiftKey) {
+        sel.toggle({ kind: 'face', body: hit.body, n: hit.n });
+        selectionChanged();
+        return true;
+      }
+      if (hit.body === c.body && c.faces.includes(hit.n)) return true;
+      c.target = { body: hit.body, n: hit.n };
+      $('mf-target').textContent = `${label(hit.body)} · FACE ${hit.n + 1}`;
+      c.preview();
+      return true;
+    };
+    c.finish = async () => {
+      if (!c.target) return toast('CLICK THE FACE TO MATCH TO');
+      try {
+        const { id, scene: list } = await backend.commitMatchFaces(c.request());
+        endCmd('committed');
+        record(`MATCH FACE ×${c.faces.length}`, id);
+        await showScene(list);
+        sel.replace({ kind: 'solid', body: id });
+        selectionChanged({ quiet: true });
+      } catch (e) { setState('failed'); toast(say(e)); }
+    };
+    c.abort = () => endCmd('cancelled');
+    c.cleanup = () => clearPreview();
+    $('mf-target').textContent = '—';
+    c.onSelection();
+  }
+
   function startRebuildFace() {
     const body = faceBody();
     if (body === null) return toast(sel.list('face').length ? 'REBUILD THE FACES OF ONE BODY AT A TIME' : 'SELECT THE FACES TO REBUILD');
@@ -6325,6 +6390,7 @@ export async function mount(root, backend) {
       case 'boundary-edges': await findBoundaryEdges(); return true;
       case 'remove-fillets': await removeFillets(); return true;
       case 'isoparam': if (cmd) await finish(); startIsoparam(); return true;
+      case 'match-face': if (cmd) await finish(); startMatchFace(); return true;
       case 'reverse-sheet': await reverseSheets(); return true;
       // Plasticity's Slot: Offset Curve with Offset Region's slot on (an open curve closed round its ends).
       case 'slot': await startCurveEdit('offset-curve'); if (cmd?.id === 'offset-curve' && !cmd.slot) cmd.key('slot'); return true;
@@ -6471,7 +6537,7 @@ export async function mount(root, backend) {
     if (sel.solids.length > 1) out.push('tool:boolean');
     if (sel.solids.length === 2) out.push('tool:project');
     if (kinds.has('solid')) out.push('tool:move', 'tool:rotate', 'tool:scale', 'duplicate', 'tool:mirror', 'tool:rect-array', 'tool:radial-array', 'tool:curve-array', 'unify', 'boundary-edges', 'remove-fillets', 'raise-degree', 'delete', 'hide', 'isolate', 'group', 'lock', 'material:set', 'export:step', 'export:mesh', 'export:drawing');
-    if (kinds.has('face')) out.push('tool:extrude', 'tool:offset', 'tool:thicken', 'tool:shell', 'tool:hole', 'tool:remove-face', 'remove-fillets', 'isoparam', 'rebuild', 'raise-degree', 'plane:selection', 'plane:selection-keep-view');
+    if (kinds.has('face')) out.push('tool:extrude', 'tool:offset', 'tool:thicken', 'tool:shell', 'tool:hole', 'tool:remove-face', 'remove-fillets', 'isoparam', 'rebuild', 'raise-degree', 'match-face', 'plane:selection', 'plane:selection-keep-view');
     if (kinds.has('edge')) out.push('tool:fillet', 'tool:patch', 'measure:radius');
     if (sel.list('edge').length === 2) out.push('tool:bridge-surface');
     if (sel.solids.some(id => current.find(b => b.id === id)?.sheet)) out.push('tool:thicken', 'reverse-sheet');

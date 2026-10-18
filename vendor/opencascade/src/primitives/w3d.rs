@@ -339,6 +339,13 @@ impl Shape {
         Ok(Shape::from_shape(&shape))
     }
 
+    /// Plasticity's Match Face: `faces` of this solid replaced by the surface of `target`'s face `tface`.
+    pub fn match_faces(&self, faces: &[usize], target: &Shape, tface: usize) -> Result<Shape, String> {
+        let faces: Vec<i32> = faces.iter().map(|&f| f as i32).collect();
+        let shape = ffi::w3d::w3d_match_faces(&self.inner, &faces, &target.inner, tface as i32).map_err(reason)?;
+        Ok(Shape::from_shape(&shape))
+    }
+
     /// How far `other`'s face `face` strays from this shape's, at the same surface parameters.
     pub fn face_deviation(&self, other: &Shape, face: usize) -> Result<f64, String> {
         ffi::w3d::w3d_face_deviation(&self.inner, &other.inner, face as i32).map_err(reason)
