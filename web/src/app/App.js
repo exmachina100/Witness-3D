@@ -66,7 +66,7 @@ import { icon } from './icons.js';
 import { limitEdges, toObj, toStl } from '../meshExport.js';
 import { flatten, toDxf, toSvg } from '../drawingExport.js';
 import { readDxf } from '../dxf.js';
-import { BRIDGE_CONTINUITY, bridgeContinuous, continuity, curvatureComb, curveVertices, explode, EXTEND_SHAPES, extendCurve, filletCurve, nearestEnd, OFFSET_CORNERS, offsetCurve, offsetSlot, offsetThrough, unionLoops, moveVertices, alignedInPlane, offsetVertex, rebuildCurve, reverseCurve, splitCurve, tangentCircle, trim } from '../curveEdit.js';
+import { BRIDGE_CONTINUITY, bridgeContinuous, continuity, curvatureComb, curveVertices, explode, EXTEND_SHAPES, extendCurve, filletCurve, nearestEnd, OFFSET_CORNERS, offsetCurve, offsetSlot, offsetThrough, unionLoops, moveVertices, alignedInPlane, offsetVertex, rebuildCurve, reverseCurve, transformCurve, moveVerticesTo, splitCurve, tangentCircle, trim } from '../curveEdit.js';
 import { ViewGizmo } from './ViewGizmo.js';
 import { Toolbar } from './Toolbar.js';
 import { arcPoints, circleThrough, cvPoints, ellipsePoints, endTangent, helixPoints, loops, nurbsLoop, nurbsPoints, polygonCorners, spiralAngle, tangentArc } from '../curves.js';
@@ -1993,9 +1993,16 @@ export async function mount(root, backend) {
   // rigid motion needs no kernel work; finishing sends one request, one undo step.
   function startTransform(kind, { follow = null } = {}) {
     const ids = targetBodies().filter(id => org.shows(id));
-    if (!ids.length) return toast(`SELECT A SOLID TO ${kind.toUpperCase()}`);
+    // Curves move whole; picked vertices (a NURBS curve's control points) move within their curve's plane.
+    const curves = sel.curves.filter(curveById);
+    const verts = sel.list('vertex').filter(v => curveById(v.id) && !curves.includes(v.id));
+    if (!ids.length && !curves.length && !verts.length) return toast(`SELECT A SOLID, CURVE OR VERTEX TO ${kind.toUpperCase()}`);
+    if ((curves.length || verts.length) && !backend.replaceCurves) return toast(`${kind.toUpperCase()} OF CURVES IS NOT IN THIS BUILD YET`);
+    const vertexAt = v => { const src = curveById(v.id), [x, y] = curveVertices(src)[v.n]; return lift(curveFrame(src), { x, y }); };
     const box = new THREE.Box3();
     for (const id of ids) box.expandByObject(bodyMesh(id));
+    for (const id of curves) { const src = curveById(id), f = curveFrame(src); for (const p of curve2d(src)) box.expandByPoint(lift(f, p)); }
+    for (const v of verts) box.expandByPoint(vertexAt(v));
     const pivot = box.getCenter(new THREE.Vector3());
     const handle = new THREE.Object3D();
     handle.position.copy(pivot);
@@ -2007,10 +2014,10 @@ export async function mount(root, backend) {
     tc.addEventListener('dragging-changed', e => { controls.enabled = !e.value; if (e.value) c.follow = null; });
     tc.addEventListener('objectChange', () => fromHandle());
     scene.add(tc.getHelper());
-    const c = cmd = { id: kind, ids, pivot, handle, tc, offset: new THREE.Vector3(), quat: new THREE.Quaternion(), scale: 1, axis: 'z', follow: null };
+    const c = cmd = { id: kind, ids, curves, verts, vertexAt, curveOut: null, pivot, handle, tc, offset: new THREE.Vector3(), quat: new THREE.Quaternion(), scale: 1, axis: 'z', follow: null };
     lastTool = kind;
     showTool(kind);
-    setTarget(ids.map(label).join(' '));
+    setTarget([...ids.map(label), ...curves.map(curveLabel), ...(verts.length ? [`${verts.length} VERTICES`] : [])].join(' '));
     setState('none');
     setAxis('z');
     snapsFor(false);
@@ -2045,6 +2052,7 @@ export async function mount(root, backend) {
     c.abort = () => endCmd('cancelled');
     c.cleanup = () => {
       for (const id of ids) { const m = bodyMesh(id); if (m) { m.position.set(0, 0, 0); m.quaternion.identity(); m.scale.set(1, 1, 1); } }
+      clearPreview();
       tc.detach();
       tc.getHelper().removeFromParent();
       tc.dispose();
@@ -2093,6 +2101,21 @@ export async function mount(root, backend) {
     c.tc.setScaleSnap(on ? 0.1 : null);
   }
 
+  /** The moved curves of transform `c`: whole curves, then curves with moved vertices. */
+  function curvesMoved(c) {
+    const { pivot, offset, quat, scale } = c;
+    const rotate = v => new THREE.Vector3(...v).applyQuaternion(quat).toArray();
+    const xf = { pivot: pivot.toArray(), offset: offset.toArray(), rotate, scale };
+    const ids = [...c.curves], list = c.curves.map(id => transformCurve(curveById(id), xf));
+    const at = p => p.clone().sub(pivot).multiplyScalar(scale).applyQuaternion(quat).add(pivot).add(offset).toArray();
+    for (const id of new Set(c.verts.map(v => v.id))) {
+      const moves = new Map(c.verts.filter(v => v.id === id).map(v => [v.n, at(c.vertexAt(v))]));
+      ids.push(id);
+      list.push(moveVerticesTo(curveById(id), moves));
+    }
+    return { ids, list };
+  }
+
   /** Preview: M = T(pivot + offset) · R · S · T(−pivot) on every target mesh, and the panel. */
   function apply() {
     const c = cmd;
@@ -2105,6 +2128,13 @@ export async function mount(root, backend) {
       m.scale.setScalar(scale);
       m.quaternion.copy(quat);
       m.position.copy(pivot).add(offset).sub(pivot.clone().multiplyScalar(scale).applyQuaternion(quat));
+    }
+    if (c.curves.length || c.verts.length) {
+      clearPreview();
+      try {
+        c.curveOut = curvesMoved(c);
+        showCurvePreview(c.curveOut.list);
+      } catch (e) { c.curveOut = null; setHud(say(e)); }
     }
     const user = toUser(offset.toArray());
     for (const input of $$('[data-move]')) if (document.activeElement !== input) input.value = +user[input.dataset.move].toFixed(3);
@@ -2210,10 +2240,19 @@ export async function mount(root, backend) {
     const text = c.id === 'move' ? `MOVE ${user.map(fmt).join(' ')}`
       : c.id === 'rotate' ? `ROTATE ${fmt(angle / DEG)}°` : `SCALE ×${c.scale.toFixed(3)}`;
     try {
-      const { id, scene: list } = await backend.commitMotion(req);
+      const out = c.curveOut;
+      if ((c.curves.length || c.verts.length) && !out) throw new Error('those curves cannot be moved like that');
+      let first = null;
+      if (c.ids.length) {
+        const { id, scene: list } = await backend.commitMotion(req);
+        first = id;
+        showScene(list);
+      }
+      let made = [];
+      if (out) ({ ids: made } = await backend.replaceCurves(out.ids, out.list));
       endCmd('committed');
-      record(text, id);
-      showScene(list);
+      record(text, first ?? made[0]);
+      if (made.length) await curvesChanged(made);
     } catch (e) {
       setState('failed');
       toast(say(e));
