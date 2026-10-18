@@ -49,3 +49,15 @@ test('offset vertex cuts an arc where it meets a line, the arc staying an arc', 
     closeP(before.at(-1), after.at(-1));
     assert.equal(curveVertices(r).length, 6);
 });
+
+test('fillet vertex rounds or chamfers only the picked corners', async () => {
+    const { filletCurve } = await import('../src/curveEdit.js');
+    const r = filletCurve(square, 2, [1]);
+    assert.equal(r.pieces.filter(p => p.kind === 'arc').length, 1);
+    const ch = filletCurve(square, 2, [1, 3], true);
+    assert.equal(ch.kind, 'polyline');
+    assert.equal(ch.closed, true);
+    assert.deepEqual(ch.points.length, 6);
+    for (const q of [[8, 0], [10, 2], [2, 10], [0, 8]]) assert.ok(ch.points.some(p => Math.hypot(p[0] - q[0], p[1] - q[1]) < 1e-9), `missing ${q}`);
+    assert.throws(() => filletCurve(square, 6, [0, 1], true), /chamfer is too large/);
+});

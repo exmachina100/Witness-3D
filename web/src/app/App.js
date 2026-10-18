@@ -101,6 +101,7 @@ const KEYS = {
   'tangent-arc': [['CLICK', 'CURVE END · SIZE'], ['D', 'FLIP'], ['ALT', 'NO SNAP'], ['ESC', 'CANCEL']],
   spiral: [['CLICK', 'AXIS START · END · RADIUS'], ['X Y Z', 'AXIS'], ['A', 'ANGLE'], ['D', 'LENGTH'], ['R', 'RADIUS'], ['⏎ / RMB', 'OK']],
   'offset-vertex': [['DRAG DOT', 'DISTANCE'], ['D', 'DISTANCE'], ['⏎ / RMB', 'OK']],
+  'fillet-vertex': [['DRAG DOT', 'IN ROUND · OUT CHAMFER'], ['D', 'FILLET DISTANCE'], ['C', 'CHAMFER DISTANCE'], ['⏎ / RMB', 'OK']],
   'offset-curve': [['DRAG DOT', 'DISTANCE'], ['D', 'DISTANCE'], ['V / C', 'GAP FILL'], ['S', 'BOTH SIDES'], ['F', 'FREESTYLE: CLICK'], ['⏎ / RMB', 'OK']],
   'fillet-curve': [['D', 'RADIUS'], ['TYPE', 'IN PANEL'], ['⏎ / RMB', 'OK']],
   'remove-face': [['⇧ CLICK', 'FACES'], ['⏎ / RMB', 'OK']],
@@ -149,7 +150,7 @@ const CLICKS = { rect: 2, 'center-rect': 2, rect3: 3, circle: 2, circle2: 2, cir
 const FORMS = { revolve: true, loft: true, sweep: true };
 const PRIMS = { box: true, 'center-box': true, box3: true, cylinder: true, sphere: true };
 // Commands that aren't tools in the registry (they act on a click, not on settings).
-const EDITS = { 'offset-vertex': 'OFFSET VERTEX', material: 'SET MATERIAL', 'export-mesh': 'EXPORT MESH', 'export-drawing': 'EXPORT DRAWING', 'measure-continuity': 'MEASURE CONTINUITY', trim: 'TRIM', extend: 'EXTEND CURVE', 'tangent-circle': 'TANGENT CIRCLE', split: 'SPLIT CURVE', 'measure-distance': 'MEASURE DISTANCE', 'measure-radius': 'MEASURE RADIUS' };
+const EDITS = { 'offset-vertex': 'OFFSET VERTEX', 'fillet-vertex': 'FILLET VERTEX', material: 'SET MATERIAL', 'export-mesh': 'EXPORT MESH', 'export-drawing': 'EXPORT DRAWING', 'measure-continuity': 'MEASURE CONTINUITY', trim: 'TRIM', extend: 'EXTEND CURVE', 'tangent-circle': 'TANGENT CIRCLE', split: 'SPLIT CURVE', 'measure-distance': 'MEASURE DISTANCE', 'measure-radius': 'MEASURE RADIUS' };
 const keysHtml = id => KEYS[id].map(([k, v]) => `<kbd>${k}</kbd><span>${v}</span>`).join('');
 // The Command Bar, exactly the manual's list (Plasticity Essentials › Command Bar).
 const BAR = [['palette', 'F', 'SEARCH'], ['tool:move', 'G', 'MOVE'], ['tool:rotate', 'R', 'ROTATE'], ['tool:scale', 'S', 'SCALE'], ['duplicate', '⇧D', 'DUPLICATE'], ['tool:boolean', 'Q', 'BOOLEAN'], ['tool:rect-array', '', 'RECTANGULAR ARRAY'], ['tool:radial-array', '', 'RADIAL ARRAY'], ['suggest', '⇧F', 'SUGGESTED COMMANDS']];
@@ -324,6 +325,11 @@ const SHELL = `
     <div class="sec" data-panel="offset-vertex" hidden>
       <span class="hint" data-id="ov-hint">—</span>
       <div class="field"><label for="w3d-ov-d">DISTANCE</label><input id="w3d-ov-d" data-id="ov-d" type="number" step="0.5" min="0.001" value="2"></div>
+    </div>
+    <div class="sec" data-panel="fillet-vertex" hidden>
+      <span class="hint" data-id="fv-hint">—</span>
+      <div class="field"><label for="w3d-fv-r">RADIUS</label><input id="w3d-fv-r" data-id="fv-r" type="number" step="0.5" value="0"></div>
+      <div class="field"><label>SHAPE</label><output data-id="fv-shape">ROUND</output></div>
     </div>
     <div class="sec" data-panel="fillet-curve" hidden>
       <span class="hint" data-id="fc-hint">—</span>
@@ -1595,6 +1601,7 @@ export async function mount(root, backend) {
     if (cmd && cmd.id === id && !cmd.auto) return;
     if (cmd) await finish();
     lastTool = id;
+    if (id === 'fillet' && sel.size && sel.list().every(it => it.kind === 'vertex')) return startFilletVertex();
     if (id === 'fillet') return startFillet(opts);
     if (id === 'move' || id === 'rotate' || id === 'scale') return startTransform(id, opts);
     if (id === 'pushpull') return startPushPull(opts);
@@ -3444,6 +3451,70 @@ export async function mount(root, backend) {
     };
     c.abort = () => endCmd('cancelled');
     c.cleanup = () => { c.gizmo?.dispose(); clearPreview(); };
+    c.preview();
+  }
+
+  /**
+   * Plasticity's Fillet Vertex (B with curve vertices picked): the picked corners rounded, or
+   * chamfered when the dot is dragged the other way (D and C type them). Negative radius = chamfer.
+   */
+  function startFilletVertex() {
+    if (!backend.replaceCurves) return toast('FILLET VERTEX IS NOT IN THIS BUILD YET');
+    const picked = sel.list('vertex').filter(v => curveById(v.id));
+    if (!picked.length) return toast('SELECT CURVE VERTICES TO FILLET');
+    const c = cmd = { id: 'fillet-vertex', out: null, gizmo: null };
+    lastTool = 'fillet';
+    showTool('fillet-vertex');
+    setState('none');
+    const curves = [...new Set(picked.map(v => v.id))];
+    setTarget(curves.length === 1 ? curveLabel(curves[0]) : `${curves.length} CURVES`);
+    const value = () => num('fv-r');
+    c.compute = () => curves.map(id => filletCurve(curveById(id), Math.abs(value()), picked.filter(v => v.id === id).map(v => v.n), value() < 0));
+    c.preview = () => {
+      clearPreview();
+      c.gizmo?.render(value());
+      const v = value(), shape = v < 0 ? 'CHAMFER' : 'ROUND';
+      $('fv-shape').textContent = shape;
+      if (!v) { c.out = null; setState('none'); return setHud('DRAG THE DOT · D C'); }
+      try {
+        c.out = c.compute();
+        showCurvePreview(c.out);
+        $('fv-hint').textContent = `${picked.length} VERT${picked.length > 1 ? 'ICES' : 'EX'} ON ${curves.length} CURVE${curves.length > 1 ? 'S' : ''}`;
+        setHud(`${shape} ${Math.abs(v)} MM`);
+        setState('updated');
+      } catch (e) { c.out = null; $('fv-hint').textContent = say(e); setHud(`${shape} FAILED`); setState('failed'); }
+    };
+    {
+      // The dot sits on the first corner, pointing into it along the bisector: in rounds, out chamfers.
+      const first = picked[0], src = curveById(first.id), f = curveFrame(src), vs = curveVertices(src), k = vs.length;
+      const closed = isClosed(src), here = vs[first.n];
+      const prev = vs[first.n - 1] ?? (closed ? vs[k - 1] : null), next = vs[first.n + 1] ?? (closed ? vs[0] : null);
+      if (here && prev && next) {
+        const at = lift(f, { x: here[0], y: here[1] });
+        const u = lift(f, { x: prev[0], y: prev[1] }).sub(at).normalize(), w = lift(f, { x: next[0], y: next[1] }).sub(at).normalize();
+        const dir = u.add(w);
+        if (dir.length() > 1e-9) c.gizmo = dot(at, dir.normalize(), v => { $('fv-r').value = +v.toFixed(3); c.preview(); });
+      }
+    }
+    c.key = action => {
+      if (action !== 'distance' && action !== 'chamfer') return false;
+      const chamfer = action === 'chamfer';
+      c.entry = { label: chamfer ? 'CHAMFER DISTANCE' : 'FILLET DISTANCE', text: '', apply: v => { $('fv-r').value = chamfer ? -Math.abs(v) : Math.abs(v); c.preview(); } };
+      setHud(`${chamfer ? 'CHAMFER' : 'FILLET'} DISTANCE _`);
+      return true;
+    };
+    c.finish = async () => {
+      if (!c.out) return value() ? toast($('fv-hint').textContent) : endCmd('cancelled');
+      try {
+        const { ids: made } = await backend.replaceCurves(curves, c.out);
+        endCmd('committed');
+        record(`FILLET VERTEX ${value() < 0 ? 'CHAMFER' : 'R'} ${Math.abs(value())} MM`, made[0], curveLabel(made[0]));
+        await curvesChanged(made);
+      } catch (e) { setState('failed'); toast(say(e)); }
+    };
+    c.abort = () => endCmd('cancelled');
+    c.cleanup = () => { c.gizmo?.dispose(); clearPreview(); };
+    $('fv-r').value = 0;
     c.preview();
   }
 
@@ -5986,7 +6057,7 @@ export async function mount(root, backend) {
   for (const b of $$('[data-grow]')) b.onclick = () => setOffsetGrow(b.dataset.grow);
   $('dr-hidden').onclick = () => cmd?.id === 'export-drawing' && cmd.key('hidden');
   $('dr-curves').onclick = () => cmd?.id === 'export-drawing' && cmd.key('curves');
-  for (const id of ['oc-d', 'fc-r', 'ov-d']) $(id).addEventListener('input', () => (cmd?.id === 'offset-curve' || cmd?.id === 'fillet-curve' || cmd?.id === 'offset-vertex') && cmd.preview());
+  for (const id of ['oc-d', 'fc-r', 'ov-d', 'fv-r']) $(id).addEventListener('input', () => ['offset-curve', 'fillet-curve', 'offset-vertex', 'fillet-vertex'].includes(cmd?.id) && cmd.preview());
   $('oc-lock').onclick = () => cmd?.id === 'offset-curve' && cmd.key('lock');
   $('oc-free').onclick = () => cmd?.id === 'offset-curve' && cmd.key('freestyle');
   for (const k of OFFSET_CORNERS) $(`oc-${k}`).onclick = () => {
