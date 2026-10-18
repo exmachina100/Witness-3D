@@ -336,3 +336,27 @@ fn draft_closes_the_sides_of_a_block_in_along_the_pull() {
     assert!(doc.undo());
     assert!(doc.commit_draft(block, &sides, DVec3::Y, DVec3::ZERO, 0.0).is_err());
 }
+
+#[test]
+fn isoparam_on_a_cylinder_side_rings_it_or_runs_its_height() {
+    let k = Occt;
+    let cyl = primitive(&k, &w3d_kernel::solids::Primitive::Cylinder { frame: ground(), radius: 5.0, height: 10.0 }).unwrap();
+    let at = DVec3::new(5.0, 4.0, 0.0);
+    let poles = |p: &Path| match p { Path::Nurbs { poles, .. } => poles.clone(), _ => panic!("a NURBS curve") };
+    // The side is the face both directions work on and whose curves pass through the point.
+    let mut found = 0;
+    for face in 0..k.face_count(&cyl) as u32 {
+        let (Ok(a), Ok(b)) = (k.isoparam(&cyl, face, at, true), k.isoparam(&cyl, face, at, false)) else { continue };
+        let (a, b) = (poles(&a[0]), poles(&b[0]));
+        let ring = if a.iter().all(|p| (p.y - 4.0).abs() < 1e-6) { &a } else { &b };
+        let line = if std::ptr::eq(ring, &a) { &b } else { &a };
+        if !ring.iter().all(|p| (p.y - 4.0).abs() < 1e-6) { continue }
+        assert!(ring.iter().all(|p| p.x.hypot(p.z) > 5.0 - 1e-6));
+        let ys: Vec<f64> = line.iter().map(|p| p.y).collect();
+        close(ys.iter().copied().fold(f64::MAX, f64::min), 0.0, 1e-6);
+        close(ys.iter().copied().fold(f64::MIN, f64::max), 10.0, 1e-6);
+        found += 1;
+    }
+    assert_eq!(found, 1, "only the side gives a ring through the point");
+    assert!(k.isoparam(&cyl, 99, at, true).is_err());
+}

@@ -210,3 +210,34 @@ export function projectCurveCurve(a, b, length) {
     if (!out.length) throw new Error("the two curves' sheets do not meet; check that their directions cross");
     return out;
 }
+
+/**
+ * Plasticity's Isoparam, as w3d_isoparam does it on the desktop: the curve on face `face` of
+ * `shape` through `point` along which one surface parameter stays put (v when `alongU`, else u),
+ * cut to the face; of the pieces the face leaves, the run nearest the point. One NURBS curve.
+ */
+export function isoparam(shape, face, point, alongU) {
+    const o = oc();
+    const faces = numbered(shape, 'TopAbs_FACE');
+    if (!(face >= 0 && face < faces.length)) throw new Error('that face no longer exists');
+    const f = o.TopoDS.Face(faces[face]);
+    const surface = o.BRep_Tool.Surface(f);
+    const p = new o.gp_Pnt(...point);
+    const pr = new o.GeomAPI_ProjectPointOnSurf(p, surface, o.Extrema_ExtAlgo.Extrema_ExtAlgo_Grad);
+    if (!pr.NbPoints()) throw new Error('that point is not on the face');
+    const { U, V } = pr.LowerDistanceParameters(0, 0);
+    const { UMin, UMax, VMin, VMax } = o.BRepTools.UVBounds(f, 0, 0, 0, 0);
+    const iso = alongU ? surface.VIso(V) : surface.UIso(U);
+    let a = alongU ? UMin : VMin, b = alongU ? UMax : VMax;
+    if (!iso.IsPeriodic()) { a = Math.max(a, iso.FirstParameter()); b = Math.min(b, iso.LastParameter()); }
+    if (!(b - a > 1e-9)) throw new Error('the face is too thin there for an isoparam');
+    const whole = new o.BRepBuilderAPI_MakeEdge(iso, a, b).Edge();
+    const common = new o.BRepAlgoAPI_Common(whole, f, new o.Message_ProgressRange());
+    let pieces = common.IsDone() && !common.HasErrors() ? numbered(common.Shape(), 'TopAbs_EDGE').map(e => o.TopoDS.Edge(e)) : [];
+    if (!pieces.length) pieces = [whole];
+    const runs = chains(pieces.map(e => bspline(e)));
+    if (!runs.length) throw new Error('the isoparam could not be found there');
+    const gap = r => Math.min(...r.poles.map(q => Math.hypot(q[0] - point[0], q[1] - point[1], q[2] - point[2])));
+    // Runs are told apart by their control points: a run's poles hug it, and the point is on one.
+    return runs.reduce((best, r) => gap(r) < gap(best) ? r : best);
+}

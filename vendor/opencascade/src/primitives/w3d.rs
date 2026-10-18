@@ -261,6 +261,11 @@ impl Shape {
         ffi::w3d::w3d_meet_curves(&self.inner, &other.inner).map_err(reason)
     }
 
+    /// The isoparametric curve of a face through a point (see `w3d_isoparam`).
+    pub fn isoparam(&self, face: usize, point: [f64; 3], along_u: bool) -> Result<Vec<f64>, String> {
+        ffi::w3d::w3d_isoparam(&self.inner, face as i32, &point, along_u).map_err(reason)
+    }
+
     /// The curves where the sheets of two curves meet (see `w3d_project_curve_curve`).
     pub fn project_curve_curve(data: &[f64], length: f64) -> Result<Vec<f64>, String> {
         ffi::w3d::w3d_project_curve_curve(data, length).map_err(reason)
