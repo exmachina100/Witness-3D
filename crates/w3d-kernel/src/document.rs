@@ -18,7 +18,7 @@ use crate::blend::{blend, BlendParams};
 use crate::extrude::{extrude, ExtrudeParams, ExtrudeResult, Operation};
 use crate::form::{form, offset_faces_grow, FormKind, FormParams, Grow};
 use crate::solids::{ArraySpec, Primitive};
-use crate::{BooleanOp, Frame, History, Kernel, KernelError, Motion, Path, Profile, Segment, SheetExtension, Traced};
+use crate::{BooleanOp, FaceRebuild, Frame, History, Kernel, KernelError, Motion, Path, Profile, RebuiltFace, Segment, SheetExtension, Traced};
 
 /// Length unit of every coordinate in a document. Fixed for now; stored in files so a later
 /// version can convert.
@@ -923,6 +923,23 @@ impl<K: Kernel> Document<K> {
     pub fn commit_thicken_faces(&mut self, body: BodyId, faces: &[u32], front: f64, back: f64) -> Result<BodyId, KernelError> {
         let solid = self.preview_thicken_faces(body, faces, front, back)?;
         Ok(self.add(solid))
+    }
+
+    /// Plasticity's Rebuild Face, without changing the document: `faces` of `body` given new
+    /// B-spline surfaces, with what each became.
+    pub fn preview_rebuild_faces(&self, body: BodyId, faces: &[u32], how: &FaceRebuild) -> Result<(K::Solid, Vec<RebuiltFace>), KernelError> {
+        let s = self.get(body).ok_or(KernelError::Invalid("that body no longer exists"))?;
+        if faces.is_empty() { return Err(KernelError::Invalid("select the faces to rebuild")) }
+        self.kernel.rebuild_faces(s, faces, how)
+    }
+
+    /// Rebuild Face as one undoable step. Faces and edges keep their numbers and refs.
+    pub fn commit_rebuild_faces(&mut self, body: BodyId, faces: &[u32], how: &FaceRebuild) -> Result<Vec<RebuiltFace>, KernelError> {
+        let (solid, info) = self.preview_rebuild_faces(body, faces, how)?;
+        let refs = self.state.bodies.get(&body).ok_or(KernelError::Invalid("that body no longer exists"))?.refs.clone();
+        self.checkpoint();
+        self.state.bodies.insert(body, Rc::new(Body { solid, refs }));
+        Ok(info)
     }
 
     /// Plasticity's Extend Sheet, without changing the document: sheet `body` grown past its open `edge`,

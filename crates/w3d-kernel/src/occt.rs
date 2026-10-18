@@ -6,7 +6,7 @@ use std::path::Path as FilePath;
 use glam::DVec3;
 use opencascade::primitives::{BooleanKind, Edge, Face, Shape, ShapeHistory, ShapeType, Wire};
 
-use crate::{Blend, BooleanOp, DrawnLine, Extent, Frame, History, Kernel, KernelError, Motion, Path, Plane, Profile, Segment, SheetExtension, Tessellation, Traced};
+use crate::{Blend, BooleanOp, DrawnLine, Extent, FaceRebuild, Frame, History, Kernel, KernelError, Motion, Path, Plane, Profile, RebuiltFace, Segment, SheetExtension, Tessellation, Traced};
 
 pub struct Occt;
 
@@ -376,6 +376,22 @@ impl Kernel for Occt {
 
     fn thicken_faces(&self, s: &Shape, faces: &[u32], front: f64, back: f64) -> Result<Shape, KernelError> {
         s.thicken_faces(&faces.iter().map(|&f| f as usize).collect::<Vec<_>>(), front, back).map_err(shim)
+    }
+
+    fn rebuild_faces(&self, s: &Shape, faces: &[u32], how: &FaceRebuild) -> Result<(Shape, Vec<RebuiltFace>), KernelError> {
+        let idx: Vec<usize> = faces.iter().map(|&f| f as usize).collect();
+        let p = [
+            if how.explicit { 1.0 } else { 0.0 },
+            how.degree[0] as f64, how.degree[1] as f64, how.spans[0] as f64, how.spans[1] as f64,
+            how.tolerance, how.extend[0], how.extend[1], if how.shrink { 1.0 } else { 0.0 },
+        ];
+        let made = s.rebuild_faces(&idx, &p).map_err(shim)?;
+        let mut info = Vec::with_capacity(faces.len());
+        for &f in faces {
+            let [du, dv, nu, nv] = made.face_spline(f as usize).map_err(shim)?.ok_or(KernelError::Invalid("the rebuilt face is not a B-spline"))?;
+            info.push(RebuiltFace { face: f, degree: [du, dv], poles: [nu, nv], deviation: s.face_deviation(&made, f as usize).map_err(shim)? });
+        }
+        Ok((made, info))
     }
 
     fn extend_sheet_to(&self, s: &Shape, edge: u32, target: &Shape, shape: SheetExtension) -> Result<Shape, KernelError> {

@@ -325,6 +325,24 @@ impl Shape {
         Ok(Shape::from_shape(&solid))
     }
 
+    /// Plasticity's Rebuild Face: `faces` given new B-spline surfaces (see `w3d_rebuild_faces` for `p`).
+    pub fn rebuild_faces(&self, faces: &[usize], p: &[f64; 9]) -> Result<Shape, String> {
+        let faces: Vec<i32> = faces.iter().map(|&f| f as i32).collect();
+        let shape = ffi::w3d::w3d_rebuild_faces(&self.inner, &faces, p).map_err(reason)?;
+        Ok(Shape::from_shape(&shape))
+    }
+
+    /// How far `other`'s face `face` strays from this shape's, at the same surface parameters.
+    pub fn face_deviation(&self, other: &Shape, face: usize) -> Result<f64, String> {
+        ffi::w3d::w3d_face_deviation(&self.inner, &other.inner, face as i32).map_err(reason)
+    }
+
+    /// Face `face`'s surface as [degree u, degree v, poles u, poles v], or None if not a B-spline.
+    pub fn face_spline(&self, face: usize) -> Result<Option<[u32; 4]>, String> {
+        let v = ffi::w3d::w3d_face_spline(&self.inner, face as i32).map_err(reason)?;
+        Ok(if v[0] < 0 { None } else { Some([v[0] as u32, v[1] as u32, v[2] as u32, v[3] as u32]) })
+    }
+
     /// Plasticity's Extend Sheet: this sheet grown `distance` past its open edge `edge`; `kind` is 0
     /// Linear, 1 Natural, 2 Soft or 3 Reflective (see `w3d_extend_sheet`).
     pub fn extend_sheet(&self, edge: usize, distance: f64, kind: i32) -> Result<Shape, String> {

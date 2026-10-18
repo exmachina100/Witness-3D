@@ -13,6 +13,7 @@ import { bridgeSurface } from '../BridgeSurface.js';
 import { projectOutline } from '../Outline.js';
 import { thicken, thickenFaces } from '../Thicken.js';
 import { extendSheet, extendSheetTo } from '../ExtendSheet.js';
+import { rebuildFaces } from '../rebuildFace.js';
 import { joinSheets, unjoin } from '../Join.js';
 import { hiddenLines } from '../Drawing.js';
 
@@ -638,6 +639,25 @@ export class LocalBackend {
     }
 
     /** Plasticity's Extend Sheet: sheet `body` grown `distance` past its open `edge`. */
+    /** Plasticity's Rebuild Face: `faces` of `body` given new B-spline surfaces (see rebuildFace.js). */
+    rebuildResult({ body, faces, ...how }) {
+        const s = this.shapes.get(body);
+        if (!s) throw new Error('that body no longer exists');
+        return rebuildFaces(s, faces, how);
+    }
+
+    previewRebuildFaces(req) {
+        return this.latest(async () => { const { shape, rebuilt } = this.rebuildResult(req); return { ...this.body(req.body, shape), rebuilt }; });
+    }
+
+    /** Rebuild Face as one undo step: the body keeps its id. */
+    async commitRebuildFaces(req) {
+        const { shape, rebuilt } = this.rebuildResult(req);
+        this.checkpoint();
+        this.put(req.body, shape);
+        return { id: req.body, scene: this.bodies(), rebuilt };
+    }
+
     extendSheetResult({ body, edge, distance, natural = false, shape, limit }) {
         const s = this.shapes.get(body);
         if (!s) throw new Error('that body no longer exists');

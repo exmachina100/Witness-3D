@@ -62,6 +62,7 @@
 #include <BRep_Builder.hxx>
 #include <Geom_RectangularTrimmedSurface.hxx>
 #include <BRepTools_ReShape.hxx>
+#include <ShapeAnalysis_Edge.hxx>
 #include <GeomAdaptor_Surface.hxx>
 #include <GeomConvert_CompCurveToBSplineCurve.hxx>
 #include <Geom_TrimmedCurve.hxx>
@@ -2848,6 +2849,256 @@ inline std::unique_ptr<TopoDS_Shape> w3d_thicken_faces(const TopoDS_Shape &shape
       }
     }
     return std::unique_ptr<TopoDS_Shape>(new TopoDS_Shape(out));
+  } catch (const Standard_Failure &f) {
+    throw w3d_kernel_error(f);
+  }
+}
+
+// Rebuild Face: Cox-de Boor, all `n` basis functions of degree `p` on the clamped knots `T` at `t`.
+inline void w3d_basis(const std::vector<double> &T, int p, int n, double t, std::vector<double> &N) {
+  N.assign(n, 0.0);
+  int k = p;
+  if (t >= T[n]) k = n - 1;
+  else while (k < n - 1 && t >= T[k + 1]) k++;
+  std::vector<double> b(p + 1, 0.0), left(p + 1), right(p + 1);
+  b[0] = 1.0;
+  for (int j = 1; j <= p; j++) {
+    left[j] = t - T[k + 1 - j];
+    right[j] = T[k + j] - t;
+    double saved = 0.0;
+    for (int r = 0; r < j; r++) {
+      double tmp = b[r] / (right[r + 1] + left[j - r]);
+      b[r] = saved + right[r + 1] * tmp;
+      saved = left[j - r] * tmp;
+    }
+    b[j] = saved;
+  }
+  for (int j = 0; j <= p; j++) N[k - p + j] = b[j];
+}
+
+// The least-squares fit of `n` poles of degree `p` on uniform clamped knots over [a, b] to `m`
+// values at uniform parameters, the end poles held at the end values: the (n x m) matrix taking
+// the values to the poles. (A curve fitted this way passes through its ends, so a closed surface
+// rebuilt along its seam stays closed.)
+inline std::vector<std::vector<double>> w3d_fit_matrix(const std::vector<double> &T, int p, int n, int m, double a, double b) {
+  std::vector<std::vector<double>> A(m);
+  for (int i = 0; i < m; i++) w3d_basis(T, p, n, a + (b - a) * i / (m - 1), A[i]);
+  std::vector<std::vector<double>> F(n, std::vector<double>(m, 0.0));
+  F[0][0] = 1.0;
+  F[n - 1][m - 1] = 1.0;
+  const int k = n - 2;
+  if (k <= 0) return F;
+  // Interior poles: (Bt B) x = Bt (y - N0 y0 - Nn yn), B the interior columns of A on interior rows.
+  std::vector<std::vector<double>> M(k, std::vector<double>(k, 0.0));
+  for (int i = 1; i < m - 1; i++)
+    for (int r = 0; r < k; r++) if (A[i][r + 1] != 0.0)
+      for (int c = 0; c < k; c++) M[r][c] += A[i][r + 1] * A[i][c + 1];
+  // R: (k x m) right-hand side as a map from the values.
+  std::vector<std::vector<double>> R(k, std::vector<double>(m, 0.0));
+  for (int i = 1; i < m - 1; i++)
+    for (int r = 0; r < k; r++) {
+      double w = A[i][r + 1];
+      if (w == 0.0) continue;
+      R[r][i] += w;
+      R[r][0] -= w * A[i][0];
+      R[r][m - 1] -= w * A[i][n - 1];
+    }
+  // Gauss-Jordan with partial pivoting on [M | R].
+  for (int col = 0; col < k; col++) {
+    int piv = col;
+    for (int r = col + 1; r < k; r++) if (std::abs(M[r][col]) > std::abs(M[piv][col])) piv = r;
+    if (std::abs(M[piv][col]) < 1e-14) throw std::runtime_error("too many control points for the face; use fewer spans");
+    std::swap(M[col], M[piv]);
+    std::swap(R[col], R[piv]);
+    for (int r = 0; r < k; r++) {
+      if (r == col) continue;
+      double f = M[r][col] / M[col][col];
+      if (f == 0.0) continue;
+      for (int c = col; c < k; c++) M[r][c] -= f * M[col][c];
+      for (int c = 0; c < m; c++) R[r][c] -= f * R[col][c];
+    }
+  }
+  for (int r = 0; r < k; r++)
+    for (int c = 0; c < m; c++) F[r + 1][c] = R[r][c] / M[r][r];
+  return F;
+}
+
+// `surface` over [u0, u1] x [v0, v1] refitted as a polynomial B-spline of degree (du, dv) with
+// (su, sv) uniform spans, keeping the parameters: the new surface at (u, v) is close to the old one
+// at (u, v), so the face's curves on it still hold.
+inline Handle(Geom_BSplineSurface) w3d_refit(const Handle(Geom_Surface) &surface, double u0, double u1, double v0, double v1,
+                                             int du, int dv, int su, int sv) {
+  auto knots = [](int p, int s, double a, double b) {
+    std::vector<double> T;
+    for (int i = 0; i <= p; i++) T.push_back(a);
+    for (int i = 1; i < s; i++) T.push_back(a + (b - a) * i / s);
+    for (int i = 0; i <= p; i++) T.push_back(b);
+    return T;
+  };
+  const int nu = su + du, nv = sv + dv;
+  const int mu = 4 * su + du + 1, mv = 4 * sv + dv + 1;
+  std::vector<double> Tu = knots(du, su, u0, u1), Tv = knots(dv, sv, v0, v1);
+  auto Fu = w3d_fit_matrix(Tu, du, nu, mu, u0, u1), Fv = w3d_fit_matrix(Tv, dv, nv, mv, v0, v1);
+  std::vector<std::vector<gp_XYZ>> G(mu, std::vector<gp_XYZ>(mv));
+  for (int i = 0; i < mu; i++)
+    for (int j = 0; j < mv; j++) G[i][j] = surface->Value(u0 + (u1 - u0) * i / (mu - 1), v0 + (v1 - v0) * j / (mv - 1)).XYZ();
+  std::vector<std::vector<gp_XYZ>> C(mu, std::vector<gp_XYZ>(nv, gp_XYZ(0, 0, 0)));
+  for (int i = 0; i < mu; i++)
+    for (int r = 0; r < nv; r++)
+      for (int j = 0; j < mv; j++) if (Fv[r][j] != 0.0) C[i][r] += G[i][j] * Fv[r][j];
+  TColgp_Array2OfPnt poles(1, nu, 1, nv);
+  for (int r = 0; r < nu; r++)
+    for (int c = 0; c < nv; c++) {
+      gp_XYZ q(0, 0, 0);
+      for (int i = 0; i < mu; i++) if (Fu[r][i] != 0.0) q += C[i][c] * Fu[r][i];
+      poles.SetValue(r + 1, c + 1, gp_Pnt(q));
+    }
+  auto flat = [](int s, double a, double b, int p, TColStd_Array1OfReal &k, TColStd_Array1OfInteger &m) {
+    for (int i = 0; i <= s; i++) { k.SetValue(i + 1, a + (b - a) * i / s); m.SetValue(i + 1, (i == 0 || i == s) ? p + 1 : 1); }
+  };
+  TColStd_Array1OfReal ku(1, su + 1), kv(1, sv + 1);
+  TColStd_Array1OfInteger mu_(1, su + 1), mv_(1, sv + 1);
+  flat(su, u0, u1, du, ku, mu_);
+  flat(sv, v0, v1, dv, kv, mv_);
+  return new Geom_BSplineSurface(poles, ku, kv, mu_, mv_, du, dv);
+}
+
+// The furthest `b`'s surface strays from `a`'s over `a`'s face `index` (the same parameters on both).
+inline double w3d_face_deviation(const TopoDS_Shape &a, const TopoDS_Shape &b, int32_t index) {
+  TopTools_IndexedMapOfShape ma, mb;
+  TopExp::MapShapes(a, TopAbs_FACE, ma);
+  TopExp::MapShapes(b, TopAbs_FACE, mb);
+  if (index < 0 || index >= ma.Extent() || index >= mb.Extent()) throw std::out_of_range("that face no longer exists");
+  TopoDS_Face fa = TopoDS::Face(ma(index + 1)), fb = TopoDS::Face(mb(index + 1));
+  double u0, u1, v0, v1;
+  BRepTools::UVBounds(fa, u0, u1, v0, v1);
+  BRepAdaptor_Surface sa(fa, false), sb(fb, false);
+  const int n = 48;
+  double worst = 0.0;
+  for (int i = 0; i <= n; i++)
+    for (int j = 0; j <= n; j++) {
+      double u = u0 + (u1 - u0) * i / n, v = v0 + (v1 - v0) * j / n;
+      worst = std::max(worst, sa.Value(u, v).Distance(sb.Value(u, v)));
+    }
+  return worst;
+}
+
+// Per face of `shape`: its surface's U and V degree and pole counts, or -1s where it isn't a B-spline.
+inline rust::Vec<int32_t> w3d_face_spline(const TopoDS_Shape &shape, int32_t index) {
+  TopTools_IndexedMapOfShape map;
+  TopExp::MapShapes(shape, TopAbs_FACE, map);
+  if (index < 0 || index >= map.Extent()) throw std::out_of_range("that face no longer exists");
+  Handle(Geom_BSplineSurface) bs = Handle(Geom_BSplineSurface)::DownCast(BRep_Tool::Surface(TopoDS::Face(map(index + 1))));
+  rust::Vec<int32_t> out;
+  if (bs.IsNull()) { for (int i = 0; i < 4; i++) out.push_back(-1); return out; }
+  out.push_back(bs->UDegree());
+  out.push_back(bs->VDegree());
+  out.push_back(bs->NbUPoles());
+  out.push_back(bs->NbVPoles());
+  return out;
+}
+
+// Plasticity's Rebuild Face: each of `faces` given a new polynomial B-spline surface, its edges and
+// trims kept. `p` is [explicit, degree u, degree v, spans u, spans v, tolerance, extend u, extend v,
+// shrink]. Explicit fits the given degree and spans; otherwise degree 3 with as few uniform spans as
+// keep the face within the tolerance. Shrink fits over the face's own extent instead of its whole
+// surface; extend then carries the surface on that far (mm) past both sides in u and v.
+inline std::unique_ptr<TopoDS_Shape> w3d_rebuild_faces(const TopoDS_Shape &shape, rust::Slice<const int32_t> faces, rust::Slice<const double> p) {
+  if (p.size() != 9) throw std::runtime_error("rebuild takes 9 settings");
+  if (faces.empty()) throw std::runtime_error("select the faces to rebuild");
+  const bool explicit_ = p[0] != 0.0, shrink = p[8] != 0.0;
+  const int du = (int)p[1], dv = (int)p[2], su = (int)p[3], sv = (int)p[4];
+  const double tol = p[5], eu = p[6], ev = p[7];
+  if (explicit_ && (du < 1 || dv < 1 || du > 9 || dv > 9)) throw std::runtime_error("the degree must be 1 to 9");
+  if (explicit_ && (su < 1 || sv < 1 || su > 64 || sv > 64)) throw std::runtime_error("the spans must be 1 to 64");
+  if (!explicit_ && !(tol > 0.0)) throw std::runtime_error("the tolerance must be above zero");
+  if (!(eu >= 0.0) || !(ev >= 0.0)) throw std::runtime_error("extend must be zero or more");
+  try {
+    TopoDS_Shape work = BRepBuilderAPI_Copy(shape).Shape();
+    TopTools_IndexedMapOfShape map;
+    TopExp::MapShapes(work, TopAbs_FACE, map);
+    Handle(BRepTools_ReShape) rs = new BRepTools_ReShape();
+    BRep_Builder B;
+    for (int32_t index : faces) {
+      if (index < 0 || index >= map.Extent()) throw std::out_of_range("that face no longer exists");
+      TopoDS_Face f = TopoDS::Face(map(index + 1));
+      TopLoc_Location loc;
+      Handle(Geom_Surface) s = BRep_Tool::Surface(f, loc);
+      double fu0, fu1, fv0, fv1;
+      BRepTools::UVBounds(f, fu0, fu1, fv0, fv1);
+      double u0 = fu0, u1 = fu1, v0 = fv0, v1 = fv1;
+      if (!shrink) {
+        double a0, a1, b0, b1;
+        s->Bounds(a0, a1, b0, b1);
+        if (!Precision::IsInfinite(a0) && !Precision::IsInfinite(a1)) { u0 = std::min(a0, fu0); u1 = std::max(a1, fu1); }
+        if (!Precision::IsInfinite(b0) && !Precision::IsInfinite(b1)) { v0 = std::min(b0, fv0); v1 = std::max(b1, fv1); }
+      }
+      if (!(u1 - u0 > 1e-12) || !(v1 - v0 > 1e-12)) throw std::runtime_error("that face has no area to rebuild");
+      // Deviation over the face's own extent.
+      auto deviation = [&](const Handle(Geom_Surface) &t) {
+        const int n = 24;
+        double worst = 0.0;
+        for (int i = 0; i <= n; i++)
+          for (int j = 0; j <= n; j++) {
+            double u = fu0 + (fu1 - fu0) * i / n, v = fv0 + (fv1 - fv0) * j / n;
+            worst = std::max(worst, s->Value(u, v).Distance(t->Value(u, v)));
+          }
+        return worst;
+      };
+      Handle(Geom_BSplineSurface) made;
+      if (explicit_) made = w3d_refit(s, u0, u1, v0, v1, du, dv, su, sv);
+      else {
+        static const int steps[] = {1, 2, 3, 4, 6, 8, 12, 16, 24, 32, 48};
+        for (int k : steps) {
+          made = w3d_refit(s, u0, u1, v0, v1, 3, 3, k, k);
+          if (deviation(made) <= tol) break;
+        }
+      }
+      for (int side = 0; side < 4; side++) {
+        const bool inU = side < 2;
+        const double by = inU ? eu : ev;
+        if (by <= 0.0 || (inU ? s->IsUClosed() : s->IsVClosed())) continue;
+        Handle(Geom_BoundedSurface) grown = made;
+        GeomLib::ExtendSurfByLength(grown, by, 1, inU, side % 2 == 1);
+        made = Handle(Geom_BSplineSurface)::DownCast(grown);
+        if (made.IsNull()) throw std::runtime_error("the rebuilt face could not be extended");
+      }
+      const double dev = deviation(made);
+      const double t = std::max(dev * 1.01, Precision::Confusion());
+      // Built forward (Add would turn the wires of a reversed face), then turned like the old one.
+      TopoDS_Face nf = TopoDS::Face(f.Oriented(TopAbs_FORWARD).EmptyCopied());
+      B.UpdateFace(nf, made, loc, t);
+      for (TopoDS_Iterator it(f, false, false); it.More(); it.Next()) B.Add(nf, it.Value());
+      nf.Orientation(f.Orientation());
+      TopTools_IndexedMapOfShape edges;
+      TopExp::MapShapes(f, TopAbs_EDGE, edges);
+      const TopoDS_Face ff = TopoDS::Face(f.Oriented(TopAbs_FORWARD));
+      for (int i = 1; i <= edges.Extent(); i++) {
+        TopoDS_Edge e = TopoDS::Edge(edges(i));
+        double a, b;
+        if (BRep_Tool::IsClosed(e, f)) {
+          TopoDS_Edge ef = TopoDS::Edge(e.Oriented(TopAbs_FORWARD)), er = TopoDS::Edge(e.Oriented(TopAbs_REVERSED));
+          Handle(Geom2d_Curve) c1 = BRep_Tool::CurveOnSurface(ef, ff, a, b), c2 = BRep_Tool::CurveOnSurface(er, ff, a, b);
+          B.UpdateEdge(ef, c1, c2, made, loc, t);
+        } else {
+          Handle(Geom2d_Curve) c = BRep_Tool::CurveOnSurface(e, ff, a, b);
+          if (c.IsNull()) throw std::runtime_error("an edge of that face has no curve on it");
+          B.UpdateEdge(e, c, made, loc, t);
+        }
+        B.Range(e, made, loc, a, b);
+        // The edge's tolerance covers how far its curve now lies from the new surface.
+        double off = 0.0;
+        ShapeAnalysis_Edge().CheckSameParameter(e, off, 64);
+        const double et = std::max(t, off * 1.05);
+        B.UpdateEdge(e, et);
+        B.UpdateVertex(TopExp::FirstVertex(e), et);
+        B.UpdateVertex(TopExp::LastVertex(e), et);
+      }
+      rs->Replace(f, nf);
+    }
+    TopoDS_Shape result = rs->Apply(work);
+    if (!w3d_is_valid(result)) throw std::runtime_error("the rebuilt face is not valid; try more spans or a higher degree");
+    return std::unique_ptr<TopoDS_Shape>(new TopoDS_Shape(result));
   } catch (const Standard_Failure &f) {
     throw w3d_kernel_error(f);
   }

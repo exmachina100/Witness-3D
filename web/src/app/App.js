@@ -106,6 +106,7 @@ const KEYS = {
   'offset-vertex': [['DRAG DOT', 'DISTANCE'], ['D', 'DISTANCE'], ['⏎ / RMB', 'OK']],
   'align-vertex': [['X / Y / Z', 'AXIS'], ['V', 'VALUE'], ['⏎ / RMB', 'OK']],
   rebuild: [['C', 'CONTROL POINTS'], ['D', 'DEGREE'], ['⏎ / RMB', 'OK']],
+  'rebuild-face': [['M', 'METHOD'], ['T', 'TOLERANCE'], ['D', 'DEGREE'], ['S', 'SPANS'], ['E', 'EXTEND'], ['H', 'SHRINK'], ['⇧ CLICK', 'FACES'], ['⏎ / RMB', 'OK']],
   'fillet-vertex': [['DRAG DOT', 'IN ROUND · OUT CHAMFER'], ['D', 'FILLET DISTANCE'], ['C', 'CHAMFER DISTANCE'], ['⏎ / RMB', 'OK']],
   'offset-curve': [['DRAG DOT', 'DISTANCE'], ['D', 'DISTANCE'], ['V / C', 'GAP FILL'], ['S', 'BOTH SIDES'], ['F', 'FREESTYLE: CLICK'], ['O', 'SLOT'], ['I', 'COMBINED'], ['⏎ / RMB', 'OK']],
   'fillet-curve': [['D', 'RADIUS'], ['TYPE', 'IN PANEL'], ['⏎ / RMB', 'OK']],
@@ -159,7 +160,7 @@ const CLICKS = { rect: 2, 'center-rect': 2, rect3: 3, circle: 2, circle2: 2, cir
 const FORMS = { revolve: true, loft: true, sweep: true };
 const PRIMS = { box: true, 'center-box': true, box3: true, cylinder: true, sphere: true };
 // Commands that aren't tools in the registry (they act on a click, not on settings).
-const EDITS = { isoparam: 'ISOPARAM', 'offset-vertex': 'OFFSET VERTEX', 'fillet-vertex': 'FILLET VERTEX', 'align-vertex': 'ALIGN VERTEX', rebuild: 'REBUILD CURVE', 'insert-knot': 'INSERT KNOT', 'offset-edge': 'OFFSET EDGE', material: 'SET MATERIAL', 'export-mesh': 'EXPORT MESH', 'export-drawing': 'EXPORT DRAWING', 'measure-continuity': 'MEASURE CONTINUITY', trim: 'TRIM', extend: 'EXTEND CURVE', 'tangent-circle': 'TANGENT CIRCLE', split: 'SPLIT CURVE', 'measure-distance': 'MEASURE DISTANCE', 'measure-radius': 'MEASURE RADIUS' };
+const EDITS = { isoparam: 'ISOPARAM', 'offset-vertex': 'OFFSET VERTEX', 'fillet-vertex': 'FILLET VERTEX', 'align-vertex': 'ALIGN VERTEX', rebuild: 'REBUILD CURVE', 'rebuild-face': 'REBUILD FACE', 'insert-knot': 'INSERT KNOT', 'offset-edge': 'OFFSET EDGE', material: 'SET MATERIAL', 'export-mesh': 'EXPORT MESH', 'export-drawing': 'EXPORT DRAWING', 'measure-continuity': 'MEASURE CONTINUITY', trim: 'TRIM', extend: 'EXTEND CURVE', 'tangent-circle': 'TANGENT CIRCLE', split: 'SPLIT CURVE', 'measure-distance': 'MEASURE DISTANCE', 'measure-radius': 'MEASURE RADIUS' };
 const keysHtml = id => KEYS[id].map(([k, v]) => `<kbd>${k}</kbd><span>${v}</span>`).join('');
 // The Command Bar, exactly the manual's list (Plasticity Essentials › Command Bar).
 const BAR = [['palette', 'F', 'SEARCH'], ['tool:move', 'G', 'MOVE'], ['tool:rotate', 'R', 'ROTATE'], ['tool:scale', 'S', 'SCALE'], ['duplicate', '⇧D', 'DUPLICATE'], ['tool:boolean', 'Q', 'BOOLEAN'], ['tool:rect-array', '', 'RECTANGULAR ARRAY'], ['tool:radial-array', '', 'RADIAL ARRAY'], ['suggest', '⇧F', 'SUGGESTED COMMANDS']];
@@ -364,6 +365,20 @@ const SHELL = `
       <span class="hint" data-id="rb-hint">—</span>
       <div class="field"><label for="w3d-rb-n">CONTROL POINTS</label><input id="w3d-rb-n" data-id="rb-n" type="number" step="1" min="2" max="64" value="8"></div>
       <div class="field"><label for="w3d-rb-p">DEGREE</label><input id="w3d-rb-p" data-id="rb-p" type="number" step="1" min="1" max="7" value="3"></div>
+    </div>
+    <div class="sec" data-panel="rebuild-face" hidden>
+      <span class="hint" data-id="rf-hint">—</span>
+      <span class="label">METHOD</span>
+      <div class="chips"><button data-rbmethod="tolerance" aria-pressed="true" title="As few control points as keep the face within the tolerance (M)"><kbd>M</kbd>TOLERANCE</button><button data-rbmethod="explicit" aria-pressed="false" title="Set the degree and spans yourself (M)">EXPLICIT</button></div>
+      <div class="field" data-rf="tolerance"><label for="w3d-rf-tol">TOLERANCE</label><input id="w3d-rf-tol" data-id="rf-tol" type="number" step="0.001" min="0.000001" value="0.01"></div>
+      <div class="field" data-rf="explicit" hidden><label for="w3d-rf-du">DEGREE U</label><input id="w3d-rf-du" data-id="rf-du" type="number" step="1" min="1" max="9" value="3"></div>
+      <div class="field" data-rf="explicit" hidden><label for="w3d-rf-dv">DEGREE V</label><input id="w3d-rf-dv" data-id="rf-dv" type="number" step="1" min="1" max="9" value="3"></div>
+      <div class="field" data-rf="explicit" hidden><label for="w3d-rf-su">SPANS U</label><input id="w3d-rf-su" data-id="rf-su" type="number" step="1" min="1" max="64" value="4"></div>
+      <div class="field" data-rf="explicit" hidden><label for="w3d-rf-sv">SPANS V</label><input id="w3d-rf-sv" data-id="rf-sv" type="number" step="1" min="1" max="64" value="4"></div>
+      <div class="field"><label for="w3d-rf-eu">EXTEND U</label><input id="w3d-rf-eu" data-id="rf-eu" type="number" step="0.5" min="0" value="0"></div>
+      <div class="field"><label for="w3d-rf-ev">EXTEND V</label><input id="w3d-rf-ev" data-id="rf-ev" type="number" step="0.5" min="0" value="0"></div>
+      <div class="chips"><button data-id="rf-shrink" aria-pressed="true" title="Fit the face's own extent, not its whole underlying surface (H)"><kbd>H</kbd>SHRINK</button></div>
+      <div class="field"><label>CONTROL POINTS</label><output data-id="rf-cvs">—</output></div>
     </div>
     <div class="sec" data-panel="fillet-vertex" hidden>
       <span class="hint" data-id="fv-hint">—</span>
@@ -675,10 +690,10 @@ const VIEWS = {
 export async function mount(root, backend) {
   root.innerHTML = SHELL;
   // Panel options carry their icon ahead of the key and name.
-  for (const b of root.querySelectorAll('[data-draw],[data-bop],[data-xop],[data-fop],[data-spiral],[data-toggle],[data-gmethod],[data-galign],[data-grow],[data-avaxis],[data-extshape],[data-esshape],[data-isodir],[data-id="oe-both"],[data-id="ex-lock"],[data-id="bool-keep"],[data-id="ex-free"],[data-id="ex-pivot"],[data-id="ex-individual"],[data-id="dr-hidden"],[data-id="dr-curves"],[data-id="oc-lock"],[data-id="oc-free"],[data-id="oc-slot"],[data-id="oc-combine"],[data-id="es-unlimit"]')) {
+  for (const b of root.querySelectorAll('[data-draw],[data-bop],[data-xop],[data-fop],[data-spiral],[data-toggle],[data-gmethod],[data-galign],[data-grow],[data-avaxis],[data-extshape],[data-esshape],[data-isodir],[data-id="oe-both"],[data-id="ex-lock"],[data-id="bool-keep"],[data-id="ex-free"],[data-id="ex-pivot"],[data-id="ex-individual"],[data-id="dr-hidden"],[data-id="dr-curves"],[data-id="oc-lock"],[data-id="oc-free"],[data-id="oc-slot"],[data-id="oc-combine"],[data-id="es-unlimit"],[data-rbmethod],[data-id="rf-shrink"]')) {
     const name = b.dataset.draw ?? b.dataset.bop ?? b.dataset.xop ?? b.dataset.fop ?? b.dataset.spiral ?? (b.dataset.toggle && `view-${b.dataset.toggle}`)
-      ?? (b.dataset.gmethod && `guide-${b.dataset.gmethod}`) ?? (b.dataset.galign && `align-${b.dataset.galign}`) ?? (b.dataset.grow && `grow-${b.dataset.grow}`) ?? (b.dataset.avaxis && `axis-${b.dataset.avaxis}`) ?? (b.dataset.extshape && `extend-${b.dataset.extshape}`) ?? (b.dataset.esshape && `extend-${b.dataset.esshape}`) ?? (b.dataset.isodir && `iso-${b.dataset.isodir}`)
-      ?? { 'ex-lock': 'lock', 'bool-keep': 'keep', 'ex-free': 'freestyle', 'ex-pivot': 'pivot', 'ex-individual': 'individual', 'dr-hidden': 'hidden-lines', 'dr-curves': 'drawing-curves', 'oc-lock': 'lock', 'oc-free': 'freestyle', 'oc-slot': 'slot', 'oc-combine': 'combine', 'oe-both': 'both-sides', 'es-unlimit': 'unlimit' }[b.dataset.id];
+      ?? (b.dataset.gmethod && `guide-${b.dataset.gmethod}`) ?? (b.dataset.galign && `align-${b.dataset.galign}`) ?? (b.dataset.grow && `grow-${b.dataset.grow}`) ?? (b.dataset.avaxis && `axis-${b.dataset.avaxis}`) ?? (b.dataset.extshape && `extend-${b.dataset.extshape}`) ?? (b.dataset.esshape && `extend-${b.dataset.esshape}`) ?? (b.dataset.isodir && `iso-${b.dataset.isodir}`) ?? (b.dataset.rbmethod && `rebuild-${b.dataset.rbmethod}`)
+      ?? { 'ex-lock': 'lock', 'bool-keep': 'keep', 'ex-free': 'freestyle', 'ex-pivot': 'pivot', 'ex-individual': 'individual', 'dr-hidden': 'hidden-lines', 'dr-curves': 'drawing-curves', 'oc-lock': 'lock', 'oc-free': 'freestyle', 'oc-slot': 'slot', 'oc-combine': 'combine', 'oe-both': 'both-sides', 'es-unlimit': 'unlimit', 'rf-shrink': 'shrink' }[b.dataset.id];
     b.insertAdjacentHTML('afterbegin', icon(name));
   }
   const $ = id => root.querySelector(`[data-id="${id}"]`);
@@ -3889,11 +3904,102 @@ export async function mount(root, backend) {
    * gives how far the new curve strays from the old.
    */
   const hullDots = new THREE.PointsMaterial({ color: COLORS.accent, size: 6, sizeAttenuation: false });
+  /**
+   * Plasticity's Rebuild Face: the selected faces of one body given new B-spline surfaces, their
+   * edges and trims kept. Tolerance (M toggles) fits as few control points as keep the face within
+   * it; Explicit sets the U and V degree and spans. Extend carries the new surface on past the face,
+   * and Shrink (H) fits the face's own extent rather than its whole underlying surface.
+   */
+  function startRebuildFace() {
+    const body = faceBody();
+    if (body === null) return toast(sel.list('face').length ? 'REBUILD THE FACES OF ONE BODY AT A TIME' : 'SELECT THE FACES TO REBUILD');
+    if (!backend.previewRebuildFaces) return toast('REBUILD FACE IS NOT IN THIS BUILD YET');
+    const c = cmd = { id: 'rebuild-face', body, faces: [], method: 'tolerance', shrink: true, sent: 0, shown: 0 };
+    lastTool = 'rebuild-face';
+    showTool('rebuild-face');
+    setState('none');
+    c.request = () => ({
+      body: c.body, faces: c.faces, explicit: c.method === 'explicit', tolerance: num('rf-tol'),
+      degree: [num('rf-du'), num('rf-dv')], spans: [num('rf-su'), num('rf-sv')], extend: [num('rf-eu'), num('rf-ev')], shrink: c.shrink,
+    });
+    const mm = d => d < 0.001 ? d.toExponential(1) : d.toFixed(3);
+    c.preview = () => livePreview(c, () => backend.previewRebuildFaces(c.request()), b => {
+      showPreviewBody(b);
+      const r = b.rebuilt ?? [];
+      $('rf-cvs').textContent = r.map(f => `${f.poles[0]}×${f.poles[1]}`).join(' ') || '—';
+      const dev = Math.max(0, ...r.map(f => f.deviation));
+      $('rf-hint').textContent = `${c.faces.length} FACE${c.faces.length > 1 ? 'S' : ''} OF ${label(c.body)} · MAX DEVIATION ${mm(dev)} MM`;
+      setHud(c.method === 'explicit' ? `REBUILD FACE · DEGREE ${num('rf-du')}×${num('rf-dv')} · SPANS ${num('rf-su')}×${num('rf-sv')}` : `REBUILD FACE · WITHIN ${num('rf-tol')} MM`);
+    }, 'rf-hint');
+    c.setMethod = m => {
+      c.method = m;
+      for (const b of $$('[data-rbmethod]')) b.setAttribute('aria-pressed', String(b.dataset.rbmethod === m));
+      for (const f of $$('[data-rf]')) f.hidden = f.dataset.rf !== m;
+      c.preview();
+    };
+    c.setShrink = on => {
+      c.shrink = on;
+      $('rf-shrink').setAttribute('aria-pressed', String(on));
+      c.preview();
+    };
+    c.onSelection = () => {
+      drawOverlays();
+      const b = faceBody();
+      if (b === null) return setHud('SELECT FACES OF ONE BODY TO REBUILD');
+      c.body = b;
+      c.faces = sel.list('face').map(it => it.n).sort((x, y) => x - y);
+      setTarget(label(b));
+      c.preview();
+    };
+    c.key = action => {
+      if (action === 'method') { c.setMethod(c.method === 'explicit' ? 'tolerance' : 'explicit'); return true; }
+      if (action === 'shrink') { c.setShrink(!c.shrink); return true; }
+      // Degree, spans and extend take "u v", or one number for both.
+      const pair = { degree: ['rf-du', 'rf-dv', 'DEGREE'], spans: ['rf-su', 'rf-sv', 'SPANS'], extend: ['rf-eu', 'rf-ev', 'EXTEND'] }[action];
+      if (pair) {
+        if (action !== 'extend' && c.method !== 'explicit') c.setMethod('explicit');
+        c.entry = { label: pair[2], text: '', apply: v => { $(pair[0]).value = v; $(pair[1]).value = v; c.preview(); } };
+        setHud(`${pair[2]} _`);
+        return true;
+      }
+      if (action === 'tolerance') {
+        if (c.method !== 'tolerance') c.setMethod('tolerance');
+        c.entry = { label: 'TOLERANCE', text: '', apply: v => { $('rf-tol').value = v; c.preview(); } };
+        setHud('TOLERANCE _');
+        return true;
+      }
+      return false;
+    };
+    c.click = e => {
+      const hit = pickAt(e);
+      if (hit?.kind !== 'face' || !(e.ctrlKey || e.metaKey || e.shiftKey)) return true;
+      sel.toggle({ kind: 'face', body: hit.body, n: hit.n });
+      selectionChanged();
+      return true;
+    };
+    c.finish = async () => {
+      try {
+        const { id, scene: list, rebuilt } = await backend.commitRebuildFaces(c.request());
+        endCmd('committed');
+        const dev = Math.max(0, ...(rebuilt ?? []).map(f => f.deviation));
+        record(`REBUILD FACE ×${c.faces.length}`, id, `${(rebuilt ?? []).map(f => `${f.poles[0]}×${f.poles[1]} CVS`).join(' ')} · ${mm(dev)} MM`);
+        await showScene(list);
+        sel.replace({ kind: 'solid', body: id });
+        selectionChanged({ quiet: true });
+      } catch (e) { setState('failed'); toast(say(e)); }
+    };
+    c.abort = () => endCmd('cancelled');
+    c.cleanup = () => clearPreview();
+    c.setMethod('tolerance');
+    c.onSelection();
+  }
+
   async function startRebuild() {
     if (cmd) await finish();
     if (!backend.replaceCurves) return toast('REBUILD IS NOT IN THIS BUILD YET');
     const ids = sel.curves.filter(curveById);
-    if (!ids.length) return toast('SELECT A CURVE TO REBUILD');
+    if (!ids.length && sel.list('face').length) return startRebuildFace();
+    if (!ids.length) return toast('SELECT A CURVE OR FACES TO REBUILD');
     const c = cmd = { id: 'rebuild', out: null };
     lastTool = 'rebuild';
     showTool('rebuild');
@@ -6338,7 +6444,7 @@ export async function mount(root, backend) {
     if (sel.solids.length > 1) out.push('tool:boolean');
     if (sel.solids.length === 2) out.push('tool:project');
     if (kinds.has('solid')) out.push('tool:move', 'tool:rotate', 'tool:scale', 'duplicate', 'tool:mirror', 'tool:rect-array', 'tool:radial-array', 'tool:curve-array', 'unify', 'boundary-edges', 'remove-fillets', 'delete', 'hide', 'isolate', 'group', 'lock', 'material:set', 'export:step', 'export:mesh', 'export:drawing');
-    if (kinds.has('face')) out.push('tool:extrude', 'tool:offset', 'tool:thicken', 'tool:shell', 'tool:hole', 'tool:remove-face', 'remove-fillets', 'isoparam', 'plane:selection', 'plane:selection-keep-view');
+    if (kinds.has('face')) out.push('tool:extrude', 'tool:offset', 'tool:thicken', 'tool:shell', 'tool:hole', 'tool:remove-face', 'remove-fillets', 'isoparam', 'rebuild', 'plane:selection', 'plane:selection-keep-view');
     if (kinds.has('edge')) out.push('tool:fillet', 'tool:patch', 'measure:radius');
     if (sel.list('edge').length === 2) out.push('tool:bridge-surface');
     if (sel.solids.some(id => current.find(b => b.id === id)?.sheet)) out.push('tool:thicken', 'reverse-sheet');
@@ -6734,6 +6840,9 @@ export async function mount(root, backend) {
   $('dr-curves').onclick = () => cmd?.id === 'export-drawing' && cmd.key('curves');
   $('av-v').addEventListener('input', () => cmd?.id === 'align-vertex' && cmd.preview());
   for (const id of ['rb-n', 'rb-p']) $(id).addEventListener('input', () => cmd?.id === 'rebuild' && cmd.preview());
+  for (const id of ['rf-tol', 'rf-du', 'rf-dv', 'rf-su', 'rf-sv', 'rf-eu', 'rf-ev']) $(id).addEventListener('input', () => cmd?.id === 'rebuild-face' && cmd.preview());
+  for (const b of $$('[data-rbmethod]')) b.onclick = () => cmd?.id === 'rebuild-face' && cmd.setMethod(b.dataset.rbmethod);
+  $('rf-shrink').onclick = () => cmd?.id === 'rebuild-face' && cmd.setShrink(!cmd.shrink);
   $('oe-d').addEventListener('input', () => cmd?.id === 'offset-edge' && cmd.preview());
   for (const b of $$('[data-oecorner]')) b.onclick = () => cmd?.id === 'offset-edge' && cmd.setCorner(b.dataset.oecorner);
   $('oe-both').onclick = () => cmd?.id === 'offset-edge' && cmd.setBoth(!cmd.both);

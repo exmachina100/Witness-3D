@@ -160,6 +160,13 @@ const ICONS = {
     unify: `<path d="M4 6h16v12H4z"/><path ${A} d="M12 6v12" stroke-dasharray="2 2"/><path ${A} d="M9 10l-2 2 2 2M15 10l2 2-2 2"/>`,
     'convert-vertex': `<path d="M3 18L12 5l9 13" stroke-dasharray="2 2"/><path ${A} d="M3 18C8 9 16 9 21 18"/><path ${A} d="M12 5h0" stroke-width="3" stroke-linecap="round"/>`,
     rebuild: `<path d="M3 17L7 6l6 9 4-8 4 2" stroke-dasharray="2 2"/><path ${A} d="M3 17C7 5 11 5 13 11s6 7 8-2"/>`,
+    // Rebuild Face: a curved patch with its new control net over it.
+    'rebuild-face': `<path d="M3 17c4-6 14-6 18 0M3 9c4-6 14-6 18 0M3 9v8M21 9v8"/><path ${A} d="M3 13h18M12 5v12M7.5 6.5v10M16.5 6.5v10" stroke-dasharray="2 2"/>`,
+    // Tolerance: the fitted curve held inside a band; Explicit: a set count of spans marked off.
+    'rebuild-tolerance': `<path d="M3 9c5-5 13-5 18 0M3 17c5-5 13-5 18 0" stroke-dasharray="2 2"/><path ${A} d="M3 13c5-5 13-5 18 0"/>`,
+    'rebuild-explicit': `<path d="M3 16c5-7 13-7 18 0"/><path ${A} d="M3 16h0M9 11h0M15 11h0M21 16h0" stroke-width="3" stroke-linecap="round"/>`,
+    // Shrink: the outer net pulled in to the face's own edges.
+    shrink: `<path d="M3 3h18v18H3z" stroke-dasharray="2 2"/><path ${A} d="M8 8h8v8H8z"/><path d="M4 4l3 3M20 4l-3 3M4 20l3-3M20 20l-3-3"/>`,
     'align-vertex': `<path d="M6 5h0M17 8h0M8 19h0" stroke-width="3" stroke-linecap="round"/><path ${A} d="M12 3v18"/><path ${A} d="M12 12h0" stroke-width="3" stroke-linecap="round"/>`,
     'axis-x': `<path d="M4 20h16"/><path ${A} d="M8 6l8 8M16 6l-8 8"/>`,
     'axis-y': `<path d="M4 20h16"/><path ${A} d="M8 5l4 5 4-5M12 10v7"/>`,
