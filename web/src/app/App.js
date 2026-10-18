@@ -66,7 +66,7 @@ import { icon } from './icons.js';
 import { limitEdges, toObj, toStl } from '../meshExport.js';
 import { flatten, toDxf, toSvg } from '../drawingExport.js';
 import { readDxf } from '../dxf.js';
-import { bridgeCurves, continuity, curvatureComb, explode, extendCurve, filletCurve, nearestEnd, OFFSET_CORNERS, offsetCurve, splitCurve, tangentCircle, trim } from '../curveEdit.js';
+import { bridgeCurves, continuity, curvatureComb, explode, extendCurve, filletCurve, nearestEnd, OFFSET_CORNERS, offsetCurve, offsetThrough, splitCurve, tangentCircle, trim } from '../curveEdit.js';
 import { ViewGizmo } from './ViewGizmo.js';
 import { Toolbar } from './Toolbar.js';
 import { arcPoints, circleThrough, cvPoints, ellipsePoints, endTangent, helixPoints, loops, nurbsLoop, nurbsPoints, polygonCorners, spiralAngle, tangentArc } from '../curves.js';
@@ -100,7 +100,7 @@ const KEYS = {
   spline: [['CLICK', 'POINTS'], ['CLICK START', 'CLOSE'], ['TAB', 'CONTROL POINTS'], ['X Y Z', 'AXIS'], ['CTRL Z', 'BACK'], ['⏎ / RMB', 'DONE']],
   'tangent-arc': [['CLICK', 'CURVE END · SIZE'], ['D', 'FLIP'], ['ALT', 'NO SNAP'], ['ESC', 'CANCEL']],
   spiral: [['CLICK', 'AXIS START · END · RADIUS'], ['X Y Z', 'AXIS'], ['A', 'ANGLE'], ['D', 'LENGTH'], ['R', 'RADIUS'], ['⏎ / RMB', 'OK']],
-  'offset-curve': [['D', 'DISTANCE'], ['C', 'CORNER STYLE'], ['⏎ / RMB', 'OK']],
+  'offset-curve': [['DRAG DOT', 'DISTANCE'], ['D', 'DISTANCE'], ['V / C', 'GAP FILL'], ['S', 'BOTH SIDES'], ['F', 'FREESTYLE: CLICK'], ['⏎ / RMB', 'OK']],
   'fillet-curve': [['D', 'RADIUS'], ['TYPE', 'IN PANEL'], ['⏎ / RMB', 'OK']],
   'remove-face': [['⇧ CLICK', 'FACES'], ['⏎ / RMB', 'OK']],
   cut: [['⇧ CLICK', 'SOLIDS · CURVES'], ['⇧ ALT CLICK', 'FACES'], ['P', 'CONSTRUCTION PLANE'], ['⏎ / RMB', 'OK']],
@@ -316,7 +316,9 @@ const SHELL = `
     <div class="sec" data-panel="offset-curve" hidden>
       <span class="hint" data-id="oc-hint">—</span>
       <div class="field"><label for="w3d-oc-d">DISTANCE</label><input id="w3d-oc-d" data-id="oc-d" type="number" step="0.5" value="5"></div>
+      <span class="label">GAP FILL</span>
       <div class="chips"><button data-id="oc-linear" aria-pressed="true">LINEAR</button><button data-id="oc-round" aria-pressed="false">ROUND</button><button data-id="oc-natural" aria-pressed="false">NATURAL</button></div>
+      <div class="chips"><button data-id="oc-lock" aria-pressed="false" title="Lock distances: offset both sides (S)"><kbd>S</kbd>BOTH SIDES</button><button data-id="oc-free" aria-pressed="false" title="Freestyle: click where the offset goes (F)"><kbd>F</kbd>FREESTYLE</button></div>
     </div>
     <div class="sec" data-panel="fillet-curve" hidden>
       <span class="hint" data-id="fc-hint">—</span>
@@ -604,10 +606,10 @@ const VIEWS = {
 export async function mount(root, backend) {
   root.innerHTML = SHELL;
   // Panel options carry their icon ahead of the key and name.
-  for (const b of root.querySelectorAll('[data-draw],[data-bop],[data-xop],[data-fop],[data-spiral],[data-toggle],[data-gmethod],[data-galign],[data-grow],[data-id="ex-lock"],[data-id="bool-keep"],[data-id="ex-free"],[data-id="ex-pivot"],[data-id="ex-individual"],[data-id="dr-hidden"],[data-id="dr-curves"]')) {
+  for (const b of root.querySelectorAll('[data-draw],[data-bop],[data-xop],[data-fop],[data-spiral],[data-toggle],[data-gmethod],[data-galign],[data-grow],[data-id="ex-lock"],[data-id="bool-keep"],[data-id="ex-free"],[data-id="ex-pivot"],[data-id="ex-individual"],[data-id="dr-hidden"],[data-id="dr-curves"],[data-id="oc-lock"],[data-id="oc-free"]')) {
     const name = b.dataset.draw ?? b.dataset.bop ?? b.dataset.xop ?? b.dataset.fop ?? b.dataset.spiral ?? (b.dataset.toggle && `view-${b.dataset.toggle}`)
       ?? (b.dataset.gmethod && `guide-${b.dataset.gmethod}`) ?? (b.dataset.galign && `align-${b.dataset.galign}`) ?? (b.dataset.grow && `grow-${b.dataset.grow}`)
-      ?? { 'ex-lock': 'lock', 'bool-keep': 'keep', 'ex-free': 'freestyle', 'ex-pivot': 'pivot', 'ex-individual': 'individual', 'dr-hidden': 'hidden-lines', 'dr-curves': 'drawing-curves' }[b.dataset.id];
+      ?? { 'ex-lock': 'lock', 'bool-keep': 'keep', 'ex-free': 'freestyle', 'ex-pivot': 'pivot', 'ex-individual': 'individual', 'dr-hidden': 'hidden-lines', 'dr-curves': 'drawing-curves', 'oc-lock': 'lock', 'oc-free': 'freestyle' }[b.dataset.id];
     b.insertAdjacentHTML('afterbegin', icon(name));
   }
   const $ = id => root.querySelector(`[data-id="${id}"]`);
@@ -3264,22 +3266,52 @@ export async function mount(root, backend) {
     if (!ids.length) return toast(`SELECT A CURVE TO ${offset ? 'OFFSET' : 'FILLET'}`);
     if (!backend.addCurves || (!offset && !backend.replaceCurves)) return toast(`${toolInfo(id).label} IS NOT IN THIS BUILD YET`);
     const field = offset ? 'oc-d' : 'fc-r', hint = offset ? 'oc-hint' : 'fc-hint';
-    const c = cmd = { id, ids, out: null };
+    // Offset Curve's S (lock distances: both sides) and F (freestyle: a click sets the distance).
+    const c = cmd = { id, ids, out: null, both: false, placing: false, gizmo: null };
     lastTool = id;
     showTool(id);
     setState('none');
     setTarget(ids.length === 1 ? curveLabel(ids[0]) : `${ids.length} CURVES`);
     const corner = () => OFFSET_CORNERS.find(k => $(`oc-${k}`).getAttribute('aria-pressed') === 'true') ?? 'linear';
-    c.compute = () => ids.map(cid => { const src = curveById(cid); return offset ? offsetCurve(src, num(field), corner()) : filletCurve(src, num(field)); });
+    c.compute = () => ids.flatMap(cid => {
+      const src = curveById(cid), d = num(field);
+      if (!offset) return [filletCurve(src, d)];
+      return c.both ? [offsetCurve(src, d, corner()), offsetCurve(src, -d, corner())] : [offsetCurve(src, d, corner())];
+    });
     c.preview = () => {
       clearPreview();
+      c.gizmo?.render(num(field));
+      for (const [k, on] of [['oc-lock', c.both], ['oc-free', c.placing]]) if (offset) $(k).setAttribute('aria-pressed', String(on));
       try {
         c.out = c.compute();
         showCurvePreview(c.out);
         $(hint).textContent = `${ids.length} CURVE${ids.length > 1 ? 'S' : ''}`;
-        setHud(`${toolInfo(id).label} ${num(field)} MM${offset ? ` · ${corner().toUpperCase()}` : ''}`);
+        setHud(c.placing ? 'CLICK WHERE THE OFFSET GOES' : `${toolInfo(id).label} ${num(field)} MM${offset ? ` · ${corner().toUpperCase()}${c.both ? ' · BOTH SIDES' : ''}` : ''}`);
         setState('updated');
       } catch (e) { c.out = null; $(hint).textContent = say(e); setHud(`${toolInfo(id).label} FAILED`); setState('failed'); }
+    };
+    if (offset) {
+      // The yellow dot sits on the first curve, pointing the way a positive distance goes.
+      const src = curveById(ids[0]), f = curveFrame(src), pts = curve2d(src);
+      try {
+        const mid = pts[Math.floor(pts.length / 2)], ahead = curve2d(offsetCurve(src, 1, corner()));
+        const near = ahead.reduce((a, b) => (b.distanceTo(mid) < a.distanceTo(mid) ? b : a));
+        const dir = lift(f, near).sub(lift(f, mid)).normalize();
+        c.gizmo = dot(lift(f, mid), dir, v => { $(field).value = +v.toFixed(3); c.preview(); });
+      } catch { c.gizmo = null; }
+    }
+    c.click = e => {
+      if (!c.placing) return false;
+      const src = curveById(ids[0]), f = curveFrame(src);
+      ray(e);
+      const p = raycaster.ray.intersectPlane(new THREE.Plane().setFromNormalAndCoplanarPoint(f.n, f.o), new THREE.Vector3());
+      if (!p) return true;
+      const d = p.sub(f.o);
+      try { $(field).value = +offsetThrough(src, [d.dot(f.x), d.dot(f.y)], corner()).toFixed(3); }
+      catch (err) { toast(say(err)); return true; }
+      c.placing = false;
+      c.preview();
+      return true;
     };
     c.key = action => {
       if (offset && action === 'corner') {
@@ -3288,6 +3320,8 @@ export async function mount(root, backend) {
         c.preview();
         return true;
       }
+      if (offset && action === 'lock') { c.both = !c.both; c.preview(); return true; }
+      if (offset && action === 'freestyle') { c.placing = !c.placing; c.preview(); return true; }
       if (action !== 'distance' && action !== 'radius') return false;
       c.entry = { label: action.toUpperCase(), text: '', apply: v => { $(field).value = v; c.preview(); } };
       setHud(`${action.toUpperCase()} _`);
@@ -3303,7 +3337,7 @@ export async function mount(root, backend) {
       } catch (e) { setState('failed'); toast(say(e)); }
     };
     c.abort = () => endCmd('cancelled');
-    c.cleanup = () => clearPreview();
+    c.cleanup = () => { c.gizmo?.dispose(); clearPreview(); };
     c.preview();
   }
 
@@ -5846,6 +5880,8 @@ export async function mount(root, backend) {
   $('dr-hidden').onclick = () => cmd?.id === 'export-drawing' && cmd.key('hidden');
   $('dr-curves').onclick = () => cmd?.id === 'export-drawing' && cmd.key('curves');
   for (const id of ['oc-d', 'fc-r']) $(id).addEventListener('input', () => (cmd?.id === 'offset-curve' || cmd?.id === 'fillet-curve') && cmd.preview());
+  $('oc-lock').onclick = () => cmd?.id === 'offset-curve' && cmd.key('lock');
+  $('oc-free').onclick = () => cmd?.id === 'offset-curve' && cmd.key('freestyle');
   for (const k of OFFSET_CORNERS) $(`oc-${k}`).onclick = () => {
     for (const j of OFFSET_CORNERS) $(`oc-${j}`).setAttribute('aria-pressed', j === k);
     if (cmd?.id === 'offset-curve') cmd.preview();

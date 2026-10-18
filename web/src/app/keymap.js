@@ -105,7 +105,8 @@ export const COMMAND = {
     cylinder: { tab: 'typed', v: 'vertical', f: 'radius', d: 'height', x: 'axis-x', y: 'axis-y', z: 'axis-z', q: 'union', w: 'difference', 'shift-e': 'intersect', 'shift-q': 'slice', b: 'new' },
     sphere: { tab: 'typed', d: 'radius', x: 'axis-x', y: 'axis-y', z: 'axis-z', q: 'union', w: 'difference', 'shift-e': 'intersect', 'shift-q': 'slice', b: 'new' },
     // Round 7: D types the distance or radius.
-    'offset-curve': { d: 'distance', c: 'corner' },
+    // Offset Curve (manual: D distance, V gap fill, S lock distances, F freestyle; C kept for the gap fill)
+    'offset-curve': { d: 'distance', c: 'corner', v: 'corner', s: 'lock', f: 'freestyle' },
     'fillet-curve': { d: 'radius' },
     bridge: { t: 'tension' },
     hole: { t: 'through' },
