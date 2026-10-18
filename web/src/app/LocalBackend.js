@@ -597,10 +597,10 @@ export class LocalBackend {
     }
 
     /** Plasticity's Extend Sheet: sheet `body` grown `distance` past its open `edge`. */
-    extendSheetResult({ body, edge, distance }) {
+    extendSheetResult({ body, edge, distance, natural = false }) {
         const s = this.shapes.get(body);
         if (!s) throw new Error('that body no longer exists');
-        return extendSheet(s, edge, distance);
+        return extendSheet(s, edge, distance, natural);
     }
 
     previewExtendSheet(req) { return this.latest(async () => this.body(req.body, this.extendSheetResult(req))) }

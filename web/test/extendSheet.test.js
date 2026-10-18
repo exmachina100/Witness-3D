@@ -58,6 +58,21 @@ test('a curved sheet carries straight on, level past the edge it left level', ()
     close(ylo, -2, 0.01);
 });
 
+test('natural bends on with the sheet where linear goes straight', () => {
+    const a = square(0, 0), b = square(20, 5);
+    const s = bridgeSurface({ shape: a, n: edgeWhere(a, p => Math.abs(p.x - 10) < 1e-9) }, { shape: b, n: edgeWhere(b, p => Math.abs(p.x - 20) < 1e-9) }, 1);
+    const low = edgeWhere(s, p => Math.abs(p.x - 10) < 1e-6 && Math.abs(p.z) < 1e-6);
+    const rise = natural => Math.max(0, ...points(extendSheet(s, low, 3, natural)).filter(p => p.x < 10 - 1e-6).map(p => p.z));
+    assert.ok(rise(false) < 1e-3, `linear stays level: ${rise(false)}`);
+    assert.ok(rise(true) > 0.01, `natural follows the curvature: ${rise(true)}`);
+    // The far side too, where the run is reversed: it carries on past x = 20 and dips back down.
+    const high = edgeWhere(s, p => Math.abs(p.x - 20) < 1e-6 && Math.abs(p.z - 5) < 1e-6);
+    const pts = points(extendSheet(s, high, 3, true));
+    const [, hi] = range(pts, 'x');
+    assert.ok(hi > 22, `reaches past the edge: ${hi}`);
+    assert.ok(Math.min(...pts.filter(p => p.x > 20 + 1e-6).map(p => p.z)) < 5 - 0.01, 'bends back down');
+});
+
 test('trimmed edges and solids are refused; the backend keeps the body in one undo step', async () => {
     const be = new LocalBackend();
     const seed = be.scene()[0];

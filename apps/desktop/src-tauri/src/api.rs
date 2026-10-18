@@ -1216,18 +1216,21 @@ pub struct ExtendSheetRequest {
     pub body: BodyId,
     pub edge: u32,
     pub distance: f64,
+    /// Natural (follow the curvature) rather than Linear (straight on).
+    #[serde(default)]
+    pub natural: bool,
 }
 
 pub fn preview_extend_sheet(m: &Model, req: ExtendSheetRequest) -> Option<Result<Body, ApiError>> {
     m.preview(move |doc| {
-        let sheet = doc.preview_extend_sheet(req.body, req.edge, req.distance)?;
+        let sheet = doc.preview_extend_sheet(req.body, req.edge, req.distance, req.natural)?;
         Ok(body(&doc.kernel, req.body, &sheet)?)
     })
 }
 
 pub fn commit_extend_sheet(m: &Model, req: ExtendSheetRequest) -> Result<Committed, ApiError> {
     m.call(move |doc| {
-        let id = doc.commit_extend_sheet(req.body, req.edge, req.distance)?;
+        let id = doc.commit_extend_sheet(req.body, req.edge, req.distance, req.natural)?;
         Ok(Committed { id, scene: bodies(doc)? })
     })
 }
