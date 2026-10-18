@@ -66,7 +66,7 @@ import { icon } from './icons.js';
 import { limitEdges, toObj, toStl } from '../meshExport.js';
 import { flatten, toDxf, toSvg } from '../drawingExport.js';
 import { readDxf } from '../dxf.js';
-import { BRIDGE_CONTINUITY, bridgeContinuous, continuity, curvatureComb, curveVertices, explode, extendCurve, filletCurve, nearestEnd, OFFSET_CORNERS, offsetCurve, offsetThrough, moveVertices, alignedInPlane, offsetVertex, reverseCurve, splitCurve, tangentCircle, trim } from '../curveEdit.js';
+import { BRIDGE_CONTINUITY, bridgeContinuous, continuity, curvatureComb, curveVertices, explode, extendCurve, filletCurve, nearestEnd, OFFSET_CORNERS, offsetCurve, offsetSlot, offsetThrough, moveVertices, alignedInPlane, offsetVertex, reverseCurve, splitCurve, tangentCircle, trim } from '../curveEdit.js';
 import { ViewGizmo } from './ViewGizmo.js';
 import { Toolbar } from './Toolbar.js';
 import { arcPoints, circleThrough, cvPoints, ellipsePoints, endTangent, helixPoints, loops, nurbsLoop, nurbsPoints, polygonCorners, spiralAngle, tangentArc } from '../curves.js';
@@ -103,7 +103,7 @@ const KEYS = {
   'offset-vertex': [['DRAG DOT', 'DISTANCE'], ['D', 'DISTANCE'], ['⏎ / RMB', 'OK']],
   'align-vertex': [['X / Y / Z', 'AXIS'], ['V', 'VALUE'], ['⏎ / RMB', 'OK']],
   'fillet-vertex': [['DRAG DOT', 'IN ROUND · OUT CHAMFER'], ['D', 'FILLET DISTANCE'], ['C', 'CHAMFER DISTANCE'], ['⏎ / RMB', 'OK']],
-  'offset-curve': [['DRAG DOT', 'DISTANCE'], ['D', 'DISTANCE'], ['V / C', 'GAP FILL'], ['S', 'BOTH SIDES'], ['F', 'FREESTYLE: CLICK'], ['⏎ / RMB', 'OK']],
+  'offset-curve': [['DRAG DOT', 'DISTANCE'], ['D', 'DISTANCE'], ['V / C', 'GAP FILL'], ['S', 'BOTH SIDES'], ['F', 'FREESTYLE: CLICK'], ['O', 'SLOT'], ['⏎ / RMB', 'OK']],
   'fillet-curve': [['D', 'RADIUS'], ['TYPE', 'IN PANEL'], ['⏎ / RMB', 'OK']],
   'remove-face': [['⇧ CLICK', 'FACES'], ['⏎ / RMB', 'OK']],
   cut: [['⇧ CLICK', 'SOLIDS · CURVES'], ['⇧ ALT CLICK', 'FACES'], ['P', 'CONSTRUCTION PLANE'], ['⏎ / RMB', 'OK']],
@@ -321,7 +321,7 @@ const SHELL = `
       <div class="field"><label for="w3d-oc-d">DISTANCE</label><input id="w3d-oc-d" data-id="oc-d" type="number" step="0.5" value="5"></div>
       <span class="label">GAP FILL</span>
       <div class="chips"><button data-id="oc-linear" aria-pressed="true">LINEAR</button><button data-id="oc-round" aria-pressed="false">ROUND</button><button data-id="oc-natural" aria-pressed="false">NATURAL</button></div>
-      <div class="chips"><button data-id="oc-lock" aria-pressed="false" title="Lock distances: offset both sides (S)"><kbd>S</kbd>BOTH SIDES</button><button data-id="oc-free" aria-pressed="false" title="Freestyle: click where the offset goes (F)"><kbd>F</kbd>FREESTYLE</button></div>
+      <div class="chips"><button data-id="oc-lock" aria-pressed="false" title="Lock distances: offset both sides (S)"><kbd>S</kbd>BOTH SIDES</button><button data-id="oc-free" aria-pressed="false" title="Freestyle: click where the offset goes (F)"><kbd>F</kbd>FREESTYLE</button><button data-id="oc-slot" aria-pressed="false" title="Slot: an open curve offset both ways and closed round its ends (O)"><kbd>O</kbd>SLOT</button></div>
     </div>
     <div class="sec" data-panel="offset-vertex" hidden>
       <span class="hint" data-id="ov-hint">—</span>
@@ -630,10 +630,10 @@ const VIEWS = {
 export async function mount(root, backend) {
   root.innerHTML = SHELL;
   // Panel options carry their icon ahead of the key and name.
-  for (const b of root.querySelectorAll('[data-draw],[data-bop],[data-xop],[data-fop],[data-spiral],[data-toggle],[data-gmethod],[data-galign],[data-grow],[data-avaxis],[data-id="ex-lock"],[data-id="bool-keep"],[data-id="ex-free"],[data-id="ex-pivot"],[data-id="ex-individual"],[data-id="dr-hidden"],[data-id="dr-curves"],[data-id="oc-lock"],[data-id="oc-free"]')) {
+  for (const b of root.querySelectorAll('[data-draw],[data-bop],[data-xop],[data-fop],[data-spiral],[data-toggle],[data-gmethod],[data-galign],[data-grow],[data-avaxis],[data-id="ex-lock"],[data-id="bool-keep"],[data-id="ex-free"],[data-id="ex-pivot"],[data-id="ex-individual"],[data-id="dr-hidden"],[data-id="dr-curves"],[data-id="oc-lock"],[data-id="oc-free"],[data-id="oc-slot"]')) {
     const name = b.dataset.draw ?? b.dataset.bop ?? b.dataset.xop ?? b.dataset.fop ?? b.dataset.spiral ?? (b.dataset.toggle && `view-${b.dataset.toggle}`)
       ?? (b.dataset.gmethod && `guide-${b.dataset.gmethod}`) ?? (b.dataset.galign && `align-${b.dataset.galign}`) ?? (b.dataset.grow && `grow-${b.dataset.grow}`) ?? (b.dataset.avaxis && `axis-${b.dataset.avaxis}`)
-      ?? { 'ex-lock': 'lock', 'bool-keep': 'keep', 'ex-free': 'freestyle', 'ex-pivot': 'pivot', 'ex-individual': 'individual', 'dr-hidden': 'hidden-lines', 'dr-curves': 'drawing-curves', 'oc-lock': 'lock', 'oc-free': 'freestyle' }[b.dataset.id];
+      ?? { 'ex-lock': 'lock', 'bool-keep': 'keep', 'ex-free': 'freestyle', 'ex-pivot': 'pivot', 'ex-individual': 'individual', 'dr-hidden': 'hidden-lines', 'dr-curves': 'drawing-curves', 'oc-lock': 'lock', 'oc-free': 'freestyle', 'oc-slot': 'slot' }[b.dataset.id];
     b.insertAdjacentHTML('afterbegin', icon(name));
   }
   const $ = id => root.querySelector(`[data-id="${id}"]`);
@@ -3359,7 +3359,7 @@ export async function mount(root, backend) {
     if (!backend.addCurves || (!offset && !backend.replaceCurves)) return toast(`${toolInfo(id).label} IS NOT IN THIS BUILD YET`);
     const field = offset ? 'oc-d' : 'fc-r', hint = offset ? 'oc-hint' : 'fc-hint';
     // Offset Curve's S (lock distances: both sides) and F (freestyle: a click sets the distance).
-    const c = cmd = { id, ids, out: null, both: false, placing: false, gizmo: null };
+    const c = cmd = { id, ids, out: null, both: false, placing: false, slot: false, gizmo: null };
     lastTool = id;
     showTool(id);
     setState('none');
@@ -3368,17 +3368,19 @@ export async function mount(root, backend) {
     c.compute = () => ids.flatMap(cid => {
       const src = curveById(cid), d = num(field);
       if (!offset) return [filletCurve(src, d)];
+      // Offset Region O: an open curve becomes a slot round it, closed by half circles.
+      if (c.slot && !isClosed(src)) return [offsetSlot(src, Math.abs(d), corner())];
       return c.both ? [offsetCurve(src, d, corner()), offsetCurve(src, -d, corner())] : [offsetCurve(src, d, corner())];
     });
     c.preview = () => {
       clearPreview();
       c.gizmo?.render(num(field));
-      for (const [k, on] of [['oc-lock', c.both], ['oc-free', c.placing]]) if (offset) $(k).setAttribute('aria-pressed', String(on));
+      for (const [k, on] of [['oc-lock', c.both], ['oc-free', c.placing], ['oc-slot', c.slot]]) if (offset) $(k).setAttribute('aria-pressed', String(on));
       try {
         c.out = c.compute();
         showCurvePreview(c.out);
         $(hint).textContent = `${ids.length} CURVE${ids.length > 1 ? 'S' : ''}`;
-        setHud(c.placing ? 'CLICK WHERE THE OFFSET GOES' : `${toolInfo(id).label} ${num(field)} MM${offset ? ` · ${corner().toUpperCase()}${c.both ? ' · BOTH SIDES' : ''}` : ''}`);
+        setHud(c.placing ? 'CLICK WHERE THE OFFSET GOES' : `${toolInfo(id).label} ${num(field)} MM${offset ? ` · ${corner().toUpperCase()}${c.both ? ' · BOTH SIDES' : ''}${c.slot ? ' · SLOT' : ''}` : ''}`);
         setState('updated');
       } catch (e) { c.out = null; $(hint).textContent = say(e); setHud(`${toolInfo(id).label} FAILED`); setState('failed'); }
     };
@@ -3413,6 +3415,7 @@ export async function mount(root, backend) {
         return true;
       }
       if (offset && action === 'lock') { c.both = !c.both; c.preview(); return true; }
+      if (offset && action === 'slot') { c.slot = !c.slot; c.preview(); return true; }
       if (offset && action === 'freestyle') { c.placing = !c.placing; c.preview(); return true; }
       if (action !== 'distance' && action !== 'radius') return false;
       c.entry = { label: action.toUpperCase(), text: '', apply: v => { $(field).value = v; c.preview(); } };
@@ -6204,6 +6207,7 @@ export async function mount(root, backend) {
   $('br-start').onclick = () => cmd?.id === 'bridge' && cmd.cycleEnd(0);
   $('br-end').onclick = () => cmd?.id === 'bridge' && cmd.cycleEnd(1);
   $('oc-lock').onclick = () => cmd?.id === 'offset-curve' && cmd.key('lock');
+  $('oc-slot').onclick = () => cmd?.id === 'offset-curve' && cmd.key('slot');
   $('oc-free').onclick = () => cmd?.id === 'offset-curve' && cmd.key('freestyle');
   for (const k of OFFSET_CORNERS) $(`oc-${k}`).onclick = () => {
     for (const j of OFFSET_CORNERS) $(`oc-${j}`).setAttribute('aria-pressed', j === k);
