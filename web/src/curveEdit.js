@@ -244,6 +244,30 @@ export const OFFSET_CORNERS = ['linear', 'round', 'natural'];
  * gap (see offsetExact); circles stay circles; ellipses and splines become a smooth curve through
  * the offset points.
  */
+/** The nearest distance from 2D point `p` to the curve's samples, as straight pieces between them. */
+export function distanceTo(c, p) {
+    const { points, closed } = samples(c);
+    let best = Infinity;
+    const n = points.length;
+    for (let i = 0; i < (closed ? n : n - 1); i++) {
+        const a = points[i], b = points[(i + 1) % n], ab = sub(b, a);
+        const t = Math.max(0, Math.min(1, dot2(sub(p, a), ab) / (dot2(ab, ab) || 1)));
+        best = Math.min(best, dist(add(a, mul(ab, t)), p));
+    }
+    return best;
+}
+
+/**
+ * Freestyle offset (F): the signed distance that puts the offset through `p`, or as near as the
+ * corners allow: its size is how far `p` is from the curve, its sign whichever side `p` is on.
+ */
+export function offsetThrough(c, p, corner = 'linear') {
+    const d = distanceTo(c, p);
+    if (!(d > 1e-9)) throw new Error('click off the curve to set the distance');
+    const miss = s => { try { return distanceTo(offsetCurve(c, s, corner), p); } catch { return Infinity; } };
+    return miss(d) <= miss(-d) ? d : -d;
+}
+
 export function offsetCurve(c, d, corner = 'linear') {
     if (!Number.isFinite(d)) throw new Error('the distance is not a number');
     if (Math.abs(d) < 1e-9) throw new Error('nothing to do');
