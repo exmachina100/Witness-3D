@@ -48,11 +48,11 @@ fn offset_face_angle_leans_the_sides_about_the_far_edges() {
     let before = doc.refs(a).unwrap().faces.clone();
     let lean = (5.0f64 / 30.0).atan();
     // A alone: the base stays, the top shrinks to 70 × 40.
-    close(volume(&doc.kernel, &doc.preview_offset(a, &top, 0.0, lean).unwrap()), frustum(80.0, 50.0, 5.0, 30.0), 0.5);
+    close(volume(&doc.kernel, &doc.preview_offset(a, &top, 0.0, lean, Grow::Moving).unwrap()), frustum(80.0, 50.0, 5.0, 30.0), 0.5);
     // Negative leans out.
-    close(volume(&doc.kernel, &doc.preview_offset(a, &top, 0.0, -lean).unwrap()), frustum(80.0, 50.0, -5.0, 30.0), 0.5);
+    close(volume(&doc.kernel, &doc.preview_offset(a, &top, 0.0, -lean, Grow::Moving).unwrap()), frustum(80.0, 50.0, -5.0, 30.0), 0.5);
     // With a distance the face moves first, then the sides lean over the new height.
-    doc.commit_offset(a, &top, 5.0, lean).unwrap();
+    doc.commit_offset(a, &top, 5.0, lean, Grow::Moving).unwrap();
     let s = doc.get(a).unwrap();
     close(volume(&doc.kernel, s), frustum(80.0, 50.0, 35.0 * 5.0 / 30.0, 35.0), 0.5);
     assert_eq!(doc.kernel.face_count(s), 6);
@@ -63,8 +63,8 @@ fn offset_face_angle_leans_the_sides_about_the_far_edges() {
     }
     assert!(doc.undo());
     close(volume(&doc.kernel, doc.get(a).unwrap()), 120_000.0, 1e-3);
-    assert!(matches!(doc.preview_offset(a, &top, 0.0, 0.0), Err(KernelError::NoOp)));
-    assert!(doc.preview_offset(a, &top, 0.0, PI / 2.0).is_err());
+    assert!(matches!(doc.preview_offset(a, &top, 0.0, 0.0, Grow::Moving), Err(KernelError::NoOp)));
+    assert!(doc.preview_offset(a, &top, 0.0, PI / 2.0, Grow::Moving).is_err());
 }
 
 /// A helix of radius 10 up y from the origin, starting along x: 2 turns over 20.

@@ -141,6 +141,10 @@ const ICONS = {
     folder: `<path d="M3 6h7l2 2h9v11H3z"/><path ${A} d="M3 11h18"/>`,
     group: `<rect x="3" y="3" width="18" height="18" stroke-dasharray="2 2"/><rect x="6" y="6" width="5" height="5"/><rect ${A} x="13" y="13" width="5" height="5"/>`,
     ungroup: `<rect x="3" y="3" width="8" height="8"/><rect ${A} x="13" y="13" width="8" height="8"/><path d="M14 4l6 6M20 4l-6 6"/>`,
+    // Offset Face grow modes: a step side on, the block's wall pushed out past the ledge's end.
+    'grow-moving': `<path d="M3 20V5h6v10h9v5z"/><path ${A} d="M9 5h12v15h-3M14 9l2 1.5-2 1.5"/>`,
+    'grow-fixed': `<path d="M3 20V5h6v10h9v5z"/><path ${A} d="M9 5h9v10M20 4v16"/>`,
+    'grow-none': `<path d="M3 20V5h6v10h9v5z"/><path ${A} d="M9 5h12v10h-3M14 9l2 1.5-2 1.5"/>`,
     padlock: `<rect x="5" y="11" width="14" height="10"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/><path ${A} d="M12 15v2"/>`,
     unlock: `<rect x="5" y="11" width="14" height="10"/><path d="M8 11V7a4 4 0 0 1 8 0"/><path ${A} d="M12 15v2"/>`,
     // Materials: a shaded ball, split in two for Fork, struck through for Remove.

@@ -401,19 +401,30 @@ pub struct OffsetRequest {
     /// Radians the neighbouring faces lean (A, Angle Adjacent); positive shrinks the face.
     #[serde(default)]
     pub angle: f64,
+    /// Offset Face's grow mode (Tab): "moving" (the default), "fixed" or "none".
+    #[serde(default)]
+    pub grow: String,
+}
+
+fn grow_of(s: &str) -> w3d_kernel::Grow {
+    match s {
+        "fixed" => w3d_kernel::Grow::Fixed,
+        "none" => w3d_kernel::Grow::None,
+        _ => w3d_kernel::Grow::Moving,
+    }
 }
 
 /// The body as it would be after the offset. `None` means a newer request superseded it.
 pub fn preview_offset(m: &Model, req: OffsetRequest) -> Option<Result<Body, ApiError>> {
     m.preview(move |doc| {
-        let solid = doc.preview_offset(req.body, &req.faces, req.distance, req.angle)?;
+        let solid = doc.preview_offset(req.body, &req.faces, req.distance, req.angle, grow_of(&req.grow))?;
         Ok(body(&doc.kernel, req.body, &solid)?)
     })
 }
 
 pub fn commit_offset(m: &Model, req: OffsetRequest) -> Result<Committed, ApiError> {
     m.call(move |doc| {
-        let id = doc.commit_offset(req.body, &req.faces, req.distance, req.angle)?;
+        let id = doc.commit_offset(req.body, &req.faces, req.distance, req.angle, grow_of(&req.grow))?;
         Ok(Committed { id, scene: bodies(doc)? })
     })
 }

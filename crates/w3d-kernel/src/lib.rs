@@ -20,7 +20,7 @@ pub mod occt;
 pub use blend::{blend, Blend, BlendParams};
 pub use document::{Ref, Refs};
 pub use extrude::{extrude, ExtrudeParams, ExtrudeResult, Operation};
-pub use form::{form, offset_faces, FormKind, FormParams};
+pub use form::{form, offset_faces, offset_faces_grow, FormKind, FormParams, Grow};
 pub use solids::{ArraySpec, Primitive};
 pub use document::{Curve, CurveId, CurveShape};
 pub mod join;

@@ -130,6 +130,18 @@ pub fn form<K: Kernel>(
     )
 }
 
+/// Offset Face's grow mode (Tab), for an inner face pushed out until it reaches the body's outer
+/// wall beyond it (manual, solid/offset-face): Moving takes the whole wall along, Fixed stops at the
+/// wall, None carries on by itself past it, leaving the wall where it was. Short of the wall all three
+/// are the same.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum Grow {
+    #[default]
+    Moving,
+    Fixed,
+    None,
+}
+
 /// Offset Face: checked inputs, then a check that the body is still one valid solid.
 pub fn offset_faces<K: Kernel>(
     k: &K,
@@ -137,6 +149,18 @@ pub fn offset_faces<K: Kernel>(
     faces: &[u32],
     distance: f64,
     angle: f64,
+) -> Result<Traced<K::Solid>, KernelError> {
+    offset_faces_grow(k, body, faces, distance, angle, Grow::default())
+}
+
+/// [`offset_faces`] with a grow mode.
+pub fn offset_faces_grow<K: Kernel>(
+    k: &K,
+    body: &K::Solid,
+    faces: &[u32],
+    distance: f64,
+    angle: f64,
+    grow: Grow,
 ) -> Result<Traced<K::Solid>, KernelError> {
     if faces.is_empty() {
         return Err(KernelError::Invalid("select at least one face"));
@@ -159,13 +183,76 @@ pub fn offset_faces<K: Kernel>(
     let mut faces = faces.to_vec();
     faces.sort_unstable();
     faces.dedup();
-    let traced = k.offset_faces(body, &faces, distance, angle)?;
+    let traced = match grown_past_wall(k, body, &faces, distance, angle, grow)? {
+        Some(t) => t,
+        None => k.offset_faces(body, &faces, distance, angle)?,
+    };
     if !k.is_valid(&traced.solid) || k.solid_count(&traced.solid) != k.solid_count(body) {
         return Err(KernelError::Invalid(
             "offsetting that far breaks the body; try a smaller distance",
         ));
     }
     Ok(traced)
+}
+
+/// Flat faces pushed out as far as the body's outer wall beyond them or further: each face's slab
+/// is joined on, stopping at the wall (Fixed), going on past it (None), or with the wall's own
+/// faces pushed out to the same place (Moving). None when no face gets that far, or when an angle
+/// or a curved face leaves it to the kernel's offset.
+fn grown_past_wall<K: Kernel>(
+    k: &K,
+    body: &K::Solid,
+    faces: &[u32],
+    distance: f64,
+    angle: f64,
+    grow: Grow,
+) -> Result<Option<Traced<K::Solid>>, KernelError> {
+    const TOL: f64 = 1e-6;
+    if distance <= TOL || angle.abs() > 1e-12 {
+        return Ok(None);
+    }
+    let mesh = k.tessellate(body, 0.1)?;
+    let mut planes = Vec::new();
+    for &f in faces {
+        match mesh.face_planes.get(f as usize).copied().flatten() {
+            Some(p) => planes.push(p),
+            None => return Ok(None),
+        }
+    }
+    // How far the body reaches beyond each face along its normal: zero for an outside face.
+    let reach = |p: &crate::Plane| {
+        mesh.positions.iter().map(|q| (DVec3::from(*q) - p.origin).dot(p.normal)).fold(0.0, f64::max)
+    };
+    let walls: Vec<f64> = planes.iter().map(reach).collect();
+    if !walls.iter().any(|&w| w > TOL && distance >= w - TOL) {
+        return Ok(None);
+    }
+    let mut tool: Option<K::Solid> = None;
+    let mut add = |s: K::Solid, k: &K| -> Result<(), KernelError> {
+        tool = Some(match tool.take() {
+            Some(t) => k.boolean(&t, &s, BooleanOp::Union)?.solid,
+            None => s,
+        });
+        Ok(())
+    };
+    for ((&f, p), &w) in faces.iter().zip(&planes).zip(&walls) {
+        let past = w > TOL && distance >= w - TOL;
+        let d = if past && grow == Grow::Fixed { w } else { distance };
+        if d > TOL {
+            add(k.extrude_face(body, f, &crate::Extent::to(d))?, k)?;
+        }
+        if past && grow == Grow::Moving && distance > w + TOL {
+            // The outer wall: flat faces facing the same way at the far end of the body.
+            for (g, q) in mesh.face_planes.iter().enumerate() {
+                let Some(q) = q else { continue };
+                if q.normal.dot(p.normal) > 1.0 - 1e-9 && ((q.origin - p.origin).dot(p.normal) - w).abs() < TOL * 10.0 {
+                    add(k.extrude_face(body, g as u32, &crate::Extent::to(distance - w))?, k)?;
+                }
+            }
+        }
+    }
+    let Some(tool) = tool else { return Ok(None) };
+    Ok(Some(k.boolean(body, &tool, BooleanOp::Union)?))
 }
 
 /// Plasticity's Pipe: a tube of `radius` along `path`, its section a circle (`sides` 0) or a

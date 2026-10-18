@@ -79,7 +79,7 @@ const KEYS = {
   scale: [['S', 'UNIFORM'], ['CTRL', '0.1'], ['⏎ / RMB', 'OK']],
   extrude: [['DRAG DOT', 'DISTANCE'], ['D', 'DISTANCE'], ['F', 'FREESTYLE: CLICK START · END'], ['V', 'PIVOT: CLICK'], ['I', 'INDIVIDUAL'], ['A', 'ANGLE'], ['⇧T', 'THICKNESS'], ['S', 'BOTH SIDES'], ['Q', 'UNION'], ['W', 'DIFFERENCE'], ['⇧E', 'INTERSECT'], ['⇧Q', 'SLICE'], ['B', 'NEW BODY'], ['⏎ / RMB', 'OK']],
   boolean: [['Q', 'UNION'], ['W', 'DIFFERENCE'], ['⇧E', 'INTERSECT'], ['⇧Q', 'SLICE'], ['T', 'KEEP TOOLS'], ['⏎ / RMB', 'OK']],
-  offset: [['DRAG DOT', 'DISTANCE'], ['D', 'DISTANCE'], ['A', 'ANGLE ADJACENT'], ['⇧ CLICK', 'FACES'], ['⏎ / RMB', 'OK']],
+  offset: [['DRAG DOT', 'DISTANCE'], ['D', 'DISTANCE'], ['A', 'ANGLE ADJACENT'], ['TAB', 'GROW MODE'], ['⇧ CLICK', 'FACES'], ['⏎ / RMB', 'OK']],
   revolve: [['CLICK', 'AXIS START · END'], ['A', 'ANGLE'], ['⇧T', 'THICKNESS'], ['Q', 'UNION'], ['W', 'DIFFERENCE'], ['⇧E', 'INTERSECT'], ['B', 'NEW BODY'], ['⏎ / RMB', 'OK']],
   loft: [['CLICK', 'GUIDES (OPTIONAL)'], ['⏎ / RMB', 'OK'], ['ESC', 'CANCEL']],
   sweep: [['CLICK', 'PATH · THEN A GUIDE'], ['M', 'GUIDE METHOD'], ['N', 'ALIGNMENT'], ['D', 'TWIST'], ['Q', 'UNION'], ['W', 'DIFFERENCE'], ['⇧E', 'INTERSECT'], ['B', 'NEW BODY'], ['⏎ / RMB', 'OK']],
@@ -292,6 +292,8 @@ const SHELL = `
       <span class="hint" data-id="off-hint">DRAG THE DOT, OR D AND TYPE</span>
       <div class="field"><label for="w3d-off-distance">DISTANCE</label><input id="w3d-off-distance" data-id="off-distance" type="number" step="0.5" value="0"></div>
       <div class="field"><label for="w3d-off-angle">ANGLE ADJACENT °</label><input id="w3d-off-angle" data-id="off-angle" type="number" step="1" value="0"></div>
+      <span class="label">GROW</span>
+      <div class="seg" role="group" aria-label="Grow mode"><button data-grow="moving" aria-pressed="true" title="Move the whole wall when the offset gets to the outer wall">MOVING</button><button data-grow="fixed" aria-pressed="false" title="Stop at the outer wall">FIXED</button><button data-grow="none" aria-pressed="false" title="Keep going by itself, past the outer wall">NONE</button></div>
       <div class="field"><label>FACES</label><output data-id="off-count">0</output></div>
     </div>
     <div class="sec" data-panel="export-mesh" hidden>
@@ -600,9 +602,9 @@ const VIEWS = {
 export async function mount(root, backend) {
   root.innerHTML = SHELL;
   // Panel options carry their icon ahead of the key and name.
-  for (const b of root.querySelectorAll('[data-draw],[data-bop],[data-xop],[data-fop],[data-spiral],[data-toggle],[data-gmethod],[data-galign],[data-id="ex-lock"],[data-id="bool-keep"],[data-id="ex-free"],[data-id="ex-pivot"],[data-id="ex-individual"],[data-id="dr-hidden"],[data-id="dr-curves"]')) {
+  for (const b of root.querySelectorAll('[data-draw],[data-bop],[data-xop],[data-fop],[data-spiral],[data-toggle],[data-gmethod],[data-galign],[data-grow],[data-id="ex-lock"],[data-id="bool-keep"],[data-id="ex-free"],[data-id="ex-pivot"],[data-id="ex-individual"],[data-id="dr-hidden"],[data-id="dr-curves"]')) {
     const name = b.dataset.draw ?? b.dataset.bop ?? b.dataset.xop ?? b.dataset.fop ?? b.dataset.spiral ?? (b.dataset.toggle && `view-${b.dataset.toggle}`)
-      ?? (b.dataset.gmethod && `guide-${b.dataset.gmethod}`) ?? (b.dataset.galign && `align-${b.dataset.galign}`)
+      ?? (b.dataset.gmethod && `guide-${b.dataset.gmethod}`) ?? (b.dataset.galign && `align-${b.dataset.galign}`) ?? (b.dataset.grow && `grow-${b.dataset.grow}`)
       ?? { 'ex-lock': 'lock', 'bool-keep': 'keep', 'ex-free': 'freestyle', 'ex-pivot': 'pivot', 'ex-individual': 'individual', 'dr-hidden': 'hidden-lines', 'dr-curves': 'drawing-curves' }[b.dataset.id];
     b.insertAdjacentHTML('afterbegin', icon(name));
   }
@@ -3113,7 +3115,7 @@ export async function mount(root, backend) {
     const body = faceBody();
     if (body === null) return auto ? null : toast(sel.list('face').length ? 'OFFSET THE FACES OF ONE SOLID AT A TIME' : 'SELECT FACES TO OFFSET');
     if (!backend.previewOffset) return auto ? null : toast('OFFSET FACE IS NOT IN THIS BUILD YET');
-    const c = cmd = { id: 'offset', auto, body, faces: [], distance: 0, angle: 0, sent: 0, shown: 0, gizmo: null };
+    const c = cmd = { id: 'offset', auto, body, faces: [], distance: 0, angle: 0, grow: 'moving', sent: 0, shown: 0, gizmo: null };
     lastTool = 'offset';
     showTool('offset');
     setState('none');
@@ -3147,6 +3149,7 @@ export async function mount(root, backend) {
         setHud('ANGLE ADJACENT ° _');
         return true;
       }
+      if (action === 'grow') { setOffsetGrow(GROWS[(GROWS.indexOf(c.grow) + 1) % GROWS.length]); return true; }
       return false;
     };
     c.click = e => {
@@ -3162,6 +3165,7 @@ export async function mount(root, backend) {
     c.cleanup = () => { c.gizmo?.dispose(); clearPreview(); };
     $('off-distance').value = 0;
     $('off-angle').value = 0;
+    renderGrow();
     c.onSelection();
     setHud(auto ? 'DRAG THE DOT · D' : 'DRAG THE DOT, OR D AND TYPE');
   }
@@ -3182,7 +3186,20 @@ export async function mount(root, backend) {
     if (document.activeElement !== $('off-angle')) $('off-angle').value = deg;
     previewOffsetCmd();
   }
-  const offsetText = c => `${fmt(c.distance)}${c.angle ? ` · ${c.angle}°` : ''}`;
+  /** Offset Face's grow modes in Tab order (manual: Moving, Fixed, None). */
+  const GROWS = ['moving', 'fixed', 'none'];
+  function setOffsetGrow(g) {
+    const c = cmd;
+    if (c?.id !== 'offset') return;
+    c.grow = g;
+    renderGrow();
+    toast(`GROW ${g.toUpperCase()}`);
+    previewOffsetCmd();
+  }
+  function renderGrow() {
+    for (const b of root.querySelectorAll('[data-grow]')) b.setAttribute('aria-pressed', String(b.dataset.grow === (cmd?.grow ?? 'moving')));
+  }
+  const offsetText = c => `${fmt(c.distance)}${c.angle ? ` · ${c.angle}°` : ''}${c.grow !== 'moving' ? ` · ${c.grow.toUpperCase()}` : ''}`;
   async function previewOffsetCmd() {
     const c = cmd;
     if (c?.id !== 'offset') return;
@@ -3191,7 +3208,7 @@ export async function mount(root, backend) {
     setState('updating');
     const t0 = performance.now();
     let body;
-    try { body = await backend.previewOffset({ body: c.body, faces: c.faces, distance: c.distance, angle: c.angle * DEG }); }
+    try { body = await backend.previewOffset({ body: c.body, faces: c.faces, distance: c.distance, angle: c.angle * DEG, grow: c.grow }); }
     catch (e) {
       if (cmd !== c || n !== c.sent) return;
       clearPreview();
@@ -3211,7 +3228,7 @@ export async function mount(root, backend) {
     const c = cmd;
     if ((!c.distance && !c.angle) || c.body === null) return endCmd(c.auto ? null : 'cancelled');
     try {
-      const { id, scene: list } = await backend.commitOffset({ body: c.body, faces: c.faces, distance: c.distance, angle: c.angle * DEG });
+      const { id, scene: list } = await backend.commitOffset({ body: c.body, faces: c.faces, distance: c.distance, angle: c.angle * DEG, grow: c.grow });
       endCmd('committed');
       record(`OFFSET FACE ${offsetText(c)} ×${c.faces.length}`, id);
       await showScene(list);
@@ -5804,6 +5821,7 @@ export async function mount(root, backend) {
   };
   for (const b of $$('[data-mxf]')) b.onclick = () => cmd?.id === 'export-mesh' && cmd.key(b.dataset.mxf);
   for (const b of $$('[data-drf]')) b.onclick = () => cmd?.id === 'export-drawing' && cmd.key(b.dataset.drf);
+  for (const b of $$('[data-grow]')) b.onclick = () => setOffsetGrow(b.dataset.grow);
   $('dr-hidden').onclick = () => cmd?.id === 'export-drawing' && cmd.key('hidden');
   $('dr-curves').onclick = () => cmd?.id === 'export-drawing' && cmd.key('curves');
   for (const id of ['oc-d', 'fc-r']) $(id).addEventListener('input', () => (cmd?.id === 'offset-curve' || cmd?.id === 'fillet-curve') && cmd.preview());
@@ -5875,7 +5893,7 @@ export async function mount(root, backend) {
     }
     if (cmd) {
       const action = COMMAND[cmd.id]?.[k];
-      if (action && !(cmd.auto && !['distance', 'chamfer', 'angle'].includes(action)) && cmd.key?.(action, e)) { e.preventDefault(); return; }
+      if (action && !(cmd.auto && !['distance', 'chamfer', 'angle', 'grow'].includes(action)) && cmd.key?.(action, e)) { e.preventDefault(); return; }
       if (e.key === 'Enter') { e.preventDefault(); return finish(); }
       if (e.key === 'Escape') {
         e.preventDefault();
