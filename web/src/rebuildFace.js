@@ -149,6 +149,38 @@ function remade(face, made, b) {
     return f;
 }
 
+/** `shape` with the faces in `replaced` (by number) swapped in: the lone face, or all faces sewn within `gap` (a solid again if it was one). */
+function assemble(shape, all, replaced, gap, what, hint = '') {
+    const o = oc();
+    let result;
+    if (shape.ShapeType() === o.TopAbs_ShapeEnum.TopAbs_FACE) result = replaced.get(0);
+    else {
+        const sew = new o.BRepBuilderAPI_Sewing(gap, true, true, true, false);
+        all.forEach((f, i) => sew.Add(replaced.get(i) ?? f));
+        sew.Perform(new o.Message_ProgressRange());
+        result = sew.SewedShape();
+        if (!numbered(result, 'TopAbs_SHELL').length) {
+            // One face sews to itself: hold it in a shell, as the body held it.
+            const tb = new o.TopoDS_Builder(), shell = new o.TopoDS_Shell();
+            tb.MakeShell(shell);
+            for (const f of numbered(result, 'TopAbs_FACE')) tb.Add(shell, f);
+            shell.Closed(o.BRep_Tool.IsClosed(shell));
+            result = shell;
+        }
+        const solid = numbered(shape, 'TopAbs_SOLID').length > 0;
+        const shells = numbered(result, 'TopAbs_SHELL');
+        if (solid) {
+            if (shells.length !== 1 || !o.BRep_Tool.IsClosed(shells[0])) throw new Error(`${what} no longer closes the solid; try a tighter tolerance`);
+            const mk = new o.BRepBuilderAPI_MakeSolid(o.TopoDS.Shell(shells[0]));
+            if (!mk.IsDone()) throw new Error(`${what} no longer closes the solid; try a tighter tolerance`);
+            result = mk.Solid();
+            o.BRepLib.OrientClosedSolid(result);
+        }
+    }
+    if (!new o.BRepCheck_Analyzer(result, true, false, false).IsValid()) throw new Error(`${what} is not valid${hint}`);
+    return result;
+}
+
 /**
  * `shape` with `faces` rebuilt; `how` as FaceRebuild on the desktop: { explicit, degree: [u, v],
  * spans: [u, v], tolerance, extend: [u, v] (mm past both sides), shrink }. Returns the new shape and,
@@ -197,31 +229,39 @@ export function rebuildFaces(shape, faces, how = {}) {
         replaced.set(n, remade(face, made, own));
         out.push({ face: n, degree: [made.UDegree(), made.VDegree()], poles: [made.NbUPoles(), made.NbVPoles()], deviation: dev });
     }
-    let result;
-    if (shape.ShapeType() === o.TopAbs_ShapeEnum.TopAbs_FACE) result = replaced.get(0);
-    else {
-        const sew = new o.BRepBuilderAPI_Sewing(gap, true, true, true, false);
-        all.forEach((f, i) => sew.Add(replaced.get(i) ?? f));
-        sew.Perform(new o.Message_ProgressRange());
-        result = sew.SewedShape();
-        if (!numbered(result, 'TopAbs_SHELL').length) {
-            // One face sews to itself: hold it in a shell, as the body held it.
-            const tb = new o.TopoDS_Builder(), shell = new o.TopoDS_Shell();
-            tb.MakeShell(shell);
-            for (const f of numbered(result, 'TopAbs_FACE')) tb.Add(shell, f);
-            shell.Closed(o.BRep_Tool.IsClosed(shell));
-            result = shell;
+    return { shape: assemble(shape, all, replaced, gap, 'the rebuilt face', '; try more spans or a higher degree'), rebuilt: out };
+}
+
+/**
+ * Plasticity's Raise Surface Degree, as w3d_raise_faces: each of `faces` (all of them when empty)
+ * with its U and V degree raised by one, which adds control points without changing its shape. A
+ * face that isn't a B-spline is first fitted as one, degree 3, within 1e-3 mm.
+ */
+export function raiseFaces(shape, faces = []) {
+    const o = oc();
+    const all = numbered(shape, 'TopAbs_FACE').map(f => o.TopoDS.Face(f));
+    const which = faces.length ? faces : all.map((_, i) => i);
+    const out = [], replaced = new Map();
+    let gap = 1e-4;
+    for (const n of which) {
+        const face = all[n];
+        if (!face) throw new Error('that face no longer exists');
+        const ad = new o.BRepAdaptor_Surface(face, true);
+        const at = (u, v) => xyz(ad.Value(u, v));
+        const { UMin, UMax, VMin, VMax } = o.BRepTools.UVBounds(face, 0, 0, 0, 0);
+        const own = [UMin, UMax, VMin, VMax];
+        let made;
+        if (ad.GetType() === o.GeomAbs_SurfaceType.GeomAbs_BSplineSurface) made = new o.Geom_BSplineSurface(ad.BSpline());
+        else for (const k of STEPS) {
+            made = refit(at, own, [3, 3], [k, k]);
+            if (deviation(at, made, own) <= 1e-3) break;
         }
-        const solid = numbered(shape, 'TopAbs_SOLID').length > 0;
-        const shells = numbered(result, 'TopAbs_SHELL');
-        if (solid) {
-            if (shells.length !== 1 || !o.BRep_Tool.IsClosed(shells[0])) throw new Error('the rebuilt face no longer closes the solid; try a tighter tolerance');
-            const mk = new o.BRepBuilderAPI_MakeSolid(o.TopoDS.Shell(shells[0]));
-            if (!mk.IsDone()) throw new Error('the rebuilt face no longer closes the solid; try a tighter tolerance');
-            result = mk.Solid();
-            o.BRepLib.OrientClosedSolid(result);
-        }
+        if (made.UDegree() >= 25 && made.VDegree() >= 25) throw new Error('that face is already at the highest degree');
+        made.IncreaseDegree(Math.min(made.UDegree() + 1, 25), Math.min(made.VDegree() + 1, 25));
+        const dev = deviation(at, made, own, 48);
+        gap = Math.max(gap, dev * 1.5 + 1e-4);
+        replaced.set(n, remade(face, made, own));
+        out.push({ face: n, degree: [made.UDegree(), made.VDegree()], poles: [made.NbUPoles(), made.NbVPoles()], deviation: dev });
     }
-    if (!new o.BRepCheck_Analyzer(result, true, false, false).IsValid()) throw new Error('the rebuilt face is not valid; try more spans or a higher degree');
-    return { shape: result, rebuilt: out };
+    return { shape: assemble(shape, all, replaced, gap, 'the raised face'), rebuilt: out };
 }
