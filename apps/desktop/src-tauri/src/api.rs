@@ -859,12 +859,22 @@ pub fn commit_mirror(m: &Model, req: MirrorRequest) -> Result<Duplicated, ApiErr
     })
 }
 
-#[derive(Deserialize, Debug, Clone, Copy)]
+#[derive(Deserialize, Debug, Clone)]
 #[serde(tag = "kind", rename_all = "lowercase")]
 pub enum ArraySpecIn {
     Rectangular { steps: [[f64; 3]; 3], counts: [u32; 3] },
     /// `angle` in radians.
     Radial { pivot: [f64; 3], axis: [f64; 3], angle: f64, count: u32 },
+    /// Curve Array: each copy turned `angle` radians about `axis` through `pivot`, then moved by `offset`.
+    Motions { motions: Vec<ArrayMotionIn> },
+}
+
+#[derive(Deserialize, Debug, Clone, Copy)]
+pub struct ArrayMotionIn {
+    pub offset: [f64; 3],
+    pub pivot: [f64; 3],
+    pub axis: [f64; 3],
+    pub angle: f64,
 }
 
 impl From<ArraySpecIn> for ArraySpec {
@@ -872,6 +882,9 @@ impl From<ArraySpecIn> for ArraySpec {
         match s {
             ArraySpecIn::Rectangular { steps, counts } => ArraySpec::Rectangular { steps: steps.map(DVec3::from_array), counts },
             ArraySpecIn::Radial { pivot, axis, angle, count } => ArraySpec::Radial { pivot: DVec3::from_array(pivot), axis: DVec3::from_array(axis), angle, count },
+            ArraySpecIn::Motions { motions } => ArraySpec::Motions(motions.into_iter().map(|m| Motion {
+                offset: DVec3::from_array(m.offset), pivot: DVec3::from_array(m.pivot), axis: DVec3::from_array(m.axis), angle: m.angle, scale: 1.0,
+            }).collect()),
         }
     }
 }

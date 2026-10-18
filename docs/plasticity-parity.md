@@ -57,7 +57,7 @@ a flat face imprints that face and is used up (round 10).
 | Mirror | Done (copy or join) |
 | Duplicate | Done |
 | Radial Array · Rectangular Array | Done |
-| Curve Array (along a curve) | Missing |
+| Curve Array (along a curve) | Done: selected bodies copied evenly by length along a picked curve (count, A align to tangent, J join); closed curves stop short of the start. Both builds share the placement (web/src/curveArray.js) and send it as a motions array spec |
 | Copy / Paste with Placement · Place | Missing |
 | Set / Fork / Remove Material | Done in both builds: M sets a material on the selected solids and sheets (color, roughness, metalness, IOR, opacity, density); bodies that share a material change together, FORK gives them their own copy, REMOVE (or the palette's Remove Material) takes it off. Mass from density shows in the panel and under the outliner. The advanced parameters (clearcoat, sheen, iridescence, transmission) and materials on curves are missing; materials are saved in the .w3d file |
 | Measure Distance · Dimension · Section Analysis | Missing |

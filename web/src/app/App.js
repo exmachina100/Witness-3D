@@ -59,6 +59,7 @@ import { TOOLS, check, tool as toolInfo, withDefaults } from './tools.js';
 import { ACTIONS, COMMAND, VIEWPORT, keyFor, keyOf } from './keymap.js';
 import { Selection, faceEdges } from './Selection.js';
 import { edgeOffsetsOnFace, faceLoopOffsets } from '../edgeOffset.js';
+import { curveArrayMotions } from '../curveArray.js';
 import { Organise } from './Organise.js';
 import { P_MENU, RADIALS, mergeKeys, parseRadial, shortLabel, showKey, sliceAt, slicePosition } from './menus.js';
 import { ENVIRONMENTS, SHADERS, SHADER_OPTIONS, checkMaterial, formatMass, massOf, newMaterial, shader } from './shading.js';
@@ -139,6 +140,7 @@ const KEYS = {
   mirror: [['X Y Z', 'PLANE'], ['J', 'JOIN'], ['⏎ / RMB', 'OK']],
   'rect-array': [['TYPE', 'COUNTS · SPACING'], ['J', 'JOIN'], ['⏎ / RMB', 'OK']],
   'radial-array': [['X Y Z', 'AXIS'], ['J', 'JOIN'], ['⏎ / RMB', 'OK']],
+  'curve-array': [['CLICK', 'CURVE'], ['A', 'ALIGN'], ['J', 'JOIN'], ['⏎ / RMB', 'OK']],
   pushpull: [['CLICK', 'PLACE'], ['DRAG DOT', 'DISTANCE'], ['Q', 'JOIN'], ['W', 'CUT'], ['B', 'NEW'], ['R C', 'SHAPE'], ['⏎ / RMB', 'OK']],
 };
 // Drawing commands: Plasticity's curve tools, which end in curves and the regions inside them.
@@ -504,6 +506,11 @@ const SHELL = `
       <span class="label">AXIS</span>
       <div class="seg" role="group" aria-label="Radial array axis"><button data-rx="x" aria-pressed="false"><kbd>X</kbd>X</button><button data-rx="y" aria-pressed="false"><kbd>Y</kbd>Y</button><button data-rx="z" aria-pressed="true"><kbd>Z</kbd>Z</button></div>
       <div class="chips"><button data-id="rr-join" aria-pressed="false"><kbd>J</kbd>JOIN</button></div>
+    </div>
+    <div class="sec" data-panel="curve-array" hidden>
+      <span class="hint" data-id="ca-hint">—</span>
+      <div class="field"><label for="w3d-ca-count">COUNT</label><input id="w3d-ca-count" data-id="ca-count" type="number" step="1" min="1" value="5"></div>
+      <div class="chips"><button data-id="ca-align" aria-pressed="true" title="Turn each copy with the curve (A)"><kbd>A</kbd>ALIGN</button><button data-id="ca-join" aria-pressed="false"><kbd>J</kbd>JOIN</button></div>
     </div>
     <div class="sec" data-panel="form" hidden>
       <span class="hint" data-id="form-hint">—</span>
@@ -1697,6 +1704,7 @@ export async function mount(root, backend) {
     if (id === 'draft') return startDraft();
     if (id === 'mirror') return startMirror();
     if (id === 'rect-array' || id === 'radial-array') return startArray(id);
+    if (id === 'curve-array') return startCurveArray();
     if (id === 'spiral') return startSpiral();
     if (DRAW[id]) return startDraw(id);
   }
@@ -5510,8 +5518,8 @@ export async function mount(root, backend) {
     if (!ids.length) { toast(`SELECT A SOLID TO ${toolInfo(id).label}`); return null; }
     const preview = id === 'mirror' ? 'previewMirror' : 'previewArray', commit = id === 'mirror' ? 'commitMirror' : 'commitArray';
     if (!backend[preview]) { toast(`${toolInfo(id).label} IS NOT IN THIS BUILD YET`); return null; }
-    const hint = { mirror: 'mirror-hint', 'rect-array': 'ra-hint', 'radial-array': 'rr-hint' }[id];
-    const joinBtn = { mirror: 'mirror-join', 'rect-array': 'ra-join', 'radial-array': 'rr-join' }[id];
+    const hint = { mirror: 'mirror-hint', 'rect-array': 'ra-hint', 'radial-array': 'rr-hint', 'curve-array': 'ca-hint' }[id];
+    const joinBtn = { mirror: 'mirror-join', 'rect-array': 'ra-join', 'radial-array': 'rr-join', 'curve-array': 'ca-join' }[id];
     const c = cmd = { id, ids, join: false, sent: 0, shown: 0 };
     lastTool = id;
     showTool(id);
@@ -5565,6 +5573,38 @@ export async function mount(root, backend) {
     if (!c) return;
     c.axis = 'z';
     if (radial) syncAxis(c);
+    c.preview();
+  }
+
+  /**
+   * Plasticity's Curve Array: the selected solids repeated evenly along a curve by length (round a
+   * closed one), from its start. A selected curve is used; otherwise click one. A turns the copies
+   * with the curve or keeps them square, J joins them.
+   */
+  function startCurveArray() {
+    const c = startCopies('curve-array', c => ({ spec: { kind: 'motions', motions: curveArrayMotions(curveById(c.curve), Math.round(num('ca-count')), c.align) } }),
+      (c, n) => `${n} ${n === 1 ? 'COPY' : 'COPIES'} ALONG ${curveLabel(c.curve)}${c.align ? '' : ' · NOT ALIGNED'}`);
+    if (!c) return;
+    c.curve = sel.curves.find(curveById) ?? null;
+    c.align = true;
+    $('ca-align').setAttribute('aria-pressed', 'true');
+    const preview = c.preview;
+    c.preview = () => {
+      if (c.curve === null) { clearPreview(); return setHud('CLICK THE CURVE TO ARRAY ALONG'); }
+      preview();
+    };
+    const key = c.key;
+    c.key = action => {
+      if (action === 'align') { c.align = !c.align; $('ca-align').setAttribute('aria-pressed', c.align); c.preview(); return true; }
+      return key(action);
+    };
+    c.click = e => {
+      const picked = curveAt(e);
+      if (picked !== null) { c.curve = picked; c.preview(); }
+      return true;
+    };
+    const finish = c.finish;
+    c.finish = async () => { if (c.curve === null) return toast('CLICK THE CURVE TO ARRAY ALONG'); await finish(); };
     c.preview();
   }
 
@@ -6136,7 +6176,7 @@ export async function mount(root, backend) {
     const out = [];
     if (sel.solids.length > 1) out.push('tool:boolean');
     if (sel.solids.length === 2) out.push('tool:project');
-    if (kinds.has('solid')) out.push('tool:move', 'tool:rotate', 'tool:scale', 'duplicate', 'tool:mirror', 'tool:rect-array', 'tool:radial-array', 'unify', 'boundary-edges', 'delete', 'hide', 'isolate', 'group', 'lock', 'material:set', 'export:step', 'export:mesh', 'export:drawing');
+    if (kinds.has('solid')) out.push('tool:move', 'tool:rotate', 'tool:scale', 'duplicate', 'tool:mirror', 'tool:rect-array', 'tool:radial-array', 'tool:curve-array', 'unify', 'boundary-edges', 'delete', 'hide', 'isolate', 'group', 'lock', 'material:set', 'export:step', 'export:mesh', 'export:drawing');
     if (kinds.has('face')) out.push('tool:extrude', 'tool:offset', 'tool:thicken', 'tool:shell', 'tool:hole', 'tool:remove-face', 'plane:selection', 'plane:selection-keep-view');
     if (kinds.has('edge')) out.push('tool:fillet', 'tool:patch', 'measure:radius');
     if (sel.list('edge').length === 2) out.push('tool:bridge-surface');
@@ -6552,9 +6592,10 @@ export async function mount(root, backend) {
   for (const b of $$('[data-popt], [data-pop]')) b.onclick = () => PRIMS[cmd?.id] && cmd.key(b.dataset.popt ?? b.dataset.pop);
   $('shell-t').addEventListener('input', () => cmd?.id === 'shell' && cmd.preview());
   $('draft-a').addEventListener('input', () => cmd?.id === 'draft' && cmd.preview());
-  for (const id of ['mirror-at', 'ra-cx', 'ra-cy', 'ra-cz', 'ra-sx', 'ra-sy', 'ra-sz', 'rr-count', 'rr-angle']) $(id).addEventListener('input', () => cmd?.preview?.());
+  for (const id of ['mirror-at', 'ra-cx', 'ra-cy', 'ra-cz', 'ra-sx', 'ra-sy', 'ra-sz', 'rr-count', 'rr-angle', 'ca-count']) $(id).addEventListener('input', () => cmd?.preview?.());
   for (const b of $$('[data-mx], [data-rx]')) b.onclick = () => cmd?.key?.(b.dataset.mx ?? b.dataset.rx);
-  for (const id of ['mirror-join', 'ra-join', 'rr-join']) $(id).onclick = () => cmd?.key?.('join');
+  for (const id of ['mirror-join', 'ra-join', 'rr-join', 'ca-join']) $(id).onclick = () => cmd?.key?.('join');
+  $('ca-align').onclick = () => cmd?.id === 'curve-array' && cmd.key('align');
   $('cut-plane').onclick = () => cmd?.id === 'cut' && cmd.key('plane');
   $('bs-t').addEventListener('input', () => cmd?.id === 'bridge-surface' && cmd.preview());
   $('es-d').addEventListener('input', () => cmd?.id === 'extend-sheet' && cmd.preview());
@@ -6949,6 +6990,16 @@ export async function mount(root, backend) {
         $('shell-t').value = p.thickness;
         selectionChanged({ quiet: true });
         await startTool('shell');
+      } else if (id === 'curve-array') {
+        if (!curveList.some(c => c.id === path)) throw new Error('give the curve to array along, by id');
+        selectSolids(ids ?? [body]);
+        selectionChanged({ quiet: true });
+        $('ca-count').value = Math.max(1, Math.round(p.count));
+        await startTool(id);
+        if (cmd?.id !== id) throw new Error('select a solid to array along a curve');
+        cmd.curve = path;
+        if (p.align === false) cmd.key('align'); else cmd.preview();
+        if (p.join) cmd.key('join');
       } else if (id === 'mirror' || id === 'rect-array' || id === 'radial-array') {
         selectSolids(ids ?? [body]);
         selectionChanged({ quiet: true });

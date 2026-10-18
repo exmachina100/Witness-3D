@@ -74,14 +74,16 @@ pub fn mirror<K: Kernel>(k: &K, body: &K::Solid, origin: DVec3, normal: DVec3) -
     k.mirror(body, origin, normal.normalize())
 }
 
-/// How to repeat bodies (Plasticity's Rectangular and Radial Array). Counts include the original.
-#[derive(Clone, Copy, Debug, PartialEq)]
+/// How to repeat bodies (Plasticity's Rectangular, Radial and Curve Array). Counts include the original.
+#[derive(Clone, Debug, PartialEq)]
 pub enum ArraySpec {
     /// `count[i]` copies `step[i]` apart along each of up to three directions, in a grid.
     Rectangular { steps: [DVec3; 3], counts: [u32; 3] },
     /// `count` copies turned evenly through `angle` radians about the axis through `pivot`. A full
     /// turn spaces them `angle / count` apart so the last doesn't land on the first.
     Radial { pivot: DVec3, axis: DVec3, angle: f64, count: u32 },
+    /// Each copy's motion given outright (Curve Array works them out along its curve).
+    Motions(Vec<Motion>),
 }
 
 /// At most this many bodies from one array, so a typo can't freeze the app.
@@ -91,6 +93,15 @@ impl ArraySpec {
     /// The motion of every copy, the original (identity) excluded, in grid or turn order.
     pub fn motions(&self) -> Result<Vec<Motion>, KernelError> {
         match *self {
+            ArraySpec::Motions(ref motions) => {
+                if motions.len() > MAX_ARRAY as usize { return Err(KernelError::Invalid("that array makes more than 1000 bodies")) }
+                if motions.is_empty() { return Err(KernelError::NoOp) }
+                for m in motions {
+                    if !finite(&m.offset.to_array()) || !finite(&m.pivot.to_array()) || !finite(&m.axis.to_array()) || !m.angle.is_finite() { return Err(KernelError::Invalid("an array copy is not placed at a number")) }
+                    if m.angle.abs() > 1e-12 && m.axis.length() < 1e-9 { return Err(KernelError::Invalid("the array's axis has no direction")) }
+                }
+                Ok(motions.iter().map(|m| Motion { axis: if m.axis.length() < 1e-9 { DVec3::Y } else { m.axis.normalize() }, scale: 1.0, ..*m }).collect())
+            }
             ArraySpec::Rectangular { steps, counts } => {
                 if steps.iter().any(|s| !finite(&s.to_array())) { return Err(KernelError::Invalid("an array step is not a number")) }
                 if counts.iter().any(|&c| c == 0) { return Err(KernelError::Invalid("each array count must be at least 1")) }

@@ -653,7 +653,14 @@ export function arrayMotions(spec) {
         const len = Math.hypot(...axis), unit = axis.map(c => c / len);
         return Array.from({ length: n - 1 }, (_, i) => ({ pivot, axis: unit, angle: step * (i + 1) }));
     }
-    throw new Error('an array is rectangular or radial');
+    if (spec.kind === 'motions') {
+        // Curve Array: the motions worked out from the curve (curveArray.js).
+        const { motions } = spec;
+        if (!Array.isArray(motions) || motions.length > MAX) throw new Error('that array makes more than 1000 bodies');
+        for (const m of motions) if (![m.offset, m.pivot, m.axis].every(v => Array.isArray(v) && v.length === 3 && finite(v)) || !Number.isFinite(m.angle)) throw new Error('an array copy is not placed at a number');
+        return motions.map(({ offset, pivot, axis, angle }) => ({ offset, pivot, axis, angle }));
+    }
+    throw new Error('an array is rectangular, radial or along a curve');
 }
 
 /**
