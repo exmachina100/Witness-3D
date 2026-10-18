@@ -113,6 +113,12 @@ const ICONS = {
     'view-snap': `<path d="M6 4v8a6 6 0 0 0 12 0V4"/><path d="M6 4h4M14 4h4"/><path ${A} d="M6 8h4M14 8h4"/>`,
     'view-curves': `<path d="M3 17C6 7 10 7 12 12s6 5 9-5"/><circle cx="3" cy="17" r="1.2"/><circle ${A} cx="21" cy="7" r="1.2"/>`,
     'view-render': `<circle cx="12" cy="13" r="7"/><path ${A} d="M8.5 10.5a4 4 0 0 1 3.5-2"/><path d="M12 3v1.5M5 6l1 1M19 6l-1 1"/>`,
+    // Section Analysis: a block sliced, its cut face showing.
+    'view-section': `<path d="M4 9l6-4 10 4v8l-6 4-10-4z"/><path ${A} d="M12 4v17M8 6.5l8 3.2v8"/>`,
+    'section-selection': `<path d="M4 8h16v10H4z"/><path ${A} d="M4 8l4-4h16l-4 4" /><path ${A} d="M12 10v6"/>`,
+    'section-previous': `<path d="M5 12a7 7 0 1 0 2-5"/><path ${A} d="M4 4v4h4"/>`,
+    'section-cplane': `<path d="M3 15l6-6h12l-6 6z"/><path ${A} d="M12 4v16"/>`,
+    flip: `<path d="M12 3v18" stroke-dasharray="2 2"/><path ${A} d="M9 8l-5 4 5 4zM15 8l5 4-5 4z"/>`,
     'view-curvature': `<path d="M3 18c4-10 10-12 18-10"/><path ${A} d="M6 13l-2-3M9 10l-1-4M13 8.5l0-4M17 8l1-4"/>`,
     'view-draft': `<path d="M3 21h18"/><path d="M7 21l3-14h4l3 14"/><path ${A} d="M12 3v6M9.5 5.5L12 3l2.5 2.5"/>`,
     'view-zebra': `<circle cx="12" cy="12" r="9"/><path ${A} d="M5 7.5c4 1.5 10 1.5 14 0M3.2 12c5 2 12.6 2 17.6 0M5 16.5c4 1.5 10 1.5 14 0"/>`,

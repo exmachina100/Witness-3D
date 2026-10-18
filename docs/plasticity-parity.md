@@ -60,7 +60,9 @@ a flat face imprints that face and is used up (round 10).
 | Curve Array (along a curve) | Done: selected bodies copied evenly by length along a picked curve (count, A align to tangent, J join); closed curves stop short of the start. Both builds share the placement (web/src/curveArray.js) and send it as a motions array spec |
 | Copy / Paste with Placement · Place | Missing |
 | Set / Fork / Remove Material | Done in both builds: M sets a material on the selected solids and sheets (color, roughness, metalness, IOR, opacity, density); bodies that share a material change together, FORK gives them their own copy, REMOVE (or the palette's Remove Material) takes it off. Mass from density shows in the panel and under the outliner. The advanced parameters (clearcoat, sheen, iridescence, transmission) and materials on curves are missing; materials are saved in the .w3d file |
-| Measure Distance · Dimension · Section Analysis | Missing |
+| Measure Distance | Done (Measure distance, radius and continuity; see Inspect) |
+| Section Analysis | Done in both builds (view only): the VIEW section button or the palette slices the viewport through a selected flat face, the previous section or the construction plane; D sets how far in, F flips the kept side, the cut-open inside shows in the accent colour, and the button again ends it. The model is not changed |
+| Dimension | Missing |
 | Complete Edge · Subdivide | Missing |
 | Publish to Plasticity Share | Not planned (Plasticity's own service) |
 
