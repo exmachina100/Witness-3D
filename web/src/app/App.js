@@ -66,7 +66,7 @@ import { icon } from './icons.js';
 import { limitEdges, toObj, toStl } from '../meshExport.js';
 import { flatten, toDxf, toSvg } from '../drawingExport.js';
 import { readDxf } from '../dxf.js';
-import { BRIDGE_CONTINUITY, bridgeContinuous, continuity, curvatureComb, curveVertices, explode, EXTEND_SHAPES, extendCurve, filletCurve, nearestEnd, OFFSET_CORNERS, offsetCurve, offsetSlot, offsetThrough, unionLoops, moveVertices, alignedInPlane, offsetVertex, rebuildCurve, reverseCurve, transformCurve, moveVerticesTo, splitCurve, tangentCircle, trim } from '../curveEdit.js';
+import { BRIDGE_CONTINUITY, bridgeContinuous, continuity, curvatureComb, curveVertices, explode, EXTEND_SHAPES, extendCurve, filletCurve, nearestEnd, OFFSET_CORNERS, offsetCurve, offsetSlot, offsetThrough, unionLoops, moveVertices, alignedInPlane, offsetVertex, rebuildCurve, insertKnotAt, raiseDegree, reverseCurve, transformCurve, moveVerticesTo, splitCurve, tangentCircle, trim } from '../curveEdit.js';
 import { ViewGizmo } from './ViewGizmo.js';
 import { Toolbar } from './Toolbar.js';
 import { arcPoints, circleThrough, cvPoints, ellipsePoints, endTangent, helixPoints, loops, nurbsLoop, nurbsPoints, polygonCorners, spiralAngle, tangentArc } from '../curves.js';
@@ -127,6 +127,7 @@ const KEYS = {
   extend: [['CLICK', 'NEAR AN END'], ['S', 'SHAPE NATURAL / LINEAR'], ['TYPE', 'LENGTH IN PANEL'], ['ESC / ⏎', 'DONE']],
   bridge: [['T / D', 'TENSION'], ['TAB', 'CONTINUITY G0 G1 G2'], ['⏎ / RMB', 'OK']],
   trim: [['CLICK', 'PIECE TO CUT AWAY'], ['CTRL Z', 'UNDO ONE'], ['ESC / ⏎', 'DONE']],
+  'insert-knot': [['CLICK', 'ADD A CONTROL POINT'], ['ESC / ⏎', 'DONE']],
   box: [['CLICK', 'CORNER · CORNER · HEIGHT'], ['C', 'FROM CENTRE'], ['S', 'SQUARE'], ['TAB', 'TYPE'], ['H', 'HEIGHT'], ['Q W ⇧E ⇧Q', 'BOOLEAN'], ['B', 'NEW BODY'], ['⏎ / RMB', 'OK']],
   'center-box': [['CLICK', 'CENTRE · CORNER · HEIGHT'], ['C', 'FROM CORNER'], ['S', 'SQUARE'], ['TAB', 'TYPE'], ['H', 'HEIGHT'], ['Q W ⇧E ⇧Q', 'BOOLEAN'], ['B', 'NEW BODY'], ['⏎ / RMB', 'OK']],
   box3: [['CLICK', 'CORNER · SIDE · WIDTH · HEIGHT'], ['X Y Z', 'AXIS'], ['TAB', 'TYPE'], ['Q W ⇧E ⇧Q', 'BOOLEAN'], ['B', 'NEW BODY'], ['⏎ / RMB', 'OK']],
@@ -152,7 +153,7 @@ const CLICKS = { rect: 2, 'center-rect': 2, rect3: 3, circle: 2, circle2: 2, cir
 const FORMS = { revolve: true, loft: true, sweep: true };
 const PRIMS = { box: true, 'center-box': true, box3: true, cylinder: true, sphere: true };
 // Commands that aren't tools in the registry (they act on a click, not on settings).
-const EDITS = { 'offset-vertex': 'OFFSET VERTEX', 'fillet-vertex': 'FILLET VERTEX', 'align-vertex': 'ALIGN VERTEX', rebuild: 'REBUILD CURVE', material: 'SET MATERIAL', 'export-mesh': 'EXPORT MESH', 'export-drawing': 'EXPORT DRAWING', 'measure-continuity': 'MEASURE CONTINUITY', trim: 'TRIM', extend: 'EXTEND CURVE', 'tangent-circle': 'TANGENT CIRCLE', split: 'SPLIT CURVE', 'measure-distance': 'MEASURE DISTANCE', 'measure-radius': 'MEASURE RADIUS' };
+const EDITS = { 'offset-vertex': 'OFFSET VERTEX', 'fillet-vertex': 'FILLET VERTEX', 'align-vertex': 'ALIGN VERTEX', rebuild: 'REBUILD CURVE', 'insert-knot': 'INSERT KNOT', material: 'SET MATERIAL', 'export-mesh': 'EXPORT MESH', 'export-drawing': 'EXPORT DRAWING', 'measure-continuity': 'MEASURE CONTINUITY', trim: 'TRIM', extend: 'EXTEND CURVE', 'tangent-circle': 'TANGENT CIRCLE', split: 'SPLIT CURVE', 'measure-distance': 'MEASURE DISTANCE', 'measure-radius': 'MEASURE RADIUS' };
 const keysHtml = id => KEYS[id].map(([k, v]) => `<kbd>${k}</kbd><span>${v}</span>`).join('');
 // The Command Bar, exactly the manual's list (Plasticity Essentials › Command Bar).
 const BAR = [['palette', 'F', 'SEARCH'], ['tool:move', 'G', 'MOVE'], ['tool:rotate', 'R', 'ROTATE'], ['tool:scale', 'S', 'SCALE'], ['duplicate', '⇧D', 'DUPLICATE'], ['tool:boolean', 'Q', 'BOOLEAN'], ['tool:rect-array', '', 'RECTANGULAR ARRAY'], ['tool:radial-array', '', 'RADIAL ARRAY'], ['suggest', '⇧F', 'SUGGESTED COMMANDS']];
@@ -434,6 +435,9 @@ const SHELL = `
       <div class="field"><label for="w3d-br-t">TENSION</label><input id="w3d-br-t" data-id="br-t" type="number" step="0.1" min="0.05" value="1"></div>
       <span class="label">CONTINUITY</span>
       <div class="chips"><button data-id="br-start" title="Continuity at the start (click to cycle)">START G1</button><button data-id="br-end" title="Continuity at the end (click to cycle)">END G1</button></div>
+    </div>
+    <div class="sec" data-panel="insert-knot" hidden>
+      <span class="hint" data-id="ik-hint">CLICK A CURVE TO ADD A CONTROL POINT THERE; ITS SHAPE STAYS THE SAME</span>
     </div>
     <div class="sec" data-panel="trim" hidden>
       <span class="hint" data-id="trim-hint">CLICK THE PIECE OF A CURVE TO CUT AWAY; IT ENDS WHERE OTHER CURVES CROSS IT</span>
@@ -4914,6 +4918,52 @@ export async function mount(root, backend) {
     } catch (e) { toast(say(e)); }
   }
 
+  /** Plasticity's Raise Degree: the selected curves one degree higher, same shape, one undo step. */
+  async function raiseSelected() {
+    if (cmd) await finish();
+    const ids = sel.curves.filter(curveById);
+    if (!ids.length) return toast('SELECT A CURVE TO RAISE ITS DEGREE');
+    if (!backend.replaceCurves) return toast('RAISE DEGREE IS NOT IN THIS BUILD YET');
+    try {
+      const list = ids.map(id => raiseDegree(curveById(id)));
+      const { ids: made } = await backend.replaceCurves(ids, list);
+      record(`RAISE DEGREE ${ids.map(curveLabel).join(' ')}`, made[0], `DEGREE ${list.map(c => c.degree).join(' ')}`);
+      await curvesChanged(made);
+      toast(`DEGREE ${list.map(c => c.degree).join(', ')} · ${list.map(c => c.poles.length - (isClosed(c) ? 1 : 0)).join(', ')} CONTROL POINTS`);
+    } catch (e) { toast(say(e)); }
+  }
+
+  /** Plasticity's Insert Knot: click curves to add control points without changing their shape. */
+  function startInsertKnot() {
+    if (!backend.replaceCurves) return toast('INSERT KNOT IS NOT IN THIS BUILD YET');
+    const c = cmd = { id: 'insert-knot', count: 0 };
+    lastTool = 'insert-knot';
+    showTool('insert-knot');
+    setState('none');
+    setHud('CLICK A CURVE TO ADD A CONTROL POINT');
+    c.click = async e => {
+      // Any curve under the pointer, whatever the selection mode (point mode shows the new points).
+      ray(e);
+      raycaster.params.Line.threshold = unitsPerPixel(controls.target) * 6;
+      const hit = raycaster.intersectObjects(curveGroup.children.filter(o => o.userData.curve !== undefined), false)[0];
+      const src = hit && curveById(hit.object.userData.curve);
+      if (!src) return true;
+      const f = curveFrame(src), d = hit.point.clone().sub(f.o);
+      try {
+        const out = insertKnotAt(src, [d.dot(f.x), d.dot(f.y)]);
+        const { ids: made } = await backend.replaceCurves([src.id], [out]);
+        c.count++;
+        record(`INSERT KNOT ${curveLabel(src.id)}`, made[0], `${out.poles.length - (isClosed(out) ? 1 : 0)} CONTROL POINTS`);
+        await loadCurves();
+        setHud(`${c.count} ADDED · CLICK ANOTHER, OR ⏎`);
+        setState('committed');
+      } catch (err) { setState('failed'); toast(say(err)); }
+      return true;
+    };
+    c.finish = () => endCmd(c.count ? 'committed' : 'cancelled');
+    c.abort = () => endCmd(c.count ? 'committed' : 'cancelled');
+  }
+
   // --- Round 6: Box, Cylinder, Sphere, Shell, Mirror and arrays ---------------------
   // Box, Cylinder and Sphere: click a point on a face or the construction plane, then set sizes in
   // the panel; the solid previews as you type. Shell: select faces of one solid to open, set the wall
@@ -5794,6 +5844,8 @@ export async function mount(root, backend) {
       case 'reverse': await reverseSelected(); return true;
       case 'align-vertex': await startAlignVertex(); return true;
       case 'rebuild': await startRebuild(); return true;
+      case 'raise-degree': await raiseSelected(); return true;
+      case 'insert-knot': if (cmd) await finish(); startInsertKnot(); return true;
       case 'hide': setHidden(sel.bodies, true); return true;
       case 'hide-others': setHidden(current.map(b => b.id).filter(id => !sel.bodies.includes(id)), true); return true;
       case 'unhide-all': setHidden([...org.hidden], false); return true;
@@ -5953,7 +6005,7 @@ export async function mount(root, backend) {
       out.push('trim', 'split', 'extend', 'tool:offset-curve', 'tool:fillet-curve');
       if (sel.curves.length === 2) out.push('tool:bridge');
       if (sel.curves.length > 1) out.push('join');
-      out.push('explode', 'reverse', 'rebuild', 'measure:continuity', 'delete');
+      out.push('explode', 'reverse', 'rebuild', 'insert-knot', 'raise-degree', 'measure:continuity', 'delete');
     }
     // Curve vertices: Fillet Vertex (B), Offset Vertex and, with two ends, Bridge Vertex.
     if (kinds.has('vertex')) out.push('tool:fillet', 'tool:offset-curve', 'align-vertex', ...(sel.list('vertex').length === 2 ? ['tool:bridge'] : []));
