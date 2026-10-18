@@ -102,7 +102,7 @@ a flat face imprints that face and is used up (round 10).
 | Offset | Offset Edge, Offset Face (face-change grow, transform-face step), Offset Face Loop | Offset Face done (+ angle) with its Tab grow modes in both builds: an inner flat face pushed out past the body's outer wall takes the wall along (Moving), stops at it (Fixed) or carries on past it (None). Offset Edge done (O with edges picked): the edges, joined where they meet, move the distance across a flat face they border and carry on straight to its sides, splitting it there (Imprint); a negative distance goes onto the other flat face; V cycles the gap fill. Offset Face Loop done (O with one face picked): the flat face's outline moves in and its holes out, imprinted as a new inner face. Lines and arcs stay exact. One face at a time; Lock distances (S, both sides) and the loop's Individual (I) are missing, as are curved faces. Dependent offset (match a second face) and step missing |
 | Rebuild and Refine | Isoparam, Match Face (side option), Raise (Surface) Degree, Rebuild Face, Reverse Sheet | Missing |
 | Trim and Unwrap | Untrim, Unwrap Face | Missing |
-| Display and Analysis | Find Boundary Edges, Toggle Surface Curvature | Missing |
+| Display and Analysis | Find Boundary Edges, Toggle Surface Curvature | Find Boundary Edges done in both builds: the edges that bound only one face (a sheet's open sides) on the selected bodies, or every shown body, become the selection, and it says how many; seams and closed solids give none. Toggle Surface Curvature missing |
 | Hole (Witness 3D extra) | | Done |
 
 ## 5. Interface, display and files

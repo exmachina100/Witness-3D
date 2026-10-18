@@ -108,6 +108,27 @@ export function unifyWithHistory(shape) {
 const KINDS = { faces: 'TopAbs_FACE', edges: 'TopAbs_EDGE' };
 
 /** The shape's faces or edges, each once, in TopExp::MapShapes order (see numberedEdges). */
+/**
+ * Plasticity's Find Boundary Edges: the numbers (numberedEdges order) of the edges that bound only
+ * one face, a sheet's open sides. Seams (an edge met twice in its one face) and degenerate edges are
+ * skipped. As w3d_boundary_edges on the desktop.
+ */
+export function boundaryEdges(shape) {
+    const o = oc();
+    const faceEdges = numbered(shape, 'TopAbs_FACE').map(f => {
+        const list = [];
+        for (const ex = new o.TopExp_Explorer(f, o.TopAbs_ShapeEnum.TopAbs_EDGE, o.TopAbs_ShapeEnum.TopAbs_SHAPE); ex.More(); ex.Next()) list.push(ex.Current());
+        return list;
+    });
+    const out = [];
+    numberedEdges(shape).forEach((e, n) => {
+        if (o.BRep_Tool.Degenerated(e)) return;
+        const uses = faceEdges.map(list => list.filter(x => x.IsSame(e)).length).filter(k => k > 0);
+        if (uses.length === 1 && uses[0] === 1) out.push(n);
+    });
+    return out;
+}
+
 export function numbered(shape, kind) {
     const o = oc(), out = [];
     for (const ex = new o.TopExp_Explorer(shape, o.TopAbs_ShapeEnum[kind], o.TopAbs_ShapeEnum.TopAbs_SHAPE); ex.More(); ex.Next()) {

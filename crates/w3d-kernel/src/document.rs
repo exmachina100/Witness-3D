@@ -685,6 +685,14 @@ impl<K: Kernel> Document<K> {
 
     /// Plasticity's Delete Redundant Topology on the bodies, as one undoable step: faces that share a
     /// surface merge, and edges that share a curve. Returns how many faces and edges went.
+    /// Plasticity's Find Boundary Edges: each body's edges that bound only one face (its open sides).
+    pub fn boundary_edges(&self, bodies: &[BodyId]) -> Result<Vec<(BodyId, Vec<u32>)>, KernelError> {
+        bodies.iter().map(|&id| {
+            let solid = self.get(id).ok_or(KernelError::Invalid("that body no longer exists"))?;
+            Ok((id, self.kernel.boundary_edges(solid)))
+        }).collect()
+    }
+
     pub fn commit_unify(&mut self, bodies: &[BodyId]) -> Result<(usize, usize), KernelError> {
         if bodies.is_empty() { return Err(KernelError::Invalid("select the bodies to clean up")) }
         let mut done = Vec::new();

@@ -400,6 +400,10 @@ impl Kernel for Occt {
         Ok(Traced { solid, history: history(h) })
     }
 
+    fn boundary_edges(&self, s: &Shape) -> Vec<u32> {
+        s.boundary_edges().into_iter().map(|i| i as u32).collect()
+    }
+
     fn remove_faces(&self, s: &Shape, faces: &[u32]) -> Result<Traced<Shape>, KernelError> {
         let faces: Vec<usize> = faces.iter().map(|&f| f as usize).collect();
         let (solid, h) = s.remove_faces_with_history(&faces).map_err(shim)?;
