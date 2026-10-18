@@ -91,6 +91,20 @@ export function booleanWithHistory(a, b, op) {
     return { shape, history: trace([a, b], shape, s => successors(algo, s)) };
 }
 
+/**
+ * Plasticity's Delete Redundant Topology: faces on one surface merged, and edges on one curve, with
+ * the history traced by where each old face and edge now lies.
+ */
+export function unifyWithHistory(shape) {
+    const o = oc();
+    const unify = new o.ShapeUpgrade_UnifySameDomain(shape, true, true, false);
+    unify.AllowInternalEdges(false);
+    unify.Build();
+    const result = unify.Shape();
+    if (!new o.BRepCheck_Analyzer(result, true, false, false).IsValid()) throw new Error('merging the faces breaks the body');
+    return { shape: result, history: trace([shape], result, s => [s]) };
+}
+
 const KINDS = { faces: 'TopAbs_FACE', edges: 'TopAbs_EDGE' };
 
 /** The shape's faces or edges, each once, in TopExp::MapShapes order (see numberedEdges). */

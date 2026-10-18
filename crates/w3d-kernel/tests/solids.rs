@@ -233,6 +233,23 @@ fn imprint_splits_faces_and_keeps_the_body_whole() {
 }
 
 #[test]
+fn delete_redundant_topology_merges_faces_an_imprint_split() {
+    let mut doc = Document::new(Occt);
+    let block = doc.add(doc.kernel.box_from_corners(DVec3::new(-40.0, 0.0, -25.0), DVec3::new(40.0, 30.0, 25.0)));
+    doc.clear_history();
+    let line = doc.commit_curves(vec![Curve { origin: [0.0, 0.0, 0.0], x: [1.0, 0.0, 0.0], normal: [0.0, 1.0, 0.0], shape: CurveShape::Polyline { points: vec![[10.0, -100.0], [10.0, 100.0]], closed: false } }]).unwrap()[0];
+    doc.commit_imprint(block, &[], &[line], &Tools::default(), false).unwrap();
+    assert_eq!(doc.kernel.face_count(doc.get(block).unwrap()), 10);
+    let (faces, edges) = doc.commit_unify(&[block]).unwrap();
+    assert_eq!(doc.kernel.face_count(doc.get(block).unwrap()), 6);
+    // The 4 imprinted edges, and the 4 long edges they had split in two.
+    assert_eq!((faces, edges), (4, 8));
+    close(volume(&doc.kernel, doc.get(block).unwrap()), 80.0 * 30.0 * 50.0, 1e-6);
+    assert!(doc.undo());
+    assert_eq!(doc.kernel.face_count(doc.get(block).unwrap()), 10);
+}
+
+#[test]
 fn cut_with_a_plane_or_a_face_and_imprint_one_body_on_another() {
     let mut doc = Document::new(Occt);
     let block = doc.add(doc.kernel.box_from_corners(DVec3::new(-40.0, 0.0, -25.0), DVec3::new(40.0, 30.0, 25.0)));

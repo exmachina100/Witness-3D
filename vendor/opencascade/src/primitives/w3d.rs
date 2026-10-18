@@ -207,6 +207,12 @@ impl Shape {
         Ok((Shape::from_shape(&ffi::w3d::w3d_result_shape(&r)), history(&r, 1)))
     }
 
+    /// Faces on one surface and edges on one curve merged (Plasticity's Delete Redundant Topology).
+    pub fn unify_with_history(&self) -> Result<(Shape, ShapeHistory), String> {
+        let r = ffi::w3d::w3d_unify(&self.inner).map_err(reason)?;
+        Ok((Shape::from_shape(&ffi::w3d::w3d_result_shape(&r)), history(&r, 1)))
+    }
+
     /// Split by sheets swept from curves (see `w3d_cut`): the biggest piece with its history, and the rest.
     /// `extra` are further tools (sheets or solids) beside the curves.
     pub fn cut_with_history(&self, data: &[f64], length: f64, extra: &[&Shape]) -> Result<(Shape, ShapeHistory, Vec<Shape>), String> {

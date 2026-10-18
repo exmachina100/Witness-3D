@@ -1346,6 +1346,23 @@ inline std::unique_ptr<W3dResult> w3d_remove_faces(const TopoDS_Shape &shape, ru
   }
 }
 
+// Plasticity's Delete Redundant Topology: faces on one surface merged, and edges on one curve, so
+// seams that an edit left behind (coplanar faces, split lines and arcs) go away.
+inline std::unique_ptr<W3dResult> w3d_unify(const TopoDS_Shape &shape) {
+  try {
+    ShapeUpgrade_UnifySameDomain unify(shape, Standard_True, Standard_True, Standard_True);
+    unify.AllowInternalEdges(Standard_False);
+    unify.Build();
+    std::unique_ptr<W3dResult> r(new W3dResult());
+    r->shape = unify.Shape();
+    if (!w3d_is_valid(r->shape)) throw std::runtime_error("merging the faces breaks the body");
+    w3d_record(*r, 0, shape, {w3d_step(unify.History())});
+    return r;
+  } catch (const Standard_Failure &f) {
+    throw w3d_kernel_error(f);
+  }
+}
+
 // The solids in a shape, counted and fetched by number (TopExp::MapShapes order).
 inline int32_t w3d_solid_count(const TopoDS_Shape &shape) {
   TopTools_IndexedMapOfShape map;

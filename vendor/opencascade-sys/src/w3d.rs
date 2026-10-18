@@ -59,6 +59,7 @@ mod inner {
         pub fn w3d_shell(shape: &TopoDS_Shape, faces: &[i32], thickness: f64) -> Result<UniquePtr<W3dResult>>;
         pub fn w3d_mirror(shape: &TopoDS_Shape, plane: &[f64]) -> Result<UniquePtr<TopoDS_Shape>>;
         pub fn w3d_remove_faces(shape: &TopoDS_Shape, faces: &[i32]) -> Result<UniquePtr<W3dResult>>;
+        pub fn w3d_unify(shape: &TopoDS_Shape) -> Result<UniquePtr<W3dResult>>;
         pub fn w3d_cut(shape: &TopoDS_Shape, data: &[f64], length: f64, extra: &TopoDS_Shape) -> Result<UniquePtr<W3dResult>>;
         pub fn w3d_face_sheet(shape: &TopoDS_Shape, index: i32, size: f64) -> Result<UniquePtr<TopoDS_Shape>>;
         pub fn w3d_plane_sheet(plane: &[f64], size: f64) -> Result<UniquePtr<TopoDS_Shape>>;

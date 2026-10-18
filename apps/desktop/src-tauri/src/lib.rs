@@ -222,6 +222,14 @@ async fn commit_cut(
 }
 
 #[tauri::command]
+async fn commit_unify(
+    model: State<'_, Model>,
+    req: api::UnifyRequest,
+) -> Result<api::Unified, api::ApiError> {
+    on_model(&model, move |m| api::commit_unify(m, req)).await?
+}
+
+#[tauri::command]
 async fn preview_imprint(
     model: State<'_, Model>,
     req: api::ImprintRequest,
@@ -645,6 +653,7 @@ pub fn run() {
             hidden_lines,
             preview_remove_faces,
             commit_remove_faces,
+            commit_unify,
             preview_primitive,
             commit_primitive,
             preview_shell,

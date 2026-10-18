@@ -4,7 +4,7 @@
 import * as THREE from 'three';
 import { ExtrudeFactory } from '../ExtrudeFactory.js';
 import { NoOpError } from '../GeometryFactory.js';
-import { arrayMotions, blendEdges, booleanWithHistory, bounds, box, count, draftFaces, faceSheet, imprintWithHistory, planeSheet, splitWithHistory, draftWithHistory, exportSTEP, facePlane, mirror, numberedEdges, oc, primitive, shellFaces, tessellate, transform, volume } from '../Kernel.js';
+import { arrayMotions, blendEdges, booleanWithHistory, bounds, box, count, draftFaces, faceSheet, imprintWithHistory, planeSheet, unifyWithHistory, splitWithHistory, draftWithHistory, exportSTEP, facePlane, mirror, numberedEdges, oc, primitive, shellFaces, tessellate, transform, volume } from '../Kernel.js';
 import { cutSheets, loft, loftGuided, offsetFlatFaces, pipe, regionFace, revolve, splineSamples, sweep, sweepGuided } from '../Forms.js';
 import { curveFromNurbs, ends, join, loops, MEET, nurbsLoop } from '../curves.js';
 import { meetCurves, projectCurveCurve, projectCurves } from '../Project.js';
@@ -487,6 +487,23 @@ export class LocalBackend {
     }
 
     previewImprint(req) { return this.latest(async () => this.body(req.body, this.imprintResult(req).shape)) }
+
+    /** Plasticity's Delete Redundant Topology on the bodies, as one undo step; says how many faces and edges went. */
+    async commitUnify({ bodies }) {
+        if (!bodies?.length) throw new Error('select the bodies to clean up');
+        let faces = 0, edges = 0;
+        const done = bodies.map(id => {
+            const s = this.shapes.get(id);
+            if (!s) throw new Error('that body no longer exists');
+            const r = unifyWithHistory(s);
+            faces += count(s, 'TopAbs_FACE') - count(r.shape, 'TopAbs_FACE');
+            edges += numberedEdges(s).length - numberedEdges(r.shape).length;
+            return [id, r];
+        });
+        this.checkpoint();
+        for (const [id, { shape, history }] of done) this.put(id, shape, history);
+        return { faces, edges, scene: this.bodies() };
+    }
 
     /** Imprint as one undo step; `consume` deletes the curves as well (the knife, K). */
     async commitImprint(req) {

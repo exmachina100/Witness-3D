@@ -683,6 +683,24 @@ impl<K: Kernel> Document<K> {
         Ok(body)
     }
 
+    /// Plasticity's Delete Redundant Topology on the bodies, as one undoable step: faces that share a
+    /// surface merge, and edges that share a curve. Returns how many faces and edges went.
+    pub fn commit_unify(&mut self, bodies: &[BodyId]) -> Result<(usize, usize), KernelError> {
+        if bodies.is_empty() { return Err(KernelError::Invalid("select the bodies to clean up")) }
+        let mut done = Vec::new();
+        let (mut faces, mut edges) = (0, 0);
+        for &id in bodies {
+            let solid = self.get(id).ok_or(KernelError::Invalid("that body no longer exists"))?;
+            let t = self.kernel.unify(solid)?;
+            faces += self.kernel.face_count(solid).saturating_sub(self.kernel.face_count(&t.solid));
+            edges += self.kernel.edge_count(solid).saturating_sub(self.kernel.edge_count(&t.solid));
+            done.push((id, t));
+        }
+        self.checkpoint();
+        for (id, t) in done { self.replace_traced(id, t); }
+        Ok((faces, edges))
+    }
+
     /// Compute a Remove Face without changing the document.
     pub fn preview_remove_faces(&self, body: BodyId, faces: &[u32]) -> Result<K::Solid, KernelError> {
         let solid = self.get(body).ok_or(KernelError::Invalid("that body no longer exists"))?;

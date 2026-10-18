@@ -395,6 +395,11 @@ impl Kernel for Occt {
         Shape::plane_sheet(origin, normal, size).map_err(shim)
     }
 
+    fn unify(&self, s: &Shape) -> Result<Traced<Shape>, KernelError> {
+        let (solid, h) = s.unify_with_history().map_err(shim)?;
+        Ok(Traced { solid, history: history(h) })
+    }
+
     fn remove_faces(&self, s: &Shape, faces: &[u32]) -> Result<Traced<Shape>, KernelError> {
         let faces: Vec<usize> = faces.iter().map(|&f| f as usize).collect();
         let (solid, h) = s.remove_faces_with_history(&faces).map_err(shim)?;
