@@ -74,6 +74,16 @@ pub fn mirror<K: Kernel>(k: &K, body: &K::Solid, origin: DVec3, normal: DVec3) -
     k.mirror(body, origin, normal.normalize())
 }
 
+/// Place's motion: finite, with a scale above zero and an axis when it turns.
+pub fn check_motion(m: &Motion) -> Result<(), KernelError> {
+    if !finite(&m.offset.to_array()) || !finite(&m.pivot.to_array()) || !finite(&m.axis.to_array()) || !m.angle.is_finite() || !m.scale.is_finite() {
+        return Err(KernelError::Invalid("the placement is not a number"));
+    }
+    if m.scale <= 1e-9 { return Err(KernelError::Invalid("the scale must be above zero")) }
+    if m.angle.abs() > 1e-12 && m.axis.length() < 1e-9 { return Err(KernelError::Invalid("the placement's axis has no direction")) }
+    Ok(())
+}
+
 /// How to repeat bodies (Plasticity's Rectangular, Radial and Curve Array). Counts include the original.
 #[derive(Clone, Debug, PartialEq)]
 pub enum ArraySpec {

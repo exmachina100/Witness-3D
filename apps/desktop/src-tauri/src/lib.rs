@@ -146,6 +146,24 @@ async fn commit_mirror(
 }
 
 #[tauri::command]
+async fn preview_place(
+    model: State<'_, Model>,
+    req: api::PlaceRequest,
+) -> Result<Option<api::PlacePreview>, api::ApiError> {
+    on_model(&model, move |m| api::preview_place(m, req))
+        .await?
+        .transpose()
+}
+
+#[tauri::command]
+async fn commit_place(
+    model: State<'_, Model>,
+    req: api::PlaceRequest,
+) -> Result<api::Duplicated, api::ApiError> {
+    on_model(&model, move |m| api::commit_place(m, req)).await?
+}
+
+#[tauri::command]
 async fn preview_array(
     model: State<'_, Model>,
     req: api::ArrayRequest,
@@ -839,6 +857,8 @@ pub fn run() {
             commit_mirror,
             preview_array,
             commit_array,
+            preview_place,
+            commit_place,
             commit_motion,
             delete_bodies,
             duplicate_bodies,

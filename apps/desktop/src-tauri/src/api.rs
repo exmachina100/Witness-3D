@@ -1536,3 +1536,70 @@ pub fn commit_unjoin(m: &Model, req: UnjoinRequest) -> Result<Duplicated, ApiErr
         Ok(Duplicated { ids, scene: bodies(doc)? })
     })
 }
+
+/// Plasticity's Place: the bodies copied by one motion (scale, then turn, about `pivot`, then move by
+/// `offset`), and with `op` combined with the body `target` the copies land on.
+#[derive(Deserialize, Debug, Clone)]
+pub struct PlaceRequest {
+    pub bodies: Vec<BodyId>,
+    pub motion: PlaceMotionIn,
+    #[serde(default)]
+    pub target: Option<BodyId>,
+    #[serde(default = "primitive_new_op")]
+    pub op: OpChoice,
+}
+
+#[derive(Deserialize, Debug, Clone, Copy)]
+pub struct PlaceMotionIn {
+    pub offset: [f64; 3],
+    pub pivot: [f64; 3],
+    pub axis: [f64; 3],
+    pub angle: f64,
+    #[serde(default = "one")]
+    pub scale: f64,
+}
+
+impl PlaceRequest {
+    fn motion(&self) -> Motion {
+        let m = self.motion;
+        Motion { offset: DVec3::from_array(m.offset), pivot: DVec3::from_array(m.pivot), axis: DVec3::from_array(m.axis), angle: m.angle, scale: m.scale }
+    }
+    fn operation(&self) -> Operation {
+        match self.op {
+            OpChoice::Union => Operation::Union,
+            OpChoice::Difference => Operation::Difference,
+            OpChoice::Intersect => Operation::Intersect,
+            OpChoice::Slice => Operation::Slice,
+            OpChoice::New | OpChoice::Auto => Operation::NewBody,
+        }
+    }
+}
+
+/// Place's preview: the copies as phantoms, the target as it would be, and the new bodies a slice
+/// (or a union that misses) would add.
+#[derive(Serialize, Debug)]
+pub struct PlacePreview {
+    pub tools: Vec<Body>,
+    pub result: Option<Body>,
+    pub pieces: Vec<Body>,
+}
+
+pub fn preview_place(m: &Model, req: PlaceRequest) -> Option<Result<PlacePreview, ApiError>> {
+    m.preview(move |doc| {
+        let p = doc.preview_place(&req.bodies, &req.motion(), req.target, req.operation())?;
+        let result = match (&p.result, req.target) { (Some(t), Some(id)) => Some(body(&doc.kernel, id, &t.solid)?), _ => None };
+        let next = doc.next_id();
+        Ok(PlacePreview {
+            tools: p.copies.iter().map(|s| body(&doc.kernel, 0, s)).collect::<Result<Vec<_>, _>>()?,
+            result,
+            pieces: p.pieces.iter().chain(&p.loose).enumerate().map(|(i, s)| body(&doc.kernel, next + i as BodyId, s)).collect::<Result<Vec<_>, _>>()?,
+        })
+    })
+}
+
+pub fn commit_place(m: &Model, req: PlaceRequest) -> Result<Duplicated, ApiError> {
+    m.call(move |doc| {
+        let ids = doc.commit_place(&req.bodies, &req.motion(), req.target, req.operation())?;
+        Ok(Duplicated { ids, scene: bodies(doc)? })
+    })
+}

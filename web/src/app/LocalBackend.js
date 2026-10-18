@@ -391,6 +391,71 @@ export class LocalBackend {
     previewArray(req) { return this.latest(async () => this.arrayCopies(req).flatMap(([, cs]) => cs.map(c => this.body(0, c)))) }
     async commitArray(req) { return this.placeCopies(this.arrayCopies(req), !!req.join) }
 
+    /**
+     * Plasticity's Place: the bodies copied by one motion (scale, then turn, about the pivot, then
+     * move), and with `op` combined with the body `target` one copy at a time. Mirrors document.rs
+     * preview_place: a slice's pieces, and copies a union misses, become new bodies.
+     */
+    placeResult({ bodies, motion, target = null, op = 'new' }) {
+        const m = motion ?? {};
+        const nums = [m.offset, m.pivot, m.axis].every(v => Array.isArray(v) && v.length === 3 && v.every(Number.isFinite));
+        const scale = m.scale ?? 1;
+        if (!nums || !Number.isFinite(m.angle ?? 0) || !Number.isFinite(scale)) throw new Error('the placement is not a number');
+        if (scale <= 1e-9) throw new Error('the scale must be above zero');
+        if (Math.abs(m.angle ?? 0) > 1e-12 && Math.hypot(...m.axis) < 1e-9) throw new Error("the placement's axis has no direction");
+        const copies = this.copies(bodies, s => [transform(s, { ...m, axis: Math.hypot(...m.axis) < 1e-9 ? [0, 1, 0] : m.axis, scale })]).flatMap(([, cs]) => cs);
+        if (op === 'new' || op === 'auto' || target === null || target === undefined) return { copies, result: null, pieces: [], loose: [] };
+        if (bodies.includes(target)) throw new Error('place the copies on another body to combine with it');
+        let shape = this.shapes.get(target), history = null;
+        if (!shape) throw new Error('that body no longer exists');
+        const pieces = [], loose = [];
+        for (const c of copies) {
+            if (op === 'slice') {
+                const rest = booleanWithHistory(shape, c, 'difference'), piece = booleanWithHistory(shape, c, 'intersection').shape;
+                if (count(piece, 'TopAbs_FACE') === 0) throw new Error('the slice does not cut through the body');
+                pieces.push(piece);
+                history = history ? chain(history, rest.history) : rest.history;
+                shape = rest.shape;
+                continue;
+            }
+            const kind = { union: 'union', difference: 'difference', intersect: 'intersection' }[op];
+            if (!kind) throw new Error('a placement is new, or a union, difference, intersect or slice');
+            const r = booleanWithHistory(shape, c, kind);
+            const met = kind === 'union' ? count(r.shape, 'TopAbs_SOLID') === count(shape, 'TopAbs_SOLID')
+                : kind === 'difference' ? r.history.faces[1].length > 0 || count(r.shape, 'TopAbs_FACE') !== count(shape, 'TopAbs_FACE')
+                : count(r.shape, 'TopAbs_FACE') > 0;
+            if (!met) {
+                if (kind === 'union') { loose.push(c); continue; }
+                throw new Error('the copy does not meet the body');
+            }
+            history = history ? chain(history, r.history) : r.history;
+            shape = r.shape;
+        }
+        return { copies, result: history ? { shape, history } : null, pieces, loose };
+    }
+
+    previewPlace(req) {
+        return this.latest(async () => {
+            const p = this.placeResult(req);
+            return {
+                tools: p.copies.map(c => this.body(0, c)),
+                result: p.result ? this.body(req.target, p.result.shape) : null,
+                pieces: [...p.pieces, ...p.loose].map((s, i) => this.body(this.nextId + i, s)),
+            };
+        });
+    }
+
+    /** Place as one undo step: the bodies made, the target first when it changed. */
+    async commitPlace(req) {
+        const p = this.placeResult(req);
+        this.checkpoint();
+        const ids = [];
+        if (p.result) { this.put(req.target, p.result.shape, p.result.history); ids.push(req.target); }
+        else if (!p.pieces.length && !p.loose.length) for (const c of p.copies) { const id = this.nextId++; this.put(id, c); ids.push(id); }
+        for (const s of [...p.pieces, ...p.loose]) { const id = this.nextId++; this.put(id, s); ids.push(id); }
+        return { ids, scene: this.bodies() };
+    }
+
     /** Plasticity's Cut: each body split by sheets grown from the curves. [[id, { pieces, history }]]. */
     cutResult({ bodies, curves = [], tools = {} }) {
         if (!bodies?.length) throw new Error('select a solid to cut');
