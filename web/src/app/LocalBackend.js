@@ -10,7 +10,7 @@ import { curveFromNurbs, ends, join, loops, MEET, nurbsLoop } from '../curves.js
 import { isoparam, meetCurves, projectCurveCurve, projectCurves } from '../Project.js';
 import { isSheet, patch } from '../Patch.js';
 import { offsetEdges } from '../edgeTube.js';
-import { faceSurfaces } from '../dimension.js';
+import { faceSurfaces } from '../faceSurfaces.js';
 import { chordal, limitRound } from '../filletShape.js';
 import { bridgeSurface } from '../BridgeSurface.js';
 import { projectOutline } from '../Outline.js';

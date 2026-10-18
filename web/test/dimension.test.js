@@ -4,7 +4,8 @@ import { before, test } from 'node:test';
 import * as THREE from 'three';
 import { boolean, box, loadKernel, primitive, volume } from '../src/Kernel.js';
 import { LocalBackend } from '../src/app/LocalBackend.js';
-import { curveDimensions, faceDimensions, faceSurfaces, solidDimensions } from '../src/dimension.js';
+import { curveDimensions, faceDimensions, solidDimensions } from '../src/dimension.js';
+import { faceSurfaces } from '../src/faceSurfaces.js';
 
 before(async () => { await loadKernel() });
 const close = (a, b, eps = 1e-6) => assert.ok(Math.abs(a - b) < eps, `${a} != ${b}`);
