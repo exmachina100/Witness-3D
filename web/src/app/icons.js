@@ -143,6 +143,11 @@ const ICONS = {
     group: `<rect x="3" y="3" width="18" height="18" stroke-dasharray="2 2"/><rect x="6" y="6" width="5" height="5"/><rect ${A} x="13" y="13" width="5" height="5"/>`,
     ungroup: `<rect x="3" y="3" width="8" height="8"/><rect ${A} x="13" y="13" width="8" height="8"/><path d="M14 4l6 6M20 4l-6 6"/>`,
     // Offset Face grow modes: a step side on, the block's wall pushed out past the ledge's end.
+    // Align Vertex: scattered points brought onto one accent line.
+    'align-vertex': `<path d="M6 5h0M17 8h0M8 19h0" stroke-width="3" stroke-linecap="round"/><path ${A} d="M12 3v18"/><path ${A} d="M12 12h0" stroke-width="3" stroke-linecap="round"/>`,
+    'axis-x': `<path d="M4 20h16"/><path ${A} d="M8 6l8 8M16 6l-8 8"/>`,
+    'axis-y': `<path d="M4 20h16"/><path ${A} d="M8 5l4 5 4-5M12 10v7"/>`,
+    'axis-z': `<path d="M4 20h16"/><path ${A} d="M8 6h8l-8 10h8"/>`,
     'grow-moving': `<path d="M3 20V5h6v10h9v5z"/><path ${A} d="M9 5h12v15h-3M14 9l2 1.5-2 1.5"/>`,
     'grow-fixed': `<path d="M3 20V5h6v10h9v5z"/><path ${A} d="M9 5h9v10M20 4v16"/>`,
     'grow-none': `<path d="M3 20V5h6v10h9v5z"/><path ${A} d="M9 5h12v10h-3M14 9l2 1.5-2 1.5"/>`,
