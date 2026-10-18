@@ -222,6 +222,14 @@ async fn commit_cut(
 }
 
 #[tauri::command]
+async fn commit_reverse_sheets(
+    model: State<'_, Model>,
+    req: api::UnifyRequest,
+) -> Result<Vec<api::Body>, api::ApiError> {
+    on_model(&model, move |m| api::commit_reverse_sheets(m, req)).await?
+}
+
+#[tauri::command]
 async fn boundary_edges(
     model: State<'_, Model>,
     req: api::UnifyRequest,
@@ -695,6 +703,7 @@ pub fn run() {
             commit_remove_faces,
             commit_unify,
             boundary_edges,
+            commit_reverse_sheets,
             preview_primitive,
             commit_primitive,
             preview_shell,

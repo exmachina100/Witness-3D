@@ -376,6 +376,10 @@ pub trait Kernel {
     fn unify(&self, _s: &Self::Solid) -> Result<Traced<Self::Solid>, KernelError> {
         Err(KernelError::Invalid("this kernel cannot merge faces"))
     }
+    /// The same faces facing the other way (Reverse Sheet). Faces and edges keep their numbers.
+    fn reversed(&self, _s: &Self::Solid) -> Result<Self::Solid, KernelError> {
+        Err(KernelError::Invalid("this kernel cannot reverse sheets"))
+    }
     /// Numbers of the edges that bound only one face, a sheet's open sides (Find Boundary Edges).
     fn boundary_edges(&self, _s: &Self::Solid) -> Vec<u32> { Vec::new() }
     /// The numbered faces deleted and the gap closed by the faces around them (Remove Face).

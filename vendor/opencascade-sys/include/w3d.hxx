@@ -1363,6 +1363,11 @@ inline std::unique_ptr<W3dResult> w3d_unify(const TopoDS_Shape &shape) {
   }
 }
 
+// Plasticity's Reverse Sheet: the same faces facing the other way. Faces and edges keep their numbers.
+inline std::unique_ptr<TopoDS_Shape> w3d_reversed(const TopoDS_Shape &shape) {
+  return std::unique_ptr<TopoDS_Shape>(new TopoDS_Shape(shape.Reversed()));
+}
+
 // Plasticity's Find Boundary Edges: the numbers (TopExp::MapShapes order) of the edges that bound
 // only one face, the open sides of sheets. Seams and degenerate edges are skipped.
 inline rust::Vec<int32_t> w3d_boundary_edges(const TopoDS_Shape &shape) {

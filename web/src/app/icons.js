@@ -146,6 +146,8 @@ const ICONS = {
     // Align Vertex: scattered points brought onto one accent line.
     'insert-knot': `<path d="M3 17C7 5 11 5 13 11s6 7 8-2"/><path ${A} d="M12 4v4M10 6h4"/><path ${A} d="M12.4 10h0" stroke-width="3" stroke-linecap="round"/>`,
     'raise-degree': `<path d="M3 18C8 6 14 6 21 18"/><path ${A} d="M3 14C8 2 14 2 21 14" stroke-dasharray="2 2"/><path ${A} d="M12 9V5M10 7l2-2 2 2"/>`,
+    // Reverse Sheet: a sheet with its normal flipped over.
+    'reverse-sheet': `<path d="M4 14l8-4 8 4"/><path ${A} d="M12 10V3M9.5 5.5L12 3l2.5 2.5M12 12v8M9.5 17.5L12 20l2.5-2.5" stroke-dasharray="0"/>`,
     // Find Boundary Edges: a sheet with its open sides lit.
     'boundary-edges': `<path d="M4 8l8-4 8 4-8 4z" stroke-dasharray="2 2"/><path ${A} d="M4 8v8l8 4 8-4V8"/>`,
     unify: `<path d="M4 6h16v12H4z"/><path ${A} d="M12 6v12" stroke-dasharray="2 2"/><path ${A} d="M9 10l-2 2 2 2M15 10l2 2-2 2"/>`,

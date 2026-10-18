@@ -400,6 +400,8 @@ impl Kernel for Occt {
         Ok(Traced { solid, history: history(h) })
     }
 
+    fn reversed(&self, s: &Shape) -> Result<Shape, KernelError> { Ok(s.reversed()) }
+
     fn boundary_edges(&self, s: &Shape) -> Vec<u32> {
         s.boundary_edges().into_iter().map(|i| i as u32).collect()
     }
