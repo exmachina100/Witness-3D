@@ -99,6 +99,16 @@ fn array_motions_count_copies_and_spread_a_full_turn() {
 }
 
 #[test]
+fn curve_array_motions_pass_through_with_unit_axis_and_scale() {
+    let m = Motion { offset: DVec3::X * 10.0, pivot: DVec3::ZERO, axis: DVec3::Y * 3.0, angle: 0.5, scale: 7.0 };
+    let out = ArraySpec::Motions(vec![m]).motions().unwrap();
+    assert_eq!(out.len(), 1);
+    close(out[0].axis.length(), 1.0, 1e-12);
+    close(out[0].scale, 1.0, 1e-12);
+    close(out[0].angle, 0.5, 1e-12);
+}
+
+#[test]
 fn document_runs_each_as_one_undo_step() {
     let mut doc = Document::new(Occt);
     let seed = doc.add(doc.kernel.box_from_corners(DVec3::new(-40.0, 0.0, -25.0), DVec3::new(40.0, 30.0, 25.0)));

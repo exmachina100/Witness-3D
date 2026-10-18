@@ -165,6 +165,16 @@ export const TOOLS = [
             join: { type: 'boolean', default: false, describe: 'fuse the copies into each original instead of making new bodies' },
         },
     },
+    // Curve Array: copies spaced evenly along a curve, by length.
+    {
+        id: 'curve-array', label: 'CURVE ARRAY', key: '', group: 'organise', selects: 'solid', toolbar: false,
+        summary: 'Repeat the selected solids along a curve, evenly by length from its start (round a closed curve), each copy turned with the curve unless align is off.',
+        params: {
+            count: { type: 'number', min: 1, default: 5, describe: 'how many, the original included (a whole number)' },
+            align: { type: 'boolean', default: true, describe: 'turn each copy with the curve, as the original sits at its start' },
+            join: { type: 'boolean', default: false, describe: 'fuse the copies into each original instead of making new bodies' },
+        },
+    },
     // Round 8: Hole is a round cut into a flat face, through Extrude's forced difference.
     {
         id: 'hole', label: 'HOLE', key: '', group: 'shape', selects: 'face', toolbar: false,
@@ -354,6 +364,7 @@ const EXTRA_PARAMS = {
     extrude: { face: { type: 'integer', description: 'a flat face to extrude instead of a region, by ref' } },
     boolean: { tools: { type: 'array', items: { type: 'integer' }, minItems: 1, description: 'the tool bodies, by id' } },
     sweep: { path: { type: 'integer', description: 'the curve to sweep along, by id' } },
+    'curve-array': { path: { type: 'integer', description: 'the curve to array along, by id' } },
     cut: {
         bodies: { type: 'array', items: { type: 'integer' }, minItems: 1, description: 'the solids to cut, by id' },
         faces: { type: 'array', items: { type: 'integer' }, minItems: 1, description: 'faces to cut with, by ref; flat ones cut as their whole plane' },

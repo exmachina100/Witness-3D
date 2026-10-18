@@ -143,6 +143,7 @@ export const COMMAND = {
     mirror: { x: 'x', y: 'y', z: 'z', j: 'join' },
     'rect-array': { j: 'join' },
     'radial-array': { x: 'x', y: 'y', z: 'z', j: 'join' },
+    'curve-array': { a: 'align', j: 'join' },
     spiral: { x: 'axis-x', y: 'axis-y', z: 'axis-z', a: 'angle', d: 'length', r: 'radius' },
     ellipse: {},
     ellipse3: {},

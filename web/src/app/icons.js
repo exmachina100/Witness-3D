@@ -46,6 +46,8 @@ const ICONS = {
     shell: `<path d="M4 8l8-4 8 4v9l-8 4-8-4z"/><path d="M7 9.5v6l5 2.5 5-2.5v-6"/><path ${A} d="M4 8l8 4 8-4-8-4z"/>`,
     mirror: `<path d="M12 2v20" stroke-dasharray="2 2"/><path d="M9 6L3 9v8l6 2z"/><path ${A} d="M15 6l6 3v8l-6 2z"/>`,
     'rect-array': `<rect x="3" y="3" width="7" height="7"/><rect ${A} x="14" y="3" width="7" height="7"/><rect ${A} x="3" y="14" width="7" height="7"/><rect ${A} x="14" y="14" width="7" height="7"/>`,
+    // Curve Array: copies strung along a curve.
+    'curve-array': `<path d="M3 18c4-10 14-10 18 0"/><rect ${A} x="2" y="15" width="4" height="4"/><rect ${A} x="10" y="7" width="4" height="4"/><rect ${A} x="18" y="15" width="4" height="4"/>`,
     'radial-array': `<circle cx="12" cy="12" r="1" /><rect x="10" y="2" width="4" height="5"/><path ${A} d="M17 10h5v4h-5zM10 17h4v5h-4zM2 10h5v4H2z"/>`,
     // Navigation (the viewport's top-right column).
     'nav-zoom': `<circle cx="10" cy="10" r="6"/><path d="M14.5 14.5L20 20"/><path ${A} d="M10 7v6M7 10h6"/>`,
