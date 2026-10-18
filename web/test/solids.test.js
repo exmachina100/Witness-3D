@@ -244,3 +244,23 @@ test('Find Boundary Edges: a sheet\'s open sides, none on a solid or at a seam',
     assert.deepEqual(boundaryEdges(cube()), []);
     assert.deepEqual(boundaryEdges(primitive({ kind: 'cylinder', frame: ground, radius: 5, height: 10 })), []);
 });
+
+test('Reverse Sheet turns a sheet over as one undo step and refuses a solid', async () => {
+    const be = new LocalBackend();
+    const seed = be.scene()[0];
+    const { ids: [sq] } = await be.addCurves([{ origin: [0, 50, 0], x: [1, 0, 0], normal: [0, 1, 0], kind: 'polyline', points: [[0, 0], [10, 0], [10, 10], [0, 10]], closed: true }]);
+    const { id } = await be.commitPatch({ curves: [sq] });
+    const normal = () => be.scene().find(b => b.id === id).facePlanes[0].normal;
+    // The triangles' winding follows the face, so the mesh turns over too.
+    const winding = () => {
+        const b = be.scene().find(s => s.id === id), p = i => new THREE.Vector3().fromArray(b.positions, 3 * b.indices[i]);
+        return new THREE.Vector3().subVectors(p(1), p(0)).cross(new THREE.Vector3().subVectors(p(2), p(0))).normalize().toArray();
+    };
+    const [n0, w0] = [normal(), winding()];
+    await be.commitReverseSheets({ bodies: [id] });
+    n0.forEach((v, i) => close(normal()[i], -v));
+    w0.forEach((v, i) => close(winding()[i], -v));
+    await assert.rejects(be.commitReverseSheets({ bodies: [seed.id] }), /sheets/);
+    be.undo();
+    n0.forEach((v, i) => close(normal()[i], v));
+});

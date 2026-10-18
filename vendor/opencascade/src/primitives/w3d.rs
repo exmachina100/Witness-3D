@@ -213,6 +213,11 @@ impl Shape {
         Ok((Shape::from_shape(&ffi::w3d::w3d_result_shape(&r)), history(&r, 1)))
     }
 
+    /// The same faces facing the other way (Reverse Sheet); faces and edges keep their numbers.
+    pub fn reversed(&self) -> Shape {
+        Shape::from_shape(&ffi::w3d::w3d_reversed(&self.inner))
+    }
+
     /// Numbers of the edges that bound only one face: a sheet's open sides (Find Boundary Edges).
     pub fn boundary_edges(&self) -> Vec<usize> {
         ffi::w3d::w3d_boundary_edges(&self.inner).into_iter().map(|i| i as usize).collect()

@@ -933,6 +933,13 @@ pub struct BoundaryEdges {
     pub edges: Vec<u32>,
 }
 
+pub fn commit_reverse_sheets(m: &Model, req: UnifyRequest) -> Result<Vec<Body>, ApiError> {
+    m.call(move |doc| {
+        doc.commit_reverse_sheets(&req.bodies)?;
+        Ok(bodies(doc)?)
+    })
+}
+
 pub fn boundary_edges(m: &Model, req: UnifyRequest) -> Result<Vec<BoundaryEdges>, ApiError> {
     m.call(move |doc| {
         Ok(doc.boundary_edges(&req.bodies)?.into_iter().map(|(body, edges)| BoundaryEdges { body, edges }).collect())

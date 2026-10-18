@@ -488,6 +488,20 @@ export class LocalBackend {
 
     previewImprint(req) { return this.latest(async () => this.body(req.body, this.imprintResult(req).shape)) }
 
+    /** Plasticity's Reverse Sheet: the sheets turned to face the other way, as one undo step; refs kept. */
+    async commitReverseSheets({ bodies }) {
+        if (!bodies?.length) throw new Error('select the sheets to reverse');
+        const done = bodies.map(id => {
+            const s = this.shapes.get(id);
+            if (!s) throw new Error('that body no longer exists');
+            if (count(s, 'TopAbs_SOLID') > 0) throw new Error('Reverse Sheet works on sheets; a solid always faces out');
+            return [id, s.Reversed()];
+        });
+        this.checkpoint();
+        for (const [id, s] of done) this.shapes.set(id, s);
+        return this.bodies();
+    }
+
     /** Plasticity's Find Boundary Edges: each body's edges that bound only one face. */
     async boundaryEdges({ bodies }) {
         return bodies.map(id => {

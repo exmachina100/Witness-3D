@@ -172,3 +172,21 @@ fn find_boundary_edges_lists_a_sheets_open_sides_and_none_on_a_solid() {
     let cyl = primitive(&k, &w3d_kernel::solids::Primitive::Cylinder { frame: Frame::new(DVec3::ZERO, DVec3::X, DVec3::Z), radius: 3.0, height: 5.0 }).unwrap();
     assert!(k.boundary_edges(&cyl).is_empty(), "a cylinder's seam is not open");
 }
+
+#[test]
+fn reverse_sheet_turns_a_sheet_over_and_keeps_its_refs() {
+    use w3d_kernel::document::Document;
+    let mut doc = Document::new(Occt);
+    let sheet = doc.add(doc.kernel.patch(&saddle(0.0), &[]).unwrap());
+    let block = doc.add(doc.kernel.box_from_corners(DVec3::ZERO, DVec3::splat(10.0)));
+    doc.clear_history();
+    let normal = |doc: &Document<Occt>| doc.kernel.tessellate(doc.get(sheet).unwrap(), 0.01).unwrap().face_planes[0].as_ref().unwrap().normal;
+    let before = normal(&doc);
+    let refs = doc.refs(sheet).unwrap().clone();
+    doc.commit_reverse_sheets(&[sheet]).unwrap();
+    assert!((normal(&doc) + before).length() < 1e-9, "{:?} then {:?}", before, normal(&doc));
+    assert_eq!(doc.refs(sheet).unwrap(), &refs);
+    assert!(doc.commit_reverse_sheets(&[block]).is_err(), "a solid is not a sheet");
+    assert!(doc.undo());
+    assert!((normal(&doc) - before).length() < 1e-9);
+}

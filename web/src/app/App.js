@@ -821,7 +821,7 @@ export async function mount(root, backend) {
     draftSin: { value: Math.sin(SHADER_OPTIONS.draft.value * DEG) }, spacing: { value: SHADER_OPTIONS.spacing.value },
   };
   const shaderOpts = Object.fromEntries(Object.entries(SHADER_OPTIONS).map(([k, o]) => [k, o.value]));
-  const faceMat = new THREE.MeshStandardMaterial({ color: COLORS.face, roughness: 0.85, metalness: 0, polygonOffset: true, polygonOffsetFactor: 1, polygonOffsetUnits: 1 });
+  const faceMat = new THREE.MeshStandardMaterial({ color: COLORS.face, roughness: 0.85, metalness: 0, side: THREE.DoubleSide, polygonOffset: true, polygonOffsetFactor: 1, polygonOffsetUnits: 1 });
   const edgeMat = new THREE.LineBasicMaterial({ color: COLORS.ink, transparent: true, opacity: 0.8 });
   const phantom = {
     add: { face: new THREE.MeshBasicMaterial({ color: COLORS.ink, transparent: true, opacity: 0.1, depthWrite: false }), edge: new THREE.LineBasicMaterial({ color: COLORS.ink }) },
@@ -833,8 +833,9 @@ export async function mount(root, backend) {
   const shade = (own = false) => shader => {
     Object.assign(shader.uniforms, { ownColor: { value: own }, shadeMode: shadeU.mode, pull: shadeU.pull, stripes: shadeU.stripes, draftSin: shadeU.draftSin, spacing: shadeU.spacing });
     shader.fragmentShader = 'uniform bool ownColor;\nuniform int shadeMode;\nuniform vec3 pull;\nuniform float stripes;\nuniform float draftSin;\nuniform float spacing;\n' + shader.fragmentShader.replace('#include <dithering_fragment>', `
+      // Faces draw both sides so a sheet shows from behind (Reverse Sheet); three.js has already
+      // turned the normal of a back face towards the eye.
       vec3 n = normalize(normal);
-      if (!gl_FrontFacing) n = -n;
       vec3 v = normalize(vViewPosition);
       // A matcap's lighting: the view-space normal against a light up and to the left.
       float lam = clamp(dot(n, normalize(vec3(-0.4, 0.6, 0.7))), 0.0, 1.0);
@@ -888,7 +889,7 @@ export async function mount(root, backend) {
     if (!m) return faceMat;
     let mat = bodyMats.get(id);
     if (!mat) {
-      mat = new THREE.MeshPhysicalMaterial({ polygonOffset: true, polygonOffsetFactor: 1, polygonOffsetUnits: 1 });
+      mat = new THREE.MeshPhysicalMaterial({ side: THREE.DoubleSide, polygonOffset: true, polygonOffsetFactor: 1, polygonOffsetUnits: 1 });
       mat.onBeforeCompile = shade(true);
       mat.customProgramCacheKey = () => 'own';
       bodyMats.set(id, mat);
@@ -5001,6 +5002,19 @@ export async function mount(root, backend) {
     } catch (e) { toast(say(e)); }
   }
 
+  /** Plasticity's Reverse Sheet: the selected sheets face the other way (see the Face direction shader). */
+  async function reverseSheets() {
+    if (cmd) await finish();
+    const ids = sel.bodies.filter(id => bodyOf(id)?.sheet && org.shows(id));
+    if (!ids.length) return toast('SELECT A SHEET TO REVERSE');
+    if (!backend.commitReverseSheets) return toast('REVERSE SHEET IS NOT IN THIS BUILD YET');
+    try {
+      const list = await backend.commitReverseSheets({ bodies: ids });
+      record(`REVERSE SHEET ${ids.map(label).join(' ')}`, ids[0], `${ids.length} SHEET${ids.length > 1 ? 'S' : ''}`);
+      await showScene(list);
+    } catch (e) { toast(say(e)); }
+  }
+
   /** Plasticity's Find Boundary Edges: the open edges of the selected bodies (all shown, with none) become the selection. */
   async function findBoundaryEdges() {
     if (cmd) await finish();
@@ -5977,6 +5991,7 @@ export async function mount(root, backend) {
       case 'convert-vertex': await convertSelected(); return true;
       case 'unify': await unifySelected(); return true;
       case 'boundary-edges': await findBoundaryEdges(); return true;
+      case 'reverse-sheet': await reverseSheets(); return true;
       // Plasticity's Slot: Offset Curve with Offset Region's slot on (an open curve closed round its ends).
       case 'slot': await startCurveEdit('offset-curve'); if (cmd?.id === 'offset-curve' && !cmd.slot) cmd.key('slot'); return true;
       case 'insert-knot': if (cmd) await finish(); startInsertKnot(); return true;
@@ -6125,7 +6140,7 @@ export async function mount(root, backend) {
     if (kinds.has('face')) out.push('tool:extrude', 'tool:offset', 'tool:thicken', 'tool:shell', 'tool:hole', 'tool:remove-face', 'plane:selection', 'plane:selection-keep-view');
     if (kinds.has('edge')) out.push('tool:fillet', 'tool:patch', 'measure:radius');
     if (sel.list('edge').length === 2) out.push('tool:bridge-surface');
-    if (sel.solids.some(id => current.find(b => b.id === id)?.sheet)) out.push('tool:thicken');
+    if (sel.solids.some(id => current.find(b => b.id === id)?.sheet)) out.push('tool:thicken', 'reverse-sheet');
     if (sel.solids.length > 1 && sel.solids.every(id => current.find(b => b.id === id)?.sheet)) out.push('join');
     if (sel.solids.length === 1) out.push('unjoin:faces', 'unjoin:pieces');
     if (sel.list('edge').some(e => current.find(b => b.id === e.body)?.sheet)) out.push('tool:extend-sheet');

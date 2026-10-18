@@ -685,6 +685,21 @@ impl<K: Kernel> Document<K> {
 
     /// Plasticity's Delete Redundant Topology on the bodies, as one undoable step: faces that share a
     /// surface merge, and edges that share a curve. Returns how many faces and edges went.
+    /// Plasticity's Reverse Sheet: the sheets' faces turned to face the other way, as one undoable
+    /// step. Faces and edges keep their numbers and refs.
+    pub fn commit_reverse_sheets(&mut self, bodies: &[BodyId]) -> Result<(), KernelError> {
+        if bodies.is_empty() { return Err(KernelError::Invalid("select the sheets to reverse")) }
+        let mut done = Vec::with_capacity(bodies.len());
+        for id in bodies {
+            let b = self.state.bodies.get(id).ok_or(KernelError::Invalid("that body no longer exists"))?;
+            if !self.kernel.is_sheet(&b.solid) { return Err(KernelError::Invalid("Reverse Sheet works on sheets; a solid always faces out")) }
+            done.push((*id, Body { solid: self.kernel.reversed(&b.solid)?, refs: b.refs.clone() }));
+        }
+        self.checkpoint();
+        for (id, b) in done { self.state.bodies.insert(id, Rc::new(b)); }
+        Ok(())
+    }
+
     /// Plasticity's Find Boundary Edges: each body's edges that bound only one face (its open sides).
     pub fn boundary_edges(&self, bodies: &[BodyId]) -> Result<Vec<(BodyId, Vec<u32>)>, KernelError> {
         bodies.iter().map(|&id| {
