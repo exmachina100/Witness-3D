@@ -404,8 +404,10 @@ export class LocalBackend {
     }
 
     /** Cut and Imprint's sheets: the curves swept both ways, then faces grown past their body and the plane. */
-    toolSheets(curves, { faces = [], plane = null } = {}, size) {
+    toolSheets(curves, { faces = [], plane = null, shapes = [] } = {}, size) {
         const cs = curves.map(id => { const c = this.curveMap.get(id); if (!c) throw new Error('that curve no longer exists'); return c; });
+        // Curves not kept in the document (Offset Edge's offsets).
+        for (const c of shapes) { checkCurve(c); cs.push(c); }
         const out = cs.length ? cutSheets(cs, size) : [];
         for (const { body, face } of faces) {
             const s = this.shapes.get(body);

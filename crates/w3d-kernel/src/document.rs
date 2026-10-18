@@ -743,7 +743,11 @@ impl<K: Kernel> Document<K> {
     /// Plasticity's Imprint, without changing the document: the body with the numbered faces (all
     /// when `faces` is empty) split where the curves, projected along their normals, cross them.
     pub fn preview_imprint(&self, body: BodyId, faces: &[u32], curves: &[CurveId], tools: &Tools) -> Result<Traced<K::Solid>, KernelError> {
-        let cutters = self.cutters(curves)?;
+        let mut cutters = self.cutters(curves)?;
+        for c in &tools.shapes {
+            c.check()?;
+            cutters.push((c.path(), c.frame().normal));
+        }
         let s = self.get(body).ok_or(KernelError::Invalid("that body no longer exists"))?;
         let sheets = self.sheets(tools)?;
         let extra = self.extra(&sheets, tools, body)?;
@@ -1084,6 +1088,9 @@ pub struct Tools {
     pub plane: Option<ToolPlane>,
     #[serde(default)]
     pub bodies: Vec<BodyId>,
+    /// Curves that aren't in the document (Offset Edge's offsets), used by Imprint like its curves.
+    #[serde(default)]
+    pub shapes: Vec<Curve>,
 }
 
 #[derive(Clone, Copy, Debug, Serialize, Deserialize)]

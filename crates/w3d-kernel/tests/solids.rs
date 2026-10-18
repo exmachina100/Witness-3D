@@ -222,6 +222,14 @@ fn imprint_splits_faces_and_keeps_the_body_whole() {
     assert!(doc.curve(line).is_none(), "the knife uses its curve up");
     let miss = doc.commit_curves(vec![Curve { origin: ground, x: [1.0, 0.0, 0.0], normal: [0.0, 1.0, 0.0], shape: CurveShape::Polyline { points: vec![[300.0, -100.0], [300.0, 100.0]], closed: false } }]).unwrap()[0];
     assert!(doc.commit_imprint(block, &[], &[miss], &Tools::default(), false).is_err());
+    // A curve given inline (Offset Edge's), not kept in the document: a loop 5 mm inside the top.
+    let top_y = 30.0;
+    let ring = Curve { origin: [0.0, top_y, 0.0], x: [1.0, 0.0, 0.0], normal: [0.0, 1.0, 0.0], shape: CurveShape::Polyline { points: vec![[-35.0, -20.0], [35.0, -20.0], [35.0, 20.0], [-35.0, 20.0]], closed: true } };
+    let before = doc.kernel.face_count(doc.get(block).unwrap());
+    let curves = doc.curve_ids().len();
+    doc.commit_imprint(block, &[top], &[], &Tools { shapes: vec![ring], ..Tools::default() }, false).unwrap();
+    assert_eq!(doc.kernel.face_count(doc.get(block).unwrap()), before + 1);
+    assert_eq!(doc.curve_ids().len(), curves, "no curve is added");
 }
 
 #[test]
