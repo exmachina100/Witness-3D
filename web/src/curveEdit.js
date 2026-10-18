@@ -775,6 +775,44 @@ function planeAxes(c) {
     const Y = [N[1] * X[2] - N[2] * X[1], N[2] * X[0] - N[0] * X[2], N[0] * X[1] - N[1] * X[0]];
     return { O: c.origin, X, Y, N };
 }
+// --- Move, Rotate and Scale curves ------------------------------------------------------------------
+
+/** The shape's plane coordinates scaled by `s` about the plane's origin. */
+function scaleShape(c, s) {
+    const P = p => p.map(v => v * s);
+    switch (c.kind) {
+        case 'polyline': case 'cv': return { ...c, points: c.points.map(P) };
+        case 'spline': return { ...c, points: c.points.map(P), ...(c.samples ? { samples: c.samples.map(P) } : {}) };
+        case 'circle': return { ...c, center: P(c.center), radius: c.radius * s };
+        case 'arc': return { ...c, start: P(c.start), mid: P(c.mid), end: P(c.end) };
+        case 'ellipse': return { ...c, center: P(c.center), major: P(c.major), minor: c.minor * s };
+        case 'contour': return { ...c, pieces: c.pieces.map(p => scaleShape(p, s)) };
+        case 'nurbs': return { ...c, poles: c.poles.map(P) };
+        case 'spiral': return { ...c, radius: c.radius * s, length: c.length * s };
+        default: return c;
+    }
+}
+
+/**
+ * The curve moved by Plasticity's Move, Rotate or Scale: points p go to pivot + offset +
+ * rotate(scale · (p − pivot)), with `rotate` turning a model-space vector and `scale` uniform.
+ */
+export function transformCurve(c, { pivot, offset = [0, 0, 0], rotate = v => v, scale = 1 }) {
+    const d = c.origin.map((v, i) => (v - pivot[i]) * scale), r = rotate(d);
+    const origin = r.map((v, i) => v + pivot[i] + offset[i]);
+    return { ...scaleShape(c, scale), origin, x: rotate(c.x), normal: rotate(c.normal) };
+}
+
+/**
+ * The curve with the vertices in `moves` (vertex number → new model-space point) moved, each kept
+ * in the curve's plane by dropping the part of its move across the plane.
+ */
+export function moveVerticesTo(c, moves) {
+    const a = planeAxes(c), local = new Map();
+    for (const [n, w] of moves) { const q = v3.sub(w, a.O); local.set(n, [v3.dot(q, a.X), v3.dot(q, a.Y)]); }
+    return moveVertices(c, local);
+}
+
 /** `other`'s sample points in `c`'s plane coordinates, or null when it isn't in the same plane. */
 function inPlaneOf(c, other) {
     const a = planeAxes(c), b = planeAxes(other);
@@ -1308,7 +1346,8 @@ const pieceEnd = p => p.kind === 'arc' ? p.end : p.points.at(-1);
  */
 export function curveVertices(c) {
     if (c.kind === 'spline' || c.kind === 'cv') return c.points.map(p => [...p]);
-    if (c.kind === 'nurbs') return c.poles.length ? [[c.poles[0][0], c.poles[0][1]], [c.poles.at(-1)[0], c.poles.at(-1)[1]]] : [];
+    // A NURBS curve's vertices are its control points (a closed one's last repeats its first).
+    if (c.kind === 'nurbs') return (nurbsLoop(c) ? c.poles.slice(0, -1) : c.poles).map(q => [q[0], q[1]]);
     const a = asPieces(c);
     if (!a) return [];
     return vertexEntries(a).map(({ piece, at }) => {
@@ -1342,9 +1381,9 @@ export function moveVertices(c, moves) {
         return { ...rest, points: c.points.map((p, n) => at(n) ? [...at(n)] : [...p]) };
     }
     if (c.kind === 'nurbs') {
-        const poles = c.poles.map(q => [...q]), last = poles.length - 1;
-        if (at(0)) poles[0] = [...at(0), poles[0][2]];
-        if (at(1)) poles[last] = [...at(1), poles[last][2]];
+        const poles = c.poles.map(q => [...q]), loop = nurbsLoop(c);
+        poles.forEach((q, n) => { if (at(n)) poles[n] = [...at(n), q[2]]; });
+        if (loop) poles[poles.length - 1] = [...poles[0]];
         return { ...c, poles };
     }
     const a = asPieces(c);

@@ -53,7 +53,7 @@ a flat face imprints that face and is used up (round 10).
 
 | Command | Status |
 |---|---|
-| Move · Rotate · Scale | Done |
+| Move · Rotate · Scale | Done for solids, curves and curve vertices: whole curves move, turn and scale (shape and plane together); picked vertices, and a NURBS curve's control points (shown as its vertices in point mode), move within their curve's plane, any move across it dropped. Faces and edges with G are missing |
 | Mirror | Done (copy or join) |
 | Duplicate | Done |
 | Radial Array · Rectangular Array | Done |
@@ -79,7 +79,7 @@ a flat face imprints that face and is used up (round 10).
 | Slot | | Missing |
 | Project | Project, Project Body Body, Project Curve Body, Project Curve Curve, Project Outline (26.1: method, bidirectional, hide occluded) | Project (I) done in both builds: Curve Body (Normal or Vector X/Y/Z, S screen space, Bidirectional, Hide Occluded, chosen faces or all), Body Body and Curve Curve, picked by the selection; results are new NURBS curves, flat ones usable as regions. Hide Occluded is exact on the desktop and casts rays on the mesh in the browser. Project Outline done in both builds: one body selected and no curves draws its outline seen along the construction plane's normal onto that plane (hidden-line removal, then the shadow region's boundary), holes through the body included |
 | Duplication | Alternative Duplicate, Duplicate Curve and Project, Create Outline | Missing |
-| Rebuild and Refine | Convert Vertex, Delete Redundant Topology, Insert Knot, Raise (Curve) Degree, Rebuild (Curve), Reverse (Curve) | Reverse Curve done (arrows show the new start; circles and ellipses have no stored direction). Rebuild Curve done: control points C and degree D, least-squares NURBS fit that keeps open ends and closes closed curves smoothly (periodic fit), new control polygon shown, max deviation in the hint (half circle r=10 with 8 points: 0.003 mm). Knot insertion exists in curveEdit.insertKnot but has no tool yet. Convert Vertex, Delete Redundant Topology, Insert Knot tool and Raise Degree missing |
+| Rebuild and Refine | Convert Vertex, Delete Redundant Topology, Insert Knot, Raise (Curve) Degree, Rebuild (Curve), Reverse (Curve) | Reverse Curve done (arrows show the new start; circles and ellipses have no stored direction). Rebuild Curve done: control points C and degree D, least-squares NURBS fit that keeps open ends and closes closed curves smoothly (periodic fit), new control polygon shown, max deviation in the hint (half circle r=10 with 8 points: 0.003 mm). Knot insertion exists in curveEdit.insertKnot but has no tool yet. Rebuilt curves' control points can be moved with G/R/S. Convert Vertex, Delete Redundant Topology, Insert Knot tool and Raise Degree missing |
 | Instances | Create / Realize (Curve) Instance | Missing |
 | Text | Text (Plasticity ships 21 typeface fonts) | Missing |
 | Display and Analysis | Toggle Curve Curvature, Toggle Points | Missing |
