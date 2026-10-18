@@ -95,7 +95,7 @@ a flat face imprints that face and is used up (round 10).
 | Delete and Remove | Delete Face, Delete Redundant Topology, Remove Fillets from Shell, Remove Nominal Surface | Delete Face done on desktop (Remove Face); rest missing |
 | Draft and Align | Align, Align Surface, Draft Face (draft illustration) | Offset Face's angle covers part of Draft Face; rest missing |
 | Extend | Extend, Extend Sheet (extend-sheet shape) | Extend Sheet done in both builds (linear): one open edge of a sheet, D for the distance; works on a side of the sheet's surface (Patch and Bridge Surface sheets) or a straight edge of a flat sheet, and keeps one face. Edges trimmed across a curved surface are refused. Natural shape missing |
-| Fillet | Fillet, Fillet Shell (shell shape, Y-blend) | Fillet and chamfer done; variable radius and Fillet Shell missing |
+| Fillet | Fillet, Fillet Shell (shell shape, Y-blend) | Fillet and chamfer done; variable radius done (V adds points along a rounded edge, each with its own dot, both builds); L limit points, Conic/Chordal/G2 shapes and Fillet Shell missing |
 | Hollow and Thicken | Hollow, Thicken, Thicken Face | Hollow done (as Shell). Thicken done in both builds: a selected sheet body becomes a solid, D typing the front thickness (along its normals) and B the back; walls are ruled along its open edges (on the desktop, faces meeting at an angle are joined at the corner; the browser still uses the simple offset there). Thicken Face done in both builds: faces picked on a solid (Alt+click) become a solid of their own, front out of the body and back into it, the ends cut where the other faces lie and corners joined; faces of a sheet are copied out and thickened; the body stays |
 | Imprint | Imprint, Imprint Body Body, Imprint Curve Body (method, complete, bidirectional, hide occluded) | Imprint Curve Body and Imprint Body Body done (both builds; curves projected along their plane normals, or where another solid meets the body, onto chosen faces or all faces); the projection options missing |
 | Join and Unjoin | Join, Join Sheets, Unjoin, Unjoin Faces, Unjoin Shells | Done in both builds: J joins selected sheets that meet edge to edge (within 0.01 mm) into one body, a solid when they close; Unjoin Faces makes each face of a body its own sheet and Unjoin Shells splits a body into its separate pieces (F search or Shift+F) |
@@ -157,7 +157,7 @@ Order of work:
 3. Thicken, Draft Face, Pipe, Loft and Sweep guide curves
 4. Zebra and curvature display
 5. DXF and Rhino `.3dm` (openNURBS)
-6. PolySplines on OpenSubdiv, variable-radius fillet and Fillet Shell, Match Face, Unwrap Face
+6. PolySplines on OpenSubdiv, Fillet Shell, Match Face, Unwrap Face
 
 Quality bar for every feature, reported with numbers when missed:
 - Steps, keys and options as in Plasticity's manual

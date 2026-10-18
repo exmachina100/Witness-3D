@@ -2,6 +2,8 @@
 //! and the result after, so a bad request or a broken solid comes back as a sentence the user can
 //! act on rather than as a kernel crash or a quietly corrupt body.
 
+use glam::DVec3;
+
 use crate::{Kernel, KernelError, Traced};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -21,6 +23,18 @@ pub struct BlendParams {
     pub kind: Blend,
     /// Chamfer angle from each edge's first face, in radians; π/4 is an equal-distance chamfer.
     pub angle: f64,
+    /// Plasticity's variable points (V): fillets only, ignored for chamfers.
+    pub variable: Vec<VariablePoint>,
+}
+
+/// A point on a rounded edge where the radius is `size` × `scale`; the radius runs smoothly from
+/// point to point and back to `size` at the ends of the edge's contour.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct VariablePoint {
+    pub edge: u32,
+    /// On (or near) the edge, in document coordinates.
+    pub point: DVec3,
+    pub scale: f64,
 }
 
 /// The equal-distance chamfer angle.
@@ -53,7 +67,16 @@ pub fn blend<K: Kernel>(k: &K, body: &K::Solid, p: &BlendParams) -> Result<Trace
     if p.kind == Blend::Chamfer && !(p.angle > 0.0 && p.angle < std::f64::consts::FRAC_PI_2) {
         return Err(KernelError::Invalid("the chamfer angle must be between 0 and 90 degrees"));
     }
-    let traced = k.blend(body, &edges, p.size, p.kind, p.angle)?;
+    let variable: &[VariablePoint] = if p.kind == Blend::Fillet { &p.variable } else { &[] };
+    for v in variable {
+        if !edges.contains(&v.edge) {
+            return Err(KernelError::Invalid("a variable point is on an edge that isn't being rounded"));
+        }
+        if !(v.scale > 0.0) || !v.scale.is_finite() || !v.point.is_finite() {
+            return Err(KernelError::Invalid("a variable point's radius must be greater than zero"));
+        }
+    }
+    let traced = k.blend(body, &edges, p.size, p.kind, p.angle, variable)?;
     let result = &traced.solid;
     if !k.is_valid(result) {
         return Err(KernelError::Blend {

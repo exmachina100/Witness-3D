@@ -36,7 +36,7 @@ fn vertical(k: &Occt, s: &Shape) -> Vec<u32> {
         .collect()
 }
 
-fn fillet(edges: Vec<u32>, size: f64) -> BlendParams { BlendParams { edges, size, kind: Blend::Fillet, angle: w3d_kernel::blend::EQUAL } }
+fn fillet(edges: Vec<u32>, size: f64) -> BlendParams { BlendParams { edges, size, kind: Blend::Fillet, angle: w3d_kernel::blend::EQUAL, variable: vec![] } }
 
 #[test]
 fn edges_are_numbered_once_each() {
@@ -72,7 +72,7 @@ fn chamfer_cuts_a_triangular_prism() {
     let body = enclosure(&k);
     let edge = edges_where(&k, &body, |p| (p.y - 30.0).abs() < 1e-6 && (p.z - 25.0).abs() < 1e-6);
     assert_eq!(edge.len(), 1);
-    let cut = blend(&k, &body, &BlendParams { edges: edge, size: 3.0, kind: Blend::Chamfer, angle: w3d_kernel::blend::EQUAL }).unwrap().solid;
+    let cut = blend(&k, &body, &BlendParams { edges: edge, size: 3.0, kind: Blend::Chamfer, angle: w3d_kernel::blend::EQUAL, variable: vec![] }).unwrap().solid;
     close(volume(&k, &cut), 120_000.0 - 0.5 * 3.0 * 3.0 * 80.0, 1e-3);
     assert_eq!(k.face_count(&cut), 7);
 }
@@ -308,7 +308,7 @@ fn a_chamfer_at_an_angle_cuts_a_right_triangle_of_that_shape() {
     let body = enclosure(&k);
     let edge = top_front(&k, &body);
     // 3 mm along the first face, at 30° from it: the other leg is 3·tan 30°.
-    let p = BlendParams { edges: edge, size: 3.0, kind: Blend::Chamfer, angle: PI / 6.0 };
+    let p = BlendParams { edges: edge, size: 3.0, kind: Blend::Chamfer, angle: PI / 6.0, variable: vec![] };
     let cut = blend(&k, &body, &p).unwrap().solid;
     close(volume(&k, &cut), 120_000.0 - 0.5 * 3.0 * 3.0 * (PI / 6.0).tan() * 80.0, 1e-3);
     let bad = BlendParams { angle: PI / 2.0, ..p };

@@ -18,7 +18,7 @@ impl Kernel for NoKernel {
     fn solid_count(&self, _: &()) -> usize { 1 }
     fn face_count(&self, _: &()) -> usize { 6 }
     fn edge_count(&self, _: &()) -> usize { 12 }
-    fn blend(&self, _: &(), _: &[u32], _: f64, _: Blend, _: f64) -> Result<Traced<()>, KernelError> { Ok(Traced { solid: (), history: History::default() }) }
+    fn blend(&self, _: &(), _: &[u32], _: f64, _: Blend, _: f64, _: &[w3d_kernel::blend::VariablePoint]) -> Result<Traced<()>, KernelError> { Ok(Traced { solid: (), history: History::default() }) }
     fn transform(&self, _: &(), _: &Motion) {}
     fn is_valid(&self, _: &()) -> bool { true }
     fn tessellate(&self, _: &(), _: f64) -> Result<Tessellation, KernelError> { Ok(Tessellation::default()) }
@@ -85,7 +85,7 @@ fn native_files_keep_ids_and_refuse_what_they_cannot_read() {
 #[test]
 fn blend_checks_its_inputs_before_the_kernel() {
     let k = NoKernel;
-    let p = |edges: Vec<u32>, size| BlendParams { edges, size, kind: Blend::Fillet, angle: w3d_kernel::blend::EQUAL };
+    let p = |edges: Vec<u32>, size| BlendParams { edges, size, kind: Blend::Fillet, angle: w3d_kernel::blend::EQUAL, variable: vec![] };
     assert!(blend(&k, &(), &p(vec![0, 1], 2.0)).is_ok());
     assert!(matches!(blend(&k, &(), &p(vec![], 2.0)), Err(KernelError::Invalid(_))));
     assert!(matches!(blend(&k, &(), &p(vec![0], 0.0)), Err(KernelError::Invalid(_))));

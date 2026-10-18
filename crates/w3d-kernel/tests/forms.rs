@@ -99,6 +99,7 @@ fn offset_face_stretches_slanted_neighbours() {
             size: 10.0,
             kind: Blend::Chamfer,
             angle: blend::EQUAL,
+            variable: vec![],
         },
     )
     .unwrap()

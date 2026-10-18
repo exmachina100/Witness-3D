@@ -254,7 +254,8 @@ pub trait Kernel {
     fn edge_count(&self, s: &Self::Solid) -> usize;
     /// Round or bevel the numbered edges (see [`Tessellation::edges`]) by `size`. A chamfer's
     /// `angle` (radians) is measured from each edge's first face; π/4 gives equal distances.
-    fn blend(&self, s: &Self::Solid, edges: &[u32], size: f64, kind: Blend, angle: f64) -> Result<Traced<Self::Solid>, KernelError>;
+    /// `variable` gives a fillet's radius at points along its edges (see [`blend::VariablePoint`]).
+    fn blend(&self, s: &Self::Solid, edges: &[u32], size: f64, kind: Blend, angle: f64, variable: &[blend::VariablePoint]) -> Result<Traced<Self::Solid>, KernelError>;
     /// The solid moved rigidly. Faces and edges keep their numbers.
     fn transform(&self, s: &Self::Solid, m: &Motion) -> Self::Solid;
     /// `profile` turned `angle` radians about the axis through `axis_point` along `axis_dir`; with a

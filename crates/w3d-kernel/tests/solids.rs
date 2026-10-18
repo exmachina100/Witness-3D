@@ -148,7 +148,7 @@ fn document_runs_each_as_one_undo_step() {
 fn remove_face_takes_a_round_back_off() {
     let k = Occt;
     let c = cube(&k);
-    let rounded = k.blend(&c, &[0], 2.0, Blend::Fillet, 0.0).unwrap();
+    let rounded = k.blend(&c, &[0], 2.0, Blend::Fillet, 0.0, &[]).unwrap();
     let round = rounded.history.generated_faces.first().expect("the round grew from edge 0").1;
     assert!(volume(&k, &rounded.solid) < 1000.0);
     let back = w3d_kernel::solids::remove_faces(&k, &rounded.solid, &[round]).unwrap();

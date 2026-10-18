@@ -249,9 +249,10 @@ impl Kernel for Occt {
 
     fn edge_count(&self, s: &Shape) -> usize { s.edge_count() }
 
-    fn blend(&self, s: &Shape, edges: &[u32], size: f64, kind: Blend, angle: f64) -> Result<Traced<Shape>, KernelError> {
+    fn blend(&self, s: &Shape, edges: &[u32], size: f64, kind: Blend, angle: f64, variable: &[crate::blend::VariablePoint]) -> Result<Traced<Shape>, KernelError> {
         let edges: Vec<usize> = edges.iter().map(|&e| e as usize).collect();
-        let (solid, h) = s.blend_edges_with_history(&edges, size, kind == Blend::Chamfer, angle).map_err(|e| KernelError::Blend {
+        let points: Vec<f64> = variable.iter().flat_map(|v| [v.edge as f64, v.point.x, v.point.y, v.point.z, v.scale]).collect();
+        let (solid, h) = s.blend_edges_with_history(&edges, size, kind == Blend::Chamfer, angle, &points).map_err(|e| KernelError::Blend {
             edges: e.edges.iter().map(|&i| i as u32).collect(),
             reason: e.reason,
         })?;
