@@ -313,8 +313,8 @@ const dedupe = pts => pts.filter((p, i) => i === 0 || dist(p, pts[i - 1]) > 1e-6
  * arcs of `radius`. `corners`, when given, is which vertex numbers to round; otherwise all of them.
  * The result is one contour of lines and arcs, closed if the polyline was.
  */
-export function filletCurve(c, radius, corners = null) {
-    if (!(Number.isFinite(radius) && radius > 1e-6)) throw new Error('the radius must be greater than zero');
+export function filletCurve(c, radius, corners = null, chamfer = false) {
+    if (!(Number.isFinite(radius) && radius > 1e-6)) throw new Error(chamfer ? 'the chamfer distance must be greater than zero' : 'the radius must be greater than zero');
     let pts, closed;
     if (c.kind === 'polyline') { pts = dedupe(c.points); closed = !!c.closed; }
     else if (c.kind === 'contour' && c.pieces.every(p => p.kind === 'polyline')) ({ points: pts, closed } = samples(c));
@@ -331,7 +331,8 @@ export function filletCurve(c, radius, corners = null) {
         const u = norm(sub(a, b)), v = norm(sub(d, b));
         const theta = Math.acos(Math.max(-1, Math.min(1, dot2(u, v))));
         if (Math.PI - theta < 1e-6) continue; // straight through
-        const t = radius / Math.tan(theta / 2);
+        // A chamfer (Fillet Vertex dragged the other way) cuts `radius` back along each side.
+        const t = chamfer ? radius : radius / Math.tan(theta / 2);
         cut[i] = t;
         info[i] = { u, v, theta };
     }
@@ -339,13 +340,14 @@ export function filletCurve(c, radius, corners = null) {
     const segs = closed ? N : N - 1;
     for (let i = 0; i < segs; i++) {
         const j = (i + 1) % N;
-        if (cut[i] + cut[j] > dist(pts[i], pts[j]) + 1e-9) throw new Error('the radius is too large for these sides; use a smaller one');
+        if (cut[i] + cut[j] > dist(pts[i], pts[j]) + 1e-9) throw new Error(`the ${chamfer ? 'chamfer' : 'radius'} is too large for these sides; use a smaller one`);
     }
     const pieces = [];
     const line = (p, q) => { if (dist(p, q) > 1e-6) pieces.push({ kind: 'polyline', points: [p, q], closed: false }); };
     const roundAt = i => {
         const { u, v, theta } = info[i], b = pts[i];
         const p = add(b, mul(u, cut[i])), q = add(b, mul(v, cut[i]));
+        if (chamfer) return { p, q, arc: { kind: 'polyline', points: [p, q], closed: false } };
         const bis = norm(add(u, v)), centre = add(b, mul(bis, radius / Math.sin(theta / 2)));
         const mid = add(centre, mul(norm(sub(b, centre)), radius));
         return { p, q, arc: { kind: 'arc', start: p, mid, end: q } };
@@ -363,9 +365,15 @@ export function filletCurve(c, radius, corners = null) {
             at = pts[i];
         }
     }
-    const out = withShape(c, { kind: 'contour', pieces });
     if (closed && !loops(pieces)) throw new Error('the rounded curve does not close');
-    return out;
+    if (pieces.every(p => p.kind === 'polyline')) {
+        // Chamfers keep a polyline a polyline.
+        const points = [pieces[0].points[0]];
+        for (const p of pieces) points.push(p.points[1]);
+        if (closed) points.pop();
+        return withShape(c, { kind: 'polyline', points, closed });
+    }
+    return withShape(c, { kind: 'contour', pieces });
 }
 
 // --- Explode --------------------------------------------------------------------------------------

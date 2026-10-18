@@ -108,6 +108,7 @@ export const COMMAND = {
     // Offset Curve (manual: D distance, V gap fill, S lock distances, F freestyle; C kept for the gap fill)
     'offset-curve': { d: 'distance', c: 'corner', v: 'corner', s: 'lock', f: 'freestyle' },
     'offset-vertex': { d: 'distance' },
+    'fillet-vertex': { d: 'distance', c: 'chamfer' },
     'fillet-curve': { d: 'radius' },
     bridge: { t: 'tension' },
     hole: { t: 'through' },

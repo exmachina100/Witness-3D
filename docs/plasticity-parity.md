@@ -73,7 +73,7 @@ a flat face imprints that face and is used up (round 10).
 | Deform and Slide | Deform, Deform Curve, Slide, Slide Curve CV | Missing |
 | Align | Align, Align Vertex | Missing |
 | Extend | Extend, Extend Curve (26.1: extend-curve shape option) | Extend Curve done (lines, arcs); shape option missing |
-| Fillet | Fillet, Fillet Curve, Fillet Vertex | Fillet Curve done (all corners); per-vertex missing |
+| Fillet | Fillet, Fillet Curve, Fillet Vertex | Fillet Curve done (all corners). Fillet Vertex done: B with curve vertices picked rounds just those corners; the dot dragged into the corner rounds, out of it chamfers (D and C type them); chamfered polylines stay polylines |
 | Join and Unjoin | Join, Join Curves, Unjoin, Unjoin Curve | Join Curves done; Explode stands in for Unjoin Curve |
 | Offset | Offset Curve (26.1: Round / Linear / Natural), Offset Planar Curve, Offset Region, Offset Vertex | Offset Curve done with 26.1's corner styles (C cycles Linear, Round, Natural): lines and arcs, and contours of them, are offset exactly (arcs stay arcs), outside corners close by the chosen style and inside corners are cut where the pieces cross; splines and ellipses are offset through their points. Offset Planar Curve's keys done: V cycles the gap fill (C still works), S locks distances (both sides), F freestyle (a click sets the distance and side), a yellow dot drags the distance. Closed curves (regions) offset one by one; Offset Region's I (combined) and O (slot) missing. Offset Vertex done: with point mode on, curve vertices pick (grey dots on the curves in play, orange when picked), and Offset Curve on picked vertices adds a vertex the distance along the curve either side, cutting lines and arcs without changing the shape |
 | Slot | | Missing |
