@@ -11,6 +11,8 @@ const tauri = window.__TAURI__;
 const W3D = [{ name: 'Witness 3D', extensions: ['w3d'] }];
 // STEP, and IGES on the desktop (the browser's OpenCascade build has no IGES).
 const STEP = [{ name: 'STEP', extensions: ['step', 'stp'] }, { name: 'IGES', extensions: ['igs', 'iges'] }];
+// File › Import also reads DXF drawings, as curves (web/src/dxf.js).
+const IMPORT = [{ name: 'STEP, IGES, DXF', extensions: ['step', 'stp', 'igs', 'iges', 'dxf'] }, ...STEP, { name: 'DXF', extensions: ['dxf'] }];
 const baseName = p => p.split(/[\\/]/).pop();
 let filePath = null; // where Save writes without asking
 
@@ -120,8 +122,10 @@ const rust = {
   version: () => tauri.app.getVersion(),
   quit: () => tauri.window.getCurrentWindow().close(),
   async importStep() {
-    const path = await tauri.dialog.open({ multiple: false, directory: false, filters: STEP });
-    return path ? tauri.core.invoke('import_step', { path }) : null;
+    const path = await tauri.dialog.open({ multiple: false, directory: false, filters: IMPORT });
+    if (!path) return null;
+    if (/\.dxf$/i.test(path)) return { dxf: await tauri.core.invoke('read_dxf', { path }), name: baseName(path) };
+    return tauri.core.invoke('import_step', { path });
   },
   async exportStep(id) {
     const path = await tauri.dialog.save({ defaultPath: `witness3d-body-${id}.step`, filters: STEP });

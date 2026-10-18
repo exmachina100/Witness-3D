@@ -130,7 +130,7 @@ opencascade.js (which lacks IGES).
 | IGES | import, export | `IGESControl` (TKDEIGES) on the desktop, through the STEP dialogs by extension | Done on the desktop |
 | ACIS SAT | import, export | No open implementation | Not planned |
 | Parasolid X_T | import, export | No open implementation | Not planned |
-| DWG / DXF | DWG import (ODA) | DXF read and write in-house; DWG needs the ODA SDK | DXF drawing export done (R12, layers VISIBLE/HIDDEN/CURVES); DXF import missing |
+| DWG / DXF | DWG import (ODA) | DXF read and write in-house; DWG needs the ODA SDK | DXF drawing export done (R12, layers VISIBLE/HIDDEN/CURVES); DXF import done in both builds (File › Import): lines, polylines with bulges (as lines and arcs), circles, arcs, ellipses, splines (exact NURBS) become curves on the XY plane in mm by $INSUNITS; elliptical arcs come in as splines; blocks, text, hatches and dimensions are left out and counted |
 | OBJ | export (manual: Export OBJ; options angle tolerance, inflection, max width) | Re-meshed at the chosen tolerance in each build; max width splits long edges; written by `web/src/meshExport.js` | Done (the desktop mesher takes no separate angle; inflection not yet) |
 | SVG, hidden line | export (manual) | `HLRBRep` hidden-line removal seen from the camera, written by `web/src/drawingExport.js` in both builds | Done (Export drawing: hidden lines dashed, H leaves them out; drawn curves on their own layer, not occluded) |
 | STL, glTF, 3MF | not listed | Binary STL done with OBJ; glTF and 3MF later | STL done |

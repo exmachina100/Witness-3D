@@ -511,6 +511,18 @@ async fn import_step(model: State<'_, Model>, path: PathBuf) -> Result<api::Comm
     on_model(&model, move |m| api::import_step(m, path)).await?
 }
 
+/// A DXF drawing's text for File › Import, which turns it into curves in the UI (web/src/dxf.js).
+#[tauri::command]
+async fn read_dxf(path: PathBuf) -> Result<String, String> {
+    let dxf = path.extension().and_then(|e| e.to_str()).is_some_and(|e| e.eq_ignore_ascii_case("dxf"));
+    if !dxf { return Err("only .dxf drawings are read this way".into()) }
+    let size = std::fs::metadata(&path).map_err(|e| e.to_string())?.len();
+    if size > 256 << 20 { return Err("that drawing is over 256 MB".into()) }
+    let bytes = std::fs::read(&path).map_err(|e| e.to_string())?;
+    // Older DXFs are in the drawing's code page; anything not UTF-8 only matters inside text entities.
+    Ok(String::from_utf8_lossy(&bytes).into_owned())
+}
+
 #[tauri::command]
 async fn export_step(model: State<'_, Model>, id: u32, path: PathBuf) -> Result<(), String> {
     on_model(&model, move |m| api::export_step(m, id, path)).await?
@@ -604,6 +616,7 @@ pub fn run() {
             commit_blend,
             preview_form,
             commit_form,
+            read_dxf,
             preview_offset,
             commit_offset,
             replace_curves,

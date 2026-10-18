@@ -26,7 +26,7 @@
 //   newDocument()                -> Body[]
 //   save()                       -> file name, or null if the user backed out
 //   open()                       -> { name, scene: Body[] }, or null
-//   importStep()                 -> { id, scene: Body[] }, or null
+//   importStep()                 -> { id, scene: Body[] }, { dxf: text, name } for a drawing, or null
 //   curves()                     -> Curve[]; addCurves(Curve[]) -> { ids }
 //   deleteItems(bodies, curves)  -> Body[]
 //   previewBoolean({ target, tools, op }) -> Body, or null when stale
@@ -65,6 +65,7 @@ import { claude, describe, MODEL, reply, request } from './ai.js';
 import { icon } from './icons.js';
 import { limitEdges, toObj, toStl } from '../meshExport.js';
 import { flatten, toDxf, toSvg } from '../drawingExport.js';
+import { readDxf } from '../dxf.js';
 import { bridgeCurves, continuity, curvatureComb, explode, extendCurve, filletCurve, nearestEnd, OFFSET_CORNERS, offsetCurve, splitCurve, tangentCircle, trim } from '../curveEdit.js';
 import { ViewGizmo } from './ViewGizmo.js';
 import { Toolbar } from './Toolbar.js';
@@ -162,7 +163,8 @@ const SHELL = `
     <button class="export" data-id="file-new" hidden>${icon('file-new')}NEW</button>
     <button class="export" data-id="file-open" hidden>${icon('file-open')}OPEN</button>
     <button class="export" data-id="file-save" hidden>${icon('file-save')}SAVE</button>
-    <button class="export" data-id="import" hidden title="Import a STEP file">${icon('import')}STEP</button>
+    <button class="export" data-id="import" hidden title="Import a STEP, IGES or DXF file">${icon('import')}IMPORT</button>
+    <input type="file" data-id="import-file" accept=".dxf" hidden>
     <button class="export" data-id="export" disabled title="Export STEP">${icon('export')}STEP</button>
     <span class="file" data-id="file-name">UNTITLED.W3D</span>
   </header>
@@ -5350,7 +5352,7 @@ export async function mount(root, backend) {
   const P_NEEDS = { 'file:new': 'newDocument', 'file:open': 'open', 'import:step': 'importStep', 'file:save': 'save', 'file:save-as': 'saveAs', 'file:save-version': 'saveVersion', 'app:quit': 'quit' };
   function openPMenu() {
     const menu = $('pmenu');
-    const can = e => !P_NEEDS[e.action] || typeof backend[P_NEEDS[e.action]] === 'function';
+    const can = e => e.action === 'import:step' ? !$('import').hidden : !P_NEEDS[e.action] || typeof backend[P_NEEDS[e.action]] === 'function';
     menu.innerHTML = P_MENU.map(e => {
       if (e.action === 'file:recent') {
         const files = typeof backend.open === 'function' ? recent : [];
@@ -5654,6 +5656,8 @@ export async function mount(root, backend) {
   for (const [id, method] of [['file-new', 'newDocument'], ['file-open', 'open'], ['file-save', 'save'], ['import', 'importStep']]) {
     $(id).hidden = typeof backend[method] !== 'function';
   }
+  // Without a native import (the browser), Import still reads DXF drawings as curves.
+  if (!backend.importStep && backend.addCurves) { $('import').hidden = false; $('import').title = 'Import a DXF drawing as curves'; }
   $('file-new').onclick = () => fileAction(async () => { newScene(await backend.newDocument(), 'UNTITLED.W3D'); await restoreAppState(); });
   function openFile(path) {
     return fileAction(async () => {
@@ -5670,9 +5674,26 @@ export async function mount(root, backend) {
     const name = await backend.save();
     if (name) { $('file-name').textContent = name.toUpperCase(); toast(`SAVED ${name.toUpperCase()}`); remember(backend.filePath); }
   });
+  /** A DXF drawing's curves added on the XY plane as one undo step, then selected. */
+  async function importDxf(text, name) {
+    const { curves, skipped, approximated, units } = readDxf(text);
+    const { ids } = await backend.addCurves(curves);
+    if (cmd) abort();
+    record(`IMPORT DXF ${name.toUpperCase()}`, ids[0], curveLabel(ids[0]));
+    await curvesChanged(ids);
+    const left = Object.entries(skipped).map(([t, n]) => `${n} ${t}`).join(', ');
+    toast(`${ids.length} CURVE${ids.length > 1 ? 'S' : ''} FROM ${name.toUpperCase()} (${units})${approximated ? ` · ${approximated} ELLIPSE ARC${approximated > 1 ? 'S' : ''} AS SPLINES` : ''}${left ? ` · LEFT OUT ${left}` : ''}`);
+  }
+  $('import-file').onchange = e => fileAction(async () => {
+    const file = e.target.files?.[0];
+    e.target.value = '';
+    if (file) await importDxf(await file.text(), file.name);
+  });
   $('import').onclick = () => fileAction(async () => {
+    if (!backend.importStep) return $('import-file').click();
     const r = await backend.importStep();
     if (!r) return;
+    if (r.dxf !== undefined) return importDxf(r.dxf, r.name);
     if (cmd) abort();
     sel.clear();
     record('IMPORT STEP', r.id);
