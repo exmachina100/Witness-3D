@@ -6,7 +6,7 @@ use std::path::Path as FilePath;
 use glam::DVec3;
 use opencascade::primitives::{BooleanKind, Edge, Face, Shape, ShapeHistory, ShapeType, Wire};
 
-use crate::{Blend, BooleanOp, DrawnLine, Extent, FaceRebuild, Frame, History, Kernel, KernelError, Motion, Path, Plane, Profile, RebuiltFace, Segment, SheetExtension, Tessellation, Traced};
+use crate::{Blend, BooleanOp, CombTooth, DrawnLine, Extent, FaceRebuild, Frame, History, Kernel, KernelError, Motion, Path, Plane, Profile, RebuiltFace, Segment, SheetExtension, Tessellation, Traced};
 
 pub struct Occt;
 
@@ -388,6 +388,10 @@ impl Kernel for Occt {
         let made = s.rebuild_faces(&idx, &p).map_err(shim)?;
         let info = rebuilt(s, &made, faces)?;
         Ok((made, info))
+    }
+
+    fn edge_curvature(&self, s: &Shape, edge: u32, n: usize) -> Result<Vec<CombTooth>, KernelError> {
+        Ok(s.edge_curvature(edge as usize, n).map_err(shim)?.into_iter().map(|(at, dir, k)| CombTooth { at, dir, k }).collect())
     }
 
     fn untrim_face(&self, s: &Shape, face: u32, keep_edges: bool) -> Result<Shape, KernelError> {

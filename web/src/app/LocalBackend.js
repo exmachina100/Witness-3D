@@ -16,6 +16,7 @@ import { extendSheet, extendSheetTo } from '../ExtendSheet.js';
 import { raiseFaces, rebuildFaces } from '../rebuildFace.js';
 import { matchFaces } from '../matchFace.js';
 import { compound, untrimFace } from '../untrim.js';
+import { edgeCurvature } from '../edgeCurvature.js';
 import { joinSheets, unjoin } from '../Join.js';
 import { hiddenLines } from '../Drawing.js';
 
@@ -669,6 +670,13 @@ export class LocalBackend {
         this.checkpoint();
         this.put(req.body, shape);
         return { id: req.body, scene: this.bodies() };
+    }
+
+    /** Plasticity's Toggle Surface Curvature: comb teeth { at, dir, k } along edge `edge` of `body`. */
+    async edgeCurvature({ body, edge, n = 160 }) {
+        const s = this.shapes.get(body);
+        if (!s) throw new Error('that body no longer exists');
+        return edgeCurvature(s, edge, Math.min(2000, Math.max(1, n)));
     }
 
     /** Plasticity's Untrim: a sheet of the whole surface under each of `faces` of `body`, edges imprinted with `keep`. */

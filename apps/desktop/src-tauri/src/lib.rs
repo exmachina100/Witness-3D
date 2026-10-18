@@ -388,6 +388,14 @@ async fn commit_pipe(
 }
 
 #[tauri::command]
+async fn edge_curvature(
+    model: State<'_, Model>,
+    req: api::EdgeCurvatureRequest,
+) -> Result<Vec<w3d_kernel::CombTooth>, api::ApiError> {
+    on_model(&model, move |m| api::edge_curvature(m, req)).await?
+}
+
+#[tauri::command]
 async fn preview_untrim(
     model: State<'_, Model>,
     req: api::UntrimRequest,
@@ -764,6 +772,7 @@ pub fn run() {
             commit_extend_sheet,
             preview_thicken,
             commit_thicken,
+            edge_curvature,
             preview_untrim,
             commit_untrim,
             preview_pipe,

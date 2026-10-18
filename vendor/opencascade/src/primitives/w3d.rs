@@ -353,6 +353,12 @@ impl Shape {
         Ok(Shape::from_shape(&shape))
     }
 
+    /// `n + 1` samples along edge `edge`: point, unit direction away from the bend, curvature.
+    pub fn edge_curvature(&self, edge: usize, n: usize) -> Result<Vec<([f64; 3], [f64; 3], f64)>, String> {
+        let v = ffi::w3d::w3d_edge_curvature(&self.inner, edge as i32, n as i32).map_err(reason)?;
+        Ok(v.chunks_exact(7).map(|s| ([s[0], s[1], s[2]], [s[3], s[4], s[5]], s[6])).collect())
+    }
+
     /// How far `other`'s face `face` strays from this shape's, at the same surface parameters.
     pub fn face_deviation(&self, other: &Shape, face: usize) -> Result<f64, String> {
         ffi::w3d::w3d_face_deviation(&self.inner, &other.inner, face as i32).map_err(reason)

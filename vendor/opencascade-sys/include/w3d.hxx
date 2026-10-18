@@ -3351,3 +3351,39 @@ inline std::unique_ptr<TopoDS_Shape> w3d_untrim_face(const TopoDS_Shape &shape, 
     throw w3d_kernel_error(f);
   }
 }
+
+// Plasticity's Toggle Surface Curvature: `n + 1` samples along edge `index` of `shape`, seven
+// numbers each: the point, the unit direction away from the centre of the bend (zero where the
+// edge is straight) and the curvature (1 / radius).
+inline rust::Vec<double> w3d_edge_curvature(const TopoDS_Shape &shape, int32_t index, int32_t n) {
+  TopTools_IndexedMapOfShape map;
+  TopExp::MapShapes(shape, TopAbs_EDGE, map);
+  if (index < 0 || index >= map.Extent()) throw std::out_of_range("that edge no longer exists");
+  const TopoDS_Edge e = TopoDS::Edge(map(index + 1));
+  if (BRep_Tool::Degenerated(e)) throw std::runtime_error("that edge is a single point");
+  if (n < 1) n = 1;
+  rust::Vec<double> out;
+  try {
+    BRepAdaptor_Curve c(e);
+    const double t0 = c.FirstParameter(), t1 = c.LastParameter();
+    for (int i = 0; i <= n; i++) {
+      gp_Pnt p;
+      gp_Vec d1, d2;
+      c.D2(t0 + (t1 - t0) * i / n, p, d1, d2);
+      const gp_Vec b = d1.Crossed(d2);
+      const double s = d1.Magnitude();
+      double k = 0;
+      gp_Vec away(0, 0, 0);
+      if (s > 1e-12 && b.Magnitude() > 1e-12 * s * s * s) {
+        k = b.Magnitude() / (s * s * s);
+        // The principal normal points at the centre; the teeth stand on the other side.
+        away = d1.Crossed(b);
+        away.Normalize();
+      }
+      for (double v : {p.X(), p.Y(), p.Z(), away.X(), away.Y(), away.Z(), k}) out.push_back(v);
+    }
+  } catch (const Standard_Failure &f) {
+    throw w3d_kernel_error(f);
+  }
+  return out;
+}
