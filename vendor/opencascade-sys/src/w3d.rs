@@ -73,6 +73,7 @@ mod inner {
         pub fn w3d_solid_at(shape: &TopoDS_Shape, index: i32) -> Result<UniquePtr<TopoDS_Shape>>;
         pub fn w3d_project(shape: &TopoDS_Shape, faces: &[i32], data: &[f64], length: f64, both: bool, hide: bool) -> Result<Vec<f64>>;
         pub fn w3d_meet_curves(a: &TopoDS_Shape, b: &TopoDS_Shape) -> Result<Vec<f64>>;
+        pub fn w3d_isoparam(shape: &TopoDS_Shape, face: i32, point: &[f64], along_u: bool) -> Result<Vec<f64>>;
         pub fn w3d_project_curve_curve(data: &[f64], length: f64) -> Result<Vec<f64>>;
         pub fn w3d_bridge_surface(shape: &TopoDS_Shape, a: i32, b: i32, tension: f64) -> Result<UniquePtr<TopoDS_Shape>>;
         pub fn w3d_project_outline(shape: &TopoDS_Shape, plane: &[f64]) -> Result<Vec<f64>>;

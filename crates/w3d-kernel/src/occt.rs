@@ -324,6 +324,10 @@ impl Kernel for Occt {
         nurbs_paths(&s.project_curves(&faces, &cutter_numbers(curves)?, length, both, hide).map_err(shim)?)
     }
 
+    fn isoparam(&self, s: &Shape, face: u32, point: DVec3, along_u: bool) -> Result<Vec<Path>, KernelError> {
+        nurbs_paths(&s.isoparam(face as usize, point.to_array(), along_u).map_err(shim)?)
+    }
+
     fn meet(&self, a: &Shape, b: &Shape) -> Result<Vec<Path>, KernelError> {
         nurbs_paths(&a.meet_curves(b).map_err(shim)?)
     }

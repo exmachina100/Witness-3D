@@ -1173,6 +1173,8 @@ pub enum ProjectRequest {
     /// The body's outline seen along `normal`, drawn on the plane through `origin`.
     Outline { body: BodyId, origin: [f64; 3], normal: [f64; 3] },
     CurveCurve { curves: [CurveId; 2] },
+    /// Isoparam: the curve on `face` through `point`, along u (`u`) or v.
+    Isoparam { body: BodyId, face: u32, point: [f64; 3], u: bool },
 }
 
 /// The curves Project would make, without changing the document; Add Curves keeps them.
@@ -1185,6 +1187,7 @@ pub fn preview_project(m: &Model, req: ProjectRequest) -> Option<Result<Vec<Curv
             doc.preview_outline(body, DVec3::from(origin), normal, normal.any_orthonormal_vector())?
         }
         ProjectRequest::CurveCurve { curves: [a, b] } => doc.preview_project_curves(a, b)?,
+        ProjectRequest::Isoparam { body, face, point, u } => vec![doc.preview_isoparam(body, face, DVec3::from(point), u)?],
     }))
 }
 

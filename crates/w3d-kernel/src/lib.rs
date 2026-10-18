@@ -308,6 +308,10 @@ pub trait Kernel {
         Err(KernelError::Invalid("this kernel cannot project curves"))
     }
     /// Plasticity's Project Body Body: the curves where two bodies meet.
+    /// Plasticity's Isoparam: the curve on a face through `point` along u (v held) or along v.
+    fn isoparam(&self, _s: &Self::Solid, _face: u32, _point: DVec3, _along_u: bool) -> Result<Vec<Path>, KernelError> {
+        Err(KernelError::Invalid("this kernel cannot draw isoparams"))
+    }
     fn meet(&self, _a: &Self::Solid, _b: &Self::Solid) -> Result<Vec<Path>, KernelError> {
         Err(KernelError::Invalid("this kernel cannot project bodies"))
     }

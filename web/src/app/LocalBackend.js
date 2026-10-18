@@ -7,7 +7,7 @@ import { NoOpError } from '../GeometryFactory.js';
 import { arrayMotions, blendEdges, booleanWithHistory, bounds, box, count, draftFaces, faceSheet, imprintWithHistory, planeSheet, unifyWithHistory, boundaryEdges, splitWithHistory, draftWithHistory, exportSTEP, facePlane, mirror, numberedEdges, oc, primitive, shellFaces, tessellate, transform, volume } from '../Kernel.js';
 import { cutSheets, loft, loftGuided, offsetFlatFaces, pipe, regionFace, revolve, splineSamples, sweep, sweepGuided } from '../Forms.js';
 import { curveFromNurbs, ends, join, loops, MEET, nurbsLoop } from '../curves.js';
-import { meetCurves, projectCurveCurve, projectCurves } from '../Project.js';
+import { isoparam, meetCurves, projectCurveCurve, projectCurves } from '../Project.js';
 import { isSheet, patch } from '../Patch.js';
 import { bridgeSurface } from '../BridgeSurface.js';
 import { projectOutline } from '../Outline.js';
@@ -458,6 +458,7 @@ export class LocalBackend {
             const [a, b] = req.curves.map(curve);
             return projectCurveCurve(a, b, this.sheetSize()).map(p => curveFromNurbs(p, a.normal.map(v => -v)));
         }
+        if (req.mode === 'isoparam') return [curveFromNurbs(isoparam(shape(req.body), req.face, req.point, !!req.u), [0, -1, 0])];
         if (req.mode === 'outline') {
             const normal = new THREE.Vector3(...req.normal);
             if (!(normal.length() > 1e-12)) throw new Error('the plane has no normal');

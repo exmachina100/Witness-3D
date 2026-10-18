@@ -827,6 +827,14 @@ impl<K: Kernel> Document<K> {
         self.kernel.project(s, faces, &paths, SHEET, both, hide)?.iter().map(|p| Curve::from_nurbs(p, dir)).collect()
     }
 
+    /// Plasticity's Isoparam, without changing the document: the curve on face `face` through
+    /// `point` along the face's u (v held) or v, cut to the face.
+    pub fn preview_isoparam(&self, body: BodyId, face: u32, point: DVec3, along_u: bool) -> Result<Curve, KernelError> {
+        let s = self.get(body).ok_or(KernelError::Invalid("that body no longer exists"))?;
+        let paths = self.kernel.isoparam(s, face, point, along_u)?;
+        Curve::from_nurbs(paths.first().ok_or(KernelError::Invalid("the isoparam could not be found there"))?, DVec3::NEG_Y)
+    }
+
     /// Plasticity's Project Body Body, without changing the document: the curves where two bodies meet.
     pub fn preview_meet(&self, a: BodyId, b: BodyId) -> Result<Vec<Curve>, KernelError> {
         if a == b { return Err(KernelError::Invalid("select two different bodies")) }

@@ -130,6 +130,7 @@ const KEYS = {
   bridge: [['T / D', 'TENSION'], ['TAB', 'CONTINUITY G0 G1 G2'], ['⏎ / RMB', 'OK']],
   trim: [['CLICK', 'PIECE TO CUT AWAY'], ['CTRL Z', 'UNDO ONE'], ['ESC / ⏎', 'DONE']],
   'insert-knot': [['CLICK', 'ADD A CONTROL POINT'], ['ESC / ⏎', 'DONE']],
+  'isoparam': [['HOVER', 'FACE'], ['CLICK', 'KEEP'], ['TAB', 'U / V'], ['⏎ / RMB', 'DONE']],
   'offset-edge': [['D', 'DISTANCE'], ['−', 'OTHER FACE'], ['S', 'BOTH SIDES'], ['V', 'GAP FILL'], ['⏎ / RMB', 'OK']],
   box: [['CLICK', 'CORNER · CORNER · HEIGHT'], ['C', 'FROM CENTRE'], ['S', 'SQUARE'], ['TAB', 'TYPE'], ['H', 'HEIGHT'], ['Q W ⇧E ⇧Q', 'BOOLEAN'], ['B', 'NEW BODY'], ['⏎ / RMB', 'OK']],
   'center-box': [['CLICK', 'CENTRE · CORNER · HEIGHT'], ['C', 'FROM CORNER'], ['S', 'SQUARE'], ['TAB', 'TYPE'], ['H', 'HEIGHT'], ['Q W ⇧E ⇧Q', 'BOOLEAN'], ['B', 'NEW BODY'], ['⏎ / RMB', 'OK']],
@@ -157,7 +158,7 @@ const CLICKS = { rect: 2, 'center-rect': 2, rect3: 3, circle: 2, circle2: 2, cir
 const FORMS = { revolve: true, loft: true, sweep: true };
 const PRIMS = { box: true, 'center-box': true, box3: true, cylinder: true, sphere: true };
 // Commands that aren't tools in the registry (they act on a click, not on settings).
-const EDITS = { 'offset-vertex': 'OFFSET VERTEX', 'fillet-vertex': 'FILLET VERTEX', 'align-vertex': 'ALIGN VERTEX', rebuild: 'REBUILD CURVE', 'insert-knot': 'INSERT KNOT', 'offset-edge': 'OFFSET EDGE', material: 'SET MATERIAL', 'export-mesh': 'EXPORT MESH', 'export-drawing': 'EXPORT DRAWING', 'measure-continuity': 'MEASURE CONTINUITY', trim: 'TRIM', extend: 'EXTEND CURVE', 'tangent-circle': 'TANGENT CIRCLE', split: 'SPLIT CURVE', 'measure-distance': 'MEASURE DISTANCE', 'measure-radius': 'MEASURE RADIUS' };
+const EDITS = { isoparam: 'ISOPARAM', 'offset-vertex': 'OFFSET VERTEX', 'fillet-vertex': 'FILLET VERTEX', 'align-vertex': 'ALIGN VERTEX', rebuild: 'REBUILD CURVE', 'insert-knot': 'INSERT KNOT', 'offset-edge': 'OFFSET EDGE', material: 'SET MATERIAL', 'export-mesh': 'EXPORT MESH', 'export-drawing': 'EXPORT DRAWING', 'measure-continuity': 'MEASURE CONTINUITY', trim: 'TRIM', extend: 'EXTEND CURVE', 'tangent-circle': 'TANGENT CIRCLE', split: 'SPLIT CURVE', 'measure-distance': 'MEASURE DISTANCE', 'measure-radius': 'MEASURE RADIUS' };
 const keysHtml = id => KEYS[id].map(([k, v]) => `<kbd>${k}</kbd><span>${v}</span>`).join('');
 // The Command Bar, exactly the manual's list (Plasticity Essentials › Command Bar).
 const BAR = [['palette', 'F', 'SEARCH'], ['tool:move', 'G', 'MOVE'], ['tool:rotate', 'R', 'ROTATE'], ['tool:scale', 'S', 'SCALE'], ['duplicate', '⇧D', 'DUPLICATE'], ['tool:boolean', 'Q', 'BOOLEAN'], ['tool:rect-array', '', 'RECTANGULAR ARRAY'], ['tool:radial-array', '', 'RADIAL ARRAY'], ['suggest', '⇧F', 'SUGGESTED COMMANDS']];
@@ -335,6 +336,14 @@ const SHELL = `
       <span class="label">GAP FILL</span>
       <div class="chips"><button data-oecorner="linear" aria-pressed="true">LINEAR</button><button data-oecorner="round" aria-pressed="false">ROUND</button><button data-oecorner="natural" aria-pressed="false">NATURAL</button></div>
       <div class="chips"><button data-id="oe-both" aria-pressed="false" title="Offset onto both faces of the edge at once"><kbd>S</kbd>BOTH SIDES</button></div>
+    </div>
+    <div class="sec" data-panel="isoparam" hidden>
+      <span class="hint" data-id="iso-hint">HOVER A FACE</span>
+      <span class="label">DIRECTION</span>
+      <div class="seg" role="group" aria-label="Direction">
+        <button data-isodir="u" aria-pressed="true" title="The curve that runs along the face's u, v held"><kbd>U</kbd>ALONG U</button>
+        <button data-isodir="v" aria-pressed="false" title="The curve that runs along the face's v, u held"><kbd>V</kbd>ALONG V</button>
+      </div>
     </div>
     <div class="sec" data-panel="offset-vertex" hidden>
       <span class="hint" data-id="ov-hint">—</span>
@@ -663,10 +672,10 @@ const VIEWS = {
 export async function mount(root, backend) {
   root.innerHTML = SHELL;
   // Panel options carry their icon ahead of the key and name.
-  for (const b of root.querySelectorAll('[data-draw],[data-bop],[data-xop],[data-fop],[data-spiral],[data-toggle],[data-gmethod],[data-galign],[data-grow],[data-avaxis],[data-extshape],[data-id="ex-lock"],[data-id="bool-keep"],[data-id="ex-free"],[data-id="ex-pivot"],[data-id="ex-individual"],[data-id="dr-hidden"],[data-id="dr-curves"],[data-id="oc-lock"],[data-id="oc-free"],[data-id="oc-slot"],[data-id="oc-combine"]')) {
+  for (const b of root.querySelectorAll('[data-draw],[data-bop],[data-xop],[data-fop],[data-spiral],[data-toggle],[data-gmethod],[data-galign],[data-grow],[data-avaxis],[data-extshape],[data-isodir],[data-id="oe-both"],[data-id="ex-lock"],[data-id="bool-keep"],[data-id="ex-free"],[data-id="ex-pivot"],[data-id="ex-individual"],[data-id="dr-hidden"],[data-id="dr-curves"],[data-id="oc-lock"],[data-id="oc-free"],[data-id="oc-slot"],[data-id="oc-combine"]')) {
     const name = b.dataset.draw ?? b.dataset.bop ?? b.dataset.xop ?? b.dataset.fop ?? b.dataset.spiral ?? (b.dataset.toggle && `view-${b.dataset.toggle}`)
-      ?? (b.dataset.gmethod && `guide-${b.dataset.gmethod}`) ?? (b.dataset.galign && `align-${b.dataset.galign}`) ?? (b.dataset.grow && `grow-${b.dataset.grow}`) ?? (b.dataset.avaxis && `axis-${b.dataset.avaxis}`) ?? (b.dataset.extshape && `extend-${b.dataset.extshape}`)
-      ?? { 'ex-lock': 'lock', 'bool-keep': 'keep', 'ex-free': 'freestyle', 'ex-pivot': 'pivot', 'ex-individual': 'individual', 'dr-hidden': 'hidden-lines', 'dr-curves': 'drawing-curves', 'oc-lock': 'lock', 'oc-free': 'freestyle', 'oc-slot': 'slot', 'oc-combine': 'combine' }[b.dataset.id];
+      ?? (b.dataset.gmethod && `guide-${b.dataset.gmethod}`) ?? (b.dataset.galign && `align-${b.dataset.galign}`) ?? (b.dataset.grow && `grow-${b.dataset.grow}`) ?? (b.dataset.avaxis && `axis-${b.dataset.avaxis}`) ?? (b.dataset.extshape && `extend-${b.dataset.extshape}`) ?? (b.dataset.isodir && `iso-${b.dataset.isodir}`)
+      ?? { 'ex-lock': 'lock', 'bool-keep': 'keep', 'ex-free': 'freestyle', 'ex-pivot': 'pivot', 'ex-individual': 'individual', 'dr-hidden': 'hidden-lines', 'dr-curves': 'drawing-curves', 'oc-lock': 'lock', 'oc-free': 'freestyle', 'oc-slot': 'slot', 'oc-combine': 'combine', 'oe-both': 'both-sides' }[b.dataset.id];
     b.insertAdjacentHTML('afterbegin', icon(name));
   }
   const $ = id => root.querySelector(`[data-id="${id}"]`);
@@ -3785,6 +3794,83 @@ export async function mount(root, backend) {
   }
 
   /**
+   * Plasticity's Isoparam: hover a face to see its u or v curve through the pointer, cut to the face;
+   * each click keeps one as a curve. Tab (or U, V) switches direction; Enter finishes.
+   */
+  function startIsoparam() {
+    if (!backend.previewProject) return toast('ISOPARAM IS NOT IN THIS BUILD YET');
+    const c = cmd = { id: 'isoparam', u: true, at: null, out: null, made: [], sent: 0, shown: 0 };
+    lastTool = 'isoparam';
+    showTool('isoparam');
+    setState('none');
+    setTarget('—');
+    setHud('HOVER A FACE');
+    const faceAt = e => {
+      ray(e);
+      const hit = raycaster.intersectObjects(shownMeshes().filter(m => !org.locked.has(m.userData.id)), false)[0];
+      if (!hit) return null;
+      const { id, faceIds } = hit.object.userData;
+      return { body: id, face: faceIds[hit.faceIndex], point: hit.point.toArray() };
+    };
+    const kept = () => `${c.made.length} KEPT · TAB FOR ${c.u ? 'V' : 'U'}`;
+    c.setDir = u => {
+      c.u = u;
+      for (const b of $$('[data-isodir]')) b.setAttribute('aria-pressed', String((b.dataset.isodir === 'u') === u));
+      $('iso-hint').textContent = kept();
+      c.preview();
+    };
+    c.preview = () => {
+      if (!c.at) return;
+      const req = { mode: 'isoparam', body: c.at.body, face: c.at.face, point: c.at.point, u: c.u };
+      livePreview(c, () => backend.previewProject(req), out => {
+        c.out = out;
+        showCurvePreview(out);
+        setTarget(`${label(req.body)} · FACE ${req.face}`);
+        setHud(`ISOPARAM ${c.u ? 'U' : 'V'} · CLICK TO KEEP`);
+        $('iso-hint').textContent = kept();
+      }, 'iso-hint');
+    };
+    c.move = e => {
+      const at = faceAt(e);
+      c.at = at;
+      c.out = null;
+      if (!at) { clearPreview(); return setHud('HOVER A FACE'); }
+      c.preview();
+    };
+    c.click = e => {
+      const at = faceAt(e);
+      if (!at) return true;
+      const shown = c.out && c.at && c.at.body === at.body && c.at.face === at.face ? c.out : null;
+      (async () => {
+        try {
+          // What the hover showed, or (before it arrives) the same curve asked for now.
+          const out = shown ?? await backend.previewProject({ mode: 'isoparam', body: at.body, face: at.face, point: at.point, u: c.u });
+          if (!out?.length) return;
+          const { ids } = await backend.addCurves(out);
+          c.made.push(...ids);
+          record(`ISOPARAM ${c.u ? 'U' : 'V'}`, ids[0], curveLabel(ids[0]));
+          await loadCurves();
+          $('iso-hint').textContent = kept();
+        } catch (err) { setState('failed'); toast(say(err)); }
+      })();
+      return true;
+    };
+    c.key = action => {
+      if (action === 'direction') c.setDir(!c.u);
+      else if (action === 'u' || action === 'v') c.setDir(action === 'u');
+      else return false;
+      return true;
+    };
+    c.finish = async () => {
+      const made = c.made;
+      endCmd(made.length ? 'committed' : 'cancelled');
+      if (made.length) await curvesChanged(made);
+    };
+    c.abort = () => c.finish();
+    c.cleanup = () => clearPreview();
+  }
+
+  /**
    * Plasticity's Rebuild Curve: refit the selected curves as smooth NURBS curves with a set number
    * of control points and degree. The new control polygon shows while you set them, and the hint
    * gives how far the new curve strays from the old.
@@ -6073,6 +6159,7 @@ export async function mount(root, backend) {
       case 'unify': await unifySelected(); return true;
       case 'boundary-edges': await findBoundaryEdges(); return true;
       case 'remove-fillets': await removeFillets(); return true;
+      case 'isoparam': if (cmd) await finish(); startIsoparam(); return true;
       case 'reverse-sheet': await reverseSheets(); return true;
       // Plasticity's Slot: Offset Curve with Offset Region's slot on (an open curve closed round its ends).
       case 'slot': await startCurveEdit('offset-curve'); if (cmd?.id === 'offset-curve' && !cmd.slot) cmd.key('slot'); return true;
@@ -6219,7 +6306,7 @@ export async function mount(root, backend) {
     if (sel.solids.length > 1) out.push('tool:boolean');
     if (sel.solids.length === 2) out.push('tool:project');
     if (kinds.has('solid')) out.push('tool:move', 'tool:rotate', 'tool:scale', 'duplicate', 'tool:mirror', 'tool:rect-array', 'tool:radial-array', 'tool:curve-array', 'unify', 'boundary-edges', 'remove-fillets', 'delete', 'hide', 'isolate', 'group', 'lock', 'material:set', 'export:step', 'export:mesh', 'export:drawing');
-    if (kinds.has('face')) out.push('tool:extrude', 'tool:offset', 'tool:thicken', 'tool:shell', 'tool:hole', 'tool:remove-face', 'remove-fillets', 'plane:selection', 'plane:selection-keep-view');
+    if (kinds.has('face')) out.push('tool:extrude', 'tool:offset', 'tool:thicken', 'tool:shell', 'tool:hole', 'tool:remove-face', 'remove-fillets', 'isoparam', 'plane:selection', 'plane:selection-keep-view');
     if (kinds.has('edge')) out.push('tool:fillet', 'tool:patch', 'measure:radius');
     if (sel.list('edge').length === 2) out.push('tool:bridge-surface');
     if (sel.solids.some(id => current.find(b => b.id === id)?.sheet)) out.push('tool:thicken', 'reverse-sheet');
@@ -6618,6 +6705,7 @@ export async function mount(root, backend) {
   $('oe-d').addEventListener('input', () => cmd?.id === 'offset-edge' && cmd.preview());
   for (const b of $$('[data-oecorner]')) b.onclick = () => cmd?.id === 'offset-edge' && cmd.setCorner(b.dataset.oecorner);
   $('oe-both').onclick = () => cmd?.id === 'offset-edge' && cmd.setBoth(!cmd.both);
+  for (const b of $$('[data-isodir]')) b.onclick = () => cmd?.id === 'isoparam' && cmd.setDir(b.dataset.isodir === 'u');
   for (const b of $$('[data-avaxis]')) b.onclick = () => cmd?.id === 'align-vertex' && cmd.setAxis(b.dataset.avaxis);
   for (const id of ['oc-d', 'fc-r', 'ov-d', 'fv-r']) $(id).addEventListener('input', () => ['offset-curve', 'fillet-curve', 'offset-vertex', 'fillet-vertex'].includes(cmd?.id) && cmd.preview());
   $('br-start').onclick = () => cmd?.id === 'bridge' && cmd.cycleEnd(0);

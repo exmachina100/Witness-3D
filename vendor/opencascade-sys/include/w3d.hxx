@@ -109,6 +109,8 @@
 #include <TopTools_IndexedDataMapOfShapeListOfShape.hxx>
 #include <cmath>
 #include <set>
+#include <GeomAPI_ProjectPointOnSurf.hxx>
+#include <Geom_Surface.hxx>
 #include <TopTools_IndexedMapOfShape.hxx>
 #include <TopoDS.hxx>
 #include <TopoDS_Edge.hxx>
@@ -1873,6 +1875,54 @@ inline rust::Vec<double> w3d_meet_curves(const TopoDS_Shape &a, const TopoDS_Sha
     return w3d_curves_out(edges);
   } catch (const Standard_Failure &f) {
     throw w3d_kernel_error(f);
+  }
+}
+
+// Plasticity's Isoparam: the curve on face `face` of `shape` through `point` along which one
+// surface parameter stays put: v when `along_u` (the curve runs along u), else u. It is cut to the
+// face, and of the pieces the face leaves, the one nearest the point is kept.
+inline rust::Vec<double> w3d_isoparam(const TopoDS_Shape &shape, int32_t face, rust::Slice<const double> point, bool along_u) {
+  if (point.size() != 3) throw std::runtime_error("the point needs three numbers");
+  try {
+    TopTools_IndexedMapOfShape faces;
+    TopExp::MapShapes(shape, TopAbs_FACE, faces);
+    if (face < 0 || face >= faces.Extent()) throw std::out_of_range("that face no longer exists");
+    TopoDS_Face f = TopoDS::Face(faces(face + 1));
+    f.Orientation(TopAbs_FORWARD);
+    Handle(Geom_Surface) s = BRep_Tool::Surface(f);
+    gp_Pnt p(point[0], point[1], point[2]);
+    GeomAPI_ProjectPointOnSurf proj(p, s);
+    if (!proj.NbPoints()) throw std::runtime_error("that point is not on the face");
+    Standard_Real u, v, u0, u1, v0, v1;
+    proj.LowerDistanceParameters(u, v);
+    BRepTools::UVBounds(f, u0, u1, v0, v1);
+    Handle(Geom_Curve) iso = along_u ? s->VIso(v) : s->UIso(u);
+    double a = along_u ? u0 : v0, b = along_u ? u1 : v1;
+    if (!iso->IsPeriodic()) { a = std::max(a, iso->FirstParameter()); b = std::min(b, iso->LastParameter()); }
+    if (b - a < 1e-9) throw std::runtime_error("the face is too thin there for an isoparam");
+    TopoDS_Edge whole = BRepBuilderAPI_MakeEdge(iso, a, b);
+    std::vector<TopoDS_Edge> pieces;
+    BRepAlgoAPI_Common common(whole, f);
+    if (common.IsDone() && !common.HasErrors())
+      for (TopExp_Explorer ex(common.Shape(), TopAbs_EDGE); ex.More(); ex.Next()) pieces.push_back(TopoDS::Edge(ex.Current()));
+    if (pieces.empty()) pieces.push_back(whole);
+    // Pieces that meet end to end are one run; keep the run nearest the point.
+    Handle(TopTools_HSequenceOfShape) in = new TopTools_HSequenceOfShape(), wires;
+    for (const auto &e : pieces) in->Append(e);
+    ShapeAnalysis_FreeBounds::ConnectEdgesToWires(in, 1e-5, Standard_False, wires);
+    TopoDS_Vertex at = BRepBuilderAPI_MakeVertex(p);
+    int best = 0;
+    double least = 1e300;
+    for (int i = 1; i <= wires->Length(); i++) {
+      BRepExtrema_DistShapeShape d(at, wires->Value(i));
+      if (d.IsDone() && d.Value() < least) { least = d.Value(); best = i; }
+    }
+    if (!best) throw std::runtime_error("the isoparam could not be found there");
+    std::vector<TopoDS_Edge> kept;
+    for (TopExp_Explorer ex(wires->Value(best), TopAbs_EDGE); ex.More(); ex.Next()) kept.push_back(TopoDS::Edge(ex.Current()));
+    return w3d_curves_out(kept);
+  } catch (const Standard_Failure &e) {
+    throw w3d_kernel_error(e);
   }
 }
 
