@@ -1282,6 +1282,9 @@ pub struct ExtendSheetRequest {
     /// linear, natural, soft or reflective.
     #[serde(default)]
     pub shape: Option<SheetExtension>,
+    /// Limit: carry on until this body, instead of by `distance`.
+    #[serde(default)]
+    pub limit: Option<BodyId>,
 }
 
 impl ExtendSheetRequest {
@@ -1292,14 +1295,14 @@ impl ExtendSheetRequest {
 
 pub fn preview_extend_sheet(m: &Model, req: ExtendSheetRequest) -> Option<Result<Body, ApiError>> {
     m.preview(move |doc| {
-        let sheet = doc.preview_extend_sheet(req.body, req.edge, req.distance, req.shape())?;
+        let sheet = doc.preview_extend_sheet(req.body, req.edge, req.distance, req.shape(), req.limit)?;
         Ok(body(&doc.kernel, req.body, &sheet)?)
     })
 }
 
 pub fn commit_extend_sheet(m: &Model, req: ExtendSheetRequest) -> Result<Committed, ApiError> {
     m.call(move |doc| {
-        let id = doc.commit_extend_sheet(req.body, req.edge, req.distance, req.shape())?;
+        let id = doc.commit_extend_sheet(req.body, req.edge, req.distance, req.shape(), req.limit)?;
         Ok(Committed { id, scene: bodies(doc)? })
     })
 }

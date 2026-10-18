@@ -253,7 +253,8 @@ export function extendSheet(shape, n, distance, natural = false) {
         }
     }
     if (!grown) {
-        if (kind === 'soft' || kind === 'reflective') throw new Error("soft and reflective extend a side of the sheet's surface; that edge is trimmed across it");
+        // A flat sheet has no curvature to keep or mirror: Soft and Reflective carry it straight on.
+        if ((kind === 'soft' || kind === 'reflective') && ad.GetType() !== o.GeomAbs_SurfaceType.GeomAbs_Plane) throw new Error("soft and reflective extend a side of the sheet's surface; that edge is trimmed across it");
         const curve = new o.BRepAdaptor_Curve(edge);
         if (ad.GetType() !== o.GeomAbs_SurfaceType.GeomAbs_Plane || curve.GetType() !== o.GeomAbs_CurveType.GeomAbs_Line) {
             throw new Error("extend a side of the sheet's surface, or a straight edge of a flat sheet; that edge is trimmed across its surface");
@@ -286,5 +287,68 @@ export function extendSheet(shape, n, distance, natural = false) {
         result = sew.SewedShape();
     }
     if (!new o.BRepCheck_Analyzer(result, true, false, false).IsValid()) throw new Error('the extended sheet is not valid; try a shorter distance');
+    return result;
+}
+
+/**
+ * Extend Sheet's Limit (Plasticity's Minimal), as w3d_extend_sheet_to does it on the desktop: sheet
+ * `shape` carried on past its open edge `n` in shape `kind` until it first meets `target`. The sheet
+ * is extended well past the target, split by it, and the pieces reached from the edge without
+ * crossing the target are kept.
+ */
+export function extendSheetTo(shape, n, target, kind = 'natural') {
+    const o = oc();
+    if (kind === 'reflective') throw new Error("reflective mirrors only as much sheet as there is, so it can't reach to a body; pick another shape");
+    const edge = numberedEdges(shape)[n];
+    if (!edge) throw new Error('that edge no longer exists');
+    const along = new o.BRepAdaptor_Curve(edge);
+    const mid = new o.BRepBuilderAPI_MakeVertex(along.Value((along.FirstParameter() + along.LastParameter()) / 2)).Shape();
+    const box = new o.Bnd_Box();
+    o.BRepBndLib.Add(shape, box, false);
+    o.BRepBndLib.Add(target, box, false);
+    const far = Math.sqrt(box.SquareExtent()) * 1.5;
+    let grown;
+    try { grown = extendSheet(shape, n, far, kind); } catch { throw new Error("the sheet can't be carried on as far as that body in this shape; try Linear"); }
+    const args = new o.NCollection_List_TopoDS_Shape(), tools = new o.NCollection_List_TopoDS_Shape();
+    args.Append(grown);
+    tools.Append(target);
+    const split = new o.BRepAlgoAPI_Splitter();
+    split.SetArguments(args);
+    split.SetTools(tools);
+    split.Build(new o.Message_ProgressRange());
+    if (!split.IsDone() || split.HasErrors()) throw new Error('the extension could not be cut at that body');
+    const near = (a, b, tol) => { const d = new o.BRepExtrema_DistShapeShape(a, b); return d.IsDone() && d.Value() < tol; };
+    const faces = numbered(split.Shape(), 'TopAbs_FACE').map(f => o.TopoDS.Face(f));
+    const edgesOf = faces.map(f => numberedEdges(f));
+    const meets = new Map();
+    const onTarget = e => {
+        for (const [k, v] of meets) if (k.IsSame(e)) return v;
+        let on = false;
+        if (!o.BRep_Tool.Degenerated(e)) {
+            const c = new o.BRepAdaptor_Curve(e);
+            on = near(new o.BRepBuilderAPI_MakeVertex(c.Value((c.FirstParameter() + c.LastParameter()) / 2)).Shape(), target, 1e-5);
+        }
+        meets.set(e, on);
+        return on;
+    };
+    const keep = faces.map(f => near(mid, f, 1e-6));
+    const todo = keep.flatMap((k, i) => k ? [i] : []);
+    if (!todo.length) throw new Error('the extension lost track of its edge');
+    let reached = false;
+    while (todo.length) {
+        const f = todo.pop();
+        for (const e of edgesOf[f]) {
+            if (onTarget(e)) { reached = true; continue; }
+            edgesOf.forEach((es, g) => {
+                if (!keep[g] && es.some(x => x.IsSame(e))) { keep[g] = true; todo.push(g); }
+            });
+        }
+    }
+    if (!reached) throw new Error('the extension never meets that body; pick a body the edge points at');
+    const sew = new o.BRepBuilderAPI_Sewing(1e-6, true, true, true, false);
+    faces.forEach((f, i) => keep[i] && sew.Add(f));
+    sew.Perform(new o.Message_ProgressRange());
+    const result = sew.SewedShape();
+    if (!new o.BRepCheck_Analyzer(result, true, false, false).IsValid()) throw new Error('the extended sheet is not valid');
     return result;
 }
