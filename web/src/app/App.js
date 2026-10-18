@@ -62,6 +62,7 @@ import { edgeOffsetsBothSides, edgeOffsetsOnFace, faceLoopOffsets } from '../edg
 import { curveArrayMotions } from '../curveArray.js';
 import { curveDimensions, faceDimensions, solidDimensions } from '../dimension.js';
 import { edgeCurve, flattenCurve } from '../altDuplicate.js';
+import { liftPiece, meshSilhouette, nearestOver } from '../createOutline.js';
 import { Organise } from './Organise.js';
 import { P_MENU, RADIALS, mergeKeys, parseRadial, shortLabel, showKey, sliceAt, slicePosition } from './menus.js';
 import { ENVIRONMENTS, SHADERS, SHADER_OPTIONS, checkMaterial, formatMass, massOf, newMaterial, shader } from './shading.js';
@@ -6863,6 +6864,42 @@ export async function mount(root, backend) {
       startTransform('move');
     } catch (e) { setState('failed'); toast(say(e)); }
   }
+  /**
+   * Plasticity's Create Outline: the selected solids' and sheets' outline seen along the construction
+   * plane's normal, as 3D curves on the bodies (Project Outline's flat outline lifted back onto each
+   * body), then the Move gizmo to place them.
+   */
+  async function createOutline() {
+    if (cmd) await finish();
+    if (!backend.previewProject || !backend.addCurves) return toast('CREATE OUTLINE IS NOT IN THIS BUILD YET');
+    const ids = targetBodies().filter(b => org.shows(b));
+    if (!ids.length) return toast('SELECT SOLIDS OR SHEETS TO OUTLINE');
+    const normal = cplane.normal.toArray(), made = [];
+    try {
+      for (const id of ids) {
+        const flat = await backend.previewProject({ mode: 'outline', body: id, origin: cplane.origin.toArray(), normal });
+        const b = bodyOf(id), mesh = bodyMesh(id), size = new THREE.Box3().setFromObject(mesh).getSize(new THREE.Vector3()).length();
+        const edges = (b?.edges ?? []).map(e => { const pts = []; for (let i = 0; i + 2 < e.length; i += 3) pts.push([e[i], e[i + 1], e[i + 2]]); return pts; });
+        // The body's point over P: on the viewport mesh's silhouette seen along the normal.
+        const tris = [];
+        mesh.updateMatrixWorld();
+        mesh.traverse(o => {
+          if (!o.isMesh) return;
+          const at = o.geometry.getAttribute('position'), ix = o.geometry.getIndex(), v = new THREE.Vector3();
+          const n = ix ? ix.count : at.count;
+          for (let i = 0; i < n; i++) { v.fromBufferAttribute(at, ix ? ix.getX(i) : i).applyMatrix4(o.matrixWorld); tris.push(v.x, v.y, v.z); }
+        });
+        const tol = Math.max(1e-3, size * 2e-4), rim = meshSilhouette(tris, normal, tol / 10);
+        const cast = P => nearestOver(P, rim, normal, tol, size * 0.05);
+        for (const piece of flat) made.push(...liftPiece(piece, { normal, edges, cast, tol, loose: size * 0.01 }));
+      }
+      if (!made.length) return toast('NO OUTLINE LIES ON THOSE BODIES');
+      const { ids: curves } = await backend.addCurves(made);
+      record(`CREATE OUTLINE ×${curves.length} ALONG ${cplane.name} NORMAL`, curves[0], curveLabel(curves[0]));
+      await curvesChanged(curves);
+      startTransform('move');
+    } catch (e) { setState('failed'); toast(say(e)); }
+  }
   function setHidden(ids, hide) {
     org.setHidden(ids, hide);
     organised();
@@ -6984,6 +7021,7 @@ export async function mount(root, backend) {
       case 'delete': await deleteSelected(); return true;
       case 'duplicate': await duplicateSelected(); return true;
       case 'alt-duplicate': await altDuplicate(); return true;
+      case 'create-outline': await createOutline(); return true;
       case 'join': await joinSelected(); return true;
       case 'trim': await startTool('trim'); return true;
       case 'extend': await startTool('extend'); return true;
@@ -7150,7 +7188,7 @@ export async function mount(root, backend) {
     const out = [];
     if (sel.solids.length > 1) out.push('tool:boolean');
     if (sel.solids.length === 2) out.push('tool:project');
-    if (kinds.has('solid')) out.push('tool:move', 'tool:rotate', 'tool:scale', 'duplicate', 'place', 'dimension', 'tool:mirror', 'tool:rect-array', 'tool:radial-array', 'tool:curve-array', 'unify', 'boundary-edges', 'remove-fillets', 'raise-degree', 'delete', 'hide', 'isolate', 'group', 'lock', 'material:set', 'export:step', 'export:mesh', 'export:drawing');
+    if (kinds.has('solid')) out.push('tool:move', 'tool:rotate', 'tool:scale', 'duplicate', 'create-outline', 'place', 'dimension', 'tool:mirror', 'tool:rect-array', 'tool:radial-array', 'tool:curve-array', 'unify', 'boundary-edges', 'remove-fillets', 'raise-degree', 'delete', 'hide', 'isolate', 'group', 'lock', 'material:set', 'export:step', 'export:mesh', 'export:drawing');
     if (kinds.has('face')) out.push('tool:extrude', 'tool:offset', 'tool:thicken', 'tool:shell', 'tool:hole', 'tool:remove-face', 'remove-fillets', 'isoparam', 'rebuild', 'raise-degree', 'match-face', 'untrim', 'unwrap', 'plane:selection', 'plane:selection-keep-view');
     if (kinds.has('edge')) out.push('tool:fillet', 'tool:patch', 'alt-duplicate', 'measure:radius', 'view:surface-curvature');
     if (sel.list('edge').length === 2) out.push('tool:bridge-surface');

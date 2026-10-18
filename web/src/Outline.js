@@ -73,7 +73,8 @@ export function projectOutline(shape, origin, normal, x) {
     }
     if (!any) throw new Error("the body has no outline seen along that plane's normal");
     // A sheet on the plane covering every line, split by them.
-    const size = box.getSize(new THREE.Vector3()).length() + 10;
+    // Round the plane's origin, out past the farthest line (the body need not sit over the origin).
+    const size = Math.max(...[box.min.x, box.max.x].flatMap(x => [box.min.y, box.max.y].flatMap(y => [box.min.z, box.max.z].map(z => origin.distanceTo(new THREE.Vector3(x, y, z)))))) + 10;
     const sheet = new o.BRepBuilderAPI_MakeFace(new o.gp_Pln(new o.gp_Pnt(origin.x, origin.y, origin.z), new o.gp_Dir(n.x, n.y, n.z)), -size, size, -size, size).Face();
     const args = new o.NCollection_List_TopoDS_Shape();
     args.Append(sheet);

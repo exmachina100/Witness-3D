@@ -90,3 +90,15 @@ fn a_cube_seen_corner_on_outlines_as_a_hexagon() {
     let far = pts.iter().map(|p| (*p - c).length()).fold(0.0, f64::max);
     close(far, 10.0 * (2.0f64 / 3.0).sqrt(), 1e-3);
 }
+
+#[test]
+fn a_ball_away_from_the_origin_outlines_as_its_whole_circle() {
+    // Balls off the plane's origin, one through the plane, seen along z and along y.
+    let k = Occt;
+    for (centre, n, x) in [(DVec3::new(30.0, 0.0, 10.0), DVec3::Z, DVec3::X), (DVec3::new(30.0, 0.0, 0.0), DVec3::Z, DVec3::X), (DVec3::new(60.0, 0.0, -20.0), DVec3::Y, DVec3::X), (DVec3::new(60.0, 0.0, -20.0), DVec3::Y, DVec3::Z)] {
+        let s = k.sphere(centre, 10.0).unwrap();
+        let out = k.project_outline(&s, DVec3::ZERO, n, x).unwrap_or_else(|e| panic!("{centre}: {e:?}"));
+        let len: f64 = out.iter().map(|p| length(&k, p)).sum();
+        close(len, 2.0 * std::f64::consts::PI * 10.0, 1e-2);
+    }
+}
