@@ -111,6 +111,8 @@ const ICONS = {
     'view-faces': `<path d="M4 8l8-4 8 4v9l-8 4-8-4z"/><path ${A} d="M12 12l8-4v9l-8 4zM4 8l8 4v9l-8-4z"/>`,
     'view-xray': `<path d="M4 8l8-4 8 4v9l-8 4-8-4z"/><path ${A} d="M4 17l8-4 8 4M12 4v9" stroke-dasharray="2 2"/>`,
     'view-snap': `<path d="M6 4v8a6 6 0 0 0 12 0V4"/><path d="M6 4h4M14 4h4"/><path ${A} d="M6 8h4M14 8h4"/>`,
+    'view-curves': `<path d="M3 17C6 7 10 7 12 12s6 5 9-5"/><circle cx="3" cy="17" r="1.2"/><circle ${A} cx="21" cy="7" r="1.2"/>`,
+    'view-render': `<circle cx="12" cy="13" r="7"/><path ${A} d="M8.5 10.5a4 4 0 0 1 3.5-2"/><path d="M12 3v1.5M5 6l1 1M19 6l-1 1"/>`,
     'view-curvature': `<path d="M3 18c4-10 10-12 18-10"/><path ${A} d="M6 13l-2-3M9 10l-1-4M13 8.5l0-4M17 8l1-4"/>`,
     'view-draft': `<path d="M3 21h18"/><path d="M7 21l3-14h4l3 14"/><path ${A} d="M12 3v6M9.5 5.5L12 3l2.5 2.5"/>`,
     'view-zebra': `<circle cx="12" cy="12" r="9"/><path ${A} d="M5 7.5c4 1.5 10 1.5 14 0M3.2 12c5 2 12.6 2 17.6 0M5 16.5c4 1.5 10 1.5 14 0"/>`,

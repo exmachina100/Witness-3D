@@ -628,14 +628,14 @@ const SHELL = `
     </div>
     <div class="sec">
       <span class="label">VIEW</span>
-      <div class="chips">
-        <button data-toggle="edges" aria-pressed="true">EDGES</button>
-        <button data-toggle="faces" aria-pressed="true">FACES</button>
-        <button data-toggle="xray" aria-pressed="false" title="Alt+Z">X-RAY</button>
-        <button data-toggle="snap" aria-pressed="false" title="Snap without holding Ctrl">SNAP</button>
-        <button data-toggle="curves" aria-pressed="true" title="Viewport: toggle curves">CURVES</button>
-        <button data-toggle="curvature" aria-pressed="false" title="Curvature combs on curves (Toggle Curvature)">CURVATURE</button>
-        <button data-toggle="render" aria-pressed="false" title="Render mode: lit by an environment, with the materials' roughness and metal">RENDER</button>
+      <div class="chips icons" role="group" aria-label="View">
+        <button data-toggle="edges" aria-pressed="true" aria-label="Edges" title="Edges"></button>
+        <button data-toggle="faces" aria-pressed="true" aria-label="Faces" title="Faces"></button>
+        <button data-toggle="xray" aria-pressed="false" aria-label="X-ray" title="X-ray (Alt+Z)"></button>
+        <button data-toggle="snap" aria-pressed="false" aria-label="Snap" title="Snap without holding Ctrl"></button>
+        <button data-toggle="curves" aria-pressed="true" aria-label="Curves" title="Curves: show or hide them in the viewport"></button>
+        <button data-toggle="curvature" aria-pressed="false" aria-label="Curvature" title="Curvature combs on curves (Toggle Curvature)"></button>
+        <button data-toggle="render" aria-pressed="false" aria-label="Render" title="Render mode: lit by an environment, with the materials' roughness and metal"></button>
       </div>
       <div class="field"><label for="w3d-comb-scale">COMB SCALE</label><input id="w3d-comb-scale" data-id="comb-scale" type="range" min="0.1" max="4" step="0.1" value="1" title="Length of the curvature combs on curves and edges"></div>
       <span class="label">SHADER <output data-id="shader-name">CERAMIC DARK</output></span>
