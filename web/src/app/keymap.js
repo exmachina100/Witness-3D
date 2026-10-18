@@ -39,6 +39,8 @@ export const VIEWPORT = {
     e: 'tool:extrude', q: 'tool:boolean', l: 'tool:loft', 'shift-p': 'tool:sweep',
     // Project (manual: I; Curve Body, Body Body or Curve Curve by what is selected)
     i: 'tool:project',
+    // Offset Curve, Offset Vertex, Offset Edge and Offset Face Loop by what is selected (manual: O)
+    o: 'tool:offset-curve',
     // Sketching (manual: Line is Shift+A; 0.6.30 for the rectangle and circle, which 26.1 leaves unbound)
     'shift-q': 'draw:rect', 'shift-w': 'draw:circle', 'shift-a': 'draw:line',
     'shift-x': 'delete', 'shift-delete': 'delete', 'shift-backspace': 'delete',
@@ -108,6 +110,8 @@ export const COMMAND = {
     // Offset Curve (manual: D distance, V gap fill, S lock distances, F freestyle; C kept for the gap fill)
     'offset-curve': { d: 'distance', c: 'corner', v: 'corner', s: 'lock', f: 'freestyle', o: 'slot', i: 'combine' },
     'offset-vertex': { d: 'distance' },
+    // Offset Edge / Offset Face Loop (manual: D distance, V gap fill)
+    'offset-edge': { d: 'distance', v: 'corner' },
     'fillet-vertex': { d: 'distance', c: 'chamfer' },
     'align-vertex': { x: 'x', y: 'y', z: 'z', v: 'value' },
     extend: { s: 'shape' },
