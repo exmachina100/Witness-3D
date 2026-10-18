@@ -346,6 +346,19 @@ impl Shape {
         Ok(Shape::from_shape(&shape))
     }
 
+    /// Offset Edge on any faces: the faces either side of `edges` on side `side` (0, 1, or 2 for both).
+    pub fn offset_edge_faces(&self, edges: &[usize], side: i32) -> Result<Vec<usize>, String> {
+        let edges: Vec<i32> = edges.iter().map(|&e| e as i32).collect();
+        Ok(ffi::w3d::w3d_offset_edge_faces(&self.inner, &edges, side).map_err(reason)?.iter().map(|&f| f as usize).collect())
+    }
+
+    /// The tube of radius `d` round `edges` whose meeting with the faces is Offset Edge's offset.
+    pub fn edge_tube(&self, edges: &[usize], d: f64) -> Result<Shape, String> {
+        let edges: Vec<i32> = edges.iter().map(|&e| e as i32).collect();
+        let tube = ffi::w3d::w3d_edge_tube(&self.inner, &edges, d).map_err(reason)?;
+        Ok(Shape::from_shape(&tube))
+    }
+
     /// Plasticity's Untrim: a sheet of the whole surface under face `face`, with its edges
     /// imprinted when `keep`.
     pub fn untrim_face(&self, face: usize, keep: bool) -> Result<Shape, String> {

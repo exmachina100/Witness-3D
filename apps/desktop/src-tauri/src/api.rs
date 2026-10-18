@@ -1094,6 +1094,34 @@ pub fn commit_imprint(m: &Model, req: ImprintRequest) -> Result<Committed, ApiEr
     })
 }
 
+/// Plasticity's Offset Edge on curved faces or across several faces: `edges` moved `distance`
+/// across the faces on `side` (0 or 1, 2 for both) and imprinted there.
+#[derive(Deserialize, Debug, Clone)]
+pub struct OffsetEdgesRequest {
+    pub body: BodyId,
+    pub edges: Vec<u32>,
+    pub distance: f64,
+    #[serde(default)]
+    pub side: u32,
+    /// The side without this face instead (the curved side of an edge on a flat face).
+    #[serde(default)]
+    pub away: Option<u32>,
+}
+
+pub fn preview_offset_edges(m: &Model, req: OffsetEdgesRequest) -> Option<Result<Body, ApiError>> {
+    m.preview(move |doc| {
+        let t = doc.preview_offset_edges(req.body, &req.edges, req.distance, req.side, req.away)?;
+        Ok(body(&doc.kernel, req.body, &t.solid)?)
+    })
+}
+
+pub fn commit_offset_edges(m: &Model, req: OffsetEdgesRequest) -> Result<Committed, ApiError> {
+    m.call(move |doc| {
+        let id = doc.commit_offset_edges(req.body, &req.edges, req.distance, req.side, req.away)?;
+        Ok(Committed { id, scene: bodies(doc)? })
+    })
+}
+
 /// Plasticity's Bridge Surface: a sheet from one body edge to another, tangent to their faces.
 #[derive(Deserialize, Debug, Clone)]
 pub struct BridgeSurfaceRequest {

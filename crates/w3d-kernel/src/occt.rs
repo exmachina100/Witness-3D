@@ -394,6 +394,13 @@ impl Kernel for Occt {
         Ok(s.edge_curvature(edge as usize, n).map_err(shim)?.into_iter().map(|(at, dir, k)| CombTooth { at, dir, k }).collect())
     }
 
+    fn offset_edge_tools(&self, s: &Shape, edges: &[u32], d: f64, side: u32) -> Result<(Vec<u32>, Shape), KernelError> {
+        let edges: Vec<usize> = edges.iter().map(|&e| e as usize).collect();
+        let faces = s.offset_edge_faces(&edges, side as i32).map_err(shim)?;
+        let tube = s.edge_tube(&edges, d).map_err(shim)?;
+        Ok((faces.into_iter().map(|f| f as u32).collect(), tube))
+    }
+
     fn untrim_face(&self, s: &Shape, face: u32, keep_edges: bool) -> Result<Shape, KernelError> {
         s.untrim_face(face as usize, keep_edges).map_err(shim)
     }

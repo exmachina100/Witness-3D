@@ -9,6 +9,7 @@ import { cutSheets, loft, loftGuided, offsetFlatFaces, pipe, regionFace, revolve
 import { curveFromNurbs, ends, join, loops, MEET, nurbsLoop } from '../curves.js';
 import { isoparam, meetCurves, projectCurveCurve, projectCurves } from '../Project.js';
 import { isSheet, patch } from '../Patch.js';
+import { offsetEdges } from '../edgeTube.js';
 import { bridgeSurface } from '../BridgeSurface.js';
 import { projectOutline } from '../Outline.js';
 import { thicken, thickenFaces } from '../Thicken.js';
@@ -539,6 +540,23 @@ export class LocalBackend {
         this.checkpoint();
         this.put(req.body, shape, history);
         if (req.consume) for (const id of req.curves ?? []) this.curveMap.delete(id);
+        return { id: req.body, scene: this.bodies() };
+    }
+
+    /** Offset Edge on curved faces or several faces: `edges` moved `distance` across the faces on `side` (or away from face `away`). */
+    offsetEdgesResult({ body, edges, distance, side = 0, away = null }) {
+        const s = this.shapes.get(body);
+        if (!s) throw new Error('that body no longer exists');
+        return offsetEdges(s, edges, distance, side, away ?? null);
+    }
+
+    previewOffsetEdges(req) { return this.latest(async () => this.body(req.body, this.offsetEdgesResult(req).shape)) }
+
+    /** Offset Edge on any faces as one undo step. */
+    async commitOffsetEdges(req) {
+        const { shape, history } = this.offsetEdgesResult(req);
+        this.checkpoint();
+        this.put(req.body, shape, history);
         return { id: req.body, scene: this.bodies() };
     }
 

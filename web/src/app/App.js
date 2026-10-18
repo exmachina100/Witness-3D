@@ -3817,10 +3817,11 @@ export async function mount(root, backend) {
   }
 
   /**
-   * Plasticity's Offset Edge (edges picked) and Offset Face Loop (a face picked), on one flat face:
-   * the edges moved across the face by the distance and imprinted there, splitting the face. For an
-   * edge between two flat faces, a negative distance goes onto the other face and S offsets onto
-   * both at once. V cycles the gap fill.
+   * Plasticity's Offset Edge (edges picked) and Offset Face Loop (a face picked): the edges moved
+   * across the face by the distance and imprinted there, splitting the face. For an edge between
+   * two faces, a negative distance goes onto the other face and S offsets onto both at once. On one
+   * flat face V cycles the gap fill; on curved faces, or a chain running over several faces, the
+   * offset keeps the distance from the edges in space and its corners are round.
    */
   function startEdgeOffset() {
     if (!backend.previewImprint) return toast('OFFSET EDGE IS NOT IN THIS BUILD YET');
@@ -3832,8 +3833,8 @@ export async function mount(root, backend) {
     if (loop && flat(picked[0]) === null) return toast('OFFSET FACE LOOP WORKS ON FLAT FACES');
     // The flat faces the picked edges all lie on: those an edge offset can run across.
     const sides = loop ? [picked[0]] : body.facePlanes.map((_, f) => f).filter(f => flat(f) !== null && picked.every(n => faceEdges(body, f).includes(n)));
-    if (!sides.length) return toast('PICK EDGES THAT ALL BORDER ONE FLAT FACE');
-    const c = cmd = { id: 'offset-edge', body: id, corner: 'linear', both: false, shapes: null, faces: [], sent: 0, shown: 0 };
+    if (!sides.length && !backend.previewOffsetEdges) return toast('PICK EDGES THAT ALL BORDER ONE FLAT FACE');
+    const c = cmd = { id: 'offset-edge', body: id, corner: 'linear', both: false, shapes: null, faces: [], any: null, sent: 0, shown: 0 };
     lastTool = 'offset-edge';
     showTool('offset-edge');
     setState('none');
@@ -3846,8 +3847,19 @@ export async function mount(root, backend) {
     c.preview = () => {
       clearPreview();
       const d = num('oe-d');
+      c.any = null;
       try {
         if (!Number.isFinite(d) || Math.abs(d) < 1e-9) throw new Error('type a distance');
+        if (!loop && (!sides.length || (sides.length === 1 && (d < 0 || c.both)))) {
+          // Off the one flat face: the kernel offsets across whichever faces the edges border.
+          if (!backend.previewOffsetEdges) throw new Error('offset edges on one flat face in this build');
+          c.shapes = null;
+          c.any = { body: c.body, edges: picked, distance: Math.abs(d), side: c.both ? 2 : !sides.length && d < 0 ? 1 : 0, away: !c.both && sides.length ? sides[0] : null };
+          const how = c.both ? 'BOTH SIDES' : sides.length ? 'THE CURVED SIDE' : d < 0 ? 'THE OTHER SIDE' : 'ONE SIDE';
+          $('oe-hint').textContent = `${picked.length} EDGE${picked.length > 1 ? 'S' : ''} ON ${how} · ROUND CORNERS${c.both ? '' : ' · − FOR THE OTHER SIDE, S FOR BOTH'}`;
+          livePreview(c, () => backend.previewOffsetEdges(c.any), b => { showPreviewBody(b); setHud(`OFFSET EDGE ${d} MM · ${how}`); }, 'oe-hint');
+          return;
+        }
         if (c.both) {
           if (loop || sides.length < 2) throw new Error('both sides works on edges between two flat faces');
           c.faces = sides.slice(0, 2);
@@ -3860,7 +3872,7 @@ export async function mount(root, backend) {
         }
       } catch (e) { c.shapes = null; $('oe-hint').textContent = say(e); setState('failed'); return; }
       showCurvePreview(c.shapes);
-      $('oe-hint').textContent = `${c.shapes.length} ${loop ? 'LOOP' : 'OFFSET'}${c.shapes.length > 1 ? 'S' : ''} ON FACE${c.faces.length > 1 ? 'S' : ''} ${c.faces.join(' AND ')}${sides.length > 1 && !c.both ? ' · − FOR THE OTHER FACE, S FOR BOTH' : ''}`;
+      $('oe-hint').textContent = `${c.shapes.length} ${loop ? 'LOOP' : 'OFFSET'}${c.shapes.length > 1 ? 'S' : ''} ON FACE${c.faces.length > 1 ? 'S' : ''} ${c.faces.join(' AND ')}${(sides.length > 1 || (!loop && backend.previewOffsetEdges)) && !c.both ? ' · − FOR THE OTHER FACE, S FOR BOTH' : ''}`;
       livePreview(c, () => backend.previewImprint(c.request()), b => { showPreviewBody(b); showCurvePreview(c.shapes); setHud(`${loop ? 'OFFSET FACE LOOP' : 'OFFSET EDGE'} ${d} MM · ${c.both ? 'BOTH SIDES' : c.corner.toUpperCase()}`); }, 'oe-hint');
     };
     c.request = () => ({ body: c.body, faces: c.faces, curves: [], tools: { shapes: c.shapes } });
@@ -3879,9 +3891,9 @@ export async function mount(root, backend) {
       return true;
     };
     c.finish = async () => {
-      if (!c.shapes) { setState('failed'); return toast($('oe-hint').textContent); }
+      if (!c.shapes && !c.any) { setState('failed'); return toast($('oe-hint').textContent); }
       try {
-        const { id: made, scene: list } = await backend.commitImprint(c.request());
+        const { id: made, scene: list } = c.any ? await backend.commitOffsetEdges(c.any) : await backend.commitImprint(c.request());
         endCmd('committed');
         record(`${loop ? 'OFFSET FACE LOOP' : 'OFFSET EDGE'} ${num('oe-d')} MM${c.both ? ' BOTH SIDES' : ''}`, made);
         await showScene(list);
