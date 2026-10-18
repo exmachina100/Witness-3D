@@ -708,6 +708,17 @@ impl<K: Kernel> Document<K> {
         }).collect()
     }
 
+    /// The faces of a body that look like fillets (Remove Fillets); with `seeds`, only the fillet
+    /// chains holding those faces.
+    pub fn fillet_faces(&self, body: BodyId, seeds: &[u32]) -> Result<Vec<u32>, KernelError> {
+        let solid = self.get(body).ok_or(KernelError::Invalid("that body no longer exists"))?;
+        let faces = self.kernel.fillet_faces(solid, seeds);
+        if faces.is_empty() {
+            return Err(KernelError::Invalid(if seeds.is_empty() { "no fillets found on that body" } else { "those faces are not fillets" }));
+        }
+        Ok(faces)
+    }
+
     pub fn commit_unify(&mut self, bodies: &[BodyId]) -> Result<(usize, usize), KernelError> {
         if bodies.is_empty() { return Err(KernelError::Invalid("select the bodies to clean up")) }
         let mut done = Vec::new();

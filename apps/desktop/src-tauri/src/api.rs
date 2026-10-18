@@ -959,6 +959,11 @@ pub fn boundary_edges(m: &Model, req: UnifyRequest) -> Result<Vec<BoundaryEdges>
     })
 }
 
+/// Remove Fillets: the fillet faces of a body, or the fillet chains holding `faces`.
+pub fn fillet_faces(m: &Model, req: RemoveFacesRequest) -> Result<Vec<u32>, ApiError> {
+    m.call(move |doc| Ok(doc.fillet_faces(req.body, &req.faces)?))
+}
+
 pub fn commit_unify(m: &Model, req: UnifyRequest) -> Result<Unified, ApiError> {
     m.call(move |doc| {
         let (faces, edges) = doc.commit_unify(&req.bodies)?;

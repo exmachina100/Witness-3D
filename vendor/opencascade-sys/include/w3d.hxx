@@ -108,6 +108,7 @@
 #include <TopExp_Explorer.hxx>
 #include <TopTools_IndexedDataMapOfShapeListOfShape.hxx>
 #include <cmath>
+#include <set>
 #include <TopTools_IndexedMapOfShape.hxx>
 #include <TopoDS.hxx>
 #include <TopoDS_Edge.hxx>
@@ -1385,6 +1386,114 @@ inline rust::Vec<int32_t> w3d_boundary_edges(const TopoDS_Shape &shape) {
     if (BRep_Tool::IsClosed(e, TopoDS::Face(distinct(1)))) continue;
     out.push_back(i - 1);
   }
+  return out;
+}
+
+// The face's outward normal where the edge runs over it, `t` of the way along the edge.
+inline bool w3d_normal_on_edge(const TopoDS_Edge &e, const TopoDS_Face &f, double t, gp_Vec &n) {
+  Standard_Real a, b;
+  Handle(Geom2d_Curve) pc = BRep_Tool::CurveOnSurface(e, f, a, b);
+  if (pc.IsNull()) return false;
+  gp_Pnt2d uv = pc->Value(a + (b - a) * t);
+  BRepAdaptor_Surface s(f);
+  gp_Pnt p;
+  gp_Vec du, dv;
+  s.D1(uv.X(), uv.Y(), p, du, dv);
+  n = du.Crossed(dv);
+  if (n.Magnitude() < 1e-12) return false;
+  n.Normalize();
+  if (f.Orientation() == TopAbs_REVERSED) n.Reverse();
+  return true;
+}
+
+// Whether the two faces meet smoothly (within 1 degree) all along the edge.
+inline bool w3d_tangent_along(const TopoDS_Edge &e, const TopoDS_Face &a, const TopoDS_Face &b) {
+  for (double t : {0.2, 0.5, 0.8}) {
+    gp_Vec na, nb;
+    if (!w3d_normal_on_edge(e, a, t, na) || !w3d_normal_on_edge(e, b, t, nb)) return false;
+    if (na.Dot(nb) < std::cos(M_PI / 180.0)) return false;
+  }
+  return true;
+}
+
+// Whether two faces lie on one surface (two halves of a cylinder, say), for the analytic kinds.
+inline bool w3d_same_surface(const TopoDS_Face &a, const TopoDS_Face &b) {
+  BRepAdaptor_Surface sa(a), sb(b);
+  if (sa.GetType() != sb.GetType()) return false;
+  auto coaxial = [](const gp_Ax1 &x, const gp_Ax1 &y) {
+    return x.IsCoaxial(y, 1e-6, 1e-6) || x.IsCoaxial(y.Reversed(), 1e-6, 1e-6);
+  };
+  switch (sa.GetType()) {
+  case GeomAbs_Cylinder: return std::abs(sa.Cylinder().Radius() - sb.Cylinder().Radius()) < 1e-6 && coaxial(sa.Cylinder().Axis(), sb.Cylinder().Axis());
+  case GeomAbs_Sphere: return std::abs(sa.Sphere().Radius() - sb.Sphere().Radius()) < 1e-6 && sa.Sphere().Location().Distance(sb.Sphere().Location()) < 1e-6;
+  case GeomAbs_Torus: return std::abs(sa.Torus().MinorRadius() - sb.Torus().MinorRadius()) < 1e-6 && std::abs(sa.Torus().MajorRadius() - sb.Torus().MajorRadius()) < 1e-6 && coaxial(sa.Torus().Axis(), sb.Torus().Axis());
+  case GeomAbs_Plane: return sa.Plane().Position().IsCoplanar(sb.Plane().Position(), 1e-6, 1e-6);
+  default: return false;
+  }
+}
+
+// The rolling radius of a round face, or -1 when its surface has no single one.
+inline double w3d_round_radius(const TopoDS_Face &f) {
+  BRepAdaptor_Surface s(f);
+  switch (s.GetType()) {
+  case GeomAbs_Cylinder: return s.Cylinder().Radius();
+  case GeomAbs_Sphere: return s.Sphere().Radius();
+  case GeomAbs_Torus: return s.Torus().MinorRadius();
+  default: return -1;
+  }
+}
+
+// Numbers of the faces that look like fillets: curved faces running smoothly into at least two
+// other faces. A curved face whose smooth neighbours are all curved counts only when it is no
+// wider than they are (a corner ball counts; a cylinder rounded at both ends does not). With
+// `seeds`, only the fillet chains (fillets meeting smoothly) holding those faces.
+inline rust::Vec<int32_t> w3d_fillet_faces(const TopoDS_Shape &shape, rust::Slice<const int32_t> seeds) {
+  TopTools_IndexedMapOfShape faces;
+  TopExp::MapShapes(shape, TopAbs_FACE, faces);
+  TopTools_IndexedDataMapOfShapeListOfShape owners;
+  TopExp::MapShapesAndAncestors(shape, TopAbs_EDGE, TopAbs_FACE, owners);
+  const int n = faces.Extent();
+  std::vector<bool> curved(n);
+  for (int i = 0; i < n; i++) curved[i] = BRepAdaptor_Surface(TopoDS::Face(faces(i + 1))).GetType() != GeomAbs_Plane;
+  // Smooth neighbours of each face, as face numbers.
+  std::vector<std::set<int>> smooth(n);
+  for (int i = 1; i <= owners.Extent(); i++) {
+    const TopoDS_Edge &e = TopoDS::Edge(owners.FindKey(i));
+    if (BRep_Tool::Degenerated(e)) continue;
+    std::vector<TopoDS_Face> fs;
+    for (TopTools_ListIteratorOfListOfShape it(owners(i)); it.More(); it.Next()) fs.push_back(TopoDS::Face(it.Value()));
+    if (fs.size() != 2) continue;
+    int a = faces.FindIndex(fs[0]) - 1, b = faces.FindIndex(fs[1]) - 1;
+    if (a < 0 || b < 0 || a == b || w3d_same_surface(fs[0], fs[1])) continue;
+    if (!w3d_tangent_along(e, fs[0], fs[1])) continue;
+    smooth[a].insert(b);
+    smooth[b].insert(a);
+  }
+  std::vector<bool> fillet(n, false);
+  for (int i = 0; i < n; i++) {
+    if (!curved[i] || smooth[i].size() < 2) continue;
+    bool flatNeighbour = false;
+    double least = 1e300;
+    for (int j : smooth[i]) {
+      if (!curved[j]) flatNeighbour = true;
+      double r = w3d_round_radius(TopoDS::Face(faces(j + 1)));
+      if (r > 0) least = std::min(least, r);
+    }
+    double r = w3d_round_radius(TopoDS::Face(faces(i + 1)));
+    fillet[i] = flatNeighbour || (r > 0 && r <= least + 1e-6);
+  }
+  std::vector<bool> keep(n, seeds.empty());
+  if (!seeds.empty()) {
+    std::vector<int> todo;
+    for (int32_t s : seeds) if (s >= 0 && s < n && fillet[s] && !keep[s]) { keep[s] = true; todo.push_back(s); }
+    while (!todo.empty()) {
+      int i = todo.back();
+      todo.pop_back();
+      for (int j : smooth[i]) if (fillet[j] && !keep[j]) { keep[j] = true; todo.push_back(j); }
+    }
+  }
+  rust::Vec<int32_t> out;
+  for (int i = 0; i < n; i++) if (fillet[i] && keep[i]) out.push_back(i);
   return out;
 }
 

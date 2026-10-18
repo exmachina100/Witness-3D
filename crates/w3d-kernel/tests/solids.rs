@@ -169,6 +169,32 @@ fn remove_face_takes_a_round_back_off() {
 }
 
 #[test]
+fn remove_fillets_finds_the_rounds_and_takes_them_off() {
+    let k = Occt;
+    let c = cube(&k);
+    assert!(k.fillet_faces(&c, &[]).is_empty(), "a plain cube has no fillets");
+    let all: Vec<u32> = (0..k.edge_count(&c) as u32).collect();
+    let rounded = k.blend(&c, &all, 1.0, Blend::Fillet, 0.0, &[]).unwrap().solid;
+    let found = k.fillet_faces(&rounded, &[]);
+    assert_eq!(found.len(), k.face_count(&rounded) - 6, "every round and corner ball, no flat face");
+    let back = w3d_kernel::solids::remove_faces(&k, &rounded, &found).unwrap();
+    close(volume(&k, &back.solid), 1000.0, 1e-6);
+    assert_eq!(k.face_count(&back.solid), 6);
+    // One edge rounded: a seed on it gives just that round; a flat face is no seed.
+    let one = k.blend(&c, &[0], 2.0, Blend::Fillet, 0.0, &[]).unwrap();
+    let round = one.history.generated_faces.first().unwrap().1;
+    assert_eq!(k.fillet_faces(&one.solid, &[round]), vec![round]);
+    let flat = (0..k.face_count(&one.solid) as u32).find(|&f| f != round).unwrap();
+    assert!(k.fillet_faces(&one.solid, &[flat]).is_empty());
+    // A cylinder rounded at both rims: the two rims are fillets, the side between them is not.
+    let cyl = primitive(&k, &w3d_kernel::solids::Primitive::Cylinder { frame: Frame::new(DVec3::ZERO, DVec3::X, DVec3::Z), radius: 5.0, height: 10.0 }).unwrap();
+    assert!(k.fillet_faces(&cyl, &[]).is_empty());
+    let rims: Vec<u32> = (0..k.edge_count(&cyl) as u32).collect();
+    let soft = k.blend(&cyl, &rims, 1.0, Blend::Fillet, 0.0, &[]).unwrap().solid;
+    assert_eq!(k.fillet_faces(&soft, &[]).len(), 2);
+}
+
+#[test]
 fn a_closed_control_point_curve_extrudes() {
     let k = Occt;
     let square = vec![(0.0, 0.0), (20.0, 0.0), (20.0, 20.0), (0.0, 20.0)];

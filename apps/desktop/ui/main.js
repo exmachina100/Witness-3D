@@ -41,6 +41,7 @@ const rust = {
   commitUnify: req => tauri.core.invoke('commit_unify', { req }),
   commitReverseSheets: req => tauri.core.invoke('commit_reverse_sheets', { req }),
   boundaryEdges: req => tauri.core.invoke('boundary_edges', { req }),
+  filletFaces: req => tauri.core.invoke('fillet_faces', { req }),
   // The desktop meshes at the chord tolerance; OpenCascade's mesher here takes no separate angle.
   hiddenLines: req => tauri.core.invoke('hidden_lines', { req }),
   meshBodies: (ids, { tolerance = 0.05 } = {}) => tauri.core.invoke('mesh_bodies', { ids, tolerance }),
