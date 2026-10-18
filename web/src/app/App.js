@@ -66,7 +66,7 @@ import { icon } from './icons.js';
 import { limitEdges, toObj, toStl } from '../meshExport.js';
 import { flatten, toDxf, toSvg } from '../drawingExport.js';
 import { readDxf } from '../dxf.js';
-import { BRIDGE_CONTINUITY, bridgeContinuous, continuity, curvatureComb, curveVertices, explode, extendCurve, filletCurve, nearestEnd, OFFSET_CORNERS, offsetCurve, offsetThrough, offsetVertex, splitCurve, tangentCircle, trim } from '../curveEdit.js';
+import { BRIDGE_CONTINUITY, bridgeContinuous, continuity, curvatureComb, curveVertices, explode, extendCurve, filletCurve, nearestEnd, OFFSET_CORNERS, offsetCurve, offsetThrough, offsetVertex, reverseCurve, splitCurve, tangentCircle, trim } from '../curveEdit.js';
 import { ViewGizmo } from './ViewGizmo.js';
 import { Toolbar } from './Toolbar.js';
 import { arcPoints, circleThrough, cvPoints, ellipsePoints, endTangent, helixPoints, loops, nurbsLoop, nurbsPoints, polygonCorners, spiralAngle, tangentArc } from '../curves.js';
@@ -1088,6 +1088,28 @@ export async function mount(root, backend) {
       curveVertices(c).forEach(([x, y], n) => out.push({ id: c.id, n, at: lift(f, { x, y }, 0.02) }));
     }
     return out;
+  }
+  // Which way curves run: a short arrow at each start, shown for a moment after Reverse Curve.
+  const directionArrows = new THREE.Group();
+  scene.add(directionArrows);
+  let directionTimer = 0;
+  function showDirection(ids) {
+    for (const o of [...directionArrows.children]) { directionArrows.remove(o); o.dispose?.(); }
+    clearTimeout(directionTimer);
+    for (const id of ids) {
+      const c = curveById(id);
+      const pts = c && curve2d(c);
+      if (!pts || pts.length < 2) continue;
+      const f = curveFrame(c);
+      let len = 0;
+      for (let i = 1; i < pts.length; i++) len += pts[i].distanceTo(pts[i - 1]);
+      const from = lift(f, pts[0], 0.03), to = lift(f, pts.find(p => p.distanceTo(pts[0]) > 1e-6) ?? pts[1], 0.03);
+      const size = Math.min(Math.max(len * 0.12, 1), 20);
+      const arrow = new THREE.ArrowHelper(to.sub(from).normalize(), from, size, COLORS.accent, size * 0.35, size * 0.2);
+      arrow.renderOrder = 12;
+      directionArrows.add(arrow);
+    }
+    directionTimer = setTimeout(() => { for (const o of [...directionArrows.children]) { directionArrows.remove(o); o.dispose?.(); } }, 2500);
   }
   function paintVertices() {
     for (const o of [...vertexDots.children]) dispose(o);
@@ -4671,6 +4693,21 @@ export async function mount(root, backend) {
     } catch (e) { toast(say(e)); }
   }
 
+  /** Plasticity's Reverse Curve: turn the selected curves round end for end, one undo step. */
+  async function reverseSelected() {
+    if (cmd) await finish();
+    const ids = sel.curves.filter(curveById);
+    if (!ids.length) return toast('SELECT A CURVE TO REVERSE');
+    if (!backend.replaceCurves) return toast('REVERSE IS NOT IN THIS BUILD YET');
+    try {
+      const list = ids.map(id => reverseCurve(curveById(id)));
+      const { ids: made } = await backend.replaceCurves(ids, list);
+      record(`REVERSE ${ids.map(curveLabel).join(' ')}`, made[0], `${made.length} CURVE${made.length > 1 ? 'S' : ''}`);
+      await curvesChanged(made);
+      showDirection(made);
+    } catch (e) { toast(say(e)); }
+  }
+
   // --- Round 6: Box, Cylinder, Sphere, Shell, Mirror and arrays ---------------------
   // Box, Cylinder and Sphere: click a point on a face or the construction plane, then set sizes in
   // the panel; the solid previews as you type. Shell: select faces of one solid to open, set the wall
@@ -5548,6 +5585,7 @@ export async function mount(root, backend) {
       case 'split': await startTool('split'); return true;
       case 'measure': await startTool(arg === 'radius' ? 'measure-radius' : arg === 'continuity' ? 'measure-continuity' : 'measure-distance'); return true;
       case 'explode': await explodeSelected(); return true;
+      case 'reverse': await reverseSelected(); return true;
       case 'hide': setHidden(sel.bodies, true); return true;
       case 'hide-others': setHidden(current.map(b => b.id).filter(id => !sel.bodies.includes(id)), true); return true;
       case 'unhide-all': setHidden([...org.hidden], false); return true;
@@ -5707,7 +5745,7 @@ export async function mount(root, backend) {
       out.push('trim', 'split', 'extend', 'tool:offset-curve', 'tool:fillet-curve');
       if (sel.curves.length === 2) out.push('tool:bridge');
       if (sel.curves.length > 1) out.push('join');
-      out.push('explode', 'measure:continuity', 'delete');
+      out.push('explode', 'reverse', 'measure:continuity', 'delete');
     }
     // Curve vertices: Fillet Vertex (B), Offset Vertex and, with two ends, Bridge Vertex.
     if (kinds.has('vertex')) out.push('tool:fillet', 'tool:offset-curve', ...(sel.list('vertex').length === 2 ? ['tool:bridge'] : []));
