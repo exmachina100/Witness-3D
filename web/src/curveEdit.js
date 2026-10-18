@@ -335,6 +335,154 @@ export function offsetSlot(c, d, corner = 'linear') {
     }
     return withShape(c, { kind: 'contour', pieces: [...left, cap(Le, Rs, end, outEnd), ...right, cap(Re, Ls, start, outStart)] });
 }
+
+// --- Offset Region I: combine overlapping regions -------------------------------------------------
+
+/** A closed shape as line and arc pieces (circles as two half arcs; other curves as lines between samples). */
+function loopPieces(c) {
+    if (c.kind === 'circle') {
+        const [x, y] = c.center, r = c.radius, a = [x + r, y], b = [x - r, y];
+        return { pieces: [{ line: false, c: c.center, r, ccw: true, p0: a, p1: b }, { line: false, c: c.center, r, ccw: true, p0: b, p1: a }], exact: true };
+    }
+    const e = exactPieces(c);
+    if (e) return { pieces: e.pieces, exact: true };
+    const { points } = samples(c, 192);
+    return { pieces: points.map((p, i) => ({ line: true, soft: true, p0: p, p1: points[(i + 1) % points.length] })), exact: false };
+}
+/** The angle of `p` round arc piece `q`, as a fraction of its sweep from p0 (outside 0..1 when off the arc). */
+function arcFraction(q, p) {
+    const a0 = Math.atan2(q.p0[1] - q.c[1], q.p0[0] - q.c[0]), a1 = Math.atan2(q.p1[1] - q.c[1], q.p1[0] - q.c[0]);
+    const n = x => ((x % TAU) + TAU) % TAU;
+    const sweep = q.ccw ? n(a1 - a0) || TAU : n(a0 - a1) || TAU;
+    const a = Math.atan2(p[1] - q.c[1], p[0] - q.c[0]);
+    return (q.ccw ? n(a - a0) : n(a0 - a)) / sweep;
+}
+/** Where along piece `q` point `p` sits (0 start, 1 end), or null when it isn't on the piece. */
+function along(q, p, tol) {
+    if (q.line) {
+        const d = sub(q.p1, q.p0), L = dot2(d, d);
+        if (L < EPS) return null;
+        const t = dot2(sub(p, q.p0), d) / L;
+        if (t < -1e-9 || t > 1 + 1e-9 || dist(add(q.p0, mul(d, t)), p) > tol) return null;
+        return t;
+    }
+    if (Math.abs(dist(p, q.c) - q.r) > tol) return null;
+    if (dist(p, q.p0) < tol) return 0;
+    if (dist(p, q.p1) < tol) return 1;
+    const t = arcFraction(q, p);
+    return t <= 1 ? t : null;
+}
+function pointAt(q, t) {
+    if (q.line) return add(q.p0, mul(sub(q.p1, q.p0), t));
+    const a0 = Math.atan2(q.p0[1] - q.c[1], q.p0[0] - q.c[0]);
+    const n = x => ((x % TAU) + TAU) % TAU;
+    const a1 = Math.atan2(q.p1[1] - q.c[1], q.p1[0] - q.c[0]);
+    const sweep = q.ccw ? n(a1 - a0) || TAU : -(n(a0 - a1) || TAU);
+    const a = a0 + sweep * t;
+    return [q.c[0] + q.r * Math.cos(a), q.c[1] + q.r * Math.sin(a)];
+}
+const subPiece = (q, p0, p1) => ({ ...q, p0, p1 });
+/** Whether `p` is inside the closed polygon `pts` (even-odd). */
+function insidePolygon(pts, p) {
+    let inside = false;
+    for (let i = 0, j = pts.length - 1; i < pts.length; j = i++) {
+        const a = pts[i], b = pts[j];
+        if ((a[1] > p[1]) !== (b[1] > p[1]) && p[0] < (b[0] - a[0]) * (p[1] - a[1]) / (b[1] - a[1]) + a[0]) inside = !inside;
+    }
+    return inside;
+}
+
+/**
+ * Plasticity's Offset Region I (combined): closed curves in one plane merged where they overlap,
+ * as the outlines of their union (holes come back as loops of their own). Lines and arcs stay exact;
+ * other curves go through their points. Curves that touch nothing come back unchanged.
+ */
+export function unionLoops(shapes) {
+    if (shapes.length < 2) return shapes;
+    const f0 = frameOf(shapes[0]);
+    const same = (a, b) => a.every((v, i) => Math.abs(v - b[i]) < 1e-9);
+    for (const c of shapes) {
+        const f = frameOf(c);
+        if (!same(f.origin, f0.origin) || !same(f.x, f0.x) || !same(f.normal, f0.normal)) throw new Error('combine regions drawn on one plane');
+    }
+    const loopsIn = shapes.map(loopPieces);
+    const polys = shapes.map(c => samples(c, 192).points);
+    let size = 0;
+    for (const p of polys.flat()) size = Math.max(size, Math.abs(p[0]), Math.abs(p[1]));
+    const tol = 1e-7 * Math.max(1, size), eps = 1e-4 * Math.max(1, size), join = Math.max(1e-6, tol * 10);
+    // Cut every piece where pieces of the other loops cross it, keep the parts outside all of them.
+    const kept = [];
+    const touched = new Set();
+    loopsIn.forEach(({ pieces }, i) => {
+        for (const q of pieces) {
+            const ts = [];
+            loopsIn.forEach(({ pieces: other }, j) => {
+                if (j === i) return;
+                for (const o of other) for (const x of crossings(q, o)) {
+                    const t = along(q, x, tol);
+                    if (t !== null && along(o, x, tol) !== null) { ts.push(t); touched.add(i); touched.add(j); }
+                }
+            });
+            const cuts = [0, ...ts.filter(t => t > 1e-9 && t < 1 - 1e-9).sort((a, b) => a - b), 1];
+            for (let k = 0; k < cuts.length - 1; k++) {
+                if (cuts[k + 1] - cuts[k] < 1e-9) continue;
+                const mid = pointAt(q, (cuts[k] + cuts[k + 1]) / 2);
+                // On the union's outline: filled on one side and empty on the other (this also keeps
+                // just one copy where two outlines run along each other).
+                const across = q.line ? left(norm(sub(q.p1, q.p0))) : norm(sub(mid, q.c));
+                const filled = p => polys.some(poly => insidePolygon(poly, p));
+                if (filled(add(mid, mul(across, eps))) === filled(add(mid, mul(across, -eps)))) continue;
+                if (kept.some(o => o.loop !== i && dist(pointAt(o.q, 0.5), mid) < join)) continue;
+                kept.push({ loop: i, q: subPiece(q, k ? pointAt(q, cuts[k]) : q.p0, k + 1 < cuts.length - 1 ? pointAt(q, cuts[k + 1]) : q.p1) });
+            }
+        }
+    });
+    // Loops that touch nothing: unchanged, or gone when inside another.
+    const out = [];
+    shapes.forEach((c, i) => {
+        if (touched.has(i)) return;
+        if (!polys.some((poly, j) => j !== i && insidePolygon(poly, polys[i][0]))) out.push(c);
+    });
+    // Chain the kept parts end to end into closed loops.
+    const rest = kept.filter(k => touched.has(k.loop)).map(k => k.q);
+    const flip = q => q.line ? { ...q, p0: q.p1, p1: q.p0 } : { ...q, ccw: !q.ccw, p0: q.p1, p1: q.p0 };
+    while (rest.length) {
+        const chain = [rest.shift()];
+        for (let guard = 0; dist(chain.at(-1).p1, chain[0].p0) > join; guard++) {
+            const end = chain.at(-1).p1;
+            let k = rest.findIndex(q => dist(q.p0, end) <= join);
+            if (k < 0) { k = rest.findIndex(q => dist(q.p1, end) <= join); if (k >= 0) rest[k] = flip(rest[k]); }
+            if (k < 0 || guard > 100000) throw new Error('the combined outline does not close up');
+            const next = rest.splice(k, 1)[0];
+            chain.push({ ...next, p0: end });
+        }
+        chain[chain.length - 1] = { ...chain.at(-1), p1: chain[0].p0 };
+        // Arcs of one circle running on from each other become one arc.
+        for (let k = chain.length - 1; k > 0; k--) {
+            const a = chain[k - 1], b = chain[k];
+            if (!a.line && !b.line && a.ccw === b.ccw && dist(a.c, b.c) < join && Math.abs(a.r - b.r) < join && dist(a.p0, b.p1) > join) chain.splice(k - 1, 2, { ...a, p1: b.p1 });
+        }
+        // Runs of points from a smooth curve go back in as one spline piece.
+        const parts = [];
+        for (const q of chain) {
+            const last = parts.at(-1);
+            if (q.soft && last?.soft) last.points.push(q.p1);
+            else parts.push(q.soft ? { kind: 'spline', points: [q.p0, q.p1], closed: false, soft: true } : q.line ? { kind: 'polyline', points: [q.p0, q.p1], closed: false } : arcShape(q));
+        }
+        // A loop that starts part way along a spline run: carry that run on round the end.
+        if (parts.length > 1 && parts[0].soft && parts.at(-1).soft) { const tail = parts.pop(); parts[0].points = [...tail.points, ...parts[0].points.slice(1)]; }
+        const pieces = mergeLines(parts.map(({ soft, ...p }) => p));
+        if (pieces.length === 1 && pieces[0].kind === 'spline') {
+            const points = pieces[0].points.slice(0, -1);
+            out.push(withShape(shapes[0], { kind: 'spline', points, closed: true }));
+        } else if (pieces.every(p => p.kind === 'polyline')) {
+            const points = pieces.flatMap((p, k) => k ? p.points.slice(1) : p.points);
+            points.pop();
+            out.push(withShape(shapes[0], { kind: 'polyline', points, closed: true }));
+        } else out.push(withShape(shapes[0], { kind: 'contour', pieces }));
+    }
+    return out;
+}
 const dedupe = pts => pts.filter((p, i) => i === 0 || dist(p, pts[i - 1]) > 1e-6);
 
 // --- Fillet Curve ---------------------------------------------------------------------------------

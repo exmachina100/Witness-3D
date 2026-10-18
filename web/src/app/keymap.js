@@ -106,7 +106,7 @@ export const COMMAND = {
     sphere: { tab: 'typed', d: 'radius', x: 'axis-x', y: 'axis-y', z: 'axis-z', q: 'union', w: 'difference', 'shift-e': 'intersect', 'shift-q': 'slice', b: 'new' },
     // Round 7: D types the distance or radius.
     // Offset Curve (manual: D distance, V gap fill, S lock distances, F freestyle; C kept for the gap fill)
-    'offset-curve': { d: 'distance', c: 'corner', v: 'corner', s: 'lock', f: 'freestyle', o: 'slot' },
+    'offset-curve': { d: 'distance', c: 'corner', v: 'corner', s: 'lock', f: 'freestyle', o: 'slot', i: 'combine' },
     'offset-vertex': { d: 'distance' },
     'fillet-vertex': { d: 'distance', c: 'chamfer' },
     'align-vertex': { x: 'x', y: 'y', z: 'z', v: 'value' },
