@@ -411,6 +411,10 @@ impl Kernel for Occt {
         s.reshape_fillets(&faces, if g2 { 3 } else { 2 }, tension).map_err(shim)
     }
 
+    fn unwrap_face(&self, s: &Shape, face: u32) -> Result<Shape, KernelError> {
+        s.unwrap_face(face as usize).map_err(shim)
+    }
+
     fn untrim_face(&self, s: &Shape, face: u32, keep_edges: bool) -> Result<Shape, KernelError> {
         s.untrim_face(face as usize, keep_edges).map_err(shim)
     }

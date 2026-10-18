@@ -428,6 +428,12 @@ pub trait Kernel {
     fn offset_edge_tools(&self, _s: &Self::Solid, _edges: &[u32], _d: f64, _side: u32) -> Result<(Vec<u32>, Self::Solid), KernelError> {
         Err(KernelError::Invalid("this kernel cannot offset edges"))
     }
+    /// Plasticity's Unwrap Face: face `face` of `s` laid flat on the XY plane as a sheet, under the
+    /// face's centre. Planes, cylinders and cones keep their lengths; other faces are flattened
+    /// conformally with their area kept.
+    fn unwrap_face(&self, _s: &Self::Solid, _face: u32) -> Result<Self::Solid, KernelError> {
+        Err(KernelError::Invalid("this kernel cannot unwrap faces"))
+    }
     /// Plasticity's Untrim: a sheet of the whole surface under face `face` of `s`, with the face's
     /// edges imprinted on it when `keep_edges`.
     fn untrim_face(&self, _s: &Self::Solid, _face: u32, _keep_edges: bool) -> Result<Self::Solid, KernelError> {

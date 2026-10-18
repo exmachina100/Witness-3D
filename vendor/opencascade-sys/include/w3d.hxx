@@ -56,6 +56,9 @@
 #include <IntCurvesFace_ShapeIntersector.hxx>
 #include <gp_Lin.hxx>
 #include <BRepTools_WireExplorer.hxx>
+#include <ShapeFix_Face.hxx>
+#include <gp_Cone.hxx>
+#include <gp.hxx>
 #include <BRep_Tool.hxx>
 #include <GeomConvert.hxx>
 #include <GeomLib.hxx>
@@ -3802,6 +3805,274 @@ inline std::unique_ptr<TopoDS_Shape> w3d_round_piece(const TopoDS_Shape &body, c
     }
     if (!TopExp_Explorer(piece, TopAbs_SOLID).More()) throw std::runtime_error("the limit points leave nothing of the round");
     return std::unique_ptr<TopoDS_Shape>(new TopoDS_Shape(piece));
+  } catch (const Standard_Failure &f) {
+    throw w3d_kernel_error(f);
+  }
+}
+
+// A conformal flattening of the grid `pts` (n x n points of a surface, row-major in u then v) by
+// least squares (LSCM): each triangle's map to the plane as close to a rotation and scale as the
+// whole allows, then scaled so the flat area equals the surface's. Solved by conjugate gradients.
+inline std::vector<gp_XY> w3d_lscm(const std::vector<gp_Pnt> &pts, int n) {
+  const int V = n * n;
+  struct Row { int idx[6]; double w[6]; };
+  std::vector<Row> rows;
+  double area3 = 0.0;
+  // A row or column of the grid that is all one point (a pole) is one point of the mesh, so it
+  // can't open out and fold over; the seam's pairs stay apart, which is where the face is cut.
+  std::vector<int> rep(V);
+  for (int k = 0; k < V; k++) rep[k] = k;
+  for (int line = 0; line < n; line++)
+    for (int dir = 0; dir < 2; dir++) {
+      auto at = [&](int m) { return dir ? line * n + m : m * n + line; };
+      bool pole = true;
+      for (int m = 1; m < n && pole; m++) pole = pts[at(0)].Distance(pts[at(m)]) < 1e-9;
+      if (pole) for (int m = 1; m < n; m++) rep[at(m)] = rep[at(0)];
+    }
+  auto tri = [&](int a, int b, int c) {
+    a = rep[a], b = rep[b], c = rep[c];
+    if (a == b || b == c || a == c) return;
+    const gp_Vec e1(pts[a], pts[b]), e2(pts[a], pts[c]);
+    const gp_Vec nrm = e1.Crossed(e2);
+    const double A = nrm.Magnitude() / 2;
+    if (A < 1e-14) return;
+    area3 += A;
+    // The triangle in its own plane: a at the origin, b along x.
+    const gp_Vec x = e1.Normalized(), y = nrm.Crossed(e1).Normalized();
+    const double p[3][2] = {{0, 0}, {e1.Magnitude(), 0}, {e2.Dot(x), e2.Dot(y)}};
+    const int id[3] = {a, b, c};
+    // Gradient of each corner's hat function: the opposite edge turned a quarter, over 2A.
+    double gx[3], gy[3];
+    for (int i = 0; i < 3; i++) {
+      const double *q = p[(i + 1) % 3], *r = p[(i + 2) % 3];
+      gx[i] = (q[1] - r[1]) / (2 * A);
+      gy[i] = (r[0] - q[0]) / (2 * A);
+    }
+    const double s = std::sqrt(A);
+    Row r1, r2;
+    for (int i = 0; i < 3; i++) {
+      // Cauchy-Riemann: x_u = y_v and x_v = -y_u, unknowns x at 2k, y at 2k + 1.
+      r1.idx[2 * i] = 2 * id[i]; r1.w[2 * i] = s * gx[i];
+      r1.idx[2 * i + 1] = 2 * id[i] + 1; r1.w[2 * i + 1] = -s * gy[i];
+      r2.idx[2 * i] = 2 * id[i]; r2.w[2 * i] = s * gy[i];
+      r2.idx[2 * i + 1] = 2 * id[i] + 1; r2.w[2 * i + 1] = s * gx[i];
+    }
+    rows.push_back(r1);
+    rows.push_back(r2);
+  };
+  for (int i = 0; i + 1 < n; i++)
+    for (int j = 0; j + 1 < n; j++) {
+      const int a = i * n + j, b = (i + 1) * n + j, c = (i + 1) * n + j + 1, d = i * n + j + 1;
+      tri(a, b, c);
+      tri(a, c, d);
+    }
+  if (rows.empty()) throw std::runtime_error("that face has no area to unwrap");
+  // Two pinned points fix where the flat piece sits and how it turns: the middle of the grid and
+  // the point farthest from it (corners can sit on a pole, where a whole row meets).
+  const int pa = (n / 2) * n + n / 2;
+  int pb = 0;
+  for (int k = 0; k < V; k++) if (rep[k] == k && pts[pa].SquareDistance(pts[k]) > pts[pa].SquareDistance(pts[pb])) pb = k;
+  std::vector<double> fixed(2 * V, 0.0);
+  std::vector<bool> pinned(2 * V, false);
+  fixed[2 * pb] = pts[pa].Distance(pts[pb]);
+  if (fixed[2 * pb] < 1e-9) fixed[2 * pb] = 1.0;
+  for (int k : {2 * pa, 2 * pa + 1, 2 * pb, 2 * pb + 1}) pinned[k] = true;
+  // Normal equations on the free unknowns: M x = -A^T (A fixed).
+  auto apply = [&](const std::vector<double> &x, std::vector<double> &out, bool freeOnly) {
+    std::fill(out.begin(), out.end(), 0.0);
+    for (const Row &r : rows) {
+      double v = 0.0;
+      for (int k = 0; k < 6; k++) if (!freeOnly || !pinned[r.idx[k]]) v += r.w[k] * x[r.idx[k]];
+      for (int k = 0; k < 6; k++) if (!pinned[r.idx[k]]) out[r.idx[k]] += r.w[k] * v;
+    }
+  };
+  std::vector<double> b(2 * V), x(2 * V, 0.0), r(2 * V), d(2 * V), q(2 * V);
+  std::vector<double> justFixed(2 * V, 0.0);
+  for (int k = 0; k < 2 * V; k++) if (pinned[k]) justFixed[k] = fixed[k];
+  // A x_fixed, carried to the right-hand side.
+  {
+    std::fill(b.begin(), b.end(), 0.0);
+    for (const Row &row : rows) {
+      double v = 0.0;
+      for (int k = 0; k < 6; k++) if (pinned[row.idx[k]]) v += row.w[k] * justFixed[row.idx[k]];
+      for (int k = 0; k < 6; k++) if (!pinned[row.idx[k]]) b[row.idx[k]] -= row.w[k] * v;
+    }
+  }
+  apply(x, q, true);
+  for (int k = 0; k < 2 * V; k++) { r[k] = b[k] - q[k]; d[k] = r[k]; }
+  double rr = 0.0, bb = 0.0;
+  for (int k = 0; k < 2 * V; k++) { rr += r[k] * r[k]; bb += b[k] * b[k]; }
+  for (int it = 0; it < 20 * V && rr > 1e-28 * std::max(bb, 1e-30); it++) {
+    apply(d, q, true);
+    double dq = 0.0;
+    for (int k = 0; k < 2 * V; k++) dq += d[k] * q[k];
+    if (!(dq > 0)) break;
+    const double alpha = rr / dq;
+    double nr = 0.0;
+    for (int k = 0; k < 2 * V; k++) { x[k] += alpha * d[k]; r[k] -= alpha * q[k]; nr += r[k] * r[k]; }
+    const double beta = nr / rr;
+    rr = nr;
+    for (int k = 0; k < 2 * V; k++) d[k] = r[k] + beta * d[k];
+  }
+  std::vector<gp_XY> flat(V);
+  for (int k = 0; k < V; k++) flat[k] = gp_XY(pinned[2 * k] ? fixed[2 * k] : x[2 * k], pinned[2 * k + 1] ? fixed[2 * k + 1] : x[2 * k + 1]);
+  for (int k = 0; k < V; k++) flat[k] = flat[rep[k]];
+  double area2 = 0.0;
+  for (int i = 0; i + 1 < n; i++)
+    for (int j = 0; j + 1 < n; j++) {
+      const gp_XY a = flat[i * n + j], b2 = flat[(i + 1) * n + j], c = flat[(i + 1) * n + j + 1], e = flat[i * n + j + 1];
+      area2 += std::fabs((b2 - a) ^ (c - a)) / 2 + std::fabs((c - a) ^ (e - a)) / 2;
+    }
+  if (!(area2 > 1e-14)) throw std::runtime_error("that face could not be flattened");
+  const double s = std::sqrt(area3 / area2);
+  for (gp_XY &p : flat) p *= s;
+  return flat;
+}
+
+// Plasticity's Unwrap Face: face `index` of `shape` laid flat on the ground (the user's XY plane,
+// the model's y = 0, as the model is y-up) as a new sheet, its centre under the face's centre. Planes, cylinders and cones unroll exactly (lengths kept); other
+// faces are flattened conformally (shapes of small pieces kept, area kept overall), so their edges
+// stretch where the face is doubly curved.
+inline std::unique_ptr<TopoDS_Shape> w3d_unwrap_face(const TopoDS_Shape &shape, int32_t index) {
+  TopTools_IndexedMapOfShape fmap;
+  TopExp::MapShapes(shape, TopAbs_FACE, fmap);
+  if (index < 0 || index >= fmap.Extent()) throw std::out_of_range("that face no longer exists");
+  try {
+    const TopoDS_Face face = TopoDS::Face(fmap(index + 1));
+    BRepAdaptor_Surface ad(face, true);
+    double u0, u1, v0, v1;
+    BRepTools::UVBounds(face, u0, u1, v0, v1);
+    std::function<gp_XY(double, double)> flat;
+    std::vector<gp_XY> grid;
+    const int n = 33;
+    GProp_GProps g;
+    BRepGProp::SurfaceProperties(face, g);
+    const gp_Pnt centre = g.CentreOfMass();
+    if (ad.GetType() == GeomAbs_Plane) {
+      // A flat face only turns: its outward side up, its centre over where it was, curves kept exact.
+      const gp_Pln pln = ad.Plane();
+      gp_Dir up = pln.Axis().Direction();
+      if (face.Orientation() == TopAbs_REVERSED) up.Reverse();
+      gp_Dir x = pln.XAxis().Direction();
+      gp_Trsf to;
+      to.SetDisplacement(gp_Ax3(centre, up, x), gp_Ax3(gp_Pnt(centre.X(), 0.0, centre.Z()), gp::DY(), gp::DX()));
+      TopoDS_Shape result = BRepBuilderAPI_Transform(face, to, true).Shape();
+      if (!w3d_is_valid(result)) throw std::runtime_error("the unwrapped face is not valid");
+      return std::unique_ptr<TopoDS_Shape>(new TopoDS_Shape(result));
+    }
+    switch (ad.GetType()) {
+      case GeomAbs_Cylinder: {
+        const double R = ad.Cylinder().Radius();
+        flat = [R](double u, double v) { return gp_XY(R * u, v); };
+        break;
+      }
+      case GeomAbs_Cone: {
+        const gp_Cone cone = ad.Cone();
+        const gp_Pnt apex = cone.Apex();
+        const double s = std::sin(std::fabs(cone.SemiAngle()));
+        flat = [&ad, apex, s](double u, double v) {
+          const double rho = apex.Distance(ad.Value(u, v)), phi = u * s;
+          return gp_XY(rho * std::cos(phi), rho * std::sin(phi));
+        };
+        break;
+      }
+      default: {
+        std::vector<gp_Pnt> pts(n * n);
+        for (int i = 0; i < n; i++)
+          for (int j = 0; j < n; j++) pts[i * n + j] = ad.Value(u0 + (u1 - u0) * i / (n - 1), v0 + (v1 - v0) * j / (n - 1));
+        grid = w3d_lscm(pts, n);
+        flat = [&grid, u0, u1, v0, v1](double u, double v) {
+          const double a = std::min(std::max((u - u0) / (u1 - u0) * (n - 1), 0.0), double(n - 1));
+          const double b = std::min(std::max((v - v0) / (v1 - v0) * (n - 1), 0.0), double(n - 1));
+          const int i = std::min(int(a), n - 2), j = std::min(int(b), n - 2);
+          const double s = a - i, t = b - j;
+          return grid[i * n + j] * ((1 - s) * (1 - t)) + grid[(i + 1) * n + j] * (s * (1 - t)) + grid[(i + 1) * n + j + 1] * (s * t) + grid[i * n + j + 1] * ((1 - s) * t);
+        };
+      }
+    }
+    // Keep the face's outward side up: mirror if the flattening turns it over.
+    const double um = (u0 + u1) / 2, vm = (v0 + v1) / 2, hu = (u1 - u0) * 1e-3, hv = (v1 - v0) * 1e-3;
+    const gp_XY fu = flat(um + hu, vm) - flat(um - hu, vm), fv = flat(um, vm + hv) - flat(um, vm - hv);
+    const bool mirror = ((fu ^ fv) < 0) != (face.Orientation() == TopAbs_REVERSED);
+    // Turned so the face's v direction runs the way it runs seen from above (a round along an edge
+    // lies along the edge), when it isn't straight up; the user's y is the model's -z.
+    const gp_Vec dv(ad.Value(um, vm - hv), ad.Value(um, vm + hv));
+    const gp_XY seen(dv.X(), -dv.Z()), laid(mirror ? -fv.X() : fv.X(), fv.Y());
+    const double turn = seen.Modulus() > 1e-3 * dv.Magnitude() && laid.Modulus() > 1e-12
+      ? std::atan2(seen.Y(), seen.X()) - std::atan2(laid.Y(), laid.X()) : 0.0;
+    const double ct = std::cos(turn), st = std::sin(turn);
+    // Centred under the face's centre.
+    const gp_XY mid = flat(um, vm);
+    auto place = [&](double u, double v) {
+      gp_XY p = flat(u, v) - mid;
+      if (mirror) p.SetX(-p.X());
+      p = gp_XY(ct * p.X() - st * p.Y(), st * p.X() + ct * p.Y());
+      return gp_Pnt(p.X() + centre.X(), 0.0, centre.Z() - p.Y());
+    };
+    std::vector<TopoDS_Vertex> verts;
+    auto vertexAt = [&](const gp_Pnt &p) {
+      for (const TopoDS_Vertex &v : verts) if (BRep_Tool::Pnt(v).Distance(p) < 1e-6) return v;
+      verts.push_back(BRepBuilderAPI_MakeVertex(p).Vertex());
+      return verts.back();
+    };
+    const TopoDS_Face fwd = TopoDS::Face(face.Oriented(TopAbs_FORWARD));
+    const TopoDS_Wire outer = BRepTools::OuterWire(fwd);
+    std::vector<TopoDS_Wire> wires;
+    for (TopoDS_Iterator wi(fwd); wi.More(); wi.Next()) {
+      const TopoDS_Wire w = TopoDS::Wire(wi.Value());
+      BRepBuilderAPI_MakeWire mw;
+      for (BRepTools_WireExplorer we(w, fwd); we.More(); we.Next()) {
+        const TopoDS_Edge e = we.Current();
+        double a, b;
+        Handle(Geom2d_Curve) c2 = BRep_Tool::CurveOnSurface(e, fwd, a, b);
+        if (c2.IsNull()) {
+          if (BRep_Tool::Degenerated(e)) continue;
+          throw std::runtime_error("an edge of that face has no curve on it");
+        }
+        // A pole opens out into a line when laid flat; one that stays a point drops out.
+        if (BRep_Tool::Degenerated(e) && place(c2->Value(a).X(), c2->Value(a).Y()).Distance(place(c2->Value(b).X(), c2->Value(b).Y())) < 1e-6) continue;
+        const int m = 32;
+        TColgp_Array1OfPnt pts(1, m + 1);
+        for (int i = 0; i <= m; i++) {
+          const gp_Pnt2d q = c2->Value(a + (b - a) * i / m);
+          pts.SetValue(i + 1, place(q.X(), q.Y()));
+        }
+        // Straight stays straight.
+        bool straight = true;
+        const gp_Vec chord(pts(1), pts(m + 1));
+        if (chord.Magnitude() < 1e-9) straight = false;
+        else for (int i = 2; i <= m && straight; i++) straight = gp_Vec(pts(1), pts(i)).Crossed(chord).Magnitude() / chord.Magnitude() < 1e-7;
+        // The edge runs a to b along its curve; in the wire it runs as e is oriented.
+        const bool rev = e.Orientation() == TopAbs_REVERSED;
+        const gp_Pnt first = rev ? pts(m + 1) : pts(1), last = rev ? pts(1) : pts(m + 1);
+        const TopoDS_Vertex vf = vertexAt(first), vl = vertexAt(last);
+        TopoDS_Edge ne;
+        if (straight) ne = BRepBuilderAPI_MakeEdge(vf, vl).Edge();
+        else {
+          if (rev) for (int i = 1; i <= (m + 1) / 2; i++) { gp_Pnt t = pts(i); pts.SetValue(i, pts(m + 2 - i)); pts.SetValue(m + 2 - i, t); }
+          GeomAPI_PointsToBSpline fit(pts, 3, 8, GeomAbs_C2, 1e-7);
+          if (!fit.IsDone()) throw std::runtime_error("an edge of that face could not be laid flat");
+          Handle(Geom_BSplineCurve) cv = fit.Curve();
+          BRepBuilderAPI_MakeEdge me(cv, vf, vl);
+          if (!me.IsDone()) throw std::runtime_error("an edge of that face could not be laid flat");
+          ne = me.Edge();
+        }
+        mw.Add(ne);
+        if (!mw.IsDone()) throw std::runtime_error("the face's edges don't join up when laid flat");
+      }
+      if (w.IsSame(outer)) wires.insert(wires.begin(), mw.Wire());
+      else wires.push_back(mw.Wire());
+    }
+    if (wires.empty()) throw std::runtime_error("that face has no edges to unwrap");
+    BRepBuilderAPI_MakeFace mf(gp_Pln(gp_Ax3(gp::Origin(), gp::DY(), gp::DX())), wires[0], true);
+    for (size_t i = 1; i < wires.size(); i++) mf.Add(wires[i]);
+    if (!mf.IsDone()) throw std::runtime_error("the flat face could not be made");
+    ShapeFix_Face fix(mf.Face());
+    fix.FixOrientation();
+    fix.Perform();
+    TopoDS_Shape result = fix.Face();
+    if (!w3d_is_valid(result)) throw std::runtime_error("the unwrapped face is not valid");
+    return std::unique_ptr<TopoDS_Shape>(new TopoDS_Shape(result));
   } catch (const Standard_Failure &f) {
     throw w3d_kernel_error(f);
   }
