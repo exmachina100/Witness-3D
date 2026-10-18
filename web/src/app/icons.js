@@ -148,6 +148,8 @@ const ICONS = {
     'axis-x': `<path d="M4 20h16"/><path ${A} d="M8 6l8 8M16 6l-8 8"/>`,
     'axis-y': `<path d="M4 20h16"/><path ${A} d="M8 5l4 5 4-5M12 10v7"/>`,
     'axis-z': `<path d="M4 20h16"/><path ${A} d="M8 6h8l-8 10h8"/>`,
+    'extend-natural': `<path d="M3 19a10 10 0 0 1 8-9"/><path ${A} d="M11 10a10 10 0 0 1 9 2" stroke-dasharray="2 2"/>`,
+    'extend-linear': `<path d="M3 19a10 10 0 0 1 8-9"/><path ${A} d="M11 10l9-4" stroke-dasharray="2 2"/>`,
     // Offset Region combined: two overlapping outlines merged into one.
     combine: `<path d="M9 15a6 6 0 1 1 6-6" stroke-dasharray="2 2"/><path ${A} d="M9 15a6 6 0 0 1 6-6a6 6 0 1 1-6 6z"/><path ${A} d="M15 9a6 6 0 1 0-6 6"/>`,
     // Offset Region slot: a stadium round a line.

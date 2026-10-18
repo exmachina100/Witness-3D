@@ -728,8 +728,9 @@ export function trim(c, others, at) {
 
 /** The end of an open line or arc nearest `at`: 0 for its start, 1 for its end. */
 export function nearestEnd(c, at) {
-    const [a, b] = c.kind === 'arc' ? [c.start, c.end] : c.kind === 'polyline' && !c.closed ? [c.points[0], c.points[c.points.length - 1]] : [null, null];
-    if (!a) throw new Error('extend the open end of a line or an arc');
+    if (ends2(c) === null) throw new Error('extend the open end of a curve');
+    const { points } = samples(c);
+    const [a, b] = c.kind === 'arc' ? [c.start, c.end] : [points[0], points[points.length - 1]];
     return dist(at, a) <= dist(at, b) ? 0 : 1;
 }
 
@@ -737,8 +738,12 @@ export function nearestEnd(c, at) {
  * Plasticity's Extend Curve: lengthen an open line or arc by `length` mm at end `which` (0 start,
  * 1 end), carrying on in the same direction or round the same circle.
  */
-export function extendCurve(c, which, length) {
+/** Plasticity 26.1's Extend Curve shapes: carry on as the curve does, or straight along its end. */
+export const EXTEND_SHAPES = ['natural', 'linear'];
+
+export function extendCurve(c, which, length, shape = 'natural') {
     if (!(Number.isFinite(length) && length > 1e-6)) throw new Error('the length must be greater than zero');
+    if (!EXTEND_SHAPES.includes(shape)) throw new Error(`the shape is ${EXTEND_SHAPES.join(' or ')}`);
     if (c.kind === 'polyline' && !c.closed) {
         const pts = dedupe(c.points).map(p => [...p]);
         if (pts.length < 2) throw new Error('the line is too short to extend');
@@ -747,7 +752,7 @@ export function extendCurve(c, which, length) {
         pts[i] = add(pts[i], mul(dir, length));
         return withShape(c, { kind: 'polyline', points: pts, closed: false });
     }
-    if (c.kind === 'arc') {
+    if (c.kind === 'arc' && shape === 'natural') {
         const g = arcGeometry(c.start, c.mid, c.end);
         if (!g) throw new Error('the arc is a straight line');
         const extra = Math.sign(g.sweep) * length / g.radius, sweep = g.sweep + extra;
@@ -755,7 +760,39 @@ export function extendCurve(c, which, length) {
         const h = which ? { ...g, sweep } : { ...g, start: g.start - extra, sweep };
         return withShape(c, arcPiece(h, 0, 1));
     }
-    throw new Error('extend the open end of a line or an arc');
+    if (ends2(c) === null) throw new Error('extend the open end of a curve');
+    // A joined curve extends its end piece the same way.
+    if (c.kind === 'contour') {
+        const k = which ? c.pieces.length - 1 : 0, piece = c.pieces[k];
+        const grown = extendCurve({ ...frameOf(c), ...piece }, which, length, shape);
+        const { origin, x, normal, ...g } = grown;
+        const parts = g.kind === 'contour' ? g.pieces : [g];
+        const pieces = [...c.pieces.slice(0, k), ...parts, ...c.pieces.slice(k + 1)];
+        return withShape(c, { kind: 'contour', pieces: mergeLines(pieces) });
+    }
+    // Anything else gets a new piece at that end: a line along it, or (natural) an arc of its end curvature.
+    const pts = samples(c, 192).points, n = pts.length;
+    let [p, q, r] = which ? [pts[n - 3] ?? pts[n - 2], pts[n - 2], pts[n - 1]] : [pts[2] ?? pts[1], pts[1], pts[0]];
+    let out = norm(sub(r, q));
+    if (c.kind === 'arc') {
+        // An arc's end direction exactly: square to its radius, the way it runs.
+        const g = arcGeometry(c.start, c.mid, c.end), t = which ? g.start + g.sweep : g.start, turn = Math.sign(g.sweep);
+        const along = [-Math.sin(t) * turn, Math.cos(t) * turn];
+        r = which ? c.end : c.start; out = which ? along : mul(along, -1);
+    }
+    const k = shape === 'natural' && n >= 3 && c.kind !== 'arc' ? curvature3(p, q, r) : 0;
+    let extra;
+    if (Math.abs(k) * length < 1e-6) extra = { kind: 'polyline', points: [r, add(r, mul(out, length))], closed: false };
+    else {
+        if (Math.abs(k) * length >= TAU - 1e-6) throw new Error('the extension would close on itself; use a shorter length');
+        const center = add(r, mul(left(out), 1 / k));
+        extra = arcPiece({ center, radius: 1 / Math.abs(k), start: Math.atan2(r[1] - center[1], r[0] - center[0]), sweep: length * k }, 0, 1);
+    }
+    const own = c.kind === 'arc' ? [{ kind: 'arc', start: c.start, mid: c.mid, end: c.end }]
+        : c.kind === 'spline' ? [{ kind: 'spline', points: c.points.map(v => [...v]), closed: false }]
+        : [{ kind: 'spline', points: pts, closed: false }];
+    const flipped = extra.kind === 'arc' ? { kind: 'arc', start: extra.end, mid: extra.mid, end: extra.start } : { ...extra, points: [...extra.points].reverse() };
+    return withShape(c, { kind: 'contour', pieces: which ? [...own, extra] : [flipped, ...own] });
 }
 
 /** The end point and outward direction of an open curve at end `which` (0 start, 1 end). */

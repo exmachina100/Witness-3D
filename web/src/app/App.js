@@ -66,7 +66,7 @@ import { icon } from './icons.js';
 import { limitEdges, toObj, toStl } from '../meshExport.js';
 import { flatten, toDxf, toSvg } from '../drawingExport.js';
 import { readDxf } from '../dxf.js';
-import { BRIDGE_CONTINUITY, bridgeContinuous, continuity, curvatureComb, curveVertices, explode, extendCurve, filletCurve, nearestEnd, OFFSET_CORNERS, offsetCurve, offsetSlot, offsetThrough, unionLoops, moveVertices, alignedInPlane, offsetVertex, reverseCurve, splitCurve, tangentCircle, trim } from '../curveEdit.js';
+import { BRIDGE_CONTINUITY, bridgeContinuous, continuity, curvatureComb, curveVertices, explode, EXTEND_SHAPES, extendCurve, filletCurve, nearestEnd, OFFSET_CORNERS, offsetCurve, offsetSlot, offsetThrough, unionLoops, moveVertices, alignedInPlane, offsetVertex, reverseCurve, splitCurve, tangentCircle, trim } from '../curveEdit.js';
 import { ViewGizmo } from './ViewGizmo.js';
 import { Toolbar } from './Toolbar.js';
 import { arcPoints, circleThrough, cvPoints, ellipsePoints, endTangent, helixPoints, loops, nurbsLoop, nurbsPoints, polygonCorners, spiralAngle, tangentArc } from '../curves.js';
@@ -123,7 +123,7 @@ const KEYS = {
   'export-mesh': [['TYPE', 'OPTIONS IN PANEL'], ['⏎ / RMB', 'SAVE'], ['ESC', 'CANCEL']],
   'export-drawing': [['VIEW', 'AS THE CAMERA SEES IT'], ['H', 'HIDDEN LINES'], ['C', 'CURVES'], ['⏎ / RMB', 'SAVE'], ['ESC', 'CANCEL']],
   'tangent-circle': [['CLICK', 'FIRST · SECOND CURVE · SIZE'], ['F', 'FREEZE'], ['TAB', 'RADIUS'], ['ESC', 'CANCEL']],
-  extend: [['CLICK', 'NEAR AN END'], ['TYPE', 'LENGTH IN PANEL'], ['ESC / ⏎', 'DONE']],
+  extend: [['CLICK', 'NEAR AN END'], ['S', 'SHAPE NATURAL / LINEAR'], ['TYPE', 'LENGTH IN PANEL'], ['ESC / ⏎', 'DONE']],
   bridge: [['T / D', 'TENSION'], ['TAB', 'CONTINUITY G0 G1 G2'], ['⏎ / RMB', 'OK']],
   trim: [['CLICK', 'PIECE TO CUT AWAY'], ['CTRL Z', 'UNDO ONE'], ['ESC / ⏎', 'DONE']],
   box: [['CLICK', 'CORNER · CORNER · HEIGHT'], ['C', 'FROM CENTRE'], ['S', 'SQUARE'], ['TAB', 'TYPE'], ['H', 'HEIGHT'], ['Q W ⇧E ⇧Q', 'BOOLEAN'], ['B', 'NEW BODY'], ['⏎ / RMB', 'OK']],
@@ -415,8 +415,13 @@ const SHELL = `
       <div class="chips"><button data-id="hole-through" aria-pressed="false"><kbd>T</kbd>THROUGH ALL</button></div>
     </div>
     <div class="sec" data-panel="extend" hidden>
-      <span class="hint" data-id="ext-hint">CLICK NEAR THE END OF A LINE OR ARC</span>
+      <span class="hint" data-id="ext-hint">CLICK NEAR THE END OF AN OPEN CURVE</span>
       <div class="field"><label for="w3d-ext-len">LENGTH</label><input id="w3d-ext-len" data-id="ext-len" type="number" step="1" min="0.01" value="10"></div>
+      <span class="label">SHAPE</span>
+      <div class="seg" role="group" aria-label="Extend shape">
+        <button data-extshape="natural" aria-pressed="true" title="Carry on as the curve does: an arc round its circle, a curve with its end curvature"><kbd>S</kbd>NATURAL</button>
+        <button data-extshape="linear" aria-pressed="false" title="Carry on straight along the end">LINEAR</button>
+      </div>
     </div>
     <div class="sec" data-panel="bridge" hidden>
       <span class="hint" data-id="br-hint">—</span>
@@ -630,9 +635,9 @@ const VIEWS = {
 export async function mount(root, backend) {
   root.innerHTML = SHELL;
   // Panel options carry their icon ahead of the key and name.
-  for (const b of root.querySelectorAll('[data-draw],[data-bop],[data-xop],[data-fop],[data-spiral],[data-toggle],[data-gmethod],[data-galign],[data-grow],[data-avaxis],[data-id="ex-lock"],[data-id="bool-keep"],[data-id="ex-free"],[data-id="ex-pivot"],[data-id="ex-individual"],[data-id="dr-hidden"],[data-id="dr-curves"],[data-id="oc-lock"],[data-id="oc-free"],[data-id="oc-slot"],[data-id="oc-combine"]')) {
+  for (const b of root.querySelectorAll('[data-draw],[data-bop],[data-xop],[data-fop],[data-spiral],[data-toggle],[data-gmethod],[data-galign],[data-grow],[data-avaxis],[data-extshape],[data-id="ex-lock"],[data-id="bool-keep"],[data-id="ex-free"],[data-id="ex-pivot"],[data-id="ex-individual"],[data-id="dr-hidden"],[data-id="dr-curves"],[data-id="oc-lock"],[data-id="oc-free"],[data-id="oc-slot"],[data-id="oc-combine"]')) {
     const name = b.dataset.draw ?? b.dataset.bop ?? b.dataset.xop ?? b.dataset.fop ?? b.dataset.spiral ?? (b.dataset.toggle && `view-${b.dataset.toggle}`)
-      ?? (b.dataset.gmethod && `guide-${b.dataset.gmethod}`) ?? (b.dataset.galign && `align-${b.dataset.galign}`) ?? (b.dataset.grow && `grow-${b.dataset.grow}`) ?? (b.dataset.avaxis && `axis-${b.dataset.avaxis}`)
+      ?? (b.dataset.gmethod && `guide-${b.dataset.gmethod}`) ?? (b.dataset.galign && `align-${b.dataset.galign}`) ?? (b.dataset.grow && `grow-${b.dataset.grow}`) ?? (b.dataset.avaxis && `axis-${b.dataset.avaxis}`) ?? (b.dataset.extshape && `extend-${b.dataset.extshape}`)
       ?? { 'ex-lock': 'lock', 'bool-keep': 'keep', 'ex-free': 'freestyle', 'ex-pivot': 'pivot', 'ex-individual': 'individual', 'dr-hidden': 'hidden-lines', 'dr-curves': 'drawing-curves', 'oc-lock': 'lock', 'oc-free': 'freestyle', 'oc-slot': 'slot', 'oc-combine': 'combine' }[b.dataset.id];
     b.insertAdjacentHTML('afterbegin', icon(name));
   }
@@ -4684,19 +4689,27 @@ export async function mount(root, backend) {
       if (!src || !hit.point) return true;
       const f = curveFrame(src), d = hit.point.clone().sub(f.o), at = [d.dot(f.x), d.dot(f.y)];
       try {
-        const out = extendCurve(src, nearestEnd(src, at), num('ext-len'));
+        const out = extendCurve(src, nearestEnd(src, at), num('ext-len'), extShape());
         const { ids: made } = await backend.replaceCurves([src.id], [out]);
         c.count++;
-        record(`EXTEND ${curveLabel(src.id)} ${num('ext-len')} MM`, made[0], curveLabel(made[0]));
+        record(`EXTEND ${curveLabel(src.id)} ${num('ext-len')} MM ${extShape().toUpperCase()}`, made[0], curveLabel(made[0]));
         await loadCurves();
         setHud(`${c.count} EXTENDED · CLICK ANOTHER, OR ⏎`);
         setState('committed');
       } catch (err) { setState('failed'); toast(say(err)); }
       return true;
     };
+    c.key = action => {
+      if (action !== 'shape') return false;
+      setExtShape(EXTEND_SHAPES[(EXTEND_SHAPES.indexOf(extShape()) + 1) % EXTEND_SHAPES.length]);
+      setHud(`${extShape().toUpperCase()} · CLICK NEAR AN END`);
+      return true;
+    };
     c.finish = () => endCmd(c.count ? 'committed' : 'cancelled');
     c.abort = () => endCmd(c.count ? 'committed' : 'cancelled');
   }
+  const extShape = () => $$('[data-extshape]').find(b => b.getAttribute('aria-pressed') === 'true')?.dataset.extshape ?? 'natural';
+  const setExtShape = shape => { for (const b of $$('[data-extshape]')) b.setAttribute('aria-pressed', String(b.dataset.extshape === shape)); };
 
   /** Plasticity's Bridge Curves: a smooth curve between the nearest ends of two selected open curves. */
   function startBridge() {
@@ -6215,6 +6228,7 @@ export async function mount(root, backend) {
   $('br-start').onclick = () => cmd?.id === 'bridge' && cmd.cycleEnd(0);
   $('br-end').onclick = () => cmd?.id === 'bridge' && cmd.cycleEnd(1);
   $('oc-lock').onclick = () => cmd?.id === 'offset-curve' && cmd.key('lock');
+  for (const b of $$('[data-extshape]')) b.onclick = () => setExtShape(b.dataset.extshape);
   $('oc-slot').onclick = () => cmd?.id === 'offset-curve' && cmd.key('slot');
   $('oc-combine').onclick = () => cmd?.id === 'offset-curve' && cmd.key('combine');
   $('oc-free').onclick = () => cmd?.id === 'offset-curve' && cmd.key('freestyle');
