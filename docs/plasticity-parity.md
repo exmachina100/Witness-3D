@@ -165,3 +165,17 @@ Quality bar for every feature, reported with numbers when missed:
 - Every operation in the three test workflows (enclosure, mirror housing, handle) succeeds on the
   benchmark models; a failure shows a message and leaves the model as it was
 
+The three workflows run end to end in `crates/w3d-kernel/tests/workflows.rs` (desktop kernel,
+through the Document as the app drives it; `cargo test -p w3d-kernel --test workflows -- --nocapture`
+prints each step):
+- Enclosure: box 80 × 30 × 50, corners r8, top r3, shell 2 mm open at the bottom, cable port r4,
+  four bosses r3.5 drilled r1.25; 12 steps, all valid, volumes within 5 mm³ of hand-computed
+  values, saves and reopens unchanged, undoes back to the box. A top round of r40 is refused.
+- Mirror housing: loft of three oval splines, shell 2.5 mm open at the door, cap edge r1.5, mirrored
+  pair. Shell on the loft used to hand the body back untouched (OCCT's sharp join gives up on it);
+  it now falls back to the rounded join in both builds. A 40 mm shell is refused.
+- Handle: r6 bar swept along an arch, joined to a base plate, seams r2, plate rim r2. A r30 seam
+  round is refused.
+Not covered yet: G1 checks at the joins (fillets are tangent by construction; Measure Continuity
+runs in the app, not in these tests) and the same runs in the browser build.
+
