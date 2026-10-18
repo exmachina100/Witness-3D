@@ -432,6 +432,24 @@ async fn commit_untrim(
 }
 
 #[tauri::command]
+async fn preview_unwrap(
+    model: State<'_, Model>,
+    req: api::UnwrapRequest,
+) -> Result<Option<api::Body>, api::ApiError> {
+    on_model(&model, move |m| api::preview_unwrap(m, req))
+        .await?
+        .transpose()
+}
+
+#[tauri::command]
+async fn commit_unwrap(
+    model: State<'_, Model>,
+    req: api::UnwrapRequest,
+) -> Result<api::Duplicated, api::ApiError> {
+    on_model(&model, move |m| api::commit_unwrap(m, req)).await?
+}
+
+#[tauri::command]
 async fn commit_thicken(
     model: State<'_, Model>,
     req: api::ThickenRequest,
@@ -795,6 +813,8 @@ pub fn run() {
             edge_curvature,
             preview_untrim,
             commit_untrim,
+            preview_unwrap,
+            commit_unwrap,
             preview_pipe,
             commit_pipe,
             preview_bridge_surface,

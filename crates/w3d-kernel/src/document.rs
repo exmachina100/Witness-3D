@@ -967,6 +967,20 @@ impl<K: Kernel> Document<K> {
         Ok(sheets.into_iter().map(|s| self.add_unrecorded(s)).collect())
     }
 
+    /// Plasticity's Unwrap Face, without changing the document: each of `faces` of `body` laid flat.
+    pub fn preview_unwrap(&self, body: BodyId, faces: &[u32]) -> Result<Vec<K::Solid>, KernelError> {
+        let s = self.get(body).ok_or(KernelError::Invalid("that body no longer exists"))?;
+        if faces.is_empty() { return Err(KernelError::Invalid("select the faces to unwrap")) }
+        faces.iter().map(|&f| self.kernel.unwrap_face(s, f)).collect()
+    }
+
+    /// Unwrap as one undoable step: each flat sheet is a body of its own and the faces' body stays.
+    pub fn commit_unwrap(&mut self, body: BodyId, faces: &[u32]) -> Result<Vec<BodyId>, KernelError> {
+        let sheets = self.preview_unwrap(body, faces)?;
+        self.checkpoint();
+        Ok(sheets.into_iter().map(|s| self.add_unrecorded(s)).collect())
+    }
+
     /// Plasticity's Rebuild Face, without changing the document: `faces` of `body` given new
     /// B-spline surfaces, with what each became.
     pub fn preview_rebuild_faces(&self, body: BodyId, faces: &[u32], how: &FaceRebuild) -> Result<(K::Solid, Vec<RebuiltFace>), KernelError> {

@@ -377,6 +377,12 @@ impl Shape {
         Ok(Shape::from_shape(&piece))
     }
 
+    /// Plasticity's Unwrap Face: face `face` laid flat on the XY plane (see `w3d_unwrap_face`).
+    pub fn unwrap_face(&self, face: usize) -> Result<Shape, String> {
+        let shape = ffi::w3d::w3d_unwrap_face(&self.inner, face as i32).map_err(reason)?;
+        Ok(Shape::from_shape(&shape))
+    }
+
     /// Plasticity's Untrim: a sheet of the whole surface under face `face`, with its edges
     /// imprinted when `keep`.
     pub fn untrim_face(&self, face: usize, keep: bool) -> Result<Shape, String> {

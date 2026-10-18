@@ -1360,6 +1360,29 @@ pub fn commit_untrim(m: &Model, req: UntrimRequest) -> Result<Duplicated, ApiErr
     })
 }
 
+/// Unwrap Face: each of `faces` of `body` laid flat on the XY plane as a new sheet.
+#[derive(Deserialize, Debug, Clone)]
+pub struct UnwrapRequest {
+    pub body: BodyId,
+    pub faces: Vec<u32>,
+}
+
+pub fn preview_unwrap(m: &Model, req: UnwrapRequest) -> Option<Result<Body, ApiError>> {
+    m.preview(move |doc| {
+        let mut sheets = doc.preview_unwrap(req.body, &req.faces)?.into_iter();
+        let first = sheets.next().ok_or(KernelError::Invalid("select the faces to unwrap"))?;
+        let all = sheets.try_fold(first, |a, s| doc.kernel.boolean(&a, &s, BooleanOp::Union).map(|r| r.solid))?;
+        Ok(body(&doc.kernel, 0, &all)?)
+    })
+}
+
+pub fn commit_unwrap(m: &Model, req: UnwrapRequest) -> Result<Duplicated, ApiError> {
+    m.call(move |doc| {
+        let ids = doc.commit_unwrap(req.body, &req.faces)?;
+        Ok(Duplicated { ids, scene: bodies(doc)? })
+    })
+}
+
 /// Extend Sheet: a sheet body grown `distance` past its open edge `edge`.
 #[derive(Deserialize, Debug, Clone)]
 pub struct ExtendSheetRequest {
