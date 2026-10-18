@@ -110,7 +110,8 @@ export const COMMAND = {
     'offset-vertex': { d: 'distance' },
     'fillet-vertex': { d: 'distance', c: 'chamfer' },
     'fillet-curve': { d: 'radius' },
-    bridge: { t: 'tension' },
+    // Bridge Curve / Bridge Vertex (manual: Tab continuity, D tension)
+    bridge: { t: 'tension', d: 'tension', tab: 'continuity' },
     hole: { t: 'through' },
     // Cut: P cuts with the construction plane as well.
     cut: { p: 'plane' },
