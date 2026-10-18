@@ -4,9 +4,9 @@ import assert from 'node:assert/strict';
 import { before, test } from 'node:test';
 import * as THREE from 'three';
 import { LocalBackend } from '../src/app/LocalBackend.js';
-import { count, loadKernel, numbered, numberedEdges, oc, tessellate } from '../src/Kernel.js';
+import { box, count, loadKernel, numbered, numberedEdges, oc, primitive, tessellate } from '../src/Kernel.js';
 import { bridgeSurface } from '../src/BridgeSurface.js';
-import { extendSheet } from '../src/ExtendSheet.js';
+import { extendSheet, extendSheetTo } from '../src/ExtendSheet.js';
 import { patch } from '../src/Patch.js';
 
 before(async () => { await loadKernel() });
@@ -118,4 +118,39 @@ test('trimmed edges and solids are refused; the backend keeps the body in one un
     assert.ok(scene.find(b => b.id === id).sheet);
     await be.undo();
     close(range(points(be.shapes.get(sheet)), 'y')[1], 10);
+});
+
+/** The area of a shape's mesh. */
+function meshArea(shape) {
+    const g = tessellate(shape, { deflection: 0.001 }).mesh, a = g.getAttribute('position'), ix = g.index.array;
+    const v = i => new THREE.Vector3(a.getX(i), a.getY(i), a.getZ(i));
+    let s = 0;
+    for (let i = 0; i < ix.length; i += 3) s += v(ix[i + 1]).sub(v(ix[i])).cross(v(ix[i + 2]).sub(v(ix[i]))).length() / 2;
+    return s;
+}
+
+test('limit carries the sheet on until it meets the body', async () => {
+    const a = square(0, 0);
+    const e = edgeWhere(a, p => Math.abs(p.x - 10) < 1e-9);
+    // A wall square across the path at x = 20, then a round post lying across it (axis along y at x = 30, r 8).
+    const wall = box(new THREE.Vector3(20, -5, -5), new THREE.Vector3(30, 15, 5));
+    close(meshArea(extendSheetTo(a, e, wall, 'linear')), 200, 1e-6);
+    const post = primitive({ kind: 'cylinder', frame: { origin: [30, -5, 0], x: [1, 0, 0], normal: [0, 1, 0] }, radius: 8, height: 20 });
+    const s = extendSheetTo(a, e, post, 'linear');
+    const [lo, hi] = range(points(s), 'x');
+    close(lo, 0, 1e-9);
+    close(hi, 22, 1e-6);
+    close(meshArea(s), 220, 1e-6);
+    for (const k of ['natural', 'soft']) close(range(points(extendSheetTo(a, e, wall, k)), 'x')[1], 20, 1e-6);
+    assert.throws(() => extendSheetTo(a, e, wall, 'reflective'), /reflective/);
+    assert.throws(() => extendSheetTo(a, e, box(new THREE.Vector3(20, -5, 10), new THREE.Vector3(30, 15, 20)), 'linear'), /never meets/);
+    // Through the backend, by body.
+    const be = new LocalBackend();
+    const { ids } = await be.addCurves([{ origin: [0, 0, 0], x: [1, 0, 0], normal: [0, 0, 1], kind: 'polyline', points: [[0, 0], [10, 0], [10, 10], [0, 10]], closed: true }]);
+    const { id: sheet } = await be.commitPatch({ curves: ids, edges: [] });
+    const { id: block } = await be.commitPrimitive({ kind: 'box', frame: { origin: [20, -5, 5], x: [1, 0, 0], normal: [0, 0, -1] }, width: 10, depth: -20, height: 10, op: 'new' });
+    const n = edgeWhere(be.shapes.get(sheet), p => Math.abs(p.x - 10) < 1e-9);
+    await be.commitExtendSheet({ body: sheet, edge: n, distance: 1, shape: 'linear', limit: block });
+    close(range(points(be.shapes.get(sheet)), 'x')[1], 20, 1e-6);
+    await assert.rejects(be.previewExtendSheet({ body: sheet, edge: n, distance: 1, limit: sheet }), /not itself/);
 });

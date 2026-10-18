@@ -2601,6 +2601,86 @@ inline std::unique_ptr<TopoDS_Shape> w3d_extend_sheet(const TopoDS_Shape &shape,
   }
 }
 
+// Extend Sheet's Limit (Plasticity's Minimal): the sheet carried on past its open edge `index` in
+// shape `kind` until it first meets `target`, and no further. The sheet is extended well past the
+// target, split by it, and the pieces reached from the edge without crossing the target are kept.
+inline std::unique_ptr<TopoDS_Shape> w3d_extend_sheet_to(const TopoDS_Shape &shape, int32_t index, const TopoDS_Shape &target, int32_t kind) {
+  if (kind == 3) throw std::runtime_error("reflective mirrors only as much sheet as there is, so it can't reach to a body; pick another shape");
+  TopTools_IndexedMapOfShape map;
+  TopExp::MapShapes(shape, TopAbs_EDGE, map);
+  if (index < 0 || index >= map.Extent()) throw std::out_of_range("that edge no longer exists");
+  try {
+    BRepAdaptor_Curve along(TopoDS::Edge(map(index + 1)));
+    const TopoDS_Vertex mid = BRepBuilderAPI_MakeVertex(along.Value((along.FirstParameter() + along.LastParameter()) / 2)).Vertex();
+    Bnd_Box box;
+    BRepBndLib::Add(shape, box);
+    BRepBndLib::Add(target, box);
+    const double far = std::sqrt(box.SquareExtent()) * 1.5;
+    std::unique_ptr<TopoDS_Shape> grown;
+    try {
+      grown = w3d_extend_sheet(shape, index, far, kind);
+    } catch (const std::exception &) {
+      throw std::runtime_error("the sheet can't be carried on as far as that body in this shape; try Linear");
+    }
+    BRepAlgoAPI_Splitter split;
+    TopTools_ListOfShape args, tools;
+    args.Append(*grown);
+    tools.Append(target);
+    split.SetArguments(args);
+    split.SetTools(tools);
+    split.Build();
+    if (!split.IsDone() || split.HasErrors()) throw std::runtime_error("the extension could not be cut at that body");
+    TopTools_IndexedMapOfShape faces;
+    TopExp::MapShapes(split.Shape(), TopAbs_FACE, faces);
+    TopTools_IndexedDataMapOfShapeListOfShape owners;
+    TopExp::MapShapesAndAncestors(split.Shape(), TopAbs_EDGE, TopAbs_FACE, owners);
+    auto near = [](const TopoDS_Shape &a, const TopoDS_Shape &b, double tol) {
+      BRepExtrema_DistShapeShape d(a, b);
+      return d.IsDone() && d.Value() < tol;
+    };
+    std::map<int, bool> onTarget;
+    auto meets = [&](int e) {
+      auto it = onTarget.find(e);
+      if (it != onTarget.end()) return it->second;
+      const TopoDS_Edge &edge = TopoDS::Edge(owners.FindKey(e));
+      bool on = false;
+      if (!BRep_Tool::Degenerated(edge)) {
+        BRepAdaptor_Curve c(edge);
+        on = near(BRepBuilderAPI_MakeVertex(c.Value((c.FirstParameter() + c.LastParameter()) / 2)).Vertex(), target, 1e-5);
+      }
+      return onTarget[e] = on;
+    };
+    std::vector<bool> keep(faces.Extent() + 1, false);
+    std::vector<int> todo;
+    for (int i = 1; i <= faces.Extent(); i++)
+      if (near(mid, faces(i), 1e-6)) { keep[i] = true; todo.push_back(i); }
+    if (todo.empty()) throw std::runtime_error("the extension lost track of its edge");
+    bool reached = false;
+    while (!todo.empty()) {
+      const int f = todo.back();
+      todo.pop_back();
+      for (TopExp_Explorer ex(faces(f), TopAbs_EDGE); ex.More(); ex.Next()) {
+        const int e = owners.FindIndex(ex.Current());
+        if (e == 0) continue;
+        if (meets(e)) { reached = true; continue; }
+        for (TopTools_ListIteratorOfListOfShape it(owners(e)); it.More(); it.Next()) {
+          const int g = faces.FindIndex(it.Value());
+          if (g > 0 && !keep[g]) { keep[g] = true; todo.push_back(g); }
+        }
+      }
+    }
+    if (!reached) throw std::runtime_error("the extension never meets that body; pick a body the edge points at");
+    BRepBuilderAPI_Sewing sew(1e-6);
+    for (int i = 1; i <= faces.Extent(); i++) if (keep[i]) sew.Add(faces(i));
+    sew.Perform();
+    TopoDS_Shape result = sew.SewedShape();
+    if (!w3d_is_valid(result)) throw std::runtime_error("the extended sheet is not valid");
+    return std::unique_ptr<TopoDS_Shape>(new TopoDS_Shape(result));
+  } catch (const Standard_Failure &f) {
+    throw w3d_kernel_error(f);
+  }
+}
+
 // The pieces at the top of a compound, counted and fetched by number.
 inline int32_t w3d_child_count(const TopoDS_Shape &shape) {
   int32_t n = 0;

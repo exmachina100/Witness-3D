@@ -82,6 +82,7 @@ mod inner {
         pub fn w3d_thicken(shape: &TopoDS_Shape, front: f64, back: f64) -> Result<UniquePtr<TopoDS_Shape>>;
         pub fn w3d_thicken_faces(shape: &TopoDS_Shape, faces: &[i32], front: f64, back: f64) -> Result<UniquePtr<TopoDS_Shape>>;
         pub fn w3d_extend_sheet(shape: &TopoDS_Shape, index: i32, distance: f64, kind: i32) -> Result<UniquePtr<TopoDS_Shape>>;
+        pub fn w3d_extend_sheet_to(shape: &TopoDS_Shape, index: i32, target: &TopoDS_Shape, kind: i32) -> Result<UniquePtr<TopoDS_Shape>>;
         pub fn w3d_child_count(shape: &TopoDS_Shape) -> i32;
         pub fn w3d_child_at(shape: &TopoDS_Shape, index: i32) -> Result<UniquePtr<TopoDS_Shape>>;
         pub fn w3d_join_sheets(all: &TopoDS_Shape, tol: f64) -> Result<UniquePtr<TopoDS_Shape>>;

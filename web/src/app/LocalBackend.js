@@ -12,7 +12,7 @@ import { isSheet, patch } from '../Patch.js';
 import { bridgeSurface } from '../BridgeSurface.js';
 import { projectOutline } from '../Outline.js';
 import { thicken, thickenFaces } from '../Thicken.js';
-import { extendSheet } from '../ExtendSheet.js';
+import { extendSheet, extendSheetTo } from '../ExtendSheet.js';
 import { joinSheets, unjoin } from '../Join.js';
 import { hiddenLines } from '../Drawing.js';
 
@@ -638,9 +638,15 @@ export class LocalBackend {
     }
 
     /** Plasticity's Extend Sheet: sheet `body` grown `distance` past its open `edge`. */
-    extendSheetResult({ body, edge, distance, natural = false, shape }) {
+    extendSheetResult({ body, edge, distance, natural = false, shape, limit }) {
         const s = this.shapes.get(body);
         if (!s) throw new Error('that body no longer exists');
+        if (limit != null) {
+            if (limit === body) throw new Error('limit the sheet by another body, not itself');
+            const t = this.shapes.get(limit);
+            if (!t) throw new Error('the limiting body no longer exists');
+            return extendSheetTo(s, edge, t, shape ?? (natural ? 'natural' : 'linear'));
+        }
         return extendSheet(s, edge, distance, shape ?? natural);
     }
 

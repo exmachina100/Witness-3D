@@ -114,7 +114,7 @@ const KEYS = {
   imprint: [['⇧ CLICK', 'FACES · CURVES'], ['⇧ ALT CLICK', 'BODY THAT IMPRINTS'], ['⏎ / RMB', 'OK']],
   project: [['⇧ CLICK', 'SOLID · CURVES'], ['X Y Z', 'VECTOR'], ['S', 'SCREEN SPACE'], ['⏎ / RMB', 'OK']],
   'bridge-surface': [['⇧ CLICK', 'TWO EDGES'], ['T', 'TENSION'], ['⏎ / RMB', 'OK']],
-  'extend-sheet': [['CLICK', "A SHEET'S EDGE"], ['D', 'DISTANCE'], ['TAB', 'NATURAL · LINEAR · SOFT · REFLECTIVE'], ['⏎ / RMB', 'OK']],
+  'extend-sheet': [['CLICK', "A SHEET'S EDGE"], ['D', 'DISTANCE'], ['CTRL+CLICK', 'A BODY TO REACH'], ['TAB', 'NATURAL · LINEAR · SOFT · REFLECTIVE'], ['⏎ / RMB', 'OK']],
   thicken: [['CLICK', 'A SHEET'], ['ALT CLICK', 'FACES (THICKEN FACE)'], ['D', 'FRONT'], ['B', 'BACK'], ['⏎ / RMB', 'OK']],
   pipe: [['⇧ CLICK', 'CURVES'], ['R', 'RADIUS'], ['T', 'THICKNESS'], ['V', 'SIDES'], ['⏎ / RMB', 'OK']],
   patch: [['⇧ CLICK', 'CURVES · EDGES'], ['T', 'TANGENT TO FACES'], ['⏎ / RMB', 'OK']],
@@ -425,6 +425,8 @@ const SHELL = `
       <div class="field"><label for="w3d-es-d">DISTANCE</label><input id="w3d-es-d" data-id="es-d" type="number" step="0.5" min="0.01" value="5"></div>
       <span class="label">SHAPE</span>
       <div class="chips"><button data-esshape="natural" aria-pressed="true" title="Carry on with the surface's curvature (Tab)"><kbd>TAB</kbd>NATURAL</button><button data-esshape="linear" aria-pressed="false" title="Carry straight on from the edge (Tab)">LINEAR</button><button data-esshape="soft" aria-pressed="false" title="Leave tangent and with the same curvature, easing out flat (Tab)">SOFT</button><button data-esshape="reflective" aria-pressed="false" title="Mirror the sheet's shape through the edge (Tab)">REFLECTIVE</button></div>
+      <span class="label">LIMIT</span>
+      <div class="field"><span class="hint" data-id="es-limit" title="Ctrl-click a body: the sheet carries on until it meets it">—</span><button data-id="es-unlimit" hidden title="Extend by the distance instead">CLEAR</button></div>
     </div>
     <div class="sec" data-panel="thicken" hidden>
       <span class="hint" data-id="th-hint">—</span>
@@ -672,10 +674,10 @@ const VIEWS = {
 export async function mount(root, backend) {
   root.innerHTML = SHELL;
   // Panel options carry their icon ahead of the key and name.
-  for (const b of root.querySelectorAll('[data-draw],[data-bop],[data-xop],[data-fop],[data-spiral],[data-toggle],[data-gmethod],[data-galign],[data-grow],[data-avaxis],[data-extshape],[data-esshape],[data-isodir],[data-id="oe-both"],[data-id="ex-lock"],[data-id="bool-keep"],[data-id="ex-free"],[data-id="ex-pivot"],[data-id="ex-individual"],[data-id="dr-hidden"],[data-id="dr-curves"],[data-id="oc-lock"],[data-id="oc-free"],[data-id="oc-slot"],[data-id="oc-combine"]')) {
+  for (const b of root.querySelectorAll('[data-draw],[data-bop],[data-xop],[data-fop],[data-spiral],[data-toggle],[data-gmethod],[data-galign],[data-grow],[data-avaxis],[data-extshape],[data-esshape],[data-isodir],[data-id="oe-both"],[data-id="ex-lock"],[data-id="bool-keep"],[data-id="ex-free"],[data-id="ex-pivot"],[data-id="ex-individual"],[data-id="dr-hidden"],[data-id="dr-curves"],[data-id="oc-lock"],[data-id="oc-free"],[data-id="oc-slot"],[data-id="oc-combine"],[data-id="es-unlimit"]')) {
     const name = b.dataset.draw ?? b.dataset.bop ?? b.dataset.xop ?? b.dataset.fop ?? b.dataset.spiral ?? (b.dataset.toggle && `view-${b.dataset.toggle}`)
       ?? (b.dataset.gmethod && `guide-${b.dataset.gmethod}`) ?? (b.dataset.galign && `align-${b.dataset.galign}`) ?? (b.dataset.grow && `grow-${b.dataset.grow}`) ?? (b.dataset.avaxis && `axis-${b.dataset.avaxis}`) ?? (b.dataset.extshape && `extend-${b.dataset.extshape}`) ?? (b.dataset.esshape && `extend-${b.dataset.esshape}`) ?? (b.dataset.isodir && `iso-${b.dataset.isodir}`)
-      ?? { 'ex-lock': 'lock', 'bool-keep': 'keep', 'ex-free': 'freestyle', 'ex-pivot': 'pivot', 'ex-individual': 'individual', 'dr-hidden': 'hidden-lines', 'dr-curves': 'drawing-curves', 'oc-lock': 'lock', 'oc-free': 'freestyle', 'oc-slot': 'slot', 'oc-combine': 'combine', 'oe-both': 'both-sides' }[b.dataset.id];
+      ?? { 'ex-lock': 'lock', 'bool-keep': 'keep', 'ex-free': 'freestyle', 'ex-pivot': 'pivot', 'ex-individual': 'individual', 'dr-hidden': 'hidden-lines', 'dr-curves': 'drawing-curves', 'oc-lock': 'lock', 'oc-free': 'freestyle', 'oc-slot': 'slot', 'oc-combine': 'combine', 'oe-both': 'both-sides', 'es-unlimit': 'unlimit' }[b.dataset.id];
     b.insertAdjacentHTML('afterbegin', icon(name));
   }
   const $ = id => root.querySelector(`[data-id="${id}"]`);
@@ -4246,11 +4248,29 @@ export async function mount(root, backend) {
     const isSheetBody = id => !!current.find(b => b.id === id)?.sheet;
     const picked = () => { const es = sel.list('edge'); return es.length === 1 && isSheetBody(es[0].body) ? es[0] : null; };
     if (!picked()) return toast('SELECT ONE EDGE OF A SHEET');
-    const c = cmd = { id: 'extend-sheet', edge: picked(), shape: 'natural', sent: 0, shown: 0 };
+    const c = cmd = { id: 'extend-sheet', edge: picked(), shape: 'natural', limit: null, sent: 0, shown: 0 };
     lastTool = 'extend-sheet';
     showTool('extend-sheet');
+    $('es-limit').textContent = '—';
+    $('es-unlimit').hidden = true;
+    $('es-d').disabled = false;
     setState('none');
-    c.request = () => ({ body: c.edge.body, edge: c.edge.n, distance: num('es-d'), natural: c.shape === 'natural', shape: c.shape });
+    c.request = () => ({ body: c.edge.body, edge: c.edge.n, distance: num('es-d'), natural: c.shape === 'natural', shape: c.shape, ...(c.limit != null && { limit: c.limit }) });
+    // Limit: Ctrl/Shift-click another body and the sheet carries on until it meets it.
+    c.setLimit = id => {
+      c.limit = id;
+      $('es-limit').textContent = id == null ? '—' : label(id);
+      $('es-unlimit').hidden = id == null;
+      $('es-d').disabled = id != null;
+      c.preview();
+    };
+    c.click = e => {
+      if (!(e.ctrlKey || e.metaKey || e.shiftKey)) return false;
+      const hit = pickAt(e);
+      if (hit?.body === undefined || hit.body === c.edge?.body) return false;
+      c.setLimit(c.limit === hit.body ? null : hit.body);
+      return true;
+    };
     c.setShape = k => {
       c.shape = k;
       for (const b of $$('[data-esshape]')) b.setAttribute('aria-pressed', String(b.dataset.esshape === k));
@@ -4259,8 +4279,9 @@ export async function mount(root, backend) {
     c.preview = () => livePreview(c, () => backend.previewExtendSheet(c.request()), b => {
       const m = showPreviewBody(b, phantom.add.face, phantom.add.edge);
       m.renderOrder = 5;
-      $('es-hint').textContent = `${label(c.edge.body)} · ${num('es-d')} MM PAST THE EDGE`;
-      setHud(`EXTEND SHEET ${num('es-d')} MM · ${c.shape.toUpperCase()}`);
+      const how = c.limit != null ? `UP TO ${label(c.limit)}` : `${num('es-d')} MM`;
+      $('es-hint').textContent = `${label(c.edge.body)} · ${c.limit != null ? how : `${how} PAST THE EDGE`}`;
+      setHud(`EXTEND SHEET ${how} · ${c.shape.toUpperCase()}`);
     }, 'es-hint');
     c.onSelection = () => {
       drawOverlays();
@@ -4287,7 +4308,7 @@ export async function mount(root, backend) {
       try {
         const { id, scene: list } = await backend.commitExtendSheet(c.request());
         endCmd('committed');
-        record(`EXTEND SHEET ${num('es-d')} MM ${c.shape.toUpperCase()}`, id);
+        record(`EXTEND SHEET ${c.limit != null ? `UP TO ${label(c.limit)}` : `${num('es-d')} MM`} ${c.shape.toUpperCase()}`, id);
         await showScene(list);
         sel.replace({ kind: 'solid', body: id });
         selectionChanged({ quiet: true });
@@ -6731,6 +6752,7 @@ export async function mount(root, backend) {
   $('bs-t').addEventListener('input', () => cmd?.id === 'bridge-surface' && cmd.preview());
   $('es-d').addEventListener('input', () => cmd?.id === 'extend-sheet' && cmd.preview());
   for (const b of $$('[data-esshape]')) b.onclick = () => cmd?.id === 'extend-sheet' && cmd.setShape(b.dataset.esshape);
+  $('es-unlimit').onclick = () => cmd?.id === 'extend-sheet' && cmd.setLimit(null);
   for (const f of ['th-f', 'th-b']) $(f).addEventListener('input', () => cmd?.id === 'thicken' && cmd.preview());
   for (const f of ['pipe-r', 'pipe-t', 'pipe-v']) $(f).addEventListener('input', () => cmd?.id === 'pipe' && cmd.preview());
   $('patch-tangent').onclick = () => cmd?.id === 'patch' && cmd.key('tangent');

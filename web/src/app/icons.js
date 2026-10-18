@@ -166,6 +166,8 @@ const ICONS = {
     'axis-z': `<path d="M4 20h16"/><path ${A} d="M8 6h8l-8 10h8"/>`,
     'extend-natural': `<path d="M3 19a10 10 0 0 1 8-9"/><path ${A} d="M11 10a10 10 0 0 1 9 2" stroke-dasharray="2 2"/>`,
     'extend-linear': `<path d="M3 19a10 10 0 0 1 8-9"/><path ${A} d="M11 10l9-4" stroke-dasharray="2 2"/>`,
+    // Limit cleared: a sheet running up to a wall, the wall struck out.
+    unlimit: `<path d="M3 16l10-4"/><path ${A} d="M17 5v14" stroke-dasharray="2 2"/><path ${A} d="M14 9l6 6M20 9l-6 6"/>`,
     // Soft: the bend eases out flat; Reflective: the bend turned through the edge into an S.
     'extend-soft': `<path d="M3 19a10 10 0 0 1 8-9"/><path ${A} d="M11 10c4-2 6-2.6 9-2.8" stroke-dasharray="2 2"/>`,
     'extend-reflective': `<path d="M3 19a10 10 0 0 1 8-9"/><path ${A} d="M11 10a10 10 0 0 0 8-9" stroke-dasharray="2 2"/><path d="M11 10h0" stroke-width="3" stroke-linecap="round"/>`,

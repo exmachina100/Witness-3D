@@ -332,6 +332,12 @@ impl Shape {
         Ok(Shape::from_shape(&sheet))
     }
 
+    /// Extend Sheet's Limit: this sheet carried on past `edge` in shape `kind` until it meets `target`.
+    pub fn extend_sheet_to(&self, edge: usize, target: &Shape, kind: i32) -> Result<Shape, String> {
+        let sheet = ffi::w3d::w3d_extend_sheet_to(&self.inner, edge as i32, &target.inner, kind).map_err(reason)?;
+        Ok(Shape::from_shape(&sheet))
+    }
+
     /// Plasticity's SVG and DXF export: the hidden-line drawing of `shapes` seen along `toward`
     /// (pointing at the viewer), as [kind, n, x, y, ...] runs in the drawing's x, y (see `w3d_hidden_lines`).
     pub fn hidden_lines(shapes: &[&Shape], origin: DVec3, toward: DVec3, x: DVec3, deflection: f64) -> Result<Vec<f64>, String> {

@@ -378,6 +378,10 @@ impl Kernel for Occt {
         s.thicken_faces(&faces.iter().map(|&f| f as usize).collect::<Vec<_>>(), front, back).map_err(shim)
     }
 
+    fn extend_sheet_to(&self, s: &Shape, edge: u32, target: &Shape, shape: SheetExtension) -> Result<Shape, KernelError> {
+        s.extend_sheet_to(edge as usize, target, shape as i32).map_err(shim)
+    }
+
     fn extend_sheet(&self, s: &Shape, edge: u32, distance: f64, shape: SheetExtension) -> Result<Shape, KernelError> {
         if !s.is_sheet() { return Err(KernelError::Invalid("extend edges of sheets; that body is solid")) }
         s.extend_sheet(edge as usize, distance, shape as i32).map_err(shim)
