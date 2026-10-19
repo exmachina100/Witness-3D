@@ -226,6 +226,15 @@ const ICONS = {
     material: `<circle cx="12" cy="12" r="8"/><path ${A} d="M8 9a5 5 0 0 1 4-2"/>`,
     'fork-material': `<circle cx="8" cy="12" r="5"/><circle ${A} cx="16" cy="12" r="5"/>`,
     'remove-material': `<circle cx="12" cy="12" r="8"/><path ${A} d="M5 19L19 5"/>`,
+    // Text: a letter T standing on its baseline; the fonts as an A drawn plain, with serifs, and monospaced.
+    text: `<path d="M3 21h18"/><path ${A} d="M6 4h12M12 4v14"/>`,
+    'font-0': `<path d="M5 20l7-16 7 16M8 14h8"/>`,
+    'font-1': `<path d="M6 20l6-15 6 15M8.5 14h7"/><path ${A} d="M3.5 20h5M15.5 20h5M10 5h4"/>`,
+    'font-2': `<path d="M6 20l6-15 6 15M8.5 14h7"/><path ${A} d="M4 20h4M16 20h4"/><path d="M4 3v2M20 3v2" stroke-dasharray="1 1"/>`,
+    // Text alignment: lines lined up on the left, the middle or the right.
+    'txalign-left': `<path d="M4 6h16M4 10h10M4 14h16M4 18h8"/><path ${A} d="M3 3v18"/>`,
+    'txalign-center': `<path d="M4 6h16M7 10h10M4 14h16M8 18h8"/><path ${A} d="M12 3v18" stroke-dasharray="2 2"/>`,
+    'txalign-right': `<path d="M4 6h16M10 10h10M4 14h16M12 18h8"/><path ${A} d="M21 3v18"/>`,
     isolate: `<rect x="3" y="5" width="18" height="14" stroke-dasharray="2 2"/><rect ${A} x="8" y="8" width="8" height="8"/>`,
 };
 
