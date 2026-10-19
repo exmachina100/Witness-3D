@@ -2297,6 +2297,77 @@ inline rust::Vec<double> w3d_isoparam(const TopoDS_Shape &shape, int32_t face, r
   }
 }
 
+// Deform Curve's face coordinates. Face `face` of `shape` gets coordinates (s, t, n): s and t its
+// u and v scaled to 0..1 over the face's bounds, n the distance along the face's outward normal.
+// With `map`, `data` holds (s, t, n) triples and the points come back; without, `data` holds points
+// and their (s, t, n) come back. Either way the result starts with the face's length along u and
+// along v through its middle, in mm.
+inline rust::Vec<double> w3d_face_uvn(const TopoDS_Shape &shape, int32_t face, bool map, rust::Slice<const double> data) {
+  if (data.size() % 3) throw std::runtime_error("the points need three numbers each");
+  try {
+    TopTools_IndexedMapOfShape faces;
+    TopExp::MapShapes(shape, TopAbs_FACE, faces);
+    if (face < 0 || face >= faces.Extent()) throw std::out_of_range("that face no longer exists");
+    TopoDS_Face f = TopoDS::Face(faces(face + 1));
+    const bool back = f.Orientation() == TopAbs_REVERSED;
+    BRepAdaptor_Surface ad(f, Standard_True);
+    Standard_Real u0, u1, v0, v1;
+    BRepTools::UVBounds(f, u0, u1, v0, v1);
+    if (!(u1 - u0 > 1e-12) || !(v1 - v0 > 1e-12)) throw std::runtime_error("that face has no area");
+    auto frame = [&](double u, double v, gp_Pnt &p, gp_Vec &n) {
+      gp_Vec du, dv;
+      ad.D1(u, v, p, du, dv);
+      n = du.Crossed(dv);
+      if (n.Magnitude() < 1e-14) {
+        // A pole of the surface: step in a little to find which way it faces.
+        gp_Pnt q;
+        ad.D1(u + (u1 - u0) * 1e-6, v + (v1 - v0) * 1e-6, q, du, dv);
+        n = du.Crossed(dv);
+      }
+      if (n.Magnitude() < 1e-14) throw std::runtime_error("the face has no normal there");
+      n.Normalize();
+      if (back) n.Reverse();
+    };
+    rust::Vec<double> out;
+    auto length = [&](bool along_u) {
+      double total = 0;
+      gp_Pnt last;
+      for (int i = 0; i <= 64; i++) {
+        double a = i / 64.0;
+        gp_Pnt p = along_u ? ad.Value(u0 + (u1 - u0) * a, (v0 + v1) / 2) : ad.Value((u0 + u1) / 2, v0 + (v1 - v0) * a);
+        if (i) total += p.Distance(last);
+        last = p;
+      }
+      return total;
+    };
+    out.push_back(length(true));
+    out.push_back(length(false));
+    Handle(Geom_Surface) s = BRep_Tool::Surface(f);
+    for (size_t i = 0; i < data.size(); i += 3) {
+      gp_Pnt p;
+      gp_Vec n;
+      if (map) {
+        frame(u0 + (u1 - u0) * data[i], v0 + (v1 - v0) * data[i + 1], p, n);
+        p.Translate(n * data[i + 2]);
+        out.push_back(p.X()); out.push_back(p.Y()); out.push_back(p.Z());
+        continue;
+      }
+      gp_Pnt q(data[i], data[i + 1], data[i + 2]);
+      GeomAPI_ProjectPointOnSurf proj(q, s);
+      if (!proj.NbPoints()) throw std::runtime_error("a curve does not lie over the reference face");
+      Standard_Real u, v;
+      proj.LowerDistanceParameters(u, v);
+      frame(u, v, p, n);
+      out.push_back((u - u0) / (u1 - u0));
+      out.push_back((v - v0) / (v1 - v0));
+      out.push_back(gp_Vec(p, q).Dot(n));
+    }
+    return out;
+  } catch (const Standard_Failure &e) {
+    throw w3d_kernel_error(e);
+  }
+}
+
 // Plasticity's Project Curve Curve: each of the two curves of `data` swept both ways along its own
 // direction, and the curves where the two sheets meet.
 inline rust::Vec<double> w3d_project_curve_curve(rust::Slice<const double> data, double length) {

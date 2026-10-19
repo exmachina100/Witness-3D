@@ -66,6 +66,7 @@ import { liftPiece, meshSilhouette, nearestOver } from '../createOutline.js';
 import { FONTS, parseFont, textShapes } from '../text.js';
 import { regionsToExtrude } from '../regions.js';
 import { slidePoles } from '../polesEdit.js';
+import { densify, placeOnFace, smoothThrough } from '../deform.js';
 import { Organise } from './Organise.js';
 import { P_MENU, RADIALS, mergeKeys, parseRadial, shortLabel, showKey, sliceAt, slicePosition } from './menus.js';
 import { ENVIRONMENTS, SHADERS, SHADER_OPTIONS, checkMaterial, formatMass, massOf, newMaterial, shader } from './shading.js';
@@ -78,7 +79,7 @@ import { distanceToFace } from '../dependentOffset.js';
 import { BRIDGE_CONTINUITY, bridgeContinuous, continuity, curvatureComb, curveVertices, explode, EXTEND_SHAPES, extendCurve, filletCurve, nearestEnd, OFFSET_CORNERS, offsetCurve, offsetSlot, offsetThrough, unionLoops, moveVertices, alignedInPlane, offsetVertex, rebuildCurve, subdivideCurve, completeCurve, convertVertices, insertKnotAt, raiseDegree, reverseCurve, transformCurve, moveVerticesTo, slideCurveCVs, splitCurve, tangentCircle, trim } from '../curveEdit.js';
 import { ViewGizmo } from './ViewGizmo.js';
 import { Toolbar } from './Toolbar.js';
-import { arcPoints, circleThrough, cvPoints, ellipsePoints, endTangent, helixPoints, loops, nurbsLoop, nurbsPoints, polygonCorners, spiralAngle, tangentArc } from '../curves.js';
+import { arcPoints, circleThrough, curveFromNurbs, cvPoints, ellipsePoints, endTangent, helixPoints, loops, nurbsLoop, nurbsPoints, polygonCorners, spiralAngle, tangentArc } from '../curves.js';
 
 const KEYS = {
   material: [['FORK', 'OWN COPY'], ['⏎ / RMB', 'OK'], ['ESC', 'CANCEL']],
@@ -114,6 +115,7 @@ const KEYS = {
   'align-vertex': [['X / Y / Z', 'AXIS'], ['V', 'VALUE'], ['⏎ / RMB', 'OK']],
   rebuild: [['C', 'CONTROL POINTS'], ['D', 'DEGREE'], ['⏎ / RMB', 'OK']],
   'match-face': [['CLICK', 'TARGET FACE'], ['⇧ CLICK', 'FACES'], ['TAB', 'GROW'], ['⏎ / RMB', 'OK']],
+  'deform-curve': [['CLICK', 'REFERENCE, THEN TARGET FACE'], ['M U N', 'FLIP'], ['K', 'KEEP CURVES'], ['⏎ / RMB', 'OK']],
   untrim: [['TAB', 'KEEP EDGES'], ['⇧ CLICK', 'FACES'], ['⏎ / RMB', 'OK']],
   unwrap: [['⇧ CLICK', 'FACES'], ['⏎ / RMB', 'OK']],
   section: [['D', 'DISTANCE'], ['F', 'FLIP'], ['⏎ / RMB', 'OK']],
@@ -174,7 +176,7 @@ const CLICKS = { rect: 2, 'center-rect': 2, rect3: 3, circle: 2, circle2: 2, cir
 const FORMS = { revolve: true, loft: true, sweep: true };
 const PRIMS = { box: true, 'center-box': true, box3: true, cylinder: true, sphere: true };
 // Commands that aren't tools in the registry (they act on a click, not on settings).
-const EDITS = { isoparam: 'ISOPARAM', 'offset-vertex': 'OFFSET VERTEX', slide: 'SLIDE CURVE CV', 'fillet-vertex': 'FILLET VERTEX', 'align-vertex': 'ALIGN VERTEX', rebuild: 'REBUILD CURVE', 'rebuild-face': 'REBUILD FACE', 'match-face': 'MATCH FACE', untrim: 'UNTRIM', unwrap: 'UNWRAP FACE', section: 'SECTION ANALYSIS', place: 'PLACE', dimension: 'DIMENSION', text: 'TEXT', 'insert-knot': 'INSERT KNOT', 'offset-edge': 'OFFSET EDGE', material: 'SET MATERIAL', 'export-mesh': 'EXPORT MESH', 'export-drawing': 'EXPORT DRAWING', 'measure-continuity': 'MEASURE CONTINUITY', trim: 'TRIM', extend: 'EXTEND CURVE', 'tangent-circle': 'TANGENT CIRCLE', split: 'SPLIT CURVE', 'measure-distance': 'MEASURE DISTANCE', 'measure-radius': 'MEASURE RADIUS' };
+const EDITS = { isoparam: 'ISOPARAM', 'offset-vertex': 'OFFSET VERTEX', slide: 'SLIDE CURVE CV', 'fillet-vertex': 'FILLET VERTEX', 'align-vertex': 'ALIGN VERTEX', rebuild: 'REBUILD CURVE', 'rebuild-face': 'REBUILD FACE', 'match-face': 'MATCH FACE', 'deform-curve': 'DEFORM CURVE', untrim: 'UNTRIM', unwrap: 'UNWRAP FACE', section: 'SECTION ANALYSIS', place: 'PLACE', dimension: 'DIMENSION', text: 'TEXT', 'insert-knot': 'INSERT KNOT', 'offset-edge': 'OFFSET EDGE', material: 'SET MATERIAL', 'export-mesh': 'EXPORT MESH', 'export-drawing': 'EXPORT DRAWING', 'measure-continuity': 'MEASURE CONTINUITY', trim: 'TRIM', extend: 'EXTEND CURVE', 'tangent-circle': 'TANGENT CIRCLE', split: 'SPLIT CURVE', 'measure-distance': 'MEASURE DISTANCE', 'measure-radius': 'MEASURE RADIUS' };
 const keysHtml = id => KEYS[id].map(([k, v]) => `<kbd>${k}</kbd><span>${v}</span>`).join('');
 // The Command Bar, exactly the manual's list (Plasticity Essentials › Command Bar).
 const BAR = [['palette', 'F', 'SEARCH'], ['tool:move', 'G', 'MOVE'], ['tool:rotate', 'R', 'ROTATE'], ['tool:scale', 'S', 'SCALE'], ['duplicate', '⇧D', 'DUPLICATE'], ['tool:boolean', 'Q', 'BOOLEAN'], ['tool:rect-array', '', 'RECTANGULAR ARRAY'], ['tool:radial-array', '', 'RADIAL ARRAY'], ['suggest', '⇧F', 'SUGGESTED COMMANDS']];
@@ -395,6 +397,21 @@ const SHELL = `
       <div class="field"><label>TARGET</label><output data-id="mf-target" title="Click the face whose surface the faces should take">—</output></div>
       <span class="label">GROW</span>
       <div class="seg" role="group" aria-label="Grow mode"><button data-mfgrow="moving" aria-pressed="true" title="An inner face matched past the outer wall takes the wall with it (Tab)">MOVING</button><button data-mfgrow="fixed" aria-pressed="false" title="Stop at the outer wall (Tab)">FIXED</button><button data-mfgrow="none" aria-pressed="false" title="Carry on past the outer wall by itself (Tab)">NONE</button></div>
+    </div>
+    <div class="sec" data-panel="deform-curve" hidden>
+      <span class="hint" data-id="dc-hint">—</span>
+      <div class="field"><label>REFERENCE</label><output data-id="dc-ref" title="The face the curves lie on now">—</output></div>
+      <div class="field"><label>TARGET</label><output data-id="dc-target" title="The face to wrap the curves onto">—</output></div>
+      <span class="label">SCALE</span>
+      <div class="field"><label for="w3d-dc-su">U</label><input id="w3d-dc-su" data-id="dc-su" type="number" step="0.1" value="1" title="Scale along U"></div>
+      <div class="field"><label for="w3d-dc-sv">V</label><input id="w3d-dc-sv" data-id="dc-sv" type="number" step="0.1" value="1" title="Scale along V"></div>
+      <div class="field"><label for="w3d-dc-sn">N</label><input id="w3d-dc-sn" data-id="dc-sn" type="number" step="0.1" value="1" title="Scale heights off the face"></div>
+      <span class="label">OFFSET</span>
+      <div class="field"><label for="w3d-dc-ou">U</label><input id="w3d-dc-ou" data-id="dc-ou" type="number" step="1" value="0" title="Move along U, in mm"></div>
+      <div class="field"><label for="w3d-dc-ov">V</label><input id="w3d-dc-ov" data-id="dc-ov" type="number" step="1" value="0" title="Move along V, in mm"></div>
+      <div class="field"><label for="w3d-dc-on">N</label><input id="w3d-dc-on" data-id="dc-on" type="number" step="0.5" value="0" title="Move off the face, in mm"></div>
+      <span class="label">FLIP</span>
+      <div class="chips"><button data-dcflip="mirror" aria-pressed="false" title="Mirror the curves on the face (M)"><kbd>M</kbd></button><button data-dcflip="swap" aria-pressed="false" title="Swap U and V (U)"><kbd>U</kbd></button><button data-dcflip="normal" aria-pressed="false" title="Turn heights over to the other side (N)"><kbd>N</kbd></button><button data-id="dc-keep" aria-pressed="false" title="Keep the original curves (K)"><kbd>K</kbd></button></div>
     </div>
     <div class="sec" data-panel="untrim" hidden>
       <span class="hint" data-id="ut-hint">—</span>
@@ -767,11 +784,11 @@ const VIEWS = {
 export async function mount(root, backend) {
   root.innerHTML = SHELL;
   // Panel options carry their icon ahead of the key and name.
-  for (const b of root.querySelectorAll('[data-draw],[data-bop],[data-xop],[data-fop],[data-spiral],[data-toggle],[data-gmethod],[data-galign],[data-grow],[data-mfgrow],[data-eslimit],[data-flshape],[data-avaxis],[data-extshape],[data-esshape],[data-isodir],[data-id="oe-both"],[data-id="ex-lock"],[data-id="bool-keep"],[data-id="ex-free"],[data-id="ex-pivot"],[data-id="ex-individual"],[data-id="dr-hidden"],[data-id="dr-curves"],[data-id="oc-lock"],[data-id="oc-free"],[data-id="oc-slot"],[data-id="oc-combine"],[data-id="es-unlimit"],[data-rbmethod],[data-oecorner],[data-saplane],[data-plaxis],[data-plop],[data-id="pl-flip"],[data-id="section-btn"],[data-id="sa-flip"],[data-id="rf-shrink"],[data-id="ut-keep"],[data-txfont],[data-txalign],[data-sldir]')) {
+  for (const b of root.querySelectorAll('[data-draw],[data-bop],[data-xop],[data-fop],[data-spiral],[data-toggle],[data-gmethod],[data-galign],[data-grow],[data-mfgrow],[data-eslimit],[data-flshape],[data-avaxis],[data-extshape],[data-esshape],[data-isodir],[data-id="oe-both"],[data-id="ex-lock"],[data-id="bool-keep"],[data-id="ex-free"],[data-id="ex-pivot"],[data-id="ex-individual"],[data-id="dr-hidden"],[data-id="dr-curves"],[data-id="oc-lock"],[data-id="oc-free"],[data-id="oc-slot"],[data-id="oc-combine"],[data-id="es-unlimit"],[data-rbmethod],[data-oecorner],[data-saplane],[data-plaxis],[data-plop],[data-id="pl-flip"],[data-id="section-btn"],[data-id="sa-flip"],[data-id="rf-shrink"],[data-id="ut-keep"],[data-txfont],[data-txalign],[data-sldir],[data-dcflip],[data-id="dc-keep"]')) {
     const name = b.dataset.draw ?? b.dataset.bop ?? b.dataset.xop ?? b.dataset.fop ?? b.dataset.spiral ?? (b.dataset.toggle && `view-${b.dataset.toggle}`)
       ?? (b.dataset.gmethod && `guide-${b.dataset.gmethod}`) ?? (b.dataset.galign && `align-${b.dataset.galign}`) ?? (b.dataset.grow && `grow-${b.dataset.grow}`) ?? (b.dataset.mfgrow && `grow-${b.dataset.mfgrow}`) ?? (b.dataset.eslimit && `limit-${b.dataset.eslimit}`) ?? (b.dataset.flshape && `fillet-${b.dataset.flshape}`) ?? (b.dataset.avaxis && `axis-${b.dataset.avaxis}`) ?? (b.dataset.extshape && `extend-${b.dataset.extshape}`) ?? (b.dataset.esshape && `extend-${b.dataset.esshape}`) ?? (b.dataset.isodir && `iso-${b.dataset.isodir}`) ?? (b.dataset.rbmethod && `rebuild-${b.dataset.rbmethod}`) ?? (b.dataset.oecorner && `corner-${b.dataset.oecorner}`) ?? (b.dataset.saplane && `section-${b.dataset.saplane}`) ?? (b.dataset.plaxis && (b.dataset.plaxis === 'normal' ? 'place-normal' : `axis-${b.dataset.plaxis}`)) ?? b.dataset.plop
-      ?? (b.dataset.txfont && `font-${b.dataset.txfont}`) ?? (b.dataset.txalign && `txalign-${b.dataset.txalign}`) ?? (b.dataset.sldir && { u: 'slide-u', '-u': 'slide-back', v: 'slide-v', '-v': 'slide-vback', n: 'slide-n' }[b.dataset.sldir])
-      ?? { 'ex-lock': 'lock', 'bool-keep': 'keep', 'ex-free': 'freestyle', 'ex-pivot': 'pivot', 'ex-individual': 'individual', 'dr-hidden': 'hidden-lines', 'dr-curves': 'drawing-curves', 'oc-lock': 'lock', 'oc-free': 'freestyle', 'oc-slot': 'slot', 'oc-combine': 'combine', 'oe-both': 'both-sides', 'es-unlimit': 'unlimit', 'rf-shrink': 'shrink', 'ut-keep': 'keep-edges', 'section-btn': 'view-section', 'sa-flip': 'flip', 'pl-flip': 'flip' }[b.dataset.id];
+      ?? (b.dataset.txfont && `font-${b.dataset.txfont}`) ?? (b.dataset.txalign && `txalign-${b.dataset.txalign}`) ?? (b.dataset.sldir && { u: 'slide-u', '-u': 'slide-back', v: 'slide-v', '-v': 'slide-vback', n: 'slide-n' }[b.dataset.sldir]) ?? (b.dataset.dcflip && { mirror: 'mirror', swap: 'swap-uv', normal: 'reverse-sheet' }[b.dataset.dcflip])
+      ?? { 'ex-lock': 'lock', 'bool-keep': 'keep', 'ex-free': 'freestyle', 'ex-pivot': 'pivot', 'ex-individual': 'individual', 'dr-hidden': 'hidden-lines', 'dr-curves': 'drawing-curves', 'oc-lock': 'lock', 'oc-free': 'freestyle', 'oc-slot': 'slot', 'oc-combine': 'combine', 'oe-both': 'both-sides', 'es-unlimit': 'unlimit', 'rf-shrink': 'shrink', 'ut-keep': 'keep-edges', 'section-btn': 'view-section', 'sa-flip': 'flip', 'pl-flip': 'flip', 'dc-keep': 'keep' }[b.dataset.id];
     b.insertAdjacentHTML('afterbegin', icon(name));
   }
   const $ = id => root.querySelector(`[data-id="${id}"]`);
@@ -4473,6 +4490,117 @@ export async function mount(root, backend) {
   }
 
   /**
+   * Plasticity's Deform Curve: the selected curves wrapped from a reference face onto a target face.
+   * Click the face the curves lie on, then the face to put them on; each curve keeps its place on
+   * the face (its surface parameters, scaled to the face) and its height off it. Scale and Offset
+   * work in the face's U, V and N; Mirror, UV and Normal flip them; Keep leaves the curves as well.
+   */
+  function startDeformCurve() {
+    const ids = sel.curves.filter(curveById);
+    if (!ids.length) return toast('SELECT THE CURVES TO DEFORM');
+    if (!backend.faceUvn || !backend.replaceCurves) return toast('DEFORM CURVE IS NOT IN THIS BUILD YET');
+    const c = cmd = { id: 'deform-curve', ids, ref: null, target: null, flips: { mirror: false, swap: false, normal: false }, keep: false, from: null, out: null, sent: 0 };
+    lastTool = 'deform-curve';
+    showTool('deform-curve');
+    setState('none');
+    setTarget(`${ids.length} CURVE${ids.length > 1 ? 'S' : ''}`);
+    const where = f => f ? `${label(f.body)} · FACE ${f.n + 1}` : '—';
+    const ask = () => {
+      $('dc-ref').textContent = where(c.ref);
+      $('dc-target').textContent = where(c.target);
+      const say = !c.ref ? 'CLICK THE REFERENCE FACE' : !c.target ? 'CLICK THE TARGET FACE' : null;
+      if (say) { $('dc-hint').textContent = say; setHud(say); }
+    };
+    // Each curve's points, along it in model space.
+    const worldPoints = curve => { const f = curveFrame(curve); return densify(curve2d(curve).map(p => lift(f, p).toArray()), isClosed(curve)); };
+    c.options = () => ({
+      scale: [num('dc-su'), num('dc-sv'), num('dc-sn')].map(v => Number.isFinite(v) ? v : 1),
+      offset: [num('dc-ou'), num('dc-ov'), num('dc-on')].map(v => Number.isFinite(v) ? v : 0),
+      ...c.flips,
+    });
+    c.compute = async () => {
+      // The curves on the reference face only change with the reference.
+      if (!c.from || c.from.face !== c.ref) {
+        const curves = c.ids.map(curveById), pts = curves.map(worldPoints);
+        const all = await backend.faceUvn({ body: c.ref.body, face: c.ref.n, points: pts.flat() });
+        let k = 0;
+        c.from = { face: c.ref, closed: curves.map(isClosed), uvn: pts.map(p => p.map(() => all.points[k++])) };
+      }
+      const { size } = await backend.faceUvn({ body: c.target.body, face: c.target.n, map: true, points: [] });
+      const placed = placeOnFace(c.from.uvn, size, c.options());
+      const { points } = await backend.faceUvn({ body: c.target.body, face: c.target.n, map: true, points: placed.flat() });
+      let k = 0;
+      return placed.map((p, i) => curveFromNurbs(smoothThrough(p.map(() => points[k++]), c.from.closed[i]), [0, -1, 0]));
+    };
+    c.preview = async () => {
+      ask();
+      if (!c.ref || !c.target) return clearPreview();
+      const n = ++c.sent;
+      setState('updating');
+      try {
+        const out = await c.compute();
+        if (cmd !== c || n !== c.sent) return;
+        c.out = out;
+        clearPreview();
+        showCurvePreview(out);
+        setState('updated');
+        $('dc-hint').textContent = `${out.length} CURVE${out.length > 1 ? 'S' : ''} ONTO ${where(c.target)}${c.keep ? ' · KEPT' : ''}`;
+        setHud('DEFORM CURVE');
+      } catch (e) {
+        if (cmd !== c || n !== c.sent) return;
+        c.out = null;
+        clearPreview();
+        setState('failed');
+        $('dc-hint').textContent = say(e);
+      }
+    };
+    c.setFlip = (k, on) => {
+      c.flips[k] = on;
+      for (const b of $$('[data-dcflip]')) b.setAttribute('aria-pressed', String(c.flips[b.dataset.dcflip]));
+      c.preview();
+    };
+    c.setKeep = on => {
+      c.keep = on;
+      $('dc-keep').setAttribute('aria-pressed', String(on));
+      c.preview();
+    };
+    c.key = action => {
+      if (action === 'mirror') c.setFlip('mirror', !c.flips.mirror);
+      else if (action === 'u') c.setFlip('swap', !c.flips.swap);
+      else if (action === 'normal') c.setFlip('normal', !c.flips.normal);
+      else if (action === 'keep') c.setKeep(!c.keep);
+      else return false;
+      return true;
+    };
+    c.click = e => {
+      const hit = pickAt(e);
+      if (hit?.kind !== 'face') return true;
+      const f = { body: hit.body, n: hit.n };
+      // The first face clicked is the reference; after that, clicks pick the target.
+      if (!c.ref) c.ref = f; else c.target = f;
+      c.preview();
+      return true;
+    };
+    c.finish = async () => {
+      if (!c.ref || !c.target) return toast(c.ref ? 'CLICK THE TARGET FACE' : 'CLICK THE REFERENCE FACE');
+      try {
+        const out = c.out ?? await c.compute();
+        const { ids: made } = c.keep ? await backend.addCurves(out) : await backend.replaceCurves(c.ids, out);
+        endCmd('committed');
+        record(`DEFORM ${c.ids.map(curveLabel).join(' ')}`, made[0], `ONTO ${where(c.target)}`);
+        await curvesChanged(made);
+      } catch (e) { setState('failed'); toast(say(e)); }
+    };
+    c.abort = () => endCmd('cancelled');
+    c.cleanup = () => clearPreview();
+    for (const b of $$('[data-dcflip]')) b.setAttribute('aria-pressed', 'false');
+    $('dc-keep').setAttribute('aria-pressed', 'false');
+    for (const id of ['dc-su', 'dc-sv', 'dc-sn']) $(id).value = 1;
+    for (const id of ['dc-ou', 'dc-ov', 'dc-on']) $(id).value = 0;
+    ask();
+  }
+
+  /**
    * Plasticity's Untrim (Alt+T): each selected face's whole underlying surface as a new sheet,
    * out past its trims and holes; the body stays. Keep edges (Tab) imprints the face's edges on it.
    */
@@ -7487,6 +7615,7 @@ export async function mount(root, backend) {
       case 'isoparam': if (cmd) await finish(); startIsoparam(); return true;
       case 'match-face': if (cmd) await finish(); startMatchFace(); return true;
       case 'untrim': if (cmd) await finish(); startUntrim(); return true;
+      case 'deform-curve': if (cmd) await finish(); startDeformCurve(); return true;
       case 'unwrap': if (cmd) await finish(); startUnwrap(); return true;
       case 'dimension': if (cmd) await finish(); await startDimension(); return true;
       case 'place': if (cmd) await finish(); startPlace(); return true;
@@ -7656,7 +7785,7 @@ export async function mount(root, backend) {
       out.push('trim', 'split', 'extend', 'tool:offset-curve', 'slot', 'tool:fillet-curve');
       if (sel.curves.length === 2) out.push('tool:bridge');
       if (sel.curves.length > 1) out.push('join');
-      out.push('explode', 'reverse', 'rebuild', 'insert-knot', 'raise-degree', 'subdivide', 'complete-edge', 'measure:continuity', 'delete');
+      out.push('explode', 'reverse', 'rebuild', 'insert-knot', 'raise-degree', 'subdivide', 'complete-edge', 'deform-curve', 'measure:continuity', 'delete');
     }
     // Curve vertices: Fillet Vertex (B), Offset Vertex and, with two ends, Bridge Vertex.
     if (kinds.has('pole')) out.push('slide', 'toggle-points');
@@ -8037,6 +8166,9 @@ export async function mount(root, backend) {
   $('dr-curves').onclick = () => cmd?.id === 'export-drawing' && cmd.key('curves');
   $('av-v').addEventListener('input', () => cmd?.id === 'align-vertex' && cmd.preview());
   for (const id of ['rb-n', 'rb-p']) $(id).addEventListener('input', () => cmd?.id === 'rebuild' && cmd.preview());
+  for (const id of ['dc-su', 'dc-sv', 'dc-sn', 'dc-ou', 'dc-ov', 'dc-on']) $(id).addEventListener('input', () => cmd?.id === 'deform-curve' && cmd.preview());
+  for (const b of $$('[data-dcflip]')) b.onclick = () => cmd?.id === 'deform-curve' && cmd.setFlip(b.dataset.dcflip, !cmd.flips[b.dataset.dcflip]);
+  $('dc-keep').onclick = () => cmd?.id === 'deform-curve' && cmd.setKeep(!cmd.keep);
   for (const id of ['rf-tol', 'rf-du', 'rf-dv', 'rf-su', 'rf-sv', 'rf-eu', 'rf-ev']) $(id).addEventListener('input', () => cmd?.id === 'rebuild-face' && cmd.preview());
   for (const b of $$('[data-rbmethod]')) b.onclick = () => cmd?.id === 'rebuild-face' && cmd.setMethod(b.dataset.rbmethod);
   $('rf-shrink').onclick = () => cmd?.id === 'rebuild-face' && cmd.setShrink(!cmd.shrink);

@@ -865,6 +865,12 @@ impl<K: Kernel> Document<K> {
 
     /// Plasticity's Isoparam, without changing the document: the curve on face `face` through
     /// `point` along the face's u (v held) or v, cut to the face.
+    /// Deform Curve: face coordinates of points on a face of `body`, or points from them (see Kernel::face_uvn).
+    pub fn face_uvn(&self, body: BodyId, face: u32, map: bool, points: &[DVec3]) -> Result<([f64; 2], Vec<DVec3>), KernelError> {
+        let s = self.get(body).ok_or(KernelError::Invalid("that body no longer exists"))?;
+        self.kernel.face_uvn(s, face, map, points)
+    }
+
     pub fn preview_isoparam(&self, body: BodyId, face: u32, point: DVec3, along_u: bool) -> Result<Curve, KernelError> {
         let s = self.get(body).ok_or(KernelError::Invalid("that body no longer exists"))?;
         let paths = self.kernel.isoparam(s, face, point, along_u)?;

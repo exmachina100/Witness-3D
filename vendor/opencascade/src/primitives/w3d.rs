@@ -299,6 +299,11 @@ impl Shape {
         ffi::w3d::w3d_meet_curves(&self.inner, &other.inner).map_err(reason)
     }
 
+    /// Deform Curve's face coordinates: points to (s, t, n), or back with `map`; the face's lengths along u and v first (see w3d.hxx).
+    pub fn face_uvn(&self, face: usize, map: bool, data: &[f64]) -> Result<Vec<f64>, String> {
+        ffi::w3d::w3d_face_uvn(&self.inner, face as i32, map, data).map_err(reason)
+    }
+
     /// The isoparametric curve of a face through a point (see `w3d_isoparam`).
     pub fn isoparam(&self, face: usize, point: [f64; 3], along_u: bool) -> Result<Vec<f64>, String> {
         ffi::w3d::w3d_isoparam(&self.inner, face as i32, &point, along_u).map_err(reason)

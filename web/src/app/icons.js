@@ -155,6 +155,8 @@ const ICONS = {
     // Offset Face grow modes: a step side on, the block's wall pushed out past the ledge's end.
     // Align Vertex: scattered points brought onto one accent line.
     'insert-knot': `<path d="M3 17C7 5 11 5 13 11s6 7 8-2"/><path ${A} d="M12 4v4M10 6h4"/><path ${A} d="M12.4 10h0" stroke-width="3" stroke-linecap="round"/>`,
+    'deform-curve': `<path d="M3 20h8M3 20l8-6"/><path d="M13 15c3-6 5-8 8-9"/><path ${A} d="M4 18c2-1 4-1 6-2M14 12c2-2 4-3 6-4" stroke-dasharray="2 2"/>`,
+    'swap-uv': `<path d="M6 4v12h12"/><path ${A} d="M15 4l3 3-3 3M18 7H11M9 20l-3-3 3-3M6 17h7"/>`,
     'complete-edge': `<path d="M3 4v16M21 4v16"/><path ${A} d="M8 12h8"/><path d="M4 12h4M16 12h4" stroke-dasharray="2 2"/>`,
     subdivide: `<path d="M3 18C7 6 17 6 21 18"/><path d="M3 18L7 8h10l4 10" stroke-dasharray="2 2"/><path ${A} d="M5 13h0M12 8h0M19 13h0" stroke-width="3" stroke-linecap="round"/>`,
     'raise-degree': `<path d="M3 18C8 6 14 6 21 18"/><path ${A} d="M3 14C8 2 14 2 21 14" stroke-dasharray="2 2"/><path ${A} d="M12 9V5M10 7l2-2 2 2"/>`,

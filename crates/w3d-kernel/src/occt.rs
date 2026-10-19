@@ -358,6 +358,15 @@ impl Kernel for Occt {
         nurbs_paths(&s.project_curves(&faces, &cutter_numbers(curves)?, length, both, hide).map_err(shim)?)
     }
 
+    fn face_uvn(&self, s: &Shape, face: u32, map: bool, points: &[DVec3]) -> Result<([f64; 2], Vec<DVec3>), KernelError> {
+        let data: Vec<f64> = points.iter().flat_map(|p| p.to_array()).collect();
+        let raw = s.face_uvn(face as usize, map, &data).map_err(shim)?;
+        if raw.len() != 2 + data.len() {
+            return Err(KernelError::Invalid("the face gave the wrong number of points"));
+        }
+        Ok(([raw[0], raw[1]], raw[2..].chunks(3).map(|c| DVec3::new(c[0], c[1], c[2])).collect()))
+    }
+
     fn isoparam(&self, s: &Shape, face: u32, point: DVec3, along_u: bool) -> Result<Vec<Path>, KernelError> {
         nurbs_paths(&s.isoparam(face as usize, point.to_array(), along_u).map_err(shim)?)
     }

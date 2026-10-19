@@ -378,6 +378,13 @@ pub trait Kernel {
     }
     /// Plasticity's Project Body Body: the curves where two bodies meet.
     /// Plasticity's Isoparam: the curve on a face through `point` along u (v held) or along v.
+    /// Deform Curve's face coordinates on numbered face `face`: each point to (s, t, n), s and t
+    /// its surface parameters scaled to 0..1 over the face, n its height along the outward normal;
+    /// with `map`, (s, t, n) back to points. Also the face's length along u and v through its
+    /// middle.
+    fn face_uvn(&self, _s: &Self::Solid, _face: u32, _map: bool, _points: &[DVec3]) -> Result<([f64; 2], Vec<DVec3>), KernelError> {
+        Err(KernelError::Invalid("this kernel cannot deform curves"))
+    }
     fn isoparam(&self, _s: &Self::Solid, _face: u32, _point: DVec3, _along_u: bool) -> Result<Vec<Path>, KernelError> {
         Err(KernelError::Invalid("this kernel cannot draw isoparams"))
     }
