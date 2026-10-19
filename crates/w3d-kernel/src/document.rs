@@ -1264,7 +1264,18 @@ impl<K: Kernel> Document<K> {
     pub fn region_params(&self, curve: CurveId, distance: f64, operation: crate::Operation) -> Result<ExtrudeParams, KernelError> {
         let c = self.curve(curve).ok_or(KernelError::Invalid("that curve no longer exists"))?;
         let profile = c.profile().ok_or(KernelError::Invalid("only a closed curve has a region to extrude"))?;
-        Ok(ExtrudeParams { profile, frame: c.frame(), distance, back: 0.0, angle: 0.0, thickness: 0.0, operation, face: None, direction: None, more_faces: vec![], individual: false })
+        Ok(ExtrudeParams { profile, frame: c.frame(), distance, back: 0.0, angle: 0.0, thickness: 0.0, operation, face: None, direction: None, more_faces: vec![], individual: false, more_regions: vec![] })
+    }
+
+    /// Extrude several closed curves' regions at once, `holes` cut from the rest.
+    pub fn regions_params(&self, first: CurveId, more: &[CurveId], holes: &[CurveId], distance: f64, operation: crate::Operation) -> Result<ExtrudeParams, KernelError> {
+        let mut p = self.region_params(first, distance, operation)?;
+        for &id in more.iter().chain(holes).filter(|&&id| id != first) {
+            let c = self.curve(id).ok_or(KernelError::Invalid("that curve no longer exists"))?;
+            let profile = c.profile().ok_or(KernelError::Invalid("only a closed curve has a region to extrude"))?;
+            p.more_regions.push((profile, c.frame(), holes.contains(&id)));
+        }
+        Ok(p)
     }
 
     pub fn undo(&mut self) -> bool {

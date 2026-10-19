@@ -18,7 +18,7 @@ fn square(distance: f64, direction: Option<DVec3>) -> ExtrudeParams {
         profile: Profile::rectangle(10.0, 10.0),
         frame: Frame::new(DVec3::ZERO, DVec3::X, DVec3::Z),
         distance, back: 0.0, angle: 0.0, thickness: 0.0,
-        operation: Operation::NewBody, face: None, direction, more_faces: vec![], individual: false,
+        operation: Operation::NewBody, face: None, direction, more_faces: vec![], individual: false, more_regions: vec![],
     }
 }
 /// The numbered faces of a 20 mm cube from the origin whose normals are `n`.
@@ -65,4 +65,49 @@ fn individual_takes_each_face_along_its_own_normal() {
     // Direct: both along the top face's normal, which the side face lies along, so it is refused.
     let e = extrude(&k, Some(&cube), &both(false)).err().unwrap().to_string();
     assert!(e.contains("Individual"), "{e}");
+}
+
+#[test]
+fn several_regions_extrude_together_with_holes_cut() {
+    let k = Occt;
+    let ground = Frame::new(DVec3::ZERO, DVec3::X, DVec3::Z);
+    // A 10 × 10 square with a 4 × 4 hole, and a separate 2 × 2 square beside it, all 5 up.
+    let mut p = square(5.0, None);
+    p.more_regions = vec![
+        (Profile::rectangle(4.0, 4.0), ground, true),
+        (Profile::Polygon(vec![(10.0, 0.0), (12.0, 0.0), (12.0, 2.0), (10.0, 2.0)]), ground, false),
+    ];
+    let s = tool(&k, None, &p).unwrap();
+    assert!(k.is_valid(&s));
+    assert_eq!(k.solid_count(&s), 2);
+    assert!((volume(&k, &s) - 5.0 * (100.0 - 16.0 + 4.0)).abs() < 1e-6, "volume {}", volume(&k, &s));
+}
+
+/// A D as a font draws it: a closed degree-2 NURBS, the stem straight, the bowl two quadratic
+/// pieces, with corners (doubled knots) at each on-curve point; `dx` moves it along x.
+fn letter_d(dx: f64) -> Profile {
+    let on = |x: f64, y: f64| (x + dx, y);
+    let poles = vec![on(0.0, 0.0), on(0.0, 5.0), on(0.0, 10.0), on(2.0, 10.0), on(4.0, 10.0), on(8.0, 10.0), on(8.0, 5.0), on(8.0, 0.0), on(4.0, 0.0), on(2.0, 0.0), on(0.0, 0.0)];
+    let k = 5.0;
+    let mut knots = vec![0.0; 3];
+    for i in 1..5 { knots.extend([i as f64 / k; 2]) }
+    knots.extend([1.0; 3]);
+    Profile::Nurbs { degree: 2, weights: vec![1.0; poles.len()], poles, knots }
+}
+
+#[test]
+fn letters_with_corners_join_and_mesh() {
+    let k = Occt;
+    let ground = Frame::new(DVec3::ZERO, DVec3::X, DVec3::Z);
+    // Two overlapping Ds: OpenCascade's union fails when each side is one creased face.
+    let mut p = square(2.0, None);
+    p.profile = letter_d(0.0);
+    p.more_regions = vec![(letter_d(5.0), ground, false)];
+    let s = tool(&k, None, &p).unwrap();
+    assert!(k.is_valid(&s));
+    assert_eq!(k.solid_count(&s), 1);
+    assert!(k.tessellate(&s, 0.01).is_ok());
+    // Each piece is a face of its own: three straight runs and two curves, and the ends.
+    let one = tool(&k, None, &ExtrudeParams { profile: letter_d(0.0), ..square(2.0, None) }).unwrap();
+    assert_eq!(k.face_count(&one), 2 + 5);
 }

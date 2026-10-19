@@ -64,6 +64,7 @@ import { curveDimensions, faceDimensions, solidDimensions } from '../dimension.j
 import { edgeCurve, flattenCurve } from '../altDuplicate.js';
 import { liftPiece, meshSilhouette, nearestOver } from '../createOutline.js';
 import { FONTS, parseFont, textShapes } from '../text.js';
+import { regionsToExtrude } from '../regions.js';
 import { Organise } from './Organise.js';
 import { P_MENU, RADIALS, mergeKeys, parseRadial, shortLabel, showKey, sliceAt, slicePosition } from './menus.js';
 import { ENVIRONMENTS, SHADERS, SHADER_OPTIONS, checkMaterial, formatMass, massOf, newMaterial, shader } from './shading.js';
@@ -3276,6 +3277,13 @@ export async function mount(root, backend) {
     const it = sel.list().filter(i => i.kind === 'region' || i.kind === 'face').at(-1);
     if (!it) return null;
     if (it.kind === 'region') {
+      // Every selected region goes together, those inside others cut out as holes.
+      const all = sel.list('region').map(r => curveById(r.id)).filter(c => c && isClosed(c));
+      if (all.length > 1) {
+        const { first, more, holes } = regionsToExtrude(all.map(c => { const f = curveFrame(c); return { id: c.id, origin: f.o.toArray(), normal: f.n.toArray(), points: curve2d(c).map(p => lift(f, p).toArray()) }; }));
+        const c = curveById(first), at = regionCentre(c), normal = curveFrame(c).n;
+        return { region: first, more, holes, at, normal, target: bodyAt(at, normal), name: `${all.length} REGIONS${holes.length ? ` · ${holes.length} HOLE${holes.length > 1 ? 'S' : ''}` : ''}` };
+      }
       const c = curveList.find(c => c.id === it.id);
       if (!c) return null;
       const at = regionCentre(c), normal = curveFrame(c).n;
@@ -3419,7 +3427,7 @@ export async function mount(root, backend) {
     previewExtrude();
   }
   const extrudeRequest = c => ({
-    target: c.src.target, ...(c.src.region !== undefined ? { region: c.src.region } : { face: c.src.face, faces: c.src.faces ?? [], individual: c.individual }), distance: c.distance, op: c.op,
+    target: c.src.target, ...(c.src.region !== undefined ? { region: c.src.region, moreRegions: c.src.more ?? [], holes: c.src.holes ?? [] } : { face: c.src.face, faces: c.src.faces ?? [], individual: c.individual }), distance: c.distance, op: c.op,
     back: c.lock ? Math.abs(c.distance) : 0, angle: c.angle * DEG, thickness: c.thickness,
     ...(c.direction && { direction: c.direction.toArray() }),
   });

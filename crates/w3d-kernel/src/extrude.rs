@@ -43,6 +43,9 @@ pub struct ExtrudeParams {
     /// Plasticity's Individual (I): each face along its own normal instead of all along the first
     /// face's (Direct).
     pub individual: bool,
+    /// More drawn regions extruded with `profile` (Plasticity extrudes every selected region at
+    /// once): each with its plane, and true for a hole, cut from the others.
+    pub more_regions: Vec<(Profile, Frame, bool)>,
 }
 
 impl ExtrudeParams {
@@ -62,10 +65,15 @@ pub fn tool<K: Kernel>(k: &K, target: Option<&K::Solid>, p: &ExtrudeParams) -> R
         d => d.map(|d| d.normalize()),
     };
     let Some(face) = p.face else {
-        return match direction {
-            Some(d) => k.extrude_along(&p.profile, &p.frame, d, &e),
-            None => k.extrude(&p.profile, &p.frame, &e),
+        let one = |profile: &Profile, frame: &Frame| match direction {
+            Some(d) => k.extrude_along(profile, frame, d, &e),
+            None => k.extrude(profile, frame, &e),
         };
+        // The regions joined, then the holes cut from them.
+        let mut out = one(&p.profile, &p.frame)?;
+        for (profile, frame, _) in p.more_regions.iter().filter(|r| !r.2) { out = k.boolean(&out, &one(profile, frame)?, BooleanOp::Union)?.solid }
+        for (profile, frame, _) in p.more_regions.iter().filter(|r| r.2) { out = k.boolean(&out, &one(profile, frame)?, BooleanOp::Difference)?.solid }
+        return Ok(out);
     };
     let target = target.ok_or(KernelError::Invalid("that body no longer exists"))?;
     let mut faces = vec![face];

@@ -91,6 +91,13 @@ export class LocalBackend {
             if (!c) throw new Error('that curve no longer exists');
             if (!isClosed(c)) throw new Error('only a closed curve has a region to extrude');
             f.baseFace = regionFace(c);
+            const holes = req.holes ?? [];
+            for (const id of [...(req.moreRegions ?? []), ...holes].filter(id => id !== req.region)) {
+                const m = this.curveMap.get(id);
+                if (!m) throw new Error('that curve no longer exists');
+                if (!isClosed(m)) throw new Error('only a closed curve has a region to extrude');
+                f.moreFaces.push({ face: regionFace(m), hole: holes.includes(id) });
+            }
             f.origin.copy(v3(c.origin)); f.normal.copy(v3(c.normal)); f.xAxis.copy(v3(c.x));
         } else if (req.face !== undefined && req.face !== null) {
             f.face = req.face;
