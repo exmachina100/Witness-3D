@@ -75,7 +75,7 @@ import { limitEdges, toObj, toStl } from '../meshExport.js';
 import { flatten, toDxf, toSvg } from '../drawingExport.js';
 import { readDxf } from '../dxf.js';
 import { distanceToFace } from '../dependentOffset.js';
-import { BRIDGE_CONTINUITY, bridgeContinuous, continuity, curvatureComb, curveVertices, explode, EXTEND_SHAPES, extendCurve, filletCurve, nearestEnd, OFFSET_CORNERS, offsetCurve, offsetSlot, offsetThrough, unionLoops, moveVertices, alignedInPlane, offsetVertex, rebuildCurve, subdivideCurve, convertVertices, insertKnotAt, raiseDegree, reverseCurve, transformCurve, moveVerticesTo, slideCurveCVs, splitCurve, tangentCircle, trim } from '../curveEdit.js';
+import { BRIDGE_CONTINUITY, bridgeContinuous, continuity, curvatureComb, curveVertices, explode, EXTEND_SHAPES, extendCurve, filletCurve, nearestEnd, OFFSET_CORNERS, offsetCurve, offsetSlot, offsetThrough, unionLoops, moveVertices, alignedInPlane, offsetVertex, rebuildCurve, subdivideCurve, completeCurve, convertVertices, insertKnotAt, raiseDegree, reverseCurve, transformCurve, moveVerticesTo, slideCurveCVs, splitCurve, tangentCircle, trim } from '../curveEdit.js';
 import { ViewGizmo } from './ViewGizmo.js';
 import { Toolbar } from './Toolbar.js';
 import { arcPoints, circleThrough, cvPoints, ellipsePoints, endTangent, helixPoints, loops, nurbsLoop, nurbsPoints, polygonCorners, spiralAngle, tangentArc } from '../curves.js';
@@ -6441,6 +6441,30 @@ export async function mount(root, backend) {
     } catch (e) { toast(say(e)); }
   }
 
+  /**
+   * Plasticity's Complete Edge: each open end of the selected curves carries on (an arc round its
+   * circle, anything else straight) until it meets another shown curve in its plane.
+   */
+  async function completeSelected() {
+    if (cmd) await finish();
+    const ids = sel.curves.filter(curveById);
+    if (!ids.length) return toast('SELECT CURVES TO COMPLETE');
+    if (!backend.replaceCurves) return toast('COMPLETE EDGE IS NOT IN THIS BUILD YET');
+    const box = new THREE.Box3().expandByObject(curveGroup);
+    for (const b of current) { const m = bodyMesh(b.id); if (m) box.expandByObject(m); }
+    const reach = Math.max(100, 2 * (box.isEmpty() ? 0 : box.getSize(new THREE.Vector3()).length()));
+    try {
+      const others = id => curveList.filter(c => c.id !== id && !org.hidden.has(c.id));
+      const out = ids.map(id => ({ id, ...completeCurve(curveById(id), others(id), reach) })).filter(o => o.grown);
+      if (!out.length) return toast('NOTHING FOR THOSE CURVES TO MEET');
+      const { ids: made } = await backend.replaceCurves(out.map(o => o.id), out.map(o => o.curve));
+      const n = out.reduce((a, o) => a + o.grown, 0);
+      record(`COMPLETE EDGE ${out.map(o => curveLabel(o.id)).join(' ')}`, made[0], `${n} END${n > 1 ? 'S' : ''}`);
+      await curvesChanged(made);
+      toast(`COMPLETED ${n} END${n > 1 ? 'S' : ''}`);
+    } catch (e) { toast(say(e)); }
+  }
+
   /** Plasticity's Insert Knot: click curves to add control points without changing their shape. */
   function startInsertKnot() {
     if (!backend.replaceCurves) return toast('INSERT KNOT IS NOT IN THIS BUILD YET');
@@ -7455,6 +7479,7 @@ export async function mount(root, backend) {
       case 'rebuild': await startRebuild(); return true;
       case 'raise-degree': await raiseSelected(); return true;
       case 'subdivide': await subdivideSelected(); return true;
+      case 'complete-edge': await completeSelected(); return true;
       case 'convert-vertex': await convertSelected(); return true;
       case 'unify': await unifySelected(); return true;
       case 'boundary-edges': await findBoundaryEdges(); return true;
@@ -7631,7 +7656,7 @@ export async function mount(root, backend) {
       out.push('trim', 'split', 'extend', 'tool:offset-curve', 'slot', 'tool:fillet-curve');
       if (sel.curves.length === 2) out.push('tool:bridge');
       if (sel.curves.length > 1) out.push('join');
-      out.push('explode', 'reverse', 'rebuild', 'insert-knot', 'raise-degree', 'subdivide', 'measure:continuity', 'delete');
+      out.push('explode', 'reverse', 'rebuild', 'insert-knot', 'raise-degree', 'subdivide', 'complete-edge', 'measure:continuity', 'delete');
     }
     // Curve vertices: Fillet Vertex (B), Offset Vertex and, with two ends, Bridge Vertex.
     if (kinds.has('pole')) out.push('slide', 'toggle-points');

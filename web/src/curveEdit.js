@@ -1738,3 +1738,53 @@ export function subdivideCurve(c) {
     const added = m.poles.map((q, i) => n.poles.some(o => near(o, q)) ? -1 : i).filter(i => i >= 0);
     return { curve: m, added };
 }
+
+/** Whether segment p0p1 meets segment q0q1 anywhere past p0 (its far end included). */
+function reaches(p0, p1, q0, q1) {
+    const r = sub(p1, p0), s = sub(q1, q0), den = cross2(r, s);
+    if (Math.abs(den) < 1e-12) return false;
+    const t = cross2(sub(q0, p0), s) / den, u = cross2(sub(q0, p0), r) / den;
+    return t > 1e-12 && t <= 1 + 1e-9 && u >= -1e-9 && u <= 1 + 1e-9;
+}
+const toSegment = (p, a, b) => {
+    const ab = sub(b, a), L = dot2(ab, ab), t = L < EPS ? 0 : Math.max(0, Math.min(1, dot2(sub(p, a), ab) / L));
+    return dist(p, add(a, mul(ab, t)));
+};
+
+/**
+ * Plasticity's Complete Edge: each open end of `c` carried on until it meets one of `others` (in
+ * its plane) within `reach` mm. An arc carries on round its circle, anything else straight along its
+ * end. Ends that already touch another curve, or meet nothing, stay. Returns the longer curve and
+ * how many ends grew (0 when none did).
+ */
+export function completeCurve(c, others, reach) {
+    if (ends2(c) === null) return { curve: c, grown: 0 };
+    const cutters = others.map(o => inPlaneOf(c, o)).filter(Boolean).flatMap(segmentsOf);
+    if (!cutters.length) return { curve: c, grown: 0 };
+    const shape = c.kind === 'arc' || c.kind === 'polyline' ? 'natural' : 'linear';
+    let out = c, grown = 0;
+    for (const which of [0, 1]) {
+        const start = endOf(out, which).at;
+        if (cutters.some(([q0, q1]) => toSegment(start, q0, q1) < 1e-6)) continue;
+        const base = out;
+        const at = len => { try { return endOf(extendCurve(base, which, len, shape), which).at; } catch { return null; } };
+        const hits = (from, to) => cutters.some(([q0, q1]) => reaches(from, to, q0, q1));
+        // Walk the end out in steps until a step crosses a cutter, then halve that step down.
+        const N = 512;
+        let lo = 0, hi = null, from = start;
+        for (let i = 1; i <= N; i++) {
+            const len = reach * i / N, p = at(len);
+            if (!p) break;
+            if (hits(from, p)) { hi = len; break; }
+            lo = len; from = p;
+        }
+        if (hi === null) continue;
+        for (let k = 0; k < 60 && hi - lo > 1e-10; k++) {
+            const mid = (lo + hi) / 2, p = at(mid);
+            if (p && hits(from, p)) hi = mid; else { lo = mid; if (p) from = p; }
+        }
+        out = extendCurve(base, which, hi, shape);
+        grown++;
+    }
+    return { curve: out, grown };
+}
