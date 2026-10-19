@@ -75,7 +75,7 @@ import { limitEdges, toObj, toStl } from '../meshExport.js';
 import { flatten, toDxf, toSvg } from '../drawingExport.js';
 import { readDxf } from '../dxf.js';
 import { distanceToFace } from '../dependentOffset.js';
-import { BRIDGE_CONTINUITY, bridgeContinuous, continuity, curvatureComb, curveVertices, explode, EXTEND_SHAPES, extendCurve, filletCurve, nearestEnd, OFFSET_CORNERS, offsetCurve, offsetSlot, offsetThrough, unionLoops, moveVertices, alignedInPlane, offsetVertex, rebuildCurve, convertVertices, insertKnotAt, raiseDegree, reverseCurve, transformCurve, moveVerticesTo, slideCurveCVs, splitCurve, tangentCircle, trim } from '../curveEdit.js';
+import { BRIDGE_CONTINUITY, bridgeContinuous, continuity, curvatureComb, curveVertices, explode, EXTEND_SHAPES, extendCurve, filletCurve, nearestEnd, OFFSET_CORNERS, offsetCurve, offsetSlot, offsetThrough, unionLoops, moveVertices, alignedInPlane, offsetVertex, rebuildCurve, subdivideCurve, convertVertices, insertKnotAt, raiseDegree, reverseCurve, transformCurve, moveVerticesTo, slideCurveCVs, splitCurve, tangentCircle, trim } from '../curveEdit.js';
 import { ViewGizmo } from './ViewGizmo.js';
 import { Toolbar } from './Toolbar.js';
 import { arcPoints, circleThrough, cvPoints, ellipsePoints, endTangent, helixPoints, loops, nurbsLoop, nurbsPoints, polygonCorners, spiralAngle, tangentArc } from '../curves.js';
@@ -6400,6 +6400,47 @@ export async function mount(root, backend) {
     } catch (e) { toast(say(e)); }
   }
 
+  /**
+   * Plasticity's Subdivide: the selected curves get twice the control points (their new points are
+   * selected, in point mode), the selected faces twice the spans each way; shapes stay as they were.
+   */
+  async function subdivideSelected() {
+    if (cmd) await finish();
+    const ids = sel.curves.filter(curveById);
+    const byBody = new Map();
+    for (const it of sel.list('face')) byBody.set(it.body, [...(byBody.get(it.body) ?? []), it.n]);
+    if (!ids.length && !byBody.size) return toast('SELECT CURVES OR FACES TO SUBDIVIDE');
+    if (ids.length && !backend.replaceCurves) return toast('SUBDIVIDE OF CURVES IS NOT IN THIS BUILD YET');
+    if (byBody.size && !backend.commitSubdivideFaces) return toast('SUBDIVIDE OF FACES IS NOT IN THIS BUILD YET');
+    try {
+      const said = [];
+      if (byBody.size) {
+        let list = null;
+        for (const [body, faces] of byBody) {
+          ({ scene: list } = await backend.commitSubdivideFaces({ body, faces }));
+          record(`SUBDIVIDE ×${faces.length}`, body, `${faces.length} FACE${faces.length > 1 ? 'S' : ''}`);
+        }
+        await showScene(list);
+        const n = [...byBody.values()].flat().length;
+        said.push(`${n} FACE${n > 1 ? 'S' : ''}`);
+      }
+      if (ids.length) {
+        const out = ids.map(id => subdivideCurve(curveById(id)));
+        const { ids: made } = await backend.replaceCurves(ids, out.map(o => o.curve));
+        record(`SUBDIVIDE ${ids.map(curveLabel).join(' ')}`, made[0], `${out.map(o => curveVertices(o.curve).length).join(' ')} POINTS`);
+        await curvesChanged(made);
+        // Plasticity selects the new points.
+        sel.clear();
+        sel.modes.add('point');
+        made.forEach((id, i) => { for (const n of out[i].added) sel.add({ kind: 'vertex', id, n }); });
+        renderModes();
+        selectionChanged({ quiet: true });
+        said.push(`${ids.length} CURVE${ids.length > 1 ? 'S' : ''}`);
+      }
+      toast(`SUBDIVIDED ${said.join(' · ')}`);
+    } catch (e) { toast(say(e)); }
+  }
+
   /** Plasticity's Insert Knot: click curves to add control points without changing their shape. */
   function startInsertKnot() {
     if (!backend.replaceCurves) return toast('INSERT KNOT IS NOT IN THIS BUILD YET');
@@ -7413,6 +7454,7 @@ export async function mount(root, backend) {
       case 'align-vertex': await startAlignVertex(); return true;
       case 'rebuild': await startRebuild(); return true;
       case 'raise-degree': await raiseSelected(); return true;
+      case 'subdivide': await subdivideSelected(); return true;
       case 'convert-vertex': await convertSelected(); return true;
       case 'unify': await unifySelected(); return true;
       case 'boundary-edges': await findBoundaryEdges(); return true;
@@ -7572,7 +7614,7 @@ export async function mount(root, backend) {
     if (sel.solids.length > 1) out.push('tool:boolean');
     if (sel.solids.length === 2) out.push('tool:project');
     if (kinds.has('solid')) out.push('tool:move', 'tool:rotate', 'tool:scale', 'duplicate', 'create-outline', 'toggle-points', 'place', 'dimension', 'tool:mirror', 'tool:rect-array', 'tool:radial-array', 'tool:curve-array', 'unify', 'boundary-edges', 'remove-fillets', 'raise-degree', 'delete', 'hide', 'isolate', 'group', 'lock', 'material:set', 'export:step', 'export:mesh', 'export:drawing');
-    if (kinds.has('face')) out.push('tool:extrude', 'tool:offset', 'tool:thicken', 'tool:shell', 'tool:hole', 'tool:remove-face', 'remove-fillets', 'isoparam', 'rebuild', 'raise-degree', 'match-face', 'untrim', 'unwrap', 'toggle-points', 'plane:selection', 'plane:selection-keep-view');
+    if (kinds.has('face')) out.push('tool:extrude', 'tool:offset', 'tool:thicken', 'tool:shell', 'tool:hole', 'tool:remove-face', 'remove-fillets', 'isoparam', 'rebuild', 'raise-degree', 'subdivide', 'match-face', 'untrim', 'unwrap', 'toggle-points', 'plane:selection', 'plane:selection-keep-view');
     if (kinds.has('edge')) out.push('tool:fillet', 'tool:patch', 'alt-duplicate', 'measure:radius', 'view:surface-curvature');
     if (sel.list('edge').length === 2) out.push('tool:bridge-surface');
     if (sel.solids.some(id => current.find(b => b.id === id)?.sheet)) out.push('tool:thicken', 'reverse-sheet');
@@ -7589,7 +7631,7 @@ export async function mount(root, backend) {
       out.push('trim', 'split', 'extend', 'tool:offset-curve', 'slot', 'tool:fillet-curve');
       if (sel.curves.length === 2) out.push('tool:bridge');
       if (sel.curves.length > 1) out.push('join');
-      out.push('explode', 'reverse', 'rebuild', 'insert-knot', 'raise-degree', 'measure:continuity', 'delete');
+      out.push('explode', 'reverse', 'rebuild', 'insert-knot', 'raise-degree', 'subdivide', 'measure:continuity', 'delete');
     }
     // Curve vertices: Fillet Vertex (B), Offset Vertex and, with two ends, Bridge Vertex.
     if (kinds.has('pole')) out.push('slide', 'toggle-points');

@@ -425,6 +425,11 @@ pub trait Kernel {
     fn move_face_poles(&self, _s: &Self::Solid, _moves: &[(u32, u32, DVec3)]) -> Result<Self::Solid, KernelError> {
         Err(KernelError::Invalid("this kernel cannot move surface control points"))
     }
+    /// Plasticity's Subdivide on faces: their spans doubled in u and v (a face that isn't a B-spline
+    /// becomes one exactly first), shape unchanged; faces and edges keep their numbers.
+    fn subdivide_faces(&self, _s: &Self::Solid, _faces: &[u32]) -> Result<Self::Solid, KernelError> {
+        Err(KernelError::Invalid("this kernel cannot subdivide faces"))
+    }
     /// Plasticity's Rebuild Face: `faces` given new B-spline surfaces, edges and trims kept, faces
     /// and edges keeping their numbers.
     fn rebuild_faces(&self, _s: &Self::Solid, _faces: &[u32], _how: &FaceRebuild) -> Result<(Self::Solid, Vec<RebuiltFace>), KernelError> {

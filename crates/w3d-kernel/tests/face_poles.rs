@@ -102,3 +102,28 @@ fn a_ball_bulges_where_a_point_inside_its_net_moves() {
     let v = k.tessellate(&moved, 0.001).unwrap().volume();
     assert!(v > v0 + 1.0, "{v0} {v}");
 }
+
+#[test]
+fn subdividing_doubles_the_spans_and_keeps_the_shape() {
+    let k = Occt;
+    let b = k.box_from_corners(DVec3::ZERO, DVec3::new(10.0, 10.0, 10.0));
+    let t = k.tessellate(&b, 0.01).unwrap();
+    let top = t.face_planes.iter().position(|p| p.as_ref().is_some_and(|p| p.origin[2] > 9.99 && p.normal[2] > 0.99)).unwrap() as u32;
+    // A flat face: 2 × 2 points (one span each way) becomes 3 × 3, then 5 × 5.
+    let once = k.subdivide_faces(&b, &[top]).unwrap();
+    let rows = &k.face_poles(&once)[top as usize];
+    assert_eq!((rows.len(), rows[0].len()), (3, 3));
+    let twice = k.subdivide_faces(&once, &[top]).unwrap();
+    let rows = &k.face_poles(&twice)[top as usize];
+    assert_eq!((rows.len(), rows[0].len()), (5, 5));
+    assert!(k.is_valid(&twice) && !k.is_sheet(&twice));
+    assert!((k.tessellate(&twice, 0.001).unwrap().volume() - 1000.0).abs() < 0.01);
+    // A ball keeps its shape too.
+    let s = k.sphere(DVec3::ZERO, 10.0).unwrap();
+    let before = k.face_poles(&s)[0].len() * k.face_poles(&s)[0][0].len();
+    let sub = k.subdivide_faces(&s, &[0]).unwrap();
+    assert!(k.face_poles(&sub)[0].len() * k.face_poles(&sub)[0][0].len() > before);
+    let v = k.tessellate(&sub, 0.001).unwrap().volume();
+    assert!((v - 4.0 / 3.0 * std::f64::consts::PI * 1000.0).abs() < 2.0, "{v}");
+    assert!(k.subdivide_faces(&b, &[9]).is_err());
+}

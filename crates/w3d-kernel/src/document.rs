@@ -996,6 +996,18 @@ impl<K: Kernel> Document<K> {
         Ok(sheets.into_iter().map(|s| self.add_unrecorded(s)).collect())
     }
 
+    /// Plasticity's Subdivide on `faces` of `body` as one undoable step: their spans doubled, shape
+    /// unchanged. Faces and edges keep their numbers and refs.
+    pub fn commit_subdivide_faces(&mut self, body: BodyId, faces: &[u32]) -> Result<(), KernelError> {
+        let s = self.get(body).ok_or(KernelError::Invalid("that body no longer exists"))?;
+        if faces.is_empty() { return Err(KernelError::Invalid("select the faces to subdivide")) }
+        let solid = self.kernel.subdivide_faces(s, faces)?;
+        let refs = self.state.bodies.get(&body).ok_or(KernelError::Invalid("that body no longer exists"))?.refs.clone();
+        self.checkpoint();
+        self.state.bodies.insert(body, Rc::new(Body { solid, refs }));
+        Ok(())
+    }
+
     /// Surface control points of `body` moved, without changing the document: (face, pole, offset) each.
     pub fn preview_move_face_poles(&self, body: BodyId, moves: &[(u32, u32, DVec3)]) -> Result<K::Solid, KernelError> {
         let s = self.get(body).ok_or(KernelError::Invalid("that body no longer exists"))?;

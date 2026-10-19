@@ -412,6 +412,10 @@ impl Kernel for Occt {
         s.thicken_faces(&faces.iter().map(|&f| f as usize).collect::<Vec<_>>(), front, back).map_err(shim)
     }
 
+    fn subdivide_faces(&self, s: &Shape, faces: &[u32]) -> Result<Shape, KernelError> {
+        s.subdivide_faces(&faces.iter().map(|&f| f as usize).collect::<Vec<_>>()).map_err(shim)
+    }
+
     fn move_face_poles(&self, s: &Shape, moves: &[(u32, u32, DVec3)]) -> Result<Shape, KernelError> {
         let m: Vec<(usize, usize, [f64; 3])> = moves.iter().map(|&(f, p, d)| (f as usize, p as usize, d.to_array())).collect();
         s.move_face_poles(&m).map_err(shim)
