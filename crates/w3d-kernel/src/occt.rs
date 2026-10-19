@@ -543,6 +543,12 @@ impl Kernel for Occt {
         Ok(Traced { solid, history: history(h) })
     }
 
+    fn refillet(&self, s: &Shape, faces: &[u32], radius: f64) -> Result<Traced<Shape>, KernelError> {
+        let faces: Vec<usize> = faces.iter().map(|&f| f as usize).collect();
+        let (solid, h) = s.refillet_with_history(&faces, radius).map_err(shim)?;
+        Ok(Traced { solid, history: history(h) })
+    }
+
     fn mirror(&self, s: &Shape, origin: DVec3, normal: DVec3) -> Result<Shape, KernelError> {
         s.mirrored_in_plane(origin, normal).map_err(shim)
     }

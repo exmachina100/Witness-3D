@@ -4,7 +4,7 @@ import { before, test } from 'node:test';
 import * as THREE from 'three';
 import { boolean, box, loadKernel, primitive, volume } from '../src/Kernel.js';
 import { LocalBackend } from '../src/app/LocalBackend.js';
-import { curveDimensions, faceDimensions, solidDimensions } from '../src/dimension.js';
+import { curveDimensions, faceDimensions, filletDimensions, solidDimensions } from '../src/dimension.js';
 import { faceSurfaces } from '../src/faceSurfaces.js';
 
 before(async () => { await loadKernel() });
@@ -56,4 +56,13 @@ test("curves: a circle's diameter, an arc's, a rectangle's sides", () => {
     close(w.value, 30); close(l.value, 10);
     assert.deepEqual(w.edit(40).curve.points, [[0, 0], [40, 0], [40, 10], [0, 10]]);
     assert.equal(curveDimensions({ ...base, kind: 'polyline', closed: true, points: [[0, 0], [30, 0], [20, 10], [0, 10]] }).length, 0);
+});
+
+test('a fillet shows its radius and makes its whole chain again', () => {
+    const surfaces = [{ kind: 'plane' }, { kind: 'cylinder', radius: 2, outward: true }, { kind: 'sphere', radius: 2, outward: true }];
+    const [d] = filletDimensions(7, [2, 1], surfaces);
+    assert.equal(d.label, 'RADIUS');
+    assert.equal(d.value, 2);
+    assert.deepEqual(d.edit(3), { op: 'refillet', body: 7, faces: [2, 1], radius: 3 });
+    assert.deepEqual(filletDimensions(7, [0], surfaces), []);
 });

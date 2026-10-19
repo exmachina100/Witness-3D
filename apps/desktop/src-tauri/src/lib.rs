@@ -198,6 +198,24 @@ async fn commit_array(
 }
 
 #[tauri::command]
+async fn preview_refillet(
+    model: State<'_, Model>,
+    req: api::RefilletRequest,
+) -> Result<Option<api::Body>, api::ApiError> {
+    on_model(&model, move |m| api::preview_refillet(m, req))
+        .await?
+        .transpose()
+}
+
+#[tauri::command]
+async fn commit_refillet(
+    model: State<'_, Model>,
+    req: api::RefilletRequest,
+) -> Result<api::Committed, api::ApiError> {
+    on_model(&model, move |m| api::commit_refillet(m, req)).await?
+}
+
+#[tauri::command]
 async fn preview_remove_faces(
     model: State<'_, Model>,
     req: api::RemoveFacesRequest,
@@ -861,6 +879,8 @@ pub fn run() {
             hidden_lines,
             preview_remove_faces,
             commit_remove_faces,
+            preview_refillet,
+            commit_refillet,
             commit_unify,
             boundary_edges,
             fillet_faces,
