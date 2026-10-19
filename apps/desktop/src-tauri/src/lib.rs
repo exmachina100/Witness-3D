@@ -394,6 +394,24 @@ async fn commit_raise_faces(
 }
 
 #[tauri::command]
+async fn preview_move_face_poles(
+    model: State<'_, Model>,
+    req: api::MoveFacePolesRequest,
+) -> Result<Option<api::Body>, api::ApiError> {
+    on_model(&model, move |m| api::preview_move_face_poles(m, req))
+        .await?
+        .transpose()
+}
+
+#[tauri::command]
+async fn commit_move_face_poles(
+    model: State<'_, Model>,
+    req: api::MoveFacePolesRequest,
+) -> Result<api::Committed, api::ApiError> {
+    on_model(&model, move |m| api::commit_move_face_poles(m, req)).await?
+}
+
+#[tauri::command]
 async fn preview_rebuild_faces(
     model: State<'_, Model>,
     req: api::RebuildFacesRequest,
@@ -856,6 +874,8 @@ pub fn run() {
             preview_match_faces,
             commit_match_faces,
             commit_raise_faces,
+            preview_move_face_poles,
+            commit_move_face_poles,
             preview_rebuild_faces,
             commit_rebuild_faces,
             preview_extend_sheet,

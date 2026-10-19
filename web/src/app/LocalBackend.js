@@ -12,6 +12,7 @@ import { isSheet, patch } from '../Patch.js';
 import { offsetEdges } from '../edgeTube.js';
 import { faceSurfaces } from '../faceSurfaces.js';
 import { facePoles } from '../facePoles.js';
+import { moveFacePoles } from '../movePoles.js';
 import { chordal, limitRound } from '../filletShape.js';
 import { bridgeSurface } from '../BridgeSurface.js';
 import { projectOutline } from '../Outline.js';
@@ -750,6 +751,23 @@ export class LocalBackend {
     }
 
     /** Plasticity's Extend Sheet: sheet `body` grown `distance` past its open `edge`. */
+    /** Surface control points of `body` moved: `moves` is [[face, pole, [dx, dy, dz]]] (see movePoles.js). */
+    movePolesResult({ body, moves }) {
+        const s = this.shapes.get(body);
+        if (!s) throw new Error('that body no longer exists');
+        return moveFacePoles(s, moves);
+    }
+
+    previewMoveFacePoles(req) { return this.latest(async () => this.body(req.body, this.movePolesResult(req))) }
+
+    /** Moving surface control points as one undo step: the body keeps its id. */
+    async commitMoveFacePoles(req) {
+        const shape = this.movePolesResult(req);
+        this.checkpoint();
+        this.put(req.body, shape);
+        return { id: req.body, scene: this.bodies() };
+    }
+
     /** Plasticity's Rebuild Face: `faces` of `body` given new B-spline surfaces (see rebuildFace.js). */
     rebuildResult({ body, faces, ...how }) {
         const s = this.shapes.get(body);

@@ -996,6 +996,23 @@ impl<K: Kernel> Document<K> {
         Ok(sheets.into_iter().map(|s| self.add_unrecorded(s)).collect())
     }
 
+    /// Surface control points of `body` moved, without changing the document: (face, pole, offset) each.
+    pub fn preview_move_face_poles(&self, body: BodyId, moves: &[(u32, u32, DVec3)]) -> Result<K::Solid, KernelError> {
+        let s = self.get(body).ok_or(KernelError::Invalid("that body no longer exists"))?;
+        if moves.is_empty() { return Err(KernelError::Invalid("select the face's control points to move")) }
+        if moves.iter().any(|m| !m.2.is_finite()) { return Err(KernelError::Invalid("the move must be a number")) }
+        self.kernel.move_face_poles(s, moves)
+    }
+
+    /// Moving surface control points as one undoable step. Faces and edges keep their numbers and refs.
+    pub fn commit_move_face_poles(&mut self, body: BodyId, moves: &[(u32, u32, DVec3)]) -> Result<(), KernelError> {
+        let solid = self.preview_move_face_poles(body, moves)?;
+        let refs = self.state.bodies.get(&body).ok_or(KernelError::Invalid("that body no longer exists"))?.refs.clone();
+        self.checkpoint();
+        self.state.bodies.insert(body, Rc::new(Body { solid, refs }));
+        Ok(())
+    }
+
     /// Plasticity's Rebuild Face, without changing the document: `faces` of `body` given new
     /// B-spline surfaces, with what each became.
     pub fn preview_rebuild_faces(&self, body: BodyId, faces: &[u32], how: &FaceRebuild) -> Result<(K::Solid, Vec<RebuiltFace>), KernelError> {

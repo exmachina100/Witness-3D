@@ -239,6 +239,8 @@ const ICONS = {
     slide: `<path d="M3 18L9 8l6 4 6-8" stroke-dasharray="2 2"/><path ${A} d="M9 8h0M5 10.5l8-5M11 4.5l2 1-1 2" stroke-width="2" stroke-linecap="round"/>`,
     'slide-u': `<path d="M4 16L20 8" stroke-dasharray="2 2"/><path ${A} d="M8 14l8-4M13 9l3 1-1 3"/>`,
     'slide-back': `<path d="M4 16L20 8" stroke-dasharray="2 2"/><path ${A} d="M16 10l-8 4M11 15l-3-1 1-3"/>`,
+    'slide-v': `<path d="M8 4L16 20" stroke-dasharray="2 2"/><path ${A} d="M10 8l4 8M11 14l3 2 1-3"/>`,
+    'slide-vback': `<path d="M8 4L16 20" stroke-dasharray="2 2"/><path ${A} d="M14 16l-4-8M13 10l-3-2-1 3"/>`,
     'slide-n': `<path d="M4 16L20 8" stroke-dasharray="2 2"/><path ${A} d="M12 12l-3-6M7 8l2-2 2 1"/>`,
     isolate: `<rect x="3" y="5" width="18" height="14" stroke-dasharray="2 2"/><rect ${A} x="8" y="8" width="8" height="8"/>`,
 };

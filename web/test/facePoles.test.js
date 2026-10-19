@@ -7,7 +7,7 @@ import { facePoles } from '../src/facePoles.js';
 before(async () => { await loadKernel() });
 
 test('a block face has its four corners', () => {
-    const faces = facePoles(box([0, 0, 0], [10, 20, 30]));
+    const faces = facePoles(box({ x: 0, y: 0, z: 0 }, { x: 10, y: 20, z: 30 }));
     assert.equal(faces.length, 6);
     for (const rows of faces) {
         assert.deepEqual([rows.length, rows[0].length], [2, 2]);

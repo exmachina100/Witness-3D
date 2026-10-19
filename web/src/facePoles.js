@@ -3,38 +3,56 @@
 import { numbered, oc } from './Kernel.js';
 import { refit } from './rebuildFace.js';
 
-const rowsOf = (b, at = p => p) => {
+const rowsOf = b => {
     const rows = [];
     for (let a = 1; a <= b.NbUPoles(); a++) {
         const row = [];
-        for (let c = 1; c <= b.NbVPoles(); c++) { const p = at(b.Pole(a, c)); row.push([p.X(), p.Y(), p.Z()]); }
+        for (let c = 1; c <= b.NbVPoles(); c++) { const p = b.Pole(a, c); row.push([p.X(), p.Y(), p.Z()]); }
         rows.push(row);
     }
     return rows;
 };
 
 /**
+ * A face's control surface, in model space: { surface (a Geom_BSplineSurface of its own), bounds
+ * [u0, u1, v0, v1], exact }. A B-spline face gives a copy of its own; a flat face the bilinear
+ * patch over its extent (the same parameters, so exact); other round faces (this build cannot
+ * convert them exactly, as w3d_face_poles does) a cubic B-spline fitted to them. A Bezier face has
+ * none here. Toggle Points shows these poles and moving them (movePoles.js) moves these.
+ */
+export function controlSurface(face) {
+    const o = oc();
+    const ad = new o.BRepAdaptor_Surface(face, true), T = o.GeomAbs_SurfaceType;
+    const [UMin, UMax, VMin, VMax] = [ad.FirstUParameter(), ad.LastUParameter(), ad.FirstVParameter(), ad.LastVParameter()];
+    const bounds = [UMin, UMax, VMin, VMax];
+    const at = (u, v) => { const p = ad.Value(u, v); return [p.X(), p.Y(), p.Z()]; };
+    const type = ad.GetType();
+    // The adaptor's B-spline is already where the face sits.
+    if (type === T.GeomAbs_BSplineSurface) return { surface: new o.Geom_BSplineSurface(ad.BSpline()), bounds, exact: true };
+    if (type === T.GeomAbs_BezierSurface) return null;
+    if (![UMin, UMax, VMin, VMax].every(Number.isFinite)) return null;
+    if (type === T.GeomAbs_Plane) return { surface: refit(at, bounds, [1, 1], [1, 1]), bounds, exact: true };
+    const spans = (a, b) => Math.max(1, Math.min(8, Math.ceil(Math.abs(b - a) / (Math.PI / 4))));
+    return { surface: refit(at, bounds, [3, 3], [spans(UMin, UMax), spans(VMin, VMax)]), bounds, exact: false };
+}
+
+/**
  * Per face (numbered order), its control points as rows of [x, y, z] (u slowest); [] where it has
- * none. A B-spline or Bezier face gives its own; a flat face its four corners; other round faces
- * (this build cannot convert them exactly, as w3d_face_poles does) a cubic B-spline fitted to them.
+ * none (see controlSurface).
  */
 export function facePoles(shape) {
     const o = oc();
     return numbered(shape, 'TopAbs_FACE').map(f => {
         const face = o.TopoDS.Face(f);
         try {
-            const ad = new o.BRepAdaptor_Surface(face, true), T = o.GeomAbs_SurfaceType;
-            const u0 = ad.FirstUParameter(), u1 = ad.LastUParameter(), v0 = ad.FirstVParameter(), v1 = ad.LastVParameter();
-            const at = (u, v) => { const p = ad.Value(u, v); return [p.X(), p.Y(), p.Z()]; };
-            // The adaptor's B-spline and Bezier are the bare surface; carry them where the face sits.
-            const t = face.Location().Transformation(), moved = p => p.Transformed(t);
-            const type = ad.GetType();
-            if (type === T.GeomAbs_BSplineSurface) return rowsOf(ad.BSpline().get(), moved);
-            if (type === T.GeomAbs_BezierSurface) return rowsOf(ad.Bezier().get(), moved);
-            if (type === T.GeomAbs_Plane) return [[at(u0, v0), at(u0, v1)], [at(u1, v0), at(u1, v1)]];
-            if (![u0, u1, v0, v1].every(Number.isFinite)) return [];
-            const spans = (a, b) => Math.max(1, Math.min(8, Math.ceil(Math.abs(b - a) / (Math.PI / 4))));
-            return rowsOf(refit(at, [u0, u1, v0, v1], [3, 3], [spans(u0, u1), spans(v0, v1)]));
+            const ad = new o.BRepAdaptor_Surface(face, true);
+            if (ad.GetType() === o.GeomAbs_SurfaceType.GeomAbs_BezierSurface) {
+                const b = ad.Bezier(), rows = [];
+                for (let a = 1; a <= b.NbUPoles(); a++) { const row = []; for (let c = 1; c <= b.NbVPoles(); c++) { const p = b.Pole(a, c); row.push([p.X(), p.Y(), p.Z()]); } rows.push(row); }
+                return rows;
+            }
+            const cs = controlSurface(face);
+            return cs ? rowsOf(cs.surface) : [];
         } catch { return []; }
     });
 }
