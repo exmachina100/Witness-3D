@@ -207,6 +207,13 @@ impl Shape {
         Ok((Shape::from_shape(&ffi::w3d::w3d_result_shape(&r)), history(&r, 1)))
     }
 
+    /// The numbered fillet faces made again at `radius` (Plasticity's Dimension on a fillet).
+    pub fn refillet_with_history(&self, faces: &[usize], radius: f64) -> Result<(Shape, ShapeHistory), String> {
+        let ids: Vec<i32> = faces.iter().map(|&f| f as i32).collect();
+        let r = ffi::w3d::w3d_refillet(&self.inner, &ids, radius).map_err(reason)?;
+        Ok((Shape::from_shape(&ffi::w3d::w3d_result_shape(&r)), history(&r, 1)))
+    }
+
     /// Faces on one surface and edges on one curve merged (Plasticity's Delete Redundant Topology).
     pub fn unify_with_history(&self) -> Result<(Shape, ShapeHistory), String> {
         let r = ffi::w3d::w3d_unify(&self.inner).map_err(reason)?;

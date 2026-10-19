@@ -750,6 +750,21 @@ impl<K: Kernel> Document<K> {
         Ok(body)
     }
 
+    /// A fillet's new size, without changing the document.
+    pub fn preview_refillet(&self, body: BodyId, faces: &[u32], radius: f64) -> Result<K::Solid, KernelError> {
+        let solid = self.get(body).ok_or(KernelError::Invalid("that body no longer exists"))?;
+        Ok(crate::solids::refillet(&self.kernel, solid, faces, radius)?.solid)
+    }
+
+    /// A fillet's new size as one undoable step; the faces around it keep their refs.
+    pub fn commit_refillet(&mut self, body: BodyId, faces: &[u32], radius: f64) -> Result<BodyId, KernelError> {
+        let solid = self.get(body).ok_or(KernelError::Invalid("that body no longer exists"))?;
+        let t = crate::solids::refillet(&self.kernel, solid, faces, radius)?;
+        self.checkpoint();
+        self.replace_traced(body, t);
+        Ok(body)
+    }
+
     /// Plasticity's Cut, without changing the document: per body, its biggest piece (traced) and the rest.
     pub fn preview_cut(&self, bodies: &[BodyId], curves: &[CurveId], tools: &Tools) -> Result<Vec<(BodyId, Traced<K::Solid>, Vec<K::Solid>)>, KernelError> {
         if bodies.is_empty() { return Err(KernelError::Invalid("select a solid to cut")) }

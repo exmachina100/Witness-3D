@@ -69,6 +69,17 @@ export function faceDimensions(body, faces, surfaces) {
 }
 
 /**
+ * A fillet's radius (Plasticity's Dimension on a fillet): `chain` is the fillet faces holding the
+ * picked one (the kernel's fillet_faces), and its first round face gives the radius. The edit makes
+ * the whole chain again at the new radius: { op: 'refillet', body, faces, radius }.
+ */
+export function filletDimensions(body, chain, surfaces) {
+    const round = chain.map(n => surfaces[n]).find(f => f?.kind === 'cylinder');
+    if (!round) return [];
+    return [{ label: 'RADIUS', value: round.radius, edit: r => ({ op: 'refillet', body, faces: chain, radius: r }) }];
+}
+
+/**
  * A whole solid's sizes: a ball's diameter (scaled about its centre: { op: 'scale', body, pivot,
  * scale }), or a block's width, length and height along its sides, the side facing most along
  * +x, back (model −z) and up (model +y) moving.

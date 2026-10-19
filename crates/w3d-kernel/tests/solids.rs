@@ -360,3 +360,30 @@ fn isoparam_on_a_cylinder_side_rings_it_or_runs_its_height() {
     assert_eq!(found, 1, "only the side gives a ring through the point");
     assert!(k.isoparam(&cyl, 99, at, true).is_err());
 }
+
+#[test]
+fn a_fillet_is_made_again_at_a_new_radius() {
+    let k = Occt;
+    let c = cube(&k);
+    // One edge of the 10 mm cube rounded at 2, then at 4: each takes away (r² − πr²/4) × 10.
+    let taken = |r: f64| (r * r - PI * r * r / 4.0) * 10.0;
+    let one = k.blend(&c, &[0], 2.0, Blend::Fillet, 0.0, &[]).unwrap();
+    let round = one.history.generated_faces.first().unwrap().1;
+    close(volume(&k, &one.solid), 1000.0 - taken(2.0), 0.1);
+    let bigger = w3d_kernel::solids::refillet(&k, &one.solid, &[round], 4.0).unwrap();
+    close(volume(&k, &bigger.solid), 1000.0 - taken(4.0), 0.1);
+    assert_eq!(k.face_count(&bigger.solid), 7);
+    // All edges rounded: one round resized among its neighbours' rounds.
+    let all: Vec<u32> = (0..k.edge_count(&c) as u32).collect();
+    let soft = k.blend(&c, &all, 1.0, Blend::Fillet, 0.0, &[]).unwrap().solid;
+    let flat = (0..k.face_count(&soft) as u32).find(|&f| !k.fillet_faces(&soft, &[]).contains(&f)).unwrap();
+    assert!(w3d_kernel::solids::refillet(&k, &soft, &[flat], 2.0).is_err(), "a flat face is no fillet");
+    assert!(w3d_kernel::solids::refillet(&k, &one.solid, &[round], 0.0).is_err());
+    assert!(w3d_kernel::solids::refillet(&k, &one.solid, &[round], 12.0).is_err(), "too big for the cube");
+    // Its whole chain of rounds and corner balls made again at 2: a box rounded all over,
+    // (a − 2r)³ + 6(a − 2r)²r + 3π(a − 2r)r² + 4πr³/3.
+    let rounds = k.fillet_faces(&soft, &[]);
+    let chain = k.fillet_faces(&soft, &rounds[..1]);
+    let all_round = w3d_kernel::solids::refillet(&k, &soft, &chain, 2.0).unwrap();
+    close(volume(&k, &all_round.solid), 216.0 + 6.0 * 36.0 * 2.0 + 3.0 * PI * 6.0 * 4.0 + 4.0 * PI * 8.0 / 3.0, 0.5);
+}

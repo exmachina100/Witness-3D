@@ -159,3 +159,17 @@ pub fn remove_faces<K: Kernel>(k: &K, body: &K::Solid, faces: &[u32]) -> Result<
     }
     Ok(traced)
 }
+
+/// Dimension on a fillet: the fillet faces made again at `radius`, checked to leave one valid solid.
+pub fn refillet<K: Kernel>(k: &K, body: &K::Solid, faces: &[u32], radius: f64) -> Result<Traced<K::Solid>, KernelError> {
+    if faces.is_empty() { return Err(KernelError::Invalid("select a fillet")) }
+    if !(radius > 0.0) || !radius.is_finite() { return Err(KernelError::Invalid("the radius must be above zero")) }
+    if faces.iter().any(|&f| f as usize >= k.face_count(body)) {
+        return Err(KernelError::Invalid("a face in the selection is not on this body; select the faces again"));
+    }
+    let traced = k.refillet(body, faces, radius)?;
+    if !k.is_valid(&traced.solid) || k.solid_count(&traced.solid) != k.solid_count(body) {
+        return Err(KernelError::Invalid("a fillet that size breaks the body"));
+    }
+    Ok(traced)
+}

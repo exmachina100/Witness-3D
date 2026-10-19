@@ -60,7 +60,7 @@ import { ACTIONS, COMMAND, VIEWPORT, keyFor, keyOf } from './keymap.js';
 import { Selection, faceEdges } from './Selection.js';
 import { edgeOffsetsBothSides, edgeOffsetsOnFace, faceLoopOffsets } from '../edgeOffset.js';
 import { curveArrayMotions } from '../curveArray.js';
-import { curveDimensions, faceDimensions, solidDimensions } from '../dimension.js';
+import { curveDimensions, faceDimensions, filletDimensions, solidDimensions } from '../dimension.js';
 import { edgeCurve, flattenCurve } from '../altDuplicate.js';
 import { liftPiece, meshSilhouette, nearestOver } from '../createOutline.js';
 import { FONTS, parseFont, textShapes } from '../text.js';
@@ -4389,14 +4389,20 @@ export async function mount(root, backend) {
     const which = curves.length === 1 && sel.size === 1 ? { curve: curves[0] }
       : faces.length && faceBody() !== null ? { body: faceBody(), faces: faces.map(f => f.n) }
       : solids.length === 1 && sel.list().every(it => it.kind === 'solid') ? { solid: solids[0] } : null;
-    const ask = 'SELECT A CIRCLE, ARC OR RECTANGLE, A ROUND FACE, TWO FLAT FACES, OR A BLOCK OR BALL';
+    const ask = 'SELECT A CIRCLE, ARC OR RECTANGLE, A ROUND FACE OR FILLET, TWO FLAT FACES, OR A BLOCK OR BALL';
     if (!which) return toast(ask);
     if (which.curve === undefined && !backend.faceSurfaces) return toast('DIMENSION IS NOT IN THIS BUILD YET');
     /** The sizes as they are now, measured afresh (an edit can renumber faces). */
     const measure = async () => {
       if (which.curve !== undefined) return curveDimensions(curveById(which.curve));
       const surfaces = await backend.faceSurfaces({ body: which.body ?? which.solid });
-      return which.solid !== undefined ? solidDimensions(which.solid, surfaces) : faceDimensions(which.body, which.faces, surfaces);
+      if (which.solid !== undefined) return solidDimensions(which.solid, surfaces);
+      // One face of a fillet: its radius, the whole chain made again (desktop).
+      if (which.faces.length === 1 && backend.filletFaces && backend.commitRefillet) {
+        const chain = await backend.filletFaces({ body: which.body, faces: which.faces });
+        if (chain.length) return filletDimensions(which.body, chain, surfaces);
+      }
+      return faceDimensions(which.body, which.faces, surfaces);
     };
     let dims;
     try { dims = await measure(); } catch (e) { return toast(say(e)); }
@@ -4420,6 +4426,7 @@ export async function mount(root, backend) {
       const i = c.values.findIndex((v, k) => Math.abs(v - dims[k].value) > 1e-9);
       const edit = i >= 0 && c.values[i] > 0 ? dims[i].edit(c.values[i]) : null;
       if (edit?.op === 'offset' && backend.previewOffset) livePreview(c, () => backend.previewOffset({ ...editRequest(edit) }), b => showPreviewBody(b), 'dm-hint');
+      if (edit?.op === 'refillet' && backend.previewRefillet) livePreview(c, () => backend.previewRefillet({ body: edit.body, faces: edit.faces, radius: edit.radius }), b => showPreviewBody(b), 'dm-hint');
     };
     const editRequest = edit => ({ body: edit.body, faces: edit.faces, distance: edit.distance, angle: 0, grow: 'moving' });
     fields.forEach((f, i) => { f.oninput = () => { const v = parseFloat(f.value); if (Number.isFinite(v)) { c.values[i] = v; c.preview(); } }; });
@@ -4447,6 +4454,7 @@ export async function mount(root, backend) {
           if (!now) throw new Error(`the ${name.toLowerCase()} is no longer there to set`);
           const edit = now.edit(v);
           if (edit.op === 'offset') ({ scene: made } = await backend.commitOffset(editRequest(edit)));
+          else if (edit.op === 'refillet') ({ scene: made } = await backend.commitRefillet({ body: edit.body, faces: edit.faces, radius: edit.radius }));
           else if (edit.op === 'scale') ({ scene: made } = await backend.commitMotion({ bodies: [edit.body], pivot: edit.pivot, scale: edit.scale }));
           else {
             const { id, ...curve } = edit.curve;

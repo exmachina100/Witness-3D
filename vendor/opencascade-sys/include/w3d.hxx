@@ -119,6 +119,7 @@
 #include <TopExp.hxx>
 #include <TopExp_Explorer.hxx>
 #include <TopTools_IndexedDataMapOfShapeListOfShape.hxx>
+#include <TopTools_DataMapOfShapeInteger.hxx>
 #include <cmath>
 #include <set>
 #include <GeomAPI_ProjectPointOnSurf.hxx>
@@ -1373,6 +1374,78 @@ inline std::unique_ptr<W3dResult> w3d_remove_faces(const TopoDS_Shape &shape, ru
     r->shape = df.Shape();
     if (!w3d_is_valid(r->shape)) throw std::runtime_error("removing those faces breaks the body");
     w3d_record(*r, 0, shape, {w3d_step(df)});
+    return r;
+  } catch (const Standard_Failure &f) {
+    throw w3d_kernel_error(f);
+  }
+}
+
+// A fillet's size changed (Plasticity's Dimension on a fillet): the numbered fillet faces removed so
+// the faces they joined grow back to a sharp edge, then that edge filleted again at `radius`. The
+// edges to fillet are those the removal made between two faces that touched the fillet but not
+// each other.
+inline std::unique_ptr<W3dResult> w3d_refillet(const TopoDS_Shape &shape, rust::Slice<const int32_t> faces, double radius) {
+  if (!(radius > 0) || !std::isfinite(radius)) throw std::runtime_error("the radius must be above zero");
+  if (faces.empty()) throw std::runtime_error("select a fillet");
+  TopTools_IndexedMapOfShape map;
+  TopExp::MapShapes(shape, TopAbs_FACE, map);
+  TopTools_IndexedDataMapOfShapeListOfShape before;
+  TopExp::MapShapesAndAncestors(shape, TopAbs_EDGE, TopAbs_FACE, before);
+  try {
+    TopTools_MapOfShape removed;
+    for (int32_t f : faces) {
+      if (f < 0 || f >= map.Extent()) throw std::out_of_range("no such face");
+      removed.Add(map(f + 1));
+    }
+    // The faces the fillet touches, and which of them already shared an edge.
+    TopTools_IndexedMapOfShape near;
+    for (TopTools_MapOfShape::Iterator it(removed); it.More(); it.Next())
+      for (TopExp_Explorer ex(it.Value(), TopAbs_EDGE); ex.More(); ex.Next())
+        for (TopTools_ListOfShape::Iterator g(before.FindFromKey(ex.Current())); g.More(); g.Next())
+          if (!removed.Contains(g.Value())) near.Add(g.Value());
+    std::set<std::pair<int, int>> touching;
+    for (int i = 1; i <= before.Extent(); i++) {
+      std::vector<int> ids;
+      for (TopTools_ListOfShape::Iterator g(before(i)); g.More(); g.Next()) { int k = near.FindIndex(g.Value()); if (k) ids.push_back(k); }
+      for (size_t a = 0; a < ids.size(); a++) for (size_t b = a + 1; b < ids.size(); b++) touching.insert({std::min(ids[a], ids[b]), std::max(ids[a], ids[b])});
+    }
+    BRepAlgoAPI_Defeaturing df;
+    df.SetShape(shape);
+    for (TopTools_MapOfShape::Iterator it(removed); it.More(); it.Next()) df.AddFaceToRemove(it.Value());
+    df.SetToFillHistory(Standard_True);
+    df.Build();
+    if (!df.IsDone() || df.HasErrors() || df.Shape().IsNull())
+      throw std::runtime_error("the faces around that fillet can't grow back to an edge");
+    TopoDS_Shape sharp = df.Shape();
+    // Which touching face each face of the sharp body came from.
+    TopTools_DataMapOfShapeInteger from;
+    for (int k = 1; k <= near.Extent(); k++) {
+      if (df.IsDeleted(near(k))) continue;
+      const TopTools_ListOfShape &m = df.Modified(near(k));
+      if (m.IsEmpty()) from.Bind(near(k), k);
+      else for (TopTools_ListOfShape::Iterator it(m); it.More(); it.Next()) from.Bind(it.Value(), k);
+    }
+    TopTools_IndexedDataMapOfShapeListOfShape after;
+    TopExp::MapShapesAndAncestors(sharp, TopAbs_EDGE, TopAbs_FACE, after);
+    BRepFilletAPI_MakeFillet mk(sharp);
+    int added = 0;
+    for (int i = 1; i <= after.Extent(); i++) {
+      const TopTools_ListOfShape &fs = after(i);
+      if (fs.Extent() != 2) continue;
+      const TopoDS_Shape &a = fs.First(), &b = fs.Last();
+      if (!from.IsBound(a) || !from.IsBound(b)) continue;
+      int ia = from(a), ib = from(b);
+      if (ia == ib || touching.count({std::min(ia, ib), std::max(ia, ib)})) continue;
+      mk.Add(radius, TopoDS::Edge(after.FindKey(i)));
+      added++;
+    }
+    if (!added) throw std::runtime_error("that face is not a fillet between two faces");
+    mk.Build();
+    if (!mk.IsDone() || mk.Shape().IsNull()) throw std::runtime_error("a fillet that size does not fit there");
+    std::unique_ptr<W3dResult> r(new W3dResult());
+    r->shape = mk.Shape();
+    if (!w3d_is_valid(r->shape)) throw std::runtime_error("a fillet that size breaks the body");
+    w3d_record(*r, 0, shape, {w3d_step(df), w3d_step(mk)});
     return r;
   } catch (const Standard_Failure &f) {
     throw w3d_kernel_error(f);

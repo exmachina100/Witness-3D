@@ -1004,6 +1004,28 @@ pub fn commit_remove_faces(m: &Model, req: RemoveFacesRequest) -> Result<Committ
     })
 }
 
+/// Dimension on a fillet: the fillet faces of one body made again at `radius`.
+#[derive(Deserialize, Debug, Clone)]
+pub struct RefilletRequest {
+    pub body: BodyId,
+    pub faces: Vec<u32>,
+    pub radius: f64,
+}
+
+pub fn preview_refillet(m: &Model, req: RefilletRequest) -> Option<Result<Body, ApiError>> {
+    m.preview(move |doc| {
+        let solid = doc.preview_refillet(req.body, &req.faces, req.radius)?;
+        Ok(body(&doc.kernel, req.body, &solid)?)
+    })
+}
+
+pub fn commit_refillet(m: &Model, req: RefilletRequest) -> Result<Committed, ApiError> {
+    m.call(move |doc| {
+        let id = doc.commit_refillet(req.body, &req.faces, req.radius)?;
+        Ok(Committed { id, scene: bodies(doc)? })
+    })
+}
+
 /// A body's triangles for export, at `tolerance` mm from the true surface.
 #[derive(Serialize, Debug)]
 pub struct MeshOut {
