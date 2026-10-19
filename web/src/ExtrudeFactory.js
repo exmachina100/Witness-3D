@@ -37,6 +37,9 @@ export class ExtrudeFactory extends GeometryFactory {
          * each along its own normal instead of all along the first face's (Direct). */
         this.faces = [];
         this.individual = false;
+        /** More drawn regions extruded with `baseFace` ([{ face, hole }]): the others joined, the
+         * holes cut from them (as extrude.rs's more_regions). */
+        this.moreFaces = [];
         this.isOverlapping = false;
     }
 
@@ -94,7 +97,11 @@ export class ExtrudeFactory extends GeometryFactory {
             return all;
         }
         if (!this.baseFace && !this.profile) throw new ValidationError("No profile to extrude");
-        return shaped(this.baseFace ?? makeProfileFace(this.profile, this.frame), free ?? this.normal.clone().normalize());
+        const dir = free ?? this.normal.clone().normalize();
+        let out = shaped(this.baseFace ?? makeProfileFace(this.profile, this.frame), dir);
+        for (const { face } of this.moreFaces.filter(m => !m.hole)) out = boolean(out, shaped(face, dir), 'union');
+        for (const { face } of this.moreFaces.filter(m => m.hole)) out = boolean(out, shaped(face, dir), 'difference');
+        return out;
     }
 
     async calculate() {

@@ -19,7 +19,7 @@ fn setup() -> (Occt, opencascade::primitives::Shape, ExtrudeParams) {
         thickness: 0.0,
         operation: Operation::Auto,
         face: None,
-        direction: None, more_faces: vec![], individual: false,
+        direction: None, more_faces: vec![], individual: false, more_regions: vec![],
     };
     (k, body, params)
 }

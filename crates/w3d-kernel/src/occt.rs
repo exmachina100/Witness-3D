@@ -60,9 +60,12 @@ fn section(profile: &Profile, frame: &Frame) -> Result<Vec<f64>, KernelError> {
             for p in pts { v.extend(frame.point(*p).to_array()) }
             v
         }
-        Profile::Nurbs { degree, poles, weights, knots } => path_numbers(&Path::Nurbs {
-            degree: *degree, poles: poles.iter().map(|p| frame.point(*p)).collect(), weights: weights.clone(), knots: knots.clone(),
-        })?,
+        Profile::Nurbs { degree, poles, weights, knots } => {
+            let poles: Vec<DVec3> = poles.iter().map(|p| frame.point(*p)).collect();
+            let pieces = split_at_corners(*degree, &poles, weights, knots);
+            if pieces.len() > 1 { path_numbers(&Path::Contour(pieces))? }
+            else { path_numbers(&Path::Nurbs { degree: *degree, poles, weights: weights.clone(), knots: knots.clone() })? }
+        }
         Profile::Ellipse { center, major, minor } => {
             let (c, m) = (frame.point(*center), frame.point(*major) - frame.origin);
             ellipse_numbers(c, frame.normal, m, *minor)?
@@ -76,6 +79,37 @@ fn section(profile: &Profile, frame: &Frame) -> Result<Vec<f64>, KernelError> {
             }).collect()))?
         }
     })
+}
+
+/// A clamped NURBS curve cut where it has corners (interior knots repeated `degree` times, as a
+/// font's outline has at each on-curve point), so each smooth piece is its own edge and face:
+/// OpenCascade's booleans fail on side faces with creases inside them. Straight pieces become lines.
+fn split_at_corners(degree: usize, poles: &[DVec3], weights: &[f64], knots: &[f64]) -> Vec<Path> {
+    let (d, n) = (degree, poles.len());
+    if d < 2 || weights.len() != n || knots.len() != n + d + 1 { return vec![] }
+    // The poles the curve passes through: the last of each run of `d` equal interior knots.
+    let mut cuts = vec![0];
+    let mut j = d + 1;
+    while j < n {
+        let mut m = 1;
+        while j + m < n && knots[j + m] == knots[j] { m += 1 }
+        if m >= d { cuts.push(j + m - 1 - d) }
+        j += m;
+    }
+    cuts.push(n - 1);
+    if cuts.len() < 3 { return vec![] }
+    cuts.windows(2).map(|w| {
+        let (s, e) = (w[0], w[1]);
+        let ps = &poles[s..=e];
+        let straight = ps.iter().all(|p| (*p - ps[0]).cross(ps[ps.len() - 1] - ps[0]).length() <= 1e-9 * (1.0 + (ps[ps.len() - 1] - ps[0]).length_squared()));
+        if straight && weights[s..=e].iter().all(|&w| (w - weights[s]).abs() < 1e-12) {
+            return Path::Polyline { points: vec![ps[0], ps[ps.len() - 1]], closed: false };
+        }
+        let mut k = vec![knots[s + 1]];
+        k.extend_from_slice(&knots[s + 1..e + d + 1]);
+        k.push(knots[e + d]);
+        Path::Nurbs { degree: d, poles: ps.to_vec(), weights: weights[s..=e].to_vec(), knots: k }
+    }).collect()
 }
 
 /// An ellipse as the shim reads it, with the longer radius first as OpenCascade needs.

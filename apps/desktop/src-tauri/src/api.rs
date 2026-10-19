@@ -140,6 +140,11 @@ pub struct ExtrudeRequest {
     /// Individual (I): each face along its own normal.
     #[serde(default)]
     pub individual: bool,
+    /// More regions extruded with `region`, and the regions inside them cut out as holes.
+    #[serde(default)]
+    pub more_regions: Vec<CurveId>,
+    #[serde(default)]
+    pub holes: Vec<CurveId>,
 }
 
 fn east() -> [f64; 3] { [1.0, 0.0, 0.0] }
@@ -210,7 +215,7 @@ impl ExtrudeRequest {
 
     fn params(&self, doc: &Document<Occt>) -> Result<ExtrudeParams, String> {
         if let Some(id) = self.region {
-            let p = doc.region_params(id, self.distance, self.operation()).map_err(|e| e.to_string())?;
+            let p = doc.regions_params(id, &self.more_regions, &self.holes, self.distance, self.operation()).map_err(|e| e.to_string())?;
             return Ok(ExtrudeParams { back: self.back, angle: self.angle, thickness: self.thickness, direction: self.direction.map(DVec3::from_array), ..p });
         }
         let profile = match self.profile {
@@ -231,6 +236,7 @@ impl ExtrudeRequest {
             direction: self.direction.map(DVec3::from_array),
             more_faces: self.faces.clone(),
             individual: self.individual,
+            more_regions: vec![],
         })
     }
 }
