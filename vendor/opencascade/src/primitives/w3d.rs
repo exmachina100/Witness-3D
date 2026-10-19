@@ -304,6 +304,17 @@ impl Shape {
         ffi::w3d::w3d_face_uvn(&self.inner, face as i32, map, data).map_err(reason)
     }
 
+    /// Plasticity's Deform Solid and Sheet: `bodies` wrapped from face `rface` of `reference` onto
+    /// face `tface` of `target`; `opts` are scale u v n, offset u v n, then mirror, swap, normal as
+    /// 1 or 0 (see `w3d_deform`). The results come back in order.
+    pub fn deform(bodies: &[&Shape], reference: &Shape, rface: usize, target: &Shape, tface: usize, opts: &[f64]) -> Result<Vec<Shape>, String> {
+        let all = Shape::from(crate::primitives::Compound::from_shapes(bodies.iter().copied()));
+        let out = ffi::w3d::w3d_deform(&all.inner, &reference.inner, rface as i32, &target.inner, tface as i32, opts).map_err(reason)?;
+        (0..ffi::w3d::w3d_child_count(&out))
+            .map(|i| ffi::w3d::w3d_child_at(&out, i).map(|s| Shape::from_shape(&s)).map_err(reason))
+            .collect()
+    }
+
     /// The isoparametric curve of a face through a point (see `w3d_isoparam`).
     pub fn isoparam(&self, face: usize, point: [f64; 3], along_u: bool) -> Result<Vec<f64>, String> {
         ffi::w3d::w3d_isoparam(&self.inner, face as i32, &point, along_u).map_err(reason)

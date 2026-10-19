@@ -1672,6 +1672,50 @@ pub fn commit_place(m: &Model, req: PlaceRequest) -> Result<Duplicated, ApiError
     })
 }
 
+/// Deform Solid and Sheet: `bodies` wrapped from a face of `reference` onto a face of `target`.
+#[derive(Deserialize, Debug, Clone)]
+pub struct DeformRequest {
+    pub bodies: Vec<BodyId>,
+    pub reference: BodyId,
+    pub rface: u32,
+    pub target: BodyId,
+    pub tface: u32,
+    #[serde(default = "unit_scale")]
+    pub scale: [f64; 3],
+    #[serde(default)]
+    pub offset: [f64; 3],
+    #[serde(default)]
+    pub mirror: bool,
+    #[serde(default)]
+    pub swap: bool,
+    #[serde(default)]
+    pub normal: bool,
+    #[serde(default)]
+    pub keep: bool,
+}
+
+fn unit_scale() -> [f64; 3] { [1.0; 3] }
+
+impl DeformRequest {
+    fn options(&self) -> w3d_kernel::DeformOptions {
+        w3d_kernel::DeformOptions { scale: self.scale, offset: self.offset, mirror: self.mirror, swap: self.swap, normal: self.normal }
+    }
+}
+
+pub fn preview_deform(m: &Model, req: DeformRequest) -> Option<Result<Vec<Body>, ApiError>> {
+    m.preview(move |doc| {
+        let made = doc.preview_deform(&req.bodies, req.reference, req.rface, req.target, req.tface, &req.options())?;
+        Ok(req.bodies.iter().zip(made).map(|(id, s)| body(&doc.kernel, *id, &s)).collect::<Result<Vec<_>, _>>()?)
+    })
+}
+
+pub fn commit_deform(m: &Model, req: DeformRequest) -> Result<Duplicated, ApiError> {
+    m.call(move |doc| {
+        let ids = doc.commit_deform(&req.bodies, req.reference, req.rface, req.target, req.tface, &req.options(), req.keep)?;
+        Ok(Duplicated { ids, scene: bodies(doc)? })
+    })
+}
+
 /// Deform Curve: points on face `face` of `body` to (s, t, n) face coordinates, or back with `map`.
 #[derive(Deserialize, Debug, Clone)]
 pub struct FaceUvnRequest {

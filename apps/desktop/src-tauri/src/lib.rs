@@ -146,6 +146,24 @@ async fn commit_mirror(
 }
 
 #[tauri::command]
+async fn preview_deform(
+    model: State<'_, Model>,
+    req: api::DeformRequest,
+) -> Result<Option<Vec<api::Body>>, api::ApiError> {
+    on_model(&model, move |m| api::preview_deform(m, req))
+        .await?
+        .transpose()
+}
+
+#[tauri::command]
+async fn commit_deform(
+    model: State<'_, Model>,
+    req: api::DeformRequest,
+) -> Result<api::Duplicated, api::ApiError> {
+    on_model(&model, move |m| api::commit_deform(m, req)).await?
+}
+
+#[tauri::command]
 async fn face_uvn(
     model: State<'_, Model>,
     req: api::FaceUvnRequest,
@@ -933,6 +951,8 @@ pub fn run() {
             face_surfaces,
             face_poles,
             face_uvn,
+            preview_deform,
+            commit_deform,
             preview_place,
             commit_place,
             commit_motion,

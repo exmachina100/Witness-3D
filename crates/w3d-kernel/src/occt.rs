@@ -6,7 +6,7 @@ use std::path::Path as FilePath;
 use glam::DVec3;
 use opencascade::primitives::{BooleanKind, Edge, Face, Shape, ShapeHistory, ShapeType, Wire};
 
-use crate::{Blend, BooleanOp, CombTooth, DrawnLine, Extent, FaceRebuild, FaceSurface, Frame, History, Kernel, KernelError, Motion, Path, Plane, Profile, RebuiltFace, Segment, SheetExtension, Tessellation, Traced};
+use crate::{Blend, BooleanOp, CombTooth, DeformOptions, DrawnLine, Extent, FaceRebuild, FaceSurface, Frame, History, Kernel, KernelError, Motion, Path, Plane, Profile, RebuiltFace, Segment, SheetExtension, Tessellation, Traced};
 
 pub struct Occt;
 
@@ -356,6 +356,12 @@ impl Kernel for Occt {
         if curves.is_empty() { return Err(KernelError::Invalid("select the curves to project")) }
         let faces: Vec<usize> = faces.iter().map(|&f| f as usize).collect();
         nurbs_paths(&s.project_curves(&faces, &cutter_numbers(curves)?, length, both, hide).map_err(shim)?)
+    }
+
+    fn deform(&self, bodies: &[&Shape], reference: &Shape, rface: u32, target: &Shape, tface: u32, o: &DeformOptions) -> Result<Vec<Shape>, KernelError> {
+        let flag = |b: bool| if b { 1.0 } else { 0.0 };
+        let opts = [o.scale[0], o.scale[1], o.scale[2], o.offset[0], o.offset[1], o.offset[2], flag(o.mirror), flag(o.swap), flag(o.normal)];
+        Shape::deform(bodies, reference, rface as usize, target, tface as usize, &opts).map_err(shim)
     }
 
     fn face_uvn(&self, s: &Shape, face: u32, map: bool, points: &[DVec3]) -> Result<([f64; 2], Vec<DVec3>), KernelError> {

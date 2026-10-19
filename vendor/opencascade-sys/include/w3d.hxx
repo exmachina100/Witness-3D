@@ -106,6 +106,8 @@
 #include <BRepFilletAPI_MakeChamfer.hxx>
 #include <BRepFilletAPI_MakeFillet.hxx>
 #include <BRepTools.hxx>
+#include <BRepTools_Modification.hxx>
+#include <BRepTools_Modifier.hxx>
 #include <BRepClass3d_SolidClassifier.hxx>
 #include <BRepLib.hxx>
 #include <BRepOffsetAPI_DraftAngle.hxx>
@@ -2297,72 +2299,243 @@ inline rust::Vec<double> w3d_isoparam(const TopoDS_Shape &shape, int32_t face, r
   }
 }
 
-// Deform Curve's face coordinates. Face `face` of `shape` gets coordinates (s, t, n): s and t its
-// u and v scaled to 0..1 over the face's bounds, n the distance along the face's outward normal.
-// With `map`, `data` holds (s, t, n) triples and the points come back; without, `data` holds points
-// and their (s, t, n) come back. Either way the result starts with the face's length along u and
-// along v through its middle, in mm.
-inline rust::Vec<double> w3d_face_uvn(const TopoDS_Shape &shape, int32_t face, bool map, rust::Slice<const double> data) {
-  if (data.size() % 3) throw std::runtime_error("the points need three numbers each");
-  try {
+// Deform's face coordinates on face `face` of `shape`: (s, t, n), s and t the face's u and v scaled
+// to 0..1 over its bounds, n the distance along its outward normal.
+struct W3dFaceMap {
+  TopoDS_Face f;
+  Handle(Geom_Surface) surface;
+  BRepAdaptor_Surface ad;
+  double u0 = 0, u1 = 1, v0 = 0, v1 = 1;
+  bool back = false;
+
+  W3dFaceMap(const TopoDS_Shape &shape, int32_t face) {
     TopTools_IndexedMapOfShape faces;
     TopExp::MapShapes(shape, TopAbs_FACE, faces);
     if (face < 0 || face >= faces.Extent()) throw std::out_of_range("that face no longer exists");
-    TopoDS_Face f = TopoDS::Face(faces(face + 1));
-    const bool back = f.Orientation() == TopAbs_REVERSED;
-    BRepAdaptor_Surface ad(f, Standard_True);
-    Standard_Real u0, u1, v0, v1;
+    f = TopoDS::Face(faces(face + 1));
+    back = f.Orientation() == TopAbs_REVERSED;
+    ad.Initialize(f, Standard_True);
     BRepTools::UVBounds(f, u0, u1, v0, v1);
     if (!(u1 - u0 > 1e-12) || !(v1 - v0 > 1e-12)) throw std::runtime_error("that face has no area");
-    auto frame = [&](double u, double v, gp_Pnt &p, gp_Vec &n) {
-      gp_Vec du, dv;
-      ad.D1(u, v, p, du, dv);
+    surface = BRep_Tool::Surface(f);
+  }
+
+  void frame(double u, double v, gp_Pnt &p, gp_Vec &n) const {
+    gp_Vec du, dv;
+    ad.D1(u, v, p, du, dv);
+    n = du.Crossed(dv);
+    if (n.Magnitude() < 1e-14) {
+      // A pole of the surface: step in a little to find which way it faces.
+      gp_Pnt q;
+      ad.D1(u + (u1 - u0) * 1e-6, v + (v1 - v0) * 1e-6, q, du, dv);
       n = du.Crossed(dv);
-      if (n.Magnitude() < 1e-14) {
-        // A pole of the surface: step in a little to find which way it faces.
-        gp_Pnt q;
-        ad.D1(u + (u1 - u0) * 1e-6, v + (v1 - v0) * 1e-6, q, du, dv);
-        n = du.Crossed(dv);
-      }
-      if (n.Magnitude() < 1e-14) throw std::runtime_error("the face has no normal there");
-      n.Normalize();
-      if (back) n.Reverse();
-    };
+    }
+    if (n.Magnitude() < 1e-14) throw std::runtime_error("the face has no normal there");
+    n.Normalize();
+    if (back) n.Reverse();
+  }
+
+  // The face's length along u (or v) through its middle, in mm.
+  double length(bool along_u) const {
+    double total = 0;
+    gp_Pnt last;
+    for (int i = 0; i <= 64; i++) {
+      double a = i / 64.0;
+      gp_Pnt p = along_u ? ad.Value(u0 + (u1 - u0) * a, (v0 + v1) / 2) : ad.Value((u0 + u1) / 2, v0 + (v1 - v0) * a);
+      if (i) total += p.Distance(last);
+      last = p;
+    }
+    return total;
+  }
+
+  gp_XYZ uvn(const gp_Pnt &q) const {
+    GeomAPI_ProjectPointOnSurf proj(q, surface);
+    if (!proj.NbPoints()) throw std::runtime_error("that does not lie over the reference face");
+    Standard_Real u, v;
+    proj.LowerDistanceParameters(u, v);
+    gp_Pnt p;
+    gp_Vec n;
+    frame(u, v, p, n);
+    return gp_XYZ((u - u0) / (u1 - u0), (v - v0) / (v1 - v0), gp_Vec(p, q).Dot(n));
+  }
+
+  gp_Pnt at(const gp_XYZ &stn) const {
+    gp_Pnt p;
+    gp_Vec n;
+    frame(u0 + (u1 - u0) * stn.X(), v0 + (v1 - v0) * stn.Y(), p, n);
+    return p.Translated(n * stn.Z());
+  }
+};
+
+// Deform Curve's face coordinates (see W3dFaceMap): with `map`, `data` holds (s, t, n) triples
+// and the points come back; without, `data` holds points and their (s, t, n) come back. Either way
+// the result starts with the face's length along u and along v through its middle, in mm.
+inline rust::Vec<double> w3d_face_uvn(const TopoDS_Shape &shape, int32_t face, bool map, rust::Slice<const double> data) {
+  if (data.size() % 3) throw std::runtime_error("the points need three numbers each");
+  try {
+    W3dFaceMap m(shape, face);
     rust::Vec<double> out;
-    auto length = [&](bool along_u) {
-      double total = 0;
-      gp_Pnt last;
-      for (int i = 0; i <= 64; i++) {
-        double a = i / 64.0;
-        gp_Pnt p = along_u ? ad.Value(u0 + (u1 - u0) * a, (v0 + v1) / 2) : ad.Value((u0 + u1) / 2, v0 + (v1 - v0) * a);
-        if (i) total += p.Distance(last);
-        last = p;
-      }
-      return total;
-    };
-    out.push_back(length(true));
-    out.push_back(length(false));
-    Handle(Geom_Surface) s = BRep_Tool::Surface(f);
+    out.push_back(m.length(true));
+    out.push_back(m.length(false));
     for (size_t i = 0; i < data.size(); i += 3) {
-      gp_Pnt p;
-      gp_Vec n;
-      if (map) {
-        frame(u0 + (u1 - u0) * data[i], v0 + (v1 - v0) * data[i + 1], p, n);
-        p.Translate(n * data[i + 2]);
-        out.push_back(p.X()); out.push_back(p.Y()); out.push_back(p.Z());
-        continue;
-      }
-      gp_Pnt q(data[i], data[i + 1], data[i + 2]);
-      GeomAPI_ProjectPointOnSurf proj(q, s);
-      if (!proj.NbPoints()) throw std::runtime_error("a curve does not lie over the reference face");
-      Standard_Real u, v;
-      proj.LowerDistanceParameters(u, v);
-      frame(u, v, p, n);
-      out.push_back((u - u0) / (u1 - u0));
-      out.push_back((v - v0) / (v1 - v0));
-      out.push_back(gp_Vec(p, q).Dot(n));
+      gp_XYZ r = map ? m.at(gp_XYZ(data[i], data[i + 1], data[i + 2])).XYZ() : m.uvn(gp_Pnt(data[i], data[i + 1], data[i + 2]));
+      out.push_back(r.X()); out.push_back(r.Y()); out.push_back(r.Z());
     }
     return out;
+  } catch (const Standard_Failure &e) {
+    throw w3d_kernel_error(e);
+  }
+}
+
+// Deform Solid and Sheet's warp: each B-spline pole carried from the reference face's coordinates
+// to the target's, after the shapes are refined enough (cubic, 16 spans each way) for the poles to
+// follow the warp closely. Parameters are kept, so the faces' curves stay as they were.
+class W3dDeform : public BRepTools_Modification {
+public:
+  std::function<gp_Pnt(const gp_Pnt &)> warp;
+
+  static void refine(const Handle(Geom_BSplineSurface) &b) {
+    b->IncreaseDegree(std::max(3, b->UDegree()), std::max(3, b->VDegree()));
+    for (int dir = 0; dir < 2; dir++) {
+      const bool u = dir == 0;
+      double a, c, d, e;
+      b->Bounds(a, c, d, e);
+      const double lo = u ? a : d, hi = u ? c : e;
+      for (int i = 1; i < 16; i++) {
+        double k = lo + (hi - lo) * i / 16;
+        if (u) b->InsertUKnot(k, 1, 1e-9, Standard_False); else b->InsertVKnot(k, 1, 1e-9, Standard_False);
+      }
+    }
+  }
+
+  Standard_Boolean NewSurface(const TopoDS_Face &F, Handle(Geom_Surface) &S, TopLoc_Location &L, Standard_Real &Tol,
+                              Standard_Boolean &RevWires, Standard_Boolean &RevFace) override {
+    TopLoc_Location loc;
+    Handle(Geom_BSplineSurface) b = Handle(Geom_BSplineSurface)::DownCast(BRep_Tool::Surface(F, loc));
+    if (b.IsNull()) throw std::runtime_error("a face could not be turned into control points to deform");
+    b = Handle(Geom_BSplineSurface)::DownCast(b->Copy());
+    refine(b);
+    const gp_Trsf t = loc.Transformation();
+    for (int i = 1; i <= b->NbUPoles(); i++)
+      for (int j = 1; j <= b->NbVPoles(); j++) b->SetPole(i, j, warp(b->Pole(i, j).Transformed(t)));
+    S = b;
+    L = TopLoc_Location();
+    Tol = BRep_Tool::Tolerance(F);
+    RevWires = RevFace = Standard_False;
+    return Standard_True;
+  }
+
+  Standard_Boolean NewCurve(const TopoDS_Edge &E, Handle(Geom_Curve) &C, TopLoc_Location &L, Standard_Real &Tol) override {
+    Standard_Real f, l;
+    TopLoc_Location loc;
+    Handle(Geom_Curve) g = BRep_Tool::Curve(E, loc, f, l);
+    if (g.IsNull()) return Standard_False;
+    Handle(Geom_BSplineCurve) b = Handle(Geom_BSplineCurve)::DownCast(g);
+    if (b.IsNull()) throw std::runtime_error("an edge could not be turned into control points to deform");
+    b = Handle(Geom_BSplineCurve)::DownCast(b->Copy());
+    b->IncreaseDegree(std::max(3, b->Degree()));
+    const double lo = b->FirstParameter(), hi = b->LastParameter();
+    for (int i = 1; i < 16; i++) b->InsertKnot(lo + (hi - lo) * i / 16, 1, 1e-9, Standard_False);
+    const gp_Trsf t = loc.Transformation();
+    for (int i = 1; i <= b->NbPoles(); i++) b->SetPole(i, warp(b->Pole(i).Transformed(t)));
+    C = b;
+    L = TopLoc_Location();
+    Tol = BRep_Tool::Tolerance(E);
+    return Standard_True;
+  }
+
+  Standard_Boolean NewPoint(const TopoDS_Vertex &V, gp_Pnt &P, Standard_Real &Tol) override {
+    P = warp(BRep_Tool::Pnt(V));
+    Tol = BRep_Tool::Tolerance(V);
+    return Standard_True;
+  }
+
+  Standard_Boolean NewCurve2d(const TopoDS_Edge &E, const TopoDS_Face &F, const TopoDS_Edge &, const TopoDS_Face &,
+                              Handle(Geom2d_Curve) &C, Standard_Real &Tol) override {
+    Standard_Real f, l;
+    Handle(Geom2d_Curve) c = BRep_Tool::CurveOnSurface(E, F, f, l);
+    if (c.IsNull()) return Standard_False;
+    C = Handle(Geom2d_Curve)::DownCast(c->Copy());
+    Tol = BRep_Tool::Tolerance(E);
+    return Standard_True;
+  }
+
+  Standard_Boolean NewParameter(const TopoDS_Vertex &V, const TopoDS_Edge &E, Standard_Real &P, Standard_Real &Tol) override {
+    P = BRep_Tool::Parameter(V, E);
+    Tol = BRep_Tool::Tolerance(V);
+    return Standard_True;
+  }
+
+  GeomAbs_Shape Continuity(const TopoDS_Edge &E, const TopoDS_Face &F1, const TopoDS_Face &F2, const TopoDS_Edge &,
+                           const TopoDS_Face &, const TopoDS_Face &) override {
+    return BRep_Tool::Continuity(E, F1, F2);
+  }
+};
+
+// Plasticity's Deform Solid and Sheet: each child of `bodies` (a compound) wrapped from face `rface`
+// of `ref` onto face `tface` of `target`, each point keeping its (s, t, n) coordinates (see
+// W3dFaceMap) after `opts` move them: scale u, v, n (about the middle of all the bodies), offset u,
+// v (mm along the target) and n (mm), then mirror, swap u and v, and turn the normal over (1 or 0).
+// Returns a compound of the results in the same order.
+inline std::unique_ptr<TopoDS_Shape> w3d_deform(const TopoDS_Shape &bodies, const TopoDS_Shape &ref, int32_t rface,
+                                                const TopoDS_Shape &target, int32_t tface, rust::Slice<const double> opts) {
+  if (opts.size() != 9) throw std::runtime_error("deform takes nine options");
+  try {
+    W3dFaceMap from(ref, rface), to(target, tface);
+    const bool mirror = opts[6] != 0, swap = opts[7] != 0, normal = opts[8] != 0;
+    auto flip = [&](gp_XYZ c) {
+      if (swap) c = gp_XYZ(c.Y(), c.X(), c.Z());
+      if (mirror) c.SetX(1 - c.X());
+      return c;
+    };
+    // The middle of the bodies on the reference, from their vertices and points along their edges.
+    double lo[2] = {1e300, 1e300}, hi[2] = {-1e300, -1e300};
+    auto grow = [&](const gp_Pnt &p) {
+      gp_XYZ c = flip(from.uvn(p));
+      lo[0] = std::min(lo[0], c.X()); hi[0] = std::max(hi[0], c.X());
+      lo[1] = std::min(lo[1], c.Y()); hi[1] = std::max(hi[1], c.Y());
+    };
+    for (TopExp_Explorer ex(bodies, TopAbs_EDGE); ex.More(); ex.Next()) {
+      const TopoDS_Edge &e = TopoDS::Edge(ex.Current());
+      if (BRep_Tool::Degenerated(e)) continue;
+      BRepAdaptor_Curve c(e);
+      for (int i = 0; i <= 4; i++) grow(c.Value(c.FirstParameter() + (c.LastParameter() - c.FirstParameter()) * i / 4));
+    }
+    if (lo[0] > hi[0]) throw std::runtime_error("select the solids or sheets to deform");
+    const double cs = (lo[0] + hi[0]) / 2, ct = (lo[1] + hi[1]) / 2;
+    const double lu = to.length(true), lv = to.length(false);
+    const double du = lu > 1e-12 ? opts[3] / lu : 0, dv = lv > 1e-12 ? opts[4] / lv : 0;
+    W3dDeform *mod = new W3dDeform();
+    Handle(BRepTools_Modification) keep(mod);
+    mod->warp = [&](const gp_Pnt &p) {
+      gp_XYZ c = flip(from.uvn(p));
+      return to.at(gp_XYZ(cs + (c.X() - cs) * opts[0] + du, ct + (c.Y() - ct) * opts[1] + dv, (normal ? -c.Z() : c.Z()) * opts[2] + opts[5]));
+    };
+    BRep_Builder b;
+    TopoDS_Compound out;
+    b.MakeCompound(out);
+    for (TopoDS_Iterator it(bodies); it.More(); it.Next()) {
+      BRepBuilderAPI_NurbsConvert nurbs(it.Value(), Standard_True);
+      if (!nurbs.IsDone()) throw std::runtime_error("a body could not be turned into control points to deform");
+      BRepTools_Modifier m(nurbs.Shape(), keep);
+      if (!m.IsDone()) throw std::runtime_error("the body could not be deformed");
+      TopoDS_Shape made = m.ModifiedShape(nurbs.Shape());
+      BRepLib::SameParameter(made, 1e-5, Standard_True);
+      if (!BRepCheck_Analyzer(made).IsValid()) {
+        Handle(ShapeFix_Shape) fix = new ShapeFix_Shape(made);
+        fix->Perform();
+        made = fix->Shape();
+      }
+      if (!BRepCheck_Analyzer(made).IsValid()) throw std::runtime_error("the deformed body is not valid; try a flatter target, or Unwrap Face of the target as the reference");
+      // A warp that turns the space over (a mirror or a flipped normal) turns solids inside out.
+      if (TopExp_Explorer(made, TopAbs_SOLID).More()) {
+        GProp_GProps g;
+        BRepGProp::VolumeProperties(made, g);
+        if (g.Mass() < 0) made.Reverse();
+      }
+      b.Add(out, made);
+    }
+    return std::unique_ptr<TopoDS_Shape>(new TopoDS_Shape(out));
   } catch (const Standard_Failure &e) {
     throw w3d_kernel_error(e);
   }
