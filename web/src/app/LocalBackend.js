@@ -12,6 +12,7 @@ import { isSheet, patch } from '../Patch.js';
 import { offsetEdges } from '../edgeTube.js';
 import { faceSurfaces } from '../faceSurfaces.js';
 import { facePoles } from '../facePoles.js';
+import { faceUvn } from '../faceUvn.js';
 import { moveFacePoles, subdivideFaces } from '../movePoles.js';
 import { chordal, limitRound } from '../filletShape.js';
 import { bridgeSurface } from '../BridgeSurface.js';
@@ -400,6 +401,13 @@ export class LocalBackend {
     }
     previewArray(req) { return this.latest(async () => this.arrayCopies(req).flatMap(([, cs]) => cs.map(c => this.body(0, c)))) }
     async commitArray(req) { return this.placeCopies(this.arrayCopies(req), !!req.join) }
+
+    /** Deform Curve: points on a face to (s, t, n) face coordinates, or back with `map` (see faceUvn.js). */
+    async faceUvn({ body, face, map = false, points }) {
+        const s = this.shapes.get(body);
+        if (!s) throw new Error('that body no longer exists');
+        return faceUvn(s, face, map, points);
+    }
 
     /** Toggle Points: each face's control points, as rows (see facePoles.js). */
     async facePoles({ body }) {

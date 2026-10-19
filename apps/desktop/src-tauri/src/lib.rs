@@ -146,6 +146,14 @@ async fn commit_mirror(
 }
 
 #[tauri::command]
+async fn face_uvn(
+    model: State<'_, Model>,
+    req: api::FaceUvnRequest,
+) -> Result<api::FaceUvn, api::ApiError> {
+    on_model(&model, move |m| api::face_uvn(m, req)).await?
+}
+
+#[tauri::command]
 async fn face_poles(
     model: State<'_, Model>,
     req: api::FaceSurfacesRequest,
@@ -924,6 +932,7 @@ pub fn run() {
             commit_array,
             face_surfaces,
             face_poles,
+            face_uvn,
             preview_place,
             commit_place,
             commit_motion,

@@ -1672,6 +1672,30 @@ pub fn commit_place(m: &Model, req: PlaceRequest) -> Result<Duplicated, ApiError
     })
 }
 
+/// Deform Curve: points on face `face` of `body` to (s, t, n) face coordinates, or back with `map`.
+#[derive(Deserialize, Debug, Clone)]
+pub struct FaceUvnRequest {
+    pub body: BodyId,
+    pub face: u32,
+    #[serde(default)]
+    pub map: bool,
+    pub points: Vec<[f64; 3]>,
+}
+
+#[derive(Serialize, Debug)]
+pub struct FaceUvn {
+    pub size: [f64; 2],
+    pub points: Vec<[f64; 3]>,
+}
+
+pub fn face_uvn(m: &Model, req: FaceUvnRequest) -> Result<FaceUvn, ApiError> {
+    m.call(move |doc| {
+        let pts: Vec<DVec3> = req.points.iter().map(|p| DVec3::from(*p)).collect();
+        let (size, out) = doc.face_uvn(req.body, req.face, req.map, &pts)?;
+        Ok(FaceUvn { size, points: out.into_iter().map(|p| p.to_array()).collect() })
+    })
+}
+
 /// Toggle Points: each face's control points, as rows of [x, y, z] (u slowest).
 pub fn face_poles(m: &Model, req: FaceSurfacesRequest) -> Result<Vec<Vec<Vec<[f64; 3]>>>, ApiError> {
     m.call(move |doc| Ok(doc.face_poles(req.body)?.into_iter().map(|rows| rows.into_iter().map(|r| r.into_iter().map(|p| p.to_array()).collect()).collect()).collect()))
