@@ -65,6 +65,7 @@ import { edgeCurve, flattenCurve } from '../altDuplicate.js';
 import { liftPiece, meshSilhouette, nearestOver } from '../createOutline.js';
 import { FONTS, parseFont, textShapes } from '../text.js';
 import { regionsToExtrude } from '../regions.js';
+import { slidePoles } from '../polesEdit.js';
 import { Organise } from './Organise.js';
 import { P_MENU, RADIALS, mergeKeys, parseRadial, shortLabel, showKey, sliceAt, slicePosition } from './menus.js';
 import { ENVIRONMENTS, SHADERS, SHADER_OPTIONS, checkMaterial, formatMass, massOf, newMaterial, shader } from './shading.js';
@@ -109,7 +110,7 @@ const KEYS = {
   'tangent-arc': [['CLICK', 'CURVE END · SIZE'], ['D', 'FLIP'], ['ALT', 'NO SNAP'], ['ESC', 'CANCEL']],
   spiral: [['CLICK', 'AXIS START · END · RADIUS'], ['X Y Z', 'AXIS'], ['A', 'ANGLE'], ['D', 'LENGTH'], ['R', 'RADIUS'], ['⏎ / RMB', 'OK']],
   'offset-vertex': [['DRAG DOT', 'DISTANCE'], ['D', 'DISTANCE'], ['⏎ / RMB', 'OK']],
-  slide: [['DRAG DOT', 'DISTANCE'], ['D', 'DISTANCE'], ['U', 'POSITIVE U'], ['⇧U', 'NEGATIVE U'], ['N', 'NORMAL'], ['⏎ / RMB', 'OK']],
+  slide: [['DRAG DOT', 'DISTANCE'], ['D', 'DISTANCE'], ['U', 'POSITIVE U'], ['⇧U', 'NEGATIVE U'], ['V', 'POSITIVE V (SURFACE)'], ['⇧V', 'NEGATIVE V (SURFACE)'], ['N', 'NORMAL'], ['⏎ / RMB', 'OK']],
   'align-vertex': [['X / Y / Z', 'AXIS'], ['V', 'VALUE'], ['⏎ / RMB', 'OK']],
   rebuild: [['C', 'CONTROL POINTS'], ['D', 'DEGREE'], ['⏎ / RMB', 'OK']],
   'match-face': [['CLICK', 'TARGET FACE'], ['⇧ CLICK', 'FACES'], ['TAB', 'GROW'], ['⏎ / RMB', 'OK']],
@@ -371,7 +372,7 @@ const SHELL = `
       <span class="hint" data-id="sl-hint">—</span>
       <div class="field"><label for="w3d-sl-d">DISTANCE</label><input id="w3d-sl-d" data-id="sl-d" type="number" step="0.5" value="0" title="How far the control points slide (D)"></div>
       <span class="label">DIRECTION</span>
-      <div class="seg" role="group" aria-label="Slide direction"><button data-sldir="u" aria-pressed="true" title="Along the control cage (U)"><kbd>U</kbd>+U</button><button data-sldir="-u" aria-pressed="false" title="Back along the control cage (Shift+U)"><kbd>⇧U</kbd>−U</button><button data-sldir="n" aria-pressed="false" title="Across the cage, in the curve's plane (N)"><kbd>N</kbd>NORMAL</button></div>
+      <div class="seg" role="group" aria-label="Slide direction"><button data-sldir="u" aria-pressed="true" title="Along the control cage, +U (U)"><kbd>U</kbd></button><button data-sldir="-u" aria-pressed="false" title="Back along the control cage, −U (Shift+U)"><kbd>⇧U</kbd></button><button data-sldir="v" aria-pressed="false" title="Along the face's net in v, +V (V)" hidden><kbd>V</kbd></button><button data-sldir="-v" aria-pressed="false" title="Back along the face's net in v, −V (Shift+V)" hidden><kbd>⇧V</kbd></button><button data-sldir="n" aria-pressed="false" title="Across the cage: in the curve's plane, or off the face (N)"><kbd>N</kbd></button></div>
     </div>
     <div class="sec" data-panel="align-vertex" hidden>
       <span class="hint" data-id="av-hint">—</span>
@@ -769,7 +770,7 @@ export async function mount(root, backend) {
   for (const b of root.querySelectorAll('[data-draw],[data-bop],[data-xop],[data-fop],[data-spiral],[data-toggle],[data-gmethod],[data-galign],[data-grow],[data-mfgrow],[data-eslimit],[data-flshape],[data-avaxis],[data-extshape],[data-esshape],[data-isodir],[data-id="oe-both"],[data-id="ex-lock"],[data-id="bool-keep"],[data-id="ex-free"],[data-id="ex-pivot"],[data-id="ex-individual"],[data-id="dr-hidden"],[data-id="dr-curves"],[data-id="oc-lock"],[data-id="oc-free"],[data-id="oc-slot"],[data-id="oc-combine"],[data-id="es-unlimit"],[data-rbmethod],[data-oecorner],[data-saplane],[data-plaxis],[data-plop],[data-id="pl-flip"],[data-id="section-btn"],[data-id="sa-flip"],[data-id="rf-shrink"],[data-id="ut-keep"],[data-txfont],[data-txalign],[data-sldir]')) {
     const name = b.dataset.draw ?? b.dataset.bop ?? b.dataset.xop ?? b.dataset.fop ?? b.dataset.spiral ?? (b.dataset.toggle && `view-${b.dataset.toggle}`)
       ?? (b.dataset.gmethod && `guide-${b.dataset.gmethod}`) ?? (b.dataset.galign && `align-${b.dataset.galign}`) ?? (b.dataset.grow && `grow-${b.dataset.grow}`) ?? (b.dataset.mfgrow && `grow-${b.dataset.mfgrow}`) ?? (b.dataset.eslimit && `limit-${b.dataset.eslimit}`) ?? (b.dataset.flshape && `fillet-${b.dataset.flshape}`) ?? (b.dataset.avaxis && `axis-${b.dataset.avaxis}`) ?? (b.dataset.extshape && `extend-${b.dataset.extshape}`) ?? (b.dataset.esshape && `extend-${b.dataset.esshape}`) ?? (b.dataset.isodir && `iso-${b.dataset.isodir}`) ?? (b.dataset.rbmethod && `rebuild-${b.dataset.rbmethod}`) ?? (b.dataset.oecorner && `corner-${b.dataset.oecorner}`) ?? (b.dataset.saplane && `section-${b.dataset.saplane}`) ?? (b.dataset.plaxis && (b.dataset.plaxis === 'normal' ? 'place-normal' : `axis-${b.dataset.plaxis}`)) ?? b.dataset.plop
-      ?? (b.dataset.txfont && `font-${b.dataset.txfont}`) ?? (b.dataset.txalign && `txalign-${b.dataset.txalign}`) ?? (b.dataset.sldir && `slide-${b.dataset.sldir === '-u' ? 'back' : b.dataset.sldir}`)
+      ?? (b.dataset.txfont && `font-${b.dataset.txfont}`) ?? (b.dataset.txalign && `txalign-${b.dataset.txalign}`) ?? (b.dataset.sldir && { u: 'slide-u', '-u': 'slide-back', v: 'slide-v', '-v': 'slide-vback', n: 'slide-n' }[b.dataset.sldir])
       ?? { 'ex-lock': 'lock', 'bool-keep': 'keep', 'ex-free': 'freestyle', 'ex-pivot': 'pivot', 'ex-individual': 'individual', 'dr-hidden': 'hidden-lines', 'dr-curves': 'drawing-curves', 'oc-lock': 'lock', 'oc-free': 'freestyle', 'oc-slot': 'slot', 'oc-combine': 'combine', 'oe-both': 'both-sides', 'es-unlimit': 'unlimit', 'rf-shrink': 'shrink', 'ut-keep': 'keep-edges', 'section-btn': 'view-section', 'sa-flip': 'flip', 'pl-flip': 'flip' }[b.dataset.id];
     b.insertAdjacentHTML('afterbegin', icon(name));
   }
@@ -1327,18 +1328,50 @@ export async function mount(root, backend) {
       for (let i = 1; i < run.length; i++) segs.push(run[i - 1], run[i]);
       dots.push(...net);
     }
+    // Face nets; picked points orange, the hovered one white. A command moving them shows them moved.
+    const lit = { hover: [], selected: [] };
     for (const [body, which] of shownPoints.faces) {
       const all = facePoleCache.get(body);
       if (!all || !org.shows(body)) continue;
       for (const n of which === 'all' ? all.keys() : which) {
-        const P = (all[n] ?? []).map(r => r.map(q => new THREE.Vector3(...q)));
+        const P = (cmd?.poleRows?.get(`${body}:${n}`) ?? all[n] ?? []).map(r => r.map(q => new THREE.Vector3(...q)));
         if (!P.length) continue;
-        for (const r of P) { for (let j = 1; j < r.length; j++) segs.push(r[j - 1], r[j]); dots.push(...r); }
+        for (const r of P) for (let j = 1; j < r.length; j++) segs.push(r[j - 1], r[j]);
         for (let j = 0; j < P[0].length; j++) for (let i = 1; i < P.length; i++) segs.push(P[i - 1][j], P[i][j]);
+        P.flat().forEach((q, k) => {
+          const it = { kind: 'pole', body, face: n, n: k };
+          if (sel.has(it)) lit.selected.push(q);
+          else if (hover?.kind === 'pole' && hover.body === body && hover.face === n && hover.n === k) lit.hover.push(q);
+          else dots.push(q);
+        });
       }
     }
     if (segs.length) { const l = new THREE.LineSegments(new THREE.BufferGeometry().setFromPoints(segs), netLine); l.renderOrder = 11; pointsGroup.add(l); }
     if (dots.length) { const d = new THREE.Points(new THREE.BufferGeometry().setFromPoints(dots), vertexMat.normal); d.renderOrder = 11; pointsGroup.add(d); }
+    for (const [k, pts] of Object.entries(lit)) if (pts.length) { const d = new THREE.Points(new THREE.BufferGeometry().setFromPoints(pts), vertexMat[k]); d.renderOrder = 12; pointsGroup.add(d); }
+  }
+  /** The shown faces' control points: [{ body, face, n, at }]. */
+  function poleList() {
+    const out = [];
+    for (const [body, which] of shownPoints.faces) {
+      const all = facePoleCache.get(body);
+      if (!all || !org.shows(body)) continue;
+      for (const face of which === 'all' ? all.keys() : which) (all[face] ?? []).flat().forEach((q, n) => out.push({ body, face, n, at: new THREE.Vector3(...q) }));
+    }
+    return out;
+  }
+  /** A face's control point (as poleList gives them) by face and number. */
+  const poleOf = it => { const q = facePoleCache.get(it.body)?.[it.face]?.flat()[it.n]; return q && new THREE.Vector3(...q); };
+  /** The shown face control point within a few pixels of a canvas point, nearest first. */
+  function poleAt(p, px = 7) {
+    let best = null, bestD = px;
+    for (const v of poleList()) {
+      const s = screenOf(v.at);
+      if (s.behind) continue;
+      const d = Math.hypot(s.x - p.x, s.y - p.y);
+      if (d <= bestD) { bestD = d; best = { kind: 'pole', body: v.body, face: v.face, n: v.n, point: v.at.clone() }; }
+    }
+    return best;
   }
   /** After the bodies change: the shown faces' control points again, gone bodies dropped. */
   async function refreshShownPoints(list) {
@@ -1396,6 +1429,7 @@ export async function mount(root, backend) {
   }
   function paintVertices() {
     for (const o of [...vertexDots.children]) dispose(o);
+    if (shownPoints.faces.size) paintShownPoints();
     if (!sel.allows('point')) return;
     const look = v => sel.has({ kind: 'vertex', id: v.id, n: v.n }) ? 'selected' : hover?.kind === 'vertex' && hover.id === v.id && hover.n === v.n ? 'hover' : 'normal';
     // Grey dots only on curves in play (selected, hovered or with a vertex picked), so drawings stay clean.
@@ -1619,7 +1653,7 @@ export async function mount(root, backend) {
    */
   function pickAt(e) {
     ray(e);
-    const vertex = sel.allows('point') && vertexAt(local(e));
+    const vertex = sel.allows('point') && (vertexAt(local(e)) ?? poleAt(local(e)));
     if (vertex) return vertex;
     const meshes = shownMeshes().filter(m => !org.locked.has(m.userData.id));
     const faceHit = raycaster.intersectObjects(meshes, false)[0];
@@ -1653,6 +1687,7 @@ export async function mount(root, backend) {
   // a double-click takes the solid, and a click on nothing clears.
   function clickTarget(hit, mod) {
     if (!hit) return null;
+    if (hit.kind === 'pole') return { kind: 'pole', body: hit.body, face: hit.face, n: hit.n };
     if (hit.body === undefined) return hit.kind === 'vertex' ? { kind: 'vertex', id: hit.id, n: hit.n } : { kind: hit.kind, id: hit.id };
     const solid = { kind: 'solid', body: hit.body };
     if (hit.kind === 'solid') return solid;
@@ -1789,7 +1824,7 @@ export async function mount(root, backend) {
     drawOverlays();
     renderOutliner();
     const n = sel.size;
-    $('sel-count').textContent = n ? `${n} ${[...new Set(sel.list().map(it => it.kind))].join('+').toUpperCase()}` : '—';
+    $('sel-count').textContent = n ? `${n} ${[...new Set(sel.list().map(it => it.kind === 'pole' ? 'surface point' : it.kind))].join('+').toUpperCase()}` : '—';
     renderMass();
     if (cmd?.onSelection) return cmd.onSelection();
     if (quiet) return;
@@ -2309,17 +2344,22 @@ export async function mount(root, backend) {
   // and typing while it does sets the value exactly. The meshes follow as the preview, since a
   // rigid motion needs no kernel work; finishing sends one request, one undo step.
   function startTransform(kind, { follow = null } = {}) {
-    const ids = targetBodies().filter(id => org.shows(id));
+    // A face's picked control points move on their own, not their body.
+    const poles = sel.list('pole').filter(p => poleOf(p));
+    const ids = (sel.solids.length ? sel.solids : [...new Set(sel.list().filter(it => it.body !== undefined && it.kind !== 'pole').map(it => it.body))]).filter(id => org.shows(id));
     // Curves move whole; picked vertices (a NURBS curve's control points) move within their curve's plane.
     const curves = sel.curves.filter(curveById);
     const verts = sel.list('vertex').filter(v => curveById(v.id) && !curves.includes(v.id));
-    if (!ids.length && !curves.length && !verts.length) return toast(`SELECT A SOLID, CURVE OR VERTEX TO ${kind.toUpperCase()}`);
+    if (!ids.length && !curves.length && !verts.length && !poles.length) return toast(`SELECT A SOLID, CURVE OR VERTEX TO ${kind.toUpperCase()}`);
     if ((curves.length || verts.length) && !backend.replaceCurves) return toast(`${kind.toUpperCase()} OF CURVES IS NOT IN THIS BUILD YET`);
+    if (poles.length && !backend.previewMoveFacePoles) return toast(`${kind.toUpperCase()} OF SURFACE POINTS IS NOT IN THIS BUILD YET`);
+    if (new Set(poles.map(p => p.body)).size > 1) return toast('PICK THE SURFACE POINTS OF ONE BODY AT A TIME');
     const vertexAt = v => { const src = curveById(v.id), [x, y] = curveVertices(src)[v.n]; return lift(curveFrame(src), { x, y }); };
     const box = new THREE.Box3();
     for (const id of ids) box.expandByObject(bodyMesh(id));
     for (const id of curves) { const src = curveById(id), f = curveFrame(src); for (const p of curve2d(src)) box.expandByPoint(lift(f, p)); }
     for (const v of verts) box.expandByPoint(vertexAt(v));
+    for (const p of poles) box.expandByPoint(poleOf(p));
     const pivot = box.getCenter(new THREE.Vector3());
     const handle = new THREE.Object3D();
     handle.position.copy(pivot);
@@ -2331,10 +2371,10 @@ export async function mount(root, backend) {
     tc.addEventListener('dragging-changed', e => { controls.enabled = !e.value; if (e.value) c.follow = null; });
     tc.addEventListener('objectChange', () => fromHandle());
     scene.add(tc.getHelper());
-    const c = cmd = { id: kind, ids, curves, verts, vertexAt, curveOut: null, pivot, handle, tc, offset: new THREE.Vector3(), quat: new THREE.Quaternion(), scale: 1, axis: 'z', follow: null };
+    const c = cmd = { id: kind, ids, curves, verts, poles, vertexAt, curveOut: null, poleMoves: null, poleRows: null, sent: 0, shown: 0, pivot, handle, tc, offset: new THREE.Vector3(), quat: new THREE.Quaternion(), scale: 1, axis: 'z', follow: null };
     lastTool = kind;
     showTool(kind);
-    setTarget([...ids.map(label), ...curves.map(curveLabel), ...(verts.length ? [`${verts.length} VERTICES`] : [])].join(' '));
+    setTarget([...ids.map(label), ...curves.map(curveLabel), ...(verts.length ? [`${verts.length} VERTICES`] : []), ...(poles.length ? [`${poles.length} SURFACE POINT${poles.length > 1 ? 'S' : ''}`] : [])].join(' '));
     setState('none');
     setAxis('z');
     snapsFor(false);
@@ -2375,6 +2415,7 @@ export async function mount(root, backend) {
       tc.dispose();
       handle.removeFromParent();
       controls.enabled = true;
+      if (poles.length) paintShownPoints();
     };
     apply();
     if (follow) c.key(follow);
@@ -2433,6 +2474,29 @@ export async function mount(root, backend) {
     return { ids, list };
   }
 
+  /** Transform `c`'s face control points: the moves for the kernel, and the nets drawn moved. */
+  function previewPoles(c) {
+    const { pivot, offset, quat, scale } = c;
+    const at = p => p.clone().sub(pivot).multiplyScalar(scale).applyQuaternion(quat).add(pivot).add(offset);
+    c.poleMoves = c.poles.map(p => { const q = poleOf(p); return [p.face, p.n, at(q).sub(q).toArray()]; });
+    c.poleRows = movedNets(c.poles[0].body, c.poleMoves);
+    paintShownPoints();
+    const moved = c.poleMoves.some(([, , d]) => Math.hypot(...d) > 1e-12);
+    if (!moved) { clearPreview(); return; }
+    livePreview(c, () => backend.previewMoveFacePoles({ body: c.poles[0].body, moves: c.poleMoves }), b => showPreviewBody(b));
+  }
+  /** Body `body`'s face nets with `moves` ([[face, n, by]]) applied, keyed `body:face`. */
+  function movedNets(body, moves) {
+    const out = new Map();
+    for (const [face, n, by] of moves) {
+      const key = `${body}:${face}`;
+      if (!out.has(key)) out.set(key, (facePoleCache.get(body)?.[face] ?? []).map(r => r.map(q => [...q])));
+      const rows = out.get(key), nv = rows[0]?.length ?? 1, q = rows[Math.floor(n / nv)]?.[n % nv];
+      if (q) for (let i = 0; i < 3; i++) q[i] += by[i];
+    }
+    return out;
+  }
+
   /** Preview: M = T(pivot + offset) · R · S · T(−pivot) on every target mesh, and the panel. */
   function apply() {
     const c = cmd;
@@ -2453,6 +2517,7 @@ export async function mount(root, backend) {
         showCurvePreview(c.curveOut.list);
       } catch (e) { c.curveOut = null; setHud(say(e)); }
     }
+    if (c.poles.length) previewPoles(c);
     const user = toUser(offset.toArray());
     for (const input of $$('[data-move]')) if (document.activeElement !== input) input.value = +user[input.dataset.move].toFixed(3);
     const angle = angleAbout(quat, c.axis);
@@ -2567,6 +2632,11 @@ export async function mount(root, backend) {
       }
       let made = [];
       if (out) ({ ids: made } = await backend.replaceCurves(out.ids, out.list));
+      if (c.poles.length) {
+        const { id, scene: list } = await backend.commitMoveFacePoles({ body: c.poles[0].body, moves: c.poleMoves });
+        first ??= id;
+        await showScene(list);
+      }
       endCmd('committed');
       record(text, first ?? made[0]);
       if (made.length) await curvesChanged(made);
@@ -3892,12 +3962,14 @@ export async function mount(root, backend) {
    * press D and type; Enter or right-click applies.
    */
   function startSlide() {
+    if (sel.list('pole').length) return startSlideSurface();
     if (!backend.replaceCurves) return toast('SLIDE IS NOT IN THIS BUILD YET');
     const picked = sel.list('vertex').filter(v => ['cv', 'spline', 'nurbs'].includes(curveById(v.id)?.kind));
     if (!picked.length) return toast('SELECT CONTROL POINTS OF A SPLINE OR CONTROL POINT CURVE TO SLIDE');
     const c = cmd = { id: 'slide', dir: 'u', out: null, gizmo: null };
     lastTool = 'slide';
     showTool('slide');
+    for (const b of $$('[data-sldir$="v"]')) b.hidden = true;
     setState('none');
     const curves = [...new Set(picked.map(v => v.id))];
     setTarget(curves.length === 1 ? curveLabel(curves[0]) : `${curves.length} CURVES`);
@@ -3944,6 +4016,75 @@ export async function mount(root, backend) {
     };
     c.abort = () => endCmd('cancelled');
     c.cleanup = () => { c.gizmo?.dispose(); clearPreview(); };
+    $('sl-d').value = 0;
+    buttons();
+    try { place(); } catch { /* the preview says why */ }
+    c.preview();
+  }
+
+  /**
+   * Plasticity's Slide Surface CV (Shift+G with a face's control points picked, shown by Toggle
+   * Points): they slide along the face's control net in u or v (U, V; Shift the other way) or
+   * across it (N), by the dragged dot or a typed distance (D), with a live preview of the face.
+   */
+  function startSlideSurface() {
+    if (!backend.previewMoveFacePoles) return toast('SLIDE SURFACE CV IS NOT IN THIS BUILD YET');
+    const picked = sel.list('pole').filter(p => poleOf(p));
+    if (!picked.length) return toast('SELECT CONTROL POINTS OF A FACE TO SLIDE');
+    const body = picked[0].body;
+    if (picked.some(p => p.body !== body)) return toast('PICK THE SURFACE POINTS OF ONE BODY AT A TIME');
+    const c = cmd = { id: 'slide', dir: 'u', moves: null, poleRows: null, gizmo: null, sent: 0, shown: 0 };
+    lastTool = 'slide';
+    showTool('slide');
+    $('tool-name').textContent = $('status-tool').textContent = 'SLIDE SURFACE CV';
+    for (const b of $$('[data-sldir$="v"]')) b.hidden = false;
+    setState('none');
+    setTarget(label(body));
+    const faces = [...new Set(picked.map(p => p.face))];
+    const rowsOf = face => facePoleCache.get(body)?.[face] ?? [];
+    c.compute = d => faces.flatMap(face => slidePoles(rowsOf(face), picked.filter(p => p.face === face).map(p => p.n), d, c.dir).map(([n, by]) => [face, n, by]));
+    const buttons = () => { for (const b of $$('[data-sldir]')) b.setAttribute('aria-pressed', String(b.dataset.sldir === c.dir)); };
+    // The dot sits on the first point and points the way it slides.
+    const place = () => {
+      c.gizmo?.dispose();
+      c.gizmo = null;
+      const first = picked[0], at = poleOf(first);
+      const [[, by]] = slidePoles(rowsOf(first.face), [first.n], 1, c.dir);
+      c.gizmo = dot(at, new THREE.Vector3(...by).normalize(), v => { $('sl-d').value = +v.toFixed(3); c.preview(); });
+    };
+    const text = () => `SLIDE ${c.dir.toUpperCase()} ${num('sl-d')} MM`;
+    c.preview = () => {
+      c.gizmo?.render(num('sl-d'));
+      try {
+        c.moves = c.compute(num('sl-d'));
+        c.poleRows = movedNets(body, c.moves);
+        paintShownPoints();
+      } catch (e) { c.moves = null; $('sl-hint').textContent = say(e); setHud('SLIDE FAILED'); return setState('failed'); }
+      $('sl-hint').textContent = `${picked.length} CONTROL POINT${picked.length > 1 ? 'S' : ''} ON ${faces.length} FACE${faces.length > 1 ? 'S' : ''} OF ${label(body)}`;
+      setHud(text());
+      if (!num('sl-d')) { clearPreview(); return setState('none'); }
+      livePreview(c, () => backend.previewMoveFacePoles({ body, moves: c.moves }), b => showPreviewBody(b), 'sl-hint');
+    };
+    c.setDir = d => { c.dir = d; buttons(); try { place(); } catch { /* the hint says why */ } c.preview(); };
+    c.key = action => {
+      if (['u', '-u', 'v', '-v', 'n'].includes(action)) { c.setDir(action); return true; }
+      if (action !== 'distance') return false;
+      c.entry = { label: 'DISTANCE', text: '', apply: v => { $('sl-d').value = v; c.preview(); } };
+      setHud('DISTANCE _');
+      return true;
+    };
+    c.finish = async () => {
+      if (!c.moves) return toast($('sl-hint').textContent);
+      if (!num('sl-d')) return endCmd(null);
+      try {
+        const { id, scene: list } = await backend.commitMoveFacePoles({ body, moves: c.moves });
+        endCmd('committed');
+        record(`SLIDE SURFACE CV ${c.dir.toUpperCase()} ${num('sl-d')} MM`, id, `${picked.length} SURFACE POINT${picked.length > 1 ? 'S' : ''}`);
+        await showScene(list);
+      } catch (e) { setState('failed'); toast(say(e)); }
+    };
+    c.abort = () => endCmd('cancelled');
+    c.cleanup = () => { c.gizmo?.dispose(); clearPreview(); paintShownPoints(); };
     $('sl-d').value = 0;
     buttons();
     try { place(); } catch { /* the preview says why */ }
@@ -7451,6 +7592,7 @@ export async function mount(root, backend) {
       out.push('explode', 'reverse', 'rebuild', 'insert-knot', 'raise-degree', 'measure:continuity', 'delete');
     }
     // Curve vertices: Fillet Vertex (B), Offset Vertex and, with two ends, Bridge Vertex.
+    if (kinds.has('pole')) out.push('slide', 'toggle-points');
     if (kinds.has('vertex')) out.push('tool:fillet', 'tool:offset-curve', 'slide', 'align-vertex', 'convert-vertex', ...(sel.list('vertex').length === 2 ? ['tool:bridge'] : []));
     if (kinds.size) out.push('convert:solid', 'select:invert', 'view:focus');
     else out.push('draw:line', 'draw:spline', 'draw:rect', 'draw:circle', 'draw:arc3', 'text', 'tool:box', 'tool:cylinder', 'tool:sphere', 'select:all', 'unhide-all', 'plane:view');

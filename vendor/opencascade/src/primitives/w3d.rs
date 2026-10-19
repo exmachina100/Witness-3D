@@ -247,6 +247,13 @@ impl Shape {
         ffi::w3d::w3d_face_poles(&self.inner).into_iter().collect()
     }
 
+    /// Surface control points moved: (face, pole, offset) each, poles numbered as `face_poles` gives them.
+    pub fn move_face_poles(&self, moves: &[(usize, usize, [f64; 3])]) -> Result<Shape, String> {
+        let flat: Vec<f64> = moves.iter().flat_map(|&(f, p, [x, y, z])| [f as f64, p as f64, x, y, z]).collect();
+        let shape = ffi::w3d::w3d_move_face_poles(&self.inner, &flat).map_err(reason)?;
+        Ok(Shape::from_shape(&shape))
+    }
+
     /// Numbers of the faces that look like fillets; with `seeds`, the fillet chains holding them.
     pub fn fillet_faces(&self, seeds: &[usize]) -> Vec<usize> {
         let seeds: Vec<i32> = seeds.iter().map(|&i| i as i32).collect();

@@ -68,6 +68,7 @@
 #include <BRep_Builder.hxx>
 #include <Geom_RectangularTrimmedSurface.hxx>
 #include <BRepTools_ReShape.hxx>
+#include <BRepBuilderAPI_NurbsConvert.hxx>
 #include <ShapeAnalysis_Edge.hxx>
 #include <ShapeFix_Edge.hxx>
 #include <TopTools_MapOfShape.hxx>
@@ -1595,29 +1596,154 @@ inline rust::Vec<double> w3d_face_surfaces(const TopoDS_Shape &shape) {
 
 // Toggle Points: each face's control points, its surface (trimmed to the face's (u, v) bounds) as a
 // B-spline. Per face: nu, nv, then nu × nv points (x, y, z), u running slowest; 0, 0 when it has none.
+// Face `f` as a B-spline face: itself when its surface is one, else converted exactly (its edges'
+// curves on the new surface carried over). Returns the face whose surface and edge curves to use,
+// and `edge` maps each of `f`'s edges to the matching edge of that face.
+struct W3dSplineFace {
+  TopoDS_Face face;
+  Handle(Geom_BSplineSurface) surface;
+  TopLoc_Location loc;
+  std::function<TopoDS_Edge(const TopoDS_Edge &)> edge;
+};
+inline W3dSplineFace w3d_spline_face(const TopoDS_Face &f) {
+  W3dSplineFace out;
+  out.surface = Handle(Geom_BSplineSurface)::DownCast(BRep_Tool::Surface(f, out.loc));
+  if (!out.surface.IsNull()) {
+    out.face = f;
+    out.edge = [](const TopoDS_Edge &e) { return e; };
+    return out;
+  }
+  auto conv = std::make_shared<BRepBuilderAPI_NurbsConvert>(f, true);
+  if (!conv->IsDone()) throw std::runtime_error("that face could not be converted to control points");
+  out.face = TopoDS::Face(conv->Shape());
+  out.surface = Handle(Geom_BSplineSurface)::DownCast(BRep_Tool::Surface(out.face, out.loc));
+  if (out.surface.IsNull()) throw std::runtime_error("that face could not be converted to control points");
+  out.edge = [conv](const TopoDS_Edge &e) { return TopoDS::Edge(conv->ModifiedShape(e)); };
+  return out;
+}
+
+// Per face of `shape`: [nu, nv, then nu * nv poles (x, y, z), v fastest], or [0, 0] where it has
+// none. These are the control points w3d_move_face_poles moves.
 inline rust::Vec<double> w3d_face_poles(const TopoDS_Shape &shape) {
   TopTools_IndexedMapOfShape faces;
   TopExp::MapShapes(shape, TopAbs_FACE, faces);
   rust::Vec<double> out;
   for (int i = 1; i <= faces.Extent(); i++) {
-    const TopoDS_Face &f = TopoDS::Face(faces(i));
     try {
-      double u0, u1, v0, v1;
-      BRepTools::UVBounds(f, u0, u1, v0, v1);
-      Handle(Geom_Surface) s = BRep_Tool::Surface(f);
-      Handle(Geom_BSplineSurface) b = GeomConvert::SurfaceToBSplineSurface(new Geom_RectangularTrimmedSurface(s, u0, u1, v0, v1));
-      TopLoc_Location loc = f.Location();
+      W3dSplineFace sf = w3d_spline_face(TopoDS::Face(faces(i)));
+      const Handle(Geom_BSplineSurface) &b = sf.surface;
       out.push_back(b->NbUPoles());
       out.push_back(b->NbVPoles());
       for (int a = 1; a <= b->NbUPoles(); a++) for (int c = 1; c <= b->NbVPoles(); c++) {
-        gp_Pnt p = b->Pole(a, c).Transformed(loc.Transformation());
+        gp_Pnt p = b->Pole(a, c).Transformed(sf.loc.Transformation());
         out.push_back(p.X()); out.push_back(p.Y()); out.push_back(p.Z());
       }
+    } catch (const std::exception &) {
+      out.push_back(0); out.push_back(0);
     } catch (const Standard_Failure &) {
       out.push_back(0); out.push_back(0);
     }
   }
   return out;
+}
+
+// Plasticity's surface control points moved (G on a face's points, Slide Surface CV): `moves` is
+// (face, pole, dx, dy, dz) per point, poles numbered as w3d_face_poles gives them. A face that isn't
+// a B-spline becomes one exactly first. The face's own open edges follow the new surface; an edge it
+// shares with another face must stay put, so moving the points that hold one is refused.
+inline std::unique_ptr<TopoDS_Shape> w3d_move_face_poles(const TopoDS_Shape &shape, rust::Slice<const double> moves) {
+  if (moves.empty() || moves.size() % 5 != 0) throw std::runtime_error("no control points to move");
+  try {
+    TopoDS_Shape work = BRepBuilderAPI_Copy(shape).Shape();
+    TopTools_IndexedMapOfShape map;
+    TopExp::MapShapes(work, TopAbs_FACE, map);
+    TopTools_IndexedDataMapOfShapeListOfShape owners;
+    TopExp::MapShapesAndAncestors(work, TopAbs_EDGE, TopAbs_FACE, owners);
+    std::map<int, std::vector<std::pair<int, gp_Vec>>> byFace;
+    for (size_t i = 0; i < moves.size(); i += 5) byFace[(int)moves[i]].push_back({(int)moves[i + 1], gp_Vec(moves[i + 2], moves[i + 3], moves[i + 4])});
+    Handle(BRepTools_ReShape) rs = new BRepTools_ReShape();
+    BRep_Builder B;
+    const double t = Precision::Confusion();
+    for (auto &[index, list] : byFace) {
+      if (index < 0 || index >= map.Extent()) throw std::out_of_range("that face no longer exists");
+      TopoDS_Face f = TopoDS::Face(map(index + 1));
+      W3dSplineFace sf = w3d_spline_face(f);
+      Handle(Geom_BSplineSurface) made = Handle(Geom_BSplineSurface)::DownCast(sf.surface->Copy());
+      const gp_Trsf back = sf.loc.Transformation().Inverted();
+      const int nv = made->NbVPoles();
+      for (auto &[k, by] : list) {
+        if (k < 0 || k >= made->NbUPoles() * nv) throw std::out_of_range("that control point no longer exists");
+        const int a = k / nv + 1, c = k % nv + 1;
+        made->SetPole(a, c, made->Pole(a, c).Translated(by.Transformed(back)));
+      }
+      // The face again on the moved surface, with the same wires.
+      TopLoc_Location oldLoc;
+      Handle(Geom_Surface) old = BRep_Tool::Surface(f, oldLoc);
+      TopoDS_Face nf = TopoDS::Face(f.Oriented(TopAbs_FORWARD).EmptyCopied());
+      B.UpdateFace(nf, made, sf.loc, t);
+      for (TopoDS_Iterator it(f, false, true); it.More(); it.Next()) B.Add(nf, it.Value());
+      nf.Orientation(f.Orientation());
+      const TopoDS_Face src = TopoDS::Face(sf.face.Oriented(TopAbs_FORWARD));
+      TopTools_IndexedMapOfShape edges;
+      TopExp::MapShapes(f, TopAbs_EDGE, edges);
+      std::vector<TopoDS_Edge> open;
+      for (int i = 1; i <= edges.Extent(); i++) {
+        TopoDS_Edge e = TopoDS::Edge(edges(i));
+        const TopoDS_Edge se = sf.edge(e);
+        double a, b;
+        // The edge's curve(s) on the B-spline face, read before the old surface's are dropped (when
+        // the face was a B-spline already, they are the same ones). Conversion keeps each edge's
+        // direction, so forward and reversed match `e`'s.
+        Handle(Geom2d_Curve) c1, c2;
+        const bool seam = BRep_Tool::IsClosed(se, src);
+        if (seam) {
+          c1 = BRep_Tool::CurveOnSurface(TopoDS::Edge(se.Oriented(TopAbs_FORWARD)), src, a, b);
+          c2 = BRep_Tool::CurveOnSurface(TopoDS::Edge(se.Oriented(TopAbs_REVERSED)), src, a, b);
+        } else c1 = BRep_Tool::CurveOnSurface(se, src, a, b);
+        if (c1.IsNull() || (seam && c2.IsNull())) throw std::runtime_error("an edge of that face has no curve on it");
+        B.UpdateEdge(e, Handle(Geom2d_Curve)(), old, oldLoc, t);
+        if (seam) B.UpdateEdge(TopoDS::Edge(e.Oriented(TopAbs_FORWARD)), c1, c2, made, sf.loc, t);
+        else B.UpdateEdge(e, c1, made, sf.loc, t);
+        B.Range(e, made, sf.loc, a, b);
+        if (BRep_Tool::Degenerated(e)) continue;
+        bool shared = false;
+        for (const TopoDS_Shape &g : owners.FindFromKey(e)) shared |= !g.IsSame(f);
+        if (!shared) open.push_back(e);
+        else {
+          // A converted face's curves may run at another pace than the edge; match them, then the
+          // edge's tolerance says how far the face now stands off it.
+          B.SameParameter(e, false);
+          BRepLib::SameParameter(e, 1e-6);
+          if (BRep_Tool::Tolerance(e) > 1e-4)
+            throw std::runtime_error("those points hold an edge shared with another face; move the points inside it, or move the points of a sheet's open side");
+        }
+      }
+      // Open edges follow the surface: their 3D curves made again from the curves on it, their
+      // vertices moved to the new ends.
+      for (TopoDS_Edge &e : open) {
+        B.UpdateEdge(e, Handle(Geom_Curve)(), t);
+        if (!BRepLib::BuildCurve3d(e, 1e-6)) throw std::runtime_error("an edge of that face could not follow the moved points");
+      }
+      for (TopoDS_Edge &e : open) {
+        double a, b;
+        Handle(Geom_Curve) c = BRep_Tool::Curve(e, a, b);
+        if (c.IsNull()) continue;
+        TopoDS_Vertex v0, v1;
+        const TopoDS_Edge ef = TopoDS::Edge(e.Oriented(TopAbs_FORWARD));
+        TopExp::Vertices(ef, v0, v1);
+        B.UpdateVertex(v0, c->Value(a), t);
+        B.UpdateVertex(v1, c->Value(b), t);
+      }
+      for (TopoDS_Edge &e : open) BRepLib::SameParameter(e, 1e-6);
+      rs->Replace(f, nf);
+    }
+    TopoDS_Shape result = rs->Apply(work);
+    BRepLib::UpdateTolerances(result, false);
+    if (!w3d_is_valid(result)) throw std::runtime_error("moving those points would leave the face invalid; move them less, or move fewer");
+    return std::unique_ptr<TopoDS_Shape>(new TopoDS_Shape(result));
+  } catch (const Standard_Failure &f) {
+    throw w3d_kernel_error(f);
+  }
 }
 
 // Whether two faces lie on one surface (two halves of a cylinder, say), for the analytic kinds.

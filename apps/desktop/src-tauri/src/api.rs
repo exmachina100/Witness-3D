@@ -1437,6 +1437,32 @@ impl ExtendSheetRequest {
     }
 }
 
+/// Surface control points of `body` moved: per point its face, its pole (as `face_poles` numbers
+/// them) and the offset.
+#[derive(Deserialize, Debug, Clone)]
+pub struct MoveFacePolesRequest {
+    pub body: BodyId,
+    pub moves: Vec<(u32, u32, [f64; 3])>,
+}
+
+fn pole_moves(req: &MoveFacePolesRequest) -> Vec<(u32, u32, DVec3)> {
+    req.moves.iter().map(|&(f, p, d)| (f, p, DVec3::from_array(d))).collect()
+}
+
+pub fn preview_move_face_poles(m: &Model, req: MoveFacePolesRequest) -> Option<Result<Body, ApiError>> {
+    m.preview(move |doc| {
+        let solid = doc.preview_move_face_poles(req.body, &pole_moves(&req))?;
+        Ok(body(&doc.kernel, req.body, &solid)?)
+    })
+}
+
+pub fn commit_move_face_poles(m: &Model, req: MoveFacePolesRequest) -> Result<Committed, ApiError> {
+    m.call(move |doc| {
+        doc.commit_move_face_poles(req.body, &pole_moves(&req))?;
+        Ok(Committed { id: req.body, scene: bodies(doc)? })
+    })
+}
+
 /// Rebuild Face: `faces` of `body` given new B-spline surfaces (see `FaceRebuild`).
 #[derive(Deserialize, Debug, Clone)]
 pub struct RebuildFacesRequest {

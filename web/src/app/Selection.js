@@ -6,12 +6,12 @@
 // An item is { kind: 'solid', body }, { kind: 'edge' | 'face', body, n }, or a drawn curve or the
 // region inside a closed one, { kind: 'curve' | 'region', id } (Plasticity's mode 2 picks curves
 // with edges, mode 3 regions with faces), or a curve's vertex, { kind: 'vertex', id, n } (mode 1,
-// points).
+// points), or a face's control point shown by Toggle Points, { kind: 'pole', body, face, n } (mode 1).
 
 export const KINDS = ['point', 'edge', 'face', 'solid'];
 
 const keyOf = it => it.kind === 'solid' ? `s:${it.body}` : it.kind === 'curve' || it.kind === 'region' ? `${it.kind}:${it.id}`
-    : it.kind === 'vertex' ? `vertex:${it.id}:${it.n}` : `${it.kind[0]}:${it.body}:${it.n}`;
+    : it.kind === 'vertex' ? `vertex:${it.id}:${it.n}` : it.kind === 'pole' ? `pole:${it.body}:${it.face}:${it.n}` : `${it.kind[0]}:${it.body}:${it.n}`;
 const onBody = it => it.body !== undefined;
 
 export class Selection {
@@ -104,6 +104,7 @@ export class Selection {
         return this.list().map(it => {
             if (it.kind === 'solid' || !onBody(it)) return it;
             const b = scene.find(x => x.id === it.body);
+            if (it.kind === 'pole') return { ...it, ref: b?.faceRefs?.[it.face] };
             const refs = it.kind === 'edge' ? b?.edgeRefs : b?.faceRefs;
             return { ...it, ref: refs?.[it.n] };
         });
@@ -117,6 +118,11 @@ export class Selection {
             const b = scene.find(x => x.id === it.body);
             if (!b) continue;
             if (it.kind === 'solid') { this.add(it); continue; }
+            if (it.kind === 'pole') {
+                // The face's control points keep their numbers while the face keeps its net.
+                b.faceRefs?.forEach((r, face) => { if (r === it.ref) this.add({ kind: 'pole', body: b.id, face, n: it.n }); });
+                continue;
+            }
             const refs = it.kind === 'edge' ? b.edgeRefs : b.faceRefs;
             if (!refs?.length || it.ref === undefined) continue;
             refs.forEach((r, n) => { if (r === it.ref) this.add({ kind: it.kind, body: b.id, n }); });

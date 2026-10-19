@@ -112,7 +112,7 @@ function deviation(at, s, [u0, u1, v0, v1], n = 24) {
 }
 
 /** The face again on `made`: from its bounds `b` if its edges run along them, else from its edges' curves on `made`. */
-function remade(face, made, b) {
+export function remade(face, made, b) {
     const o = oc();
     const surface = o.BRep_Tool.Surface(face);
     const along = numberedEdges(face).every(e => o.BRep_Tool.Degenerated(e) || isoSide(e, face, surface, b) >= 0);
@@ -150,7 +150,7 @@ function remade(face, made, b) {
 }
 
 /** `shape` with the faces in `replaced` (by number) swapped in: the lone face, or all faces sewn within `gap` (a solid again if it was one). */
-function assemble(shape, all, replaced, gap, what, hint = '') {
+export function assemble(shape, all, replaced, gap, what, hint = '') {
     const o = oc();
     let result;
     if (shape.ShapeType() === o.TopAbs_ShapeEnum.TopAbs_FACE) result = replaced.get(0);

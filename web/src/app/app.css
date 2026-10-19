@@ -249,6 +249,10 @@ button:focus-visible, input:focus-visible { outline: 1px solid var(--accent); ou
 .nav-buttons [data-nav="pan"] { cursor: move; }
 .seg[aria-label="Boolean with the body underneath"], .seg[aria-label="Boolean with the body at the destination"] { grid-auto-flow: row; grid-template-columns: repeat(3, minmax(0, 1fr)); }
 .seg[aria-label="Place axis"] { grid-auto-flow: row; grid-template-columns: 2fr repeat(3, minmax(0, 1fr)); }
+.seg[aria-label="Slide direction"] { grid-auto-columns: minmax(0, 1fr); }
+.seg[aria-label="Slide direction"] button { padding: 7px 2px; }
+.seg[aria-label="Slide direction"] button .ico { margin-right: 3px; }
+.seg[aria-label="Slide direction"] button kbd { margin-right: 0; }
 .seg[aria-label="Fillet shape"], .seg[aria-label="Section plane"] { grid-auto-flow: row; grid-template-columns: repeat(2, minmax(0, 1fr)); }
 
 /* Tool families (Toolbar.js): the face button, a narrow ▾ for the variants, and the floating strip. */

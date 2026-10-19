@@ -419,6 +419,12 @@ pub trait Kernel {
     fn thicken_faces(&self, _s: &Self::Solid, _faces: &[u32], _front: f64, _back: f64) -> Result<Self::Solid, KernelError> {
         Err(KernelError::Invalid("this kernel cannot thicken faces"))
     }
+    /// Surface control points moved (G on a face's points, Slide Surface CV): (face, pole, offset)
+    /// each, poles numbered as `face_poles` gives them (rows of u, v fastest). Faces and edges keep
+    /// their numbers; an edge shared with another face must stay where it is.
+    fn move_face_poles(&self, _s: &Self::Solid, _moves: &[(u32, u32, DVec3)]) -> Result<Self::Solid, KernelError> {
+        Err(KernelError::Invalid("this kernel cannot move surface control points"))
+    }
     /// Plasticity's Rebuild Face: `faces` given new B-spline surfaces, edges and trims kept, faces
     /// and edges keeping their numbers.
     fn rebuild_faces(&self, _s: &Self::Solid, _faces: &[u32], _how: &FaceRebuild) -> Result<(Self::Solid, Vec<RebuiltFace>), KernelError> {

@@ -84,6 +84,7 @@ mod inner {
         pub fn w3d_hidden_lines(shape: &TopoDS_Shape, frame: &[f64], deflection: f64) -> Result<Vec<f64>>;
         pub fn w3d_thicken(shape: &TopoDS_Shape, front: f64, back: f64) -> Result<UniquePtr<TopoDS_Shape>>;
         pub fn w3d_thicken_faces(shape: &TopoDS_Shape, faces: &[i32], front: f64, back: f64) -> Result<UniquePtr<TopoDS_Shape>>;
+        pub fn w3d_move_face_poles(shape: &TopoDS_Shape, moves: &[f64]) -> Result<UniquePtr<TopoDS_Shape>>;
         pub fn w3d_rebuild_faces(shape: &TopoDS_Shape, faces: &[i32], p: &[f64]) -> Result<UniquePtr<TopoDS_Shape>>;
         pub fn w3d_raise_faces(shape: &TopoDS_Shape, faces: &[i32]) -> Result<UniquePtr<TopoDS_Shape>>;
         pub fn w3d_match_faces(shape: &TopoDS_Shape, faces: &[i32], target: &TopoDS_Shape, tface: i32, caps: &[f64]) -> Result<UniquePtr<TopoDS_Shape>>;
