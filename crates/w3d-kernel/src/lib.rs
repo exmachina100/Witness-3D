@@ -21,6 +21,23 @@ pub use blend::{blend, Blend, BlendParams};
 pub use document::{Ref, Refs};
 pub use extrude::{extrude, ExtrudeParams, ExtrudeResult, Operation};
 pub use form::{form, match_faces_grow, offset_faces, offset_faces_grow, FormKind, FormParams, Grow};
+
+/// Deform's options, in the target face's U, V and N: scale about the middle of what is deformed,
+/// offset (U and V in mm along the target face, N in mm off it), and the flips.
+#[derive(Clone, Debug, PartialEq)]
+pub struct DeformOptions {
+    pub scale: [f64; 3],
+    pub offset: [f64; 3],
+    pub mirror: bool,
+    pub swap: bool,
+    pub normal: bool,
+}
+
+impl Default for DeformOptions {
+    fn default() -> Self {
+        DeformOptions { scale: [1.0; 3], offset: [0.0; 3], mirror: false, swap: false, normal: false }
+    }
+}
 pub use solids::{ArraySpec, Primitive};
 pub use document::{Curve, CurveId, CurveShape};
 pub mod join;
@@ -382,6 +399,12 @@ pub trait Kernel {
     /// its surface parameters scaled to 0..1 over the face, n its height along the outward normal;
     /// with `map`, (s, t, n) back to points. Also the face's length along u and v through its
     /// middle.
+    /// Plasticity's Deform Solid and Sheet: `bodies` wrapped from face `rface` of `reference` onto
+    /// face `tface` of `target`, each point keeping its face coordinates (see `face_uvn`) moved by
+    /// `opts`. The results come back in the same order.
+    fn deform(&self, _bodies: &[&Self::Solid], _reference: &Self::Solid, _rface: u32, _target: &Self::Solid, _tface: u32, _opts: &DeformOptions) -> Result<Vec<Self::Solid>, KernelError> {
+        Err(KernelError::Invalid("this kernel cannot deform bodies"))
+    }
     fn face_uvn(&self, _s: &Self::Solid, _face: u32, _map: bool, _points: &[DVec3]) -> Result<([f64; 2], Vec<DVec3>), KernelError> {
         Err(KernelError::Invalid("this kernel cannot deform curves"))
     }

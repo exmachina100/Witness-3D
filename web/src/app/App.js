@@ -176,7 +176,7 @@ const CLICKS = { rect: 2, 'center-rect': 2, rect3: 3, circle: 2, circle2: 2, cir
 const FORMS = { revolve: true, loft: true, sweep: true };
 const PRIMS = { box: true, 'center-box': true, box3: true, cylinder: true, sphere: true };
 // Commands that aren't tools in the registry (they act on a click, not on settings).
-const EDITS = { isoparam: 'ISOPARAM', 'offset-vertex': 'OFFSET VERTEX', slide: 'SLIDE CURVE CV', 'fillet-vertex': 'FILLET VERTEX', 'align-vertex': 'ALIGN VERTEX', rebuild: 'REBUILD CURVE', 'rebuild-face': 'REBUILD FACE', 'match-face': 'MATCH FACE', 'deform-curve': 'DEFORM CURVE', untrim: 'UNTRIM', unwrap: 'UNWRAP FACE', section: 'SECTION ANALYSIS', place: 'PLACE', dimension: 'DIMENSION', text: 'TEXT', 'insert-knot': 'INSERT KNOT', 'offset-edge': 'OFFSET EDGE', material: 'SET MATERIAL', 'export-mesh': 'EXPORT MESH', 'export-drawing': 'EXPORT DRAWING', 'measure-continuity': 'MEASURE CONTINUITY', trim: 'TRIM', extend: 'EXTEND CURVE', 'tangent-circle': 'TANGENT CIRCLE', split: 'SPLIT CURVE', 'measure-distance': 'MEASURE DISTANCE', 'measure-radius': 'MEASURE RADIUS' };
+const EDITS = { isoparam: 'ISOPARAM', 'offset-vertex': 'OFFSET VERTEX', slide: 'SLIDE CURVE CV', 'fillet-vertex': 'FILLET VERTEX', 'align-vertex': 'ALIGN VERTEX', rebuild: 'REBUILD CURVE', 'rebuild-face': 'REBUILD FACE', 'match-face': 'MATCH FACE', 'deform-curve': 'DEFORM', untrim: 'UNTRIM', unwrap: 'UNWRAP FACE', section: 'SECTION ANALYSIS', place: 'PLACE', dimension: 'DIMENSION', text: 'TEXT', 'insert-knot': 'INSERT KNOT', 'offset-edge': 'OFFSET EDGE', material: 'SET MATERIAL', 'export-mesh': 'EXPORT MESH', 'export-drawing': 'EXPORT DRAWING', 'measure-continuity': 'MEASURE CONTINUITY', trim: 'TRIM', extend: 'EXTEND CURVE', 'tangent-circle': 'TANGENT CIRCLE', split: 'SPLIT CURVE', 'measure-distance': 'MEASURE DISTANCE', 'measure-radius': 'MEASURE RADIUS' };
 const keysHtml = id => KEYS[id].map(([k, v]) => `<kbd>${k}</kbd><span>${v}</span>`).join('');
 // The Command Bar, exactly the manual's list (Plasticity Essentials › Command Bar).
 const BAR = [['palette', 'F', 'SEARCH'], ['tool:move', 'G', 'MOVE'], ['tool:rotate', 'R', 'ROTATE'], ['tool:scale', 'S', 'SCALE'], ['duplicate', '⇧D', 'DUPLICATE'], ['tool:boolean', 'Q', 'BOOLEAN'], ['tool:rect-array', '', 'RECTANGULAR ARRAY'], ['tool:radial-array', '', 'RADIAL ARRAY'], ['suggest', '⇧F', 'SUGGESTED COMMANDS']];
@@ -4497,13 +4497,16 @@ export async function mount(root, backend) {
    */
   function startDeformCurve() {
     const ids = sel.curves.filter(curveById);
-    if (!ids.length) return toast('SELECT THE CURVES TO DEFORM');
-    if (!backend.faceUvn || !backend.replaceCurves) return toast('DEFORM CURVE IS NOT IN THIS BUILD YET');
-    const c = cmd = { id: 'deform-curve', ids, ref: null, target: null, flips: { mirror: false, swap: false, normal: false }, keep: false, from: null, out: null, sent: 0 };
+    const solids = ids.length ? [] : sel.list('solid').map(it => it.body);
+    if (!ids.length && !solids.length) return toast('SELECT THE CURVES, SOLIDS OR SHEETS TO DEFORM');
+    if (ids.length && (!backend.faceUvn || !backend.replaceCurves)) return toast('DEFORM CURVE IS NOT IN THIS BUILD YET');
+    if (solids.length && !backend.previewDeform) return toast('DEFORM OF SOLIDS AND SHEETS IS ONLY IN THE DESKTOP APP SO FAR');
+    const c = cmd = { id: 'deform-curve', ids, solids, ref: null, target: null, flips: { mirror: false, swap: false, normal: false }, keep: false, from: null, out: null, sent: 0 };
     lastTool = 'deform-curve';
     showTool('deform-curve');
     setState('none');
-    setTarget(`${ids.length} CURVE${ids.length > 1 ? 'S' : ''}`);
+    const what = ids.length ? `${ids.length} CURVE${ids.length > 1 ? 'S' : ''}` : `${solids.length} BOD${solids.length > 1 ? 'IES' : 'Y'}`;
+    setTarget(what);
     const where = f => f ? `${label(f.body)} · FACE ${f.n + 1}` : '—';
     const ask = () => {
       $('dc-ref').textContent = where(c.ref);
@@ -4518,7 +4521,9 @@ export async function mount(root, backend) {
       offset: [num('dc-ou'), num('dc-ov'), num('dc-on')].map(v => Number.isFinite(v) ? v : 0),
       ...c.flips,
     });
+    c.request = () => ({ bodies: c.solids, reference: c.ref.body, rface: c.ref.n, target: c.target.body, tface: c.target.n, ...c.options(), keep: c.keep });
     c.compute = async () => {
+      if (c.solids.length) return backend.previewDeform(c.request());
       // The curves on the reference face only change with the reference.
       if (!c.from || c.from.face !== c.ref) {
         const curves = c.ids.map(curveById), pts = curves.map(worldPoints);
@@ -4539,13 +4544,14 @@ export async function mount(root, backend) {
       setState('updating');
       try {
         const out = await c.compute();
-        if (cmd !== c || n !== c.sent) return;
+        if (cmd !== c || n !== c.sent || out == null) return;
         c.out = out;
         clearPreview();
-        showCurvePreview(out);
+        if (c.solids.length) for (const b of out) showPreviewBody(b);
+        else showCurvePreview(out);
         setState('updated');
-        $('dc-hint').textContent = `${out.length} CURVE${out.length > 1 ? 'S' : ''} ONTO ${where(c.target)}${c.keep ? ' · KEPT' : ''}`;
-        setHud('DEFORM CURVE');
+        $('dc-hint').textContent = `${what} ONTO ${where(c.target)}${c.keep ? ' · KEPT' : ''}`;
+        setHud('DEFORM');
       } catch (e) {
         if (cmd !== c || n !== c.sent) return;
         c.out = null;
@@ -4584,6 +4590,16 @@ export async function mount(root, backend) {
     c.finish = async () => {
       if (!c.ref || !c.target) return toast(c.ref ? 'CLICK THE TARGET FACE' : 'CLICK THE REFERENCE FACE');
       try {
+        if (c.solids.length) {
+          const { ids: made, scene: list } = await backend.commitDeform(c.request());
+          endCmd('committed');
+          record(`DEFORM ${c.solids.map(label).join(' ')}`, made[0], `ONTO ${where(c.target)}`);
+          await showScene(list);
+          sel.clear();
+          for (const id of made) sel.add({ kind: 'solid', body: id });
+          selectionChanged({ quiet: true });
+          return;
+        }
         const out = c.out ?? await c.compute();
         const { ids: made } = c.keep ? await backend.addCurves(out) : await backend.replaceCurves(c.ids, out);
         endCmd('committed');
@@ -7767,7 +7783,7 @@ export async function mount(root, backend) {
     const out = [];
     if (sel.solids.length > 1) out.push('tool:boolean');
     if (sel.solids.length === 2) out.push('tool:project');
-    if (kinds.has('solid')) out.push('tool:move', 'tool:rotate', 'tool:scale', 'duplicate', 'create-outline', 'toggle-points', 'place', 'dimension', 'tool:mirror', 'tool:rect-array', 'tool:radial-array', 'tool:curve-array', 'unify', 'boundary-edges', 'remove-fillets', 'raise-degree', 'delete', 'hide', 'isolate', 'group', 'lock', 'material:set', 'export:step', 'export:mesh', 'export:drawing');
+    if (kinds.has('solid')) out.push('tool:move', 'tool:rotate', 'tool:scale', 'duplicate', 'create-outline', 'toggle-points', 'place', 'dimension', 'tool:mirror', 'tool:rect-array', 'tool:radial-array', 'tool:curve-array', 'unify', 'boundary-edges', 'remove-fillets', 'raise-degree', 'deform-curve', 'delete', 'hide', 'isolate', 'group', 'lock', 'material:set', 'export:step', 'export:mesh', 'export:drawing');
     if (kinds.has('face')) out.push('tool:extrude', 'tool:offset', 'tool:thicken', 'tool:shell', 'tool:hole', 'tool:remove-face', 'remove-fillets', 'isoparam', 'rebuild', 'raise-degree', 'subdivide', 'match-face', 'untrim', 'unwrap', 'toggle-points', 'plane:selection', 'plane:selection-keep-view');
     if (kinds.has('edge')) out.push('tool:fillet', 'tool:patch', 'alt-duplicate', 'measure:radius', 'view:surface-curvature');
     if (sel.list('edge').length === 2) out.push('tool:bridge-surface');

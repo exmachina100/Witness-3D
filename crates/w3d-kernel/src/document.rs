@@ -865,6 +865,29 @@ impl<K: Kernel> Document<K> {
 
     /// Plasticity's Isoparam, without changing the document: the curve on face `face` through
     /// `point` along the face's u (v held) or v, cut to the face.
+    /// Plasticity's Deform Solid and Sheet, without changing the document: `bodies` wrapped from
+    /// face `rface` of body `reference` onto face `tface` of body `target`.
+    pub fn preview_deform(&self, bodies: &[BodyId], reference: BodyId, rface: u32, target: BodyId, tface: u32, opts: &crate::DeformOptions) -> Result<Vec<K::Solid>, KernelError> {
+        if bodies.is_empty() { return Err(KernelError::Invalid("select the solids or sheets to deform")) }
+        let all = bodies.iter().map(|b| self.get(*b).ok_or(KernelError::Invalid("that body no longer exists"))).collect::<Result<Vec<_>, _>>()?;
+        let r = self.get(reference).ok_or(KernelError::Invalid("the reference body no longer exists"))?;
+        let t = self.get(target).ok_or(KernelError::Invalid("the target body no longer exists"))?;
+        if bodies.contains(&target) { return Err(KernelError::Invalid("deform onto another body's face, not one being deformed")) }
+        self.kernel.deform(&all, r, rface, t, tface, opts)
+    }
+
+    /// Deform Solid and Sheet as one undoable step. The bodies keep their ids, or with `keep` stay
+    /// as they were and the deformed copies are new bodies. Returns the deformed bodies' ids.
+    pub fn commit_deform(&mut self, bodies: &[BodyId], reference: BodyId, rface: u32, target: BodyId, tface: u32, opts: &crate::DeformOptions, keep: bool) -> Result<Vec<BodyId>, KernelError> {
+        let made = self.preview_deform(bodies, reference, rface, target, tface, opts)?;
+        self.checkpoint();
+        if keep { return Ok(made.into_iter().map(|s| self.add_unrecorded(s)).collect()) }
+        for (id, solid) in bodies.iter().zip(made) {
+            self.replace_traced(*id, Traced { solid, history: History::default() });
+        }
+        Ok(bodies.to_vec())
+    }
+
     /// Deform Curve: face coordinates of points on a face of `body`, or points from them (see Kernel::face_uvn).
     pub fn face_uvn(&self, body: BodyId, face: u32, map: bool, points: &[DVec3]) -> Result<([f64; 2], Vec<DVec3>), KernelError> {
         let s = self.get(body).ok_or(KernelError::Invalid("that body no longer exists"))?;
