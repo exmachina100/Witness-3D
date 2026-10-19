@@ -74,7 +74,7 @@ import { limitEdges, toObj, toStl } from '../meshExport.js';
 import { flatten, toDxf, toSvg } from '../drawingExport.js';
 import { readDxf } from '../dxf.js';
 import { distanceToFace } from '../dependentOffset.js';
-import { BRIDGE_CONTINUITY, bridgeContinuous, continuity, curvatureComb, curveVertices, explode, EXTEND_SHAPES, extendCurve, filletCurve, nearestEnd, OFFSET_CORNERS, offsetCurve, offsetSlot, offsetThrough, unionLoops, moveVertices, alignedInPlane, offsetVertex, rebuildCurve, convertVertices, insertKnotAt, raiseDegree, reverseCurve, transformCurve, moveVerticesTo, splitCurve, tangentCircle, trim } from '../curveEdit.js';
+import { BRIDGE_CONTINUITY, bridgeContinuous, continuity, curvatureComb, curveVertices, explode, EXTEND_SHAPES, extendCurve, filletCurve, nearestEnd, OFFSET_CORNERS, offsetCurve, offsetSlot, offsetThrough, unionLoops, moveVertices, alignedInPlane, offsetVertex, rebuildCurve, convertVertices, insertKnotAt, raiseDegree, reverseCurve, transformCurve, moveVerticesTo, slideCurveCVs, splitCurve, tangentCircle, trim } from '../curveEdit.js';
 import { ViewGizmo } from './ViewGizmo.js';
 import { Toolbar } from './Toolbar.js';
 import { arcPoints, circleThrough, cvPoints, ellipsePoints, endTangent, helixPoints, loops, nurbsLoop, nurbsPoints, polygonCorners, spiralAngle, tangentArc } from '../curves.js';
@@ -109,6 +109,7 @@ const KEYS = {
   'tangent-arc': [['CLICK', 'CURVE END · SIZE'], ['D', 'FLIP'], ['ALT', 'NO SNAP'], ['ESC', 'CANCEL']],
   spiral: [['CLICK', 'AXIS START · END · RADIUS'], ['X Y Z', 'AXIS'], ['A', 'ANGLE'], ['D', 'LENGTH'], ['R', 'RADIUS'], ['⏎ / RMB', 'OK']],
   'offset-vertex': [['DRAG DOT', 'DISTANCE'], ['D', 'DISTANCE'], ['⏎ / RMB', 'OK']],
+  slide: [['DRAG DOT', 'DISTANCE'], ['D', 'DISTANCE'], ['U', 'POSITIVE U'], ['⇧U', 'NEGATIVE U'], ['N', 'NORMAL'], ['⏎ / RMB', 'OK']],
   'align-vertex': [['X / Y / Z', 'AXIS'], ['V', 'VALUE'], ['⏎ / RMB', 'OK']],
   rebuild: [['C', 'CONTROL POINTS'], ['D', 'DEGREE'], ['⏎ / RMB', 'OK']],
   'match-face': [['CLICK', 'TARGET FACE'], ['⇧ CLICK', 'FACES'], ['TAB', 'GROW'], ['⏎ / RMB', 'OK']],
@@ -172,7 +173,7 @@ const CLICKS = { rect: 2, 'center-rect': 2, rect3: 3, circle: 2, circle2: 2, cir
 const FORMS = { revolve: true, loft: true, sweep: true };
 const PRIMS = { box: true, 'center-box': true, box3: true, cylinder: true, sphere: true };
 // Commands that aren't tools in the registry (they act on a click, not on settings).
-const EDITS = { isoparam: 'ISOPARAM', 'offset-vertex': 'OFFSET VERTEX', 'fillet-vertex': 'FILLET VERTEX', 'align-vertex': 'ALIGN VERTEX', rebuild: 'REBUILD CURVE', 'rebuild-face': 'REBUILD FACE', 'match-face': 'MATCH FACE', untrim: 'UNTRIM', unwrap: 'UNWRAP FACE', section: 'SECTION ANALYSIS', place: 'PLACE', dimension: 'DIMENSION', text: 'TEXT', 'insert-knot': 'INSERT KNOT', 'offset-edge': 'OFFSET EDGE', material: 'SET MATERIAL', 'export-mesh': 'EXPORT MESH', 'export-drawing': 'EXPORT DRAWING', 'measure-continuity': 'MEASURE CONTINUITY', trim: 'TRIM', extend: 'EXTEND CURVE', 'tangent-circle': 'TANGENT CIRCLE', split: 'SPLIT CURVE', 'measure-distance': 'MEASURE DISTANCE', 'measure-radius': 'MEASURE RADIUS' };
+const EDITS = { isoparam: 'ISOPARAM', 'offset-vertex': 'OFFSET VERTEX', slide: 'SLIDE CURVE CV', 'fillet-vertex': 'FILLET VERTEX', 'align-vertex': 'ALIGN VERTEX', rebuild: 'REBUILD CURVE', 'rebuild-face': 'REBUILD FACE', 'match-face': 'MATCH FACE', untrim: 'UNTRIM', unwrap: 'UNWRAP FACE', section: 'SECTION ANALYSIS', place: 'PLACE', dimension: 'DIMENSION', text: 'TEXT', 'insert-knot': 'INSERT KNOT', 'offset-edge': 'OFFSET EDGE', material: 'SET MATERIAL', 'export-mesh': 'EXPORT MESH', 'export-drawing': 'EXPORT DRAWING', 'measure-continuity': 'MEASURE CONTINUITY', trim: 'TRIM', extend: 'EXTEND CURVE', 'tangent-circle': 'TANGENT CIRCLE', split: 'SPLIT CURVE', 'measure-distance': 'MEASURE DISTANCE', 'measure-radius': 'MEASURE RADIUS' };
 const keysHtml = id => KEYS[id].map(([k, v]) => `<kbd>${k}</kbd><span>${v}</span>`).join('');
 // The Command Bar, exactly the manual's list (Plasticity Essentials › Command Bar).
 const BAR = [['palette', 'F', 'SEARCH'], ['tool:move', 'G', 'MOVE'], ['tool:rotate', 'R', 'ROTATE'], ['tool:scale', 'S', 'SCALE'], ['duplicate', '⇧D', 'DUPLICATE'], ['tool:boolean', 'Q', 'BOOLEAN'], ['tool:rect-array', '', 'RECTANGULAR ARRAY'], ['tool:radial-array', '', 'RADIAL ARRAY'], ['suggest', '⇧F', 'SUGGESTED COMMANDS']];
@@ -365,6 +366,12 @@ const SHELL = `
     <div class="sec" data-panel="offset-vertex" hidden>
       <span class="hint" data-id="ov-hint">—</span>
       <div class="field"><label for="w3d-ov-d">DISTANCE</label><input id="w3d-ov-d" data-id="ov-d" type="number" step="0.5" min="0.001" value="2"></div>
+    </div>
+    <div class="sec" data-panel="slide" hidden>
+      <span class="hint" data-id="sl-hint">—</span>
+      <div class="field"><label for="w3d-sl-d">DISTANCE</label><input id="w3d-sl-d" data-id="sl-d" type="number" step="0.5" value="0" title="How far the control points slide (D)"></div>
+      <span class="label">DIRECTION</span>
+      <div class="seg" role="group" aria-label="Slide direction"><button data-sldir="u" aria-pressed="true" title="Along the control cage (U)"><kbd>U</kbd>+U</button><button data-sldir="-u" aria-pressed="false" title="Back along the control cage (Shift+U)"><kbd>⇧U</kbd>−U</button><button data-sldir="n" aria-pressed="false" title="Across the cage, in the curve's plane (N)"><kbd>N</kbd>NORMAL</button></div>
     </div>
     <div class="sec" data-panel="align-vertex" hidden>
       <span class="hint" data-id="av-hint">—</span>
@@ -759,10 +766,10 @@ const VIEWS = {
 export async function mount(root, backend) {
   root.innerHTML = SHELL;
   // Panel options carry their icon ahead of the key and name.
-  for (const b of root.querySelectorAll('[data-draw],[data-bop],[data-xop],[data-fop],[data-spiral],[data-toggle],[data-gmethod],[data-galign],[data-grow],[data-mfgrow],[data-eslimit],[data-flshape],[data-avaxis],[data-extshape],[data-esshape],[data-isodir],[data-id="oe-both"],[data-id="ex-lock"],[data-id="bool-keep"],[data-id="ex-free"],[data-id="ex-pivot"],[data-id="ex-individual"],[data-id="dr-hidden"],[data-id="dr-curves"],[data-id="oc-lock"],[data-id="oc-free"],[data-id="oc-slot"],[data-id="oc-combine"],[data-id="es-unlimit"],[data-rbmethod],[data-oecorner],[data-saplane],[data-plaxis],[data-plop],[data-id="pl-flip"],[data-id="section-btn"],[data-id="sa-flip"],[data-id="rf-shrink"],[data-id="ut-keep"],[data-txfont],[data-txalign]')) {
+  for (const b of root.querySelectorAll('[data-draw],[data-bop],[data-xop],[data-fop],[data-spiral],[data-toggle],[data-gmethod],[data-galign],[data-grow],[data-mfgrow],[data-eslimit],[data-flshape],[data-avaxis],[data-extshape],[data-esshape],[data-isodir],[data-id="oe-both"],[data-id="ex-lock"],[data-id="bool-keep"],[data-id="ex-free"],[data-id="ex-pivot"],[data-id="ex-individual"],[data-id="dr-hidden"],[data-id="dr-curves"],[data-id="oc-lock"],[data-id="oc-free"],[data-id="oc-slot"],[data-id="oc-combine"],[data-id="es-unlimit"],[data-rbmethod],[data-oecorner],[data-saplane],[data-plaxis],[data-plop],[data-id="pl-flip"],[data-id="section-btn"],[data-id="sa-flip"],[data-id="rf-shrink"],[data-id="ut-keep"],[data-txfont],[data-txalign],[data-sldir]')) {
     const name = b.dataset.draw ?? b.dataset.bop ?? b.dataset.xop ?? b.dataset.fop ?? b.dataset.spiral ?? (b.dataset.toggle && `view-${b.dataset.toggle}`)
       ?? (b.dataset.gmethod && `guide-${b.dataset.gmethod}`) ?? (b.dataset.galign && `align-${b.dataset.galign}`) ?? (b.dataset.grow && `grow-${b.dataset.grow}`) ?? (b.dataset.mfgrow && `grow-${b.dataset.mfgrow}`) ?? (b.dataset.eslimit && `limit-${b.dataset.eslimit}`) ?? (b.dataset.flshape && `fillet-${b.dataset.flshape}`) ?? (b.dataset.avaxis && `axis-${b.dataset.avaxis}`) ?? (b.dataset.extshape && `extend-${b.dataset.extshape}`) ?? (b.dataset.esshape && `extend-${b.dataset.esshape}`) ?? (b.dataset.isodir && `iso-${b.dataset.isodir}`) ?? (b.dataset.rbmethod && `rebuild-${b.dataset.rbmethod}`) ?? (b.dataset.oecorner && `corner-${b.dataset.oecorner}`) ?? (b.dataset.saplane && `section-${b.dataset.saplane}`) ?? (b.dataset.plaxis && (b.dataset.plaxis === 'normal' ? 'place-normal' : `axis-${b.dataset.plaxis}`)) ?? b.dataset.plop
-      ?? (b.dataset.txfont && `font-${b.dataset.txfont}`) ?? (b.dataset.txalign && `txalign-${b.dataset.txalign}`)
+      ?? (b.dataset.txfont && `font-${b.dataset.txfont}`) ?? (b.dataset.txalign && `txalign-${b.dataset.txalign}`) ?? (b.dataset.sldir && `slide-${b.dataset.sldir === '-u' ? 'back' : b.dataset.sldir}`)
       ?? { 'ex-lock': 'lock', 'bool-keep': 'keep', 'ex-free': 'freestyle', 'ex-pivot': 'pivot', 'ex-individual': 'individual', 'dr-hidden': 'hidden-lines', 'dr-curves': 'drawing-curves', 'oc-lock': 'lock', 'oc-free': 'freestyle', 'oc-slot': 'slot', 'oc-combine': 'combine', 'oe-both': 'both-sides', 'es-unlimit': 'unlimit', 'rf-shrink': 'shrink', 'ut-keep': 'keep-edges', 'section-btn': 'view-section', 'sa-flip': 'flip', 'pl-flip': 'flip' }[b.dataset.id];
     b.insertAdjacentHTML('afterbegin', icon(name));
   }
@@ -3876,6 +3883,70 @@ export async function mount(root, backend) {
     };
     c.abort = () => endCmd('cancelled');
     c.cleanup = () => { c.gizmo?.dispose(); clearPreview(); };
+    c.preview();
+  }
+
+  /**
+   * Plasticity's Slide Curve CV (Shift+G): the picked control points of spline and control point
+   * curves slide along the control cage (U, Shift+U the other way) or across it (N). Drag the dot or
+   * press D and type; Enter or right-click applies.
+   */
+  function startSlide() {
+    if (!backend.replaceCurves) return toast('SLIDE IS NOT IN THIS BUILD YET');
+    const picked = sel.list('vertex').filter(v => ['cv', 'spline', 'nurbs'].includes(curveById(v.id)?.kind));
+    if (!picked.length) return toast('SELECT CONTROL POINTS OF A SPLINE OR CONTROL POINT CURVE TO SLIDE');
+    const c = cmd = { id: 'slide', dir: 'u', out: null, gizmo: null };
+    lastTool = 'slide';
+    showTool('slide');
+    setState('none');
+    const curves = [...new Set(picked.map(v => v.id))];
+    setTarget(curves.length === 1 ? curveLabel(curves[0]) : `${curves.length} CURVES`);
+    c.compute = () => curves.map(id => slideCurveCVs(curveById(id), picked.filter(v => v.id === id).map(v => v.n), num('sl-d'), c.dir));
+    const buttons = () => { for (const b of $$('[data-sldir]')) b.setAttribute('aria-pressed', String(b.dataset.sldir === c.dir)); };
+    // The dot sits on the first point and points the way it slides.
+    const place = () => {
+      c.gizmo?.dispose();
+      c.gizmo = null;
+      const first = picked[0], src = curveById(first.id), f = curveFrame(src);
+      const [moved] = [slideCurveCVs(src, [first.n], 1, c.dir)];
+      const here = curveVertices(src)[first.n], there = curveVertices(moved)[first.n];
+      const at = lift(f, { x: here[0], y: here[1] }), dir = lift(f, { x: there[0], y: there[1] }).sub(at).normalize();
+      c.gizmo = dot(at, dir, v => { $('sl-d').value = +v.toFixed(3); c.preview(); });
+    };
+    c.preview = () => {
+      clearPreview();
+      c.gizmo?.render(num('sl-d'));
+      try {
+        c.out = c.compute();
+        showCurvePreview(c.out);
+        $('sl-hint').textContent = `${picked.length} CONTROL POINT${picked.length > 1 ? 'S' : ''} ON ${curves.length} CURVE${curves.length > 1 ? 'S' : ''}`;
+        setHud(`SLIDE ${c.dir.toUpperCase()} ${num('sl-d')} MM`);
+        setState(num('sl-d') ? 'updated' : 'none');
+      } catch (e) { c.out = null; $('sl-hint').textContent = say(e); setHud('SLIDE FAILED'); setState('failed'); }
+    };
+    c.setDir = d => { c.dir = d; buttons(); try { place(); } catch { /* the hint says why */ } c.preview(); };
+    c.key = action => {
+      if (action === 'u' || action === '-u' || action === 'n') { c.setDir(action); return true; }
+      if (action !== 'distance') return false;
+      c.entry = { label: 'DISTANCE', text: '', apply: v => { $('sl-d').value = v; c.preview(); } };
+      setHud('DISTANCE _');
+      return true;
+    };
+    c.finish = async () => {
+      if (!c.out) return toast($('sl-hint').textContent);
+      if (!num('sl-d')) return endCmd(null);
+      try {
+        const { ids: made } = await backend.replaceCurves(curves, c.out);
+        endCmd('committed');
+        record(`SLIDE ${c.dir.toUpperCase()} ${num('sl-d')} MM`, made[0], curveLabel(made[0]));
+        await curvesChanged(made);
+      } catch (e) { setState('failed'); toast(say(e)); }
+    };
+    c.abort = () => endCmd('cancelled');
+    c.cleanup = () => { c.gizmo?.dispose(); clearPreview(); };
+    $('sl-d').value = 0;
+    buttons();
+    try { place(); } catch { /* the preview says why */ }
     c.preview();
   }
 
@@ -7212,6 +7283,7 @@ export async function mount(root, backend) {
       case 'dimension': if (cmd) await finish(); await startDimension(); return true;
       case 'place': if (cmd) await finish(); startPlace(); return true;
       case 'text': if (cmd) await finish(); startText(); return true;
+      case 'slide': if (cmd) await finish(); startSlide(); return true;
       case 'section': if (cmd && cmd.id !== 'section') await finish(); if (cmd?.id !== 'section') startSection(); return true;
       case 'reverse-sheet': await reverseSheets(); return true;
       // Plasticity's Slot: Offset Curve with Offset Region's slot on (an open curve closed round its ends).
@@ -7379,7 +7451,7 @@ export async function mount(root, backend) {
       out.push('explode', 'reverse', 'rebuild', 'insert-knot', 'raise-degree', 'measure:continuity', 'delete');
     }
     // Curve vertices: Fillet Vertex (B), Offset Vertex and, with two ends, Bridge Vertex.
-    if (kinds.has('vertex')) out.push('tool:fillet', 'tool:offset-curve', 'align-vertex', 'convert-vertex', ...(sel.list('vertex').length === 2 ? ['tool:bridge'] : []));
+    if (kinds.has('vertex')) out.push('tool:fillet', 'tool:offset-curve', 'slide', 'align-vertex', 'convert-vertex', ...(sel.list('vertex').length === 2 ? ['tool:bridge'] : []));
     if (kinds.size) out.push('convert:solid', 'select:invert', 'view:focus');
     else out.push('draw:line', 'draw:spline', 'draw:rect', 'draw:circle', 'draw:arc3', 'text', 'tool:box', 'tool:cylinder', 'tool:sphere', 'select:all', 'unhide-all', 'plane:view');
     if (!kinds.size && org.layers.length) out.push('isolate', 'unisolate');
@@ -7776,7 +7848,8 @@ export async function mount(root, backend) {
   $('oe-both').onclick = () => cmd?.id === 'offset-edge' && cmd.setBoth(!cmd.both);
   for (const b of $$('[data-isodir]')) b.onclick = () => cmd?.id === 'isoparam' && cmd.setDir(b.dataset.isodir === 'u');
   for (const b of $$('[data-avaxis]')) b.onclick = () => cmd?.id === 'align-vertex' && cmd.setAxis(b.dataset.avaxis);
-  for (const id of ['oc-d', 'fc-r', 'ov-d', 'fv-r']) $(id).addEventListener('input', () => ['offset-curve', 'fillet-curve', 'offset-vertex', 'fillet-vertex'].includes(cmd?.id) && cmd.preview());
+  for (const id of ['oc-d', 'fc-r', 'ov-d', 'fv-r', 'sl-d']) $(id).addEventListener('input', () => ['offset-curve', 'fillet-curve', 'offset-vertex', 'fillet-vertex', 'slide'].includes(cmd?.id) && cmd.preview());
+  for (const b of $$('[data-sldir]')) b.onclick = () => cmd?.id === 'slide' && cmd.setDir(b.dataset.sldir);
   $('br-start').onclick = () => cmd?.id === 'bridge' && cmd.cycleEnd(0);
   $('br-end').onclick = () => cmd?.id === 'bridge' && cmd.cycleEnd(1);
   $('oc-lock').onclick = () => cmd?.id === 'offset-curve' && cmd.key('lock');
