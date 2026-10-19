@@ -63,6 +63,7 @@ import { curveArrayMotions } from '../curveArray.js';
 import { curveDimensions, faceDimensions, solidDimensions } from '../dimension.js';
 import { edgeCurve, flattenCurve } from '../altDuplicate.js';
 import { liftPiece, meshSilhouette, nearestOver } from '../createOutline.js';
+import { FONTS, parseFont, textShapes } from '../text.js';
 import { Organise } from './Organise.js';
 import { P_MENU, RADIALS, mergeKeys, parseRadial, shortLabel, showKey, sliceAt, slicePosition } from './menus.js';
 import { ENVIRONMENTS, SHADERS, SHADER_OPTIONS, checkMaterial, formatMass, massOf, newMaterial, shader } from './shading.js';
@@ -114,6 +115,7 @@ const KEYS = {
   unwrap: [['⇧ CLICK', 'FACES'], ['⏎ / RMB', 'OK']],
   section: [['D', 'DISTANCE'], ['F', 'FLIP'], ['⏎ / RMB', 'OK']],
   dimension: [['TAB', 'NEXT SIZE'], ['TYPE', 'NEW VALUE'], ['⏎ / RMB', 'OK']],
+  text: [['TYPE', 'THE TEXT'], ['CTRL ⏎ / RMB', 'OK'], ['ESC', 'CANCEL']],
   place: [['CLICK', 'FROM, THEN TO'], ['S', 'SCALE'], ['A', 'ANGLE'], ['D', 'OFFSET'], ['F', 'FLIP'], ['X Y Z', 'AXIS'], ['Q W ⇧E ⇧Q B', 'BOOLEAN'], ['CLICK', 'PLACE ANOTHER'], ['⏎ / RMB', 'OK']],
   'rebuild-face': [['M', 'METHOD'], ['T', 'TOLERANCE'], ['D', 'DEGREE'], ['S', 'SPANS'], ['E', 'EXTEND'], ['H', 'SHRINK'], ['⇧ CLICK', 'FACES'], ['⏎ / RMB', 'OK']],
   'fillet-vertex': [['DRAG DOT', 'IN ROUND · OUT CHAMFER'], ['D', 'FILLET DISTANCE'], ['C', 'CHAMFER DISTANCE'], ['⏎ / RMB', 'OK']],
@@ -169,7 +171,7 @@ const CLICKS = { rect: 2, 'center-rect': 2, rect3: 3, circle: 2, circle2: 2, cir
 const FORMS = { revolve: true, loft: true, sweep: true };
 const PRIMS = { box: true, 'center-box': true, box3: true, cylinder: true, sphere: true };
 // Commands that aren't tools in the registry (they act on a click, not on settings).
-const EDITS = { isoparam: 'ISOPARAM', 'offset-vertex': 'OFFSET VERTEX', 'fillet-vertex': 'FILLET VERTEX', 'align-vertex': 'ALIGN VERTEX', rebuild: 'REBUILD CURVE', 'rebuild-face': 'REBUILD FACE', 'match-face': 'MATCH FACE', untrim: 'UNTRIM', unwrap: 'UNWRAP FACE', section: 'SECTION ANALYSIS', place: 'PLACE', dimension: 'DIMENSION', 'insert-knot': 'INSERT KNOT', 'offset-edge': 'OFFSET EDGE', material: 'SET MATERIAL', 'export-mesh': 'EXPORT MESH', 'export-drawing': 'EXPORT DRAWING', 'measure-continuity': 'MEASURE CONTINUITY', trim: 'TRIM', extend: 'EXTEND CURVE', 'tangent-circle': 'TANGENT CIRCLE', split: 'SPLIT CURVE', 'measure-distance': 'MEASURE DISTANCE', 'measure-radius': 'MEASURE RADIUS' };
+const EDITS = { isoparam: 'ISOPARAM', 'offset-vertex': 'OFFSET VERTEX', 'fillet-vertex': 'FILLET VERTEX', 'align-vertex': 'ALIGN VERTEX', rebuild: 'REBUILD CURVE', 'rebuild-face': 'REBUILD FACE', 'match-face': 'MATCH FACE', untrim: 'UNTRIM', unwrap: 'UNWRAP FACE', section: 'SECTION ANALYSIS', place: 'PLACE', dimension: 'DIMENSION', text: 'TEXT', 'insert-knot': 'INSERT KNOT', 'offset-edge': 'OFFSET EDGE', material: 'SET MATERIAL', 'export-mesh': 'EXPORT MESH', 'export-drawing': 'EXPORT DRAWING', 'measure-continuity': 'MEASURE CONTINUITY', trim: 'TRIM', extend: 'EXTEND CURVE', 'tangent-circle': 'TANGENT CIRCLE', split: 'SPLIT CURVE', 'measure-distance': 'MEASURE DISTANCE', 'measure-radius': 'MEASURE RADIUS' };
 const keysHtml = id => KEYS[id].map(([k, v]) => `<kbd>${k}</kbd><span>${v}</span>`).join('');
 // The Command Bar, exactly the manual's list (Plasticity Essentials › Command Bar).
 const BAR = [['palette', 'F', 'SEARCH'], ['tool:move', 'G', 'MOVE'], ['tool:rotate', 'R', 'ROTATE'], ['tool:scale', 'S', 'SCALE'], ['duplicate', '⇧D', 'DUPLICATE'], ['tool:boolean', 'Q', 'BOOLEAN'], ['tool:rect-array', '', 'RECTANGULAR ARRAY'], ['tool:radial-array', '', 'RADIAL ARRAY'], ['suggest', '⇧F', 'SUGGESTED COMMANDS']];
@@ -399,6 +401,15 @@ const SHELL = `
     <div class="sec" data-panel="dimension" hidden>
       <span class="hint" data-id="dm-hint">—</span>
       <div data-id="dm-fields"></div>
+    </div>
+    <div class="sec" data-panel="text" hidden>
+      <span class="hint" data-id="tx-hint">TYPE THE TEXT</span>
+      <textarea data-id="tx-text" rows="3" spellcheck="false" title="The text; each line its own row">TEXT</textarea>
+      <span class="label">FONT</span>
+      <div class="seg" role="group" aria-label="Font">${FONTS.map(([name], i) => `<button data-txfont="${i}" aria-pressed="${i === 0}" title="${['A plain sans-serif (Outfit)', 'A serif (Lora)', 'A monospace (JetBrains Mono)'][i]}">${name}</button>`).join('')}</div>
+      <span class="label">ALIGN</span>
+      <div class="seg" role="group" aria-label="Align"><button data-txalign="left" aria-pressed="true" title="Lines start at the click">LEFT</button><button data-txalign="center" aria-pressed="false" title="Lines centred on the click">CENTER</button><button data-txalign="right" aria-pressed="false" title="Lines end at the click">RIGHT</button></div>
+      <div class="field"><label for="w3d-tx-size">SIZE</label><input id="w3d-tx-size" data-id="tx-size" type="number" step="1" min="0.1" value="10" title="The height of the font's em, in mm"></div>
     </div>
     <div class="sec" data-panel="place" hidden>
       <span class="hint" data-id="pl-hint">—</span>
@@ -747,9 +758,10 @@ const VIEWS = {
 export async function mount(root, backend) {
   root.innerHTML = SHELL;
   // Panel options carry their icon ahead of the key and name.
-  for (const b of root.querySelectorAll('[data-draw],[data-bop],[data-xop],[data-fop],[data-spiral],[data-toggle],[data-gmethod],[data-galign],[data-grow],[data-mfgrow],[data-eslimit],[data-flshape],[data-avaxis],[data-extshape],[data-esshape],[data-isodir],[data-id="oe-both"],[data-id="ex-lock"],[data-id="bool-keep"],[data-id="ex-free"],[data-id="ex-pivot"],[data-id="ex-individual"],[data-id="dr-hidden"],[data-id="dr-curves"],[data-id="oc-lock"],[data-id="oc-free"],[data-id="oc-slot"],[data-id="oc-combine"],[data-id="es-unlimit"],[data-rbmethod],[data-oecorner],[data-saplane],[data-plaxis],[data-plop],[data-id="pl-flip"],[data-id="section-btn"],[data-id="sa-flip"],[data-id="rf-shrink"],[data-id="ut-keep"]')) {
+  for (const b of root.querySelectorAll('[data-draw],[data-bop],[data-xop],[data-fop],[data-spiral],[data-toggle],[data-gmethod],[data-galign],[data-grow],[data-mfgrow],[data-eslimit],[data-flshape],[data-avaxis],[data-extshape],[data-esshape],[data-isodir],[data-id="oe-both"],[data-id="ex-lock"],[data-id="bool-keep"],[data-id="ex-free"],[data-id="ex-pivot"],[data-id="ex-individual"],[data-id="dr-hidden"],[data-id="dr-curves"],[data-id="oc-lock"],[data-id="oc-free"],[data-id="oc-slot"],[data-id="oc-combine"],[data-id="es-unlimit"],[data-rbmethod],[data-oecorner],[data-saplane],[data-plaxis],[data-plop],[data-id="pl-flip"],[data-id="section-btn"],[data-id="sa-flip"],[data-id="rf-shrink"],[data-id="ut-keep"],[data-txfont],[data-txalign]')) {
     const name = b.dataset.draw ?? b.dataset.bop ?? b.dataset.xop ?? b.dataset.fop ?? b.dataset.spiral ?? (b.dataset.toggle && `view-${b.dataset.toggle}`)
       ?? (b.dataset.gmethod && `guide-${b.dataset.gmethod}`) ?? (b.dataset.galign && `align-${b.dataset.galign}`) ?? (b.dataset.grow && `grow-${b.dataset.grow}`) ?? (b.dataset.mfgrow && `grow-${b.dataset.mfgrow}`) ?? (b.dataset.eslimit && `limit-${b.dataset.eslimit}`) ?? (b.dataset.flshape && `fillet-${b.dataset.flshape}`) ?? (b.dataset.avaxis && `axis-${b.dataset.avaxis}`) ?? (b.dataset.extshape && `extend-${b.dataset.extshape}`) ?? (b.dataset.esshape && `extend-${b.dataset.esshape}`) ?? (b.dataset.isodir && `iso-${b.dataset.isodir}`) ?? (b.dataset.rbmethod && `rebuild-${b.dataset.rbmethod}`) ?? (b.dataset.oecorner && `corner-${b.dataset.oecorner}`) ?? (b.dataset.saplane && `section-${b.dataset.saplane}`) ?? (b.dataset.plaxis && (b.dataset.plaxis === 'normal' ? 'place-normal' : `axis-${b.dataset.plaxis}`)) ?? b.dataset.plop
+      ?? (b.dataset.txfont && `font-${b.dataset.txfont}`) ?? (b.dataset.txalign && `txalign-${b.dataset.txalign}`)
       ?? { 'ex-lock': 'lock', 'bool-keep': 'keep', 'ex-free': 'freestyle', 'ex-pivot': 'pivot', 'ex-individual': 'individual', 'dr-hidden': 'hidden-lines', 'dr-curves': 'drawing-curves', 'oc-lock': 'lock', 'oc-free': 'freestyle', 'oc-slot': 'slot', 'oc-combine': 'combine', 'oe-both': 'both-sides', 'es-unlimit': 'unlimit', 'rf-shrink': 'shrink', 'ut-keep': 'keep-edges', 'section-btn': 'view-section', 'sa-flip': 'flip', 'pl-flip': 'flip' }[b.dataset.id];
     b.insertAdjacentHTML('afterbegin', icon(name));
   }
@@ -4449,6 +4461,76 @@ export async function mount(root, backend) {
     show();
   }
 
+  /** The Text command's fonts, read once each (src/fonts, SIL Open Font License). */
+  const fontCache = new Map();
+  const FONT_URLS = [new URL('../fonts/Outfit-Regular.ttf', import.meta.url), new URL('../fonts/Lora-Regular.ttf', import.meta.url), new URL('../fonts/JetBrainsMono-Regular.ttf', import.meta.url)];
+  function loadFont(i) {
+    if (!fontCache.has(i)) fontCache.set(i, fetch(FONT_URLS[i]).then(r => { if (!r.ok) throw new Error(`the ${FONTS[i][0].toLowerCase()} font did not load`); return r.arrayBuffer(); }).then(parseFont));
+    return fontCache.get(i).catch(e => { fontCache.delete(i); throw e; });
+  }
+
+  /**
+   * Plasticity's Text: typed text as curves on the construction plane, in a font and size, reading
+   * from above with its first baseline through the plane's origin. Each letter outline is a closed
+   * curve (a region), so Extrude makes it solid; a letter's hole is its own region to cut.
+   * Ctrl+Enter, right-click or OK makes the curves; Escape cancels.
+   */
+  function startText() {
+    const c = cmd = { id: 'text', font: 0, align: 'left', shapes: [], seq: 0 };
+    lastTool = 'text';
+    showTool('text');
+    setState('none');
+    setTarget(`PLANE ${cplane.name ?? ''}`.trim());
+    const area = $('tx-text'), size = $('tx-size');
+    const n = cplane.normal.clone().normalize();
+    let x = new THREE.Vector3(1, 0, 0).projectOnPlane(n);
+    if (x.lengthSq() < 1e-6) x = new THREE.Vector3(0, 0, -1).projectOnPlane(n);
+    x.normalize();
+    const frame = { origin: cplane.origin.toArray(), x: x.toArray(), normal: n.toArray() };
+    const buttons = () => {
+      for (const b of $$('[data-txfont]')) b.setAttribute('aria-pressed', String(+b.dataset.txfont === c.font));
+      for (const b of $$('[data-txalign]')) b.setAttribute('aria-pressed', String(b.dataset.txalign === c.align));
+    };
+    c.preview = async () => {
+      const seq = ++c.seq;
+      const h = parseFloat(size.value);
+      let font;
+      try { font = await loadFont(c.font); } catch (e) { return toast(say(e)); }
+      if (cmd !== c || seq !== c.seq) return;
+      const { shapes, width } = h > 0 ? textShapes(font, area.value, h, c.align) : { shapes: [], width: 0 };
+      c.shapes = shapes.map(sh => ({ ...frame, kind: 'nurbs', ...sh }));
+      clearPreview();
+      showCurvePreview(c.shapes);
+      const t = `${c.shapes.length} CURVE${c.shapes.length === 1 ? '' : 'S'} · ${width.toFixed(1)} WIDE`;
+      $('tx-hint').textContent = t;
+      setHud(`TEXT ${FONTS[c.font][0]} ${h > 0 ? h : '—'} · ${t}`);
+    };
+    c.setFont = i => { c.font = i; buttons(); c.preview(); };
+    c.setAlign = a => { c.align = a; buttons(); c.preview(); };
+    area.oninput = size.oninput = () => c.preview();
+    area.onkeydown = e => {
+      if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) { e.preventDefault(); area.blur(); finish(); }
+      else if (e.key === 'Escape') { e.preventDefault(); area.blur(); cmd?.abort(); }
+    };
+    c.finish = async () => {
+      await c.preview();
+      if (cmd !== c) return;
+      if (!c.shapes.length) { setState('failed'); return toast('TYPE SOME TEXT WITH LETTERS TO MAKE CURVES'); }
+      try {
+        const { ids } = await backend.addCurves(c.shapes);
+        record(`TEXT "${area.value.replace(/\n/g, ' ').slice(0, 24)}"`, ids[0], curveLabel(ids[0]));
+        endCmd('committed');
+        await curvesChanged(ids);
+      } catch (e) { setState('failed'); toast(say(e)); }
+    };
+    c.abort = () => endCmd('cancelled');
+    c.cleanup = () => { clearPreview(); area.oninput = size.oninput = area.onkeydown = null; };
+    buttons();
+    c.preview();
+    area.focus();
+    area.select();
+  }
+
   /**
    * Plasticity's Place (Ctrl+D): click a reference point on the selected solids, then a destination;
    * a copy lands there, its reference face against the destination face (or its up along the
@@ -7113,6 +7195,7 @@ export async function mount(root, backend) {
       case 'unwrap': if (cmd) await finish(); startUnwrap(); return true;
       case 'dimension': if (cmd) await finish(); await startDimension(); return true;
       case 'place': if (cmd) await finish(); startPlace(); return true;
+      case 'text': if (cmd) await finish(); startText(); return true;
       case 'section': if (cmd && cmd.id !== 'section') await finish(); if (cmd?.id !== 'section') startSection(); return true;
       case 'reverse-sheet': await reverseSheets(); return true;
       // Plasticity's Slot: Offset Curve with Offset Region's slot on (an open curve closed round its ends).
@@ -7282,7 +7365,7 @@ export async function mount(root, backend) {
     // Curve vertices: Fillet Vertex (B), Offset Vertex and, with two ends, Bridge Vertex.
     if (kinds.has('vertex')) out.push('tool:fillet', 'tool:offset-curve', 'align-vertex', 'convert-vertex', ...(sel.list('vertex').length === 2 ? ['tool:bridge'] : []));
     if (kinds.size) out.push('convert:solid', 'select:invert', 'view:focus');
-    else out.push('draw:line', 'draw:spline', 'draw:rect', 'draw:circle', 'draw:arc3', 'tool:box', 'tool:cylinder', 'tool:sphere', 'select:all', 'unhide-all', 'plane:view');
+    else out.push('draw:line', 'draw:spline', 'draw:rect', 'draw:circle', 'draw:arc3', 'text', 'tool:box', 'tool:cylinder', 'tool:sphere', 'select:all', 'unhide-all', 'plane:view');
     if (!kinds.size && org.layers.length) out.push('isolate', 'unisolate');
     if (!kinds.size && org.locked.size) out.push('unlock-all');
     return [...new Set(out)].map(a => ENTRIES.find(e => e.action === a)).filter(Boolean);
@@ -7669,6 +7752,8 @@ export async function mount(root, backend) {
   for (const b of $$('[data-plop]')) b.onclick = () => cmd?.id === 'place' && cmd.key(b.dataset.plop);
   $('sa-flip').onclick = () => cmd?.id === 'section' && cmd.key('flip');
   $('sa-d').oninput = () => cmd?.id === 'section' && cmd.preview();
+  for (const b of $$('[data-txfont]')) b.onclick = () => cmd?.id === 'text' && cmd.setFont(+b.dataset.txfont);
+  for (const b of $$('[data-txalign]')) b.onclick = () => cmd?.id === 'text' && cmd.setAlign(b.dataset.txalign);
   for (const b of $$('[data-saplane]')) b.onclick = () => cmd?.id === 'section' && cmd.setHow(b.dataset.saplane);
   $('oe-d').addEventListener('input', () => cmd?.id === 'offset-edge' && cmd.preview());
   for (const b of $$('[data-oecorner]')) b.onclick = () => cmd?.id === 'offset-edge' && cmd.setCorner(b.dataset.oecorner);
@@ -7729,6 +7814,8 @@ export async function mount(root, backend) {
   // viewport's (keymap.js).
   addEventListener('keydown', async e => {
     if (palette || asking) return;
+    // The Text command's box takes every key (its own handler finishes and cancels).
+    if (e.target.tagName === 'TEXTAREA') return;
     const inInput = e.target.tagName === 'INPUT';
     if (inInput && e.key !== 'Enter' && e.key !== 'Escape') return;
     if (inInput) e.target.blur();
