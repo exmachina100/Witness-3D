@@ -1463,6 +1463,20 @@ pub fn commit_move_face_poles(m: &Model, req: MoveFacePolesRequest) -> Result<Co
     })
 }
 
+/// Subdivide: `faces` of `body` with their spans doubled.
+#[derive(Deserialize, Debug, Clone)]
+pub struct SubdivideFacesRequest {
+    pub body: BodyId,
+    pub faces: Vec<u32>,
+}
+
+pub fn commit_subdivide_faces(m: &Model, req: SubdivideFacesRequest) -> Result<Committed, ApiError> {
+    m.call(move |doc| {
+        doc.commit_subdivide_faces(req.body, &req.faces)?;
+        Ok(Committed { id: req.body, scene: bodies(doc)? })
+    })
+}
+
 /// Rebuild Face: `faces` of `body` given new B-spline surfaces (see `FaceRebuild`).
 #[derive(Deserialize, Debug, Clone)]
 pub struct RebuildFacesRequest {

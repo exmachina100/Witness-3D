@@ -254,6 +254,13 @@ impl Shape {
         Ok(Shape::from_shape(&shape))
     }
 
+    /// Plasticity's Subdivide on faces: their spans doubled in u and v, shape unchanged.
+    pub fn subdivide_faces(&self, faces: &[usize]) -> Result<Shape, String> {
+        let faces: Vec<i32> = faces.iter().map(|&f| f as i32).collect();
+        let shape = ffi::w3d::w3d_subdivide_faces(&self.inner, &faces).map_err(reason)?;
+        Ok(Shape::from_shape(&shape))
+    }
+
     /// Numbers of the faces that look like fillets; with `seeds`, the fillet chains holding them.
     pub fn fillet_faces(&self, seeds: &[usize]) -> Vec<usize> {
         let seeds: Vec<i32> = seeds.iter().map(|&i| i as i32).collect();

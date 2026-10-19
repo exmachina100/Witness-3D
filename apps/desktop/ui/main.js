@@ -82,6 +82,7 @@ const rust = {
   previewMatchFaces: req => tauri.core.invoke('preview_match_faces', { req }),
   commitMatchFaces: req => tauri.core.invoke('commit_match_faces', { req }),
   commitRaiseFaces: req => tauri.core.invoke('commit_raise_faces', { req }),
+  commitSubdivideFaces: req => tauri.core.invoke('commit_subdivide_faces', { req }),
   previewMoveFacePoles: req => tauri.core.invoke('preview_move_face_poles', { req }),
   commitMoveFacePoles: req => tauri.core.invoke('commit_move_face_poles', { req }),
   previewRebuildFaces: req => tauri.core.invoke('preview_rebuild_faces', { req }),

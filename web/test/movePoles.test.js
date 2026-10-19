@@ -32,7 +32,8 @@ test('a block corner is refused but a point inside a rebuilt face moves', () => 
     const rows = facePoles(shape)[topFace];
     const nv = rows[0].length;
     const moved = moveFacePoles(shape, [[topFace, nv + 1, [0, 0, 3]]]);
-    assert.ok(top(facePoles(moved)[topFace]) > 12.9);
+    // Sewing the face back may renumber the faces.
+    assert.ok(Math.max(...facePoles(moved).map(top)) > 12.9);
     assert.ok(volume(moved) > volume(shape) + 1, `${volume(shape)} ${volume(moved)}`);
 });
 
@@ -40,4 +41,16 @@ test('bad points are refused', () => {
     const b = primitive({ kind: 'sphere', center: [0, 0, 0], radius: 10 });
     assert.throws(() => moveFacePoles(b, [[0, 9999, [1, 0, 0]]]), /no longer exists/);
     assert.throws(() => moveFacePoles(b, [[3, 0, [1, 0, 0]]]), /no longer exists/);
+});
+
+test('subdividing a face doubles its spans and keeps the block', async () => {
+    const { subdivideFaces } = await import('../src/movePoles.js');
+    const b = box({ x: 0, y: 0, z: 0 }, { x: 10, y: 10, z: 10 });
+    // Sewing the face back may renumber the faces: find it by its net.
+    const sizes = s => facePoles(s).map(r => `${r.length}x${r[0].length}`);
+    const once = subdivideFaces(b, [0]);
+    assert.deepEqual(sizes(once).sort(), ['2x2', '2x2', '2x2', '2x2', '2x2', '3x3']);
+    const twice = subdivideFaces(once, [sizes(once).indexOf('3x3')]);
+    assert.ok(sizes(twice).includes('5x5'), sizes(twice).join(' '));
+    assert.ok(Math.abs(volume(twice) - 1000) < 0.01, `${volume(twice)}`);
 });

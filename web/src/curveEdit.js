@@ -1711,3 +1711,30 @@ export function slideCurveCVs(c, picked, d, dir = 'u') {
     }
     return moveVertices(c, moves);
 }
+
+/**
+ * Plasticity's Subdivide on a curve: twice the control points, the same shape. A line or polygon
+ * gains a corner in the middle of each side; any other curve becomes a NURBS curve with a knot added
+ * in the middle of every span. Returns the curve and the numbers of its new points (Plasticity
+ * selects them).
+ */
+export function subdivideCurve(c) {
+    if (c.kind === 'polyline') {
+        const pts = dedupe(c.points), closed = !!c.closed, out = [], added = [];
+        pts.forEach((p, i) => {
+            out.push([...p]);
+            const q = pts[i + 1] ?? (closed ? pts[0] : null);
+            if (q) { added.push(out.length); out.push(mul(add(p, q), 0.5)); }
+        });
+        return { curve: withShape(c, { kind: 'polyline', points: out, closed }), added };
+    }
+    const n = asNurbs(c), p = n.degree;
+    if (n.poles.length > 2048) throw new Error('that curve already has as many control points as it can take');
+    const inner = [...new Set(n.knots.slice(p, n.poles.length + 1))];
+    let m = n;
+    for (let i = 0; i < inner.length - 1; i++) m = insertKnot(m, (inner[i] + inner[i + 1]) / 2);
+    // The points the knots made, rather than the ones that were there.
+    const near = (a, b) => Math.hypot(a[0] - b[0], a[1] - b[1], a[2] - b[2]) < 1e-9;
+    const added = m.poles.map((q, i) => n.poles.some(o => near(o, q)) ? -1 : i).filter(i => i >= 0);
+    return { curve: m, added };
+}
