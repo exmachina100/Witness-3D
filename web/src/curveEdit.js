@@ -1689,3 +1689,25 @@ export function offsetVertex(c, n, d) {
     }
     return withShape(c, { kind: 'contour', pieces: flat });
 }
+
+/**
+ * Plasticity's Slide Curve CV (Shift+G): the picked control points of a spline, control point or
+ * NURBS curve moved `d` along the control cage through each (the line from the point before to the
+ * point after; 'u', or '-u' the other way) or across it in the curve's plane ('n'). Every point
+ * slides along the cage as it was before the move.
+ */
+export function slideCurveCVs(c, picked, d, dir = 'u') {
+    if (!['cv', 'spline', 'nurbs'].includes(c.kind)) throw new Error('only spline and control point curves have control points to slide');
+    if (!Number.isFinite(d)) throw new Error('the distance is not a number');
+    const vs = curveVertices(c), n = vs.length, closed = c.kind === 'nurbs' ? nurbsLoop(c) : !!c.closed;
+    const moves = new Map();
+    for (const i of new Set(picked)) {
+        if (!(i >= 0 && i < n)) throw new Error('that control point is not on the curve');
+        const prev = vs[i - 1] ?? (closed ? vs[n - 1] : vs[i]), next = vs[i + 1] ?? (closed ? vs[0] : vs[i]);
+        const t = [next[0] - prev[0], next[1] - prev[1]], l = Math.hypot(t[0], t[1]);
+        if (!(l > EPS)) throw new Error('that control point has no cage direction to slide along');
+        const u = [t[0] / l, t[1] / l], way = dir === 'n' ? [-u[1], u[0]] : dir === '-u' ? [-u[0], -u[1]] : u;
+        moves.set(i, [vs[i][0] + way[0] * d, vs[i][1] + way[1] * d]);
+    }
+    return moveVertices(c, moves);
+}

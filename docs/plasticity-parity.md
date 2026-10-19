@@ -73,7 +73,7 @@ a flat face imprints that face and is used up (round 10).
 |---|---|---|
 | Bridge and Connect | Bridge, Bridge Curve, Bridge Edge, Bridge Vertex | Bridge Curve and Bridge Vertex done (G0, G1, G2 per end, Tab cycles, tension T); G3 and Bridge Edge missing |
 | Cut and Trim | Cut Curve, Trim, Split Segment | Trim partial; others missing |
-| Deform and Slide | Deform, Deform Curve, Slide, Slide Curve CV | Missing |
+| Deform and Slide | Deform, Deform Curve, Slide, Slide Curve CV | Slide Curve CV done in both builds (Shift+G, or Suggested Commands on curve vertices): the picked control points of spline, control point and NURBS curves slide along the control cage through each (the line from the point before to the one after; U, Shift+U the other way) or across it in the curve's plane (N), by a dragged dot or a typed distance (D), with a preview; several points slide along the cage as it was. Deform Curve (wrapping curves from a reference face onto a target face, with UVN scale, offset and flips) is missing |
 | Align | Align, Align Vertex | Align Vertex done (X/Y/Z, value from the first vertex or typed; arcs keep their sweep); Align (bodies) missing |
 | Extend | Extend, Extend Curve (26.1: extend-curve shape option) | Extend Curve done for any open curve with the 26.1 shape option (S: Natural carries on round an arc's circle or with a curve's end curvature, Linear goes straight along the end); joined curves extend their end piece |
 | Fillet | Fillet, Fillet Curve, Fillet Vertex | Fillet Curve done (all corners). Fillet Vertex done: B with curve vertices picked rounds just those corners; the dot dragged into the corner rounds, out of it chamfers (D and C type them); chamfered polylines stay polylines |
