@@ -6634,19 +6634,28 @@ export async function mount(root, backend) {
   function startExportMesh() {
     if (!backend.meshBodies) return toast('MESH EXPORT IS NOT IN THIS BUILD YET');
     const ids = (sel.bodies.length ? sel.bodies : current.map(b => b.id)).filter(id => org.shows(id));
-    if (!ids.length) return toast('NOTHING TO EXPORT');
+    // With nothing selected, the shown instances of solids go too, each as its master's mesh where it stands.
+    const placed = sel.bodies.length ? [] : instances.filter(n => !n.curve && !n.hidden && current.some(b => b.id === n.master));
+    if (!ids.length && !placed.length) return toast('NOTHING TO EXPORT');
     const c = cmd = { id: 'export-mesh', format: 'obj' };
     lastTool = 'export-mesh';
     showTool('export-mesh');
     setState('none');
-    $('mx-hint').textContent = `${ids.length} SOLID${ids.length > 1 ? 'S' : ''}`;
+    $('mx-hint').textContent = [ids.length && `${ids.length} SOLID${ids.length > 1 ? 'S' : ''}`, placed.length && `${placed.length} INSTANCE${placed.length > 1 ? 'S' : ''}`].filter(Boolean).join(' · ');
     setHud('EXPORT MESH · ⏎ TO SAVE');
     const sync = () => { for (const b of $$('[data-mxf]')) b.setAttribute('aria-pressed', b.dataset.mxf === c.format); };
     c.key = action => { if (action === 'obj' || action === 'stl') { c.format = action; sync(); return true; } return false; };
     c.finish = async () => {
       const tolerance = num('mx-tol'), angle = num('mx-angle') * DEG, maxWidth = num('mx-width');
       try {
-        const meshes = (await backend.meshBodies(ids, { tolerance, angle })).map(m => ({ name: label(m.id), ...limitEdges(m.positions, m.indices, maxWidth) }));
+        const masters = placed.map(n => n.master).filter((id, i, all) => all.indexOf(id) === i);
+        const made = await backend.meshBodies([...new Set([...ids, ...masters])], { tolerance, angle });
+        const meshes = made.filter(m => ids.includes(m.id)).map(m => ({ name: label(m.id), ...limitEdges(m.positions, m.indices, maxWidth) }));
+        for (const n of placed) {
+          const m = made.find(x => x.id === n.master), at = matrixOf(n), v = new THREE.Vector3(), pos = [];
+          for (let i = 0; i < m.positions.length; i += 3) pos.push(...v.fromArray(m.positions, i).applyMatrix4(at).toArray());
+          meshes.push({ name: instanceLabel(n.id), ...limitEdges(pos, m.indices, maxWidth) });
+        }
         const triangles = meshes.reduce((n, m) => n + m.indices.length / 3, 0);
         const name = `witness3d-${ids.length === 1 ? label(ids[0]).toLowerCase() : 'model'}.${c.format}`;
         const msg = await backend.saveExport(name, c.format === 'obj' ? toObj(meshes) : toStl(meshes));
