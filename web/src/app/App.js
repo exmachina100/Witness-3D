@@ -65,6 +65,7 @@ import { edgeCurve, flattenCurve } from '../altDuplicate.js';
 import { EDGE_CONTINUITY, bridgeCurve, bridgePoles, edgePoint } from '../bridgeEdge.js';
 import { ALIGN_CONTINUITY, alignRequest } from '../alignSurface.js';
 import { constrainedSurface, splineSheetData } from '../constrainedSurface.js';
+import { square } from '../square.js';
 import { combTeeth, isoLines, onFace } from '../isoCombs.js';
 import { liftPiece, meshSilhouette, nearestOver } from '../createOutline.js';
 import { FONTS, parseFont, textShapes } from '../text.js';
@@ -158,6 +159,7 @@ const KEYS = {
   bridge: [['T / D', 'TENSION'], ['TAB', 'CONTINUITY G0 G1 G2 G3'], ['Q', 'TRIM'], ['⏎ / RMB', 'OK']],
   'bridge-edge': [['D', 'TENSION'], ['TAB', 'CONTINUITY G0 G1 G2 G3'], ['⏎ / RMB', 'OK']],
   'align-surface': [['TAB', 'CONTINUITY G0 G1 G2'], ['D', 'TENSION'], ['⏎ / RMB', 'OK']],
+  square: [['⇧ CLICK', 'SIDES: CURVES OR EDGES'], ['D', 'DEGREE'], ['⏎ / RMB', 'OK']],
   'constrained-surface': [['CLICK', 'ADD A POINT'], ['CTRL Z', 'REMOVE THE LAST'], ['TAB', 'PERFORMANCE / SMOOTHNESS'], ['⏎ / RMB', 'OK']],
   trim: [['CLICK', 'PIECE TO CUT AWAY'], ['CTRL Z', 'UNDO ONE'], ['ESC / ⏎', 'DONE']],
   'cut-curve': [['CLICK', 'CUTTER CURVES'], ['TAB', 'EXTEND'], ['S', 'SCREEN SPACE'], ['⏎ / RMB', 'OK'], ['ESC', 'CANCEL']],
@@ -190,7 +192,7 @@ const CLICKS = { rect: 2, 'center-rect': 2, rect3: 3, circle: 2, circle2: 2, cir
 const FORMS = { revolve: true, loft: true, sweep: true };
 const PRIMS = { box: true, 'center-box': true, box3: true, cylinder: true, sphere: true };
 // Commands that aren't tools in the registry (they act on a click, not on settings).
-const EDITS = { isoparam: 'ISOPARAM', 'offset-vertex': 'OFFSET VERTEX', slide: 'SLIDE CURVE CV', 'fillet-vertex': 'FILLET VERTEX', 'align-vertex': 'ALIGN VERTEX', 'align-curve': 'ALIGN CURVE', rebuild: 'REBUILD CURVE', 'rebuild-face': 'REBUILD FACE', 'match-face': 'MATCH FACE', 'deform-curve': 'DEFORM', image: 'REFERENCE IMAGE', instance: 'INSTANCE', untrim: 'UNTRIM', unwrap: 'UNWRAP FACE', section: 'SECTION ANALYSIS', place: 'PLACE', dimension: 'DIMENSION', text: 'TEXT', 'insert-knot': 'INSERT KNOT', 'offset-edge': 'OFFSET EDGE', material: 'SET MATERIAL', 'export-mesh': 'EXPORT MESH', 'export-drawing': 'EXPORT DRAWING', 'measure-continuity': 'MEASURE CONTINUITY', trim: 'TRIM', 'cut-curve': 'CUT CURVE', 'bridge-edge': 'BRIDGE EDGE', 'align-surface': 'ALIGN SURFACE', 'constrained-surface': 'CONSTRAINED SURFACE', extend: 'EXTEND CURVE', 'tangent-circle': 'TANGENT CIRCLE', split: 'SPLIT CURVE', 'measure-distance': 'MEASURE DISTANCE', 'measure-radius': 'MEASURE RADIUS' };
+const EDITS = { isoparam: 'ISOPARAM', 'offset-vertex': 'OFFSET VERTEX', slide: 'SLIDE CURVE CV', 'fillet-vertex': 'FILLET VERTEX', 'align-vertex': 'ALIGN VERTEX', 'align-curve': 'ALIGN CURVE', rebuild: 'REBUILD CURVE', 'rebuild-face': 'REBUILD FACE', 'match-face': 'MATCH FACE', 'deform-curve': 'DEFORM', image: 'REFERENCE IMAGE', instance: 'INSTANCE', untrim: 'UNTRIM', unwrap: 'UNWRAP FACE', section: 'SECTION ANALYSIS', place: 'PLACE', dimension: 'DIMENSION', text: 'TEXT', 'insert-knot': 'INSERT KNOT', 'offset-edge': 'OFFSET EDGE', material: 'SET MATERIAL', 'export-mesh': 'EXPORT MESH', 'export-drawing': 'EXPORT DRAWING', 'measure-continuity': 'MEASURE CONTINUITY', trim: 'TRIM', 'cut-curve': 'CUT CURVE', 'bridge-edge': 'BRIDGE EDGE', 'align-surface': 'ALIGN SURFACE', 'constrained-surface': 'CONSTRAINED SURFACE', square: 'SQUARE', extend: 'EXTEND CURVE', 'tangent-circle': 'TANGENT CIRCLE', split: 'SPLIT CURVE', 'measure-distance': 'MEASURE DISTANCE', 'measure-radius': 'MEASURE RADIUS' };
 const keysHtml = id => KEYS[id].map(([k, v]) => `<kbd>${k}</kbd><span>${v}</span>`).join('');
 // The Command Bar, exactly the manual's list (Plasticity Essentials › Command Bar).
 const BAR = [['palette', 'F', 'SEARCH'], ['tool:move', 'G', 'MOVE'], ['tool:rotate', 'R', 'ROTATE'], ['tool:scale', 'S', 'SCALE'], ['duplicate', '⇧D', 'DUPLICATE'], ['tool:boolean', 'Q', 'BOOLEAN'], ['tool:rect-array', '', 'RECTANGULAR ARRAY'], ['tool:radial-array', '', 'RADIAL ARRAY'], ['suggest', '⇧F', 'SUGGESTED COMMANDS']];
@@ -407,6 +409,12 @@ const SHELL = `
       <div class="field" title="Where along the reference curve to meet it, 0 its start to 1 its end, by length"><label for="w3d-ac-p">PARAMETER</label><input id="w3d-ac-p" data-id="ac-p" type="number" step="0.05" min="0" max="1" value="1"></div>
       <div class="field" title="How fast the curve leaves the point, against how fast it does now (D)"><label for="w3d-ac-t">TENSION</label><input id="w3d-ac-t" data-id="ac-t" type="number" step="0.1" min="0.05" value="1"></div>
       <div class="chips"><button data-id="ac-comb" aria-pressed="true" title="Show the curvature of both curves">CURVATURE</button></div>
+    </div>
+    <div class="sec" data-panel="square" hidden>
+      <span class="hint" data-id="sq-hint">—</span>
+      <div class="field" title="The surface's degree each way (D)"><label for="w3d-sq-d">DEGREE</label><input id="w3d-sq-d" data-id="sq-d" type="number" step="1" min="1" max="7" value="3"></div>
+      <div class="field" title="Spans across the first side; 0 picks them to follow the sides within 0.01 mm"><label for="w3d-sq-u">SPANS U</label><input id="w3d-sq-u" data-id="sq-u" type="number" step="1" min="0" max="64" value="0"></div>
+      <div class="field" title="Spans across the second side; 0 is as many as U"><label for="w3d-sq-v">SPANS V</label><input id="w3d-sq-v" data-id="sq-v" type="number" step="1" min="0" max="64" value="0"></div>
     </div>
     <div class="sec" data-panel="constrained-surface" hidden>
       <span class="hint" data-id="cs-hint">—</span>
@@ -4678,6 +4686,83 @@ export async function mount(root, backend) {
   }
 
   /**
+   * Plasticity's Square: a four-sided B-spline sheet on the selected curves and body edges (four
+   * meeting end to end, or two to loft between), with its degree and spans set. Shift+click adds or
+   * takes off sides while it runs. The fill is square.js; OK or right-click makes the sheet.
+   */
+  async function startSquare() {
+    if (cmd) await finish();
+    if (!backend.previewSplineSheet || !backend.edgeCurvature) return toast('SQUARE IS NOT IN THIS BUILD YET');
+    const c = cmd = { id: 'square', data: null, sent: 0, shown: 0, edges: new Map() };
+    lastTool = 'square';
+    showTool('square');
+    setState('none');
+    // Each side as a polyline in model space.
+    const sideOf = async it => {
+      if (it.kind === 'curve') {
+        const src = curveById(it.id), f = curveFrame(src), { points, closed } = curveSamples(src, 200);
+        if (closed) throw new Error(`${curveLabel(it.id)} is closed: a side runs between two corners`);
+        return points.map(p => lift(f, { x: p[0], y: p[1], z: p[2] ?? 0 }).toArray());
+      }
+      const key = `${it.body}:${it.n}`;
+      if (!c.edges.has(key)) c.edges.set(key, (await backend.edgeCurvature({ body: it.body, edge: it.n, n: 200 })).map(t => t.at));
+      return c.edges.get(key);
+    };
+    const picked = () => [...sel.curves.map(id => ({ kind: 'curve', id })), ...sel.list('edge').map(e => ({ kind: 'edge', body: e.body, n: e.n }))];
+    c.preview = async () => {
+      const items = picked();
+      setTarget(`${items.length} SIDE${items.length === 1 ? '' : 'S'}`);
+      if (items.length !== 2 && items.length !== 4) {
+        c.data = null;
+        clearPreview();
+        $('sq-hint').textContent = 'SELECT FOUR SIDES MEETING END TO END, OR TWO TO LOFT BETWEEN';
+        return setState('none');
+      }
+      let fit;
+      try {
+        const sides = await Promise.all(items.map(sideOf));
+        if (cmd !== c) return;
+        const su = Math.round(num('sq-u')) || 0, sv = Math.round(num('sq-v')) || su;
+        fit = square(sides, { degree: Math.round(num('sq-d')), spans: su ? [su, sv] : 0 });
+      } catch (e) { c.data = null; clearPreview(); $('sq-hint').textContent = say(e); return setState('failed'); }
+      c.data = splineSheetData(fit);
+      $('sq-hint').textContent = `${items.length === 2 ? 'LOFT' : 'FOUR SIDES'} · DEGREE ${fit.degree[0]} · ${fit.spans.join(' × ')} SPANS · SIDES WITHIN ${fit.gap < 1e-4 ? '< 0.0001' : fit.gap.toFixed(4)} MM`;
+      setHud(`SQUARE · ${fit.spans.join(' × ')} SPANS`);
+      livePreview(c, () => backend.previewSplineSheet({ data: c.data }), b => showPreviewBody(b), 'sq-hint');
+    };
+    c.onSelection = () => { drawOverlays(); c.preview(); };
+    c.click = e => {
+      const hit = pickAt(e);
+      if (hit?.kind === 'curve') sel.toggle({ kind: 'curve', id: hit.id });
+      else if (hit?.kind === 'edge') sel.toggle({ kind: 'edge', body: hit.body, n: hit.n });
+      else return true;
+      selectionChanged();
+      return true;
+    };
+    c.key = action => {
+      if (action !== 'degree') return false;
+      c.entry = { label: 'DEGREE', text: '', apply: v => { if (v >= 1 && v <= 7) { $('sq-d').value = Math.round(v); c.preview(); } else toast('THE DEGREE RUNS FROM 1 TO 7'); } };
+      setHud('DEGREE _');
+      return true;
+    };
+    c.finish = async () => {
+      if (!c.data) { toast($('sq-hint').textContent); return endCmd('cancelled'); }
+      try {
+        const { ids, scene: list } = await backend.commitSplineSheet({ data: c.data });
+        endCmd('committed');
+        record('SQUARE', ids[0], $('sq-hint').textContent);
+        await showScene(list);
+        sel.clear();
+        sel.add({ kind: 'solid', body: ids[0] });
+        selectionChanged({ quiet: true });
+      } catch (e) { setState('failed'); toast(say(e)); }
+    };
+    c.abort = () => endCmd('cancelled');
+    c.cleanup = () => clearPreview();
+    c.preview();
+  }
+
+  /**
    * Plasticity's Constrained Surface: a smooth sheet through clicked points (they snap, and land on
    * faces where clicked). Tolerance is how close it must come to each point, Angular tolerance how
    * sharply it may bend to get there, Optimize Performance or Smoothness (Tab); Ctrl+Z takes the last
@@ -8506,6 +8591,7 @@ export async function mount(root, backend) {
       case 'bridge-edge': await startBridgeEdge(); return true;
       case 'align-surface': await startAlignSurface(); return true;
       case 'constrained-surface': if (cmd) await finish(); startConstrainedSurface(); return true;
+      case 'square': await startSquare(); return true;
       case 'realize-instance': if (cmd?.id === 'instance') await cmd.realize(); else toast('CLICK AN INSTANCE, THEN REALIZE IT'); return true;
       case 'join': await joinSelected(); return true;
       case 'trim': await startTool('trim'); return true;
@@ -8681,7 +8767,7 @@ export async function mount(root, backend) {
     if (sel.solids.length === 2) out.push('tool:project');
     if (kinds.has('solid')) out.push('tool:move', 'tool:rotate', 'tool:scale', 'duplicate', 'create-outline', 'toggle-points', 'place', 'dimension', 'tool:mirror', 'tool:rect-array', 'tool:radial-array', 'tool:curve-array', 'unify', 'boundary-edges', 'remove-fillets', 'raise-degree', 'deform-curve', 'create-instance', 'delete', 'hide', 'isolate', 'group', 'lock', 'material:set', 'export:step', 'export:mesh', 'export:drawing');
     if (kinds.has('face')) out.push('tool:extrude', 'tool:offset', 'tool:thicken', 'tool:shell', 'tool:hole', 'tool:remove-face', 'remove-fillets', 'isoparam', 'rebuild', 'raise-degree', 'subdivide', 'match-face', 'untrim', 'unwrap', 'toggle-points', 'view:surface-curvature', 'plane:selection', 'plane:selection-keep-view');
-    if (kinds.has('edge')) out.push('tool:fillet', 'tool:patch', 'alt-duplicate', 'measure:radius', 'view:surface-curvature', ...(sel.list('edge').length === 2 ? ['bridge-edge', 'align-surface'] : []));
+    if (kinds.has('edge')) out.push('tool:fillet', 'tool:patch', 'alt-duplicate', 'measure:radius', 'view:surface-curvature', ...(sel.list('edge').length === 2 ? ['bridge-edge', 'align-surface'] : []), ...([2, 4].includes(sel.list('edge').length) ? ['square'] : []));
     if (sel.list('edge').length === 2) out.push('tool:bridge-surface');
     if (sel.solids.some(id => current.find(b => b.id === id)?.sheet)) out.push('tool:thicken', 'reverse-sheet');
     if (sel.solids.length > 1 && sel.solids.every(id => current.find(b => b.id === id)?.sheet)) out.push('join');
@@ -8696,6 +8782,7 @@ export async function mount(root, backend) {
       if (kinds.has('face')) out.push('tool:draft');
       out.push('trim', 'split', 'cut-curve', 'extend', 'tool:offset-curve', 'slot', 'tool:fillet-curve');
       if (sel.curves.length === 2) out.push('tool:bridge', 'align-curve');
+      if ([2, 4].includes(sel.curves.length + sel.list('edge').length)) out.push('square');
       if (sel.curves.length > 1) out.push('join');
       out.push('explode', 'reverse', 'rebuild', 'insert-knot', 'raise-degree', 'subdivide', 'complete-edge', 'deform-curve', 'measure:continuity', 'delete');
     }
@@ -9137,6 +9224,7 @@ export async function mount(root, backend) {
   $('br-comb').onclick = () => cmd?.id === 'bridge' && cmd.key('comb');
   for (const id of ['be-p1', 'be-p2', 'be-t1a', 'be-t1b', 'be-t2a', 'be-t2b', 'be-t3a', 'be-t3b']) $(id).addEventListener('input', () => cmd?.id === 'bridge-edge' && cmd.preview());
   $('be-start').onclick = () => cmd?.id === 'bridge-edge' && cmd.cycleEnd(0);
+  for (const id of ['sq-d', 'sq-u', 'sq-v']) $(id).addEventListener('input', () => cmd?.id === 'square' && cmd.preview());
   for (const b of $$('[data-csopt]')) b.onclick = () => { if (cmd?.id === 'constrained-surface') { cmd.optimize = b.dataset.csopt; cmd.preview(); } };
   for (const id of ['cs-tol', 'cs-ang']) $(id).addEventListener('input', () => cmd?.id === 'constrained-surface' && num(id) > 0 && cmd.preview());
   for (const b of $$('[data-ascont]')) b.onclick = () => cmd?.id === 'align-surface' && cmd.setContinuity(b.dataset.ascont);
