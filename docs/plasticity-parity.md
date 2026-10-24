@@ -28,7 +28,7 @@ a flat face imprints that face and is used up (round 10).
 | Control Point Curve | clicked points are control points; Tab → Spline, K, Ctrl+Z, X/Y/Z | Done (exact cubic B-spline in both kernels) |
 | Bridge Curve | | Done |
 | Split Curve At Point | | Done for lines, arcs and open splines |
-| Insert CV At Point | | Missing (needs control-point curves) |
+| Insert CV At Point | | Done as Insert Knot (adds a control point without changing the curve) |
 | Trim | | Partial: splines, ellipses, joined curves |
 | Center Circle | centre, size; Tab, K, V, X/Y | Done |
 | Two Point Circle | | Done |
@@ -120,7 +120,7 @@ a flat face imprints that face and is used up (round 10).
 | Shader modes | Shader Mode, Render Mode, Curvature (REA: matcap, silhouette, isophotes, zebra stripes, reflection check, topographic, draft, face direction) | All 14 of the manual's shader modes done in both builds (VIEW › SHADER), drawn in the face shader from the normal rather than from matcap images: ceramic dark, metal carpaint, dark shiny, gradient, ceramic lightbulb, color matcap, black and color silhouette, isophote, draft angle, horizontal and vertical zebra, topography, face direction; the colour modes show material colours; Material Options for stripe count, draft threshold and topography spacing. Viewport toggles for edges, faces and curves. Custom matcap files and ambient occlusion missing |
 | Materials and lighting | Assets (REA: 22 PBR materials, 14 HDR environments) | Render mode done in both builds (VIEW › RENDER): physical materials lit by four environments made in the viewport (studio, three point, vertical stripes, sky) with rotation and intensity; transparent materials show at half strength outside it, as in Plasticity. HDR files, the material library and custom environments missing (use CC0 assets, not Plasticity's) |
 | Grid, units, snap, construction plane | | Done |
-| Import / export | STEP in/out done; OBJ export (REA: angle tolerance, inflection, max width), SVG export, hidden-line export, reference images | STEP, OBJ/STL and SVG/DXF hidden-line drawings done; reference images missing |
+| Import / export | STEP in/out done; OBJ export (REA: angle tolerance, inflection, max width), SVG export, hidden-line export, reference images | STEP, OBJ/STL and SVG/DXF hidden-line drawings done; reference images (PNG/JPEG placed on the construction plane, saved in the file, with Depth Normal/Front/Behind, Opacity and Culling) done in both builds |
 | Integrations | Blender bridge done; Cinema 4D bridge missing | Partial |
 
 ## 6. Exchange and distribution (from the 26.1.4 MSI)
