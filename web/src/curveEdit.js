@@ -1469,6 +1469,41 @@ export function bridgeCurves(a, endA, b, endB, tension = 1) {
     const at = t => { const u = 1 - t; return [0, 1].map(i => u * u * u * P[0][i] + 3 * u * u * t * P[1][i] + 3 * u * t * t * P[2][i] + t * t * t * P[3][i]); };
     return withShape(a, { kind: 'spline', points: Array.from({ length: 9 }, (_, i) => at(i / 8)), closed: false });
 }
+/**
+ * End `which` (0 start, 1 end) of `shape` (in its own plane coordinates): where it is, the way out
+ * of the curve, its curvature vector K and how K changes per unit length travelling out (−κ²T on
+ * an arc). Lines and arcs are exact; anything else is read off close samples.
+ */
+function endFrame(shape, which) {
+    const piece = shape.kind === 'contour' ? (which ? shape.pieces.at(-1) : shape.pieces[0]) : shape;
+    const K = (k, out) => mul(left(out), k);
+    if (piece.kind === 'arc') {
+        const g = arcGeometry(piece.start, piece.mid, piece.end), t = which ? g.start + g.sweep : g.start, turn = Math.sign(g.sweep);
+        const along = [-Math.sin(t) * turn, Math.cos(t) * turn], out = which ? along : mul(along, -1);
+        return { at: which ? piece.end : piece.start, out, K: K((which ? turn : -turn) / g.radius, out), dK: mul(out, -1 / g.radius ** 2) };
+    }
+    const pts = samples(piece, 192).points, n = pts.length;
+    const [o, p, q, r] = which ? [pts[n - 4], pts[n - 3], pts[n - 2], pts[n - 1]] : [pts[3], pts[2], pts[1], pts[0]];
+    const out = norm(sub(r, q));
+    if (piece.kind === 'polyline' || !p) return { at: r, out, K: [0, 0], dK: [0, 0] };
+    const Kr = K(curvature3(p, q, r), out);
+    // The curvature vector one sample further in, and the change between them.
+    const dK = o ? mul(sub(Kr, K(curvature3(o, p, q), norm(sub(q, p)))), 1 / dist(q, p)) : [0, 0];
+    return { at: r, out, K: Kr, dK };
+}
+/** End `which` of curve `b` as endFrame gives it, in `a`'s plane coordinates (lines and arcs kept exact). */
+function endFrameIn(a, b, which) {
+    const mapped = sh => {
+        const own = { ...frameOf(b), ...sh };
+        if (sh.kind === 'polyline' || sh.kind === 'arc' || sh.kind === 'circle') return exactIn(a, own);
+        const flat = inPlaneOf(a, own);
+        return flat && { kind: 'spline', points: flat.points, closed: false };
+    };
+    const shape = b.kind === 'contour' ? { kind: 'contour', pieces: b.pieces.map(mapped) } : mapped(b);
+    if (!shape || shape.pieces?.some(p => !p)) throw new Error('the two curves must lie in one plane');
+    return endFrame(shape, which);
+}
+
 /** Bridge continuity names, in the order Tab cycles them. */
 export const BRIDGE_CONTINUITY = ['G0', 'G1', 'G2', 'G3'];
 
@@ -1486,37 +1521,7 @@ export function bridgeContinuous(a, endA, b, endB, { continuity = ['G1', 'G1'], 
     a = bridgeEnd(a, endA, at[0]).kept;
     b = bridgeEnd(b, endB, at[1]).kept;
     for (const g of continuity) if (!BRIDGE_CONTINUITY.includes(g)) throw new Error(`continuity is ${BRIDGE_CONTINUITY.join(', ')}`);
-    // Each end: where it is, the way out of the curve, its curvature vector K and how K changes per
-    // unit length travelling out (−κ²T on an arc). Lines and arcs are exact; anything else is read
-    // off close samples.
-    const end = (shape, which) => {
-        const piece = shape.kind === 'contour' ? (which ? shape.pieces.at(-1) : shape.pieces[0]) : shape;
-        const K = (k, out) => mul(left(out), k);
-        if (piece.kind === 'arc') {
-            const g = arcGeometry(piece.start, piece.mid, piece.end), t = which ? g.start + g.sweep : g.start, turn = Math.sign(g.sweep);
-            const along = [-Math.sin(t) * turn, Math.cos(t) * turn], out = which ? along : mul(along, -1);
-            return { at: which ? piece.end : piece.start, out, K: K((which ? turn : -turn) / g.radius, out), dK: mul(out, -1 / g.radius ** 2) };
-        }
-        const pts = samples(piece, 192).points, n = pts.length;
-        const [o, p, q, r] = which ? [pts[n - 4], pts[n - 3], pts[n - 2], pts[n - 1]] : [pts[3], pts[2], pts[1], pts[0]];
-        const out = norm(sub(r, q));
-        if (piece.kind === 'polyline' || !p) return { at: r, out, K: [0, 0], dK: [0, 0] };
-        const Kr = K(curvature3(p, q, r), out);
-        // The curvature vector one sample further in, and the change between them.
-        const dK = o ? mul(sub(Kr, K(curvature3(o, p, q), norm(sub(q, p)))), 1 / dist(q, p)) : [0, 0];
-        return { at: r, out, K: Kr, dK };
-    };
-    // `b` in `a`'s plane coordinates, piece by piece so its lines and arcs stay exact.
-    const mapped = sh => {
-        const own = { ...frameOf(b), ...sh };
-        if (sh.kind === 'polyline' || sh.kind === 'arc' || sh.kind === 'circle') return exactIn(a, own);
-        const flat = inPlaneOf(a, own);
-        return flat && { kind: 'spline', points: flat.points, closed: false };
-    };
-    const bShape = b.kind === 'contour' ? { kind: 'contour', pieces: b.pieces.map(mapped) } : mapped(b);
-    if (bShape?.pieces?.some(p => !p)) throw new Error('the two curves must lie in one plane');
-    if (!bShape) throw new Error('the two curves must lie in one plane');
-    const A = end(a, endA), B = end(bShape, endB);
+    const A = endFrame(a, endA), B = endFrameIn(a, b, endB);
     const gap = dist(A.at, B.at);
     if (gap < 1e-6) throw new Error('those ends already meet; join them instead');
     // Each side's poles match its end's derivatives in arc length, scaled to the gap.
@@ -1832,7 +1837,7 @@ export function curvatureComb(c, n = 160) {
 export function continuity(a, endA, b, endB) {
     const A = exactIn(a, a), B = exactIn(a, b);
     if (!B) throw new Error('the two curves must lie in one plane');
-    const ea = endInfo(A, endA), eb = endInfo(B, endB);
+    const ea = smoothEnd(a, a, endA) ?? endInfo(A, endA), eb = smoothEnd(a, b, endB) ?? endInfo(B, endB);
     const gap = dist(ea.at, eb.at);
     // Across the joint, A leaves along its direction and B arrives against its own.
     const angle = Math.acos(Math.max(-1, Math.min(1, -dot2(ea.out, eb.out)))) * 180 / Math.PI;
@@ -1841,6 +1846,28 @@ export function continuity(a, endA, b, endB) {
 }
 
 /** The end point of a shape (0 start, 1 end), its outward direction there, and its curvature. Exact for lines and arcs. */
+/**
+ * End `which` of a control point or NURBS curve `c`, read off the curve itself (not samples), in
+ * `a`'s plane coordinates: { at, out, k } as endInfo gives them. Null for other kinds.
+ */
+function smoothEnd(a, c, which) {
+    if (c.kind !== 'nurbs' && c.kind !== 'cv') return null;
+    const n = asNurbs(c), k0 = n.knots[n.degree], k1 = n.knots[n.poles.length];
+    const h = (k1 - k0) * 1e-4 * (which ? -1 : 1), u = which ? k1 : k0;
+    const P = [0, 1, 2].map(i => evalNurbs(n, u + h * i));
+    const d1 = mul(add(add(mul(P[0], -3), mul(P[1], 4)), mul(P[2], -1)), 1 / (2 * h));
+    const d2 = mul(add(sub(P[0], mul(P[1], 2)), P[2]), 1 / (h * h));
+    const speed = len(d1);
+    if (!(speed > 1e-12)) return null;
+    const k = Math.abs(d1[0] * d2[1] - d1[1] * d2[0]) / speed ** 3;
+    // Into `a`'s plane: through model space.
+    const fa = planeAxes(a), fc = planeAxes(c);
+    const world = q => fc.O.map((o, i) => o + fc.X[i] * q[0] + fc.Y[i] * q[1]);
+    const local = w => { const d = v3.sub(w, fa.O); return [v3.dot(d, fa.X), v3.dot(d, fa.Y)]; };
+    // The way out of the curve: along increasing u at its end, against it at its start.
+    const dir = mul(d1, which ? 1 / speed : -1 / speed), at = local(world(P[0]));
+    return { at, out: norm(sub(local(world(add(P[0], dir))), at)), k };
+}
 function endInfo(shape, which) {
     if (shape.kind === 'arc') {
         const g = arcGeometry(shape.start, shape.mid, shape.end), t = g.start + g.sweep * which;
@@ -2143,4 +2170,53 @@ export function completeCurve(c, others, reach) {
         grown++;
     }
     return { curve: out, grown };
+}
+
+// --- Align Curve / Align Vertex (continuity) ------------------------------------------------------
+
+/** Align continuity names, in the order Tab cycles them. */
+export const ALIGN_CURVE_CONTINUITY = ['G0', 'G1', 'G2'];
+
+/**
+ * Plasticity's Align Vertex and Align Curve: end `endT` of curve `t` moved onto the reference, the
+ * point at relative length `at` along curve `r` (its end `endR` by default), meeting it in position
+ * (G0), direction too (G1) or curvature too (G2), by moving the target's first one, two or three
+ * control points; the target carries on from the reference past that point. `tension` scales how
+ * fast it leaves the point. Returns the target as NURBS in its own plane.
+ */
+export function alignCurveEnd(t, endT, r, endR, { continuity = 'G1', at = endR, tension = 1 } = {}) {
+    const order = ALIGN_CURVE_CONTINUITY.indexOf(continuity);
+    if (order < 0) throw new Error(`continuity is ${ALIGN_CURVE_CONTINUITY.join(', ')}`);
+    if (!(Number.isFinite(tension) && tension > 0)) throw new Error('the tension must be greater than zero');
+    if (ends2(t) === null || ends2(r) === null) throw new Error('align the open ends of two curves');
+    const E = endFrameIn(t, bridgeEnd(r, endR, at).kept, endR);
+    const n = asNurbs(t), p = n.degree, m = n.poles.length;
+    if (m < order + 1) throw new Error(`${continuity} needs ${order + 1} control points; insert a knot or rebuild the curve first`);
+    if (order === 2 && p < 2) throw new Error('G2 needs a curve of degree 2 or more; raise the degree first');
+    const ids = Array.from({ length: m }, (_, i) => endT ? m - 1 - i : i);
+    if (ids.slice(0, order + 1).some(i => Math.abs(n.weights[i] - 1) > 1e-12)) throw new Error('that end is rational (an arc or circle); rebuild the curve first');
+    const lo = n.knots[0], hi = n.knots.at(-1);
+    const T = endT ? [...n.knots].reverse().map(k => lo + hi - k) : n.knots;
+    const P = ids.map(i => [n.poles[i][0], n.poles[i][1]]);
+    const a = p / (T[p + 1] - T[1]);
+    // How fast the curve leaves the point: its first control point a share of the way to the
+    // first one that stays (as a Bézier's would be), times the tension.
+    const reach = dist(P[Math.min(order + 1, m - 1)], E.at) || dist(P.at(-1), P[0]) || 1;
+    const speed = reach / (order + 1) * a;
+    const out = P.map(v => [...v]);
+    out[0] = [...E.at];
+    if (order >= 1) {
+        const v = speed * tension;
+        out[1] = add(out[0], mul(E.out, v / a));
+        if (order >= 2) {
+            const c1 = (T[p + 1] - T[2]) / (p - 1), c2 = (T[p + 2] - T[2]) / p;
+            const R0 = mul(sub(mul(sub(P[2], P[1]), 1 / c2), mul(sub(P[1], P[0]), a)), 1 / c1);
+            // Keep how the parameter speeds up along the way; take the reference's bend across it.
+            const want = add(mul(E.out, R0[0] * E.out[0] + R0[1] * E.out[1]), mul(E.K, v * v));
+            out[2] = add(out[1], mul(add(mul(sub(out[1], out[0]), a), mul(want, c1)), c2));
+        }
+    }
+    const poles = n.poles.map(v => [...v]);
+    ids.forEach((i, k) => { poles[i] = [out[k][0], out[k][1], 0]; });
+    return withShape(t, { kind: 'nurbs', degree: p, poles, weights: [...n.weights], knots: [...n.knots] });
 }
