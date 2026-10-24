@@ -29,7 +29,7 @@ a flat face imprints that face and is used up (round 10).
 | Bridge Curve | | Done |
 | Split Curve At Point | | Done for lines, arcs and open splines |
 | Insert CV At Point | | Done as Insert Knot (adds a control point without changing the curve) |
-| Trim | | Partial: splines, ellipses, joined curves |
+| Trim | | Done in both builds: lines, rectangles, polygons, circles and arcs; ellipses, control-point and NURBS curves cut exactly (as NURBS, by knot insertion); splines and joined curves piece by piece, a spline's kept part refit through its own points and the cut |
 | Center Circle | centre, size; Tab, K, V, X/Y | Done |
 | Two Point Circle | | Done |
 | Three Point Circle | | Done |
@@ -72,7 +72,7 @@ a flat face imprints that face and is used up (round 10).
 | Group | Commands | Status |
 |---|---|---|
 | Bridge and Connect | Bridge, Bridge Curve, Bridge Edge, Bridge Vertex | Bridge Curve and Bridge Vertex done (G0, G1, G2 per end, Tab cycles, tension T); G3 and Bridge Edge missing |
-| Cut and Trim | Cut Curve, Trim, Split Segment | Trim partial; others missing |
+| Cut and Trim | Cut Curve, Trim, Split Segment | Trim done; others missing |
 | Deform and Slide | Deform, Deform Curve, Slide, Slide Curve CV | Slide Curve CV done in both builds (Shift+G, or Suggested Commands on curve vertices): the picked control points of spline, control point and NURBS curves slide along the control cage through each (the line from the point before to the one after; U, Shift+U the other way) or across it in the curve's plane (N), by a dragged dot or a typed distance (D), with a preview; several points slide along the cage as it was. Deform Curve done in both builds (palette, or Suggested Commands on curves): with the curves selected, click the reference face they lie on, then the target face; each curve keeps its place on the face (its surface parameters scaled to the face's bounds, so an Unwrap Face of the target is an exact reference) and its height off it, and comes back as a smooth NURBS curve through points every 1/32 of its length, corners kept. Scale U, V, N (about the middle of the curves) and Offset U, V, N (mm) work in the target's UVN; Mirror (M), UV (U) and Normal (N) flip; Keep (K) leaves the original curves |
 | Align | Align, Align Vertex | Align Vertex done (X/Y/Z, value from the first vertex or typed; arcs keep their sweep); Align (bodies) missing |
 | Extend | Extend, Extend Curve (26.1: extend-curve shape option) | Extend Curve done for any open curve with the 26.1 shape option (S: Natural carries on round an arc's circle or with a curve's end curvature, Linear goes straight along the end); joined curves extend their end piece |
