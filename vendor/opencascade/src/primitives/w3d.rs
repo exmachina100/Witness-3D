@@ -304,6 +304,11 @@ impl Shape {
         ffi::w3d::w3d_face_uvn(&self.inner, face as i32, map, data).map_err(reason)
     }
 
+    /// Align Surface: the faces along edge `edge` and their frames at the points of `data` (see `w3d_edge_faces`).
+    pub fn edge_faces(&self, edge: usize, data: &[f64]) -> Result<Vec<f64>, String> {
+        ffi::w3d::w3d_edge_faces(&self.inner, edge as i32, data).map_err(reason)
+    }
+
     /// Plasticity's Deform Solid and Sheet: `bodies` wrapped from face `rface` of `reference` onto
     /// face `tface` of `target`; `opts` are scale u v n, offset u v n, then mirror, swap, normal as
     /// 1 or 0, and optionally reblend as 1 or 0 (see `w3d_deform`). The results come back in order.

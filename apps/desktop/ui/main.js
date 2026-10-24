@@ -101,6 +101,7 @@ const rust = {
   faceSurfaces: req => tauri.core.invoke('face_surfaces', { req }),
   facePoles: req => tauri.core.invoke('face_poles', { req }),
   faceUvn: req => tauri.core.invoke('face_uvn', { req }),
+  edgeFaces: req => tauri.core.invoke('edge_faces', { req }),
   previewDeform: req => tauri.core.invoke('preview_deform', { req }),
   commitDeform: req => tauri.core.invoke('commit_deform', { req }),
   previewPlace: req => tauri.core.invoke('preview_place', { req }),

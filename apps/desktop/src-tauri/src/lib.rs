@@ -164,6 +164,14 @@ async fn commit_deform(
 }
 
 #[tauri::command]
+async fn edge_faces(
+    model: State<'_, Model>,
+    req: api::EdgeFacesRequest,
+) -> Result<Vec<f64>, api::ApiError> {
+    on_model(&model, move |m| api::edge_faces(m, req)).await?
+}
+
+#[tauri::command]
 async fn face_uvn(
     model: State<'_, Model>,
     req: api::FaceUvnRequest,
@@ -962,6 +970,7 @@ pub fn run() {
             face_surfaces,
             face_poles,
             face_uvn,
+            edge_faces,
             preview_deform,
             commit_deform,
             preview_place,

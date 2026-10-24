@@ -2415,6 +2415,77 @@ inline rust::Vec<double> w3d_face_uvn(const TopoDS_Shape &shape, int32_t face, b
   }
 }
 
+// Align Surface: the faces along edge `index` of `shape`. [count, then per face: its number, a point
+// in its middle (3), then 1 and its control surface as w3d_face_poles gives it (du, dv, nu, nv, the
+// counts of u and v knots, the knots spelled out, 1 if rational, the poles u slowest) or 0, then
+// per point of `data` (x, y, z each) projected onto the face's surface: the point, Su, Sv, Suu, Suv,
+// Svv and the face's orientation (1 or -1)]. web/src/alignSurface.js reads it.
+inline rust::Vec<double> w3d_edge_faces(const TopoDS_Shape &shape, int32_t index, rust::Slice<const double> data) {
+  if (data.size() % 3) throw std::runtime_error("the points need three numbers each");
+  TopTools_IndexedMapOfShape edges, faces;
+  TopExp::MapShapes(shape, TopAbs_EDGE, edges);
+  TopExp::MapShapes(shape, TopAbs_FACE, faces);
+  if (index < 0 || index >= edges.Extent()) throw std::out_of_range("that edge no longer exists");
+  const TopoDS_Shape e = edges(index + 1);
+  rust::Vec<double> out;
+  out.push_back(0);
+  auto put = [&](const gp_XYZ &v) { out.push_back(v.X()); out.push_back(v.Y()); out.push_back(v.Z()); };
+  try {
+    for (int i = 1; i <= faces.Extent(); i++) {
+      const TopoDS_Face f = TopoDS::Face(faces(i));
+      bool on = false;
+      for (TopExp_Explorer ex(f, TopAbs_EDGE); ex.More() && !on; ex.Next()) on = ex.Current().IsSame(e);
+      if (!on) continue;
+      out[0] += 1;
+      out.push_back(i - 1);
+      BRepAdaptor_Surface ad(f, true);
+      double u0, u1, v0, v1;
+      BRepTools::UVBounds(f, u0, u1, v0, v1);
+      put(ad.Value((u0 + u1) / 2, (v0 + v1) / 2).XYZ());
+      bool spline = false;
+      try {
+        W3dSplineFace sf = w3d_spline_face(f);
+        const Handle(Geom_BSplineSurface) &b = sf.surface;
+        out.push_back(1);
+        out.push_back(b->UDegree()); out.push_back(b->VDegree());
+        out.push_back(b->NbUPoles()); out.push_back(b->NbVPoles());
+        TColStd_Array1OfReal uk(1, b->NbUPoles() + b->UDegree() + 1), vk(1, b->NbVPoles() + b->VDegree() + 1);
+        b->UKnotSequence(uk);
+        b->VKnotSequence(vk);
+        out.push_back(uk.Length()); out.push_back(vk.Length());
+        for (int k = uk.Lower(); k <= uk.Upper(); k++) out.push_back(uk(k));
+        for (int k = vk.Lower(); k <= vk.Upper(); k++) out.push_back(vk(k));
+        out.push_back(b->IsURational() || b->IsVRational() ? 1 : 0);
+        for (int a = 1; a <= b->NbUPoles(); a++) for (int c = 1; c <= b->NbVPoles(); c++) put(b->Pole(a, c).Transformed(sf.loc.Transformation()).XYZ());
+        spline = true;
+      } catch (const std::exception &) {
+      } catch (const Standard_Failure &) {
+      }
+      if (!spline) out.push_back(0);
+      const double sign = f.Orientation() == TopAbs_REVERSED ? -1 : 1;
+      for (size_t k = 0; k < data.size(); k += 3) {
+        // Project in the face's own frame, then evaluate where the face sits.
+        TopLoc_Location loc;
+        Handle(Geom_Surface) gs = BRep_Tool::Surface(f, loc);
+        gp_Pnt q(data[k], data[k + 1], data[k + 2]);
+        if (!loc.IsIdentity()) q.Transform(loc.Transformation().Inverted());
+        GeomAPI_ProjectPointOnSurf pr(q, gs);
+        if (!pr.NbPoints()) throw std::runtime_error("the reference face could not be found under the edge");
+        double u, v;
+        pr.LowerDistanceParameters(u, v);
+        gp_Pnt p;
+        gp_Vec du, dv, duu, dvv, duv;
+        ad.D2(u, v, p, du, dv, duu, dvv, duv);
+        put(p.XYZ()); put(du.XYZ()); put(dv.XYZ()); put(duu.XYZ()); put(duv.XYZ()); put(dvv.XYZ());
+        out.push_back(sign);
+      }
+    }
+    return out;
+  } catch (const Standard_Failure &err) {
+    throw w3d_kernel_error(err);
+  }
+}
+
 // Deform Solid and Sheet's warp: each B-spline pole carried from the reference face's coordinates
 // to the target's, after the shapes are refined enough (cubic, 16 spans each way) for the poles to
 // follow the warp closely. Parameters are kept, so the faces' curves stay as they were.

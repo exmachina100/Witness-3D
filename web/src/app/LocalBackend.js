@@ -24,6 +24,7 @@ import { matchFacesGrow, wideSurface } from '../matchFace.js';
 import { compound, untrimFace } from '../untrim.js';
 import { unwrapFace } from '../unwrap.js';
 import { edgeCurvature } from '../edgeCurvature.js';
+import { edgeFaces } from '../edgeFaces.js';
 import { joinSheets, unjoin } from '../Join.js';
 import { hiddenLines } from '../Drawing.js';
 
@@ -817,6 +818,13 @@ export class LocalBackend {
     }
 
     /** Plasticity's Toggle Surface Curvature: comb teeth { at, dir, k } along edge `edge` of `body`. */
+    /** Align Surface: the faces along edge `edge` of `body` and their frames at `points` (see alignSurface.js). */
+    async edgeFaces({ body, edge, points = [] }) {
+        const s = this.shapes.get(body);
+        if (!s) throw new Error('that body no longer exists');
+        return edgeFaces(s, edge, points);
+    }
+
     async edgeCurvature({ body, edge, n = 160 }) {
         const s = this.shapes.get(body);
         if (!s) throw new Error('that body no longer exists');
