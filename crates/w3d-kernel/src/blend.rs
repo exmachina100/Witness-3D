@@ -4,7 +4,7 @@
 
 use glam::DVec3;
 
-use crate::{BooleanOp, Kernel, KernelError, Traced};
+use crate::{BooleanOp, Extent, Frame, Kernel, KernelError, Profile, Traced};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Blend {
@@ -46,6 +46,9 @@ pub enum FilletShape {
     Conic,
     /// A curve leaving both faces with no curvature (curvature continuous to flat faces).
     G2,
+    /// A round tangent to all three faces around two edges of one face: the face it replaces and
+    /// the two beside it (a rib's top rounded off). The size is not used.
+    Full,
 }
 
 /// A point on a rounded edge where the radius is `size` × `scale`; the radius runs smoothly from
@@ -70,6 +73,16 @@ impl Blend {
 pub fn blend<K: Kernel>(k: &K, body: &K::Solid, p: &BlendParams) -> Result<Traced<K::Solid>, KernelError> {
     if p.edges.is_empty() {
         return Err(KernelError::Invalid("select at least one edge"));
+    }
+    if p.kind == Blend::Fillet && p.shape == FilletShape::Full {
+        let mut edges = p.edges.clone();
+        edges.sort_unstable();
+        edges.dedup();
+        let traced = full_round(k, body, &edges)?;
+        if !k.is_valid(&traced.solid) || k.solid_count(&traced.solid) != k.solid_count(body) {
+            return Err(KernelError::Blend { edges, reason: "the full round left a broken solid; check the faces beside the edges are tall enough for it".into() });
+        }
+        return Ok(traced);
     }
     if !(p.size > 0.0) || !p.size.is_finite() {
         return Err(match p.kind {
@@ -176,4 +189,106 @@ fn limited<K: Kernel>(k: &K, body: &K::Solid, rounded: &K::Solid, edges: &[u32],
     let nb = if tb.dot(*a - *b) >= 0.0 { tb } else { -tb };
     let piece = k.round_piece(body, rounded, (*a, na), (*b, nb))?;
     k.boolean(body, &piece, BooleanOp::Difference)
+}
+
+/// A Full round across the face between two straight, parallel edges: the circle tangent to that
+/// face's two neighbours and to the face itself (where it lies, a little past it), swept along the
+/// edges. Everything outside the circle between its tangent points and the two edges comes off.
+/// The three faces must be flat.
+fn full_round<K: Kernel>(k: &K, body: &K::Solid, edges: &[u32]) -> Result<Traced<K::Solid>, KernelError> {
+    let [e1, e2] = edges else { return Err(KernelError::Invalid("a full round takes two edges of one face, one on each side of it")) };
+    let t = k.tessellate(body, 0.01)?;
+    let line = |e: u32| -> Result<(DVec3, DVec3), KernelError> {
+        let pts: Vec<DVec3> = t.edges.get(e as usize).ok_or(KernelError::Invalid("an edge in the selection is not on this body; select the edges again"))?
+            .iter().map(|&p| DVec3::from_array(p)).collect();
+        let (a, b) = (pts[0], pts[pts.len() - 1]);
+        let d = (b - a).try_normalize().ok_or(KernelError::Invalid("a full round needs straight edges"))?;
+        let tol = 1e-6 * (b - a).length().max(1.0);
+        if pts.iter().any(|&p| (p - a - d * (p - a).dot(d)).length() > tol) {
+            return Err(KernelError::Invalid("a full round needs straight edges"));
+        }
+        Ok((a, b))
+    };
+    let ((a1, b1), (a2, b2)) = (line(*e1)?, line(*e2)?);
+    let dir = (b1 - a1).normalize();
+    if dir.dot((b2 - a2).normalize()).abs() < 1.0 - 1e-6 {
+        return Err(KernelError::Invalid("a full round needs two parallel edges"));
+    }
+    // The flat faces along an edge: their plane holds the edge and one of their triangles touches
+    // its middle.
+    let size = t.positions.iter().map(|&p| DVec3::from_array(p).length()).fold(1.0, f64::max);
+    let tol = 1e-6 * size;
+    let faces_on = |a: DVec3, b: DVec3| -> Vec<usize> {
+        let mid = (a + b) / 2.0;
+        t.face_planes.iter().enumerate().filter_map(|(f, plane)| {
+            let plane = plane.as_ref()?;
+            if [a, b].iter().any(|&p| (p - plane.origin).dot(plane.normal).abs() > 1e-5 * size) { return None }
+            let touches = t.indices.chunks_exact(3).zip(&t.face_ids).filter(|(_, &id)| id as usize == f).any(|(tri, _)| {
+                let [p, q, r] = [tri[0], tri[1], tri[2]].map(|i| DVec3::from_array(t.positions[i as usize]));
+                point_triangle(mid, p, q, r) < 1e-4 * size
+            });
+            touches.then_some(f)
+        }).collect()
+    };
+    let (f1, f2) = (faces_on(a1, b1), faces_on(a2, b2));
+    let middle: Vec<usize> = f1.iter().copied().filter(|f| f2.contains(f)).collect();
+    let [m] = middle[..] else { return Err(KernelError::Invalid("a full round needs two edges of one flat face, one on each side of it")) };
+    let side = |fs: &[usize]| -> Result<usize, KernelError> {
+        match fs.iter().copied().filter(|&f| f != m).collect::<Vec<_>>()[..] {
+            [f] => Ok(f),
+            _ => Err(KernelError::Invalid("a full round needs flat faces beside both edges")),
+        }
+    };
+    let (fa, fb) = (side(&f1)?, side(&f2)?);
+    let normal = |f: usize| t.face_planes[f].as_ref().unwrap().normal.normalize();
+    let (na, nb, nm) = (normal(fa), normal(fb), normal(m));
+    if [na, nb, nm].iter().any(|n| n.dot(dir).abs() > 1e-6) {
+        return Err(KernelError::Invalid("a full round needs faces that run along the edges"));
+    }
+    // The cross-section square to the edges: x from the first edge to the second, y across.
+    let o = a1;
+    let across = (a2 - o) - dir * (a2 - o).dot(dir);
+    let width = across.length();
+    if width < tol { return Err(KernelError::Invalid("the two edges are on top of each other")) }
+    let x = across / width;
+    let y = dir.cross(x);
+    let flat = |n: DVec3| (n.dot(x), n.dot(y));
+    let rows = [(flat(na), 0.0), (flat(nb), flat(nb).0 * width), (flat(nm), 0.0)];
+    // n·c + r = n·p for each face's line (n outward, p a point on it): the circle sits inside all three.
+    let m3 = rows.map(|((nx, ny), _)| [nx, ny, 1.0]);
+    let rhs = rows.map(|(_, d)| d);
+    let det = |m: [[f64; 3]; 3]| m[0][0] * (m[1][1] * m[2][2] - m[1][2] * m[2][1]) - m[0][1] * (m[1][0] * m[2][2] - m[1][2] * m[2][0]) + m[0][2] * (m[1][0] * m[2][1] - m[1][1] * m[2][0]);
+    let d0 = det(m3);
+    if d0.abs() < 1e-12 { return Err(KernelError::Invalid("no circle touches all three faces")) }
+    let solve = |col: usize| { let mut mm = m3; for i in 0..3 { mm[i][col] = rhs[i] } det(mm) / d0 };
+    let (cx, cy, r) = (solve(0), solve(1), solve(2));
+    if !(r > tol) { return Err(KernelError::Invalid("no circle touches all three faces from inside the body")) }
+    let tangent = |n: (f64, f64)| (cx + r * n.0, cy + r * n.1);
+    let (ta, tb) = (tangent(flat(na)), tangent(flat(nb)));
+    let push = |n: DVec3, (u, v): (f64, f64)| { let (px, py) = flat(n + nm); (u + 0.1 * r * px, v + 0.1 * r * py) };
+    // Along the edges: from the nearest end of either to the farthest.
+    let s: Vec<f64> = [a1, b1, a2, b2].iter().map(|&p| (p - o).dot(dir)).collect();
+    let (lo, hi) = (s.iter().copied().fold(f64::INFINITY, f64::min), s.iter().copied().fold(f64::NEG_INFINITY, f64::max));
+    let frame = Frame { origin: o + dir * lo, x, normal: dir };
+    let extent = Extent::to(hi - lo);
+    let corner = k.extrude(&Profile::Polygon(vec![ta, push(na, (0.0, 0.0)), push(nb, (width, 0.0)), tb]), &frame, &extent)?;
+    let rod = k.extrude(&Profile::Circle { center: (cx, cy), radius: r }, &frame, &extent)?;
+    // The body less (corner less rod) is the body less the corner, with the rod's share put back.
+    let waste = k.boolean(&corner, &rod, BooleanOp::Difference)?;
+    k.boolean(body, &waste.solid, BooleanOp::Difference)
+}
+
+/// The distance from `p` to the triangle `a b c`.
+fn point_triangle(p: DVec3, a: DVec3, b: DVec3, c: DVec3) -> f64 {
+    let n = (b - a).cross(c - a);
+    if let Some(n) = n.try_normalize() {
+        let q = p - n * (p - a).dot(n);
+        let inside = [(a, b), (b, c), (c, a)].iter().all(|&(s, e)| (e - s).cross(q - s).dot(n) >= -1e-12);
+        if inside { return (p - q).length() }
+    }
+    [(a, b), (b, c), (c, a)].iter().map(|&(s, e)| {
+        let d = e - s;
+        let u = if d.length_squared() > 0.0 { ((p - s).dot(d) / d.length_squared()).clamp(0.0, 1.0) } else { 0.0 };
+        (p - s - d * u).length()
+    }).fold(f64::INFINITY, f64::min)
 }

@@ -271,7 +271,7 @@ const SHELL = `
       <div class="field"><label for="w3d-blend-distance">DISTANCE</label><input id="w3d-blend-distance" data-id="blend-distance" type="number" step="0.5" value="0" title="Negative makes a chamfer"></div>
       <div class="field"><label for="w3d-blend-angle">ANGLE °</label><input id="w3d-blend-angle" data-id="blend-angle" type="number" step="5" min="1" max="89" value="45" title="The chamfer's angle"></div>
       <div class="field"><label>SHAPE</label><output data-id="blend-kind">ROUND</output></div>
-      <div class="seg" role="group" aria-label="Fillet shape"><button data-flshape="round" aria-pressed="true" title="A circular round of the radius">ROUND</button><button data-flshape="chordal" aria-pressed="false" title="The distance is the width across the round">CHORDAL</button><button data-flshape="conic" aria-pressed="false" title="A conic between the same lines; Tension is its rho">CONIC</button><button data-flshape="g2" aria-pressed="false" title="Curvature continuous with the faces it joins">G2</button></div>
+      <div class="seg" role="group" aria-label="Fillet shape"><button data-flshape="round" aria-pressed="true" title="A circular round of the radius">ROUND</button><button data-flshape="chordal" aria-pressed="false" title="The distance is the width across the round">CHORDAL</button><button data-flshape="conic" aria-pressed="false" title="A conic between the same lines; Tension is its rho">CONIC</button><button data-flshape="g2" aria-pressed="false" title="Curvature continuous with the faces it joins">G2</button><button data-flshape="full" aria-pressed="false" title="Full: two edges of one face; the round touches that face and both beside it, so the size is not used">FULL</button></div>
       <div class="field" data-id="blend-tension-row" hidden><label for="w3d-blend-tension">TENSION</label><input id="w3d-blend-tension" data-id="blend-tension" type="number" step="0.05" min="0.05" max="0.95" value="0.5" title="Conic: its rho (0.5 a parabola, higher pulls into the corner). G2: how far toward the corner it reaches"></div>
       <div class="field"><label>EDGES</label><output data-id="blend-count">0</output></div>
       <div class="field"><label>VARIABLE POINTS</label><output data-id="blend-vars" title="V adds one on a rounded edge; drag its dot for the radius there">0</output></div>
@@ -2688,7 +2688,7 @@ export async function mount(root, backend) {
     limits: v > 0 && c.limits.length === 2 ? c.limits.map(l => l.point.toArray()) : [],
   });
 
-  /** Plasticity's fillet Shape: Round, Chordal (the distance spans the round), Conic or G2 (with Tension). */
+  /** Plasticity's fillet Shape: Round, Chordal (the distance spans the round), Conic or G2 (with Tension), or Full. */
   function setFilletShape(shape) {
     const c = cmd;
     if (c?.id !== 'fillet') return;
@@ -2697,6 +2697,8 @@ export async function mount(root, backend) {
     $('blend-tension-row').hidden = shape !== 'conic' && shape !== 'g2';
     if (c.value >= 0) $('blend-kind').textContent = shape === 'g2' ? 'G2' : shape.toUpperCase();
     c.good = c.bad = null;
+    // A full round finds its own radius: any size will do, so preview straight away.
+    if (shape === 'full' && c.value === 0) return setFillet(1, false);
     previewFillet();
   }
 
@@ -2741,7 +2743,7 @@ export async function mount(root, backend) {
     clearPreview();
     showPreviewBody(body);
     const at = c.vars.includes(c.dragVar) ? ` · POINT ${c.vars.indexOf(c.dragVar) + 1} R ${(Math.abs(v) * c.dragVar.scale).toFixed(2)}` : '';
-    setHud(`${v < 0 ? 'CHAMFER' : 'R'} ${Math.abs(v).toFixed(2)}${at}`);
+    setHud(v > 0 && c.shape === 'full' ? 'FULL ROUND' : `${v < 0 ? 'CHAMFER' : 'R'} ${Math.abs(v).toFixed(2)}${at}`);
     if (n === c.sent) setState('updated');
   }
 
@@ -2766,7 +2768,8 @@ export async function mount(root, backend) {
     if (c.body === null || c.value === 0) return abortFillet(c.auto ? null : 'cancelled');
     if (c.bad !== null && Math.abs(c.value) >= Math.abs(c.bad)) c.value = c.good;
     const req = filletRequest(c);
-    const text = `${req.kind === 'chamfer' ? 'CHAMFER' : req.shape === 'round' ? 'FILLET' : `FILLET ${req.shape === 'g2' ? 'G2' : req.shape.toUpperCase()}`} ${req.size.toFixed(2)} ×${req.edges.length}`;
+    const text = req.kind === 'fillet' && req.shape === 'full' ? `FILLET FULL ×${req.edges.length}`
+      : `${req.kind === 'chamfer' ? 'CHAMFER' : req.shape === 'round' ? 'FILLET' : `FILLET ${req.shape === 'g2' ? 'G2' : req.shape.toUpperCase()}`} ${req.size.toFixed(2)} ×${req.edges.length}`;
     try {
       const { id, scene: list } = await backend.commitBlend(req);
       endCmd('committed');
