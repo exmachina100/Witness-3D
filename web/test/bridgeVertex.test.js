@@ -52,3 +52,22 @@ test('an imported NURBS curve can be bridged', () => {
     assert.deepEqual(b.poles[5].slice(0, 2).map(v => +v.toFixed(6)), [0, -5]);
     close(b.poles[4][1], -5, 1e-6);
 });
+
+test('G3 also matches how the curvature changes: none off an arc', () => {
+    const b = bridgeContinuous(arc, 1, line, 0, { continuity: ['G3', 'G1'] });
+    assert.equal(b.degree, 7); assert.equal(b.poles.length, 8); assert.equal(b.knots.length, 16);
+    // Curvature along the Bézier by de Casteljau derivatives.
+    const P = b.poles, n = 7;
+    const at = (Q, u) => { let R = Q.map(q => [...q]); while (R.length > 1) R = R.slice(1).map((q, i) => q.map((v, j) => (1 - u) * R[i][j] + u * v)); return R[0]; };
+    const D1 = P.slice(1).map((q, i) => q.map((v, j) => n * (v - P[i][j])));
+    const D2 = D1.slice(1).map((q, i) => q.map((v, j) => (n - 1) * (v - D1[i][j])));
+    const kappa = u => { const a = at(D1, u), c = at(D2, u); return (a[0] * c[1] - a[1] * c[0]) / Math.hypot(a[0], a[1]) ** 3; };
+    const h = 1e-4, ds = Math.hypot(...at(D1, 0).slice(0, 2)) * h;
+    close(kappa(0), 0.1, 1e-9);
+    close((kappa(h) - kappa(0)) / ds, 0, 1e-4);
+    // G2 alone leaves the curvature changing there.
+    const g2 = bridgeContinuous(arc, 1, line, 0, { continuity: ['G2', 'G1'] }).poles;
+    const E1 = g2.slice(1).map((q, i) => q.map((v, j) => 5 * (v - g2[i][j]))), E2 = E1.slice(1).map((q, i) => q.map((v, j) => 4 * (v - E1[i][j])));
+    const k5 = u => { const a = at(E1, u), c = at(E2, u); return (a[0] * c[1] - a[1] * c[0]) / Math.hypot(a[0], a[1]) ** 3; };
+    assert.ok(Math.abs((k5(h) - k5(0)) / (Math.hypot(...at(E1, 0).slice(0, 2)) * h)) > 1e-3);
+});

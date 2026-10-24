@@ -6,6 +6,7 @@
 // LocalBackend.checkCurve). Lengths are millimetres.
 
 import { arcPoints, circleThrough, cvDegree, cvPoints, ellipsePoints, loops, nurbsLoop, nurbsPoints } from './curves.js';
+import { bridgeSide } from './bridgeEdge.js';
 
 const EPS = 1e-9, TAU = 2 * Math.PI;
 const sub = (a, b) => [a[0] - b[0], a[1] - b[1]], add = (a, b) => [a[0] + b[0], a[1] + b[1]];
@@ -1468,31 +1469,38 @@ export function bridgeCurves(a, endA, b, endB, tension = 1) {
     const at = t => { const u = 1 - t; return [0, 1].map(i => u * u * u * P[0][i] + 3 * u * u * t * P[1][i] + 3 * u * t * t * P[2][i] + t * t * t * P[3][i]); };
     return withShape(a, { kind: 'spline', points: Array.from({ length: 9 }, (_, i) => at(i / 8)), closed: false });
 }
-/** Bridge continuity names, in the order Tab cycles them (Plasticity's Bridge Vertex has G3 too; not here yet). */
-export const BRIDGE_CONTINUITY = ['G0', 'G1', 'G2'];
+/** Bridge continuity names, in the order Tab cycles them. */
+export const BRIDGE_CONTINUITY = ['G0', 'G1', 'G2', 'G3'];
 
 /**
- * Plasticity's Bridge Vertex / Bridge Curve with continuity: a degree 5 Bézier from an end of `a`
- * to an end of `b` that meets each in position (G0), direction too (G1), or curvature too (G2),
- * per end. `tension` scales how far the bridge holds each end's direction. In `a`'s plane, as an
- * exact NURBS curve.
+ * Plasticity's Bridge Vertex / Bridge Curve with continuity: a Bézier from an end of `a` to an end
+ * of `b` that meets each in position (G0), direction too (G1), curvature too (G2) or the change of
+ * curvature too (G3), per end; degree 5, or 7 with a G3 end. `tension` scales how far the bridge
+ * holds each end's direction. In `a`'s plane, as an exact NURBS curve.
  */
 export function bridgeContinuous(a, endA, b, endB, { tension = 1, continuity = ['G1', 'G1'] } = {}) {
     if (!(Number.isFinite(tension) && tension > 0)) throw new Error('the tension must be greater than zero');
     if (ends2(a) === null || ends2(b) === null) throw new Error('bridge the open ends of two curves');
     for (const g of continuity) if (!BRIDGE_CONTINUITY.includes(g)) throw new Error(`continuity is ${BRIDGE_CONTINUITY.join(', ')}`);
-    // Each end: where it is, the way out of the curve, and its curvature travelling out. Lines and
-    // arcs are exact; anything else is read off close samples.
+    // Each end: where it is, the way out of the curve, its curvature vector K and how K changes per
+    // unit length travelling out (−κ²T on an arc). Lines and arcs are exact; anything else is read
+    // off close samples.
     const end = (shape, which) => {
         const piece = shape.kind === 'contour' ? (which ? shape.pieces.at(-1) : shape.pieces[0]) : shape;
+        const K = (k, out) => mul(left(out), k);
         if (piece.kind === 'arc') {
             const g = arcGeometry(piece.start, piece.mid, piece.end), t = which ? g.start + g.sweep : g.start, turn = Math.sign(g.sweep);
-            const along = [-Math.sin(t) * turn, Math.cos(t) * turn];
-            return { at: which ? piece.end : piece.start, out: which ? along : mul(along, -1), k: (which ? turn : -turn) / g.radius };
+            const along = [-Math.sin(t) * turn, Math.cos(t) * turn], out = which ? along : mul(along, -1);
+            return { at: which ? piece.end : piece.start, out, K: K((which ? turn : -turn) / g.radius, out), dK: mul(out, -1 / g.radius ** 2) };
         }
         const pts = samples(piece, 192).points, n = pts.length;
-        const [p, q, r] = which ? [pts[n - 3] ?? pts[n - 2], pts[n - 2], pts[n - 1]] : [pts[2] ?? pts[1], pts[1], pts[0]];
-        return { at: r, out: norm(sub(r, q)), k: piece.kind === 'polyline' || n < 3 ? 0 : curvature3(p, q, r) };
+        const [o, p, q, r] = which ? [pts[n - 4], pts[n - 3], pts[n - 2], pts[n - 1]] : [pts[3], pts[2], pts[1], pts[0]];
+        const out = norm(sub(r, q));
+        if (piece.kind === 'polyline' || !p) return { at: r, out, K: [0, 0], dK: [0, 0] };
+        const Kr = K(curvature3(p, q, r), out);
+        // The curvature vector one sample further in, and the change between them.
+        const dK = o ? mul(sub(Kr, K(curvature3(o, p, q), norm(sub(q, p)))), 1 / dist(q, p)) : [0, 0];
+        return { at: r, out, K: Kr, dK };
     };
     // `b` in `a`'s plane coordinates, piece by piece so its lines and arcs stay exact.
     const mapped = sh => {
@@ -1507,18 +1515,12 @@ export function bridgeContinuous(a, endA, b, endB, { tension = 1, continuity = [
     const A = end(a, endA), B = end(bShape, endB);
     const gap = dist(A.at, B.at);
     if (gap < 1e-6) throw new Error('those ends already meet; join them instead');
-    // Poles 0-2 from A and 5-3 from B. With d1 = k·out and d2 = k·out + h·left(out), a degree n
-    // Bézier starts with curvature (n − 1)/n · h/k², so h = κk²·n/(n − 1) matches the curve's.
-    const k = gap * tension / 5;
-    const side = (E, g, toward) => {
-        if (g === 'G0') return [E.at, add(E.at, mul(sub(toward, E.at), 0.2)), add(E.at, mul(sub(toward, E.at), 0.4))];
-        const p1 = add(E.at, mul(E.out, k));
-        const h = g === 'G2' ? E.k * k * k * 5 / 4 : 0;
-        return [E.at, p1, add(add(p1, mul(E.out, k)), mul(left(E.out), h))];
-    };
-    const [p0, p1, p2] = side(A, continuity[0], B.at), [p5, p4, p3] = side(B, continuity[1], A.at);
-    const poles = [p0, p1, p2, p3, p4, p5].map(p => [p[0], p[1], 0]);
-    return withShape(a, { kind: 'nurbs', degree: 5, poles, weights: poles.map(() => 1), knots: [0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 1] });
+    // Each side's poles match its end's derivatives in arc length, scaled to the gap.
+    const n = continuity.includes('G3') ? 7 : 5, z = v => [v[0], v[1], 0];
+    const flat = E => ({ at: z(E.at), out: z(E.out), K: z(E.K), dK: z(E.dK) });
+    const poles = [...bridgeSide(flat(A), continuity[0], z(B.at), n, gap * tension), ...bridgeSide(flat(B), continuity[1], z(A.at), n, gap * tension).reverse()];
+    const knots = [...poles.map(() => 0), ...poles.map(() => 1)];
+    return withShape(a, { kind: 'nurbs', degree: n, poles, weights: poles.map(() => 1), knots });
 }
 const ends2 = c => (c.kind === 'arc' || ((c.kind === 'polyline' || c.kind === 'spline' || c.kind === 'cv') && !c.closed) || (c.kind === 'nurbs' && !nurbsLoop(c)) || (c.kind === 'contour' && !loops(c.pieces))) ? true : null;
 
