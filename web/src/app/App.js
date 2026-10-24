@@ -1185,8 +1185,7 @@ export async function mount(root, backend) {
       m.visible = org.shows(b.id);
       bodies.add(m);
     }
-    $('volume').textContent = list.reduce((v, b) => v + b.volume, 0).toFixed(3);
-    $('faces').textContent = list.reduce((n, b) => n + b.facePlanes.length, 0);
+    renderTotals();
     $('export').disabled = list.length === 0;
     hover = null;
     selectionChanged({ quiet: true });
@@ -1824,7 +1823,17 @@ export async function mount(root, backend) {
   const instanceLabel = id => `N-${String(id).padStart(2, '0')}`;
   const masterOf = n => n.curve ? curveById(n.master) : bodyOf(n.master);
   const masterLabel = n => n.curve ? curveLabel(n.master) : label(n.master);
+  /** The shown instances of solids and sheets, each with its master's body. */
+  const placedSolids = () => instances.filter(n => !n.curve && !n.hidden).map(n => ({ n, b: bodyOf(n.master) })).filter(x => x.b);
+  /** The scene's volume and faces; an instance counts as its master at its scale. */
+  function renderTotals() {
+    const placed = placedSolids();
+    $('volume').textContent = (current.reduce((v, b) => v + b.volume, 0) + placed.reduce((v, { n, b }) => v + b.volume * n.scale ** 3, 0)).toFixed(3);
+    $('faces').textContent = current.reduce((k, b) => k + b.facePlanes.length, 0) + placed.reduce((k, { b }) => k + b.facePlanes.length, 0);
+  }
   function drawInstances() {
+    renderTotals();
+    renderMass();
     for (const o of instanceGroup.children) if (o.userData.own) o.geometry.dispose();
     instanceGroup.clear(); // a body's geometry is its master's, so only curve lines are disposed
     for (const n of instances) {
@@ -6546,7 +6555,11 @@ export async function mount(root, backend) {
   function renderMass() {
     const ids = sel.bodies.length ? sel.bodies : current.map(b => b.id);
     const weighed = ids.filter(id => materials.has(materialOf.get(id)));
-    $('mass').textContent = weighed.length ? formatMass(weighed.reduce((g, id) => g + massOf(bodyOf(id)?.volume ?? 0, materials.get(materialOf.get(id)).density), 0)) : '—';
+    // With nothing selected, shown instances weigh as their masters do, at their scale.
+    const placed = sel.bodies.length ? [] : placedSolids().filter(({ n }) => materials.has(materialOf.get(n.master)));
+    const grams = weighed.reduce((g, id) => g + massOf(bodyOf(id)?.volume ?? 0, materials.get(materialOf.get(id)).density), 0)
+      + placed.reduce((g, { n, b }) => g + massOf(b.volume * n.scale ** 3, materials.get(materialOf.get(n.master)).density), 0);
+    $('mass').textContent = weighed.length || placed.length ? formatMass(grams) : '—';
   }
   /** Bodies that use the material changed: their faces take the new values. */
   function materialsChanged() {
