@@ -67,6 +67,7 @@ import { FONTS, parseFont, textShapes } from '../text.js';
 import { regionsToExtrude } from '../regions.js';
 import { slidePoles } from '../polesEdit.js';
 import { densify, placeOnFace, smoothThrough } from '../deform.js';
+import { CULLING, DEPTHS, checkImage, imageLook, newImage } from './images.js';
 import { Organise } from './Organise.js';
 import { P_MENU, RADIALS, mergeKeys, parseRadial, shortLabel, showKey, sliceAt, slicePosition } from './menus.js';
 import { ENVIRONMENTS, SHADERS, SHADER_OPTIONS, checkMaterial, formatMass, massOf, newMaterial, shader } from './shading.js';
@@ -115,6 +116,7 @@ const KEYS = {
   'align-vertex': [['X / Y / Z', 'AXIS'], ['V', 'VALUE'], ['⏎ / RMB', 'OK']],
   rebuild: [['C', 'CONTROL POINTS'], ['D', 'DEGREE'], ['⏎ / RMB', 'OK']],
   'match-face': [['CLICK', 'TARGET FACE'], ['⇧ CLICK', 'FACES'], ['TAB', 'GROW'], ['⏎ / RMB', 'OK']],
+  image: [['DEL', 'REMOVE'], ['⏎ / RMB', 'OK'], ['ESC', 'CANCEL']],
   'deform-curve': [['CLICK', 'REFERENCE, THEN TARGET FACE'], ['M U N', 'FLIP'], ['K', 'KEEP CURVES'], ['⏎ / RMB', 'OK']],
   untrim: [['TAB', 'KEEP EDGES'], ['⇧ CLICK', 'FACES'], ['⏎ / RMB', 'OK']],
   unwrap: [['⇧ CLICK', 'FACES'], ['⏎ / RMB', 'OK']],
@@ -176,7 +178,7 @@ const CLICKS = { rect: 2, 'center-rect': 2, rect3: 3, circle: 2, circle2: 2, cir
 const FORMS = { revolve: true, loft: true, sweep: true };
 const PRIMS = { box: true, 'center-box': true, box3: true, cylinder: true, sphere: true };
 // Commands that aren't tools in the registry (they act on a click, not on settings).
-const EDITS = { isoparam: 'ISOPARAM', 'offset-vertex': 'OFFSET VERTEX', slide: 'SLIDE CURVE CV', 'fillet-vertex': 'FILLET VERTEX', 'align-vertex': 'ALIGN VERTEX', rebuild: 'REBUILD CURVE', 'rebuild-face': 'REBUILD FACE', 'match-face': 'MATCH FACE', 'deform-curve': 'DEFORM', untrim: 'UNTRIM', unwrap: 'UNWRAP FACE', section: 'SECTION ANALYSIS', place: 'PLACE', dimension: 'DIMENSION', text: 'TEXT', 'insert-knot': 'INSERT KNOT', 'offset-edge': 'OFFSET EDGE', material: 'SET MATERIAL', 'export-mesh': 'EXPORT MESH', 'export-drawing': 'EXPORT DRAWING', 'measure-continuity': 'MEASURE CONTINUITY', trim: 'TRIM', extend: 'EXTEND CURVE', 'tangent-circle': 'TANGENT CIRCLE', split: 'SPLIT CURVE', 'measure-distance': 'MEASURE DISTANCE', 'measure-radius': 'MEASURE RADIUS' };
+const EDITS = { isoparam: 'ISOPARAM', 'offset-vertex': 'OFFSET VERTEX', slide: 'SLIDE CURVE CV', 'fillet-vertex': 'FILLET VERTEX', 'align-vertex': 'ALIGN VERTEX', rebuild: 'REBUILD CURVE', 'rebuild-face': 'REBUILD FACE', 'match-face': 'MATCH FACE', 'deform-curve': 'DEFORM', image: 'REFERENCE IMAGE', untrim: 'UNTRIM', unwrap: 'UNWRAP FACE', section: 'SECTION ANALYSIS', place: 'PLACE', dimension: 'DIMENSION', text: 'TEXT', 'insert-knot': 'INSERT KNOT', 'offset-edge': 'OFFSET EDGE', material: 'SET MATERIAL', 'export-mesh': 'EXPORT MESH', 'export-drawing': 'EXPORT DRAWING', 'measure-continuity': 'MEASURE CONTINUITY', trim: 'TRIM', extend: 'EXTEND CURVE', 'tangent-circle': 'TANGENT CIRCLE', split: 'SPLIT CURVE', 'measure-distance': 'MEASURE DISTANCE', 'measure-radius': 'MEASURE RADIUS' };
 const keysHtml = id => KEYS[id].map(([k, v]) => `<kbd>${k}</kbd><span>${v}</span>`).join('');
 // The Command Bar, exactly the manual's list (Plasticity Essentials › Command Bar).
 const BAR = [['palette', 'F', 'SEARCH'], ['tool:move', 'G', 'MOVE'], ['tool:rotate', 'R', 'ROTATE'], ['tool:scale', 'S', 'SCALE'], ['duplicate', '⇧D', 'DUPLICATE'], ['tool:boolean', 'Q', 'BOOLEAN'], ['tool:rect-array', '', 'RECTANGULAR ARRAY'], ['tool:radial-array', '', 'RADIAL ARRAY'], ['suggest', '⇧F', 'SUGGESTED COMMANDS']];
@@ -192,7 +194,7 @@ const SHELL = `
     <button class="export" data-id="file-open" hidden>${icon('file-open')}OPEN</button>
     <button class="export" data-id="file-save" hidden>${icon('file-save')}SAVE</button>
     <button class="export" data-id="import" hidden title="Import a STEP, IGES or DXF file">${icon('import')}IMPORT</button>
-    <input type="file" data-id="import-file" accept=".dxf" hidden>
+    <input type="file" data-id="import-file" accept=".dxf,.png,.jpg,.jpeg" hidden>
     <button class="export" data-id="export" disabled title="Export STEP">${icon('export')}STEP</button>
     <span class="file" data-id="file-name">UNTITLED.W3D</span>
   </header>
@@ -397,6 +399,16 @@ const SHELL = `
       <div class="field"><label>TARGET</label><output data-id="mf-target" title="Click the face whose surface the faces should take">—</output></div>
       <span class="label">GROW</span>
       <div class="seg" role="group" aria-label="Grow mode"><button data-mfgrow="moving" aria-pressed="true" title="An inner face matched past the outer wall takes the wall with it (Tab)">MOVING</button><button data-mfgrow="fixed" aria-pressed="false" title="Stop at the outer wall (Tab)">FIXED</button><button data-mfgrow="none" aria-pressed="false" title="Carry on past the outer wall by itself (Tab)">NONE</button></div>
+    </div>
+    <div class="sec" data-panel="image" hidden>
+      <span class="hint" data-id="im-hint">—</span>
+      <div class="field"><label for="w3d-im-w">WIDTH</label><input id="w3d-im-w" data-id="im-w" type="number" step="5" min="0.1" value="100" title="The picture's width in mm; its height follows"></div>
+      <div class="field"><label for="w3d-im-o">OPACITY</label><input id="w3d-im-o" data-id="im-o" type="number" step="0.05" min="0" max="1" value="1" title="1 is solid, 0 is clear"></div>
+      <span class="label">DEPTH</span>
+      <div class="seg" role="group" aria-label="Image depth"><button data-imdepth="normal" aria-pressed="true" title="Hidden by what stands in front of it, and hides what stands behind it">NORMAL</button><button data-imdepth="front" aria-pressed="false" title="Always seen, over the model (see-through)">FRONT</button><button data-imdepth="behind" aria-pressed="false" title="Always behind the model, wherever it stands">BEHIND</button></div>
+      <span class="label">CULLING</span>
+      <div class="seg" role="group" aria-label="Image culling"><button data-imcull="front" aria-pressed="false" title="Seen from the front only">FRONT ONLY</button><button data-imcull="double" aria-pressed="true" title="Seen from both sides">DOUBLE SIDED</button></div>
+      <div class="chips"><button data-id="im-delete" title="Remove the image (Delete)"><kbd>DEL</kbd>REMOVE</button></div>
     </div>
     <div class="sec" data-panel="deform-curve" hidden>
       <span class="hint" data-id="dc-hint">—</span>
@@ -784,11 +796,11 @@ const VIEWS = {
 export async function mount(root, backend) {
   root.innerHTML = SHELL;
   // Panel options carry their icon ahead of the key and name.
-  for (const b of root.querySelectorAll('[data-draw],[data-bop],[data-xop],[data-fop],[data-spiral],[data-toggle],[data-gmethod],[data-galign],[data-grow],[data-mfgrow],[data-eslimit],[data-flshape],[data-avaxis],[data-extshape],[data-esshape],[data-isodir],[data-id="oe-both"],[data-id="ex-lock"],[data-id="bool-keep"],[data-id="ex-free"],[data-id="ex-pivot"],[data-id="ex-individual"],[data-id="dr-hidden"],[data-id="dr-curves"],[data-id="oc-lock"],[data-id="oc-free"],[data-id="oc-slot"],[data-id="oc-combine"],[data-id="es-unlimit"],[data-rbmethod],[data-oecorner],[data-saplane],[data-plaxis],[data-plop],[data-id="pl-flip"],[data-id="section-btn"],[data-id="sa-flip"],[data-id="rf-shrink"],[data-id="ut-keep"],[data-txfont],[data-txalign],[data-sldir],[data-dcflip],[data-id="dc-keep"]')) {
+  for (const b of root.querySelectorAll('[data-draw],[data-bop],[data-xop],[data-fop],[data-spiral],[data-toggle],[data-gmethod],[data-galign],[data-grow],[data-mfgrow],[data-eslimit],[data-flshape],[data-avaxis],[data-extshape],[data-esshape],[data-isodir],[data-id="oe-both"],[data-id="ex-lock"],[data-id="bool-keep"],[data-id="ex-free"],[data-id="ex-pivot"],[data-id="ex-individual"],[data-id="dr-hidden"],[data-id="dr-curves"],[data-id="oc-lock"],[data-id="oc-free"],[data-id="oc-slot"],[data-id="oc-combine"],[data-id="es-unlimit"],[data-rbmethod],[data-oecorner],[data-saplane],[data-plaxis],[data-plop],[data-id="pl-flip"],[data-id="section-btn"],[data-id="sa-flip"],[data-id="rf-shrink"],[data-id="ut-keep"],[data-txfont],[data-txalign],[data-sldir],[data-dcflip],[data-id="dc-keep"],[data-imdepth],[data-imcull],[data-id="im-delete"]')) {
     const name = b.dataset.draw ?? b.dataset.bop ?? b.dataset.xop ?? b.dataset.fop ?? b.dataset.spiral ?? (b.dataset.toggle && `view-${b.dataset.toggle}`)
       ?? (b.dataset.gmethod && `guide-${b.dataset.gmethod}`) ?? (b.dataset.galign && `align-${b.dataset.galign}`) ?? (b.dataset.grow && `grow-${b.dataset.grow}`) ?? (b.dataset.mfgrow && `grow-${b.dataset.mfgrow}`) ?? (b.dataset.eslimit && `limit-${b.dataset.eslimit}`) ?? (b.dataset.flshape && `fillet-${b.dataset.flshape}`) ?? (b.dataset.avaxis && `axis-${b.dataset.avaxis}`) ?? (b.dataset.extshape && `extend-${b.dataset.extshape}`) ?? (b.dataset.esshape && `extend-${b.dataset.esshape}`) ?? (b.dataset.isodir && `iso-${b.dataset.isodir}`) ?? (b.dataset.rbmethod && `rebuild-${b.dataset.rbmethod}`) ?? (b.dataset.oecorner && `corner-${b.dataset.oecorner}`) ?? (b.dataset.saplane && `section-${b.dataset.saplane}`) ?? (b.dataset.plaxis && (b.dataset.plaxis === 'normal' ? 'place-normal' : `axis-${b.dataset.plaxis}`)) ?? b.dataset.plop
-      ?? (b.dataset.txfont && `font-${b.dataset.txfont}`) ?? (b.dataset.txalign && `txalign-${b.dataset.txalign}`) ?? (b.dataset.sldir && { u: 'slide-u', '-u': 'slide-back', v: 'slide-v', '-v': 'slide-vback', n: 'slide-n' }[b.dataset.sldir]) ?? (b.dataset.dcflip && { mirror: 'mirror', swap: 'swap-uv', normal: 'reverse-sheet' }[b.dataset.dcflip])
-      ?? { 'ex-lock': 'lock', 'bool-keep': 'keep', 'ex-free': 'freestyle', 'ex-pivot': 'pivot', 'ex-individual': 'individual', 'dr-hidden': 'hidden-lines', 'dr-curves': 'drawing-curves', 'oc-lock': 'lock', 'oc-free': 'freestyle', 'oc-slot': 'slot', 'oc-combine': 'combine', 'oe-both': 'both-sides', 'es-unlimit': 'unlimit', 'rf-shrink': 'shrink', 'ut-keep': 'keep-edges', 'section-btn': 'view-section', 'sa-flip': 'flip', 'pl-flip': 'flip', 'dc-keep': 'keep' }[b.dataset.id];
+      ?? (b.dataset.txfont && `font-${b.dataset.txfont}`) ?? (b.dataset.txalign && `txalign-${b.dataset.txalign}`) ?? (b.dataset.sldir && { u: 'slide-u', '-u': 'slide-back', v: 'slide-v', '-v': 'slide-vback', n: 'slide-n' }[b.dataset.sldir]) ?? (b.dataset.dcflip && { mirror: 'mirror', swap: 'swap-uv', normal: 'reverse-sheet' }[b.dataset.dcflip]) ?? (b.dataset.imdepth && `depth-${b.dataset.imdepth}`) ?? (b.dataset.imcull && `cull-${b.dataset.imcull}`)
+      ?? { 'ex-lock': 'lock', 'bool-keep': 'keep', 'ex-free': 'freestyle', 'ex-pivot': 'pivot', 'ex-individual': 'individual', 'dr-hidden': 'hidden-lines', 'dr-curves': 'drawing-curves', 'oc-lock': 'lock', 'oc-free': 'freestyle', 'oc-slot': 'slot', 'oc-combine': 'combine', 'oe-both': 'both-sides', 'es-unlimit': 'unlimit', 'rf-shrink': 'shrink', 'ut-keep': 'keep-edges', 'section-btn': 'view-section', 'sa-flip': 'flip', 'pl-flip': 'flip', 'dc-keep': 'keep', 'im-delete': 'delete' }[b.dataset.id];
     b.insertAdjacentHTML('afterbegin', icon(name));
   }
   const $ = id => root.querySelector(`[data-id="${id}"]`);
@@ -1583,6 +1595,20 @@ export async function mount(root, backend) {
     }
     if (cmd?.id === 'pushpull' && cmd.at) out.insertAdjacentHTML('beforeend', `<div class="row-item curve"><span class="ln"></span><span>${profileKind === 'circle' ? 'CIRCLE' : 'RECT'}.001</span></div>`);
     else if (!curveList.length) out.insertAdjacentHTML('beforeend', '<div class="empty">NO CURVES</div>');
+    if (images.length) out.insertAdjacentHTML('beforeend', '<div class="group-title">▾ IMAGES</div>');
+    for (const im of images) {
+      const row = document.createElement('div');
+      row.className = 'row-item curve' + (im.hidden ? ' off' : '');
+      row.setAttribute('aria-current', cmd?.id === 'image' && cmd.image === im.id);
+      row.innerHTML = `${icon('image')}<span class="name" title="${im.name.replace(/[<>&"]/g, '')}">IMAGE</span><span class="tag">${imageLabel(im.id)}</span><button class="eye" aria-pressed="${!im.hidden}" aria-label="Show or hide">◉</button>`;
+      row.onclick = async e => {
+        if (e.target.closest('.eye')) { im.hidden = !im.hidden; drawImages(); return renderOutliner(); }
+        if (cmd) await finish();
+        startImage(im.id);
+        renderOutliner();
+      };
+      out.append(row);
+    }
   }
   function renderHistory() {
     const live = history.length - undone;
@@ -1624,6 +1650,91 @@ export async function mount(root, backend) {
     $('plane').textContent = name;
     $('status-plane').textContent = name;
   }
+  // --- reference images -----------------------------------------------------
+  // Plasticity's reference images: pictures standing on the construction plane they were imported
+  // on (see images.js). They live in the file's app state, not the kernel, and are not picked in
+  // the viewport: the outliner lists them, and clicking one opens its panel.
+  let images = [], nextImage = 1;
+  const imageGroup = new THREE.Group();
+  scene.add(imageGroup);
+  const textures = new Map();
+  const imageLabel = id => `I-${String(id).padStart(2, '0')}`;
+  function drawImages() {
+    for (const m of imageGroup.children) { m.geometry.dispose(); m.material.dispose(); }
+    imageGroup.clear();
+    for (const im of images) {
+      if (im.hidden) continue;
+      if (!textures.has(im.id)) {
+        const t = new THREE.TextureLoader().load(im.src);
+        t.colorSpace = THREE.SRGBColorSpace;
+        textures.set(im.id, t);
+      }
+      const look = imageLook(im);
+      const mat = new THREE.MeshBasicMaterial({ map: textures.get(im.id), transparent: look.transparent, opacity: look.opacity, depthTest: look.depthTest, depthWrite: look.depthWrite, side: look.double ? THREE.DoubleSide : THREE.FrontSide, toneMapped: false });
+      // The picture lies flat in the plane: x along the plane's x, up the picture along its -z.
+      const geo = new THREE.PlaneGeometry(im.width, im.width * im.aspect).rotateX(-Math.PI / 2);
+      const mesh = new THREE.Mesh(geo, mat);
+      mesh.position.fromArray(im.origin);
+      mesh.quaternion.fromArray(im.quaternion);
+      mesh.renderOrder = look.order;
+      imageGroup.add(mesh);
+    }
+  }
+  const asDataUrl = blob => new Promise((ok, fail) => { const r = new FileReader(); r.onload = () => ok(r.result); r.onerror = () => fail(new Error('that image could not be read')); r.readAsDataURL(blob); });
+  const pictureSize = src => new Promise((ok, fail) => { const i = new Image(); i.onload = () => ok([i.naturalWidth, i.naturalHeight]); i.onerror = () => fail(new Error('that file is not a PNG or JPEG picture')); i.src = src; });
+  /** A PNG or JPEG placed on the construction plane, 100 mm wide, centred on its origin. */
+  async function importImage(blob, name) {
+    const src = await asDataUrl(blob);
+    if (!/^data:image\/(png|jpeg);base64,/.test(src)) throw new Error('reference images are PNG or JPEG pictures');
+    const [w, h] = await pictureSize(src);
+    if (!(w > 0 && h > 0)) throw new Error('that picture has no size');
+    const im = newImage(nextImage++, name, src, h / w, { origin: cplane.origin.toArray(), quaternion: grid.quaternion.toArray() });
+    images.push(im);
+    drawImages();
+    renderOutliner();
+    toast(`IMAGE ${name.toUpperCase()} ON ${cplane.name} · SAVED WITH THE FILE`);
+  }
+  /** Plasticity's image appearance (M on an image): width, opacity, depth and culling, live. */
+  function startImage(id) {
+    const im = images.find(m => m.id === id);
+    if (!im) return;
+    const before = { ...im };
+    const c = cmd = { id: 'image', image: id };
+    lastTool = 'image';
+    showTool('image');
+    setState('none');
+    setTarget(imageLabel(id));
+    const show = () => {
+      $('im-hint').textContent = `${im.name.toUpperCase()} · ${Math.round(im.width * 10) / 10} × ${Math.round(im.width * im.aspect * 10) / 10} MM`;
+      for (const b of $$('[data-imdepth]')) b.setAttribute('aria-pressed', String(b.dataset.imdepth === im.depth));
+      for (const b of $$('[data-imcull]')) b.setAttribute('aria-pressed', String(b.dataset.imcull === im.culling));
+      drawImages();
+      setState('updated');
+    };
+    c.set = (key, v) => { im[key] = v; show(); };
+    c.input = () => {
+      const w = num('im-w'), o = num('im-o');
+      if (w > 0) im.width = w;
+      if (o >= 0 && o <= 1) im.opacity = o;
+      show();
+    };
+    c.remove = () => {
+      images = images.filter(m => m.id !== id);
+      textures.get(id)?.dispose();
+      textures.delete(id);
+      endCmd('committed');
+      drawImages();
+      renderOutliner();
+      toast(`REMOVED ${imageLabel(id)}`);
+    };
+    c.key = action => (action === 'delete' ? (c.remove(), true) : false);
+    c.finish = async () => { endCmd('committed'); renderOutliner(); };
+    c.abort = () => { Object.assign(im, before); drawImages(); endCmd('cancelled'); };
+    $('im-w').value = im.width;
+    $('im-o').value = im.opacity;
+    show();
+  }
+
   function planeFromSelection(alignView) {
     const faces = sel.list('face');
     const f = faces[faces.length - 1];
@@ -7969,7 +8080,7 @@ export async function mount(root, backend) {
   /** Groups, hidden and locked bodies and materials go into the file with the geometry. */
   async function keepAppState() {
     if (!backend.setAppState) return;
-    await backend.setAppState({ organise: org.toJSON(), materials: [...materials.values()], materialOf: [...materialOf], nextMaterial });
+    await backend.setAppState({ organise: org.toJSON(), materials: [...materials.values()], materialOf: [...materialOf], nextMaterial, images, nextImage });
   }
   async function restoreAppState() {
     const st = backend.appState ? await backend.appState() : null;
@@ -7978,6 +8089,11 @@ export async function mount(root, backend) {
     for (const m of Array.isArray(st?.materials) ? st.materials : []) if (Number.isInteger(m?.id) && !checkMaterial({ ...newMaterial(m.id), ...m }).length) materials.set(m.id, { ...newMaterial(m.id), ...m });
     for (const [b, m] of Array.isArray(st?.materialOf) ? st.materialOf : []) if (materials.has(m)) materialOf.set(b, m);
     nextMaterial = Math.max(Number.isInteger(st?.nextMaterial) ? st.nextMaterial : 1, ...[...materials.keys()].map(k => k + 1));
+    for (const t of textures.values()) t.dispose();
+    textures.clear();
+    images = (Array.isArray(st?.images) ? st.images : []).filter(m => !checkImage(m).length);
+    nextImage = Math.max(Number.isInteger(st?.nextImage) ? st.nextImage : 1, ...images.map(m => m.id + 1));
+    drawImages();
     org.prune(current.map(b => b.id));
     materialsChanged();
     organised();
@@ -7989,7 +8105,7 @@ export async function mount(root, backend) {
     $(id).hidden = typeof backend[method] !== 'function';
   }
   // Without a native import (the browser), Import still reads DXF drawings as curves.
-  if (!backend.importStep && backend.addCurves) { $('import').hidden = false; $('import').title = 'Import a DXF drawing as curves'; }
+  if (!backend.importStep && backend.addCurves) { $('import').hidden = false; $('import').title = 'Import a DXF drawing as curves, or a PNG or JPEG reference image'; }
   $('file-new').onclick = () => fileAction(async () => { newScene(await backend.newDocument(), 'UNTITLED.W3D'); await restoreAppState(); });
   function openFile(path) {
     return fileAction(async () => {
@@ -8019,13 +8135,16 @@ export async function mount(root, backend) {
   $('import-file').onchange = e => fileAction(async () => {
     const file = e.target.files?.[0];
     e.target.value = '';
-    if (file) await importDxf(await file.text(), file.name);
+    if (!file) return;
+    if (/\.(png|jpe?g)$/i.test(file.name)) return importImage(file, file.name);
+    await importDxf(await file.text(), file.name);
   });
   $('import').onclick = () => fileAction(async () => {
     if (!backend.importStep) return $('import-file').click();
     const r = await backend.importStep();
     if (!r) return;
     if (r.dxf !== undefined) return importDxf(r.dxf, r.name);
+    if (r.image) return importImage(r.image, r.name);
     if (cmd) abort();
     sel.clear();
     record('IMPORT STEP', r.id);
@@ -8183,6 +8302,10 @@ export async function mount(root, backend) {
   $('av-v').addEventListener('input', () => cmd?.id === 'align-vertex' && cmd.preview());
   for (const id of ['rb-n', 'rb-p']) $(id).addEventListener('input', () => cmd?.id === 'rebuild' && cmd.preview());
   for (const id of ['dc-su', 'dc-sv', 'dc-sn', 'dc-ou', 'dc-ov', 'dc-on']) $(id).addEventListener('input', () => cmd?.id === 'deform-curve' && cmd.preview());
+  for (const id of ['im-w', 'im-o']) $(id).addEventListener('input', () => cmd?.id === 'image' && cmd.input());
+  for (const b of $$('[data-imdepth]')) b.onclick = () => cmd?.id === 'image' && cmd.set('depth', b.dataset.imdepth);
+  for (const b of $$('[data-imcull]')) b.onclick = () => cmd?.id === 'image' && cmd.set('culling', b.dataset.imcull);
+  $('im-delete').onclick = () => cmd?.id === 'image' && cmd.remove();
   for (const b of $$('[data-dcflip]')) b.onclick = () => cmd?.id === 'deform-curve' && cmd.setFlip(b.dataset.dcflip, !cmd.flips[b.dataset.dcflip]);
   $('dc-keep').onclick = () => cmd?.id === 'deform-curve' && cmd.setKeep(!cmd.keep);
   for (const id of ['rf-tol', 'rf-du', 'rf-dv', 'rf-su', 'rf-sv', 'rf-eu', 'rf-ev']) $(id).addEventListener('input', () => cmd?.id === 'rebuild-face' && cmd.preview());

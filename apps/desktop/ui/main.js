@@ -11,8 +11,8 @@ const tauri = window.__TAURI__;
 const W3D = [{ name: 'Witness 3D', extensions: ['w3d'] }];
 // STEP, and IGES on the desktop (the browser's OpenCascade build has no IGES).
 const STEP = [{ name: 'STEP', extensions: ['step', 'stp'] }, { name: 'IGES', extensions: ['igs', 'iges'] }];
-// File › Import also reads DXF drawings, as curves (web/src/dxf.js).
-const IMPORT = [{ name: 'STEP, IGES, DXF', extensions: ['step', 'stp', 'igs', 'iges', 'dxf'] }, ...STEP, { name: 'DXF', extensions: ['dxf'] }];
+// File › Import also reads DXF drawings, as curves (web/src/dxf.js), and PNG and JPEG reference images.
+const IMPORT = [{ name: 'STEP, IGES, DXF, images', extensions: ['step', 'stp', 'igs', 'iges', 'dxf', 'png', 'jpg', 'jpeg'] }, ...STEP, { name: 'DXF', extensions: ['dxf'] }, { name: 'Reference images', extensions: ['png', 'jpg', 'jpeg'] }];
 const baseName = p => p.split(/[\\/]/).pop();
 let filePath = null; // where Save writes without asking
 
@@ -157,6 +157,10 @@ const rust = {
     const path = await tauri.dialog.open({ multiple: false, directory: false, filters: IMPORT });
     if (!path) return null;
     if (/\.dxf$/i.test(path)) return { dxf: await tauri.core.invoke('read_dxf', { path }), name: baseName(path) };
+    if (/\.(png|jpe?g)$/i.test(path)) {
+      const bytes = await tauri.core.invoke('read_image', { path });
+      return { image: new Blob([bytes], { type: /\.png$/i.test(path) ? 'image/png' : 'image/jpeg' }), name: baseName(path) };
+    }
     return tauri.core.invoke('import_step', { path });
   },
   async exportStep(id) {

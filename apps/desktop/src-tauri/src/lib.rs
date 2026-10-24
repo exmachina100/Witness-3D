@@ -770,6 +770,16 @@ async fn import_step(model: State<'_, Model>, path: PathBuf) -> Result<api::Comm
     on_model(&model, move |m| api::import_step(m, path)).await?
 }
 
+/// A PNG or JPEG for File › Import, which places it as a reference image in the UI.
+#[tauri::command]
+async fn read_image(path: PathBuf) -> Result<tauri::ipc::Response, String> {
+    let ext = path.extension().and_then(|e| e.to_str()).map(|e| e.to_ascii_lowercase());
+    if !matches!(ext.as_deref(), Some("png" | "jpg" | "jpeg")) { return Err("reference images are .png or .jpg files".into()) }
+    let size = std::fs::metadata(&path).map_err(|e| e.to_string())?.len();
+    if size > 64 << 20 { return Err("that image is over 64 MB".into()) }
+    Ok(tauri::ipc::Response::new(std::fs::read(&path).map_err(|e| e.to_string())?))
+}
+
 /// A DXF drawing's text for File › Import, which turns it into curves in the UI (web/src/dxf.js).
 #[tauri::command]
 async fn read_dxf(path: PathBuf) -> Result<String, String> {
@@ -891,6 +901,7 @@ pub fn run() {
             preview_form,
             commit_form,
             read_dxf,
+            read_image,
             preview_offset,
             commit_offset,
             replace_curves,
