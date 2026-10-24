@@ -14,7 +14,7 @@ import { faceSurfaces } from '../faceSurfaces.js';
 import { facePoles } from '../facePoles.js';
 import { faceUvn } from '../faceUvn.js';
 import { moveFacePoles, subdivideFaces } from '../movePoles.js';
-import { chordal, limitRound } from '../filletShape.js';
+import { chordal, fullRound, limitRound } from '../filletShape.js';
 import { bridgeSurface } from '../BridgeSurface.js';
 import { projectOutline } from '../Outline.js';
 import { thicken, thickenFaces } from '../Thicken.js';
@@ -1012,6 +1012,10 @@ export class LocalBackend {
         const shape = this.shapes.get(body);
         if (!shape) throw new Error('that body no longer exists');
         if (!edges.length) throw new Error('select at least one edge');
+        if (kind !== 'chamfer' && section === 'full') {
+            const r = fullRound(shape, [...new Set(edges)], booleanWithHistory);
+            return withHistory ? r : r.shape;
+        }
         if (!(size > 0)) throw new Error(`the ${kind === 'chamfer' ? 'distance' : 'radius'} must be greater than zero`);
         if (kind === 'chamfer' && !(angle > 0 && angle < Math.PI / 2)) throw new Error('the chamfer angle must be between 0 and 90 degrees');
         const unique = [...new Set(edges)];

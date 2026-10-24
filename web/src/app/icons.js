@@ -198,6 +198,7 @@ const ICONS = {
     'fillet-chordal': `<path d="M5 3v8M13 19h8"/><path ${A} d="M5 11a8 8 0 0 0 8 8"/><path d="M5 11l8 8" stroke-dasharray="2 2"/>`,
     'fillet-conic': `<path d="M5 3v8M13 19h8"/><path ${A} d="M5 11Q5 19 13 19"/><circle cx="5" cy="19" r="1.2"/>`,
     'fillet-g2': `<path d="M5 3v6M15 19h6"/><path ${A} d="M5 9C5 16 8 19 15 19"/>`,
+    'fillet-full': `<path d="M5 21V12M19 21V12"/><path ${A} d="M5 12a7 7 0 0 1 14 0"/><path d="M5 5h14" stroke-dasharray="2 2"/>`,
     // Offset Edge gap fill: an L corner and its offset, joined straight on, round or smoothly.
     'corner-linear': `<path d="M4 20V8h12"/><path ${A} d="M8 20V12h8"/>`,
     'corner-round': `<path d="M4 20V8h12"/><path ${A} d="M8 20v-4a4 4 0 0 1 4-4h4"/><circle cx="4" cy="8" r="1.2"/>`,

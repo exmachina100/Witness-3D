@@ -45,3 +45,19 @@ test('limit points keep the round between them, ending flat', async () => {
     assert.throws(() => limitRound(b, rounded, [e], [[0, 25, 0]], booleanWithHistory), /two limit points/);
     assert.throws(() => limitRound(b, rounded, [e], [[5, 5, 5], [0, 10, 0]], booleanWithHistory), /not on an edge/);
 });
+
+test('a full round takes a rib top off as a half disc tangent to its sides', async () => {
+    const { fullRound } = await import('../src/filletShape.js');
+    const { booleanWithHistory, count } = await import('../src/Kernel.js');
+    const b = box(new THREE.Vector3(0, 0, 0), new THREE.Vector3(10, 40, 20));
+    const e1 = edgeWhere(b, p => Math.abs(p.x) < 1e-6 && Math.abs(p.z - 20) < 1e-6);
+    const e2 = edgeWhere(b, p => Math.abs(p.x - 10) < 1e-6 && Math.abs(p.z - 20) < 1e-6);
+    const { shape, history } = fullRound(b, [e1, e2], booleanWithHistory);
+    const want = 8000 - (50 - Math.PI * 25 / 2) * 40;
+    assert.ok(Math.abs(vol(shape) - want) < 0.01, `${vol(shape)} against ${want}`);
+    assert.equal(count(shape, 'TopAbs_FACE'), 6);
+    assert.ok(history.faces[0].length >= 5);
+    const e3 = edgeWhere(b, p => Math.abs(p.x) < 1e-6 && Math.abs(p.z) < 1e-6);
+    assert.throws(() => fullRound(b, [e3, e2], booleanWithHistory), /one flat face/);
+    assert.throws(() => fullRound(b, [e1], booleanWithHistory), /two edges/);
+});
