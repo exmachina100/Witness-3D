@@ -68,6 +68,7 @@ import { regionsToExtrude } from '../regions.js';
 import { slidePoles } from '../polesEdit.js';
 import { densify, placeOnFace, smoothThrough } from '../deform.js';
 import { CULLING, DEPTHS, checkImage, imageLook, newImage } from './images.js';
+import { newInstance, checkInstance, matrixOf, motionOf } from './instances.js';
 import { Organise } from './Organise.js';
 import { P_MENU, RADIALS, mergeKeys, parseRadial, shortLabel, showKey, sliceAt, slicePosition } from './menus.js';
 import { ENVIRONMENTS, SHADERS, SHADER_OPTIONS, checkMaterial, formatMass, massOf, newMaterial, shader } from './shading.js';
@@ -117,6 +118,7 @@ const KEYS = {
   rebuild: [['C', 'CONTROL POINTS'], ['D', 'DEGREE'], ['⏎ / RMB', 'OK']],
   'match-face': [['CLICK', 'TARGET FACE'], ['⇧ CLICK', 'FACES'], ['TAB', 'GROW'], ['⏎ / RMB', 'OK']],
   image: [['DEL', 'REMOVE'], ['⏎ / RMB', 'OK'], ['ESC', 'CANCEL']],
+  instance: [['G R S', 'MOVE ROTATE SCALE'], ['⇧D', 'DUPLICATE'], ['DEL', 'REMOVE'], ['⏎ / RMB', 'OK'], ['ESC', 'CANCEL']],
   'deform-curve': [['CLICK', 'REFERENCE, THEN TARGET FACE'], ['M U N', 'FLIP'], ['K', 'KEEP CURVES'], ['⏎ / RMB', 'OK']],
   untrim: [['TAB', 'KEEP EDGES'], ['⇧ CLICK', 'FACES'], ['⏎ / RMB', 'OK']],
   unwrap: [['⇧ CLICK', 'FACES'], ['⏎ / RMB', 'OK']],
@@ -178,7 +180,7 @@ const CLICKS = { rect: 2, 'center-rect': 2, rect3: 3, circle: 2, circle2: 2, cir
 const FORMS = { revolve: true, loft: true, sweep: true };
 const PRIMS = { box: true, 'center-box': true, box3: true, cylinder: true, sphere: true };
 // Commands that aren't tools in the registry (they act on a click, not on settings).
-const EDITS = { isoparam: 'ISOPARAM', 'offset-vertex': 'OFFSET VERTEX', slide: 'SLIDE CURVE CV', 'fillet-vertex': 'FILLET VERTEX', 'align-vertex': 'ALIGN VERTEX', rebuild: 'REBUILD CURVE', 'rebuild-face': 'REBUILD FACE', 'match-face': 'MATCH FACE', 'deform-curve': 'DEFORM', image: 'REFERENCE IMAGE', untrim: 'UNTRIM', unwrap: 'UNWRAP FACE', section: 'SECTION ANALYSIS', place: 'PLACE', dimension: 'DIMENSION', text: 'TEXT', 'insert-knot': 'INSERT KNOT', 'offset-edge': 'OFFSET EDGE', material: 'SET MATERIAL', 'export-mesh': 'EXPORT MESH', 'export-drawing': 'EXPORT DRAWING', 'measure-continuity': 'MEASURE CONTINUITY', trim: 'TRIM', extend: 'EXTEND CURVE', 'tangent-circle': 'TANGENT CIRCLE', split: 'SPLIT CURVE', 'measure-distance': 'MEASURE DISTANCE', 'measure-radius': 'MEASURE RADIUS' };
+const EDITS = { isoparam: 'ISOPARAM', 'offset-vertex': 'OFFSET VERTEX', slide: 'SLIDE CURVE CV', 'fillet-vertex': 'FILLET VERTEX', 'align-vertex': 'ALIGN VERTEX', rebuild: 'REBUILD CURVE', 'rebuild-face': 'REBUILD FACE', 'match-face': 'MATCH FACE', 'deform-curve': 'DEFORM', image: 'REFERENCE IMAGE', instance: 'INSTANCE', untrim: 'UNTRIM', unwrap: 'UNWRAP FACE', section: 'SECTION ANALYSIS', place: 'PLACE', dimension: 'DIMENSION', text: 'TEXT', 'insert-knot': 'INSERT KNOT', 'offset-edge': 'OFFSET EDGE', material: 'SET MATERIAL', 'export-mesh': 'EXPORT MESH', 'export-drawing': 'EXPORT DRAWING', 'measure-continuity': 'MEASURE CONTINUITY', trim: 'TRIM', extend: 'EXTEND CURVE', 'tangent-circle': 'TANGENT CIRCLE', split: 'SPLIT CURVE', 'measure-distance': 'MEASURE DISTANCE', 'measure-radius': 'MEASURE RADIUS' };
 const keysHtml = id => KEYS[id].map(([k, v]) => `<kbd>${k}</kbd><span>${v}</span>`).join('');
 // The Command Bar, exactly the manual's list (Plasticity Essentials › Command Bar).
 const BAR = [['palette', 'F', 'SEARCH'], ['tool:move', 'G', 'MOVE'], ['tool:rotate', 'R', 'ROTATE'], ['tool:scale', 'S', 'SCALE'], ['duplicate', '⇧D', 'DUPLICATE'], ['tool:boolean', 'Q', 'BOOLEAN'], ['tool:rect-array', '', 'RECTANGULAR ARRAY'], ['tool:radial-array', '', 'RADIAL ARRAY'], ['suggest', '⇧F', 'SUGGESTED COMMANDS']];
@@ -409,6 +411,11 @@ const SHELL = `
       <span class="label">CULLING</span>
       <div class="seg" role="group" aria-label="Image culling"><button data-imcull="front" aria-pressed="false" title="Seen from the front only">FRONT ONLY</button><button data-imcull="double" aria-pressed="true" title="Seen from both sides">DOUBLE SIDED</button></div>
       <div class="chips"><button data-id="im-delete" title="Remove the image (Delete)"><kbd>DEL</kbd>REMOVE</button></div>
+    </div>
+    <div class="sec" data-panel="instance" hidden>
+      <span class="hint" data-id="in-hint">—</span>
+      <div class="seg" role="group" aria-label="Handle"><button data-inmode="move" aria-pressed="true" title="Move the instance (G)">MOVE</button><button data-inmode="rotate" aria-pressed="false" title="Turn the instance (R)">ROTATE</button><button data-inmode="scale" aria-pressed="false" title="Scale the instance (S)">SCALE</button></div>
+      <div class="chips"><button data-id="in-realize" title="Turn the instance into an ordinary body you can edit">REALIZE</button><button data-id="in-dup" title="Another instance of the same master (Shift+D)"><kbd>⇧D</kbd>DUPLICATE</button><button data-id="in-delete" title="Remove the instance (Delete)"><kbd>DEL</kbd>REMOVE</button></div>
     </div>
     <div class="sec" data-panel="deform-curve" hidden>
       <span class="hint" data-id="dc-hint">—</span>
@@ -796,11 +803,11 @@ const VIEWS = {
 export async function mount(root, backend) {
   root.innerHTML = SHELL;
   // Panel options carry their icon ahead of the key and name.
-  for (const b of root.querySelectorAll('[data-draw],[data-bop],[data-xop],[data-fop],[data-spiral],[data-toggle],[data-gmethod],[data-galign],[data-grow],[data-mfgrow],[data-eslimit],[data-flshape],[data-avaxis],[data-extshape],[data-esshape],[data-isodir],[data-id="oe-both"],[data-id="ex-lock"],[data-id="bool-keep"],[data-id="ex-free"],[data-id="ex-pivot"],[data-id="ex-individual"],[data-id="dr-hidden"],[data-id="dr-curves"],[data-id="oc-lock"],[data-id="oc-free"],[data-id="oc-slot"],[data-id="oc-combine"],[data-id="es-unlimit"],[data-rbmethod],[data-oecorner],[data-saplane],[data-plaxis],[data-plop],[data-id="pl-flip"],[data-id="section-btn"],[data-id="sa-flip"],[data-id="rf-shrink"],[data-id="ut-keep"],[data-txfont],[data-txalign],[data-sldir],[data-dcflip],[data-id="dc-keep"],[data-imdepth],[data-imcull],[data-id="im-delete"]')) {
+  for (const b of root.querySelectorAll('[data-draw],[data-bop],[data-xop],[data-fop],[data-spiral],[data-toggle],[data-gmethod],[data-galign],[data-grow],[data-mfgrow],[data-eslimit],[data-flshape],[data-avaxis],[data-extshape],[data-esshape],[data-isodir],[data-id="oe-both"],[data-id="ex-lock"],[data-id="bool-keep"],[data-id="ex-free"],[data-id="ex-pivot"],[data-id="ex-individual"],[data-id="dr-hidden"],[data-id="dr-curves"],[data-id="oc-lock"],[data-id="oc-free"],[data-id="oc-slot"],[data-id="oc-combine"],[data-id="es-unlimit"],[data-rbmethod],[data-oecorner],[data-saplane],[data-plaxis],[data-plop],[data-id="pl-flip"],[data-id="section-btn"],[data-id="sa-flip"],[data-id="rf-shrink"],[data-id="ut-keep"],[data-txfont],[data-txalign],[data-sldir],[data-dcflip],[data-id="dc-keep"],[data-imdepth],[data-imcull],[data-id="im-delete"],[data-inmode],[data-id="in-realize"],[data-id="in-dup"],[data-id="in-delete"]')) {
     const name = b.dataset.draw ?? b.dataset.bop ?? b.dataset.xop ?? b.dataset.fop ?? b.dataset.spiral ?? (b.dataset.toggle && `view-${b.dataset.toggle}`)
       ?? (b.dataset.gmethod && `guide-${b.dataset.gmethod}`) ?? (b.dataset.galign && `align-${b.dataset.galign}`) ?? (b.dataset.grow && `grow-${b.dataset.grow}`) ?? (b.dataset.mfgrow && `grow-${b.dataset.mfgrow}`) ?? (b.dataset.eslimit && `limit-${b.dataset.eslimit}`) ?? (b.dataset.flshape && `fillet-${b.dataset.flshape}`) ?? (b.dataset.avaxis && `axis-${b.dataset.avaxis}`) ?? (b.dataset.extshape && `extend-${b.dataset.extshape}`) ?? (b.dataset.esshape && `extend-${b.dataset.esshape}`) ?? (b.dataset.isodir && `iso-${b.dataset.isodir}`) ?? (b.dataset.rbmethod && `rebuild-${b.dataset.rbmethod}`) ?? (b.dataset.oecorner && `corner-${b.dataset.oecorner}`) ?? (b.dataset.saplane && `section-${b.dataset.saplane}`) ?? (b.dataset.plaxis && (b.dataset.plaxis === 'normal' ? 'place-normal' : `axis-${b.dataset.plaxis}`)) ?? b.dataset.plop
-      ?? (b.dataset.txfont && `font-${b.dataset.txfont}`) ?? (b.dataset.txalign && `txalign-${b.dataset.txalign}`) ?? (b.dataset.sldir && { u: 'slide-u', '-u': 'slide-back', v: 'slide-v', '-v': 'slide-vback', n: 'slide-n' }[b.dataset.sldir]) ?? (b.dataset.dcflip && { mirror: 'mirror', swap: 'swap-uv', normal: 'reverse-sheet' }[b.dataset.dcflip]) ?? (b.dataset.imdepth && `depth-${b.dataset.imdepth}`) ?? (b.dataset.imcull && `cull-${b.dataset.imcull}`)
-      ?? { 'ex-lock': 'lock', 'bool-keep': 'keep', 'ex-free': 'freestyle', 'ex-pivot': 'pivot', 'ex-individual': 'individual', 'dr-hidden': 'hidden-lines', 'dr-curves': 'drawing-curves', 'oc-lock': 'lock', 'oc-free': 'freestyle', 'oc-slot': 'slot', 'oc-combine': 'combine', 'oe-both': 'both-sides', 'es-unlimit': 'unlimit', 'rf-shrink': 'shrink', 'ut-keep': 'keep-edges', 'section-btn': 'view-section', 'sa-flip': 'flip', 'pl-flip': 'flip', 'dc-keep': 'keep', 'im-delete': 'delete' }[b.dataset.id];
+      ?? (b.dataset.txfont && `font-${b.dataset.txfont}`) ?? (b.dataset.txalign && `txalign-${b.dataset.txalign}`) ?? (b.dataset.sldir && { u: 'slide-u', '-u': 'slide-back', v: 'slide-v', '-v': 'slide-vback', n: 'slide-n' }[b.dataset.sldir]) ?? (b.dataset.dcflip && { mirror: 'mirror', swap: 'swap-uv', normal: 'reverse-sheet' }[b.dataset.dcflip]) ?? (b.dataset.imdepth && `depth-${b.dataset.imdepth}`) ?? (b.dataset.imcull && `cull-${b.dataset.imcull}`) ?? b.dataset.inmode
+      ?? { 'ex-lock': 'lock', 'bool-keep': 'keep', 'ex-free': 'freestyle', 'ex-pivot': 'pivot', 'ex-individual': 'individual', 'dr-hidden': 'hidden-lines', 'dr-curves': 'drawing-curves', 'oc-lock': 'lock', 'oc-free': 'freestyle', 'oc-slot': 'slot', 'oc-combine': 'combine', 'oe-both': 'both-sides', 'es-unlimit': 'unlimit', 'rf-shrink': 'shrink', 'ut-keep': 'keep-edges', 'section-btn': 'view-section', 'sa-flip': 'flip', 'pl-flip': 'flip', 'dc-keep': 'keep', 'im-delete': 'delete', 'in-realize': 'realize-instance', 'in-dup': 'duplicate', 'in-delete': 'delete' }[b.dataset.id];
     b.insertAdjacentHTML('afterbegin', icon(name));
   }
   const $ = id => root.querySelector(`[data-id="${id}"]`);
@@ -1159,6 +1166,7 @@ export async function mount(root, backend) {
     selectionChanged({ quiet: true });
     if (backend.sceneChanged) backend.sceneChanged().then(showBridge, () => {});
     if (shownPoints.faces.size) refreshShownPoints(list);
+    drawInstances();
     return loadCurves();
   }
 
@@ -1595,6 +1603,22 @@ export async function mount(root, backend) {
     }
     if (cmd?.id === 'pushpull' && cmd.at) out.insertAdjacentHTML('beforeend', `<div class="row-item curve"><span class="ln"></span><span>${profileKind === 'circle' ? 'CIRCLE' : 'RECT'}.001</span></div>`);
     else if (!curveList.length) out.insertAdjacentHTML('beforeend', '<div class="empty">NO CURVES</div>');
+    if (instances.length) out.insertAdjacentHTML('beforeend', '<div class="group-title">▾ INSTANCES</div>');
+    for (const n of instances) {
+      const row = document.createElement('div');
+      const gone = !bodyOf(n.master);
+      row.className = 'row-item curve' + (n.hidden || gone ? ' off' : '');
+      row.setAttribute('aria-current', cmd?.id === 'instance' && cmd.instance === n.id);
+      row.innerHTML = `${icon('instance')}<span class="name" title="${gone ? 'Its master is gone' : `An instance of ${label(n.master)}`}">INSTANCE</span><span class="tag">${instanceLabel(n.id)}</span><button class="eye" aria-pressed="${!n.hidden}" aria-label="Show or hide">◉</button>`;
+      row.onclick = async e => {
+        if (e.target.closest('.eye')) { n.hidden = !n.hidden; drawInstances(); return renderOutliner(); }
+        if (gone) return toast('ITS MASTER IS GONE');
+        if (cmd) await finish();
+        startInstance(n.id);
+        renderOutliner();
+      };
+      out.append(row);
+    }
     if (images.length) out.insertAdjacentHTML('beforeend', '<div class="group-title">▾ IMAGES</div>');
     for (const im of images) {
       const row = document.createElement('div');
@@ -1733,6 +1757,161 @@ export async function mount(root, backend) {
     $('im-w').value = im.width;
     $('im-o').value = im.opacity;
     show();
+  }
+
+  // --- instances ------------------------------------------------------------
+  // Plasticity's Create Instance: a light copy of a solid or sheet that shares its master's geometry
+  // (see instances.js). Drawn from the master's own mesh, so an edit to the master shows in every
+  // instance; read-only, with lighter edges. They live in the file's app state, list under INSTANCES,
+  // and a click on one (in the viewport or the outliner) opens it to move, turn, scale, duplicate,
+  // realize or remove.
+  let instances = [], nextInstance = 1;
+  const instanceGroup = new THREE.Group();
+  scene.add(instanceGroup);
+  const instanceEdgeMat = new THREE.LineBasicMaterial({ color: 0xb4b0a6, transparent: true, opacity: 0.85 });
+  const instanceLabel = id => `N-${String(id).padStart(2, '0')}`;
+  function drawInstances() {
+    instanceGroup.clear(); // the geometry is the masters', so nothing here is disposed
+    for (const n of instances) {
+      const master = bodyMesh(n.master);
+      if (n.hidden || !master) continue;
+      const mesh = new THREE.Mesh(master.geometry, faceMatFor(n.master));
+      const lines = new THREE.LineSegments(master.userData.lines.geometry, instanceEdgeMat);
+      lines.userData = { bodyEdges: true };
+      lines.visible = view.edges;
+      mesh.add(lines);
+      mesh.matrixAutoUpdate = false;
+      mesh.matrix.copy(matrixOf(n));
+      mesh.userData = { instance: n.id };
+      instanceGroup.add(mesh);
+    }
+  }
+  /** The instance under the pointer, if it is nearer than `hit` (a pickAt result). */
+  function instanceAt(e, hit) {
+    ray(e);
+    const h = raycaster.intersectObjects(instanceGroup.children, false)[0];
+    if (!h) return null;
+    if (hit?.point && camera.position.distanceTo(hit.point) < h.distance) return null;
+    return h.object.userData.instance;
+  }
+  /** Create Instance: one instance of each selected solid or sheet, then move it into place. */
+  async function createInstances() {
+    const ids = sel.list('solid').map(s => s.body).filter(id => bodyMesh(id));
+    if (!ids.length) return toast('SELECT A SOLID OR SHEET TO INSTANCE');
+    if (cmd) await finish();
+    let last = null;
+    for (const id of ids) {
+      const centre = new THREE.Box3().setFromObject(bodyMesh(id)).getCenter(new THREE.Vector3());
+      last = newInstance(nextInstance++, id, centre.toArray());
+      instances.push(last);
+    }
+    drawInstances();
+    renderOutliner();
+    startInstance(last.id, { fresh: true });
+  }
+  /** One instance open: a handle moves, turns or scales it (G R S); Realize, Duplicate, Remove. */
+  function startInstance(id, { fresh = false } = {}) {
+    const n = instances.find(m => m.id === id);
+    if (!n) return;
+    const before = JSON.parse(JSON.stringify(n));
+    const handle = new THREE.Object3D();
+    const place = () => {
+      handle.position.fromArray(n.position);
+      handle.quaternion.fromArray(n.quaternion);
+      handle.scale.setScalar(n.scale);
+    };
+    place();
+    scene.add(handle);
+    const tc = new TransformControls(camera, canvas);
+    tc.setSpace('world');
+    tc.attach(handle);
+    tc.addEventListener('dragging-changed', e => { controls.enabled = !e.value; });
+    tc.addEventListener('objectChange', () => {
+      n.position = handle.position.toArray();
+      n.quaternion = handle.quaternion.clone().normalize().toArray();
+      // Uniform only: take whichever component the drag changed.
+      n.scale = Math.max(0.001, handle.scale.toArray().reduce((a, b) => Math.abs(b - n.scale) > Math.abs(a - n.scale) ? b : a, n.scale));
+      show();
+    });
+    scene.add(tc.getHelper());
+    const c = cmd = { id: 'instance', instance: id, tc };
+    lastTool = 'instance';
+    showTool('instance');
+    setState('none');
+    setTarget(instanceLabel(id));
+    const mode = m => {
+      tc.setMode({ move: 'translate', rotate: 'rotate', scale: 'scale' }[m]);
+      for (const b of $$('[data-inmode]')) b.setAttribute('aria-pressed', String(b.dataset.inmode === m));
+    };
+    function show() {
+      place();
+      drawInstances();
+      const at = toUser(n.position).map(fmt).join(' ');
+      $('in-hint').textContent = `INSTANCE OF ${label(n.master)} · READ-ONLY · AT ${at}${n.scale !== 1 ? ` · ×${n.scale.toFixed(3)}` : ''}`;
+      setState('updated');
+    }
+    c.mode = mode;
+    c.key = action => {
+      if (['move', 'rotate', 'scale'].includes(action)) { mode(action); return true; }
+      if (action === 'duplicate') { c.duplicate(); return true; }
+      if (action === 'delete') { c.remove(); return true; }
+      return false;
+    };
+    c.click = e => {
+      // Another instance opens in its place; other clicks don't change the selection.
+      const other = instanceAt(e, null);
+      if (other && other !== id) { endCmd('committed'); startInstance(other); renderOutliner(); }
+      return true;
+    };
+    c.duplicate = () => {
+      const copy = { ...JSON.parse(JSON.stringify(n)), id: nextInstance++ };
+      instances.push(copy);
+      endCmd('committed');
+      drawInstances();
+      renderOutliner();
+      startInstance(copy.id, { fresh: true });
+      toast(`${instanceLabel(copy.id)} · ANOTHER INSTANCE OF ${label(n.master)}`);
+    };
+    c.remove = () => {
+      instances = instances.filter(m => m.id !== id);
+      endCmd('committed');
+      drawInstances();
+      renderOutliner();
+      toast(`REMOVED ${instanceLabel(id)}`);
+    };
+    c.realize = async () => {
+      try {
+        const { ids, scene: list } = await backend.commitPlace({ bodies: [n.master], motion: motionOf(n), target: null, op: 'new' });
+        if (materialOf.has(n.master)) for (const b of ids) materialOf.set(b, materialOf.get(n.master));
+        instances = instances.filter(m => m.id !== id);
+        endCmd('committed');
+        record('REALIZE INSTANCE', ids[0], label(ids[0]));
+        await showScene(list);
+        materialsChanged();
+        sel.clear();
+        for (const b of ids) sel.add({ kind: 'solid', body: b });
+        selectionChanged();
+        toast(`${instanceLabel(id)} IS NOW ${label(ids[0])}, AN ORDINARY BODY`);
+      } catch (e) { setState('failed'); toast(say(e)); }
+    };
+    c.finish = async () => { endCmd('committed'); renderOutliner(); };
+    c.abort = () => {
+      if (fresh) instances = instances.filter(m => m.id !== id);
+      else Object.assign(n, before);
+      drawInstances();
+      endCmd('cancelled');
+      renderOutliner();
+    };
+    c.cleanup = () => {
+      tc.detach();
+      tc.getHelper().removeFromParent();
+      tc.dispose();
+      handle.removeFromParent();
+      controls.enabled = true;
+    };
+    mode('move');
+    show();
+    if (fresh) setHud('DRAG THE HANDLE TO PLACE THE INSTANCE · ⏎ TO KEEP');
   }
 
   function planeFromSelection(alignView) {
@@ -6172,6 +6351,7 @@ export async function mount(root, backend) {
   /** Bodies that use the material changed: their faces take the new values. */
   function materialsChanged() {
     for (const m of bodies.children) m.material = faceMatFor(m.userData.id);
+    drawInstances();
     applyView();
     renderMass();
   }
@@ -7723,6 +7903,8 @@ export async function mount(root, backend) {
       case 'alt-duplicate': await altDuplicate(); return true;
       case 'create-outline': await createOutline(); return true;
       case 'toggle-points': await togglePoints(); return true;
+      case 'create-instance': await createInstances(); return true;
+      case 'realize-instance': if (cmd?.id === 'instance') await cmd.realize(); else toast('CLICK AN INSTANCE, THEN REALIZE IT'); return true;
       case 'join': await joinSelected(); return true;
       case 'trim': await startTool('trim'); return true;
       case 'extend': await startTool('extend'); return true;
@@ -7894,7 +8076,7 @@ export async function mount(root, backend) {
     const out = [];
     if (sel.solids.length > 1) out.push('tool:boolean');
     if (sel.solids.length === 2) out.push('tool:project');
-    if (kinds.has('solid')) out.push('tool:move', 'tool:rotate', 'tool:scale', 'duplicate', 'create-outline', 'toggle-points', 'place', 'dimension', 'tool:mirror', 'tool:rect-array', 'tool:radial-array', 'tool:curve-array', 'unify', 'boundary-edges', 'remove-fillets', 'raise-degree', 'deform-curve', 'delete', 'hide', 'isolate', 'group', 'lock', 'material:set', 'export:step', 'export:mesh', 'export:drawing');
+    if (kinds.has('solid')) out.push('tool:move', 'tool:rotate', 'tool:scale', 'duplicate', 'create-outline', 'toggle-points', 'place', 'dimension', 'tool:mirror', 'tool:rect-array', 'tool:radial-array', 'tool:curve-array', 'unify', 'boundary-edges', 'remove-fillets', 'raise-degree', 'deform-curve', 'create-instance', 'delete', 'hide', 'isolate', 'group', 'lock', 'material:set', 'export:step', 'export:mesh', 'export:drawing');
     if (kinds.has('face')) out.push('tool:extrude', 'tool:offset', 'tool:thicken', 'tool:shell', 'tool:hole', 'tool:remove-face', 'remove-fillets', 'isoparam', 'rebuild', 'raise-degree', 'subdivide', 'match-face', 'untrim', 'unwrap', 'toggle-points', 'plane:selection', 'plane:selection-keep-view');
     if (kinds.has('edge')) out.push('tool:fillet', 'tool:patch', 'alt-duplicate', 'measure:radius', 'view:surface-curvature');
     if (sel.list('edge').length === 2) out.push('tool:bridge-surface');
@@ -8080,7 +8262,7 @@ export async function mount(root, backend) {
   /** Groups, hidden and locked bodies and materials go into the file with the geometry. */
   async function keepAppState() {
     if (!backend.setAppState) return;
-    await backend.setAppState({ organise: org.toJSON(), materials: [...materials.values()], materialOf: [...materialOf], nextMaterial, images, nextImage });
+    await backend.setAppState({ organise: org.toJSON(), materials: [...materials.values()], materialOf: [...materialOf], nextMaterial, images, nextImage, instances: instances.filter(n => bodyOf(n.master)), nextInstance });
   }
   async function restoreAppState() {
     const st = backend.appState ? await backend.appState() : null;
@@ -8094,6 +8276,9 @@ export async function mount(root, backend) {
     images = (Array.isArray(st?.images) ? st.images : []).filter(m => !checkImage(m).length);
     nextImage = Math.max(Number.isInteger(st?.nextImage) ? st.nextImage : 1, ...images.map(m => m.id + 1));
     drawImages();
+    instances = (Array.isArray(st?.instances) ? st.instances : []).filter(m => !checkInstance(m).length);
+    nextInstance = Math.max(Number.isInteger(st?.nextInstance) ? st.nextInstance : 1, ...instances.map(m => m.id + 1));
+    drawInstances();
     org.prune(current.map(b => b.id));
     materialsChanged();
     organised();
@@ -8213,7 +8398,9 @@ export async function mount(root, backend) {
     if (moved) return;
     if (cmd?.click && await cmd.click(e)) return;
     if (cmd && !cmd.auto) return;
-    applySelect(clickTarget(pickAt(e), modOf(e)), modOf(e));
+    const picked = pickAt(e), inst = instanceAt(e, picked);
+    if (inst) { if (cmd) await finish(); startInstance(inst); return; }
+    applySelect(clickTarget(picked, modOf(e)), modOf(e));
     hover = null;
     selectionChanged();
   });
@@ -8306,6 +8493,10 @@ export async function mount(root, backend) {
   for (const b of $$('[data-imdepth]')) b.onclick = () => cmd?.id === 'image' && cmd.set('depth', b.dataset.imdepth);
   for (const b of $$('[data-imcull]')) b.onclick = () => cmd?.id === 'image' && cmd.set('culling', b.dataset.imcull);
   $('im-delete').onclick = () => cmd?.id === 'image' && cmd.remove();
+  for (const b of $$('[data-inmode]')) b.onclick = () => cmd?.id === 'instance' && cmd.mode(b.dataset.inmode);
+  $('in-realize').onclick = () => cmd?.id === 'instance' && cmd.realize();
+  $('in-dup').onclick = () => cmd?.id === 'instance' && cmd.duplicate();
+  $('in-delete').onclick = () => cmd?.id === 'instance' && cmd.remove();
   for (const b of $$('[data-dcflip]')) b.onclick = () => cmd?.id === 'deform-curve' && cmd.setFlip(b.dataset.dcflip, !cmd.flips[b.dataset.dcflip]);
   $('dc-keep').onclick = () => cmd?.id === 'deform-curve' && cmd.setKeep(!cmd.keep);
   for (const id of ['rf-tol', 'rf-du', 'rf-dv', 'rf-su', 'rf-sv', 'rf-eu', 'rf-ev']) $(id).addEventListener('input', () => cmd?.id === 'rebuild-face' && cmd.preview());
