@@ -63,6 +63,7 @@ import { curveArrayMotions } from '../curveArray.js';
 import { curveDimensions, faceDimensions, filletDimensions, solidDimensions } from '../dimension.js';
 import { edgeCurve, flattenCurve } from '../altDuplicate.js';
 import { EDGE_CONTINUITY, bridgeCurve, bridgePoles, edgePoint } from '../bridgeEdge.js';
+import { combTeeth, isoLines, onFace } from '../isoCombs.js';
 import { liftPiece, meshSilhouette, nearestOver } from '../createOutline.js';
 import { FONTS, parseFont, textShapes } from '../text.js';
 import { regionsToExtrude } from '../regions.js';
@@ -1261,7 +1262,8 @@ export async function mount(root, backend) {
   }
 
   // Plasticity's Toggle Surface Curvature: the same combs on the edges of bodies, toggled edge by
-  // edge. Each keeps its edge's ref, so it follows the edge through later changes to the body.
+  // edge, and on faces along isoparams each way. Each keeps its edge's or face's number and is read
+  // again when the body changes. An edge's entry has `teeth`, a face's `runs` (one list per piece).
   // Fillet's limit points (L): a dot on the edge where the round stops.
   const limitMarks = new THREE.Group();
   scene.add(limitMarks);
@@ -1270,16 +1272,17 @@ export async function mount(root, backend) {
   scene.add(surfaceCombGroup);
   function drawSurfaceCombs() {
     for (const o of [...surfaceCombGroup.children]) dispose(o);
-    const shown = surfaceCombs.filter(c => c.teeth && org.shows(c.body));
+    const shown = surfaceCombs.filter(c => (c.teeth || c.runs) && org.shows(c.body));
     if (!shown.length) return;
-    const kMax = Math.max(1e-12, ...shown.flatMap(c => c.teeth.map(t => t.k)));
+    const lines = shown.flatMap(c => c.runs ?? [c.teeth]);
+    const kMax = Math.max(1e-12, ...lines.flatMap(l => l.map(t => t.k)));
     const box = new THREE.Box3();
-    for (const c of shown) for (const t of c.teeth) box.expandByPoint(new THREE.Vector3(...t.at));
+    for (const l of lines) for (const t of l) box.expandByPoint(new THREE.Vector3(...t.at));
     for (const m of bodies.children) if (shown.some(c => c.body === m.userData.id)) box.expandByObject(m);
     const scale = combScale() * 0.25 * box.getSize(new THREE.Vector3()).length() / kMax;
-    for (const c of shown) {
+    for (const line of lines) {
       const teeth = [], envelope = [];
-      for (const t of c.teeth) {
+      for (const t of line) {
         const at = new THREE.Vector3(...t.at), tip = at.clone().addScaledVector(new THREE.Vector3(...t.dir), t.k * scale);
         teeth.push(at, tip);
         envelope.push(tip);
@@ -1293,24 +1296,46 @@ export async function mount(root, backend) {
   async function refreshSurfaceCombs() {
     if (!surfaceCombs.length) return drawSurfaceCombs();
     const list = surfaceCombs;
-    await Promise.all(list.map(async c => { try { c.teeth = await backend.edgeCurvature({ body: c.body, edge: c.n }); } catch { c.teeth = null; } }));
-    if (list === surfaceCombs) { surfaceCombs = list.filter(c => c.teeth); drawSurfaceCombs(); }
+    await Promise.all(list.map(async c => {
+      try {
+        if (c.face === undefined) c.teeth = await backend.edgeCurvature({ body: c.body, edge: c.n });
+        else c.runs = await faceCombs(c.body, c.face);
+      } catch { c.teeth = c.runs = null; }
+    }));
+    if (list === surfaceCombs) { surfaceCombs = list.filter(c => c.teeth || c.runs?.length); drawSurfaceCombs(); }
+  }
+  /** Comb teeth along isoparams of a face, cut to the face, one list per piece. */
+  async function faceCombs(id, face) {
+    const b = bodyOf(id);
+    if (!b) return null;
+    const { positions: p, indices: ix, faceIds } = b, tris = [], v = i => [p[3 * i], p[3 * i + 1], p[3 * i + 2]];
+    for (let t = 0; t < faceIds.length; t++) if (faceIds[t] === face) tris.push([v(ix[3 * t]), v(ix[3 * t + 1]), v(ix[3 * t + 2])]);
+    if (!tris.length) return null;
+    const lines = isoLines(5, 96);
+    const { points } = await backend.faceUvn({ body: id, face, map: true, points: lines.flat() });
+    const box = new THREE.Box3().setFromPoints(tris.flat().map(q => new THREE.Vector3(...q)));
+    // Display triangles stand off a curved surface by up to their chord error.
+    const tol = Math.max(0.05, 0.01 * box.getSize(new THREE.Vector3()).length());
+    let k = 0;
+    return lines.flatMap(l => onFace(l.map(() => points[k++]), tris, tol)).map(combTeeth);
   }
   async function toggleSurfaceCurvature() {
     if (!backend.edgeCurvature) return toast('SURFACE CURVATURE IS NOT IN THIS BUILD YET');
-    const edges = sel.list('edge');
-    if (!edges.length) {
-      if (!surfaceCombs.length) return toast('SELECT THE EDGES TO SHOW CURVATURE ON');
+    const edges = sel.list('edge'), faces = backend.faceUvn ? sel.list('face') : [];
+    if (!edges.length && !faces.length) {
+      if (!surfaceCombs.length) return toast('SELECT THE EDGES OR FACES TO SHOW CURVATURE ON');
       surfaceCombs = [];
       drawSurfaceCombs();
       return toast('SURFACE CURVATURE OFF');
     }
-    const on = c => edges.some(e => e.body === c.body && e.n === c.n);
-    if (edges.every(e => surfaceCombs.some(c => c.body === e.body && c.n === e.n))) surfaceCombs = surfaceCombs.filter(c => !on(c));
-    else surfaceCombs = [...surfaceCombs.filter(c => !on(c)), ...edges.map(e => ({ body: e.body, n: e.n, teeth: null }))];
+    const same = (c, x) => c.body === x.body && (x.kind === 'face' ? c.face === x.n : c.face === undefined && c.n === x.n);
+    const picked = [...edges, ...faces], on = c => picked.some(x => same(c, x));
+    if (picked.every(x => surfaceCombs.some(c => same(c, x)))) surfaceCombs = surfaceCombs.filter(c => !on(c));
+    else surfaceCombs = [...surfaceCombs.filter(c => !on(c)), ...edges.map(e => ({ body: e.body, n: e.n, teeth: null })), ...faces.map(f => ({ body: f.body, face: f.n, runs: null }))];
     await refreshSurfaceCombs();
-    const k = Math.max(0, ...surfaceCombs.filter(on).flatMap(c => c.teeth.map(t => t.k)));
-    toast(surfaceCombs.some(on) ? `CURVATURE ON ${edges.length} EDGE${edges.length > 1 ? 'S' : ''}${k > 0 ? ` · TIGHTEST RADIUS ${(1 / k).toFixed(3)} MM` : ' · STRAIGHT'}` : 'SURFACE CURVATURE OFF');
+    const k = Math.max(0, ...surfaceCombs.filter(on).flatMap(c => (c.runs ?? [c.teeth]).flat().map(t => t.k)));
+    const what = [edges.length && `${edges.length} EDGE${edges.length > 1 ? 'S' : ''}`, faces.length && `${faces.length} FACE${faces.length > 1 ? 'S' : ''}`].filter(Boolean).join(' AND ');
+    toast(surfaceCombs.some(on) ? `CURVATURE ON ${what}${k > 0 ? ` · TIGHTEST RADIUS ${(1 / k).toFixed(3)} MM` : ' · FLAT'}` : 'SURFACE CURVATURE OFF');
   }
 
   async function loadCurves() {
@@ -8226,7 +8251,7 @@ export async function mount(root, backend) {
     if (sel.solids.length > 1) out.push('tool:boolean');
     if (sel.solids.length === 2) out.push('tool:project');
     if (kinds.has('solid')) out.push('tool:move', 'tool:rotate', 'tool:scale', 'duplicate', 'create-outline', 'toggle-points', 'place', 'dimension', 'tool:mirror', 'tool:rect-array', 'tool:radial-array', 'tool:curve-array', 'unify', 'boundary-edges', 'remove-fillets', 'raise-degree', 'deform-curve', 'create-instance', 'delete', 'hide', 'isolate', 'group', 'lock', 'material:set', 'export:step', 'export:mesh', 'export:drawing');
-    if (kinds.has('face')) out.push('tool:extrude', 'tool:offset', 'tool:thicken', 'tool:shell', 'tool:hole', 'tool:remove-face', 'remove-fillets', 'isoparam', 'rebuild', 'raise-degree', 'subdivide', 'match-face', 'untrim', 'unwrap', 'toggle-points', 'plane:selection', 'plane:selection-keep-view');
+    if (kinds.has('face')) out.push('tool:extrude', 'tool:offset', 'tool:thicken', 'tool:shell', 'tool:hole', 'tool:remove-face', 'remove-fillets', 'isoparam', 'rebuild', 'raise-degree', 'subdivide', 'match-face', 'untrim', 'unwrap', 'toggle-points', 'view:surface-curvature', 'plane:selection', 'plane:selection-keep-view');
     if (kinds.has('edge')) out.push('tool:fillet', 'tool:patch', 'alt-duplicate', 'measure:radius', 'view:surface-curvature', ...(sel.list('edge').length === 2 ? ['bridge-edge'] : []));
     if (sel.list('edge').length === 2) out.push('tool:bridge-surface');
     if (sel.solids.some(id => current.find(b => b.id === id)?.sheet)) out.push('tool:thicken', 'reverse-sheet');
