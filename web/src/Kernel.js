@@ -710,9 +710,10 @@ export function planeSheet(origin, normal, size) {
 /**
  * Face `index` of `shape` as a cutting tool grown past the body (w3d_face_sheet on the desktop):
  * a plane becomes a square `size` each way, a cylinder its whole round `size` each way along the
- * axis; other faces stay as they are.
+ * axis; any other face its surface carried straight on `size` past its open sides by `wide(face,
+ * size)` (matchFace.js's wideSurface; this module can't import it), or as it is without one.
  */
-export function faceSheet(shape, index, size) {
+export function faceSheet(shape, index, size, wide = null) {
     const o = oc();
     const face = numbered(shape, 'TopAbs_FACE')[index];
     if (!face) throw new Error('that face no longer exists');
@@ -729,7 +730,9 @@ export function faceSheet(shape, index, size) {
         const edge = new o.BRepBuilderAPI_MakeEdge(circ).Edge();
         return new o.BRepPrimAPI_MakePrism(edge, new o.gp_Vec(d.X() * 2 * size, d.Y() * 2 * size, d.Z() * 2 * size), false, true).Shape();
     }
-    return face;
+    if (!wide) return face;
+    const mk = new o.BRepBuilderAPI_MakeFace(wide(o.TopoDS.Face(face), size), 1e-7);
+    return mk.IsDone() ? mk.Face() : face;
 }
 
 /**

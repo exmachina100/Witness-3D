@@ -1921,7 +1921,8 @@ inline void w3d_append_children(TopTools_ListOfShape &list, const TopoDS_Shape &
 }
 
 // A face of `shape` as a cutting tool, grown past the body: a plane becomes a square `size` each way,
-// a cylinder its whole round `size` each way along the axis; other faces stay as they are.
+// a cylinder its whole round `size` each way along the axis, any other face its surface carried on
+// `size` past its sides.
 inline std::unique_ptr<TopoDS_Shape> w3d_face_sheet(const TopoDS_Shape &shape, int32_t index, double size) {
   TopTools_IndexedMapOfShape map;
   TopExp::MapShapes(shape, TopAbs_FACE, map);
@@ -1932,7 +1933,34 @@ inline std::unique_ptr<TopoDS_Shape> w3d_face_sheet(const TopoDS_Shape &shape, i
     TopoDS_Shape out;
     if (surf.GetType() == GeomAbs_Plane) out = BRepBuilderAPI_MakeFace(surf.Plane(), -size, size, -size, size).Face();
     else if (surf.GetType() == GeomAbs_Cylinder) out = BRepBuilderAPI_MakeFace(surf.Cylinder(), 0.0, 2 * M_PI, -size, size).Face();
-    else out = face;
+    else {
+      // A free-form face: its surface carried straight on `size` past each side it has (closed
+      // directions stay as they are), as Plasticity cuts by a surface's extension.
+      TopLoc_Location loc;
+      Handle(Geom_Surface) gs = BRep_Tool::Surface(face, loc);
+      double u0, u1, v0, v1;
+      BRepTools::UVBounds(face, u0, u1, v0, v1);
+      Handle(Geom_BSplineSurface) wide = GeomConvert::SurfaceToBSplineSurface(new Geom_RectangularTrimmedSurface(gs, u0, u1, v0, v1));
+      for (int side = 0; side < 4 && !wide.IsNull(); side++) {
+        const bool inU = side < 2;
+        if (inU ? wide->IsUClosed() : wide->IsVClosed()) continue;
+        // A side shrunk to a point (a sphere's pole) has nothing to carry on.
+        const int row = inU ? (side == 0 ? 1 : wide->NbUPoles()) : (side == 2 ? 1 : wide->NbVPoles());
+        const int n = inU ? wide->NbVPoles() : wide->NbUPoles();
+        double spread = 0.0;
+        for (int j = 2; j <= n; j++) spread = std::max(spread, (inU ? wide->Pole(row, j) : wide->Pole(j, row)).Distance(inU ? wide->Pole(row, 1) : wide->Pole(1, row)));
+        if (spread < 1e-7) continue;
+        Handle(Geom_BoundedSurface) g = wide;
+        GeomLib::ExtendSurfByLength(g, size, 1, inU, side % 2 == 1);
+        wide = Handle(Geom_BSplineSurface)::DownCast(g);
+      }
+      if (wide.IsNull()) out = face;
+      else {
+        if (!loc.IsIdentity()) wide->Transform(loc.Transformation());
+        BRepBuilderAPI_MakeFace mk(wide, 1e-7);
+        out = mk.IsDone() ? TopoDS_Shape(mk.Face()) : TopoDS_Shape(face);
+      }
+    }
     return std::unique_ptr<TopoDS_Shape>(new TopoDS_Shape(out));
   } catch (const Standard_Failure &f) {
     throw w3d_kernel_error(f);

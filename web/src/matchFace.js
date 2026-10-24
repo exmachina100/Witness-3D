@@ -25,7 +25,7 @@ function faceOut(f) {
 }
 
 /** Face `tf`'s surface as a B-spline (fitted within 1e-4 mm) carried straight on `far` past each open side. */
-function wideSurface(tf, far) {
+export function wideSurface(tf, far) {
     const o = oc();
     const ad = new o.BRepAdaptor_Surface(tf, true);
     const at = (u, v) => { const p = ad.Value(u, v); return [p.X(), p.Y(), p.Z()]; };
@@ -42,7 +42,15 @@ function wideSurface(tf, far) {
         }
         if (worst <= 1e-4) break;
     }
-    for (let side = 0; side < 4; side++) if (!(side < 2 ? ad.IsUClosed() : ad.IsVClosed())) s = extendBSpline(s, side, far);
+    for (let side = 0; side < 4; side++) {
+        if (side < 2 ? ad.IsUClosed() : ad.IsVClosed()) continue;
+        // A side shrunk to a point (a sphere's pole) has nothing to carry on.
+        const row = side < 2 ? (side === 0 ? 1 : s.NbUPoles()) : (side === 2 ? 1 : s.NbVPoles());
+        const n = side < 2 ? s.NbVPoles() : s.NbUPoles(), at = j => side < 2 ? s.Pole(row, j) : s.Pole(j, row);
+        let spread = 0;
+        for (let j = 2; j <= n; j++) spread = Math.max(spread, at(j).Distance(at(1)));
+        if (spread >= 1e-7) s = extendBSpline(s, side, far);
+    }
     return s;
 }
 

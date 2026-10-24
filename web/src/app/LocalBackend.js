@@ -20,7 +20,7 @@ import { projectOutline } from '../Outline.js';
 import { thicken, thickenFaces } from '../Thicken.js';
 import { extendSheet, extendSheetTo } from '../ExtendSheet.js';
 import { raiseFaces, rebuildFaces } from '../rebuildFace.js';
-import { matchFacesGrow } from '../matchFace.js';
+import { matchFacesGrow, wideSurface } from '../matchFace.js';
 import { compound, untrimFace } from '../untrim.js';
 import { unwrapFace } from '../unwrap.js';
 import { edgeCurvature } from '../edgeCurvature.js';
@@ -516,7 +516,7 @@ export class LocalBackend {
         for (const { body, face } of faces) {
             const s = this.shapes.get(body);
             if (!s) throw new Error('that body no longer exists');
-            out.push(faceSheet(s, face, size));
+            out.push(faceSheet(s, face, size, wideSurface));
         }
         if (plane) out.push(planeSheet(plane.origin, plane.normal, size));
         return out;
