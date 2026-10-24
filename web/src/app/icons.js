@@ -155,6 +155,9 @@ const ICONS = {
     // Offset Face grow modes: a step side on, the block's wall pushed out past the ledge's end.
     // Align Vertex: scattered points brought onto one accent line.
     'insert-knot': `<path d="M3 17C7 5 11 5 13 11s6 7 8-2"/><path ${A} d="M12 4v4M10 6h4"/><path ${A} d="M12.4 10h0" stroke-width="3" stroke-linecap="round"/>`,
+    instance: `<path d="M3 9l6-3 6 3v7l-6 3-6-3z" stroke-dasharray="2 2"/><path ${A} d="M9 7l6-3 6 3v7l-6 3-6-3zM9 7l6 3 6-3M15 10v7"/>`,
+    'create-instance': `<path d="M3 9l6-3 6 3v7l-6 3-6-3z"/><path ${A} d="M11 7l5-2.5 5 2.5v6l-5 2.5-5-2.5z" stroke-dasharray="2 2"/>`,
+    'realize-instance': `<path d="M3 9l6-3 6 3v7l-6 3-6-3z" stroke-dasharray="2 2"/><path ${A} d="M11 8l5-2.5 5 2.5v6l-5 2.5-5-2.5zM11 8l5 2.5 5-2.5M16 10.5v6"/>`,
     image: `<rect x="3" y="5" width="18" height="14"/><path d="M3 16l5-5 4 4 3-3 6 6"/><circle ${A} cx="16" cy="9" r="1.6"/>`,
     'depth-normal': `<rect x="4" y="8" width="10" height="10"/><path ${A} d="M10 4h10v10h-6"/>`,
     'depth-front': `<rect x="4" y="8" width="10" height="10"/><path ${A} d="M10 4h10v10H10z"/>`,
