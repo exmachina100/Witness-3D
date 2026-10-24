@@ -45,3 +45,16 @@ export function motionOf(m) {
     const axis = s < 1e-9 ? [0, 1, 0] : [q.x / s, q.y / s, q.z / s];
     return { pivot: [...m.pivot], offset: m.position.map((v, i) => v - m.pivot[i]), axis, angle: s < 1e-9 ? 0 : angle, scale: m.scale };
 }
+
+/**
+ * An instance of body `master` standing where an array's motion (arrayMotions.js) would put a copy:
+ * turned by `angle` about `axis` through `pivot`, then moved by `offset`. A motion without a turn
+ * pivots about `centre`, the master's centre.
+ */
+export function instanceFromMotion(id, master, motion, centre) {
+    const pivot = motion.pivot ?? centre;
+    const q = motion.axis && motion.angle
+        ? new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(...motion.axis).normalize(), motion.angle)
+        : new THREE.Quaternion();
+    return { ...newInstance(id, master, pivot), position: pivot.map((v, i) => v + (motion.offset?.[i] ?? 0)), quaternion: q.toArray() };
+}
