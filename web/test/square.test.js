@@ -45,3 +45,33 @@ test('a side of no length is refused', () => {
     assert.throws(() => byLength([[1, 1, 1], [1, 1, 1]]), /length/);
     assert.throws(() => square([bottom, right, top]), /four sides/);
 });
+
+test('G1 turns the sheet to carry on the faces along edge sides', () => {
+    // A floor ending at z = 0 (its way out +z) and a wall ending at y = 10 (its way out +y), with
+    // quarter-round sides between them.
+    const n = 40;
+    const floor = Object.assign(arc(t => [20 * t, 0, 0], n), { out: Array.from({ length: n + 1 }, () => [0, 0, 1]) });
+    const wall = Object.assign(arc(t => [20 * t, 10, 10], n), { out: Array.from({ length: n + 1 }, () => [0, 1, 0]) });
+    const quarter = x => arc(t => [x, 10 - 10 * Math.cos(Math.PI / 2 * t), 10 * Math.sin(Math.PI / 2 * t)], n);
+    const g0 = square([floor, quarter(20), wall, quarter(0)], { tolerance: 0.01 });
+    const g1 = square([floor, quarter(20), wall, quarter(0)], { tolerance: 0.01, continuity: 'G1' });
+    assert.ok(g1.turn <= 0.5, `G1 turn ${g1.turn}`);
+    assert.ok(g1.gap <= 0.01, `G1 gap ${g1.gap}`);
+    assert.ok(g0.turn === 0 && g1.spans[0] >= 1);
+    // The middle bulges out like the quarter round it is meant to be, not flat between the sides.
+    const mid = surfaceAt(g1, 0.5, 0.5);
+    assert.ok(mid[2] > 6 && mid[1] < 4, `mid ${mid}`);
+});
+
+test('a G1 loft between two edges leaves each along its face', () => {
+    // Two shelves facing each other across a drop: the upper one's way out is +z, the lower one's -z.
+    const n = 40;
+    const upper = Object.assign(arc(t => [20 * t, 10, 10], n), { out: Array.from({ length: n + 1 }, () => [0, 0, 1]) });
+    const lower = Object.assign(arc(t => [20 * t, -5, 25], n), { out: Array.from({ length: n + 1 }, () => [0, 0, -1]) });
+    const s = square([upper, lower], { continuity: 'G1' });
+    assert.ok(s.turn <= 0.5 && s.gap <= 0.01, `turn ${s.turn} gap ${s.gap}`);
+    assert.ok(s.spans[0] <= 8, `spans ${s.spans}`);
+    // An S: a quarter of the way across it is still high, three quarters across already low.
+    const q1 = surfaceAt(s, 0.5, 0.25), q3 = surfaceAt(s, 0.5, 0.75);
+    assert.ok(q1[1] > 6 && q3[1] < -1, `${q1} ${q3}`);
+});

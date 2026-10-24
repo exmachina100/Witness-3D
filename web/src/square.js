@@ -11,8 +11,8 @@ const mul = (a, s) => [a[0] * s, a[1] * s, a[2] * s];
 const dist = (a, b) => Math.hypot(a[0] - b[0], a[1] - b[1], a[2] - b[2]);
 const lerp = (a, b, t) => add(mul(a, 1 - t), mul(b, t));
 
-/** A polyline as a function of its length fraction 0..1. */
-export function byLength(points) {
+/** A polyline as a function of its length fraction 0..1; with `values` (one per point), those interpolated instead. */
+export function byLength(points, values = points) {
     const L = [0];
     for (let i = 1; i < points.length; i++) L.push(L[i - 1] + dist(points[i], points[i - 1]));
     const total = L[L.length - 1];
@@ -22,7 +22,7 @@ export function byLength(points) {
         let lo = 0, hi = L.length - 1;
         while (hi - lo > 1) { const m = (lo + hi) >> 1; if (L[m] <= x) lo = m; else hi = m; }
         const span = L[hi] - L[lo];
-        return lerp(points[lo], points[hi], span > 0 ? (x - L[lo]) / span : 0);
+        return lerp(values[lo], values[hi], span > 0 ? (x - L[lo]) / span : 0);
     };
     at.total = total;
     return at;
@@ -34,7 +34,7 @@ export function byLength(points) {
  * apart ends may be and still meet.
  */
 export function orderLoop(sides, gap) {
-    const left = sides.map(s => s.map(p => [...p]));
+    const left = sides.map(copy);
     const loop = [left.shift()];
     while (left.length) {
         const end = loop[loop.length - 1].at(-1);
@@ -47,33 +47,94 @@ export function orderLoop(sides, gap) {
         });
         if (best.d > gap) throw new Error(`the sides don't meet end to end: a gap of ${best.d.toFixed(3)} mm`);
         const [s] = left.splice(best.i, 1);
-        loop.push(best.flip ? s.reverse() : s);
+        loop.push(best.flip ? reversed(s) : s);
     }
     const closing = dist(loop.at(-1).at(-1), loop[0][0]);
     if (closing > gap) throw new Error(`the sides don't close: a gap of ${closing.toFixed(3)} mm`);
     return loop;
 }
 
+/** A side's copy, keeping the directions out of its face (`out`, one per point) when it has them. */
+function copy(side) {
+    const c = side.map(p => [...p]);
+    if (side.out) c.out = side.out.map(d => [...d]);
+    return c;
+}
+/** A side the other way round. */
+function reversed(side) {
+    const c = [...side].reverse();
+    if (side.out) c.out = [...side.out].reverse();
+    return c;
+}
+/** The way out of a side's face at its length fraction s, as a unit vector, or null for a curve. */
+const outOf = side => {
+    if (!side.out) return null;
+    const f = byLength(side, side.out);
+    return s => { const d = f(s), l = Math.hypot(...d); return l > 0 ? mul(d, 1 / l) : d; };
+};
+
 /** The surface the sides describe, as a function of (u, v) in 0..1. */
-export function boundarySurface(sides, gap) {
+export function boundarySurface(sides, gap, tension = 1) {
     if (sides.length === 2) {
         // A loft: the second side runs the same way as the first.
         let [a, b] = sides;
-        if (dist(a[0], b[0]) + dist(a.at(-1), b.at(-1)) > dist(a[0], b.at(-1)) + dist(a.at(-1), b[0])) b = [...b].reverse();
-        const A = byLength(a), B = byLength(b);
-        return { at: (u, v) => lerp(A(u), B(u), v), sides: [A, null, B, null] };
+        if (dist(a[0], b[0]) + dist(a.at(-1), b.at(-1)) > dist(a[0], b.at(-1)) + dist(a.at(-1), b[0])) b = reversed(b);
+        const A = byLength(a), B = byLength(b), oa = outOf(a), ob = outOf(b);
+        const sides2 = [A, null, B, null], outs = [oa, null, ob, null];
+        if (!oa && !ob) return { at: (u, v) => lerp(A(u), B(u), v), sides: sides2, outs };
+        // Leaving each edge side along its face, as far out as the sides are apart (times tension).
+        const at = (u, v) => {
+            const pa = A(u), pb = B(u), chord = sub(pb, pa), reach = Math.hypot(...chord) * tension;
+            return hermite(v, pa, pb, oa ? mul(oa(u), reach) : chord, ob ? mul(ob(u), -reach) : chord);
+        };
+        return { at, sides: sides2, outs };
     }
     if (sides.length !== 4) throw new Error('select four sides meeting end to end, or two to loft between');
     const [s0, s1, s2, s3] = orderLoop(sides, gap);
     // Bottom runs along u, right along v, top and left are the loop's last two sides turned round.
-    const bottom = byLength(s0), right = byLength(s1), top = byLength([...s2].reverse()), leftSide = byLength([...s3].reverse());
+    const r2 = reversed(s2), r3 = reversed(s3);
+    const bottom = byLength(s0), right = byLength(s1), top = byLength(r2), leftSide = byLength(r3);
+    const outs = [outOf(s0), outOf(s1), outOf(r2), outOf(r3)], all = [bottom, right, top, leftSide];
     const P00 = bottom(0), P10 = bottom(1), P01 = top(0), P11 = top(1);
-    const at = (u, v) => {
-        const ruledV = lerp(bottom(u), top(u), v), ruledU = lerp(leftSide(v), right(v), u);
-        const corners = lerp(lerp(P00, P10, u), lerp(P01, P11, u), v);
-        return sub(add(ruledV, ruledU), corners);
+    if (!outs.some(Boolean)) {
+        const at = (u, v) => {
+            const ruledV = lerp(bottom(u), top(u), v), ruledU = lerp(leftSide(v), right(v), u);
+            const corners = lerp(lerp(P00, P10, u), lerp(P01, P11, u), v);
+            return sub(add(ruledV, ruledU), corners);
+        };
+        return { at, sides: all, outs };
+    }
+    // With faces to carry on: a Hermite-blended Coons patch. Across each side the patch leaves along
+    // the face's way out (or, for a curve side, as its neighbours do at its ends), as fast as the
+    // neighbouring sides do at the corners, nudged at the corners to agree with those sides.
+    const e = 1e-4, d = (f, x) => x < 0.5 ? mul(sub(f(x + e), f(x)), 1 / e) : mul(sub(f(x), f(x - e)), 1 / e);
+    const dL0 = d(leftSide, 0), dL1 = d(leftSide, 1), dR0 = d(right, 0), dR1 = d(right, 1);
+    const dB0 = d(bottom, 0), dB1 = d(bottom, 1), dT0 = d(top, 0), dT1 = d(top, 1);
+    const len = v => Math.hypot(...v);
+    // The cross derivative along a side: from its face (sign: +1 leaving into the sheet in the
+    // parameter's direction, -1 against it), or straight between the corner derivatives.
+    const across = (out, sign, c0, c1) => {
+        if (!out) return t => lerp(c0, c1, t);
+        const m0 = len(c0) * tension, m1 = len(c1) * tension;
+        const fix0 = sub(c0, mul(out(0), sign * m0)), fix1 = sub(c1, mul(out(1), sign * m1));
+        return t => add(mul(out(t), sign * ((1 - t) * m0 + t * m1)), lerp(fix0, fix1, t));
     };
-    return { at, sides: [bottom, right, top, leftSide] };
+    const Dv0 = across(outs[0], 1, dL0, dR0), Dv1 = across(outs[2], -1, dL1, dR1);
+    const Du0 = across(outs[3], 1, dB0, dT0), Du1 = across(outs[1], -1, dB1, dT1);
+    const RV = (u, v) => hermite(v, bottom(u), top(u), Dv0(u), Dv1(u));
+    const RU = (u, v) => hermite(u, leftSide(v), right(v), Du0(v), Du1(v));
+    const dRU = (u, v) => d(t => RU(u, t), v);
+    const at = (u, v) => {
+        const T = hermite(v, RU(u, 0), RU(u, 1), dRU(u, 0), dRU(u, 1));
+        return sub(add(RV(u, v), RU(u, v)), T);
+    };
+    return { at, sides: all, outs };
+}
+
+/** The cubic Hermite curve from `a` to `b` leaving with derivative `da` and arriving with `db`, at t. */
+function hermite(t, a, b, da, db) {
+    const t2 = t * t, t3 = t2 * t;
+    return add(add(mul(a, 2 * t3 - 3 * t2 + 1), mul(b, 3 * t2 - 2 * t3)), add(mul(da, t3 - 2 * t2 + t), mul(db, t3 - t2)));
 }
 
 /** A clamped uniform knot vector of `spans` spans for degree `p`, over 0..1. */
@@ -161,10 +222,12 @@ export function surfaceAt({ degree, uKnots, vKnots, poles }, u, v) {
  * spans, gap (largest miss along the sides, mm) }. `degree` 1 to 7; `spans` [u, v], or 0 for auto;
  * `tolerance` the side gap auto spans aim for and the gap the sides' ends may have.
  */
-export function square(sides, { degree = 3, spans = 0, tolerance = 0.01 } = {}) {
+export function square(sides, { degree = 3, spans = 0, tolerance = 0.01, continuity = 'G0', angle = 0.5, tension = 1 } = {}) {
     if (!(degree >= 1 && degree <= 7)) throw new Error('the degree runs from 1 to 7');
+    const tangent = continuity === 'G1';
+    if (tangent && degree < 2) throw new Error('G1 needs degree 2 or more');
     const size = Math.max(...sides.flat().map(p => dist(p, sides[0][0])));
-    const shape = boundarySurface(sides, Math.max(tolerance, 1e-3 * size));
+    const shape = boundarySurface(sides, Math.max(tolerance, 1e-3 * size), tension);
     const make = (su, sv) => {
         const uk = knots(su, degree), vk = knots(sv, degree), nu = su + degree, nv = sv + degree;
         const mu = 4 * su + degree + 1, mv = 4 * sv + degree + 1;
@@ -185,15 +248,72 @@ export function square(sides, { degree = 3, spans = 0, tolerance = 0.01 } = {}) 
             const column = fit(Bu, C.map(r => r[j]), held);
             for (let i = 0; i < nu; i++) poles[i][j] = column[i];
         }
+        if (tangent) tangentRows(poles, uk, vk, degree, shape.outs);
         const out = { degree: [degree, degree], uKnots: uk, vKnots: vk, poles, spans: [su, sv] };
         out.gap = sideGap(out, shape.sides);
+        out.turn = tangent ? sideTurn(out, shape.outs) : 0;
         return out;
     };
-    if (spans) return make(...(Array.isArray(spans) ? spans : [spans, spans]));
+    if (spans) {
+        const [su, sv] = Array.isArray(spans) ? spans : [spans, spans];
+        if (tangent && (su + degree < 4 || sv + degree < 4)) throw new Error('G1 needs more spans: at least 4 control points each way');
+        return make(su, sv);
+    }
     let out;
-    for (let s = 1; s <= 64; s *= 2) {
+    for (let s = tangent && degree < 3 ? 2 : 1; s <= 64; s *= 2) {
         out = make(s, s);
-        if (out.gap <= tolerance) break;
+        if (out.gap <= tolerance && out.turn <= angle) break;
     }
     return out;
+}
+
+/** Greville abscissae of knots `t`, degree `p`. */
+const greville = (t, p) => Array.from({ length: t.length - p - 1 }, (_, i) => t.slice(i + 1, i + p + 1).reduce((a, b) => a + b, 0) / p);
+
+/**
+ * G1 to the faces along edge sides: the second row of poles in from each such side is turned to
+ * leave the side along the face's way out (the face's tangent plane, carried on past the edge),
+ * keeping its reach. A pole that two sides both move (next to a corner) takes the average.
+ */
+function tangentRows(poles, uk, vk, p, outs) {
+    const nu = poles.length, nv = poles[0].length, gu = greville(uk, p), gv = greville(vk, p);
+    const moves = new Map();
+    const propose = (i, j, from, d) => {
+        const reach = dist(poles[i][j], from);
+        const at = add(from, mul(d, reach));
+        const k = `${i},${j}`, m = moves.get(k) ?? { i, j, sum: [0, 0, 0], n: 0 };
+        m.sum = add(m.sum, at); m.n++;
+        moves.set(k, m);
+    };
+    // Bottom (v = 0) and top (v = 1) run along u; right (u = 1) and left (u = 0) along v.
+    if (outs[0]) for (let i = 1; i < nu - 1; i++) propose(i, 1, poles[i][0], outs[0](gu[i]));
+    if (outs[2]) for (let i = 1; i < nu - 1; i++) propose(i, nv - 2, poles[i][nv - 1], outs[2](gu[i]));
+    if (outs[1]) for (let j = 1; j < nv - 1; j++) propose(nu - 2, j, poles[nu - 1][j], outs[1](gv[j]));
+    if (outs[3]) for (let j = 1; j < nv - 1; j++) propose(1, j, poles[0][j], outs[3](gv[j]));
+    for (const { i, j, sum, n } of moves.values()) poles[i][j] = mul(sum, 1 / n);
+}
+
+/** The largest angle in degrees by which the sheet leaves an edge side out of the face's tangent plane. */
+function sideTurn(surface, outs, n = 48) {
+    const e = 1e-4;
+    const cross3 = (a, b) => [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]];
+    // For each side: where along it, the parameters there, and which way is across into the sheet.
+    const sides = [
+        [s => [s, 0], [0, 1], [1, 0]], [s => [1, s], [-1, 0], [0, 1]],
+        [s => [s, 1], [0, -1], [1, 0]], [s => [0, s], [1, 0], [0, 1]],
+    ];
+    let most = 0;
+    sides.forEach(([uv, inward, along], k) => {
+        if (!outs[k]) return;
+        for (let i = 1; i < n; i++) {
+            const s = i / n, [u, v] = uv(s), P = surfaceAt(surface, u, v);
+            const A = surfaceAt(surface, u + e * along[0], v + e * along[1]);
+            const I = surfaceAt(surface, u + e * inward[0], v + e * inward[1]);
+            const T = sub(A, P), X = sub(I, P), d = outs[k](s);
+            const N = cross3(T, d), ln = Math.hypot(...N), lx = Math.hypot(...X);
+            if (ln < 1e-14 || lx < 1e-14) continue;
+            most = Math.max(most, Math.asin(Math.min(1, Math.abs(N[0] * X[0] + N[1] * X[1] + N[2] * X[2]) / (ln * lx))) * 180 / Math.PI);
+        }
+    });
+    return most;
 }

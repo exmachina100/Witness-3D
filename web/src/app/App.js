@@ -63,7 +63,7 @@ import { curveArrayMotions } from '../curveArray.js';
 import { curveDimensions, faceDimensions, filletDimensions, solidDimensions } from '../dimension.js';
 import { edgeCurve, flattenCurve } from '../altDuplicate.js';
 import { EDGE_CONTINUITY, bridgeCurve, bridgePoles, edgePoint } from '../bridgeEdge.js';
-import { ALIGN_CONTINUITY, alignRequest } from '../alignSurface.js';
+import { ALIGN_CONTINUITY, alignRequest, readEdgeFaces } from '../alignSurface.js';
 import { constrainedSurface, splineSheetData } from '../constrainedSurface.js';
 import { square } from '../square.js';
 import { combTeeth, isoLines, onFace } from '../isoCombs.js';
@@ -159,7 +159,7 @@ const KEYS = {
   bridge: [['T / D', 'TENSION'], ['TAB', 'CONTINUITY G0 G1 G2 G3'], ['Q', 'TRIM'], ['⏎ / RMB', 'OK']],
   'bridge-edge': [['D', 'TENSION'], ['TAB', 'CONTINUITY G0 G1 G2 G3'], ['⏎ / RMB', 'OK']],
   'align-surface': [['TAB', 'CONTINUITY G0 G1 G2'], ['D', 'TENSION'], ['⏎ / RMB', 'OK']],
-  square: [['⇧ CLICK', 'SIDES: CURVES OR EDGES'], ['D', 'DEGREE'], ['⏎ / RMB', 'OK']],
+  square: [['⇧ CLICK', 'SIDES: CURVES OR EDGES'], ['TAB', 'CONTINUITY G0 G1'], ['D', 'DEGREE'], ['⏎ / RMB', 'OK']],
   'constrained-surface': [['CLICK', 'ADD A POINT'], ['CTRL Z', 'REMOVE THE LAST'], ['TAB', 'PERFORMANCE / SMOOTHNESS'], ['⏎ / RMB', 'OK']],
   trim: [['CLICK', 'PIECE TO CUT AWAY'], ['CTRL Z', 'UNDO ONE'], ['ESC / ⏎', 'DONE']],
   'cut-curve': [['CLICK', 'CUTTER CURVES'], ['TAB', 'EXTEND'], ['S', 'SCREEN SPACE'], ['⏎ / RMB', 'OK'], ['ESC', 'CANCEL']],
@@ -412,6 +412,8 @@ const SHELL = `
     </div>
     <div class="sec" data-panel="square" hidden>
       <span class="hint" data-id="sq-hint">—</span>
+      <span class="label">CONTINUITY</span>
+      <div class="seg" role="group" aria-label="Continuity with the faces along edge sides"><button data-sqcont="G0" aria-pressed="true" title="Meet the sides (G0) (Tab)">G0</button><button data-sqcont="G1" aria-pressed="false" title="Carry on the faces along edge sides (G1) (Tab)">G1</button></div>
       <div class="field" title="The surface's degree each way (D)"><label for="w3d-sq-d">DEGREE</label><input id="w3d-sq-d" data-id="sq-d" type="number" step="1" min="1" max="7" value="3"></div>
       <div class="field" title="Spans across the first side; 0 picks them to follow the sides within 0.01 mm"><label for="w3d-sq-u">SPANS U</label><input id="w3d-sq-u" data-id="sq-u" type="number" step="1" min="0" max="64" value="0"></div>
       <div class="field" title="Spans across the second side; 0 is as many as U"><label for="w3d-sq-v">SPANS V</label><input id="w3d-sq-v" data-id="sq-v" type="number" step="1" min="0" max="64" value="0"></div>
@@ -4693,7 +4695,7 @@ export async function mount(root, backend) {
   async function startSquare() {
     if (cmd) await finish();
     if (!backend.previewSplineSheet || !backend.edgeCurvature) return toast('SQUARE IS NOT IN THIS BUILD YET');
-    const c = cmd = { id: 'square', data: null, sent: 0, shown: 0, edges: new Map() };
+    const c = cmd = { id: 'square', data: null, sent: 0, shown: 0, edges: new Map(), faces: new Map(), continuity: 'G0' };
     lastTool = 'square';
     showTool('square');
     setState('none');
@@ -4708,6 +4710,41 @@ export async function mount(root, backend) {
       if (!c.edges.has(key)) c.edges.set(key, (await backend.edgeCurvature({ body: it.body, edge: it.n, n: 200 })).map(t => t.at));
       return c.edges.get(key);
     };
+    // The faces along an edge, read at every fifth point of its side, for G1.
+    const facesOf = async (it, pts) => {
+      const key = `${it.body}:${it.n}`;
+      if (!c.faces.has(key)) {
+        const at = pts.filter((_, i) => i % 5 === 0 || i === pts.length - 1);
+        c.faces.set(key, { at, faces: readEdgeFaces(await backend.edgeFaces({ body: it.body, edge: it.n, points: at }), at.length) });
+      }
+      return c.faces.get(key);
+    };
+    // The way out of the face the sheet carries on from, at every point of an edge side: square to
+    // the edge in the face's tangent plane, away from the face; of the edge's faces, the one whose
+    // way out heads most into the sheet.
+    const withOut = async (it, pts, centre) => {
+      const { at, faces } = await facesOf(it, pts);
+      const unit = v => { const l = Math.hypot(...v); return l > 0 ? v.map(x => x / l) : v; };
+      const cross = (a, b) => [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]];
+      const dot = (a, b) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
+      let best = null;
+      for (const f of faces) {
+        const outs = f.frames.map((fr, k) => {
+          const T = unit(at[Math.min(k + 1, at.length - 1)].map((x, i) => x - at[Math.max(k - 1, 0)][i]));
+          const N = unit(cross(fr.su, fr.sv));
+          let d = unit(cross(N, T));
+          if (dot(d, fr.at.map((x, i) => x - f.middle[i])) < 0) d = d.map(x => -x);
+          return d;
+        });
+        const score = outs.reduce((sum, d, k) => sum + dot(d, unit(centre.map((x, i) => x - at[k][i]))), 0);
+        if (!best || score > best.score) best = { score, outs };
+      }
+      if (!best) return pts;
+      // Spread the sampled ways out over every point of the side.
+      const side = pts.map(p => [...p]);
+      side.out = pts.map((_, i) => { const k = i / (pts.length - 1) * (at.length - 1), a = Math.floor(k), b = Math.min(a + 1, at.length - 1), t = k - a; return best.outs[a].map((x, j) => x * (1 - t) + best.outs[b][j] * t); });
+      return side;
+    };
     const picked = () => [...sel.curves.map(id => ({ kind: 'curve', id })), ...sel.list('edge').map(e => ({ kind: 'edge', body: e.body, n: e.n }))];
     c.preview = async () => {
       const items = picked();
@@ -4720,13 +4757,17 @@ export async function mount(root, backend) {
       }
       let fit;
       try {
-        const sides = await Promise.all(items.map(sideOf));
+        let sides = await Promise.all(items.map(sideOf));
+        if (c.continuity === 'G1') {
+          const all = sides.flat(), centre = [0, 1, 2].map(k => all.reduce((t, p) => t + p[k], 0) / all.length);
+          sides = await Promise.all(sides.map((pts, i) => items[i].kind === 'edge' ? withOut(items[i], pts, centre) : pts));
+        }
         if (cmd !== c) return;
         const su = Math.round(num('sq-u')) || 0, sv = Math.round(num('sq-v')) || su;
-        fit = square(sides, { degree: Math.round(num('sq-d')), spans: su ? [su, sv] : 0 });
+        fit = square(sides, { degree: Math.round(num('sq-d')), spans: su ? [su, sv] : 0, continuity: c.continuity });
       } catch (e) { c.data = null; clearPreview(); $('sq-hint').textContent = say(e); return setState('failed'); }
       c.data = splineSheetData(fit);
-      $('sq-hint').textContent = `${items.length === 2 ? 'LOFT' : 'FOUR SIDES'} · DEGREE ${fit.degree[0]} · ${fit.spans.join(' × ')} SPANS · SIDES WITHIN ${fit.gap < 1e-4 ? '< 0.0001' : fit.gap.toFixed(4)} MM`;
+      $('sq-hint').textContent = `${items.length === 2 ? 'LOFT' : 'FOUR SIDES'} · DEGREE ${fit.degree[0]} · ${fit.spans.join(' × ')} SPANS · SIDES WITHIN ${fit.gap < 1e-4 ? '< 0.0001' : fit.gap.toFixed(4)} MM${c.continuity === 'G1' ? ` · G1 WITHIN ${fit.turn.toFixed(2)}°` : ''}`;
       setHud(`SQUARE · ${fit.spans.join(' × ')} SPANS`);
       livePreview(c, () => backend.previewSplineSheet({ data: c.data }), b => showPreviewBody(b), 'sq-hint');
     };
@@ -4739,7 +4780,13 @@ export async function mount(root, backend) {
       selectionChanged();
       return true;
     };
+    c.setContinuity = g => {
+      c.continuity = g;
+      for (const b of $$('[data-sqcont]')) b.setAttribute('aria-pressed', String(b.dataset.sqcont === g));
+      c.preview();
+    };
     c.key = action => {
+      if (action === 'continuity') { c.setContinuity(c.continuity === 'G0' ? 'G1' : 'G0'); return true; }
       if (action !== 'degree') return false;
       c.entry = { label: 'DEGREE', text: '', apply: v => { if (v >= 1 && v <= 7) { $('sq-d').value = Math.round(v); c.preview(); } else toast('THE DEGREE RUNS FROM 1 TO 7'); } };
       setHud('DEGREE _');
@@ -4759,6 +4806,7 @@ export async function mount(root, backend) {
     };
     c.abort = () => endCmd('cancelled');
     c.cleanup = () => clearPreview();
+    for (const b of $$('[data-sqcont]')) b.setAttribute('aria-pressed', String(b.dataset.sqcont === 'G0'));
     c.preview();
   }
 
@@ -9224,6 +9272,7 @@ export async function mount(root, backend) {
   $('br-comb').onclick = () => cmd?.id === 'bridge' && cmd.key('comb');
   for (const id of ['be-p1', 'be-p2', 'be-t1a', 'be-t1b', 'be-t2a', 'be-t2b', 'be-t3a', 'be-t3b']) $(id).addEventListener('input', () => cmd?.id === 'bridge-edge' && cmd.preview());
   $('be-start').onclick = () => cmd?.id === 'bridge-edge' && cmd.cycleEnd(0);
+  for (const b of $$('[data-sqcont]')) b.onclick = () => cmd?.id === 'square' && cmd.setContinuity(b.dataset.sqcont);
   for (const id of ['sq-d', 'sq-u', 'sq-v']) $(id).addEventListener('input', () => cmd?.id === 'square' && cmd.preview());
   for (const b of $$('[data-csopt]')) b.onclick = () => { if (cmd?.id === 'constrained-surface') { cmd.optimize = b.dataset.csopt; cmd.preview(); } };
   for (const id of ['cs-tol', 'cs-ang']) $(id).addEventListener('input', () => cmd?.id === 'constrained-surface' && num(id) > 0 && cmd.preview());
