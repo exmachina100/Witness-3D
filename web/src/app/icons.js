@@ -73,6 +73,8 @@ const ICONS = {
     'align-surface': `<path d="M2 20l4-8h7l-4 8z"/><path d="M15 6c2 0 3 3 7 3"/><path d="M13 12c1-3 1-6 2-6"/><path ${A} d="M18 15l-3-3m0 0v3m0-3h3"/>`,
     // A sheet bellied through three clicked points.
     'constrained-surface': `<path d="M2 17c3-5 6-7 10-7s7 2 10 7"/><path d="M2 17l3 4h14l3-4"/><path ${A} d="M6 13h0M12 10h0M18 13h0" stroke-width="3.5" stroke-linecap="round"/>`,
+    // Four sides with the sheet's isoparms across them.
+    square: `<path d="M3 6c6-3 12-3 18 0M3 6c-1 5 0 9 1 13M21 6c1 5 0 9-1 13M4 19c5 2 11 2 16 0"/><path ${A} d="M9 5v15M15 5v15M3.5 11h17" stroke-dasharray="2 2"/>`,
     'bridge-edge': `<path d="M2 21v-6l4-3h4v6l-4 3z"/><path d="M14 3h4l4 3v6h-4l-4-3z"/><path ${A} d="M10 15c3 0 1-9 4-9"/><path ${A} d="M10 15h0M14 6h0" stroke-width="3.5" stroke-linecap="round"/>`,
     hole: `<path d="M3 9l9-4 9 4-9 4z"/><path d="M3 9v8l9 4 9-4V9"/><ellipse ${A} cx="12" cy="9" rx="3" ry="1.4"/><path ${A} d="M9 9v6M15 9v6" stroke-dasharray="2 2"/>`,
     through: `<path d="M12 2v20" stroke-dasharray="2 2"/><path ${A} d="M8 8h8v8H8z"/>`,
