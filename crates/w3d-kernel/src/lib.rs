@@ -407,6 +407,11 @@ pub trait Kernel {
     fn deform(&self, _bodies: &[&Self::Solid], _reference: &Self::Solid, _rface: u32, _target: &Self::Solid, _tface: u32, _opts: &DeformOptions) -> Result<Vec<Self::Solid>, KernelError> {
         Err(KernelError::Invalid("this kernel cannot deform bodies"))
     }
+    /// Align Surface: the faces along edge `edge` and their frames at `points`, flat as
+    /// web/src/alignSurface.js reads them (see w3d_edge_faces).
+    fn edge_faces(&self, _s: &Self::Solid, _edge: u32, _points: &[DVec3]) -> Result<Vec<f64>, KernelError> {
+        Err(KernelError::Invalid("this kernel cannot align surfaces"))
+    }
     fn face_uvn(&self, _s: &Self::Solid, _face: u32, _map: bool, _points: &[DVec3]) -> Result<([f64; 2], Vec<DVec3>), KernelError> {
         Err(KernelError::Invalid("this kernel cannot deform curves"))
     }

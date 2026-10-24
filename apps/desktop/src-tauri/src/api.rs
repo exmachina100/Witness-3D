@@ -1742,6 +1742,22 @@ pub fn face_uvn(m: &Model, req: FaceUvnRequest) -> Result<FaceUvn, ApiError> {
     })
 }
 
+#[derive(Deserialize, Debug)]
+pub struct EdgeFacesRequest {
+    pub body: BodyId,
+    pub edge: u32,
+    #[serde(default)]
+    pub points: Vec<[f64; 3]>,
+}
+
+/// Align Surface: the faces along an edge and their frames at the points, flat (see w3d_edge_faces).
+pub fn edge_faces(m: &Model, req: EdgeFacesRequest) -> Result<Vec<f64>, ApiError> {
+    m.call(move |doc| {
+        let pts: Vec<DVec3> = req.points.iter().map(|p| DVec3::from(*p)).collect();
+        Ok(doc.edge_faces(req.body, req.edge, &pts)?)
+    })
+}
+
 /// Toggle Points: each face's control points, as rows of [x, y, z] (u slowest).
 pub fn face_poles(m: &Model, req: FaceSurfacesRequest) -> Result<Vec<Vec<Vec<[f64; 3]>>>, ApiError> {
     m.call(move |doc| Ok(doc.face_poles(req.body)?.into_iter().map(|rows| rows.into_iter().map(|r| r.into_iter().map(|p| p.to_array()).collect()).collect()).collect()))

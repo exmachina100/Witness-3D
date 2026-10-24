@@ -364,6 +364,11 @@ impl Kernel for Occt {
         Shape::deform(bodies, reference, rface as usize, target, tface as usize, &opts).map_err(shim)
     }
 
+    fn edge_faces(&self, s: &Shape, edge: u32, points: &[DVec3]) -> Result<Vec<f64>, KernelError> {
+        let data: Vec<f64> = points.iter().flat_map(|p| p.to_array()).collect();
+        s.edge_faces(edge as usize, &data).map_err(shim)
+    }
+
     fn face_uvn(&self, s: &Shape, face: u32, map: bool, points: &[DVec3]) -> Result<([f64; 2], Vec<DVec3>), KernelError> {
         let data: Vec<f64> = points.iter().flat_map(|p| p.to_array()).collect();
         let raw = s.face_uvn(face as usize, map, &data).map_err(shim)?;

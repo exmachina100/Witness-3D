@@ -888,6 +888,12 @@ impl<K: Kernel> Document<K> {
         Ok(bodies.to_vec())
     }
 
+    /// Align Surface: the faces along an edge of `body` and their frames at `points` (see Kernel::edge_faces).
+    pub fn edge_faces(&self, body: BodyId, edge: u32, points: &[DVec3]) -> Result<Vec<f64>, KernelError> {
+        let s = self.get(body).ok_or(KernelError::Invalid("that body no longer exists"))?;
+        self.kernel.edge_faces(s, edge, points)
+    }
+
     /// Deform Curve: face coordinates of points on a face of `body`, or points from them (see Kernel::face_uvn).
     pub fn face_uvn(&self, body: BodyId, face: u32, map: bool, points: &[DVec3]) -> Result<([f64; 2], Vec<DVec3>), KernelError> {
         let s = self.get(body).ok_or(KernelError::Invalid("that body no longer exists"))?;
