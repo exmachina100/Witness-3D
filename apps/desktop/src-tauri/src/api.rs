@@ -1798,6 +1798,7 @@ pub enum FaceSurfaceOut {
     Plane { origin: [f64; 3], normal: [f64; 3] },
     Cylinder { origin: [f64; 3], axis: [f64; 3], radius: f64, outward: bool },
     Sphere { centre: [f64; 3], radius: f64, outward: bool },
+    Round { radius: f64 },
 }
 
 pub fn face_surfaces(m: &Model, req: FaceSurfacesRequest) -> Result<Vec<FaceSurfaceOut>, ApiError> {
@@ -1807,6 +1808,7 @@ pub fn face_surfaces(m: &Model, req: FaceSurfacesRequest) -> Result<Vec<FaceSurf
             w3d_kernel::FaceSurface::Plane { origin, normal } => FaceSurfaceOut::Plane { origin: origin.to_array(), normal: normal.to_array() },
             w3d_kernel::FaceSurface::Cylinder { origin, axis, radius, outward } => FaceSurfaceOut::Cylinder { origin: origin.to_array(), axis: axis.to_array(), radius, outward },
             w3d_kernel::FaceSurface::Sphere { centre, radius, outward } => FaceSurfaceOut::Sphere { centre: centre.to_array(), radius, outward },
+            w3d_kernel::FaceSurface::Round { radius } => FaceSurfaceOut::Round { radius },
         }).collect())
     })
 }

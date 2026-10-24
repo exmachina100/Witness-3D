@@ -179,6 +179,9 @@ pub enum FaceSurface {
     Plane { origin: DVec3, normal: DVec3 },
     Cylinder { origin: DVec3, axis: DVec3, radius: f64, outward: bool },
     Sphere { centre: DVec3, radius: f64, outward: bool },
+    /// A free-form face bent to one radius across it throughout (a round the kernel made as a
+    /// spline): its largest curvature is 1 / `radius` everywhere.
+    Round { radius: f64 },
 }
 
 /// A point on a flat face and its outward normal.

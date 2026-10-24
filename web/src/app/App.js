@@ -92,7 +92,7 @@ import { arcPoints, circleThrough, curveFromNurbs, cvPoints, ellipsePoints, endT
 const KEYS = {
   material: [['FORK', 'OWN COPY'], ['⏎ / RMB', 'OK'], ['ESC', 'CANCEL']],
   idle: [['CLICK', 'SELECT'], ['⇧ CLICK', 'ADD'], ['CTRL CLICK', 'REMOVE'], ['DRAG', 'BOX'], ['MMB', 'ORBIT'], ['RMB', 'PAN'], ['F', 'SEARCH']],
-  fillet: [['DRAG DOT', 'RADIUS'], ['IN', 'CHAMFER'], ['D', 'DISTANCE'], ['C', 'CHAMFER'], ['A', 'ANGLE'], ['V', 'VARIABLE POINT'], ['L', 'LIMIT POINTS'], ['CTRL CLICK', 'EDGES'], ['⏎ / RMB', 'OK']],
+  fillet: [['DRAG DOT', 'RADIUS'], ['IN', 'CHAMFER'], ['D', 'DISTANCE'], ['C', 'CHAMFER'], ['A', 'ANGLE'], ['V', 'VARIABLE POINT'], ['L', 'LIMIT POINTS'], ['CTRL CLICK', 'EDGES'], ['CLICK ROUND', 'COPY RADIUS'], ['⏎ / RMB', 'OK']],
   move: [['X Y Z', 'AXIS'], ['⇧ X Y Z', 'PLANE'], ['G', 'SCREEN'], ['CTRL', 'SNAP'], ['⏎ / RMB', 'OK']],
   rotate: [['X Y Z', 'AXIS'], ['R', 'SCREEN'], ['CTRL', '15°'], ['⏎ / RMB', 'OK']],
   scale: [['S', 'UNIFORM'], ['CTRL', '0.1'], ['⏎ / RMB', 'OK']],
@@ -2468,6 +2468,8 @@ export async function mount(root, backend) {
       gizmo: null, entry: null, entryDone: () => previewFillet(),
       // Plasticity's variable points (V): { edge, point, scale, gizmo }, the radius there being value × scale.
       vars: [], limits: [], placing: null, extraGizmos() { return this.vars.map(v => v.gizmo) },
+      // Each body's face surfaces, read once, so a click on a round face can copy its radius.
+      surfaces: new Map(),
       get kind() { return this.value < 0 ? 'chamfer' : 'fillet' },
     };
     lastTool = 'fillet';
@@ -2507,6 +2509,7 @@ export async function mount(root, backend) {
       $('blend-count').textContent = edges.length;
       $('blend-hint').textContent = `${edges.length} EDGE${edges.length > 1 ? 'S' : ''} ON ${label(body)}`;
       if (moved || !c.gizmo) placeFilletDot();
+      fetchSurfaces(c, body);
       previewFillet();
     };
     c.key = (action, e) => {
@@ -2547,6 +2550,22 @@ export async function mount(root, backend) {
         if (what === 'limit') addLimit(hit.n, hit.point);
         else addVariable(hit.n, hit.point);
         return true;
+      }
+      // Plasticity: click a round face (another fillet, a boss) and its radius becomes the distance.
+      if (hit?.kind !== 'edge' && c.body !== null) {
+        const h = raycaster.intersectObjects(shownMeshes(), false)[0];
+        const body = h?.object.userData.id, n = h && h.object.userData.faceIds[h.faceIndex];
+        const known = c.surfaces.get(body);
+        if (h && !known) fetchSurfaces(c, body);
+        const f = known?.[n];
+        if (f?.kind === 'cylinder' || f?.kind === 'sphere' || f?.kind === 'round') {
+          c.auto = false;
+          if (c.shape === 'full') setFilletShape('round');
+          setFillet(c.value < 0 ? -f.radius : f.radius, false);
+          toast(`RADIUS ${+f.radius.toFixed(3)} COPIED`);
+          return true;
+        }
+        if (h && !c.auto) { toast('CLICK A ROUND FACE TO COPY ITS RADIUS'); return true; }
       }
       // Ctrl+click (or Shift) adds or removes an edge; with nothing picked yet a plain click picks.
       if (hit?.kind !== 'edge') return !c.auto;
@@ -2666,6 +2685,13 @@ export async function mount(root, backend) {
     }
     out.addScaledVector(tangent, -out.dot(tangent)).normalize();
     return out.lengthSq() < 0.5 ? null : out;
+  }
+
+  /** Reads `body`'s face surfaces into the fillet command's cache (for copying a radius). */
+  function fetchSurfaces(c, body) {
+    if (!backend.faceSurfaces || body === undefined || c.surfaces.has(body)) return;
+    c.surfaces.set(body, null);
+    backend.faceSurfaces({ body }).then(list => c.surfaces.set(body, list), () => c.surfaces.delete(body));
   }
 
   function setFillet(v, fromGizmo = true) {
