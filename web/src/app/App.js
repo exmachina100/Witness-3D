@@ -121,7 +121,7 @@ const KEYS = {
   'match-face': [['CLICK', 'TARGET FACE'], ['⇧ CLICK', 'FACES'], ['TAB', 'GROW'], ['⏎ / RMB', 'OK']],
   image: [['DEL', 'REMOVE'], ['⏎ / RMB', 'OK'], ['ESC', 'CANCEL']],
   instance: [['G R S', 'MOVE ROTATE SCALE'], ['⇧D', 'DUPLICATE'], ['DEL', 'REMOVE'], ['⏎ / RMB', 'OK'], ['ESC', 'CANCEL']],
-  'deform-curve': [['CLICK', 'REFERENCE, THEN TARGET FACE'], ['M U N', 'FLIP'], ['K', 'KEEP CURVES'], ['⏎ / RMB', 'OK']],
+  'deform-curve': [['CLICK', 'REFERENCE, THEN TARGET FACE'], ['M U N', 'FLIP'], ['K', 'KEEP'], ['R', 'REBLEND SOLIDS'], ['⏎ / RMB', 'OK']],
   untrim: [['TAB', 'KEEP EDGES'], ['⇧ CLICK', 'FACES'], ['⏎ / RMB', 'OK']],
   unwrap: [['⇧ CLICK', 'FACES'], ['⏎ / RMB', 'OK']],
   section: [['D', 'DISTANCE'], ['F', 'FLIP'], ['⏎ / RMB', 'OK']],
@@ -435,6 +435,7 @@ const SHELL = `
       <div class="field"><label for="w3d-dc-on">N</label><input id="w3d-dc-on" data-id="dc-on" type="number" step="0.5" value="0" title="Move off the face, in mm"></div>
       <span class="label">FLIP</span>
       <div class="chips"><button data-dcflip="mirror" aria-pressed="false" title="Mirror the curves on the face (M)"><kbd>M</kbd></button><button data-dcflip="swap" aria-pressed="false" title="Swap U and V (U)"><kbd>U</kbd></button><button data-dcflip="normal" aria-pressed="false" title="Turn heights over to the other side (N)"><kbd>N</kbd></button><button data-id="dc-keep" aria-pressed="false" title="Keep the original curves (K)"><kbd>K</kbd></button></div>
+      <div class="chips" data-id="dc-reblend-row" hidden><button data-id="dc-reblend" aria-pressed="false" title="Take the fillets off before the warp and make them again after it at their radius, so they stay round (R)"><kbd>R</kbd>REBLEND</button></div>
     </div>
     <div class="sec" data-panel="untrim" hidden>
       <span class="hint" data-id="ut-hint">—</span>
@@ -4898,7 +4899,7 @@ export async function mount(root, backend) {
     if (!ids.length && !solids.length) return toast('SELECT THE CURVES, SOLIDS OR SHEETS TO DEFORM');
     if (ids.length && (!backend.faceUvn || !backend.replaceCurves)) return toast('DEFORM CURVE IS NOT IN THIS BUILD YET');
     if (solids.length && !backend.previewDeform) return toast('DEFORM OF SOLIDS AND SHEETS IS ONLY IN THE DESKTOP APP SO FAR');
-    const c = cmd = { id: 'deform-curve', ids, solids, ref: null, target: null, flips: { mirror: false, swap: false, normal: false }, keep: false, from: null, out: null, sent: 0 };
+    const c = cmd = { id: 'deform-curve', ids, solids, ref: null, target: null, flips: { mirror: false, swap: false, normal: false }, keep: false, reblend: false, from: null, out: null, sent: 0 };
     lastTool = 'deform-curve';
     showTool('deform-curve');
     setState('none');
@@ -4918,7 +4919,7 @@ export async function mount(root, backend) {
       offset: [num('dc-ou'), num('dc-ov'), num('dc-on')].map(v => Number.isFinite(v) ? v : 0),
       ...c.flips,
     });
-    c.request = () => ({ bodies: c.solids, reference: c.ref.body, rface: c.ref.n, target: c.target.body, tface: c.target.n, ...c.options(), keep: c.keep });
+    c.request = () => ({ bodies: c.solids, reference: c.ref.body, rface: c.ref.n, target: c.target.body, tface: c.target.n, ...c.options(), reblend: c.reblend, keep: c.keep });
     c.compute = async () => {
       if (c.solids.length) return backend.previewDeform(c.request());
       // The curves on the reference face only change with the reference.
@@ -4947,7 +4948,7 @@ export async function mount(root, backend) {
         if (c.solids.length) for (const b of out) showPreviewBody(b);
         else showCurvePreview(out);
         setState('updated');
-        $('dc-hint').textContent = `${what} ONTO ${where(c.target)}${c.keep ? ' · KEPT' : ''}`;
+        $('dc-hint').textContent = `${what} ONTO ${where(c.target)}${c.reblend && c.solids.length ? ' · REBLENDED' : ''}${c.keep ? ' · KEPT' : ''}`;
         setHud('DEFORM');
       } catch (e) {
         if (cmd !== c || n !== c.sent) return;
@@ -4967,7 +4968,13 @@ export async function mount(root, backend) {
       $('dc-keep').setAttribute('aria-pressed', String(on));
       c.preview();
     };
+    c.setReblend = on => {
+      c.reblend = on;
+      $('dc-reblend').setAttribute('aria-pressed', String(on));
+      c.preview();
+    };
     c.key = action => {
+      if (action === 'reblend') { if (c.solids.length) c.setReblend(!c.reblend); return !!c.solids.length; }
       if (action === 'mirror') c.setFlip('mirror', !c.flips.mirror);
       else if (action === 'u') c.setFlip('swap', !c.flips.swap);
       else if (action === 'normal') c.setFlip('normal', !c.flips.normal);
@@ -5008,6 +5015,8 @@ export async function mount(root, backend) {
     c.cleanup = () => clearPreview();
     for (const b of $$('[data-dcflip]')) b.setAttribute('aria-pressed', 'false');
     $('dc-keep').setAttribute('aria-pressed', 'false');
+    $('dc-reblend').setAttribute('aria-pressed', 'false');
+    $('dc-reblend-row').hidden = !solids.length;
     for (const id of ['dc-su', 'dc-sv', 'dc-sn']) $(id).value = 1;
     for (const id of ['dc-ou', 'dc-ov', 'dc-on']) $(id).value = 0;
     ask();
@@ -8755,6 +8764,7 @@ export async function mount(root, backend) {
   $('in-delete').onclick = () => cmd?.id === 'instance' && cmd.remove();
   for (const b of $$('[data-dcflip]')) b.onclick = () => cmd?.id === 'deform-curve' && cmd.setFlip(b.dataset.dcflip, !cmd.flips[b.dataset.dcflip]);
   $('dc-keep').onclick = () => cmd?.id === 'deform-curve' && cmd.setKeep(!cmd.keep);
+  $('dc-reblend').onclick = () => cmd?.id === 'deform-curve' && cmd.setReblend(!cmd.reblend);
   for (const id of ['rf-tol', 'rf-du', 'rf-dv', 'rf-su', 'rf-sv', 'rf-eu', 'rf-ev']) $(id).addEventListener('input', () => cmd?.id === 'rebuild-face' && cmd.preview());
   for (const b of $$('[data-rbmethod]')) b.onclick = () => cmd?.id === 'rebuild-face' && cmd.setMethod(b.dataset.rbmethod);
   $('rf-shrink').onclick = () => cmd?.id === 'rebuild-face' && cmd.setShrink(!cmd.shrink);

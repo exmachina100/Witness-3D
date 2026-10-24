@@ -2472,14 +2472,76 @@ public:
   }
 };
 
+// Deform's Reblend, first half: `shape` with its fillets taken off (see w3d_fillet_faces), so the
+// faces they joined meet at sharp edges again; each such edge comes back in `blends` with the
+// radius of the fillet that was there. Only fillets of one radius can be made again.
+inline TopoDS_Shape w3d_unblend(const TopoDS_Shape &shape, std::vector<std::pair<TopoDS_Edge, double>> &blends) {
+  rust::Vec<int32_t> rounds = w3d_fillet_faces(shape, rust::Slice<const int32_t>());
+  if (rounds.empty()) return shape;
+  TopTools_IndexedMapOfShape map;
+  TopExp::MapShapes(shape, TopAbs_FACE, map);
+  TopTools_IndexedDataMapOfShapeListOfShape before;
+  TopExp::MapShapesAndAncestors(shape, TopAbs_EDGE, TopAbs_FACE, before);
+  TopTools_MapOfShape removed;
+  std::vector<std::pair<TopoDS_Face, double>> fillets;
+  for (int32_t f : rounds) {
+    TopoDS_Face face = TopoDS::Face(map(f + 1));
+    double r = w3d_round_radius(face);
+    if (r <= 0) throw std::runtime_error("reblend makes fillets of one radius again, and this body has one whose radius changes; turn Reblend off");
+    removed.Add(face);
+    fillets.push_back({face, r});
+  }
+  // The faces the fillets touch, which of them already shared an edge, and each fillet's.
+  TopTools_IndexedMapOfShape near;
+  std::vector<std::set<int>> touches(fillets.size());
+  for (size_t i = 0; i < fillets.size(); i++)
+    for (TopExp_Explorer ex(fillets[i].first, TopAbs_EDGE); ex.More(); ex.Next())
+      for (TopTools_ListOfShape::Iterator g(before.FindFromKey(ex.Current())); g.More(); g.Next())
+        if (!removed.Contains(g.Value())) touches[i].insert(near.Add(g.Value()));
+  std::set<std::pair<int, int>> touching;
+  for (int i = 1; i <= before.Extent(); i++) {
+    std::vector<int> ids;
+    for (TopTools_ListOfShape::Iterator g(before(i)); g.More(); g.Next()) { int k = near.FindIndex(g.Value()); if (k) ids.push_back(k); }
+    for (size_t a = 0; a < ids.size(); a++) for (size_t b = a + 1; b < ids.size(); b++) touching.insert({std::min(ids[a], ids[b]), std::max(ids[a], ids[b])});
+  }
+  BRepAlgoAPI_Defeaturing df;
+  df.SetShape(shape);
+  for (TopTools_MapOfShape::Iterator it(removed); it.More(); it.Next()) df.AddFaceToRemove(it.Value());
+  df.SetToFillHistory(Standard_True);
+  df.Build();
+  if (!df.IsDone() || df.HasErrors() || df.Shape().IsNull())
+    throw std::runtime_error("the faces around the fillets can't grow back to edges, so they can't be reblended; turn Reblend off");
+  TopoDS_Shape sharp = df.Shape();
+  TopTools_DataMapOfShapeInteger from;
+  for (int k = 1; k <= near.Extent(); k++) {
+    if (df.IsDeleted(near(k))) continue;
+    const TopTools_ListOfShape &m = df.Modified(near(k));
+    if (m.IsEmpty()) from.Bind(near(k), k);
+    else for (TopTools_ListOfShape::Iterator it(m); it.More(); it.Next()) from.Bind(it.Value(), k);
+  }
+  TopTools_IndexedDataMapOfShapeListOfShape after;
+  TopExp::MapShapesAndAncestors(sharp, TopAbs_EDGE, TopAbs_FACE, after);
+  for (int i = 1; i <= after.Extent(); i++) {
+    const TopTools_ListOfShape &fs = after(i);
+    if (fs.Extent() != 2 || !from.IsBound(fs.First()) || !from.IsBound(fs.Last())) continue;
+    int ia = from(fs.First()), ib = from(fs.Last());
+    if (ia == ib || touching.count({std::min(ia, ib), std::max(ia, ib)})) continue;
+    for (size_t k = 0; k < fillets.size(); k++)
+      if (touches[k].count(ia) && touches[k].count(ib)) { blends.push_back({TopoDS::Edge(after.FindKey(i)), fillets[k].second}); break; }
+  }
+  return sharp;
+}
+
 // Plasticity's Deform Solid and Sheet: each child of `bodies` (a compound) wrapped from face `rface`
 // of `ref` onto face `tface` of `target`, each point keeping its (s, t, n) coordinates (see
 // W3dFaceMap) after `opts` move them: scale u, v, n (about the middle of all the bodies), offset u,
-// v (mm along the target) and n (mm), then mirror, swap u and v, and turn the normal over (1 or 0).
-// Returns a compound of the results in the same order.
+// v (mm along the target) and n (mm), then mirror, swap u and v, and turn the normal over (1 or 0),
+// and optionally reblend (1 or 0): fillets taken off before the warp and made again after it at
+// their radius, so they stay round rather than stretched. Returns a compound of the results in the same order.
 inline std::unique_ptr<TopoDS_Shape> w3d_deform(const TopoDS_Shape &bodies, const TopoDS_Shape &ref, int32_t rface,
                                                 const TopoDS_Shape &target, int32_t tface, rust::Slice<const double> opts) {
-  if (opts.size() != 9) throw std::runtime_error("deform takes nine options");
+  if (opts.size() != 9 && opts.size() != 10) throw std::runtime_error("deform takes nine or ten options");
+  const bool reblend = opts.size() == 10 && opts[9] != 0;
   try {
     W3dFaceMap from(ref, rface), to(target, tface);
     const bool mirror = opts[6] != 0, swap = opts[7] != 0, normal = opts[8] != 0;
@@ -2515,18 +2577,38 @@ inline std::unique_ptr<TopoDS_Shape> w3d_deform(const TopoDS_Shape &bodies, cons
     TopoDS_Compound out;
     b.MakeCompound(out);
     for (TopoDS_Iterator it(bodies); it.More(); it.Next()) {
-      BRepBuilderAPI_NurbsConvert nurbs(it.Value(), Standard_True);
+      std::vector<std::pair<TopoDS_Edge, double>> blends;
+      const TopoDS_Shape body = reblend ? w3d_unblend(it.Value(), blends) : it.Value();
+      BRepBuilderAPI_NurbsConvert nurbs(body, Standard_True);
       if (!nurbs.IsDone()) throw std::runtime_error("a body could not be turned into control points to deform");
       BRepTools_Modifier m(nurbs.Shape(), keep);
       if (!m.IsDone()) throw std::runtime_error("the body could not be deformed");
       TopoDS_Shape made = m.ModifiedShape(nurbs.Shape());
       BRepLib::SameParameter(made, 1e-5, Standard_True);
+      Handle(ShapeFix_Shape) fix;
       if (!BRepCheck_Analyzer(made).IsValid()) {
-        Handle(ShapeFix_Shape) fix = new ShapeFix_Shape(made);
+        fix = new ShapeFix_Shape(made);
         fix->Perform();
         made = fix->Shape();
       }
       if (!BRepCheck_Analyzer(made).IsValid()) throw std::runtime_error("the deformed body is not valid; try a flatter target, or Unwrap Face of the target as the reference");
+      // Reblend: the sharp edges, followed through the warp, filleted again at their radius.
+      if (!blends.empty()) {
+        BRepFilletAPI_MakeFillet mk(made);
+        int added = 0;
+        for (const auto &blend : blends) {
+          const double r = blend.second;
+          TopoDS_Shape now = m.ModifiedShape(nurbs.ModifiedShape(blend.first));
+          if (!fix.IsNull()) now = fix->Context()->Apply(now);
+          for (TopExp_Explorer ex(now, TopAbs_EDGE); ex.More(); ex.Next()) { mk.Add(r, TopoDS::Edge(ex.Current())); added++; }
+        }
+        if (added) {
+          mk.Build();
+          if (!mk.IsDone() || mk.Shape().IsNull() || !w3d_is_valid(mk.Shape()))
+            throw std::runtime_error("the fillets could not be made again on the deformed body; turn Reblend off");
+          made = mk.Shape();
+        }
+      }
       // A warp that turns the space over (a mirror or a flipped normal) turns solids inside out.
       if (TopExp_Explorer(made, TopAbs_SOLID).More()) {
         GProp_GProps g;

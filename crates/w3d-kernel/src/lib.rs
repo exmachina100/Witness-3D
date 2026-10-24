@@ -23,7 +23,8 @@ pub use extrude::{extrude, ExtrudeParams, ExtrudeResult, Operation};
 pub use form::{form, match_faces_grow, offset_faces, offset_faces_grow, FormKind, FormParams, Grow};
 
 /// Deform's options, in the target face's U, V and N: scale about the middle of what is deformed,
-/// offset (U and V in mm along the target face, N in mm off it), and the flips.
+/// offset (U and V in mm along the target face, N in mm off it), the flips, and whether fillets are
+/// taken off before the warp and made again after it at their radius (Reblend).
 #[derive(Clone, Debug, PartialEq)]
 pub struct DeformOptions {
     pub scale: [f64; 3],
@@ -31,11 +32,12 @@ pub struct DeformOptions {
     pub mirror: bool,
     pub swap: bool,
     pub normal: bool,
+    pub reblend: bool,
 }
 
 impl Default for DeformOptions {
     fn default() -> Self {
-        DeformOptions { scale: [1.0; 3], offset: [0.0; 3], mirror: false, swap: false, normal: false }
+        DeformOptions { scale: [1.0; 3], offset: [0.0; 3], mirror: false, swap: false, normal: false, reblend: false }
     }
 }
 pub use solids::{ArraySpec, Primitive};
