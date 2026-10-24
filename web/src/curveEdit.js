@@ -1479,9 +1479,12 @@ export const BRIDGE_CONTINUITY = ['G0', 'G1', 'G2', 'G3'];
  * both ends or per end; see endTensions) say how far the bridge holds each end. In `a`'s plane,
  * as an exact NURBS curve.
  */
-export function bridgeContinuous(a, endA, b, endB, { continuity = ['G1', 'G1'], ...options } = {}) {
+export function bridgeContinuous(a, endA, b, endB, { continuity = ['G1', 'G1'], at = [endA, endB], ...options } = {}) {
     const ts = endTensions(options);
     if (ends2(a) === null || ends2(b) === null) throw new Error('bridge the open ends of two curves');
+    // From the parameter points: what stays of each curve ends at its bridge point.
+    a = bridgeEnd(a, endA, at[0]).kept;
+    b = bridgeEnd(b, endB, at[1]).kept;
     for (const g of continuity) if (!BRIDGE_CONTINUITY.includes(g)) throw new Error(`continuity is ${BRIDGE_CONTINUITY.join(', ')}`);
     // Each end: where it is, the way out of the curve, its curvature vector K and how K changes per
     // unit length travelling out (−κ²T on an arc). Lines and arcs are exact; anything else is read
@@ -1522,6 +1525,24 @@ export function bridgeContinuous(a, endA, b, endB, { continuity = ['G1', 'G1'], 
     const poles = [...bridgeSide(flat(A), continuity[0], z(B.at), n, gap, ts[0]), ...bridgeSide(flat(B), continuity[1], z(A.at), n, gap, ts[1]).reverse()];
     const knots = [...poles.map(() => 0), ...poles.map(() => 1)];
     return withShape(a, { kind: 'nurbs', degree: n, poles, weights: poles.map(() => 1), knots });
+}
+/**
+ * Plasticity's Bridge Curve Parameter: the bridge leaves curve `c` (open) from the point at relative
+ * position `at` along it (0 its start, 1 its end, by length), on the side of end `end` (0 or 1). The
+ * part of the curve that stays runs from its other end to that point, which is its end `end`; the
+ * part past the point (null when the point is the end itself) is what Trim takes away.
+ */
+export function bridgeEnd(c, end, at = end) {
+    if (!(at >= 0 && at <= 1)) throw new Error('the parameter runs from 0 to 1');
+    if (Math.abs(at - end) < 1e-9) return { kept: c, beyond: null };
+    if (Math.abs(at - (1 - end)) < 1e-9) throw new Error('that parameter is the other end of the curve; the bridge needs some of it');
+    const { points } = samples(c, 192);
+    const steps = points.slice(1).map((p, i) => dist(p, points[i])), total = steps.reduce((x, y) => x + y, 0);
+    let goal = at * total, i = 0;
+    while (i < steps.length - 1 && goal > steps[i]) goal -= steps[i++];
+    const p = add(points[i], mul(sub(points[i + 1], points[i]), steps[i] > 0 ? Math.min(1, goal / steps[i]) : 0));
+    const [first, second] = splitCurve(c, p);
+    return end ? { kept: first, beyond: second } : { kept: second, beyond: first };
 }
 const ends2 = c => (c.kind === 'arc' || ((c.kind === 'polyline' || c.kind === 'spline' || c.kind === 'cv') && !c.closed) || (c.kind === 'nurbs' && !nurbsLoop(c)) || (c.kind === 'contour' && !loops(c.pieces))) ? true : null;
 

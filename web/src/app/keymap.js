@@ -143,7 +143,7 @@ export const COMMAND = {
     'rebuild-face': { m: 'method', t: 'tolerance', d: 'degree', s: 'spans', e: 'extend', h: 'shrink' },
     'fillet-curve': { d: 'radius' },
     // Bridge Curve / Bridge Vertex (manual: Tab continuity, D tension)
-    bridge: { t: 'tension', d: 'tension', tab: 'continuity' },
+    bridge: { t: 'tension', d: 'tension', tab: 'continuity', q: 'trim' },
     hole: { t: 'through' },
     // Cut: P cuts with the construction plane as well.
     cut: { p: 'plane' },

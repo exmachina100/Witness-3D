@@ -80,7 +80,7 @@ import { limitEdges, toObj, toStl } from '../meshExport.js';
 import { flatten, toDxf, toSvg } from '../drawingExport.js';
 import { readDxf } from '../dxf.js';
 import { distanceToFace } from '../dependentOffset.js';
-import { BRIDGE_CONTINUITY, bridgeContinuous, continuity, curvatureComb, curveVertices, explode, EXTEND_SHAPES, extendCurve, filletCurve, nearestEnd, OFFSET_CORNERS, offsetCurve, offsetSlot, offsetThrough, unionLoops, moveVertices, alignedInPlane, offsetVertex, rebuildCurve, subdivideCurve, completeCurve, convertVertices, insertKnotAt, raiseDegree, reverseCurve, transformCurve, moveVerticesTo, slideCurveCVs, splitCurve, tangentCircle, trim, cutCurve, cuttersFor, samples as curveSamples } from '../curveEdit.js';
+import { BRIDGE_CONTINUITY, bridgeContinuous, bridgeEnd, continuity, curvatureComb, curveVertices, explode, EXTEND_SHAPES, extendCurve, filletCurve, nearestEnd, OFFSET_CORNERS, offsetCurve, offsetSlot, offsetThrough, unionLoops, moveVertices, alignedInPlane, offsetVertex, rebuildCurve, subdivideCurve, completeCurve, convertVertices, insertKnotAt, raiseDegree, reverseCurve, transformCurve, moveVerticesTo, slideCurveCVs, splitCurve, tangentCircle, trim, cutCurve, cuttersFor, samples as curveSamples } from '../curveEdit.js';
 import { ViewGizmo } from './ViewGizmo.js';
 import { Toolbar } from './Toolbar.js';
 import { arcPoints, circleThrough, curveFromNurbs, cvPoints, ellipsePoints, endTangent, helixPoints, loops, nurbsLoop, nurbsPoints, polygonCorners, spiralAngle, tangentArc } from '../curves.js';
@@ -151,7 +151,7 @@ const KEYS = {
   'export-drawing': [['VIEW', 'AS THE CAMERA SEES IT'], ['H', 'HIDDEN LINES'], ['C', 'CURVES'], ['⏎ / RMB', 'SAVE'], ['ESC', 'CANCEL']],
   'tangent-circle': [['CLICK', 'FIRST · SECOND CURVE · SIZE'], ['F', 'FREEZE'], ['TAB', 'RADIUS'], ['ESC', 'CANCEL']],
   extend: [['CLICK', 'NEAR AN END'], ['S', 'SHAPE NATURAL / LINEAR'], ['TYPE', 'LENGTH IN PANEL'], ['ESC / ⏎', 'DONE']],
-  bridge: [['T / D', 'TENSION'], ['TAB', 'CONTINUITY G0 G1 G2 G3'], ['⏎ / RMB', 'OK']],
+  bridge: [['T / D', 'TENSION'], ['TAB', 'CONTINUITY G0 G1 G2 G3'], ['Q', 'TRIM'], ['⏎ / RMB', 'OK']],
   'bridge-edge': [['D', 'TENSION'], ['TAB', 'CONTINUITY G0 G1 G2 G3'], ['⏎ / RMB', 'OK']],
   trim: [['CLICK', 'PIECE TO CUT AWAY'], ['CTRL Z', 'UNDO ONE'], ['ESC / ⏎', 'DONE']],
   'cut-curve': [['CLICK', 'CUTTER CURVES'], ['TAB', 'EXTEND'], ['S', 'SCREEN SPACE'], ['⏎ / RMB', 'OK'], ['ESC', 'CANCEL']],
@@ -587,11 +587,14 @@ const SHELL = `
     </div>
     <div class="sec" data-panel="bridge" hidden>
       <span class="hint" data-id="br-hint">—</span>
+      <div class="field" title="Where the bridge leaves the first curve: 0 its start, 1 its end"><label for="w3d-br-p1">PARAMETER 1</label><input id="w3d-br-p1" data-id="br-p1" type="number" step="0.05" min="0" max="1" value="1"></div>
+      <div class="field" title="Where the bridge meets the second curve: 0 its start, 1 its end"><label for="w3d-br-p2">PARAMETER 2</label><input id="w3d-br-p2" data-id="br-p2" type="number" step="0.05" min="0" max="1" value="0"></div>
       <div class="field two" title="How far the bridge holds each end's direction (D sets both)"><label for="w3d-br-t1a">G1 TENSION</label><input id="w3d-br-t1a" data-id="br-t1a" type="number" step="0.1" min="0.05" value="1" aria-label="G1 TENSION at the start"><input data-id="br-t1b" type="number" step="0.1" min="0.05" value="1" aria-label="G1 TENSION at the end"></div>
       <div class="field two" title="Moves the second and third control points along each end; the curvature is kept"><label for="w3d-br-t2a">G2 TENSION</label><input id="w3d-br-t2a" data-id="br-t2a" type="number" step="0.1" min="0.05" value="1" aria-label="G2 TENSION at the start"><input data-id="br-t2b" type="number" step="0.1" min="0.05" value="1" aria-label="G2 TENSION at the end"></div>
       <div class="field two" title="Moves only the third control point; G3 is kept"><label for="w3d-br-t3a">G3 TENSION</label><input id="w3d-br-t3a" data-id="br-t3a" type="number" step="0.1" min="0.05" value="1" aria-label="G3 TENSION at the start"><input data-id="br-t3b" type="number" step="0.1" min="0.05" value="1" aria-label="G3 TENSION at the end"></div>
       <span class="label">CONTINUITY</span>
       <div class="chips"><button data-id="br-start" title="Continuity at the start (click to cycle)">START G1</button><button data-id="br-end" title="Continuity at the end (click to cycle)">END G1</button></div>
+      <div class="chips"><button data-id="br-trim" aria-pressed="false" title="Trim the curves where they run on past the bridge"><kbd>Q</kbd>TRIM</button><button data-id="br-comb" aria-pressed="false" title="Show the curvature of the bridge and the curves it joins">CURVATURE</button></div>
     </div>
     <div class="sec" data-panel="bridge-edge" hidden>
       <span class="hint" data-id="be-hint">—</span>
@@ -4187,6 +4190,26 @@ export async function mount(root, backend) {
       previewGroup.add(l);
     }
   }
+  /** Toggle Curvature's combs on curves of a preview, scaled to them alone. */
+  function showCombPreview(list) {
+    const combs = list.map(c => { try { return { c, comb: curvatureComb(c) }; } catch { return null; } }).filter(Boolean);
+    const kMax = Math.max(1e-12, ...combs.flatMap(x => x.comb.map(t => t.k)));
+    const box = new THREE.Box3();
+    for (const { c, comb } of combs) { const f = curveFrame(c); for (const t of comb) box.expandByPoint(lift(f, { x: t.at[0], y: t.at[1] })); }
+    const scale = combScale() * 0.25 * box.getSize(new THREE.Vector3()).length() / kMax;
+    for (const { c, comb } of combs) {
+      const f = curveFrame(c), at = p => lift(f, { x: p[0], y: p[1] }, 0.04);
+      const teeth = [], envelope = [];
+      for (const t of comb) {
+        const tip = [t.at[0] + t.dir[0] * t.k * scale, t.at[1] + t.dir[1] * t.k * scale];
+        teeth.push(at(t.at), at(tip));
+        envelope.push(at(tip));
+      }
+      const tl = new THREE.LineSegments(new THREE.BufferGeometry().setFromPoints(teeth), combMat), el = new THREE.Line(new THREE.BufferGeometry().setFromPoints(envelope), combMat);
+      tl.renderOrder = el.renderOrder = 11;
+      previewGroup.add(tl, el);
+    }
+  }
   const curveById = id => curveList.find(c => c.id === id);
   async function curvesChanged(made) {
     await loadCurves();
@@ -6790,7 +6813,9 @@ export async function mount(root, backend) {
         if (!pick || d < pick.d) pick = { d, ea, eb };
       }
     }
-    const c = cmd = { id: 'bridge', out: null, continuity: ['G1', 'G1'] };
+    const c = cmd = { id: 'bridge', out: null, continuity: ['G1', 'G1'], trim: false, comb: false };
+    $('br-p1').value = pick.ea;
+    $('br-p2').value = pick.eb;
     const cycle = g => BRIDGE_CONTINUITY[(BRIDGE_CONTINUITY.indexOf(g) + 1) % BRIDGE_CONTINUITY.length];
     c.cycleEnd = i => { c.continuity[i] = cycle(c.continuity[i]); c.preview(); };
     lastTool = 'bridge';
@@ -6802,10 +6827,16 @@ export async function mount(root, backend) {
       try {
         $('br-start').textContent = `START ${c.continuity[0]}`;
         $('br-end').textContent = `END ${c.continuity[1]}`;
-        c.out = bridgeContinuous(a, pick.ea, b, pick.eb, { ...bridgeTensions('br'), continuity: c.continuity });
+        $('br-trim').setAttribute('aria-pressed', String(c.trim));
+        $('br-comb').setAttribute('aria-pressed', String(c.comb));
+        const at = [num('br-p1'), num('br-p2')];
+        c.out = bridgeContinuous(a, pick.ea, b, pick.eb, { ...bridgeTensions('br'), continuity: c.continuity, at });
+        // Trim: each curve keeps the part up to its bridge point (see bridgeEnd).
+        c.trims = [[a, pick.ea, at[0]], [b, pick.eb, at[1]]].map(([cv, e, t]) => ({ id: cv.id, ...bridgeEnd(cv, e, t) })).filter(t => t.beyond);
         showCurvePreview([c.out]);
-        $('br-hint').textContent = `${curveLabel(a.id)} TO ${curveLabel(b.id)}`;
-        setHud(`BRIDGE · ${c.continuity.join(' / ')} · TENSION ${num('br-t1a')} / ${num('br-t1b')}`);
+        if (c.comb) showCombPreview([c.out, ...[[a, pick.ea, at[0]], [b, pick.eb, at[1]]].map(([cv, e, t]) => c.trim ? bridgeEnd(cv, e, t).kept : cv)]);
+        $('br-hint').textContent = `${curveLabel(a.id)} TO ${curveLabel(b.id)}${c.trim && c.trims.length ? ' · TRIMMED' : ''}`;
+        setHud(`BRIDGE · ${c.continuity.join(' / ')} · TENSION ${num('br-t1a')} / ${num('br-t1b')}${c.trim ? ' · TRIM' : ''}`);
         setState('updated');
       } catch (e) { c.out = null; $('br-hint').textContent = say(e); setHud('BRIDGE FAILED'); setState('failed'); }
     };
@@ -6817,6 +6848,8 @@ export async function mount(root, backend) {
         c.preview();
         return true;
       }
+      if (action === 'trim') { c.trim = !c.trim; c.preview(); return true; }
+      if (action === 'comb') { c.comb = !c.comb; c.preview(); return true; }
       if (action !== 'tension') return false;
       c.entry = { label: 'TENSION', text: '', apply: v => { if (v > 0) { $('br-t1a').value = $('br-t1b').value = v; c.preview(); } else toast('THE TENSION MUST BE ABOVE ZERO'); } };
       setHud('TENSION _');
@@ -6825,10 +6858,13 @@ export async function mount(root, backend) {
     c.finish = async () => {
       if (!c.out) return toast($('br-hint').textContent);
       try {
-        const { ids: made } = await backend.addCurves([c.out]);
+        // With trim, the trimmed curves and the bridge go in one step; the bridge comes last.
+        const trims = c.trim ? c.trims : [];
+        const { ids: made } = trims.length ? await backend.replaceCurves(trims.map(t => t.id), [...trims.map(t => t.kept), c.out]) : await backend.addCurves([c.out]);
+        const bridge = made[made.length - 1];
         endCmd('committed');
-        record('BRIDGE CURVES', made[0], curveLabel(made[0]));
-        await curvesChanged(made);
+        record(trims.length ? 'BRIDGE CURVES · TRIM' : 'BRIDGE CURVES', bridge, curveLabel(bridge));
+        await curvesChanged([bridge]);
       } catch (e) { setState('failed'); toast(say(e)); }
     };
     c.abort = () => endCmd('cancelled');
@@ -8742,6 +8778,9 @@ export async function mount(root, backend) {
   for (const id of ['oc-d', 'fc-r', 'ov-d', 'fv-r', 'sl-d']) $(id).addEventListener('input', () => ['offset-curve', 'fillet-curve', 'offset-vertex', 'fillet-vertex', 'slide'].includes(cmd?.id) && cmd.preview());
   for (const b of $$('[data-sldir]')) b.onclick = () => cmd?.id === 'slide' && cmd.setDir(b.dataset.sldir);
   $('br-start').onclick = () => cmd?.id === 'bridge' && cmd.cycleEnd(0);
+  for (const id of ['br-p1', 'br-p2']) $(id).addEventListener('input', () => cmd?.id === 'bridge' && cmd.preview());
+  $('br-trim').onclick = () => cmd?.id === 'bridge' && cmd.key('trim');
+  $('br-comb').onclick = () => cmd?.id === 'bridge' && cmd.key('comb');
   for (const id of ['be-p1', 'be-p2', 'be-t1a', 'be-t1b', 'be-t2a', 'be-t2b', 'be-t3a', 'be-t3b']) $(id).addEventListener('input', () => cmd?.id === 'bridge-edge' && cmd.preview());
   $('be-start').onclick = () => cmd?.id === 'bridge-edge' && cmd.cycleEnd(0);
   $('be-end').onclick = () => cmd?.id === 'bridge-edge' && cmd.cycleEnd(1);

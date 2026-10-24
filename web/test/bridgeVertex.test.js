@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { bridgeContinuous } from '../src/curveEdit.js';
+import { bridgeContinuous, bridgeEnd } from '../src/curveEdit.js';
 
 const plane = { origin: [0, 0, 0], x: [1, 0, 0], normal: [0, 1, 0] };
 const close = (a, b, eps = 1e-6) => assert.ok(Math.abs(a - b) < eps, `${a} != ${b}`);
@@ -97,4 +97,25 @@ test('per-end G1, G2 and G3 tensions move their own poles and keep each end\'s c
     assert.ok(same(t3[1], base[1]) && same(t3[2], base[2]) && !same(t3[3], base[3]));
     close(rate(t3), 0, 2e-4);
     assert.throws(() => bridgeContinuous(arc, 1, line, 0, { tension2: [1, 0] }), /tension/);
+});
+
+test('a parameter moves the bridge point along each curve, and trim keeps the curve up to it', () => {
+    // Halfway round the arc (at 45°) and a quarter of the way along the line from its start.
+    const { kept, beyond } = bridgeEnd(arc, 1, 0.5);
+    close(kept.end[0], 10 * Math.SQRT1_2, 1e-9); close(kept.end[1], 10 * Math.SQRT1_2, 1e-9);
+    close(kept.start[0], 10); close(kept.start[1], 0); close(beyond.end[0], 0); close(beyond.end[1], 10);
+    const P = bridgeContinuous(arc, 1, line, 0, { continuity: ['G2', 'G1'], at: [0.5, 0.25] }).poles;
+    close(P[0][0], 10 * Math.SQRT1_2); close(P[0][1], 10 * Math.SQRT1_2);
+    close(P[5][0], -22.5); close(P[5][1], 0);
+    // It leaves the arc along its tangent there (up and to the left), with the arc's curvature.
+    close((P[1][1] - P[0][1]) / (P[1][0] - P[0][0]), -1);
+    assert.ok(P[1][0] < P[0][0]);
+    close(startCurvature(P), 0.1, 1e-3);
+    // From the line's start side the part kept runs from its far end back to the point.
+    const l = bridgeEnd(line, 0, 0.25);
+    assert.deepEqual(l.kept.points, [[-22.5, 0], [-30, 0]]); assert.deepEqual(l.beyond.points, [[-20, 0], [-22.5, 0]]);
+    // At its own end nothing is trimmed; the far end and outside 0 to 1 are refused.
+    assert.equal(bridgeEnd(arc, 1, 1).beyond, null);
+    assert.throws(() => bridgeEnd(arc, 1, 0), /other end/);
+    assert.throws(() => bridgeEnd(arc, 1, 1.5), /0 to 1/);
 });
