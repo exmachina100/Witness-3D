@@ -205,10 +205,14 @@ export function normalCurvature(f, n, e) {
  * alignPoints, `frames` the reference face's frames at those points. Returns [[pole, [dx, dy, dz]]]
  * with poles in the face's own numbering.
  */
-export function alignMoves(side, { greville, points }, frames, { continuity = 'G1', tension = 1 } = {}) {
+export function alignMoves(side, { greville, points }, frames, { continuity = 'G1', tension = 1, blend = 0, influence = 0, partial = [0, 1] } = {}) {
     const order = ALIGN_CONTINUITY.indexOf(continuity);
     if (order < 0) throw new Error('the continuity is G0, G1 or G2');
     if (!(tension > 0) || !Number.isFinite(tension)) throw new Error('the tension must be greater than zero');
+    if (!Number.isInteger(blend) || blend < 0) throw new Error('the blend rows are a whole number, 0 or more');
+    if (!(influence >= 0 && influence <= 1)) throw new Error('the input shape influence runs from 0 to 1');
+    const [p0, p1] = partial;
+    if (!(p0 >= 0 && p1 <= 1 && p0 < p1)) throw new Error('the partial start and end run from 0 to 1, start before end');
     const { rows, ids, along, q, across: A, p } = side;
     if (rows.length < order + 1) throw new Error(`${continuity} needs ${order + 1} rows of control points across the side; raise the degree or rebuild the face first`);
     if (order === 2 && p < 2) throw new Error('G2 needs a surface of degree 2 or more across the side; raise the degree first');
@@ -246,9 +250,26 @@ export function alignMoves(side, { greville, points }, frames, { continuity = 'G
             out[2] = out[1].map((v, k) => add(v, mul(add(mul(sub(v, out[0][k]), a), mul(X[k], c1)), c2)));
         }
     }
+    // Blend extra rows: the next rows follow the last aligned row's move, less and less (none past
+    // `blend` rows), and less again as the input shape's influence grows.
+    const last = order, reach = Math.min(blend, rows.length - 1 - last);
+    for (let r = 1; r <= reach; r++) {
+        const w = (1 - influence) * (1 - r / (blend + 1));
+        out[last + r] = rows[last + r].map((v, j) => add(v, mul(sub(out[last][j], rows[last][j]), w)));
+    }
+    // Partial alignment: the side aligned in full between the start and the end (fractions along
+    // it), easing out to no change at its ends.
+    const x0 = along[q], x1 = along.at(-1 - q);
+    const ease = t => t * t * (3 - 2 * t);
+    const weight = greville.map(x => {
+        const f = (x - x0) / (x1 - x0);
+        if (f < p0) return ease(f / p0);
+        if (f > p1) return ease((1 - f) / (1 - p1));
+        return 1;
+    });
     const moves = [];
-    for (let i = 0; i <= order; i++) for (let j = 0; j < out[i].length; j++) {
-        const by = sub(out[i][j], rows[i][j]);
+    for (let i = 0; i <= last + reach; i++) for (let j = 0; j < out[i].length; j++) {
+        const by = mul(sub(out[i][j], rows[i][j]), weight[j]);
         if (len(by) > 1e-12) moves.push([ids[i][j], by]);
     }
     return moves;
@@ -270,7 +291,7 @@ export function pickFace(faces, away, target) {
  * { body, edge }. Returns { body, moves } for previewMoveFacePoles / commitMoveFacePoles, moves as
  * [[face, pole, [dx, dy, dz]]].
  */
-export async function alignRequest(backend, { target, reference, continuity = 'G1', tension = 1 }) {
+export async function alignRequest(backend, { target, reference, continuity = 'G1', tension = 1, blend = 0, influence = 0, partial = [0, 1] }) {
     if (target.body === reference.body && target.edge === reference.edge) throw new Error('pick two different edges: the one to move, then the one to meet');
     const [tTeeth, rTeeth] = await Promise.all([target, reference].map(e => backend.edgeCurvature({ body: e.body, edge: e.edge, n: 400 })));
     const tAlong = tTeeth.map(t => t.at), rAlong = rTeeth.map(t => t.at);
@@ -280,6 +301,6 @@ export async function alignRequest(backend, { target, reference, continuity = 'G
     const plan = alignPoints(side, rAlong);
     const rFaces = readEdgeFaces(await backend.edgeFaces({ body: reference.body, edge: reference.edge, points: plan.points }), plan.points.length);
     const rFace = pickFace(rFaces, middle(tAlong), false);
-    const moves = alignMoves(side, plan, rFace.frames, { continuity, tension });
+    const moves = alignMoves(side, plan, rFace.frames, { continuity, tension, blend, influence, partial });
     return { body: target.body, moves: moves.map(([pole, by]) => [tFace.face, pole, by]) };
 }
