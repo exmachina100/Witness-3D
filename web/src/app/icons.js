@@ -68,6 +68,8 @@ const ICONS = {
     measure: `<path d="M3 17L17 3l4 4L7 21z"/><path ${A} d="M7 13l2 2M10 10l2 2M13 7l2 2"/>`,
     extend: `<path d="M3 17L12 8"/><path ${A} d="M12 8l6-6" stroke-dasharray="2 2"/><path ${A} d="M15 2h3v3"/>`,
     bridge: `<path d="M2 18h6M16 6h6"/><path ${A} d="M8 18c5 0 3-12 8-12"/>`,
+    // Two body corners with the curve between points on their edges.
+    'bridge-edge': `<path d="M2 21v-6l4-3h4v6l-4 3z"/><path d="M14 3h4l4 3v6h-4l-4-3z"/><path ${A} d="M10 15c3 0 1-9 4-9"/><path ${A} d="M10 15h0M14 6h0" stroke-width="3.5" stroke-linecap="round"/>`,
     hole: `<path d="M3 9l9-4 9 4-9 4z"/><path d="M3 9v8l9 4 9-4V9"/><ellipse ${A} cx="12" cy="9" rx="3" ry="1.4"/><path ${A} d="M9 9v6M15 9v6" stroke-dasharray="2 2"/>`,
     through: `<path d="M12 2v20" stroke-dasharray="2 2"/><path ${A} d="M8 8h8v8H8z"/>`,
     cut: `<path d="M3 9l6-3 6 3v9l-6 3-6-3z"/><path d="M3 9l6 3 6-3M9 12v9"/><path ${A} d="M17 10l4 2v8l-4 2"/><path ${A} d="M16 2v20" stroke-dasharray="2 2"/>`,

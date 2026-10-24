@@ -62,6 +62,7 @@ import { edgeOffsetsBothSides, edgeOffsetsOnFace, faceLoopOffsets } from '../edg
 import { curveArrayMotions } from '../curveArray.js';
 import { curveDimensions, faceDimensions, filletDimensions, solidDimensions } from '../dimension.js';
 import { edgeCurve, flattenCurve } from '../altDuplicate.js';
+import { EDGE_CONTINUITY, bridgeCurve, bridgePoles, edgePoint } from '../bridgeEdge.js';
 import { liftPiece, meshSilhouette, nearestOver } from '../createOutline.js';
 import { FONTS, parseFont, textShapes } from '../text.js';
 import { regionsToExtrude } from '../regions.js';
@@ -150,6 +151,7 @@ const KEYS = {
   'tangent-circle': [['CLICK', 'FIRST · SECOND CURVE · SIZE'], ['F', 'FREEZE'], ['TAB', 'RADIUS'], ['ESC', 'CANCEL']],
   extend: [['CLICK', 'NEAR AN END'], ['S', 'SHAPE NATURAL / LINEAR'], ['TYPE', 'LENGTH IN PANEL'], ['ESC / ⏎', 'DONE']],
   bridge: [['T / D', 'TENSION'], ['TAB', 'CONTINUITY G0 G1 G2'], ['⏎ / RMB', 'OK']],
+  'bridge-edge': [['D', 'TENSION'], ['TAB', 'CONTINUITY G0 G1 G2'], ['⏎ / RMB', 'OK']],
   trim: [['CLICK', 'PIECE TO CUT AWAY'], ['CTRL Z', 'UNDO ONE'], ['ESC / ⏎', 'DONE']],
   'cut-curve': [['CLICK', 'CUTTER CURVES'], ['TAB', 'EXTEND'], ['S', 'SCREEN SPACE'], ['⏎ / RMB', 'OK'], ['ESC', 'CANCEL']],
   'insert-knot': [['CLICK', 'ADD A CONTROL POINT'], ['ESC / ⏎', 'DONE']],
@@ -181,7 +183,7 @@ const CLICKS = { rect: 2, 'center-rect': 2, rect3: 3, circle: 2, circle2: 2, cir
 const FORMS = { revolve: true, loft: true, sweep: true };
 const PRIMS = { box: true, 'center-box': true, box3: true, cylinder: true, sphere: true };
 // Commands that aren't tools in the registry (they act on a click, not on settings).
-const EDITS = { isoparam: 'ISOPARAM', 'offset-vertex': 'OFFSET VERTEX', slide: 'SLIDE CURVE CV', 'fillet-vertex': 'FILLET VERTEX', 'align-vertex': 'ALIGN VERTEX', rebuild: 'REBUILD CURVE', 'rebuild-face': 'REBUILD FACE', 'match-face': 'MATCH FACE', 'deform-curve': 'DEFORM', image: 'REFERENCE IMAGE', instance: 'INSTANCE', untrim: 'UNTRIM', unwrap: 'UNWRAP FACE', section: 'SECTION ANALYSIS', place: 'PLACE', dimension: 'DIMENSION', text: 'TEXT', 'insert-knot': 'INSERT KNOT', 'offset-edge': 'OFFSET EDGE', material: 'SET MATERIAL', 'export-mesh': 'EXPORT MESH', 'export-drawing': 'EXPORT DRAWING', 'measure-continuity': 'MEASURE CONTINUITY', trim: 'TRIM', 'cut-curve': 'CUT CURVE', extend: 'EXTEND CURVE', 'tangent-circle': 'TANGENT CIRCLE', split: 'SPLIT CURVE', 'measure-distance': 'MEASURE DISTANCE', 'measure-radius': 'MEASURE RADIUS' };
+const EDITS = { isoparam: 'ISOPARAM', 'offset-vertex': 'OFFSET VERTEX', slide: 'SLIDE CURVE CV', 'fillet-vertex': 'FILLET VERTEX', 'align-vertex': 'ALIGN VERTEX', rebuild: 'REBUILD CURVE', 'rebuild-face': 'REBUILD FACE', 'match-face': 'MATCH FACE', 'deform-curve': 'DEFORM', image: 'REFERENCE IMAGE', instance: 'INSTANCE', untrim: 'UNTRIM', unwrap: 'UNWRAP FACE', section: 'SECTION ANALYSIS', place: 'PLACE', dimension: 'DIMENSION', text: 'TEXT', 'insert-knot': 'INSERT KNOT', 'offset-edge': 'OFFSET EDGE', material: 'SET MATERIAL', 'export-mesh': 'EXPORT MESH', 'export-drawing': 'EXPORT DRAWING', 'measure-continuity': 'MEASURE CONTINUITY', trim: 'TRIM', 'cut-curve': 'CUT CURVE', 'bridge-edge': 'BRIDGE EDGE', extend: 'EXTEND CURVE', 'tangent-circle': 'TANGENT CIRCLE', split: 'SPLIT CURVE', 'measure-distance': 'MEASURE DISTANCE', 'measure-radius': 'MEASURE RADIUS' };
 const keysHtml = id => KEYS[id].map(([k, v]) => `<kbd>${k}</kbd><span>${v}</span>`).join('');
 // The Command Bar, exactly the manual's list (Plasticity Essentials › Command Bar).
 const BAR = [['palette', 'F', 'SEARCH'], ['tool:move', 'G', 'MOVE'], ['tool:rotate', 'R', 'ROTATE'], ['tool:scale', 'S', 'SCALE'], ['duplicate', '⇧D', 'DUPLICATE'], ['tool:boolean', 'Q', 'BOOLEAN'], ['tool:rect-array', '', 'RECTANGULAR ARRAY'], ['tool:radial-array', '', 'RADIAL ARRAY'], ['suggest', '⇧F', 'SUGGESTED COMMANDS']];
@@ -587,6 +589,14 @@ const SHELL = `
       <div class="field"><label for="w3d-br-t">TENSION</label><input id="w3d-br-t" data-id="br-t" type="number" step="0.1" min="0.05" value="1"></div>
       <span class="label">CONTINUITY</span>
       <div class="chips"><button data-id="br-start" title="Continuity at the start (click to cycle)">START G1</button><button data-id="br-end" title="Continuity at the end (click to cycle)">END G1</button></div>
+    </div>
+    <div class="sec" data-panel="bridge-edge" hidden>
+      <span class="hint" data-id="be-hint">—</span>
+      <div class="field"><label for="w3d-be-p1">PARAMETER 1</label><input id="w3d-be-p1" data-id="be-p1" type="number" step="0.05" min="0" max="1" value="1"></div>
+      <div class="field"><label for="w3d-be-p2">PARAMETER 2</label><input id="w3d-be-p2" data-id="be-p2" type="number" step="0.05" min="0" max="1" value="0"></div>
+      <div class="field"><label for="w3d-be-t">TENSION</label><input id="w3d-be-t" data-id="be-t" type="number" step="0.1" min="0.05" value="1"></div>
+      <span class="label">CONTINUITY</span>
+      <div class="chips"><button data-id="be-start" title="Continuity with the first edge (click to cycle)">START G1</button><button data-id="be-end" title="Continuity with the second edge (click to cycle)">END G1</button></div>
     </div>
     <div class="sec" data-panel="insert-knot" hidden>
       <span class="hint" data-id="ik-hint">CLICK A CURVE TO ADD A CONTROL POINT THERE; ITS SHAPE STAYS THE SAME</span>
@@ -6701,7 +6711,8 @@ export async function mount(root, backend) {
       pick = { ea, eb };
     } else {
       const ids = sel.curves.filter(curveById);
-      if (ids.length !== 2) return toast('SELECT TWO OPEN CURVES, OR TWO END VERTICES, TO BRIDGE');
+      if (!ids.length && sel.list('edge').length === 2) return startBridgeEdge();
+      if (ids.length !== 2) return toast('SELECT TWO OPEN CURVES, TWO END VERTICES OR TWO EDGES TO BRIDGE');
       [a, b] = ids.map(curveById);
       // The nearest pair of ends, measured in the viewport.
       const endPoint = (cv, w) => { const f = curveFrame(cv), p = curve2d(cv), q = w ? p[p.length - 1] : p[0]; return lift(f, q); };
@@ -6748,6 +6759,65 @@ export async function mount(root, backend) {
         const { ids: made } = await backend.addCurves([c.out]);
         endCmd('committed');
         record('BRIDGE CURVES', made[0], curveLabel(made[0]));
+        await curvesChanged(made);
+      } catch (e) { setState('failed'); toast(say(e)); }
+    };
+    c.abort = () => endCmd('cancelled');
+    c.cleanup = () => clearPreview();
+    c.preview();
+  }
+
+  /**
+   * Plasticity's Bridge Edge: a curve between points on two selected body edges, each at a parameter
+   * from 0 to 1 along its edge, meeting each edge in position, direction or curvature (G0, G1, G2).
+   */
+  async function startBridgeEdge() {
+    if (cmd) await finish();
+    if (!backend.addCurves || !backend.edgeCurvature) return toast('BRIDGE EDGE IS NOT IN THIS BUILD YET');
+    const edges = sel.list('edge');
+    if (edges.length !== 2) return toast('SELECT TWO EDGES TO BRIDGE');
+    if (edges[0].body === edges[1].body && edges[0].n === edges[1].n) return toast('SELECT TWO DIFFERENT EDGES');
+    let teeth;
+    try { teeth = await Promise.all(edges.map(e => backend.edgeCurvature({ body: e.body, edge: e.n, n: 1000 }))); }
+    catch (e) { return toast(say(e)); }
+    const c = cmd = { id: 'bridge-edge', out: null, continuity: ['G1', 'G1'] };
+    const cycle = g => EDGE_CONTINUITY[(EDGE_CONTINUITY.indexOf(g) + 1) % EDGE_CONTINUITY.length];
+    c.cycleEnd = i => { c.continuity[i] = cycle(c.continuity[i]); c.preview(); };
+    lastTool = 'bridge-edge';
+    showTool('bridge-edge');
+    setState('none');
+    setTarget(edges.map(e => label(e.body)).join(' · '));
+    c.preview = () => {
+      clearPreview();
+      try {
+        $('be-start').textContent = `START ${c.continuity[0]}`;
+        $('be-end').textContent = `END ${c.continuity[1]}`;
+        const A = edgePoint(teeth[0], num('be-p1')), B = edgePoint(teeth[1], num('be-p2'));
+        c.out = bridgeCurve(bridgePoles(A, B, { tension: num('be-t'), continuity: c.continuity }));
+        showCurvePreview([c.out]);
+        $('be-hint').textContent = `${c.continuity.join(' / ')} WITH THE EDGES`;
+        setHud(`BRIDGE EDGE · ${c.continuity.join(' / ')} · TENSION ${num('be-t')}`);
+        setState('updated');
+      } catch (e) { c.out = null; $('be-hint').textContent = say(e); setHud('BRIDGE EDGE FAILED'); setState('failed'); }
+    };
+    c.key = action => {
+      if (action === 'continuity') {
+        const next = cycle(c.continuity[0]);
+        c.continuity = [next, next];
+        c.preview();
+        return true;
+      }
+      if (action !== 'tension') return false;
+      c.entry = { label: 'TENSION', text: '', apply: v => { if (v > 0) { $('be-t').value = v; c.preview(); } else toast('THE TENSION MUST BE ABOVE ZERO'); } };
+      setHud('TENSION _');
+      return true;
+    };
+    c.finish = async () => {
+      if (!c.out) return toast($('be-hint').textContent);
+      try {
+        const { ids: made } = await backend.addCurves([c.out]);
+        endCmd('committed');
+        record('BRIDGE EDGE', made[0], curveLabel(made[0]));
         await curvesChanged(made);
       } catch (e) { setState('failed'); toast(say(e)); }
     };
@@ -7982,6 +8052,7 @@ export async function mount(root, backend) {
       case 'toggle-points': await togglePoints(); return true;
       case 'create-instance': await createInstances(); return true;
       case 'cut-curve': if (cmd) await finish(); startCutCurve(); return true;
+      case 'bridge-edge': await startBridgeEdge(); return true;
       case 'realize-instance': if (cmd?.id === 'instance') await cmd.realize(); else toast('CLICK AN INSTANCE, THEN REALIZE IT'); return true;
       case 'join': await joinSelected(); return true;
       case 'trim': await startTool('trim'); return true;
@@ -8156,7 +8227,7 @@ export async function mount(root, backend) {
     if (sel.solids.length === 2) out.push('tool:project');
     if (kinds.has('solid')) out.push('tool:move', 'tool:rotate', 'tool:scale', 'duplicate', 'create-outline', 'toggle-points', 'place', 'dimension', 'tool:mirror', 'tool:rect-array', 'tool:radial-array', 'tool:curve-array', 'unify', 'boundary-edges', 'remove-fillets', 'raise-degree', 'deform-curve', 'create-instance', 'delete', 'hide', 'isolate', 'group', 'lock', 'material:set', 'export:step', 'export:mesh', 'export:drawing');
     if (kinds.has('face')) out.push('tool:extrude', 'tool:offset', 'tool:thicken', 'tool:shell', 'tool:hole', 'tool:remove-face', 'remove-fillets', 'isoparam', 'rebuild', 'raise-degree', 'subdivide', 'match-face', 'untrim', 'unwrap', 'toggle-points', 'plane:selection', 'plane:selection-keep-view');
-    if (kinds.has('edge')) out.push('tool:fillet', 'tool:patch', 'alt-duplicate', 'measure:radius', 'view:surface-curvature');
+    if (kinds.has('edge')) out.push('tool:fillet', 'tool:patch', 'alt-duplicate', 'measure:radius', 'view:surface-curvature', ...(sel.list('edge').length === 2 ? ['bridge-edge'] : []));
     if (sel.list('edge').length === 2) out.push('tool:bridge-surface');
     if (sel.solids.some(id => current.find(b => b.id === id)?.sheet)) out.push('tool:thicken', 'reverse-sheet');
     if (sel.solids.length > 1 && sel.solids.every(id => current.find(b => b.id === id)?.sheet)) out.push('join');
@@ -8602,6 +8673,9 @@ export async function mount(root, backend) {
   for (const id of ['oc-d', 'fc-r', 'ov-d', 'fv-r', 'sl-d']) $(id).addEventListener('input', () => ['offset-curve', 'fillet-curve', 'offset-vertex', 'fillet-vertex', 'slide'].includes(cmd?.id) && cmd.preview());
   for (const b of $$('[data-sldir]')) b.onclick = () => cmd?.id === 'slide' && cmd.setDir(b.dataset.sldir);
   $('br-start').onclick = () => cmd?.id === 'bridge' && cmd.cycleEnd(0);
+  for (const id of ['be-p1', 'be-p2', 'be-t']) $(id).addEventListener('input', () => cmd?.id === 'bridge-edge' && cmd.preview());
+  $('be-start').onclick = () => cmd?.id === 'bridge-edge' && cmd.cycleEnd(0);
+  $('be-end').onclick = () => cmd?.id === 'bridge-edge' && cmd.cycleEnd(1);
   $('br-end').onclick = () => cmd?.id === 'bridge' && cmd.cycleEnd(1);
   $('oc-lock').onclick = () => cmd?.id === 'offset-curve' && cmd.key('lock');
   for (const b of $$('[data-extshape]')) b.onclick = () => setExtShape(b.dataset.extshape);
