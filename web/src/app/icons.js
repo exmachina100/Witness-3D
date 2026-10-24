@@ -186,6 +186,8 @@ const ICONS = {
     'convert-vertex': `<path d="M3 18L12 5l9 13" stroke-dasharray="2 2"/><path ${A} d="M3 18C8 9 16 9 21 18"/><path ${A} d="M12 5h0" stroke-width="3" stroke-linecap="round"/>`,
     rebuild: `<path d="M3 17L7 6l6 9 4-8 4 2" stroke-dasharray="2 2"/><path ${A} d="M3 17C7 5 11 5 13 11s6 7 8-2"/>`,
     // Match Face: a block's top face taking the curve of a surface above it.
+    // Deform's Reblend: a stretched round (dashed) made round again.
+    reblend: `<path d="M4 20V12a10 7 0 0 1 10-7h6" stroke-dasharray="2 2"/><path ${A} d="M8 20v-5a6 6 0 0 1 6-6h6"/><path d="M4 20h4"/>`,
     'fillet-round': `<path d="M5 3v8M13 19h8"/><path ${A} d="M5 11a8 8 0 0 0 8 8"/>`,
     'fillet-chordal': `<path d="M5 3v8M13 19h8"/><path ${A} d="M5 11a8 8 0 0 0 8 8"/><path d="M5 11l8 8" stroke-dasharray="2 2"/>`,
     'fillet-conic': `<path d="M5 3v8M13 19h8"/><path ${A} d="M5 11Q5 19 13 19"/><circle cx="5" cy="19" r="1.2"/>`,

@@ -172,7 +172,7 @@ export const COMMAND = {
     // Place (manual: S scale, A angle, D offset, F flip, X/Y/Z axis, Q W Shift+E Shift+Q B boolean)
     // Dimension (manual: Tab types the next size)
     dimension: { tab: 'typed' },
-    place: { s: 'scale', a: 'angle', d: 'offset', f: 'flip', x: 'axis-x', y: 'axis-y', z: 'axis-z', q: 'union', w: 'difference', 'shift-e': 'intersect', 'shift-q': 'slice', b: 'new' },
+    place: { s: 'scale', a: 'angle', d: 'offset', f: 'flip', i: 'instance', x: 'axis-x', y: 'axis-y', z: 'axis-z', q: 'union', w: 'difference', 'shift-e': 'intersect', 'shift-q': 'slice', b: 'new' },
     spiral: { x: 'axis-x', y: 'axis-y', z: 'axis-z', a: 'angle', d: 'length', r: 'radius' },
     ellipse: {},
     ellipse3: {},
