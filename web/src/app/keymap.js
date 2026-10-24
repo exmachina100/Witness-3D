@@ -128,7 +128,7 @@ export const COMMAND = {
     'align-curve': { tab: 'continuity', d: 'tension' },
     // Constrained Surface (manual: Ctrl+Z takes the last point off).
     'constrained-surface': { 'ctrl-z': 'back', tab: 'optimize' },
-    square: { d: 'degree' },
+    square: { d: 'degree', tab: 'continuity' },
     extend: { s: 'shape' },
     rebuild: { c: 'count', d: 'degree' },
     // Rebuild Face: M method, T tolerance, D degree, S spans, E extend, H shrink.
