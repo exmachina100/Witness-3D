@@ -1,7 +1,7 @@
-// Plasticity's instances: light copies of a solid or sheet that share its geometry. Each keeps where
-// it stands (a turn and a uniform scale about a pivot, then a move) and links back to its master, so
-// an edit to the master shows in every instance. Instances are read-only: Realize Instance turns one
-// into an ordinary body.
+// Plasticity's instances: light copies of a solid, sheet or curve (`curve: true`) that share its
+// geometry. Each keeps where it stands (a turn and a uniform scale about a pivot, then a move) and
+// links back to its master, so an edit to the master shows in every instance. Instances are
+// read-only: Realize Instance turns one into an ordinary body or curve.
 //
 // An instance takes a master point x to  position + q · (scale · (x − pivot)),  where pivot is the
 // master's centre when the instance was made. That is the kernels' Motion with offset = position − pivot,
@@ -25,6 +25,7 @@ export function checkInstance(m) {
     if (!nums(m?.quaternion, 4) || Math.abs(Math.hypot(...m.quaternion) - 1) > 1e-6) bad.push('turn');
     if (!(m?.scale > 0) || !Number.isFinite(m.scale)) bad.push('scale');
     if (typeof m?.hidden !== 'boolean') bad.push('hidden');
+    if (m?.curve !== undefined && typeof m.curve !== 'boolean') bad.push('curve');
     return bad;
 }
 

@@ -40,3 +40,22 @@ test('bad stored instances are caught', () => {
     assert.ok(checkInstance({ ...newInstance(1, 0, [0, 0, 0]) }).includes('master'));
     assert.ok(checkInstance(null).length > 0);
 });
+
+test('a curve instance realizes through transformCurve to where it is drawn', async () => {
+    const { transformCurve } = await import('../src/curveEdit.js');
+    const c = { origin: [1, 2, 3], x: [1, 0, 0], normal: [0, 1, 0], kind: 'polyline', points: [[0, 0], [10, 0], [10, 5]], closed: false };
+    const m = { ...newInstance(3, 7, [6, 2, 1]), curve: true };
+    assert.deepEqual(checkInstance(m), []);
+    assert.ok(checkInstance({ ...m, curve: 'yes' }).includes('curve'));
+    m.position = [20, -4, 9];
+    m.quaternion = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0.3, 1, 0.2).normalize(), 1.1).toArray();
+    m.scale = 0.5;
+    const mo = motionOf(m), axis = new THREE.Vector3(...mo.axis);
+    const out = transformCurve(c, { pivot: mo.pivot, offset: mo.offset, rotate: v => new THREE.Vector3(...v).applyAxisAngle(axis, mo.angle).toArray(), scale: mo.scale });
+    // Each vertex of the realized curve sits where the instance draws the master's.
+    const world = (k, p) => {
+        const n = new THREE.Vector3(...k.normal).normalize(), x = new THREE.Vector3(...k.x).normalize(), y = new THREE.Vector3().crossVectors(n, x);
+        return new THREE.Vector3(...k.origin).addScaledVector(x, p[0]).addScaledVector(y, p[1]);
+    };
+    c.points.forEach((p, i) => assert.ok(world(c, p).applyMatrix4(matrixOf(m)).distanceTo(world(out, out.points[i])) < 1e-9));
+});
