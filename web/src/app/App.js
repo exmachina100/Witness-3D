@@ -127,7 +127,7 @@ const KEYS = {
   section: [['D', 'DISTANCE'], ['F', 'FLIP'], ['⏎ / RMB', 'OK']],
   dimension: [['TAB', 'NEXT SIZE'], ['TYPE', 'NEW VALUE'], ['⏎ / RMB', 'OK']],
   text: [['TYPE', 'THE TEXT'], ['CTRL ⏎ / RMB', 'OK'], ['ESC', 'CANCEL']],
-  place: [['CLICK', 'FROM, THEN TO'], ['S', 'SCALE'], ['A', 'ANGLE'], ['D', 'OFFSET'], ['F', 'FLIP'], ['X Y Z', 'AXIS'], ['Q W ⇧E ⇧Q B', 'BOOLEAN'], ['CLICK', 'PLACE ANOTHER'], ['⏎ / RMB', 'OK']],
+  place: [['CLICK', 'FROM, THEN TO'], ['S', 'SCALE'], ['A', 'ANGLE'], ['D', 'OFFSET'], ['F', 'FLIP'], ['I', 'INSTANCE'], ['X Y Z', 'AXIS'], ['Q W ⇧E ⇧Q B', 'BOOLEAN'], ['CLICK', 'PLACE ANOTHER'], ['⏎ / RMB', 'OK']],
   'rebuild-face': [['M', 'METHOD'], ['T', 'TOLERANCE'], ['D', 'DEGREE'], ['S', 'SPANS'], ['E', 'EXTEND'], ['H', 'SHRINK'], ['⇧ CLICK', 'FACES'], ['⏎ / RMB', 'OK']],
   'fillet-vertex': [['DRAG DOT', 'IN ROUND · OUT CHAMFER'], ['D', 'FILLET DISTANCE'], ['C', 'CHAMFER DISTANCE'], ['⏎ / RMB', 'OK']],
   'offset-curve': [['DRAG DOT', 'DISTANCE'], ['D', 'DISTANCE'], ['V / C', 'GAP FILL'], ['S', 'BOTH SIDES'], ['F', 'FREESTYLE: CLICK'], ['O', 'SLOT'], ['I', 'COMBINED'], ['⏎ / RMB', 'OK']],
@@ -468,7 +468,7 @@ const SHELL = `
       <div class="field"><label for="w3d-pl-d">OFFSET</label><input id="w3d-pl-d" data-id="pl-d" type="number" step="1" value="0" title="How far the copy stands off the destination along the axis (D)"></div>
       <span class="label">AXIS</span>
       <div class="seg" role="group" aria-label="Place axis"><button data-plaxis="normal" aria-pressed="true" title="The destination's normal">NORMAL</button><button data-plaxis="x" aria-pressed="false" title="Along X (X)"><kbd>X</kbd></button><button data-plaxis="y" aria-pressed="false" title="Along Y (Y)"><kbd>Y</kbd></button><button data-plaxis="z" aria-pressed="false" title="Along Z (Z)"><kbd>Z</kbd></button></div>
-      <div class="chips"><button data-id="pl-flip" aria-pressed="false" title="Turn the copy over (F)"><kbd>F</kbd>FLIP</button></div>
+      <div class="chips"><button data-id="pl-flip" aria-pressed="false" title="Turn the copy over (F)"><kbd>F</kbd>FLIP</button><button data-id="pl-instance" aria-pressed="false" title="Place an instance of each solid, sharing its geometry, rather than a copy (I)"><kbd>I</kbd>INSTANCE</button></div>
       <span class="label">TARGET</span>
       <div class="seg" role="group" aria-label="Boolean with the body at the destination">
         <button data-plop="union" aria-pressed="false" title="Join the copy to the body it lands on (Q)"><kbd>Q</kbd>UNION</button>
@@ -829,11 +829,11 @@ const VIEWS = {
 export async function mount(root, backend) {
   root.innerHTML = SHELL;
   // Panel options carry their icon ahead of the key and name.
-  for (const b of root.querySelectorAll('[data-draw],[data-bop],[data-xop],[data-fop],[data-spiral],[data-toggle],[data-gmethod],[data-galign],[data-grow],[data-mfgrow],[data-eslimit],[data-flshape],[data-avaxis],[data-extshape],[data-esshape],[data-isodir],[data-id="oe-both"],[data-id="ex-lock"],[data-id="bool-keep"],[data-id="ex-free"],[data-id="ex-pivot"],[data-id="ex-individual"],[data-id="dr-hidden"],[data-id="dr-curves"],[data-id="oc-lock"],[data-id="oc-free"],[data-id="oc-slot"],[data-id="oc-combine"],[data-id="es-unlimit"],[data-rbmethod],[data-oecorner],[data-saplane],[data-plaxis],[data-plop],[data-id="pl-flip"],[data-id="section-btn"],[data-id="sa-flip"],[data-id="rf-shrink"],[data-id="ut-keep"],[data-txfont],[data-txalign],[data-sldir],[data-dcflip],[data-id="dc-keep"],[data-imdepth],[data-imcull],[data-id="im-delete"],[data-id="cc-extend"],[data-id="cc-screen"],[data-inmode],[data-id="in-realize"],[data-id="in-dup"],[data-id="in-delete"]')) {
+  for (const b of root.querySelectorAll('[data-draw],[data-bop],[data-xop],[data-fop],[data-spiral],[data-toggle],[data-gmethod],[data-galign],[data-grow],[data-mfgrow],[data-eslimit],[data-flshape],[data-avaxis],[data-extshape],[data-esshape],[data-isodir],[data-id="oe-both"],[data-id="ex-lock"],[data-id="bool-keep"],[data-id="ex-free"],[data-id="ex-pivot"],[data-id="ex-individual"],[data-id="dr-hidden"],[data-id="dr-curves"],[data-id="oc-lock"],[data-id="oc-free"],[data-id="oc-slot"],[data-id="oc-combine"],[data-id="es-unlimit"],[data-rbmethod],[data-oecorner],[data-saplane],[data-plaxis],[data-plop],[data-id="pl-flip"],[data-id="pl-instance"],[data-id="br-trim"],[data-id="br-comb"],[data-id="dc-reblend"],[data-id="section-btn"],[data-id="sa-flip"],[data-id="rf-shrink"],[data-id="ut-keep"],[data-txfont],[data-txalign],[data-sldir],[data-dcflip],[data-id="dc-keep"],[data-imdepth],[data-imcull],[data-id="im-delete"],[data-id="cc-extend"],[data-id="cc-screen"],[data-inmode],[data-id="in-realize"],[data-id="in-dup"],[data-id="in-delete"]')) {
     const name = b.dataset.draw ?? b.dataset.bop ?? b.dataset.xop ?? b.dataset.fop ?? b.dataset.spiral ?? (b.dataset.toggle && `view-${b.dataset.toggle}`)
       ?? (b.dataset.gmethod && `guide-${b.dataset.gmethod}`) ?? (b.dataset.galign && `align-${b.dataset.galign}`) ?? (b.dataset.grow && `grow-${b.dataset.grow}`) ?? (b.dataset.mfgrow && `grow-${b.dataset.mfgrow}`) ?? (b.dataset.eslimit && `limit-${b.dataset.eslimit}`) ?? (b.dataset.flshape && `fillet-${b.dataset.flshape}`) ?? (b.dataset.avaxis && `axis-${b.dataset.avaxis}`) ?? (b.dataset.extshape && `extend-${b.dataset.extshape}`) ?? (b.dataset.esshape && `extend-${b.dataset.esshape}`) ?? (b.dataset.isodir && `iso-${b.dataset.isodir}`) ?? (b.dataset.rbmethod && `rebuild-${b.dataset.rbmethod}`) ?? (b.dataset.oecorner && `corner-${b.dataset.oecorner}`) ?? (b.dataset.saplane && `section-${b.dataset.saplane}`) ?? (b.dataset.plaxis && (b.dataset.plaxis === 'normal' ? 'place-normal' : `axis-${b.dataset.plaxis}`)) ?? b.dataset.plop
       ?? (b.dataset.txfont && `font-${b.dataset.txfont}`) ?? (b.dataset.txalign && `txalign-${b.dataset.txalign}`) ?? (b.dataset.sldir && { u: 'slide-u', '-u': 'slide-back', v: 'slide-v', '-v': 'slide-vback', n: 'slide-n' }[b.dataset.sldir]) ?? (b.dataset.dcflip && { mirror: 'mirror', swap: 'swap-uv', normal: 'reverse-sheet' }[b.dataset.dcflip]) ?? (b.dataset.imdepth && `depth-${b.dataset.imdepth}`) ?? (b.dataset.imcull && `cull-${b.dataset.imcull}`) ?? b.dataset.inmode
-      ?? { 'ex-lock': 'lock', 'bool-keep': 'keep', 'ex-free': 'freestyle', 'ex-pivot': 'pivot', 'ex-individual': 'individual', 'dr-hidden': 'hidden-lines', 'dr-curves': 'drawing-curves', 'oc-lock': 'lock', 'oc-free': 'freestyle', 'oc-slot': 'slot', 'oc-combine': 'combine', 'oe-both': 'both-sides', 'es-unlimit': 'unlimit', 'rf-shrink': 'shrink', 'ut-keep': 'keep-edges', 'section-btn': 'view-section', 'sa-flip': 'flip', 'pl-flip': 'flip', 'dc-keep': 'keep', 'im-delete': 'delete', 'in-realize': 'realize-instance', 'cc-extend': 'extend', 'cc-screen': 'view-screen', 'in-dup': 'duplicate', 'in-delete': 'delete' }[b.dataset.id];
+      ?? { 'ex-lock': 'lock', 'bool-keep': 'keep', 'ex-free': 'freestyle', 'ex-pivot': 'pivot', 'ex-individual': 'individual', 'dr-hidden': 'hidden-lines', 'dr-curves': 'drawing-curves', 'oc-lock': 'lock', 'oc-free': 'freestyle', 'oc-slot': 'slot', 'oc-combine': 'combine', 'oe-both': 'both-sides', 'es-unlimit': 'unlimit', 'rf-shrink': 'shrink', 'ut-keep': 'keep-edges', 'section-btn': 'view-section', 'sa-flip': 'flip', 'pl-flip': 'flip', 'pl-instance': 'instance', 'br-trim': 'trim', 'br-comb': 'view-curvature', 'dc-reblend': 'reblend', 'dc-keep': 'keep', 'im-delete': 'delete', 'in-realize': 'realize-instance', 'cc-extend': 'extend', 'cc-screen': 'view-screen', 'in-dup': 'duplicate', 'in-delete': 'delete' }[b.dataset.id];
     b.insertAdjacentHTML('afterbegin', icon(name));
   }
   const $ = id => root.querySelector(`[data-id="${id}"]`);
@@ -5321,7 +5321,7 @@ export async function mount(root, backend) {
     const ids = targetBodies().filter(b => org.shows(b));
     if (!ids.length) return toast('SELECT THE SOLIDS TO PLACE');
     if (!backend.previewPlace) return toast('PLACE IS NOT IN THIS BUILD YET');
-    const c = cmd = { id: 'place', ids, stage: 'from', from: null, to: null, axis: 'normal', flip: false, op: 'new', placed: 0, sent: 0, shown: 0 };
+    const c = cmd = { id: 'place', ids, stage: 'from', from: null, to: null, axis: 'normal', flip: false, instance: false, op: 'new', placed: 0, sent: 0, shown: 0 };
     lastTool = 'place';
     showTool('place');
     setState('none');
@@ -5340,6 +5340,7 @@ export async function mount(root, backend) {
       for (const b of $$('[data-plaxis]')) b.setAttribute('aria-pressed', String(b.dataset.plaxis === c.axis));
       for (const b of $$('[data-plop]')) b.setAttribute('aria-pressed', String(b.dataset.plop === c.op));
       $('pl-flip').setAttribute('aria-pressed', String(c.flip));
+      $('pl-instance').setAttribute('aria-pressed', String(c.instance));
     };
     /** The copy's motion: its up (out of the reference face) turned onto the axis, then A about it. */
     c.motion = () => {
@@ -5362,7 +5363,7 @@ export async function mount(root, backend) {
         const look = phantom[c.op === 'difference' || c.op === 'slice' ? 'cut' : 'add'];
         for (const t of p.tools) { const m = meshOf(t, look.face, look.edge); m.renderOrder = 5; previewGroup.add(m); }
         for (const t of p.pieces) { const m = meshOf(t, phantom.add.face, phantom.add.edge); m.renderOrder = 6; previewGroup.add(m); }
-        setHud(`PLACE · ${({ new: 'NEW BODY', union: 'UNION', difference: 'DIFFERENCE', intersect: 'INTERSECT', slice: 'SLICE' })[c.op]}`);
+        setHud(c.instance ? 'PLACE · INSTANCE' : `PLACE · ${({ new: 'NEW BODY', union: 'UNION', difference: 'DIFFERENCE', intersect: 'INTERSECT', slice: 'SLICE' })[c.op]}`);
       }, 'pl-hint');
     };
     c.move = e => {
@@ -5385,13 +5386,16 @@ export async function mount(root, backend) {
       c.to = p;
       c.stage = 'adjust';
       c.preview();
-      hint('S A D F X Y Z · Q W ⇧E ⇧Q B · CLICK TO PLACE');
+      hint('S A D F I X Y Z · Q W ⇧E ⇧Q B · CLICK TO PLACE');
       return true;
     };
     c.key = action => {
       if (action === 'flip') { c.flip = !c.flip; c.preview(); return true; }
+      // An instance stands on its own, so it combines with nothing.
+      if (action === 'instance') { c.instance = !c.instance; if (c.instance) c.op = 'new'; c.preview(); return true; }
       if (action.startsWith('axis-')) { const a = action.slice(5); c.axis = c.axis === a ? 'normal' : a; c.preview(); return true; }
       if (['union', 'difference', 'intersect', 'slice', 'new'].includes(action)) {
+        if (action !== 'new' && c.instance) { toast('AN INSTANCE CANNOT COMBINE; TURN INSTANCE (I) OFF'); return true; }
         if (action !== 'new' && c.to && (c.to.target === null || c.to.target === undefined)) { toast('PLACE IT ON A SOLID TO COMBINE WITH IT'); return true; }
         c.op = action; c.preview(); return true;
       }
@@ -5405,10 +5409,20 @@ export async function mount(root, backend) {
     /** Place the copy where it is shown; `again` waits for the next destination. */
     async function place(again) {
       try {
-        const { ids: made, scene: list } = await backend.commitPlace(c.request());
-        c.placed++;
-        record(`PLACE${c.op !== 'new' ? ` · ${c.op.toUpperCase()}` : ''}`, made[0], made.length > 1 ? `${made.length} BODIES` : label(made[0]));
-        await showScene(list);
+        if (c.instance) {
+          // Each solid's instance: the master turned and scaled about the point picked on it, then moved.
+          const m = c.motion();
+          const q = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(...m.axis).normalize(), m.angle);
+          for (const id of c.ids) instances.push({ ...newInstance(nextInstance++, id, m.pivot), position: m.pivot.map((v, i) => v + m.offset[i]), quaternion: q.toArray(), scale: m.scale });
+          c.placed++;
+          drawInstances();
+          renderOutliner();
+        } else {
+          const { ids: made, scene: list } = await backend.commitPlace(c.request());
+          c.placed++;
+          record(`PLACE${c.op !== 'new' ? ` · ${c.op.toUpperCase()}` : ''}`, made[0], made.length > 1 ? `${made.length} BODIES` : label(made[0]));
+          await showScene(list);
+        }
         if (!again) return endCmd('committed');
         clearPreview();
         c.stage = 'to';
@@ -8772,6 +8786,7 @@ export async function mount(root, backend) {
   $('ut-keep').onclick = () => cmd?.id === 'untrim' && cmd.setKeep(!cmd.keep);
   $('section-btn').onclick = () => doAction('section');
   $('pl-flip').onclick = () => cmd?.id === 'place' && cmd.key('flip');
+  $('pl-instance').onclick = () => cmd?.id === 'place' && cmd.key('instance');
   for (const id of ['pl-scale', 'pl-angle', 'pl-d']) $(id).oninput = () => cmd?.id === 'place' && cmd.preview();
   for (const b of $$('[data-plaxis]')) b.onclick = () => cmd?.id === 'place' && cmd.key(b.dataset.plaxis === 'normal' ? 'axis-normal' : `axis-${b.dataset.plaxis}`);
   for (const b of $$('[data-plop]')) b.onclick = () => cmd?.id === 'place' && cmd.key(b.dataset.plop);
