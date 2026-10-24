@@ -132,7 +132,7 @@ export const COMMAND = {
     // Section Analysis (manual): D distance, F flip.
     section: { d: 'distance', f: 'flip' },
     'match-face': { tab: 'grow' },
-    'deform-curve': { m: 'mirror', u: 'u', n: 'normal', k: 'keep' },
+    'deform-curve': { m: 'mirror', u: 'u', n: 'normal', k: 'keep', r: 'reblend' },
     image: { delete: 'delete', backspace: 'delete' },
     // Cut Curve (manual: Tab extends the cutters, S cuts along the view)
     'cut-curve': { tab: 'extend', s: 'screen' },

@@ -360,7 +360,7 @@ impl Kernel for Occt {
 
     fn deform(&self, bodies: &[&Shape], reference: &Shape, rface: u32, target: &Shape, tface: u32, o: &DeformOptions) -> Result<Vec<Shape>, KernelError> {
         let flag = |b: bool| if b { 1.0 } else { 0.0 };
-        let opts = [o.scale[0], o.scale[1], o.scale[2], o.offset[0], o.offset[1], o.offset[2], flag(o.mirror), flag(o.swap), flag(o.normal)];
+        let opts = [o.scale[0], o.scale[1], o.scale[2], o.offset[0], o.offset[1], o.offset[2], flag(o.mirror), flag(o.swap), flag(o.normal), flag(o.reblend)];
         Shape::deform(bodies, reference, rface as usize, target, tface as usize, &opts).map_err(shim)
     }
 

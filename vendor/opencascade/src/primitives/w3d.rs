@@ -306,7 +306,7 @@ impl Shape {
 
     /// Plasticity's Deform Solid and Sheet: `bodies` wrapped from face `rface` of `reference` onto
     /// face `tface` of `target`; `opts` are scale u v n, offset u v n, then mirror, swap, normal as
-    /// 1 or 0 (see `w3d_deform`). The results come back in order.
+    /// 1 or 0, and optionally reblend as 1 or 0 (see `w3d_deform`). The results come back in order.
     pub fn deform(bodies: &[&Shape], reference: &Shape, rface: usize, target: &Shape, tface: usize, opts: &[f64]) -> Result<Vec<Shape>, String> {
         let all = Shape::from(crate::primitives::Compound::from_shapes(bodies.iter().copied()));
         let out = ffi::w3d::w3d_deform(&all.inner, &reference.inner, rface as i32, &target.inner, tface as i32, opts).map_err(reason)?;

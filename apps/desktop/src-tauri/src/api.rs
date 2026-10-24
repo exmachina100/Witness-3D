@@ -1691,6 +1691,8 @@ pub struct DeformRequest {
     #[serde(default)]
     pub normal: bool,
     #[serde(default)]
+    pub reblend: bool,
+    #[serde(default)]
     pub keep: bool,
 }
 
@@ -1698,7 +1700,7 @@ fn unit_scale() -> [f64; 3] { [1.0; 3] }
 
 impl DeformRequest {
     fn options(&self) -> w3d_kernel::DeformOptions {
-        w3d_kernel::DeformOptions { scale: self.scale, offset: self.offset, mirror: self.mirror, swap: self.swap, normal: self.normal }
+        w3d_kernel::DeformOptions { scale: self.scale, offset: self.offset, mirror: self.mirror, swap: self.swap, normal: self.normal, reblend: self.reblend }
     }
 }
 
