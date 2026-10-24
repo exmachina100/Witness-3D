@@ -419,7 +419,7 @@ const SHELL = `
     <div class="sec" data-panel="instance" hidden>
       <span class="hint" data-id="in-hint">—</span>
       <div class="seg" role="group" aria-label="Handle"><button data-inmode="move" aria-pressed="true" title="Move the instance (G)">MOVE</button><button data-inmode="rotate" aria-pressed="false" title="Turn the instance (R)">ROTATE</button><button data-inmode="scale" aria-pressed="false" title="Scale the instance (S)">SCALE</button></div>
-      <div class="chips"><button data-id="in-realize" title="Turn the instance into an ordinary body you can edit">REALIZE</button><button data-id="in-dup" title="Another instance of the same master (Shift+D)"><kbd>⇧D</kbd>DUPLICATE</button><button data-id="in-delete" title="Remove the instance (Delete)"><kbd>DEL</kbd>REMOVE</button></div>
+      <div class="chips"><button data-id="in-realize" title="Turn the instance into an ordinary body or curve you can edit">REALIZE</button><button data-id="in-dup" title="Another instance of the same master (Shift+D)"><kbd>⇧D</kbd>DUPLICATE</button><button data-id="in-delete" title="Remove the instance (Delete)"><kbd>DEL</kbd>REMOVE</button></div>
     </div>
     <div class="sec" data-panel="deform-curve" hidden>
       <span class="hint" data-id="dc-hint">—</span>
@@ -1359,6 +1359,7 @@ export async function mount(root, backend) {
       curveGroup.add(m);
     }
     drawOverlays();
+    drawInstances();
     renderOutliner();
     drawCombs();
   }
@@ -1648,10 +1649,10 @@ export async function mount(root, backend) {
     if (instances.length) out.insertAdjacentHTML('beforeend', '<div class="group-title">▾ INSTANCES</div>');
     for (const n of instances) {
       const row = document.createElement('div');
-      const gone = !bodyOf(n.master);
+      const gone = !masterOf(n);
       row.className = 'row-item curve' + (n.hidden || gone ? ' off' : '');
       row.setAttribute('aria-current', cmd?.id === 'instance' && cmd.instance === n.id);
-      row.innerHTML = `${icon('instance')}<span class="name" title="${gone ? 'Its master is gone' : `An instance of ${label(n.master)}`}">INSTANCE</span><span class="tag">${instanceLabel(n.id)}</span><button class="eye" aria-pressed="${!n.hidden}" aria-label="Show or hide">◉</button>`;
+      row.innerHTML = `${icon('instance')}<span class="name" title="${gone ? 'Its master is gone' : `An instance of ${masterLabel(n)}`}">${n.curve ? 'CURVE INSTANCE' : 'INSTANCE'}</span><span class="tag">${instanceLabel(n.id)}</span><button class="eye" aria-pressed="${!n.hidden}" aria-label="Show or hide">◉</button>`;
       row.onclick = async e => {
         if (e.target.closest('.eye')) { n.hidden = !n.hidden; drawInstances(); return renderOutliner(); }
         if (gone) return toast('ITS MASTER IS GONE');
@@ -1802,19 +1803,35 @@ export async function mount(root, backend) {
   }
 
   // --- instances ------------------------------------------------------------
-  // Plasticity's Create Instance: a light copy of a solid or sheet that shares its master's geometry
-  // (see instances.js). Drawn from the master's own mesh, so an edit to the master shows in every
-  // instance; read-only, with lighter edges. They live in the file's app state, list under INSTANCES,
-  // and a click on one (in the viewport or the outliner) opens it to move, turn, scale, duplicate,
-  // realize or remove.
+  // Plasticity's Create Instance and Create Curve Instance: a light copy of a solid, sheet or curve
+  // that shares its master's geometry (see instances.js). Drawn from the master's own mesh or line,
+  // so an edit to the master shows in every instance; read-only, in lighter grey. They live in the
+  // file's app state, list under INSTANCES, and a click on one (in the viewport or the outliner)
+  // opens it to move, turn, scale, duplicate, realize or remove. A curve instance has `curve: true`
+  // and its master is a curve id.
   let instances = [], nextInstance = 1;
   const instanceGroup = new THREE.Group();
   scene.add(instanceGroup);
   const instanceEdgeMat = new THREE.LineBasicMaterial({ color: 0xb4b0a6, transparent: true, opacity: 0.85 });
   const instanceLabel = id => `N-${String(id).padStart(2, '0')}`;
+  const masterOf = n => n.curve ? curveById(n.master) : bodyOf(n.master);
+  const masterLabel = n => n.curve ? curveLabel(n.master) : label(n.master);
   function drawInstances() {
-    instanceGroup.clear(); // the geometry is the masters', so nothing here is disposed
+    for (const o of instanceGroup.children) if (o.userData.own) o.geometry.dispose();
+    instanceGroup.clear(); // a body's geometry is its master's, so only curve lines are disposed
     for (const n of instances) {
+      if (n.curve) {
+        const cv = curveById(n.master);
+        if (n.hidden || !cv) continue;
+        const f = curveFrame(cv);
+        const line = new (isClosed(cv) ? THREE.LineLoop : THREE.Line)(new THREE.BufferGeometry().setFromPoints(curve2d(cv).map(p => lift(f, p, 0.02))), instanceEdgeMat);
+        line.matrixAutoUpdate = false;
+        line.matrix.copy(matrixOf(n));
+        line.userData = { instance: n.id, own: true };
+        line.renderOrder = 9;
+        instanceGroup.add(line);
+        continue;
+      }
       const master = bodyMesh(n.master);
       if (n.hidden || !master) continue;
       const mesh = new THREE.Mesh(master.geometry, faceMatFor(n.master));
@@ -1831,20 +1848,28 @@ export async function mount(root, backend) {
   /** The instance under the pointer, if it is nearer than `hit` (a pickAt result). */
   function instanceAt(e, hit) {
     ray(e);
+    raycaster.params.Line.threshold = unitsPerPixel(controls.target) * 6;
     const h = raycaster.intersectObjects(instanceGroup.children, false)[0];
     if (!h) return null;
     if (hit?.point && camera.position.distanceTo(hit.point) < h.distance) return null;
     return h.object.userData.instance;
   }
-  /** Create Instance: one instance of each selected solid or sheet, then move it into place. */
+  /** Create Instance: one instance of each selected solid, sheet or curve, then move it into place. */
   async function createInstances() {
     const ids = sel.list('solid').map(s => s.body).filter(id => bodyMesh(id));
-    if (!ids.length) return toast('SELECT A SOLID OR SHEET TO INSTANCE');
+    const curves = sel.curves.filter(curveById);
+    if (!ids.length && !curves.length) return toast('SELECT A SOLID, SHEET OR CURVE TO INSTANCE');
     if (cmd) await finish();
     let last = null;
     for (const id of ids) {
       const centre = new THREE.Box3().setFromObject(bodyMesh(id)).getCenter(new THREE.Vector3());
       last = newInstance(nextInstance++, id, centre.toArray());
+      instances.push(last);
+    }
+    for (const id of curves) {
+      const cv = curveById(id), f = curveFrame(cv);
+      const centre = new THREE.Box3().setFromPoints(curve2d(cv).map(p => lift(f, p))).getCenter(new THREE.Vector3());
+      last = { ...newInstance(nextInstance++, id, centre.toArray()), curve: true };
       instances.push(last);
     }
     drawInstances();
@@ -1889,7 +1914,7 @@ export async function mount(root, backend) {
       place();
       drawInstances();
       const at = toUser(n.position).map(fmt).join(' ');
-      $('in-hint').textContent = `INSTANCE OF ${label(n.master)} · READ-ONLY · AT ${at}${n.scale !== 1 ? ` · ×${n.scale.toFixed(3)}` : ''}`;
+      $('in-hint').textContent = `INSTANCE OF ${masterLabel(n)} · READ-ONLY · AT ${at}${n.scale !== 1 ? ` · ×${n.scale.toFixed(3)}` : ''}`;
       setState('updated');
     }
     c.mode = mode;
@@ -1912,7 +1937,7 @@ export async function mount(root, backend) {
       drawInstances();
       renderOutliner();
       startInstance(copy.id, { fresh: true });
-      toast(`${instanceLabel(copy.id)} · ANOTHER INSTANCE OF ${label(n.master)}`);
+      toast(`${instanceLabel(copy.id)} · ANOTHER INSTANCE OF ${masterLabel(n)}`);
     };
     c.remove = () => {
       instances = instances.filter(m => m.id !== id);
@@ -1922,6 +1947,19 @@ export async function mount(root, backend) {
       toast(`REMOVED ${instanceLabel(id)}`);
     };
     c.realize = async () => {
+      if (n.curve) {
+        try {
+          const m = motionOf(n), axis = new THREE.Vector3(...m.axis);
+          const rotate = v => new THREE.Vector3(...v).applyAxisAngle(axis, m.angle).toArray();
+          const { ids } = await backend.addCurves([transformCurve(curveById(n.master), { pivot: m.pivot, offset: m.offset, rotate, scale: m.scale })]);
+          instances = instances.filter(x => x.id !== id);
+          endCmd('committed');
+          record('REALIZE CURVE INSTANCE', ids[0], curveLabel(ids[0]));
+          await curvesChanged(ids);
+          toast(`${instanceLabel(id)} IS NOW ${curveLabel(ids[0])}, AN ORDINARY CURVE`);
+        } catch (e) { setState('failed'); toast(say(e)); }
+        return;
+      }
       try {
         const { ids, scene: list } = await backend.commitPlace({ bodies: [n.master], motion: motionOf(n), target: null, op: 'new' });
         if (materialOf.has(n.master)) for (const b of ids) materialOf.set(b, materialOf.get(n.master));
@@ -8262,7 +8300,7 @@ export async function mount(root, backend) {
     if (kinds.has('curve') || kinds.has('region')) {
       if (kinds.has('solid')) out.push('tool:project', 'tool:cut', 'tool:imprint');
       if (sel.curves.length === 2) out.push('tool:project');
-      out.push('tool:patch', 'tool:pipe', 'alt-duplicate', 'toggle-points');
+      out.push('tool:patch', 'tool:pipe', 'alt-duplicate', 'toggle-points', 'create-instance');
       if (kinds.has('face')) out.push('tool:imprint');
       if (kinds.has('face')) out.push('tool:draft');
       out.push('trim', 'split', 'cut-curve', 'extend', 'tool:offset-curve', 'slot', 'tool:fillet-curve');
@@ -8436,7 +8474,7 @@ export async function mount(root, backend) {
   /** Groups, hidden and locked bodies and materials go into the file with the geometry. */
   async function keepAppState() {
     if (!backend.setAppState) return;
-    await backend.setAppState({ organise: org.toJSON(), materials: [...materials.values()], materialOf: [...materialOf], nextMaterial, images, nextImage, instances: instances.filter(n => bodyOf(n.master)), nextInstance });
+    await backend.setAppState({ organise: org.toJSON(), materials: [...materials.values()], materialOf: [...materialOf], nextMaterial, images, nextImage, instances: instances.filter(masterOf), nextInstance });
   }
   async function restoreAppState() {
     const st = backend.appState ? await backend.appState() : null;
