@@ -587,7 +587,9 @@ const SHELL = `
     </div>
     <div class="sec" data-panel="bridge" hidden>
       <span class="hint" data-id="br-hint">—</span>
-      <div class="field"><label for="w3d-br-t">TENSION</label><input id="w3d-br-t" data-id="br-t" type="number" step="0.1" min="0.05" value="1"></div>
+      <div class="field two" title="How far the bridge holds each end's direction (D sets both)"><label for="w3d-br-t1a">G1 TENSION</label><input id="w3d-br-t1a" data-id="br-t1a" type="number" step="0.1" min="0.05" value="1" aria-label="G1 TENSION at the start"><input data-id="br-t1b" type="number" step="0.1" min="0.05" value="1" aria-label="G1 TENSION at the end"></div>
+      <div class="field two" title="Moves the second and third control points along each end; the curvature is kept"><label for="w3d-br-t2a">G2 TENSION</label><input id="w3d-br-t2a" data-id="br-t2a" type="number" step="0.1" min="0.05" value="1" aria-label="G2 TENSION at the start"><input data-id="br-t2b" type="number" step="0.1" min="0.05" value="1" aria-label="G2 TENSION at the end"></div>
+      <div class="field two" title="Moves only the third control point; G3 is kept"><label for="w3d-br-t3a">G3 TENSION</label><input id="w3d-br-t3a" data-id="br-t3a" type="number" step="0.1" min="0.05" value="1" aria-label="G3 TENSION at the start"><input data-id="br-t3b" type="number" step="0.1" min="0.05" value="1" aria-label="G3 TENSION at the end"></div>
       <span class="label">CONTINUITY</span>
       <div class="chips"><button data-id="br-start" title="Continuity at the start (click to cycle)">START G1</button><button data-id="br-end" title="Continuity at the end (click to cycle)">END G1</button></div>
     </div>
@@ -595,7 +597,9 @@ const SHELL = `
       <span class="hint" data-id="be-hint">—</span>
       <div class="field"><label for="w3d-be-p1">PARAMETER 1</label><input id="w3d-be-p1" data-id="be-p1" type="number" step="0.05" min="0" max="1" value="1"></div>
       <div class="field"><label for="w3d-be-p2">PARAMETER 2</label><input id="w3d-be-p2" data-id="be-p2" type="number" step="0.05" min="0" max="1" value="0"></div>
-      <div class="field"><label for="w3d-be-t">TENSION</label><input id="w3d-be-t" data-id="be-t" type="number" step="0.1" min="0.05" value="1"></div>
+      <div class="field two" title="How far the bridge holds each end's direction (D sets both)"><label for="w3d-be-t1a">G1 TENSION</label><input id="w3d-be-t1a" data-id="be-t1a" type="number" step="0.1" min="0.05" value="1" aria-label="G1 TENSION at the start"><input data-id="be-t1b" type="number" step="0.1" min="0.05" value="1" aria-label="G1 TENSION at the end"></div>
+      <div class="field two" title="Moves the second and third control points along each end; the curvature is kept"><label for="w3d-be-t2a">G2 TENSION</label><input id="w3d-be-t2a" data-id="be-t2a" type="number" step="0.1" min="0.05" value="1" aria-label="G2 TENSION at the start"><input data-id="be-t2b" type="number" step="0.1" min="0.05" value="1" aria-label="G2 TENSION at the end"></div>
+      <div class="field two" title="Moves only the third control point; G3 is kept"><label for="w3d-be-t3a">G3 TENSION</label><input id="w3d-be-t3a" data-id="be-t3a" type="number" step="0.1" min="0.05" value="1" aria-label="G3 TENSION at the start"><input data-id="be-t3b" type="number" step="0.1" min="0.05" value="1" aria-label="G3 TENSION at the end"></div>
       <span class="label">CONTINUITY</span>
       <div class="chips"><button data-id="be-start" title="Continuity with the first edge (click to cycle)">START G1</button><button data-id="be-end" title="Continuity with the second edge (click to cycle)">END G1</button></div>
     </div>
@@ -6761,6 +6765,8 @@ export async function mount(root, backend) {
   const setExtShape = shape => { for (const b of $$('[data-extshape]')) b.setAttribute('aria-pressed', String(b.dataset.extshape === shape)); };
 
   /** Plasticity's Bridge Curves: a smooth curve between the nearest ends of two selected open curves. */
+  /** A bridge panel's G1, G2 and G3 tensions, [start, end] each (`prefix` br or be). */
+  const bridgeTensions = prefix => ({ tension: ['a', 'b'].map(e => num(`${prefix}-t1${e}`)), tension2: ['a', 'b'].map(e => num(`${prefix}-t2${e}`)), tension3: ['a', 'b'].map(e => num(`${prefix}-t3${e}`)) });
   function startBridge() {
     if (!backend.addCurves) return toast('BRIDGE IS NOT IN THIS BUILD YET');
     // Bridge Vertex: two picked end vertices say which ends; else the nearest ends of two curves.
@@ -6796,10 +6802,10 @@ export async function mount(root, backend) {
       try {
         $('br-start').textContent = `START ${c.continuity[0]}`;
         $('br-end').textContent = `END ${c.continuity[1]}`;
-        c.out = bridgeContinuous(a, pick.ea, b, pick.eb, { tension: num('br-t'), continuity: c.continuity });
+        c.out = bridgeContinuous(a, pick.ea, b, pick.eb, { ...bridgeTensions('br'), continuity: c.continuity });
         showCurvePreview([c.out]);
         $('br-hint').textContent = `${curveLabel(a.id)} TO ${curveLabel(b.id)}`;
-        setHud(`BRIDGE · ${c.continuity.join(' / ')} · TENSION ${num('br-t')}`);
+        setHud(`BRIDGE · ${c.continuity.join(' / ')} · TENSION ${num('br-t1a')} / ${num('br-t1b')}`);
         setState('updated');
       } catch (e) { c.out = null; $('br-hint').textContent = say(e); setHud('BRIDGE FAILED'); setState('failed'); }
     };
@@ -6812,7 +6818,7 @@ export async function mount(root, backend) {
         return true;
       }
       if (action !== 'tension') return false;
-      c.entry = { label: 'TENSION', text: '', apply: v => { $('br-t').value = v; c.preview(); } };
+      c.entry = { label: 'TENSION', text: '', apply: v => { if (v > 0) { $('br-t1a').value = $('br-t1b').value = v; c.preview(); } else toast('THE TENSION MUST BE ABOVE ZERO'); } };
       setHud('TENSION _');
       return true;
     };
@@ -6856,10 +6862,10 @@ export async function mount(root, backend) {
         $('be-start').textContent = `START ${c.continuity[0]}`;
         $('be-end').textContent = `END ${c.continuity[1]}`;
         const A = edgePoint(teeth[0], num('be-p1')), B = edgePoint(teeth[1], num('be-p2'));
-        c.out = bridgeCurve(bridgePoles(A, B, { tension: num('be-t'), continuity: c.continuity }));
+        c.out = bridgeCurve(bridgePoles(A, B, { ...bridgeTensions('be'), continuity: c.continuity }));
         showCurvePreview([c.out]);
         $('be-hint').textContent = `${c.continuity.join(' / ')} WITH THE EDGES`;
-        setHud(`BRIDGE EDGE · ${c.continuity.join(' / ')} · TENSION ${num('be-t')}`);
+        setHud(`BRIDGE EDGE · ${c.continuity.join(' / ')} · TENSION ${num('be-t1a')} / ${num('be-t1b')}`);
         setState('updated');
       } catch (e) { c.out = null; $('be-hint').textContent = say(e); setHud('BRIDGE EDGE FAILED'); setState('failed'); }
     };
@@ -6871,7 +6877,7 @@ export async function mount(root, backend) {
         return true;
       }
       if (action !== 'tension') return false;
-      c.entry = { label: 'TENSION', text: '', apply: v => { if (v > 0) { $('be-t').value = v; c.preview(); } else toast('THE TENSION MUST BE ABOVE ZERO'); } };
+      c.entry = { label: 'TENSION', text: '', apply: v => { if (v > 0) { $('be-t1a').value = $('be-t1b').value = v; c.preview(); } else toast('THE TENSION MUST BE ABOVE ZERO'); } };
       setHud('TENSION _');
       return true;
     };
@@ -8678,7 +8684,7 @@ export async function mount(root, backend) {
   for (const b of $$('[data-bop]')) b.onclick = () => cmd?.id === 'boolean' && cmd.key(b.dataset.bop);
   for (const id of ['hole-d', 'hole-depth']) $(id).addEventListener('input', () => cmd?.id === 'hole' && cmd.preview());
   $('hole-through').onclick = () => cmd?.id === 'hole' && cmd.key('through');
-  $('br-t').addEventListener('input', () => cmd?.id === 'bridge' && cmd.preview());
+  for (const n of ['1', '2', '3']) for (const e of 'ab') $(`br-t${n}${e}`).addEventListener('input', () => cmd?.id === 'bridge' && cmd.preview());
   for (const input of $$('[data-mat]')) input.addEventListener('input', () => { if (cmd?.id === 'material' && !cmd.edit(input.dataset.mat, input.value)) input.setAttribute('aria-invalid', 'true'); else input.removeAttribute('aria-invalid'); });
   $('mat-fork').onclick = () => cmd?.id === 'material' && cmd.fork();
   $('mat-remove').onclick = () => cmd?.id === 'material' && cmd.remove();
@@ -8736,7 +8742,7 @@ export async function mount(root, backend) {
   for (const id of ['oc-d', 'fc-r', 'ov-d', 'fv-r', 'sl-d']) $(id).addEventListener('input', () => ['offset-curve', 'fillet-curve', 'offset-vertex', 'fillet-vertex', 'slide'].includes(cmd?.id) && cmd.preview());
   for (const b of $$('[data-sldir]')) b.onclick = () => cmd?.id === 'slide' && cmd.setDir(b.dataset.sldir);
   $('br-start').onclick = () => cmd?.id === 'bridge' && cmd.cycleEnd(0);
-  for (const id of ['be-p1', 'be-p2', 'be-t']) $(id).addEventListener('input', () => cmd?.id === 'bridge-edge' && cmd.preview());
+  for (const id of ['be-p1', 'be-p2', 'be-t1a', 'be-t1b', 'be-t2a', 'be-t2b', 'be-t3a', 'be-t3b']) $(id).addEventListener('input', () => cmd?.id === 'bridge-edge' && cmd.preview());
   $('be-start').onclick = () => cmd?.id === 'bridge-edge' && cmd.cycleEnd(0);
   $('be-end').onclick = () => cmd?.id === 'bridge-edge' && cmd.cycleEnd(1);
   $('br-end').onclick = () => cmd?.id === 'bridge' && cmd.cycleEnd(1);
@@ -9047,7 +9053,7 @@ export async function mount(root, backend) {
         sel.clear();
         for (const cid of ids) sel.add({ kind: 'curve', id: cid });
         selectionChanged({ quiet: true });
-        $('br-t').value = p.tension;
+        $('br-t1a').value = $('br-t1b').value = p.tension;
         await startTool('bridge');
       } else if (id === 'cut') {
         const cs = (curveIds ?? []).filter(cid => curveList.some(c => c.id === cid));

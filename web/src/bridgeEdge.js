@@ -42,26 +42,43 @@ export function edgePoint(teeth, s) {
  * One side of a degree `n` Bézier bridge: its first poles from end `E` ({ at, out: the unit way the
  * bridge leaves, K: curvature vector, dK: its change per unit length going out }) to meet it in
  * position (G0), direction (G1), curvature (G2) or the change of curvature too (G3). The poles
- * match the end's arc-length derivatives scaled by `L`, the bridge's length scale.
+ * match the end's arc-length derivatives, reparameterised by s(u) = L₁u + αu²/2 + βu³/6 with
+ * L₁ = t1·L, α = (t2 − 1)L₁ and β = (t3 − 1)L₁: the G1 tension `t1` moves the first three poles,
+ * the G2 tension `t2` the second and third along the end's direction, the G3 tension `t3` only the
+ * third; none of them changes how the bridge meets the end.
  */
-export function bridgeSide(E, g, toward, n, L) {
+export function bridgeSide(E, g, toward, n, L, { t1 = 1, t2 = 1, t3 = 1 } = {}) {
     const m = (n - 1) / 2;
     if (g === 'G0') return Array.from({ length: m + 1 }, (_, i) => add(E.at, mul(sub(toward, E.at), i / n)));
-    const T = E.out, r2 = g === 'G2' || g === 'G3' ? E.K : [0, 0, 0];
-    const r3 = g === 'G3' ? sub(E.dK, mul(T, dot(E.K, E.K))) : [0, 0, 0];
-    const p0 = E.at, p1 = add(p0, mul(T, L / n));
-    const p2 = add(sub(mul(p1, 2), p0), mul(r2, L * L / (n * (n - 1))));
+    const T = E.out, L1 = t1 * L, alpha = (t2 - 1) * L1, beta = (t3 - 1) * L1;
+    const K = g === 'G2' || g === 'G3' ? E.K : [0, 0, 0];
+    // d²r/du² = L₁²K + αT and d³r/du³ = L₁³(dK − κ²T) + 3L₁αK + βT.
+    const r2 = add(mul(K, L1 * L1), mul(T, alpha));
+    const r3 = add(add(g === 'G3' ? mul(sub(E.dK, mul(T, dot(E.K, E.K))), L1 ** 3) : [0, 0, 0], mul(K, 3 * L1 * alpha)), mul(T, beta));
+    const p0 = E.at, p1 = add(p0, mul(T, L1 / n));
+    const p2 = add(sub(mul(p1, 2), p0), mul(r2, 1 / (n * (n - 1))));
     if (m === 2) return [p0, p1, p2];
-    const p3 = add(add(sub(mul(p2, 3), mul(p1, 3)), p0), mul(r3, L ** 3 / (n * (n - 1) * (n - 2))));
+    const p3 = add(add(sub(mul(p2, 3), mul(p1, 3)), p0), mul(r3, 1 / (n * (n - 1) * (n - 2))));
     return [p0, p1, p2, p3];
 }
 
 /**
- * The bridge from edge point `A` to edge point `B` (from edgePoint) as a Bézier, model-space poles:
- * degree 5, or 7 when an end is G3. `tension` scales how far it holds each end's direction.
+ * Each end's tensions from a bridge's options: `tension` (G1), `tension2` (G2) and `tension3` (G3),
+ * each one number for both ends or [start, end]; all must be above zero.
  */
-export function bridgePoles(A, B, { tension = 1, continuity = ['G1', 'G1'] } = {}) {
-    if (!(Number.isFinite(tension) && tension > 0)) throw new Error('the tension must be greater than zero');
+export function endTensions({ tension = 1, tension2 = 1, tension3 = 1 } = {}) {
+    const pair = v => Array.isArray(v) ? v : [v, v];
+    const [a, b, c] = [tension, tension2, tension3].map(pair);
+    for (const v of [...a, ...b, ...c]) if (!(Number.isFinite(v) && v > 0)) throw new Error('the tension must be greater than zero');
+    return [0, 1].map(i => ({ t1: a[i], t2: b[i], t3: c[i] }));
+}
+
+/**
+ * The bridge from edge point `A` to edge point `B` (from edgePoint) as a Bézier, model-space poles:
+ * degree 5, or 7 when an end is G3. The tensions (see endTensions) say how far it holds each end.
+ */
+export function bridgePoles(A, B, { continuity = ['G1', 'G1'], ...options } = {}) {
+    const ts = endTensions(options);
     for (const g of continuity) if (!EDGE_CONTINUITY.includes(g)) throw new Error(`continuity is ${EDGE_CONTINUITY.join(', ')}`);
     const gap = len(sub(B.at, A.at));
     if (gap < 1e-6) throw new Error('those points already meet');
@@ -72,8 +89,8 @@ export function bridgePoles(A, B, { tension = 1, continuity = ['G1', 'G1'] } = {
         const fwd = E.end === 1 || (E.end === null && dot(E.along, sub(toward, E.at)) >= 0);
         return { at: E.at, out: fwd ? E.along : mul(E.along, -1), K: E.K, dK: fwd ? E.dK : mul(E.dK, -1) };
     };
-    const a = bridgeSide(end(A, B.at), continuity[0], B.at, n, gap * tension);
-    const b = bridgeSide(end(B, A.at), continuity[1], A.at, n, gap * tension);
+    const a = bridgeSide(end(A, B.at), continuity[0], B.at, n, gap, ts[0]);
+    const b = bridgeSide(end(B, A.at), continuity[1], A.at, n, gap, ts[1]);
     return [...a, ...b.reverse()];
 }
 
