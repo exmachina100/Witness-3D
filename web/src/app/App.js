@@ -78,7 +78,7 @@ import { limitEdges, toObj, toStl } from '../meshExport.js';
 import { flatten, toDxf, toSvg } from '../drawingExport.js';
 import { readDxf } from '../dxf.js';
 import { distanceToFace } from '../dependentOffset.js';
-import { BRIDGE_CONTINUITY, bridgeContinuous, continuity, curvatureComb, curveVertices, explode, EXTEND_SHAPES, extendCurve, filletCurve, nearestEnd, OFFSET_CORNERS, offsetCurve, offsetSlot, offsetThrough, unionLoops, moveVertices, alignedInPlane, offsetVertex, rebuildCurve, subdivideCurve, completeCurve, convertVertices, insertKnotAt, raiseDegree, reverseCurve, transformCurve, moveVerticesTo, slideCurveCVs, splitCurve, tangentCircle, trim } from '../curveEdit.js';
+import { BRIDGE_CONTINUITY, bridgeContinuous, continuity, curvatureComb, curveVertices, explode, EXTEND_SHAPES, extendCurve, filletCurve, nearestEnd, OFFSET_CORNERS, offsetCurve, offsetSlot, offsetThrough, unionLoops, moveVertices, alignedInPlane, offsetVertex, rebuildCurve, subdivideCurve, completeCurve, convertVertices, insertKnotAt, raiseDegree, reverseCurve, transformCurve, moveVerticesTo, slideCurveCVs, splitCurve, tangentCircle, trim, cutCurve, cuttersFor, samples as curveSamples } from '../curveEdit.js';
 import { ViewGizmo } from './ViewGizmo.js';
 import { Toolbar } from './Toolbar.js';
 import { arcPoints, circleThrough, curveFromNurbs, cvPoints, ellipsePoints, endTangent, helixPoints, loops, nurbsLoop, nurbsPoints, polygonCorners, spiralAngle, tangentArc } from '../curves.js';
@@ -151,6 +151,7 @@ const KEYS = {
   extend: [['CLICK', 'NEAR AN END'], ['S', 'SHAPE NATURAL / LINEAR'], ['TYPE', 'LENGTH IN PANEL'], ['ESC / ⏎', 'DONE']],
   bridge: [['T / D', 'TENSION'], ['TAB', 'CONTINUITY G0 G1 G2'], ['⏎ / RMB', 'OK']],
   trim: [['CLICK', 'PIECE TO CUT AWAY'], ['CTRL Z', 'UNDO ONE'], ['ESC / ⏎', 'DONE']],
+  'cut-curve': [['CLICK', 'CUTTER CURVES'], ['TAB', 'EXTEND'], ['S', 'SCREEN SPACE'], ['⏎ / RMB', 'OK'], ['ESC', 'CANCEL']],
   'insert-knot': [['CLICK', 'ADD A CONTROL POINT'], ['ESC / ⏎', 'DONE']],
   'isoparam': [['HOVER', 'FACE'], ['CLICK', 'KEEP'], ['TAB', 'U / V'], ['⏎ / RMB', 'DONE']],
   'offset-edge': [['D', 'DISTANCE'], ['−', 'OTHER FACE'], ['S', 'BOTH SIDES'], ['V', 'GAP FILL'], ['⏎ / RMB', 'OK']],
@@ -180,7 +181,7 @@ const CLICKS = { rect: 2, 'center-rect': 2, rect3: 3, circle: 2, circle2: 2, cir
 const FORMS = { revolve: true, loft: true, sweep: true };
 const PRIMS = { box: true, 'center-box': true, box3: true, cylinder: true, sphere: true };
 // Commands that aren't tools in the registry (they act on a click, not on settings).
-const EDITS = { isoparam: 'ISOPARAM', 'offset-vertex': 'OFFSET VERTEX', slide: 'SLIDE CURVE CV', 'fillet-vertex': 'FILLET VERTEX', 'align-vertex': 'ALIGN VERTEX', rebuild: 'REBUILD CURVE', 'rebuild-face': 'REBUILD FACE', 'match-face': 'MATCH FACE', 'deform-curve': 'DEFORM', image: 'REFERENCE IMAGE', instance: 'INSTANCE', untrim: 'UNTRIM', unwrap: 'UNWRAP FACE', section: 'SECTION ANALYSIS', place: 'PLACE', dimension: 'DIMENSION', text: 'TEXT', 'insert-knot': 'INSERT KNOT', 'offset-edge': 'OFFSET EDGE', material: 'SET MATERIAL', 'export-mesh': 'EXPORT MESH', 'export-drawing': 'EXPORT DRAWING', 'measure-continuity': 'MEASURE CONTINUITY', trim: 'TRIM', extend: 'EXTEND CURVE', 'tangent-circle': 'TANGENT CIRCLE', split: 'SPLIT CURVE', 'measure-distance': 'MEASURE DISTANCE', 'measure-radius': 'MEASURE RADIUS' };
+const EDITS = { isoparam: 'ISOPARAM', 'offset-vertex': 'OFFSET VERTEX', slide: 'SLIDE CURVE CV', 'fillet-vertex': 'FILLET VERTEX', 'align-vertex': 'ALIGN VERTEX', rebuild: 'REBUILD CURVE', 'rebuild-face': 'REBUILD FACE', 'match-face': 'MATCH FACE', 'deform-curve': 'DEFORM', image: 'REFERENCE IMAGE', instance: 'INSTANCE', untrim: 'UNTRIM', unwrap: 'UNWRAP FACE', section: 'SECTION ANALYSIS', place: 'PLACE', dimension: 'DIMENSION', text: 'TEXT', 'insert-knot': 'INSERT KNOT', 'offset-edge': 'OFFSET EDGE', material: 'SET MATERIAL', 'export-mesh': 'EXPORT MESH', 'export-drawing': 'EXPORT DRAWING', 'measure-continuity': 'MEASURE CONTINUITY', trim: 'TRIM', 'cut-curve': 'CUT CURVE', extend: 'EXTEND CURVE', 'tangent-circle': 'TANGENT CIRCLE', split: 'SPLIT CURVE', 'measure-distance': 'MEASURE DISTANCE', 'measure-radius': 'MEASURE RADIUS' };
 const keysHtml = id => KEYS[id].map(([k, v]) => `<kbd>${k}</kbd><span>${v}</span>`).join('');
 // The Command Bar, exactly the manual's list (Plasticity Essentials › Command Bar).
 const BAR = [['palette', 'F', 'SEARCH'], ['tool:move', 'G', 'MOVE'], ['tool:rotate', 'R', 'ROTATE'], ['tool:scale', 'S', 'SCALE'], ['duplicate', '⇧D', 'DUPLICATE'], ['tool:boolean', 'Q', 'BOOLEAN'], ['tool:rect-array', '', 'RECTANGULAR ARRAY'], ['tool:radial-array', '', 'RADIAL ARRAY'], ['suggest', '⇧F', 'SUGGESTED COMMANDS']];
@@ -593,6 +594,12 @@ const SHELL = `
     <div class="sec" data-panel="trim" hidden>
       <span class="hint" data-id="trim-hint">CLICK THE PIECE OF A CURVE TO CUT AWAY; IT ENDS WHERE OTHER CURVES CROSS IT</span>
     </div>
+    <div class="sec" data-panel="cut-curve" hidden>
+      <span class="hint" data-id="cc-hint">—</span>
+      <div class="field"><label>TARGETS</label><output data-id="cc-targets">0</output></div>
+      <div class="field"><label>CUTTERS</label><output data-id="cc-cutters">0</output></div>
+      <div class="chips"><button data-id="cc-extend" aria-pressed="false" title="Carry short cutters on past their ends (Tab)"><kbd>TAB</kbd>EXTEND</button><button data-id="cc-screen" aria-pressed="false" title="Cutters in other planes sweep along the view instead of their own normal (S)"><kbd>S</kbd>SCREEN SPACE</button></div>
+    </div>
     <div class="sec" data-panel="primitive" hidden>
       <span class="hint" data-id="prim-hint">CLICK THE FIRST CORNER</span>
       <div class="field" data-id="prim-w-row"><label for="w3d-prim-w">WIDTH</label><input id="w3d-prim-w" data-id="prim-w" type="number" step="1" value="20"></div>
@@ -803,11 +810,11 @@ const VIEWS = {
 export async function mount(root, backend) {
   root.innerHTML = SHELL;
   // Panel options carry their icon ahead of the key and name.
-  for (const b of root.querySelectorAll('[data-draw],[data-bop],[data-xop],[data-fop],[data-spiral],[data-toggle],[data-gmethod],[data-galign],[data-grow],[data-mfgrow],[data-eslimit],[data-flshape],[data-avaxis],[data-extshape],[data-esshape],[data-isodir],[data-id="oe-both"],[data-id="ex-lock"],[data-id="bool-keep"],[data-id="ex-free"],[data-id="ex-pivot"],[data-id="ex-individual"],[data-id="dr-hidden"],[data-id="dr-curves"],[data-id="oc-lock"],[data-id="oc-free"],[data-id="oc-slot"],[data-id="oc-combine"],[data-id="es-unlimit"],[data-rbmethod],[data-oecorner],[data-saplane],[data-plaxis],[data-plop],[data-id="pl-flip"],[data-id="section-btn"],[data-id="sa-flip"],[data-id="rf-shrink"],[data-id="ut-keep"],[data-txfont],[data-txalign],[data-sldir],[data-dcflip],[data-id="dc-keep"],[data-imdepth],[data-imcull],[data-id="im-delete"],[data-inmode],[data-id="in-realize"],[data-id="in-dup"],[data-id="in-delete"]')) {
+  for (const b of root.querySelectorAll('[data-draw],[data-bop],[data-xop],[data-fop],[data-spiral],[data-toggle],[data-gmethod],[data-galign],[data-grow],[data-mfgrow],[data-eslimit],[data-flshape],[data-avaxis],[data-extshape],[data-esshape],[data-isodir],[data-id="oe-both"],[data-id="ex-lock"],[data-id="bool-keep"],[data-id="ex-free"],[data-id="ex-pivot"],[data-id="ex-individual"],[data-id="dr-hidden"],[data-id="dr-curves"],[data-id="oc-lock"],[data-id="oc-free"],[data-id="oc-slot"],[data-id="oc-combine"],[data-id="es-unlimit"],[data-rbmethod],[data-oecorner],[data-saplane],[data-plaxis],[data-plop],[data-id="pl-flip"],[data-id="section-btn"],[data-id="sa-flip"],[data-id="rf-shrink"],[data-id="ut-keep"],[data-txfont],[data-txalign],[data-sldir],[data-dcflip],[data-id="dc-keep"],[data-imdepth],[data-imcull],[data-id="im-delete"],[data-id="cc-extend"],[data-id="cc-screen"],[data-inmode],[data-id="in-realize"],[data-id="in-dup"],[data-id="in-delete"]')) {
     const name = b.dataset.draw ?? b.dataset.bop ?? b.dataset.xop ?? b.dataset.fop ?? b.dataset.spiral ?? (b.dataset.toggle && `view-${b.dataset.toggle}`)
       ?? (b.dataset.gmethod && `guide-${b.dataset.gmethod}`) ?? (b.dataset.galign && `align-${b.dataset.galign}`) ?? (b.dataset.grow && `grow-${b.dataset.grow}`) ?? (b.dataset.mfgrow && `grow-${b.dataset.mfgrow}`) ?? (b.dataset.eslimit && `limit-${b.dataset.eslimit}`) ?? (b.dataset.flshape && `fillet-${b.dataset.flshape}`) ?? (b.dataset.avaxis && `axis-${b.dataset.avaxis}`) ?? (b.dataset.extshape && `extend-${b.dataset.extshape}`) ?? (b.dataset.esshape && `extend-${b.dataset.esshape}`) ?? (b.dataset.isodir && `iso-${b.dataset.isodir}`) ?? (b.dataset.rbmethod && `rebuild-${b.dataset.rbmethod}`) ?? (b.dataset.oecorner && `corner-${b.dataset.oecorner}`) ?? (b.dataset.saplane && `section-${b.dataset.saplane}`) ?? (b.dataset.plaxis && (b.dataset.plaxis === 'normal' ? 'place-normal' : `axis-${b.dataset.plaxis}`)) ?? b.dataset.plop
       ?? (b.dataset.txfont && `font-${b.dataset.txfont}`) ?? (b.dataset.txalign && `txalign-${b.dataset.txalign}`) ?? (b.dataset.sldir && { u: 'slide-u', '-u': 'slide-back', v: 'slide-v', '-v': 'slide-vback', n: 'slide-n' }[b.dataset.sldir]) ?? (b.dataset.dcflip && { mirror: 'mirror', swap: 'swap-uv', normal: 'reverse-sheet' }[b.dataset.dcflip]) ?? (b.dataset.imdepth && `depth-${b.dataset.imdepth}`) ?? (b.dataset.imcull && `cull-${b.dataset.imcull}`) ?? b.dataset.inmode
-      ?? { 'ex-lock': 'lock', 'bool-keep': 'keep', 'ex-free': 'freestyle', 'ex-pivot': 'pivot', 'ex-individual': 'individual', 'dr-hidden': 'hidden-lines', 'dr-curves': 'drawing-curves', 'oc-lock': 'lock', 'oc-free': 'freestyle', 'oc-slot': 'slot', 'oc-combine': 'combine', 'oe-both': 'both-sides', 'es-unlimit': 'unlimit', 'rf-shrink': 'shrink', 'ut-keep': 'keep-edges', 'section-btn': 'view-section', 'sa-flip': 'flip', 'pl-flip': 'flip', 'dc-keep': 'keep', 'im-delete': 'delete', 'in-realize': 'realize-instance', 'in-dup': 'duplicate', 'in-delete': 'delete' }[b.dataset.id];
+      ?? { 'ex-lock': 'lock', 'bool-keep': 'keep', 'ex-free': 'freestyle', 'ex-pivot': 'pivot', 'ex-individual': 'individual', 'dr-hidden': 'hidden-lines', 'dr-curves': 'drawing-curves', 'oc-lock': 'lock', 'oc-free': 'freestyle', 'oc-slot': 'slot', 'oc-combine': 'combine', 'oe-both': 'both-sides', 'es-unlimit': 'unlimit', 'rf-shrink': 'shrink', 'ut-keep': 'keep-edges', 'section-btn': 'view-section', 'sa-flip': 'flip', 'pl-flip': 'flip', 'dc-keep': 'keep', 'im-delete': 'delete', 'in-realize': 'realize-instance', 'cc-extend': 'extend', 'cc-screen': 'view-screen', 'in-dup': 'duplicate', 'in-delete': 'delete' }[b.dataset.id];
     b.insertAdjacentHTML('afterbegin', icon(name));
   }
   const $ = id => root.querySelector(`[data-id="${id}"]`);
@@ -5526,6 +5533,76 @@ export async function mount(root, backend) {
     c.abort = () => endCmd(c.count ? 'committed' : 'cancelled');
   }
 
+  /**
+   * Plasticity's Cut Curve: the selected curves are cut wherever the cutter curves cross them, keeping
+   * every piece. A cutter in another plane cuts by the surface it sweeps along its normal (S: along
+   * the view); Tab carries short cutters on past their ends.
+   */
+  function startCutCurve() {
+    if (!backend.replaceCurves) return toast('CUT CURVE IS NOT IN THIS BUILD YET');
+    const targets = sel.curves.filter(curveById);
+    if (!targets.length) return toast('SELECT THE CURVES TO CUT, THEN RUN CUT CURVE');
+    const c = cmd = { id: 'cut-curve', targets, cutters: [], extend: false, screen: false, out: null };
+    lastTool = 'cut-curve';
+    showTool('cut-curve');
+    setState('none');
+    setTarget(targets.map(curveLabel).join(' '));
+    const dots = new THREE.Group();
+    scene.add(dots);
+    c.preview = () => {
+      for (const o of [...dots.children]) { o.geometry.dispose(); o.removeFromParent(); }
+      $('cc-targets').textContent = targets.length;
+      $('cc-cutters').textContent = c.cutters.length;
+      $('cc-extend').setAttribute('aria-pressed', String(c.extend));
+      $('cc-screen').setAttribute('aria-pressed', String(c.screen));
+      c.out = null;
+      if (!c.cutters.length) { $('cc-hint').textContent = 'CLICK THE CURVES TO CUT WITH'; setHud('CLICK THE CUTTERS'); return setState('none'); }
+      const dir = c.screen ? camera.getWorldDirection(new THREE.Vector3()).toArray() : null;
+      try {
+        const others = c.cutters.map(curveById);
+        const out = targets.map(id => { const src = curveById(id); return { id, src, pieces: cutCurve(src, cuttersFor(src, others, { dir, extend: c.extend })) }; });
+        const ends = [];
+        for (const { src, pieces } of out) {
+          if (pieces.length < 2 && pieces[0] === src) continue;
+          const f = curveFrame(src);
+          for (const q of pieces) { const pts = curveSamples(q).points; for (const p of [pts[0], pts[pts.length - 1]]) ends.push(lift(f, { x: p[0], y: p[1] })); }
+        }
+        if (ends.length) { const d = new THREE.Points(new THREE.BufferGeometry().setFromPoints(ends), hullDots); d.renderOrder = 12; dots.add(d); }
+        const n = out.reduce((k, o) => k + o.pieces.length, 0);
+        c.out = out;
+        $('cc-hint').textContent = `${targets.length} CURVE${targets.length > 1 ? 'S' : ''} INTO ${n} PIECES`;
+        setHud(`CUT INTO ${n} PIECES`);
+        setState('updated');
+      } catch (e) { setState('failed'); toast(say(e)); }
+    };
+    c.key = action => {
+      if (action === 'extend') { c.extend = !c.extend; c.preview(); return true; }
+      if (action === 'screen') { c.screen = !c.screen; c.preview(); return true; }
+      return false;
+    };
+    c.click = e => {
+      const hit = pickAt(e);
+      const id = (hit?.kind === 'curve' || hit?.kind === 'region') ? hit.id : null;
+      if (id === null || targets.includes(id)) return true;
+      c.cutters = c.cutters.includes(id) ? c.cutters.filter(x => x !== id) : [...c.cutters, id];
+      c.preview();
+      return true;
+    };
+    c.finish = async () => {
+      const changed = (c.out ?? []).filter(o => !(o.pieces.length === 1 && o.pieces[0] === o.src));
+      if (!changed.length) { setState('failed'); return toast(c.cutters.length ? 'THE CUTTERS DO NOT CROSS THOSE CURVES (TAB EXTENDS THEM)' : 'CLICK THE CURVES TO CUT WITH'); }
+      try {
+        const { ids: made } = await backend.replaceCurves(changed.map(o => o.id), changed.flatMap(o => o.pieces));
+        endCmd('committed');
+        record('CUT CURVE', made[0], `${made.length} PIECES`);
+        await curvesChanged(made);
+      } catch (e) { setState('failed'); toast(say(e)); }
+    };
+    c.abort = () => endCmd('cancelled');
+    c.cleanup = () => { for (const o of [...dots.children]) o.geometry.dispose(); dots.removeFromParent(); };
+    c.preview();
+  }
+
   /** Plasticity's Remove Face: the selected faces go and their neighbours close the gap. */
   function startRemoveFace() {
     const body = faceBody();
@@ -7904,6 +7981,7 @@ export async function mount(root, backend) {
       case 'create-outline': await createOutline(); return true;
       case 'toggle-points': await togglePoints(); return true;
       case 'create-instance': await createInstances(); return true;
+      case 'cut-curve': if (cmd) await finish(); startCutCurve(); return true;
       case 'realize-instance': if (cmd?.id === 'instance') await cmd.realize(); else toast('CLICK AN INSTANCE, THEN REALIZE IT'); return true;
       case 'join': await joinSelected(); return true;
       case 'trim': await startTool('trim'); return true;
@@ -8091,7 +8169,7 @@ export async function mount(root, backend) {
       out.push('tool:patch', 'tool:pipe', 'alt-duplicate', 'toggle-points');
       if (kinds.has('face')) out.push('tool:imprint');
       if (kinds.has('face')) out.push('tool:draft');
-      out.push('trim', 'split', 'extend', 'tool:offset-curve', 'slot', 'tool:fillet-curve');
+      out.push('trim', 'split', 'cut-curve', 'extend', 'tool:offset-curve', 'slot', 'tool:fillet-curve');
       if (sel.curves.length === 2) out.push('tool:bridge');
       if (sel.curves.length > 1) out.push('join');
       out.push('explode', 'reverse', 'rebuild', 'insert-knot', 'raise-degree', 'subdivide', 'complete-edge', 'deform-curve', 'measure:continuity', 'delete');
@@ -8494,6 +8572,8 @@ export async function mount(root, backend) {
   for (const b of $$('[data-imcull]')) b.onclick = () => cmd?.id === 'image' && cmd.set('culling', b.dataset.imcull);
   $('im-delete').onclick = () => cmd?.id === 'image' && cmd.remove();
   for (const b of $$('[data-inmode]')) b.onclick = () => cmd?.id === 'instance' && cmd.mode(b.dataset.inmode);
+  $('cc-extend').onclick = () => cmd?.id === 'cut-curve' && cmd.key('extend');
+  $('cc-screen').onclick = () => cmd?.id === 'cut-curve' && cmd.key('screen');
   $('in-realize').onclick = () => cmd?.id === 'instance' && cmd.realize();
   $('in-dup').onclick = () => cmd?.id === 'instance' && cmd.duplicate();
   $('in-delete').onclick = () => cmd?.id === 'instance' && cmd.remove();

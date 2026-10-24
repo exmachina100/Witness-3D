@@ -168,7 +168,11 @@ test('split cuts lines and arcs exactly where clicked', async () => {
     close(p.end[0], 0, 1e-9); close(p.end[1], 5, 1e-9);
     close(q.start[0], 0, 1e-9);
     assert.throws(() => splitCurve(line([0, 0], [1, 0]), [0, 0]), /end of the line/);
-    assert.throws(() => splitCurve({ ...plane, kind: 'circle', center: [0, 0], radius: 1 }, [1, 0]), /split lines/);
+    // A circle opens at the point: two arcs end to end, starting and ending there.
+    const [ring] = splitCurve({ ...plane, kind: 'circle', center: [0, 0], radius: 1 }, [0, 1.2]);
+    assert.equal(ring.kind, 'contour');
+    close(ring.pieces[0].start[0], 0, 1e-9); close(ring.pieces[0].start[1], 1, 1e-9);
+    close(ring.pieces.at(-1).end[1], 1, 1e-9);
 });
 
 test('curvature: a circle is 1/r everywhere, a line 0; continuity grades a joint G0, G1 or G2', async () => {
