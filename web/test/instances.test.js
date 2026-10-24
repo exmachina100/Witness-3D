@@ -59,3 +59,26 @@ test('a curve instance realizes through transformCurve to where it is drawn', as
     };
     c.points.forEach((p, i) => assert.ok(world(c, p).applyMatrix4(matrixOf(m)).distanceTo(world(out, out.points[i])) < 1e-9));
 });
+
+test("an array's instances stand where its copies would", async () => {
+    const { arrayMotions } = await import('../src/arrayMotions.js');
+    const { instanceFromMotion } = await import('../src/app/instances.js');
+    const centre = [5, 1, 2];
+    const specs = [
+        { kind: 'rectangular', steps: [[15, 0, 0], [0, 0, 15], [0, 0, 0]], counts: [2, 3, 1] },
+        { kind: 'radial', pivot: [0, 0, 0], axis: [0, 1, 0], angle: 2 * Math.PI, count: 5 },
+        { kind: 'motions', motions: [{ offset: [3, 0, 0], pivot: [1, 1, 1], axis: [0, 0, 2], angle: 0.7 }] },
+    ];
+    for (const spec of specs) {
+        const motions = spec.kind === 'motions' ? spec.motions : arrayMotions(spec);
+        for (const mo of motions) {
+            const n = instanceFromMotion(1, 1, mo, centre);
+            assert.deepEqual(checkInstance(n), []);
+            const full = { pivot: mo.pivot ?? centre, offset: mo.offset ?? [0, 0, 0], axis: mo.axis ?? [0, 1, 0], angle: mo.angle ?? 0, scale: 1 };
+            for (const p of [[0, 0, 0], [5, 1, 2], [-3, 8, 12]]) {
+                const drawn = new THREE.Vector3(...p).applyMatrix4(matrixOf(n));
+                assert.ok(drawn.distanceTo(apply(full, p)) < 1e-9, `${spec.kind} ${p}`);
+            }
+        }
+    }
+});
