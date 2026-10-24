@@ -1018,6 +1018,8 @@ function segHit(p0, p1, q0, q1) {
     const t = cross2(sub(q0, p0), s) / den, u = cross2(sub(q0, p0), r) / den;
     return t > 1e-9 && t < 1 - 1e-9 && u >= -1e-9 && u <= 1 + 1e-9 ? t : null;
 }
+/** The values sorted, with ones within 1e-9 of the one before dropped (the cut points stay exact). */
+const distinct = vs => [...vs].sort((x, y) => x - y).filter((v, i, a) => i === 0 || v - a[i - 1] > 1e-9);
 const segmentsOf = ({ points, closed }) => {
     const out = [];
     for (let i = 0; i < points.length - 1; i++) out.push([points[i], points[i + 1]]);
@@ -1049,7 +1051,7 @@ export function trim(c, others, at) {
             const d = dist(at, add(a, mul(ab, t)));
             if (d < best.d) best = { d, s: i + t };
         }
-        const cuts = [...new Set(breaks.map(b => +b.toFixed(9)))].sort((x, y) => x - y);
+        const cuts = distinct(breaks);
         const run = (s0, s1) => { // points from position s0 to s1, going forward (wrapping when closed)
             const out = [pos(s0)];
             const end = s1 >= s0 ? s1 : s1 + m;
@@ -1098,7 +1100,7 @@ export function trim(c, others, at) {
                 else if (t > 1e-9 && t < 1 - 1e-9) breaks.push(t);
             }
         }
-        const cuts = [...new Set(breaks.map(b => +b.toFixed(9)))].sort((x, y) => x - y);
+        const cuts = distinct(breaks);
         const s = fr(at);
         if (c.kind === 'arc') {
             const marks = [0, ...cuts, 1];
@@ -1115,7 +1117,198 @@ export function trim(c, others, at) {
         const end = before > after ? before : before + 1;
         return [withShape(c, arcPiece(g, after, end))];
     }
-    throw new Error('trim lines, rectangles, polygons, circles and arcs');
+    if (c.kind === 'cv' || c.kind === 'nurbs' || c.kind === 'ellipse') return trimNurbs(c, cutters, at);
+    if (c.kind === 'spline' || c.kind === 'contour') {
+        const pieces = c.kind === 'contour' ? c.pieces : [c.closed ? { kind: 'spline', points: [...c.points, c.points[0]], closed: false, ...(c.samples ? { samples: [...c.samples, c.samples[0]] } : {}) } : c];
+        const closed = c.kind === 'contour' ? loops(c.pieces) : !!c.closed;
+        return trimPieces(pieces, closed, cutters, at).map(sh => withShape(c, sh));
+    }
+    throw new Error('trim lines, polygons, circles, arcs, ellipses, splines, control-point and joined curves');
+}
+
+// Trim of splines and joined curves works piece by piece. A piece is an open line, arc or spline;
+// a place along it is a fraction 0..1 (by segment for lines, by angle for arcs, by sample for splines).
+// A spline's piece between two places is a spline through its own points there, ends included.
+
+function pieceLine(q) {
+    if (q.kind === 'arc') return null;
+    const pts = dedupe(q.kind === 'spline' ? (q.samples ?? q.points) : q.points);
+    return pts;
+}
+function piecePos(q, f) {
+    if (q.kind === 'arc') return arcAt(arcGeometry(q.start, q.mid, q.end), f);
+    const pts = pieceLine(q), m = pts.length - 1, i = Math.min(Math.floor(f * m), m - 1), t = f * m - i;
+    return add(pts[i], mul(sub(pts[i + 1], pts[i]), t));
+}
+/** Where the cutters cross the piece, as fractions inside it. */
+function pieceCuts(q, cutters) {
+    const out = [];
+    if (q.kind === 'arc') {
+        const g = arcGeometry(q.start, q.mid, q.end);
+        if (!g) return pieceCuts({ kind: 'polyline', points: [q.start, q.end] }, cutters);
+        for (const [q0, q1] of cutters) {
+            const d = sub(q1, q0), f = sub(q0, g.center);
+            const A = dot2(d, d), B = 2 * dot2(f, d), C = dot2(f, f) - g.radius * g.radius, disc = B * B - 4 * A * C;
+            if (A < EPS || disc < 0) continue;
+            for (const sgn of [-1, 1]) {
+                const u = (-B + sgn * Math.sqrt(disc)) / (2 * A);
+                if (u < -1e-9 || u > 1 + 1e-9) continue;
+                const v = sub(add(q0, mul(d, u)), g.center);
+                const t = ((((Math.atan2(v[1], v[0]) - g.start) * Math.sign(g.sweep)) % TAU + TAU) % TAU) / Math.abs(g.sweep);
+                if (t > 1e-9 && t < 1 - 1e-9) out.push(t);
+            }
+        }
+        return out;
+    }
+    const pts = pieceLine(q), m = pts.length - 1;
+    for (let i = 0; i < m; i++) for (const [q0, q1] of cutters) {
+        const t = segHit(pts[i], pts[i + 1], q0, q1);
+        if (t !== null) out.push((i + t) / m);
+    }
+    return out;
+}
+/** How near `at` the piece passes and at what fraction. */
+function pieceNearest(q, at) {
+    if (q.kind === 'arc') {
+        const g = arcGeometry(q.start, q.mid, q.end);
+        if (g) {
+            const v = sub(at, g.center);
+            const off = ((((Math.atan2(v[1], v[0]) - g.start) * Math.sign(g.sweep)) % TAU + TAU) % TAU);
+            // Past either end, the nearer end.
+            const f = off <= Math.abs(g.sweep) ? off / Math.abs(g.sweep) : (off - Math.abs(g.sweep) < TAU - off ? 1 : 0);
+            return { d: dist(at, arcAt(g, f)), f };
+        }
+        return pieceNearest({ kind: 'polyline', points: [q.start, q.end] }, at);
+    }
+    const pts = pieceLine(q), m = pts.length - 1;
+    let best = { d: Infinity, f: 0 };
+    for (let i = 0; i < m; i++) {
+        const a = pts[i], ab = sub(pts[i + 1], a), L = dot2(ab, ab);
+        const t = L < EPS ? 0 : Math.max(0, Math.min(1, dot2(sub(at, a), ab) / L)), d = dist(at, add(a, mul(ab, t)));
+        if (d < best.d) best = { d, f: (i + t) / m };
+    }
+    return best;
+}
+/** The piece from fraction f0 to f1, or null when that is a point. */
+function pieceBetween(q, f0, f1) {
+    if (f1 - f0 < 1e-9) return null;
+    const a = piecePos(q, f0), b = piecePos(q, f1);
+    if (q.kind === 'arc') {
+        const g = arcGeometry(q.start, q.mid, q.end);
+        return g ? arcPiece(g, f0, f1) : { kind: 'polyline', points: [a, b], closed: false };
+    }
+    const pts = pieceLine(q), m = pts.length - 1;
+    if (q.kind === 'polyline') {
+        const inner = pts.filter((_, i) => i / m > f0 + 1e-9 && i / m < f1 - 1e-9);
+        const out = dedupe([a, ...inner, b]);
+        return out.length >= 2 && dist(out[0], out[out.length - 1]) > 1e-6 ? { kind: 'polyline', points: out, closed: false } : null;
+    }
+    // A spline: its through-points that fall between, by where they lie along it.
+    const place = q.points.map(p => pieceNearest({ kind: 'polyline', points: pts }, p).f);
+    const out = dedupe([a, ...q.points.filter((_, i) => place[i] > f0 + 1e-6 && place[i] < f1 - 1e-6), b]);
+    if (out.length < 2 || dist(out[0], out[out.length - 1]) < 1e-6) return null;
+    return { kind: out.length > 2 ? 'spline' : 'polyline', points: out, closed: false };
+}
+/** The shape from global place s0 to s1 (piece index plus fraction), as one piece or a contour. */
+function piecesBetween(pieces, s0, s1) {
+    const P = pieces.length, out = [];
+    for (let k = Math.floor(s0); k < Math.ceil(s1 - 1e-12); k++) {
+        const q = pieces[((k % P) + P) % P], f0 = Math.max(0, s0 - k), f1 = Math.min(1, s1 - k);
+        const frag = pieceBetween(q, f0, f1);
+        if (frag) out.push(frag);
+    }
+    if (!out.length) return null;
+    return out.length === 1 ? out[0] : { kind: 'contour', pieces: out };
+}
+function trimPieces(pieces, closed, cutters, at) {
+    const P = pieces.length;
+    const cuts = distinct(pieces.flatMap((q, k) => pieceCuts(q, cutters).map(f => k + f)));
+    let best = { d: Infinity, s: 0 };
+    pieces.forEach((q, k) => { const n = pieceNearest(q, at); if (n.d < best.d) best = { d: n.d, s: k + n.f }; });
+    if (!closed) {
+        const marks = [0, ...cuts, P], keep = [];
+        for (let k = 0; k < marks.length - 1; k++) {
+            if (best.s >= marks[k] - 1e-9 && best.s <= marks[k + 1] + 1e-9) continue;
+            const sh = piecesBetween(pieces, marks[k], marks[k + 1]);
+            if (sh) keep.push(sh);
+        }
+        return keep;
+    }
+    if (cuts.length < 2) return [];
+    const after = cuts.find(x => x > best.s) ?? cuts[0];
+    const before = [...cuts].reverse().find(x => x < best.s) ?? cuts[cuts.length - 1];
+    const sh = piecesBetween(pieces, after, before > after ? before : before + P);
+    return sh ? [sh] : [];
+}
+
+// Trim of control-point curves, NURBS curves and ellipses is exact: the curve as NURBS, cut at the
+// crossings by knot insertion.
+
+/** The NURBS curve split at parameter u into the parts before and after, both clamped. */
+function splitNurbs(n, u) {
+    const p = n.degree;
+    let s = n;
+    const have = s.knots.filter(k => Math.abs(k - u) < 1e-12).length;
+    for (let i = have; i < p; i++) s = insertKnot(s, u);
+    // Poles up to the one at u (the curve passes through it) and from there on.
+    const j = s.knots.findIndex(k => Math.abs(k - u) < 1e-12);
+    const r = j - 1; // the pole at u
+    const left = { ...s, poles: s.poles.slice(0, r + 1), weights: s.weights.slice(0, r + 1), knots: [...s.knots.slice(0, j + p).map(k => Math.abs(k - u) < 1e-12 ? u : k), u] };
+    const right = { ...s, poles: s.poles.slice(r), weights: s.weights.slice(r), knots: [u, ...s.knots.slice(j).map(k => Math.abs(k - u) < 1e-12 ? u : k)] };
+    return [left, right];
+}
+/** The NURBS curve between parameters u0 < u1. */
+function nurbsBetween(n, u0, u1) {
+    const k0 = n.knots[n.degree], k1 = n.knots[n.poles.length];
+    let s = n;
+    if (u0 > k0 + 1e-12) s = splitNurbs(s, u0)[1];
+    if (u1 < k1 - 1e-12) s = splitNurbs(s, u1)[0];
+    return s;
+}
+/** Two clamped NURBS curves of one degree, end to start, as one (a knot of full multiplicity between). */
+function joinNurbs(a, b) {
+    const p = a.degree, ka = a.knots, kb = b.knots;
+    const shift = ka[ka.length - 1] - kb[0];
+    const w = a.weights[a.weights.length - 1] / b.weights[0];
+    return { ...a, poles: [...a.poles, ...b.poles.slice(1)], weights: [...a.weights, ...b.weights.slice(1).map(v => v * w)],
+        knots: [...ka.slice(0, ka.length - 1), ...kb.slice(p + 1).map(k => k + shift)] };
+}
+function trimNurbs(c, cutters, at) {
+    const n = c.kind === 'ellipse' ? ellipseNurbs(c) : asNurbs(c);
+    const k0 = n.knots[n.degree], k1 = n.knots[n.poles.length], closed = nurbsLoop(n);
+    const N = 600, us = Array.from({ length: N + 1 }, (_, i) => k0 + (k1 - k0) * i / N), pts = us.map(u => evalNurbs(n, u));
+    const breaks = [];
+    for (let i = 0; i < N; i++) for (const [q0, q1] of cutters) {
+        if (segHit(pts[i], pts[i + 1], q0, q1) === null) continue;
+        // Refine where the curve crosses the cutter's line.
+        const side = u => cross2(sub(q1, q0), sub(evalNurbs(n, u), q0));
+        let a = us[i], b = us[i + 1], fa = side(a);
+        for (let k = 0; k < 60; k++) { const m = (a + b) / 2, fm = side(m); if ((fm < 0) === (fa < 0)) { a = m; fa = fm; } else b = m; }
+        const u = (a + b) / 2;
+        if (u > k0 + 1e-9 * (k1 - k0) && u < k1 - 1e-9 * (k1 - k0)) breaks.push(u);
+    }
+    const cuts = distinct(breaks);
+    const s = nearestParam(n, at), shape = m => withShape(c, { kind: 'nurbs', degree: m.degree, poles: m.poles, weights: m.weights, knots: m.knots });
+    if (!closed) {
+        const marks = [k0, ...cuts, k1], keep = [];
+        for (let k = 0; k < marks.length - 1; k++) {
+            if (s >= marks[k] - 1e-9 && s <= marks[k + 1] + 1e-9) continue;
+            if (marks[k + 1] - marks[k] > 1e-9) keep.push(shape(nurbsBetween(n, marks[k], marks[k + 1])));
+        }
+        return keep;
+    }
+    if (cuts.length < 2) return [];
+    const after = cuts.find(x => x > s) ?? cuts[0];
+    const before = [...cuts].reverse().find(x => x < s) ?? cuts[cuts.length - 1];
+    if (before > after) return [shape(nurbsBetween(n, after, before))];
+    return [shape(joinNurbs(nurbsBetween(n, after, k1), nurbsBetween(n, k0, before)))];
+}
+/** An ellipse as an exactly equal NURBS curve: the unit circle's, stretched onto its axes. */
+function ellipseNurbs(c) {
+    const r = Math.hypot(...c.major), u = [c.major[0] / r, c.major[1] / r], v = [-u[1], u[0]];
+    const unit = arcNurbs([0, 0], 1, 0, TAU);
+    const poles = unit.poles.map(([x, y]) => [c.center[0] + r * x * u[0] + c.minor * y * v[0], c.center[1] + r * x * u[1] + c.minor * y * v[1], 0]);
+    return { ...frameOf(c), ...unit, poles };
 }
 
 // --- Extend and Bridge ----------------------------------------------------------------------------
