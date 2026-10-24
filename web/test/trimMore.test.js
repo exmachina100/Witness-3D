@@ -87,3 +87,47 @@ test('a curve trimmed against a trimmed one is cut where that one ends on it', (
     assert.equal(kept.length, 2);
     near(kept[0].points[1], kept[1].points[0]);
 });
+
+test('split works on every curve kind', async () => {
+    const { splitCurve } = await import('../src/curveEdit.js');
+    const cv = { ...plane, kind: 'cv', closed: false, points: [[0, 0], [3, 4], [6, -2], [10, 3], [14, 0]] };
+    const [a, b] = splitCurve(cv, [7, 0]);
+    onCurve(a, cv, 1e-3); onCurve(b, cv, 1e-3);
+    near(nurbsPoints(a).at(-1), nurbsPoints(b)[0], 1e-9);
+    const e = { ...plane, kind: 'ellipse', center: [0, 0], major: [6, 0], minor: 3 };
+    const [opened] = splitCurve(e, [0, 4]);
+    const pts = nurbsPoints(opened);
+    near(pts[0], [0, 3], 1e-6); near(pts.at(-1), [0, 3], 1e-6);
+    const sp = { ...plane, kind: 'spline', closed: true, points: [[0, 0], [10, 0], [10, 10], [0, 10]] };
+    assert.equal(splitCurve(sp, [10, 5]).length, 1);
+    const contour = { ...plane, kind: 'contour', pieces: [{ kind: 'polyline', points: [[-10, 0], [0, 0]], closed: false }, { kind: 'arc', start: [0, 0], mid: [5, 5], end: [10, 0] }] };
+    const [l, r] = splitCurve(contour, [-4, 0.2]);
+    near(l.points.at(-1), [-4, 0]);
+    assert.equal(r.kind, 'contour');
+});
+
+test('cut curve keeps every piece, with cutters drawn in another plane swept onto it', async () => {
+    const { cutCurve, cuttersFor } = await import('../src/curveEdit.js');
+    const c = { ...plane, kind: 'circle', center: [0, 0], radius: 5 };
+    // In the plane: a line across cuts a circle into two arcs.
+    const two = cutCurve(c, cuttersFor(c, [line([-10, 1], [10, 1])]));
+    assert.equal(two.length, 2);
+    assert.ok(two.every(k => k.kind === 'arc'));
+    // A short line doesn't reach; extended, it does.
+    const short = line([-1, 0], [1, 0]);
+    assert.equal(cutCurve(c, cuttersFor(c, [short])).length, 1);
+    assert.equal(cutCurve(c, cuttersFor(c, [short], { extend: true })).length, 2);
+    // A line in a parallel plane above sweeps down along its normal onto the circle.
+    const above = { ...line([-10, 0], [10, 0]), origin: [0, 0, 7] };
+    // plane's normal is +y, so a parallel plane is offset along y.
+    above.origin = [0, 7, 0];
+    assert.equal(cutCurve(c, cuttersFor(c, [above])).length, 2);
+    // A line in a plane standing across it (normal along the circle's plane) cuts where it crosses.
+    const across = { origin: [0, 0, 0], x: [0, 1, 0], normal: [1, 0, 0], kind: 'polyline', closed: false, points: [[-10, -3], [10, -3]] };
+    assert.equal(cutCurve(c, cuttersFor(c, [across])).length, 2);
+    // A control-point curve cut twice gives three pieces on the curve.
+    const cv = { ...plane, kind: 'cv', closed: false, points: [[0, 0], [3, 4], [6, -2], [10, 3], [14, 0]] };
+    const three = cutCurve(cv, cuttersFor(cv, [line([4, -10], [4, 10]), line([9, -10], [9, 10])]));
+    assert.equal(three.length, 3);
+    for (const k of three) onCurve(k, cv, 1e-3);
+});
