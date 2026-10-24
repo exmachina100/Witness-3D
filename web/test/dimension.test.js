@@ -66,3 +66,16 @@ test('a fillet shows its radius and makes its whole chain again', () => {
     assert.deepEqual(d.edit(3), { op: 'refillet', body: 7, faces: [2, 1], radius: 3 });
     assert.deepEqual(filletDimensions(7, [0], surfaces), []);
 });
+
+test('a round on a circular edge, a torus rather than a cylinder, still reads as its radius', async () => {
+    const { blendEdges, numberedEdges, oc } = await import('../src/Kernel.js');
+    const o = oc();
+    const cyl = new o.BRepPrimAPI_MakeCylinder(new o.gp_Ax2(new o.gp_Pnt(0, 0, 0), new o.gp_Dir(0, 0, 1), new o.gp_Dir(1, 0, 0)), 10, 20).Shape();
+    const top = numberedEdges(cyl).findIndex(e => { const c = new o.BRepAdaptor_Curve(e); return c.GetType() === o.GeomAbs_CurveType.GeomAbs_Circle && Math.abs(c.Value(0).Z() - 20) < 1e-9; });
+    const rounded = blendEdges(cyl, [top], 3);
+    const rounds = faceSurfaces(rounded).filter(f => f.kind === 'round');
+    assert.equal(rounds.length, 1);
+    close(rounds[0].radius, 3, 1e-6);
+    // A flat or straight-sided face is not a round.
+    assert.ok(faceSurfaces(cyl).every(f => f.kind !== 'round'));
+});

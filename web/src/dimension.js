@@ -74,7 +74,7 @@ export function faceDimensions(body, faces, surfaces) {
  * the whole chain again at the new radius: { op: 'refillet', body, faces, radius }.
  */
 export function filletDimensions(body, chain, surfaces) {
-    const round = chain.map(n => surfaces[n]).find(f => f?.kind === 'cylinder');
+    const round = chain.map(n => surfaces[n]).find(f => f?.kind === 'cylinder') ?? chain.map(n => surfaces[n]).find(f => f?.kind === 'round');
     if (!round) return [];
     return [{ label: 'RADIUS', value: round.radius, edit: r => ({ op: 'refillet', body, faces: chain, radius: r }) }];
 }

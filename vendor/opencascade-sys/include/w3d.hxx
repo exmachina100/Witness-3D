@@ -1553,8 +1553,24 @@ inline rust::Vec<double> w3d_edge_angles(const TopoDS_Shape &shape) {
   return out;
 }
 
+// The larger of a surface's principal curvatures at (u, v), by size: from its first and second
+// fundamental forms. 0 where the surface degenerates.
+inline double w3d_largest_curvature(const BRepAdaptor_Surface &sa, double u, double v) {
+  gp_Pnt p; gp_Vec du, dv, duu, dvv, duv;
+  sa.D2(u, v, p, du, dv, duu, dvv, duv);
+  gp_Vec n = du.Crossed(dv);
+  if (n.Magnitude() < 1e-12) return 0;
+  n.Normalize();
+  double E = du.Dot(du), F = du.Dot(dv), G = dv.Dot(dv), L = duu.Dot(n), M = duv.Dot(n), N = dvv.Dot(n);
+  double det = E * G - F * F;
+  if (det < 1e-24) return 0;
+  double K = (L * N - M * M) / det, H = (E * N - 2 * F * M + G * L) / (2 * det);
+  double s = std::sqrt(std::max(0.0, H * H - K));
+  return std::max(std::abs(H + s), std::abs(H - s));
+}
+
 // For each face (TopExp::MapShapes order), nine numbers for Dimension: the kind (0 other, 1 plane,
-// 2 cylinder, 3 sphere), the radius (0 for a plane), a point (plane origin, cylinder axis point,
+// 2 cylinder, 3 sphere, 4 a spline round of one radius), the radius (0 for a plane), a point (plane origin, cylinder axis point,
 // sphere centre), a direction (outward plane normal, cylinder axis) and +1 where the outward normal
 // points away from the axis or centre (a boss or ball), -1 where it points towards it (a hole).
 inline rust::Vec<double> w3d_face_surfaces(const TopoDS_Shape &shape) {
@@ -1589,7 +1605,16 @@ inline rust::Vec<double> w3d_face_surfaces(const TopoDS_Shape &shape) {
       side = n.Dot(gp_Vec(at, p)) >= 0 ? 1 : -1;
       break;
     }
-    default: break;
+    default: {
+      // A spline bent to one radius throughout (a round made as a B-spline): kind 4.
+      double lo = 1e300, hi = 0;
+      for (double a : {0.2, 0.5, 0.8}) for (double b : {0.2, 0.5, 0.8}) {
+        double k = w3d_largest_curvature(sa, sa.FirstUParameter() + a * (sa.LastUParameter() - sa.FirstUParameter()), sa.FirstVParameter() + b * (sa.LastVParameter() - sa.FirstVParameter()));
+        lo = std::min(lo, k); hi = std::max(hi, k);
+      }
+      if (lo > 1e-9 && (hi - lo) <= 1e-3 * lo) { kind = 4; r = 2 / (lo + hi); }
+      break;
+    }
     }
     for (double x : {kind, r, at.X(), at.Y(), at.Z(), dir.X(), dir.Y(), dir.Z(), side}) out.push_back(x);
   }

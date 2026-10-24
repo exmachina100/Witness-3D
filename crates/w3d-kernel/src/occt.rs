@@ -559,6 +559,7 @@ impl Kernel for Occt {
                 1 => FaceSurface::Plane { origin: at, normal: dir },
                 2 => FaceSurface::Cylinder { origin: at, axis: dir, radius: f[1], outward: f[8] > 0.0 },
                 3 => FaceSurface::Sphere { centre: at, radius: f[1], outward: f[8] > 0.0 },
+                4 => FaceSurface::Round { radius: f[1] },
                 _ => FaceSurface::Other,
             }
         }).collect()
