@@ -136,7 +136,7 @@ const KEYS = {
   'fillet-curve': [['D', 'RADIUS'], ['TYPE', 'IN PANEL'], ['⏎ / RMB', 'OK']],
   'remove-face': [['⇧ CLICK', 'FACES'], ['⏎ / RMB', 'OK']],
   cut: [['⇧ CLICK', 'SOLIDS · CURVES'], ['⇧ ALT CLICK', 'FACES'], ['P', 'CONSTRUCTION PLANE'], ['⏎ / RMB', 'OK']],
-  draft: [['A', 'ANGLE'], ['⇧ CLICK', 'FACES'], ['⏎ / RMB', 'OK']],
+  draft: [['A', 'ANGLE'], ['D', 'OFFSET'], ['⇧ CLICK', 'FACES'], ['⏎ / RMB', 'OK']],
   imprint: [['⇧ CLICK', 'FACES · CURVES'], ['⇧ ALT CLICK', 'BODY THAT IMPRINTS'], ['⏎ / RMB', 'OK']],
   project: [['⇧ CLICK', 'SOLID · CURVES'], ['X Y Z', 'VECTOR'], ['S', 'SCREEN SPACE'], ['⏎ / RMB', 'OK']],
   'bridge-surface': [['⇧ CLICK', 'TWO EDGES'], ['T', 'TENSION'], ['⏎ / RMB', 'OK']],
@@ -523,7 +523,8 @@ const SHELL = `
       <span class="hint" data-id="draft-hint">—</span>
       <div class="field"><label for="w3d-draft-a">ANGLE °</label><input id="w3d-draft-a" data-id="draft-a" type="number" step="0.5" value="3"></div>
       <div class="field"><label>FACES</label><output data-id="draft-count">0</output></div>
-      <div class="field"><label>PULL</label><output data-id="draft-pull">—</output></div>
+      <div class="field" title="Moves the neutral plane along the pull direction (D)"><label for="w3d-draft-d">OFFSET</label><input id="w3d-draft-d" data-id="draft-d" type="number" step="0.5" value="0"></div>
+      <div class="field"><label>NEUTRAL</label><output data-id="draft-pull">—</output></div>
     </div>
     <div class="sec" data-panel="imprint" hidden>
       <span class="hint" data-id="imp-hint">—</span>
@@ -7589,37 +7590,74 @@ export async function mount(root, backend) {
   }
 
   /**
-   * Plasticity's Draft Face: the selected faces of one solid tilt about the construction plane, the
-   * neutral plane, so the part leaves its mould along the plane's normal. A types the angle; the
-   * DRAFT view shows which faces still need it.
+   * Plasticity's Draft Face: select the reference face, then Shift-select the faces of the same
+   * solid to draft; they tilt about the reference's plane (the neutral plane) so the part leaves its
+   * mould along its normal. With no flat reference picked first, the construction plane serves.
+   * The white dot or A sets the angle, D offsets the neutral plane; the DRAFT view shows which faces
+   * still need it.
    */
+  let draftAboutPlane = false;
   function startDraft() {
     const body = faceBody();
-    if (body === null) return toast(sel.list('face').length ? 'DRAFT THE FACES OF ONE SOLID AT A TIME' : 'SELECT THE FACES TO DRAFT');
+    if (body === null) return toast(sel.list('face').length ? 'DRAFT THE FACES OF ONE SOLID AT A TIME' : 'SELECT THE REFERENCE FACE, THEN SHIFT-SELECT THE FACES TO DRAFT');
     if (!backend.previewDraft) return toast('DRAFT FACE IS NOT IN THIS BUILD YET');
-    const c = cmd = { id: 'draft', body, faces: [], sent: 0, shown: 0 };
+    const c = cmd = { id: 'draft', body, faces: [], ref: null, plane: draftAboutPlane, gizmo: null, sent: 0, shown: 0 };
+    draftAboutPlane = false;
     lastTool = 'draft';
     showTool('draft');
     setState('none');
-    $('draft-pull').textContent = cplane.name;
-    c.request = () => ({ body: c.body, faces: c.faces, pull: cplane.normal.toArray(), origin: cplane.origin.toArray(), angle: num('draft-a') * DEG });
-    c.preview = () => livePreview(c, () => backend.previewDraft(c.request()), b => { showPreviewBody(b); setHud(`DRAFT ${num('draft-a')}°`); }, 'draft-hint');
+    $('draft-d').value = 0;
+    // Plasticity's Draft Face: the first face picked (a flat one) is the reference; its plane is the
+    // neutral plane and its normal the pull direction. Without one, the construction plane serves.
+    const neutral = () => {
+      const b = bodyOf(c.body), p = c.ref !== null && b?.facePlanes[c.ref];
+      const n = p ? new THREE.Vector3(...p.normal).normalize() : cplane.normal.clone().normalize();
+      const o = p ? faceCentre(b, c.ref).clone() : cplane.origin.clone();
+      return { n, o: o.addScaledVector(n, num('draft-d') || 0) };
+    };
+    c.request = () => { const { n, o } = neutral(); return { body: c.body, faces: c.faces, pull: n.toArray(), origin: o.toArray(), angle: num('draft-a') * DEG }; };
+    const text = () => `DRAFT ${num('draft-a')}°${num('draft-d') ? ` · OFFSET ${num('draft-d')}` : ''}`;
+    c.preview = () => {
+      c.gizmo?.render(num('draft-a'));
+      if (!c.faces.length) { clearPreview(); setState('none'); return setHud('SHIFT-SELECT THE FACES TO DRAFT'); }
+      livePreview(c, () => backend.previewDraft(c.request()), b => { showPreviewBody(b); setHud(text()); }, 'draft-hint');
+    };
+    // The white dot sets the angle: dragged out along the first drafted face's normal, a degree per unit.
+    const place = () => {
+      c.gizmo?.dispose();
+      c.gizmo = null;
+      const b = bodyOf(c.body), f = c.faces[0], p = f !== undefined && b?.facePlanes[f];
+      if (!p) return;
+      c.gizmo = dot(faceCentre(b, f), new THREE.Vector3(...p.normal).normalize(), v => { $('draft-a').value = +v.toFixed(2); c.preview(); });
+    };
     c.onSelection = () => {
       drawOverlays();
       const b = faceBody();
       if (b === null) return setHud('SELECT FACES OF ONE SOLID TO DRAFT');
       c.body = b;
-      c.faces = sel.list('face').map(it => it.n).sort((x, y) => x - y);
+      const picked = sel.list('face').map(it => it.n);
+      const flat = !c.plane && picked.length > 1 && bodyOf(b)?.facePlanes[picked[0]];
+      c.ref = flat ? picked[0] : null;
+      c.faces = (flat ? picked.slice(1) : picked).sort((x, y) => x - y);
       setTarget(label(b));
       $('draft-count').textContent = c.faces.length;
-      $('draft-hint').textContent = `${c.faces.length} FACE${c.faces.length > 1 ? 'S' : ''} OF ${label(b)} ABOUT PLANE ${cplane.name}`;
+      $('draft-pull').textContent = c.ref !== null ? `FACE ${c.ref}` : `PLANE ${cplane.name}`;
+      $('draft-hint').textContent = `${c.faces.length} FACE${c.faces.length === 1 ? '' : 'S'} OF ${label(b)} ABOUT ${c.ref !== null ? 'THE REFERENCE FACE' : `PLANE ${cplane.name}`}`;
+      place();
       c.preview();
     };
     c.key = action => {
-      if (action !== 'angle') return false;
-      c.entry = { label: 'ANGLE', text: '', apply: v => { $('draft-a').value = v; c.preview(); } };
-      setHud('ANGLE _');
-      return true;
+      if (action === 'angle') {
+        c.entry = { label: 'ANGLE', text: '', apply: v => { $('draft-a').value = v; c.preview(); } };
+        setHud('ANGLE _');
+        return true;
+      }
+      if (action === 'offset') {
+        c.entry = { label: 'OFFSET', text: '', apply: v => { $('draft-d').value = v; c.preview(); } };
+        setHud('OFFSET _');
+        return true;
+      }
+      return false;
     };
     c.click = e => {
       const hit = pickAt(e);
@@ -7629,6 +7667,7 @@ export async function mount(root, backend) {
       return true;
     };
     c.finish = async () => {
+      if (!c.faces.length) return toast('SHIFT-SELECT THE FACES TO DRAFT');
       try {
         const { id, scene: list } = await backend.commitDraft(c.request());
         endCmd('committed');
@@ -7639,7 +7678,7 @@ export async function mount(root, backend) {
       } catch (e) { setState('failed'); toast(say(e)); }
     };
     c.abort = () => endCmd('cancelled');
-    c.cleanup = () => clearPreview();
+    c.cleanup = () => { c.gizmo?.dispose(); clearPreview(); };
     c.onSelection();
   }
 
@@ -8943,6 +8982,7 @@ export async function mount(root, backend) {
   for (const b of $$('[data-popt], [data-pop]')) b.onclick = () => PRIMS[cmd?.id] && cmd.key(b.dataset.popt ?? b.dataset.pop);
   $('shell-t').addEventListener('input', () => cmd?.id === 'shell' && cmd.preview());
   $('draft-a').addEventListener('input', () => cmd?.id === 'draft' && cmd.preview());
+  $('draft-d').addEventListener('input', () => cmd?.id === 'draft' && cmd.preview());
   for (const id of ['mirror-at', 'ra-cx', 'ra-cy', 'ra-cz', 'ra-sx', 'ra-sy', 'ra-sz', 'rr-count', 'rr-angle', 'ca-count']) $(id).addEventListener('input', () => cmd?.preview?.());
   for (const b of $$('[data-mx], [data-rx]')) b.onclick = () => cmd?.key?.(b.dataset.mx ?? b.dataset.rx);
   for (const id of ['mirror-join', 'ra-join', 'rr-join', 'ca-join']) $(id).onclick = () => cmd?.key?.('join');
@@ -9215,6 +9255,7 @@ export async function mount(root, backend) {
         for (const r of faces) sel.add({ kind: 'face', body: b.id, n: b.faceRefs.indexOf(r) });
         selectionChanged({ quiet: true });
         $('draft-a').value = p.angle;
+        draftAboutPlane = true; // the AI's draft tilts all its faces about the construction plane
         await startTool('draft');
         if (cmd?.id !== 'draft') throw new Error('those faces cannot be drafted');
       } else if (id === 'remove-face') {
