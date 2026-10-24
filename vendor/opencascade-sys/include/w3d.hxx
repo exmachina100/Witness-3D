@@ -1980,6 +1980,48 @@ inline std::unique_ptr<TopoDS_Shape> w3d_plane_sheet(rust::Slice<const double> p
   }
 }
 
+// A sheet of one B-spline surface given as numbers: u and v degrees, pole counts nu and nv, flat
+// knot counts (with repeats), the flat u then v knots, then nu * nv poles (x, y, z), rows along u.
+inline std::unique_ptr<TopoDS_Shape> w3d_spline_sheet(rust::Slice<const double> data) {
+  if (data.size() < 6) throw std::runtime_error("the surface data is short");
+  const int du = int(data[0]), dv = int(data[1]), nu = int(data[2]), nv = int(data[3]), nku = int(data[4]), nkv = int(data[5]);
+  if (du < 1 || dv < 1 || nu <= du || nv <= dv || nku != nu + du + 1 || nkv != nv + dv + 1 || data.size() != size_t(6 + nku + nkv + 3 * nu * nv))
+    throw std::runtime_error("the surface data does not add up");
+  // Flat knots to distinct knots and multiplicities.
+  auto distinct = [&](size_t from, int count, TColStd_Array1OfReal *&k, TColStd_Array1OfInteger *&m) {
+    std::vector<double> ks; std::vector<int> ms;
+    for (int i = 0; i < count; i++) {
+      const double x = data[from + i];
+      if (!ks.empty() && std::abs(x - ks.back()) < 1e-12) ms.back()++;
+      else { ks.push_back(x); ms.push_back(1); }
+    }
+    k = new TColStd_Array1OfReal(1, int(ks.size()));
+    m = new TColStd_Array1OfInteger(1, int(ks.size()));
+    for (size_t i = 0; i < ks.size(); i++) { k->SetValue(int(i) + 1, ks[i]); m->SetValue(int(i) + 1, ms[i]); }
+  };
+  TColStd_Array1OfReal *uk = nullptr, *vk = nullptr;
+  TColStd_Array1OfInteger *um = nullptr, *vm = nullptr;
+  distinct(6, nku, uk, um);
+  distinct(6 + nku, nkv, vk, vm);
+  std::unique_ptr<TColStd_Array1OfReal> ukp(uk), vkp(vk);
+  std::unique_ptr<TColStd_Array1OfInteger> ump(um), vmp(vm);
+  TColgp_Array2OfPnt poles(1, nu, 1, nv);
+  const size_t at = 6 + nku + nkv;
+  for (int i = 0; i < nu; i++)
+    for (int j = 0; j < nv; j++) {
+      const size_t k = at + 3 * (size_t(i) * nv + j);
+      poles.SetValue(i + 1, j + 1, gp_Pnt(data[k], data[k + 1], data[k + 2]));
+    }
+  try {
+    Handle(Geom_BSplineSurface) surface = new Geom_BSplineSurface(poles, *uk, *vk, *um, *vm, du, dv);
+    BRepBuilderAPI_MakeFace mk(surface, 1e-7);
+    if (!mk.IsDone()) throw std::runtime_error("the surface could not be made into a sheet");
+    return std::unique_ptr<TopoDS_Shape>(new TopoDS_Shape(mk.Face()));
+  } catch (const Standard_Failure &f) {
+    throw w3d_kernel_error(f);
+  }
+}
+
 inline std::unique_ptr<W3dResult> w3d_cut(const TopoDS_Shape &shape, rust::Slice<const double> data, double length, const TopoDS_Shape &extra) {
   TopTools_ListOfShape args, tools = w3d_cut_sheets(data, length);
   w3d_append_children(tools, extra);

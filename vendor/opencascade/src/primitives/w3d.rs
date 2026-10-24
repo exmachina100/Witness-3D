@@ -512,6 +512,12 @@ impl Shape {
         Ok(Shape::from_shape(&sheet))
     }
 
+    /// A sheet of one B-spline surface given as numbers (see `w3d_spline_sheet`).
+    pub fn spline_sheet(data: &[f64]) -> Result<Shape, String> {
+        let sheet = ffi::w3d::w3d_spline_sheet(data).map_err(reason)?;
+        Ok(Shape::from_shape(&sheet))
+    }
+
     /// The numbered faces drafted by `angle` radians about the neutral plane through `origin` square to `pull`.
     pub fn draft_faces_with_history(&self, faces: &[usize], pull: DVec3, origin: DVec3, angle: f64) -> Result<(Shape, ShapeHistory), String> {
         let faces: Vec<i32> = faces.iter().map(|&f| f as i32).collect();

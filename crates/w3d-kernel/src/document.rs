@@ -1002,6 +1002,19 @@ impl<K: Kernel> Document<K> {
         self.kernel.edge_curvature(s, edge, n)
     }
 
+    /// Plasticity's Constrained Surface, without changing the document: the sheet of the surface
+    /// the UI fitted through the clicked points, as `Kernel::spline_sheet` numbers.
+    pub fn preview_spline_sheet(&self, data: &[f64]) -> Result<K::Solid, KernelError> {
+        self.kernel.spline_sheet(data)
+    }
+
+    /// Constrained Surface as one undoable step: the sheet is a new body.
+    pub fn commit_spline_sheet(&mut self, data: &[f64]) -> Result<BodyId, KernelError> {
+        let sheet = self.preview_spline_sheet(data)?;
+        self.checkpoint();
+        Ok(self.add_unrecorded(sheet))
+    }
+
     /// Plasticity's Untrim, without changing the document: for each of `faces` of `body`, a sheet
     /// of the whole surface under it, with the face's edges imprinted when `keep_edges`.
     pub fn preview_untrim(&self, body: BodyId, faces: &[u32], keep_edges: bool) -> Result<Vec<K::Solid>, KernelError> {

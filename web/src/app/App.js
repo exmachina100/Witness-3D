@@ -64,6 +64,7 @@ import { curveDimensions, faceDimensions, filletDimensions, solidDimensions } fr
 import { edgeCurve, flattenCurve } from '../altDuplicate.js';
 import { EDGE_CONTINUITY, bridgeCurve, bridgePoles, edgePoint } from '../bridgeEdge.js';
 import { ALIGN_CONTINUITY, alignRequest } from '../alignSurface.js';
+import { constrainedSurface, splineSheetData } from '../constrainedSurface.js';
 import { combTeeth, isoLines, onFace } from '../isoCombs.js';
 import { liftPiece, meshSilhouette, nearestOver } from '../createOutline.js';
 import { FONTS, parseFont, textShapes } from '../text.js';
@@ -157,6 +158,7 @@ const KEYS = {
   bridge: [['T / D', 'TENSION'], ['TAB', 'CONTINUITY G0 G1 G2 G3'], ['Q', 'TRIM'], ['⏎ / RMB', 'OK']],
   'bridge-edge': [['D', 'TENSION'], ['TAB', 'CONTINUITY G0 G1 G2 G3'], ['⏎ / RMB', 'OK']],
   'align-surface': [['TAB', 'CONTINUITY G0 G1 G2'], ['D', 'TENSION'], ['⏎ / RMB', 'OK']],
+  'constrained-surface': [['CLICK', 'ADD A POINT'], ['CTRL Z', 'REMOVE THE LAST'], ['TAB', 'PERFORMANCE / SMOOTHNESS'], ['⏎ / RMB', 'OK']],
   trim: [['CLICK', 'PIECE TO CUT AWAY'], ['CTRL Z', 'UNDO ONE'], ['ESC / ⏎', 'DONE']],
   'cut-curve': [['CLICK', 'CUTTER CURVES'], ['TAB', 'EXTEND'], ['S', 'SCREEN SPACE'], ['⏎ / RMB', 'OK'], ['ESC', 'CANCEL']],
   'insert-knot': [['CLICK', 'ADD A CONTROL POINT'], ['ESC / ⏎', 'DONE']],
@@ -188,7 +190,7 @@ const CLICKS = { rect: 2, 'center-rect': 2, rect3: 3, circle: 2, circle2: 2, cir
 const FORMS = { revolve: true, loft: true, sweep: true };
 const PRIMS = { box: true, 'center-box': true, box3: true, cylinder: true, sphere: true };
 // Commands that aren't tools in the registry (they act on a click, not on settings).
-const EDITS = { isoparam: 'ISOPARAM', 'offset-vertex': 'OFFSET VERTEX', slide: 'SLIDE CURVE CV', 'fillet-vertex': 'FILLET VERTEX', 'align-vertex': 'ALIGN VERTEX', 'align-curve': 'ALIGN CURVE', rebuild: 'REBUILD CURVE', 'rebuild-face': 'REBUILD FACE', 'match-face': 'MATCH FACE', 'deform-curve': 'DEFORM', image: 'REFERENCE IMAGE', instance: 'INSTANCE', untrim: 'UNTRIM', unwrap: 'UNWRAP FACE', section: 'SECTION ANALYSIS', place: 'PLACE', dimension: 'DIMENSION', text: 'TEXT', 'insert-knot': 'INSERT KNOT', 'offset-edge': 'OFFSET EDGE', material: 'SET MATERIAL', 'export-mesh': 'EXPORT MESH', 'export-drawing': 'EXPORT DRAWING', 'measure-continuity': 'MEASURE CONTINUITY', trim: 'TRIM', 'cut-curve': 'CUT CURVE', 'bridge-edge': 'BRIDGE EDGE', 'align-surface': 'ALIGN SURFACE', extend: 'EXTEND CURVE', 'tangent-circle': 'TANGENT CIRCLE', split: 'SPLIT CURVE', 'measure-distance': 'MEASURE DISTANCE', 'measure-radius': 'MEASURE RADIUS' };
+const EDITS = { isoparam: 'ISOPARAM', 'offset-vertex': 'OFFSET VERTEX', slide: 'SLIDE CURVE CV', 'fillet-vertex': 'FILLET VERTEX', 'align-vertex': 'ALIGN VERTEX', 'align-curve': 'ALIGN CURVE', rebuild: 'REBUILD CURVE', 'rebuild-face': 'REBUILD FACE', 'match-face': 'MATCH FACE', 'deform-curve': 'DEFORM', image: 'REFERENCE IMAGE', instance: 'INSTANCE', untrim: 'UNTRIM', unwrap: 'UNWRAP FACE', section: 'SECTION ANALYSIS', place: 'PLACE', dimension: 'DIMENSION', text: 'TEXT', 'insert-knot': 'INSERT KNOT', 'offset-edge': 'OFFSET EDGE', material: 'SET MATERIAL', 'export-mesh': 'EXPORT MESH', 'export-drawing': 'EXPORT DRAWING', 'measure-continuity': 'MEASURE CONTINUITY', trim: 'TRIM', 'cut-curve': 'CUT CURVE', 'bridge-edge': 'BRIDGE EDGE', 'align-surface': 'ALIGN SURFACE', 'constrained-surface': 'CONSTRAINED SURFACE', extend: 'EXTEND CURVE', 'tangent-circle': 'TANGENT CIRCLE', split: 'SPLIT CURVE', 'measure-distance': 'MEASURE DISTANCE', 'measure-radius': 'MEASURE RADIUS' };
 const keysHtml = id => KEYS[id].map(([k, v]) => `<kbd>${k}</kbd><span>${v}</span>`).join('');
 // The Command Bar, exactly the manual's list (Plasticity Essentials › Command Bar).
 const BAR = [['palette', 'F', 'SEARCH'], ['tool:move', 'G', 'MOVE'], ['tool:rotate', 'R', 'ROTATE'], ['tool:scale', 'S', 'SCALE'], ['duplicate', '⇧D', 'DUPLICATE'], ['tool:boolean', 'Q', 'BOOLEAN'], ['tool:rect-array', '', 'RECTANGULAR ARRAY'], ['tool:radial-array', '', 'RADIAL ARRAY'], ['suggest', '⇧F', 'SUGGESTED COMMANDS']];
@@ -405,6 +407,13 @@ const SHELL = `
       <div class="field" title="Where along the reference curve to meet it, 0 its start to 1 its end, by length"><label for="w3d-ac-p">PARAMETER</label><input id="w3d-ac-p" data-id="ac-p" type="number" step="0.05" min="0" max="1" value="1"></div>
       <div class="field" title="How fast the curve leaves the point, against how fast it does now (D)"><label for="w3d-ac-t">TENSION</label><input id="w3d-ac-t" data-id="ac-t" type="number" step="0.1" min="0.05" value="1"></div>
       <div class="chips"><button data-id="ac-comb" aria-pressed="true" title="Show the curvature of both curves">CURVATURE</button></div>
+    </div>
+    <div class="sec" data-panel="constrained-surface" hidden>
+      <span class="hint" data-id="cs-hint">—</span>
+      <div class="field" title="How close the surface must come to every point"><label for="w3d-cs-tol">TOLERANCE</label><input id="w3d-cs-tol" data-id="cs-tol" type="number" step="0.001" min="0.0001" value="0.01"></div>
+      <div class="field" title="How sharply the surface may bend to reach the points, in degrees; higher is more relaxed"><label for="w3d-cs-ang">ANGULAR TOL.</label><input id="w3d-cs-ang" data-id="cs-ang" type="number" step="1" min="0.5" max="90" value="15"></div>
+      <span class="label">OPTIMIZE</span>
+      <div class="seg" role="group" aria-label="Optimize for"><button data-csopt="performance" aria-pressed="true" title="Fewer spans: quicker to fit and to model with (Tab)">PERFORMANCE</button><button data-csopt="smoothness" aria-pressed="false" title="More spans, smoothed: a fairer surface (Tab)">SMOOTHNESS</button></div>
     </div>
     <div class="sec" data-panel="rebuild" hidden>
       <span class="hint" data-id="rb-hint">—</span>
@@ -4669,6 +4678,83 @@ export async function mount(root, backend) {
   }
 
   /**
+   * Plasticity's Constrained Surface: a smooth sheet through clicked points (they snap, and land on
+   * faces where clicked). Tolerance is how close it must come to each point, Angular tolerance how
+   * sharply it may bend to get there, Optimize Performance or Smoothness (Tab); Ctrl+Z takes the last
+   * point off. The fit is constrainedSurface.js; OK or right-click makes the sheet.
+   */
+  function startConstrainedSurface() {
+    if (!backend.previewSplineSheet) return toast('CONSTRAINED SURFACE IS NOT IN THIS BUILD YET');
+    const c = cmd = { id: 'constrained-surface', points: [], optimize: 'performance', data: null, sent: 0, shown: 0 };
+    lastTool = 'constrained-surface';
+    showTool('constrained-surface');
+    setState('none');
+    setHud('CLICK THE POINTS THE SURFACE GOES THROUGH');
+    const marks = new THREE.Points(new THREE.BufferGeometry(), new THREE.PointsMaterial({ color: COLORS.accent, size: 7, sizeAttenuation: false, depthTest: false }));
+    marks.renderOrder = 13;
+    scene.add(marks);
+    const pointOf = e => {
+      const s = e.altKey ? null : snapNear(e, shownMeshes());
+      if (s) return s.point;
+      ray(e);
+      const hit = raycaster.intersectObjects(shownMeshes(), false)[0];
+      if (hit) return hit.point.clone();
+      const at = raycaster.ray.intersectPlane(planeOf(), new THREE.Vector3());
+      return at && (snapping(e) ? at.set(...at.toArray().map(x => Math.round(x / gridStep()) * gridStep())) : at);
+    };
+    const buttons = () => { for (const b of $$('[data-csopt]')) b.setAttribute('aria-pressed', String(b.dataset.csopt === c.optimize)); };
+    c.preview = () => {
+      buttons();
+      marks.geometry.dispose();
+      marks.geometry = new THREE.BufferGeometry().setFromPoints(c.points);
+      const n = c.points.length;
+      if (n < 3) {
+        c.data = null;
+        clearPreview();
+        $('cs-hint').textContent = `${n} POINT${n === 1 ? '' : 'S'} · CLICK ${3 - n} MORE`;
+        return setState('none');
+      }
+      let fit;
+      try { fit = constrainedSurface(c.points.map(p => p.toArray()), { tolerance: num('cs-tol'), angular: num('cs-ang'), optimize: c.optimize }); }
+      catch (e) { c.data = null; clearPreview(); $('cs-hint').textContent = say(e); return setState('failed'); }
+      c.data = splineSheetData(fit);
+      const miss = fit.error < 1e-4 ? '< 0.0001' : fit.error.toFixed(4);
+      $('cs-hint').textContent = fit.met ? `${n} POINTS · WITHIN ${miss} MM · ${fit.spans.join(' × ')} SPANS`
+        : `${n} POINTS · MISSES BY ${miss} MM: RAISE THE ANGULAR TOLERANCE`;
+      setHud(`CONSTRAINED SURFACE · ${n} POINTS`);
+      livePreview(c, () => backend.previewSplineSheet({ data: c.data }), b => showPreviewBody(b), 'cs-hint');
+    };
+    c.key = action => {
+      if (action === 'back') { c.points.pop(); c.preview(); return true; }
+      if (action === 'optimize') { c.optimize = c.optimize === 'performance' ? 'smoothness' : 'performance'; c.preview(); return true; }
+      return false;
+    };
+    c.move = e => showSnap(e.altKey ? null : snapNear(e, shownMeshes()), e);
+    c.click = e => {
+      const p = pointOf(e);
+      if (!p) return true;
+      c.points.push(p);
+      c.preview();
+      return true;
+    };
+    c.finish = async () => {
+      if (!c.data) { if (c.points.length) toast($('cs-hint').textContent); return endCmd('cancelled'); }
+      try {
+        const { ids, scene: list } = await backend.commitSplineSheet({ data: c.data });
+        endCmd('committed');
+        record('CONSTRAINED SURFACE', ids[0], `${c.points.length} POINTS`);
+        await showScene(list);
+        sel.clear();
+        sel.add({ kind: 'solid', body: ids[0] });
+        selectionChanged({ quiet: true });
+      } catch (e) { setState('failed'); toast(say(e)); }
+    };
+    c.abort = () => endCmd('cancelled');
+    c.cleanup = () => { clearPreview(); showSnap(null); marks.geometry.dispose(); marks.material.dispose(); marks.removeFromParent(); };
+    c.preview();
+  }
+
+  /**
    * Plasticity's Align Vertex: the selected curve vertices share one coordinate along X, Y or Z
    * (the user's axes), each moving the shortest way within its curve's plane. The value starts at
    * the first vertex's and can be typed.
@@ -8419,6 +8505,7 @@ export async function mount(root, backend) {
       case 'cut-curve': if (cmd) await finish(); startCutCurve(); return true;
       case 'bridge-edge': await startBridgeEdge(); return true;
       case 'align-surface': await startAlignSurface(); return true;
+      case 'constrained-surface': if (cmd) await finish(); startConstrainedSurface(); return true;
       case 'realize-instance': if (cmd?.id === 'instance') await cmd.realize(); else toast('CLICK AN INSTANCE, THEN REALIZE IT'); return true;
       case 'join': await joinSelected(); return true;
       case 'trim': await startTool('trim'); return true;
@@ -9050,6 +9137,8 @@ export async function mount(root, backend) {
   $('br-comb').onclick = () => cmd?.id === 'bridge' && cmd.key('comb');
   for (const id of ['be-p1', 'be-p2', 'be-t1a', 'be-t1b', 'be-t2a', 'be-t2b', 'be-t3a', 'be-t3b']) $(id).addEventListener('input', () => cmd?.id === 'bridge-edge' && cmd.preview());
   $('be-start').onclick = () => cmd?.id === 'bridge-edge' && cmd.cycleEnd(0);
+  for (const b of $$('[data-csopt]')) b.onclick = () => { if (cmd?.id === 'constrained-surface') { cmd.optimize = b.dataset.csopt; cmd.preview(); } };
+  for (const id of ['cs-tol', 'cs-ang']) $(id).addEventListener('input', () => cmd?.id === 'constrained-surface' && num(id) > 0 && cmd.preview());
   for (const b of $$('[data-ascont]')) b.onclick = () => cmd?.id === 'align-surface' && cmd.setContinuity(b.dataset.ascont);
   $('as-t').addEventListener('input', () => cmd?.id === 'align-surface' && num('as-t') > 0 && cmd.preview());
   for (const id of ['as-blend', 'as-infl', 'as-p0', 'as-p1']) $(id).addEventListener('input', () => cmd?.id === 'align-surface' && cmd.preview());

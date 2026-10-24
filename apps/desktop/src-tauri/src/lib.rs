@@ -526,6 +526,24 @@ async fn edge_curvature(
 }
 
 #[tauri::command]
+async fn preview_spline_sheet(
+    model: State<'_, Model>,
+    req: api::SplineSheetRequest,
+) -> Result<Option<api::Body>, api::ApiError> {
+    on_model(&model, move |m| api::preview_spline_sheet(m, req))
+        .await?
+        .transpose()
+}
+
+#[tauri::command]
+async fn commit_spline_sheet(
+    model: State<'_, Model>,
+    req: api::SplineSheetRequest,
+) -> Result<api::Duplicated, api::ApiError> {
+    on_model(&model, move |m| api::commit_spline_sheet(m, req)).await?
+}
+
+#[tauri::command]
 async fn preview_untrim(
     model: State<'_, Model>,
     req: api::UntrimRequest,
@@ -937,6 +955,8 @@ pub fn run() {
             preview_thicken,
             commit_thicken,
             edge_curvature,
+            preview_spline_sheet,
+            commit_spline_sheet,
             preview_untrim,
             commit_untrim,
             preview_unwrap,
