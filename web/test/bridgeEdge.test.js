@@ -35,8 +35,9 @@ test('an edge point knows where it is, its direction and its bend', () => {
     const e = edgePoint(comb(arc([0, 0], 10, 0, Math.PI / 2)), 0.5);
     assert.ok(Math.hypot(e.at[0] - 10 * Math.SQRT1_2, e.at[1] - 10 * Math.SQRT1_2) < 1e-9);
     assert.ok(angle(e.along, [-1, 1, 0]) < 0.01);
-    assert.ok(Math.abs(e.k - 0.1) < 1e-4);
-    assert.ok(Math.hypot(e.centre[0] + Math.SQRT1_2, e.centre[1] + Math.SQRT1_2) < 1e-6);
+    // The curvature vector points at the centre, 1 / radius long; on a circle it turns at κ²T.
+    assert.ok(Math.hypot(e.K[0] + 0.1 * Math.SQRT1_2, e.K[1] + 0.1 * Math.SQRT1_2) < 1e-5);
+    assert.ok(Math.hypot(e.dK[0] - 0.01 * Math.SQRT1_2, e.dK[1] + 0.01 * Math.SQRT1_2) < 1e-5);
     assert.equal(e.end, null);
     assert.equal(edgePoint(comb(arc([0, 0], 10, 0, 1)), 1).end, 1);
 });
@@ -63,6 +64,29 @@ test('G2 off two arcs matches their curvature at both ends', () => {
     // G1 leaves the bend off: no curvature at the ends.
     const G1 = bridgePoles(A, B, { continuity: ['G1', 'G0'] });
     assert.ok(curvature(bez(G1, 0)) < 1e-9);
+});
+
+test('G3 off an ellipse matches how its curvature changes, both ways along it', () => {
+    const ell = t => { const a = 0.3 + t; return [20 * Math.cos(a), 10 * Math.sin(a), 0]; };
+    const teeth = comb(ell);
+    // dκ/ds of the ellipse, signed by the way the bridge leaves, from close points.
+    const kappa = (f, t) => {
+        const h = 1e-4, d1 = f(t + h).map((v, j) => (v - f(t - h)[j]) / (2 * h)), d2 = f(t + h).map((v, j) => (v - 2 * f(t)[j] + f(t - h)[j]) / (h * h));
+        return curvature({ d1, d2 });
+    };
+    for (const [s, rest] of [[1, [-30, -20, 0]], [0, [40, 30, 0]]]) {
+        const A = edgePoint(teeth, s), B = edgePoint(comb(t => [rest[0] + t * 5, rest[1], 0]), 0);
+        const P = bridgePoles(A, B, { continuity: ['G3', 'G1'] });
+        assert.equal(P.length, 8);
+        const b0 = bez(P, 0), h = 1e-4, b1 = bez(P, h);
+        const ds = Math.hypot(...b0.d1) * h;
+        const bridgeRate = (curvature(b1) - curvature(b0)) / ds;
+        // Along the ellipse from the end outward: at s = 1 forward in t, at s = 0 backward.
+        const t = s, dt = 1e-3, ds2 = Math.hypot(...ell(t + dt).map((v, j) => v - ell(t)[j]));
+        const edgeRate = (s ? 1 : -1) * (kappa(ell, t + dt) - kappa(ell, t)) / ds2;
+        assert.ok(Math.abs(curvature(b0) - kappa(ell, t)) < 1e-4, `${curvature(b0)} ${kappa(ell, t)}`);
+        assert.ok(Math.abs(bridgeRate - edgeRate) < 2e-4 + 0.02 * Math.abs(edgeRate), `${bridgeRate} ${edgeRate}`);
+    }
 });
 
 test('from inside an edge the bridge heads for the other point', () => {

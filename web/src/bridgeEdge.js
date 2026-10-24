@@ -1,5 +1,6 @@
 // Plasticity's Bridge Edge: a curve between points on two body edges (each at a parameter from 0 to
-// 1 along its edge) that meets each edge in position (G0), direction (G1) or curvature too (G2).
+// 1 along its edge) that meets each edge in position (G0), direction (G1), curvature (G2) or the
+// change of curvature too (G3).
 // Off an edge's end the bridge carries the edge on; from inside an edge it leaves along the edge the
 // way that heads for the other point. Each edge is read off its curvature comb (the teeth that
 // Toggle Surface Curvature draws, evenly spaced in the edge's parameter), so both builds share it.
@@ -12,49 +13,68 @@ const cross = (a, b) => [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a
 const len = a => Math.hypot(...a);
 const unit = a => mul(a, 1 / len(a));
 
-/** Continuity names in the order Tab cycles them (Plasticity has G3 too; not here yet). */
-export const EDGE_CONTINUITY = ['G0', 'G1', 'G2'];
+/** Continuity names in the order Tab cycles them. */
+export const EDGE_CONTINUITY = ['G0', 'G1', 'G2', 'G3'];
 
 /**
  * The point of an edge at parameter `s` (0 to 1) from its comb `teeth` ({ at, dir, k }, evenly
  * spaced in the edge's parameter): where it is, the unit direction the edge runs there, its
- * curvature and the unit normal towards the centre of its bend. Ends tell which end they are.
+ * curvature vector K (curvature times the unit normal towards the centre of the bend) and how K
+ * changes per unit length along that direction (κ'N − κ²T + κτB, the third derivative in arc
+ * length). Ends tell which end they are.
  */
 export function edgePoint(teeth, s) {
     const n = teeth.length - 1;
     if (n < 2) throw new Error('that edge is too short to bridge from');
     if (!(s >= 0 && s <= 1)) throw new Error('the parameter runs from 0 to 1');
     const i = Math.round(s * n), P = j => teeth[j].at;
+    const K = j => { const t = teeth[j]; return t.k > 0 && len(t.dir) > 0 ? mul(unit(t.dir), -t.k) : [0, 0, 0]; };
     // Second-order differences, one-sided at the ends.
-    const d = i === 0 ? add(mul(sub(P(1), P(0)), 2), mul(sub(P(0), P(2)), 0.5))
-        : i === n ? add(mul(sub(P(n), P(n - 1)), 2), mul(sub(P(n - 2), P(n)), 0.5))
-        : mul(sub(P(i + 1), P(i - 1)), 0.5);
-    if (len(d) < 1e-12) throw new Error('that edge is a single point there');
-    const t = teeth[i], k = t.k > 0 && len(t.dir) > 0 ? t.k : 0;
-    return { at: [...t.at], along: unit(d), k, centre: k ? mul(unit(t.dir), -1) : [0, 0, 0], end: i === 0 ? 0 : i === n ? 1 : null };
+    const diff = F => i === 0 ? add(mul(sub(F(1), F(0)), 2), mul(sub(F(0), F(2)), 0.5))
+        : i === n ? add(mul(sub(F(n), F(n - 1)), 2), mul(sub(F(n - 2), F(n)), 0.5))
+        : mul(sub(F(i + 1), F(i - 1)), 0.5);
+    const d = diff(P), step = len(d);
+    if (step < 1e-12) throw new Error('that edge is a single point there');
+    return { at: [...P(i)], along: unit(d), K: K(i), dK: mul(diff(K), 1 / step), end: i === 0 ? 0 : i === n ? 1 : null };
 }
 
 /**
- * The bridge from edge point `A` to edge point `B` (from edgePoint) as a degree 5 Bézier, model-space
- * poles. `tension` scales how far it holds each end's direction.
+ * One side of a degree `n` Bézier bridge: its first poles from end `E` ({ at, out: the unit way the
+ * bridge leaves, K: curvature vector, dK: its change per unit length going out }) to meet it in
+ * position (G0), direction (G1), curvature (G2) or the change of curvature too (G3). The poles
+ * match the end's arc-length derivatives scaled by `L`, the bridge's length scale.
+ */
+export function bridgeSide(E, g, toward, n, L) {
+    const m = (n - 1) / 2;
+    if (g === 'G0') return Array.from({ length: m + 1 }, (_, i) => add(E.at, mul(sub(toward, E.at), i / n)));
+    const T = E.out, r2 = g === 'G2' || g === 'G3' ? E.K : [0, 0, 0];
+    const r3 = g === 'G3' ? sub(E.dK, mul(T, dot(E.K, E.K))) : [0, 0, 0];
+    const p0 = E.at, p1 = add(p0, mul(T, L / n));
+    const p2 = add(sub(mul(p1, 2), p0), mul(r2, L * L / (n * (n - 1))));
+    if (m === 2) return [p0, p1, p2];
+    const p3 = add(add(sub(mul(p2, 3), mul(p1, 3)), p0), mul(r3, L ** 3 / (n * (n - 1) * (n - 2))));
+    return [p0, p1, p2, p3];
+}
+
+/**
+ * The bridge from edge point `A` to edge point `B` (from edgePoint) as a Bézier, model-space poles:
+ * degree 5, or 7 when an end is G3. `tension` scales how far it holds each end's direction.
  */
 export function bridgePoles(A, B, { tension = 1, continuity = ['G1', 'G1'] } = {}) {
     if (!(Number.isFinite(tension) && tension > 0)) throw new Error('the tension must be greater than zero');
     for (const g of continuity) if (!EDGE_CONTINUITY.includes(g)) throw new Error(`continuity is ${EDGE_CONTINUITY.join(', ')}`);
     const gap = len(sub(B.at, A.at));
     if (gap < 1e-6) throw new Error('those points already meet');
-    const k = gap * tension / 5;
-    const side = (E, g, toward) => {
-        if (g === 'G0') return [E.at, add(E.at, mul(sub(toward, E.at), 0.2)), add(E.at, mul(sub(toward, E.at), 0.4))];
-        // Off an end, carry the edge on; inside it, head the way of the other point.
-        const out = E.end === 0 ? mul(E.along, -1) : E.end === 1 ? E.along : dot(E.along, sub(toward, E.at)) >= 0 ? E.along : mul(E.along, -1);
-        const p1 = add(E.at, mul(out, k));
-        // A degree n Bézier starts with curvature (n − 1)/n · h/k² for a bend h square to it.
-        const h = g === 'G2' ? E.k * k * k * 5 / 4 : 0;
-        return [E.at, p1, add(add(p1, mul(out, k)), mul(E.centre, h))];
+    const n = continuity.includes('G3') ? 7 : 5;
+    // Off an end, carry the edge on; inside it, head the way of the other point. Going against the
+    // edge, its curvature vector stays and its change turns round.
+    const end = (E, toward) => {
+        const fwd = E.end === 1 || (E.end === null && dot(E.along, sub(toward, E.at)) >= 0);
+        return { at: E.at, out: fwd ? E.along : mul(E.along, -1), K: E.K, dK: fwd ? E.dK : mul(E.dK, -1) };
     };
-    const [p0, p1, p2] = side(A, continuity[0], B.at), [p5, p4, p3] = side(B, continuity[1], A.at);
-    return [p0, p1, p2, p3, p4, p5];
+    const a = bridgeSide(end(A, B.at), continuity[0], B.at, n, gap * tension);
+    const b = bridgeSide(end(B, A.at), continuity[1], A.at, n, gap * tension);
+    return [...a, ...b.reverse()];
 }
 
 /**
@@ -70,6 +90,7 @@ export function bridgeCurve(poles) {
     }
     if (!N) { const a = Math.abs(X[0]) < 0.9 ? [1, 0, 0] : [0, 1, 0]; N = unit(cross(X, a)); }
     const Y = cross(N, X);
+    const knots = [...poles.map(() => 0), ...poles.map(() => 1)];
     const local = poles.map(p => { const d = sub(p, O); const w = dot(d, N); return [dot(d, X), dot(d, Y), Math.abs(w) < 1e-9 ? 0 : w]; });
-    return { origin: [...O], x: X, normal: N, kind: 'nurbs', degree: 5, poles: local, weights: local.map(() => 1), knots: [0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 1] };
+    return { origin: [...O], x: X, normal: N, kind: 'nurbs', degree: poles.length - 1, poles: local, weights: local.map(() => 1), knots };
 }
