@@ -68,3 +68,40 @@ for (const continuity of ['G0', 'G1', 'G2']) test(`a sheet's side meets a curved
         assert.ok(Math.abs(kr - kt) < 1e-6 * Math.max(1, Math.abs(kr)), `G2: ${kr} vs ${kt}`);
     });
 });
+
+test('blend extra rows carry the aligned row on, less and less', async () => {
+    const { sideOf, alignPoints, alignMoves } = await import('../src/alignSurface.js');
+    // A 6-row sheet (degree 3, two knot spans across) as plain data, its side at x = 21 meeting a flat reference at z = 0.
+    const spline = { du: 3, dv: 3, uk: [0, 0, 0, 0, 1 / 3, 2 / 3, 1, 1, 1, 1], vk: [0, 0, 0, 0, 1, 1, 1, 1], rational: false,
+        poles: Array.from({ length: 6 }, (_, i) => Array.from({ length: 4 }, (_, j) => [21 + 3 * i, 20 * j / 3, 8])) };
+    const side = sideOf(spline, [[21, 0, 8], [21, 10, 8], [21, 20, 8]]);
+    const plan = alignPoints(side, Array.from({ length: 41 }, (_, k) => [20, 20 * k / 40, 0]));
+    const flat = { at: [0, 0, 0], su: [1, 0, 0], sv: [0, 1, 0], suu: [0, 0, 0], suv: [0, 0, 0], svv: [0, 0, 0], sign: 1 };
+    const frames = plan.points.map(() => flat);
+    const rowOf = pole => Math.floor(pole / 4);
+    const plain = alignMoves(side, plan, frames, { continuity: 'G1' });
+    assert.deepEqual([...new Set(plain.map(([p]) => rowOf(p)))].sort(), [0, 1]);
+    const blended = alignMoves(side, plan, frames, { continuity: 'G1', blend: 2 });
+    const dz = row => blended.filter(([p]) => rowOf(p) === row).map(([, by]) => by[2]);
+    assert.deepEqual([...new Set(blended.map(([p]) => rowOf(p)))].sort(), [0, 1, 2, 3]);
+    for (const z of dz(2)) assert.ok(Math.abs(z - -8 * 2 / 3) < 1e-9, `row 2 follows two thirds: ${z}`);
+    for (const z of dz(3)) assert.ok(Math.abs(z - -8 / 3) < 1e-9, `row 3 follows a third: ${z}`);
+    const held = alignMoves(side, plan, frames, { continuity: 'G1', blend: 2, influence: 0.5 });
+    for (const [p, by] of held) if (rowOf(p) === 3) assert.ok(Math.abs(by[2] - -8 / 6) < 1e-9);
+});
+
+test('partial alignment eases out to the side\'s ends', async () => {
+    const { sideOf, alignPoints, alignMoves } = await import('../src/alignSurface.js');
+    const spline = { du: 3, dv: 3, uk: [0, 0, 0, 0, 1, 1, 1, 1], vk: [0, 0, 0, 0, 0.25, 0.5, 0.75, 1, 1, 1, 1], rational: false,
+        poles: Array.from({ length: 4 }, (_, i) => Array.from({ length: 7 }, (_, j) => [21 + 3 * i, 20 * j / 6, 8])) };
+    const side = sideOf(spline, [[21, 0, 8], [21, 10, 8], [21, 20, 8]]);
+    const plan = alignPoints(side, Array.from({ length: 41 }, (_, k) => [20, 20 * k / 40, 0]));
+    const flat = { at: [0, 0, 0], su: [1, 0, 0], sv: [0, 1, 0], suu: [0, 0, 0], suv: [0, 0, 0], svv: [0, 0, 0], sign: 1 };
+    const moves = alignMoves(side, plan, plan.points.map(() => flat), { continuity: 'G0', partial: [0.3, 0.7] });
+    const dz = new Map(moves.map(([p, by]) => [p, by[2]]));
+    assert.equal(dz.get(0) ?? 0, 0, 'the first corner stays');
+    assert.equal(dz.get(6) ?? 0, 0, 'the last corner stays');
+    assert.ok(Math.abs(dz.get(3) - -8) < 1e-9, 'the middle is aligned in full');
+    assert.ok(dz.get(1) > -8 && dz.get(1) < 0, 'between, it eases');
+    assert.throws(() => alignMoves(side, plan, [], { partial: [0.8, 0.2] }), /start before end/);
+});

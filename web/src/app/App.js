@@ -615,6 +615,9 @@ const SHELL = `
       <span class="label">CONTINUITY</span>
       <div class="seg" role="group" aria-label="Continuity with the reference"><button data-ascont="G0" aria-pressed="false" title="Meet the reference edge (G0)">G0</button><button data-ascont="G1" aria-pressed="true" title="Meet it and its tangent plane (G1)">G1</button><button data-ascont="G2" aria-pressed="false" title="Meet it, its tangent plane and its curvature (G2)">G2</button></div>
       <div class="field" title="How fast the sheet leaves its side, against how fast it does now (D)"><label for="w3d-as-t">TENSION</label><input id="w3d-as-t" data-id="as-t" type="number" step="0.1" min="0.05" value="1"></div>
+      <div class="field" title="How many more rows of control points follow the aligned ones, less and less (0: none)"><label for="w3d-as-blend">BLEND EXTRA ROWS</label><input id="w3d-as-blend" data-id="as-blend" type="number" step="1" min="0" value="0"></div>
+      <div class="field" title="How much the sheet's own shape holds the blended rows back (0 to 1)"><label for="w3d-as-infl">INPUT SHAPE INFLUENCE</label><input id="w3d-as-infl" data-id="as-infl" type="number" step="0.1" min="0" max="1" value="0"></div>
+      <div class="field two" title="Align in full only between these fractions along the side, easing out to the side's ends"><label for="w3d-as-p0">PARTIAL START · END</label><input id="w3d-as-p0" data-id="as-p0" type="number" step="0.05" min="0" max="1" value="0" aria-label="Partial start"><input data-id="as-p1" type="number" step="0.05" min="0" max="1" value="1" aria-label="Partial end"></div>
     </div>
     <div class="sec" data-panel="insert-knot" hidden>
       <span class="hint" data-id="ik-hint">CLICK A CURVE TO ADD A CONTROL POINT THERE; ITS SHAPE STAYS THE SAME</span>
@@ -7001,7 +7004,10 @@ export async function mount(root, backend) {
     showTool('align-surface');
     setState('none');
     setTarget(`${label(target.body)} → ${label(reference.body)}`);
-    const buttons = () => { for (const b of $$('[data-ascont]')) b.setAttribute('aria-pressed', String(b.dataset.ascont === c.continuity)); };
+    const buttons = () => {
+      for (const b of $$('[data-ascont]')) b.setAttribute('aria-pressed', String(b.dataset.ascont === c.continuity));
+      $('as-infl').disabled = !(num('as-blend') > 0);
+    };
     c.preview = () => {
       buttons();
       const text = `ALIGN ${c.continuity} · TENSION ${num('as-t')}`;
@@ -7009,7 +7015,7 @@ export async function mount(root, backend) {
       setHud(text);
       livePreview(c, async () => {
         c.req = null;
-        const req = await alignRequest(backend, { target, reference, continuity: c.continuity, tension: num('as-t') });
+        const req = await alignRequest(backend, { target, reference, continuity: c.continuity, tension: num('as-t'), blend: Math.max(0, Math.round(num('as-blend') || 0)), influence: Math.min(1, Math.max(0, num('as-infl') || 0)), partial: [num('as-p0'), num('as-p1')] });
         const b = await backend.previewMoveFacePoles(req);
         c.req = req;
         return b;
@@ -8921,6 +8927,7 @@ export async function mount(root, backend) {
   $('be-start').onclick = () => cmd?.id === 'bridge-edge' && cmd.cycleEnd(0);
   for (const b of $$('[data-ascont]')) b.onclick = () => cmd?.id === 'align-surface' && cmd.setContinuity(b.dataset.ascont);
   $('as-t').addEventListener('input', () => cmd?.id === 'align-surface' && num('as-t') > 0 && cmd.preview());
+  for (const id of ['as-blend', 'as-infl', 'as-p0', 'as-p1']) $(id).addEventListener('input', () => cmd?.id === 'align-surface' && cmd.preview());
   $('be-end').onclick = () => cmd?.id === 'bridge-edge' && cmd.cycleEnd(1);
   $('br-end').onclick = () => cmd?.id === 'bridge' && cmd.cycleEnd(1);
   $('oc-lock').onclick = () => cmd?.id === 'offset-curve' && cmd.key('lock');
