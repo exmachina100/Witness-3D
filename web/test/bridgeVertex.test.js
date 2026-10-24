@@ -71,3 +71,30 @@ test('G3 also matches how the curvature changes: none off an arc', () => {
     const k5 = u => { const a = at(E1, u), c = at(E2, u); return (a[0] * c[1] - a[1] * c[0]) / Math.hypot(a[0], a[1]) ** 3; };
     assert.ok(Math.abs((k5(h) - k5(0)) / (Math.hypot(...at(E1, 0).slice(0, 2)) * h)) > 1e-3);
 });
+
+test('per-end G1, G2 and G3 tensions move their own poles and keep each end\'s continuity', () => {
+    const base = bridgeContinuous(arc, 1, line, 0, { continuity: ['G3', 'G3'] }).poles;
+    const at = (Q, u) => { let R = Q.map(q => [...q]); while (R.length > 1) R = R.slice(1).map((q, i) => q.map((v, j) => (1 - u) * R[i][j] + u * v)); return R[0]; };
+    const kappaAt = (P, u) => {
+        const n = P.length - 1, D1 = P.slice(1).map((q, i) => q.map((v, j) => n * (v - P[i][j]))), D2 = D1.slice(1).map((q, i) => q.map((v, j) => (n - 1) * (v - D1[i][j])));
+        const a = at(D1, u), c = at(D2, u);
+        return { k: (a[0] * c[1] - a[1] * c[0]) / Math.hypot(a[0], a[1]) ** 3, speed: Math.hypot(a[0], a[1]) };
+    };
+    const rate = P => { const h = 1e-4, a = kappaAt(P, 0), b = kappaAt(P, h); return (b.k - a.k) / (a.speed * h); };
+    const same = (p, q) => Math.hypot(p[0] - q[0], p[1] - q[1]) < 1e-9;
+    // G1 tension at the start only: the start's first poles move out, the end's stay.
+    const t1 = bridgeContinuous(arc, 1, line, 0, { continuity: ['G3', 'G3'], tension: [1.6, 1] }).poles;
+    assert.ok(!same(t1[1], base[1]) && same(t1[6], base[6]) && same(t1[5], base[5]));
+    close(kappaAt(t1, 0).k, 0.1, 1e-9);
+    close(rate(t1), 0, 2e-4);
+    // G2 tension: the first pole stays, the second and third move, curvature and its change kept.
+    const t2 = bridgeContinuous(arc, 1, line, 0, { continuity: ['G3', 'G3'], tension2: [2, 1] }).poles;
+    assert.ok(same(t2[1], base[1]) && !same(t2[2], base[2]) && !same(t2[3], base[3]));
+    close(kappaAt(t2, 0).k, 0.1, 1e-9);
+    close(rate(t2), 0, 2e-4);
+    // G3 tension: only the third pole moves.
+    const t3 = bridgeContinuous(arc, 1, line, 0, { continuity: ['G3', 'G3'], tension3: [0.4, 1] }).poles;
+    assert.ok(same(t3[1], base[1]) && same(t3[2], base[2]) && !same(t3[3], base[3]));
+    close(rate(t3), 0, 2e-4);
+    assert.throws(() => bridgeContinuous(arc, 1, line, 0, { tension2: [1, 0] }), /tension/);
+});

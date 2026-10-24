@@ -115,6 +115,7 @@ button:focus-visible, input:focus-visible { outline: 1px solid var(--accent); ou
 .sec { padding: 14px; display: flex; flex-direction: column; gap: 8px; border-bottom: 1px dashed var(--rule-dash); }
 .sec > .label { color: var(--muted); }
 .field { display: grid; grid-template-columns: 86px 1fr; align-items: center; gap: 8px; }
+.field.two { grid-template-columns: 86px 1fr 1fr; }
 .field label { color: var(--muted); }
 .field input { width: 100%; min-width: 0; font: inherit; letter-spacing: 1px; color: var(--ink); background: var(--ground); border: 1px solid var(--rule); padding: 8px 9px; font-variant-numeric: tabular-nums; }
 [data-panel="text"] textarea { width: 100%; box-sizing: border-box; font: inherit; letter-spacing: 1px; color: var(--ink); background: var(--ground); border: 1px solid var(--rule); padding: 8px 9px; resize: vertical; }
