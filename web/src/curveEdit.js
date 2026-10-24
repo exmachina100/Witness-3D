@@ -1018,6 +1018,8 @@ function segHit(p0, p1, q0, q1) {
     const t = cross2(sub(q0, p0), s) / den, u = cross2(sub(q0, p0), r) / den;
     return t > 1e-9 && t < 1 - 1e-9 && u >= -1e-9 && u <= 1 + 1e-9 ? t : null;
 }
+/** The values sorted, with ones within 1e-9 of the one before dropped (the cut points stay exact). */
+const distinct = vs => [...vs].sort((x, y) => x - y).filter((v, i, a) => i === 0 || v - a[i - 1] > 1e-9);
 const segmentsOf = ({ points, closed }) => {
     const out = [];
     for (let i = 0; i < points.length - 1; i++) out.push([points[i], points[i + 1]]);
@@ -1049,7 +1051,7 @@ export function trim(c, others, at) {
             const d = dist(at, add(a, mul(ab, t)));
             if (d < best.d) best = { d, s: i + t };
         }
-        const cuts = [...new Set(breaks.map(b => +b.toFixed(9)))].sort((x, y) => x - y);
+        const cuts = distinct(breaks);
         const run = (s0, s1) => { // points from position s0 to s1, going forward (wrapping when closed)
             const out = [pos(s0)];
             const end = s1 >= s0 ? s1 : s1 + m;
@@ -1098,7 +1100,7 @@ export function trim(c, others, at) {
                 else if (t > 1e-9 && t < 1 - 1e-9) breaks.push(t);
             }
         }
-        const cuts = [...new Set(breaks.map(b => +b.toFixed(9)))].sort((x, y) => x - y);
+        const cuts = distinct(breaks);
         const s = fr(at);
         if (c.kind === 'arc') {
             const marks = [0, ...cuts, 1];
@@ -1220,7 +1222,7 @@ function piecesBetween(pieces, s0, s1) {
 }
 function trimPieces(pieces, closed, cutters, at) {
     const P = pieces.length;
-    const cuts = [...new Set(pieces.flatMap((q, k) => pieceCuts(q, cutters).map(f => +(k + f).toFixed(9))))].sort((x, y) => x - y);
+    const cuts = distinct(pieces.flatMap((q, k) => pieceCuts(q, cutters).map(f => k + f)));
     let best = { d: Infinity, s: 0 };
     pieces.forEach((q, k) => { const n = pieceNearest(q, at); if (n.d < best.d) best = { d: n.d, s: k + n.f }; });
     if (!closed) {
@@ -1285,7 +1287,7 @@ function trimNurbs(c, cutters, at) {
         const u = (a + b) / 2;
         if (u > k0 + 1e-9 * (k1 - k0) && u < k1 - 1e-9 * (k1 - k0)) breaks.push(u);
     }
-    const cuts = [...new Set(breaks.map(u => +u.toFixed(10)))].sort((x, y) => x - y);
+    const cuts = distinct(breaks);
     const s = nearestParam(n, at), shape = m => withShape(c, { kind: 'nurbs', degree: m.degree, poles: m.poles, weights: m.weights, knots: m.knots });
     if (!closed) {
         const marks = [k0, ...cuts, k1], keep = [];

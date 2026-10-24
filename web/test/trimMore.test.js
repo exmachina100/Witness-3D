@@ -77,3 +77,13 @@ test('a joined curve is trimmed across its pieces', () => {
     near(joined.pieces[0].points[0], [-5, 0]);
     assert.ok(Math.abs(joined.pieces[1].end[0] - 8) < 1e-6);
 });
+
+test('a curve trimmed against a trimmed one is cut where that one ends on it', () => {
+    const e = { ...plane, kind: 'ellipse', center: [0, 0], major: [20, 0], minor: 7 };
+    const L = line([-13, 9], [17, -8]);
+    const [arc] = trim(e, [L], [-10, -6]);
+    // The kept arc ends on the line at both crossings, so the line's tail cuts off there.
+    const kept = trim(L, [arc], [-12, 8.5]);
+    assert.equal(kept.length, 2);
+    near(kept[0].points[1], kept[1].points[0]);
+});
