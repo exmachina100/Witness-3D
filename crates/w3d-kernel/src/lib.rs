@@ -525,6 +525,12 @@ pub trait Kernel {
         Err(KernelError::Invalid("this kernel cannot cut with faces"))
     }
     /// A plane as a cutting tool, a square `size` each way.
+    /// A sheet of one B-spline surface given as numbers: u and v degrees, pole counts, flat knot
+    /// counts, the flat u then v knots, then the poles (x, y, z), rows along u. Constrained Surface
+    /// fits these in the UI.
+    fn spline_sheet(&self, _data: &[f64]) -> Result<Self::Solid, KernelError> {
+        Err(KernelError::Invalid("this kernel cannot make spline sheets"))
+    }
     fn plane_sheet(&self, _origin: DVec3, _normal: DVec3, _size: f64) -> Result<Self::Solid, KernelError> {
         Err(KernelError::Invalid("this kernel cannot cut with planes"))
     }

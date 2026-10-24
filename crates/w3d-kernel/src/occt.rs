@@ -515,6 +515,9 @@ impl Kernel for Occt {
         s.face_sheet(face as usize, size).map_err(shim)
     }
 
+    fn spline_sheet(&self, data: &[f64]) -> Result<Shape, KernelError> {
+        Shape::spline_sheet(data).map_err(shim)
+    }
     fn plane_sheet(&self, origin: DVec3, normal: DVec3, size: f64) -> Result<Shape, KernelError> {
         Shape::plane_sheet(origin, normal, size).map_err(shim)
     }

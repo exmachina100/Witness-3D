@@ -1359,6 +1359,27 @@ pub fn edge_curvature(m: &Model, req: EdgeCurvatureRequest) -> Result<Vec<w3d_ke
     m.call(move |doc| Ok(doc.edge_curvature(req.body, req.edge, req.n.unwrap_or(160).clamp(1, 2000))?))
 }
 
+/// Constrained Surface: a sheet of the B-spline surface the UI fitted, as flat numbers (see
+/// `Kernel::spline_sheet`).
+#[derive(Deserialize, Debug, Clone)]
+pub struct SplineSheetRequest {
+    pub data: Vec<f64>,
+}
+
+pub fn preview_spline_sheet(m: &Model, req: SplineSheetRequest) -> Option<Result<Body, ApiError>> {
+    m.preview(move |doc| {
+        let sheet = doc.preview_spline_sheet(&req.data)?;
+        Ok(body(&doc.kernel, 0, &sheet)?)
+    })
+}
+
+pub fn commit_spline_sheet(m: &Model, req: SplineSheetRequest) -> Result<Duplicated, ApiError> {
+    m.call(move |doc| {
+        let id = doc.commit_spline_sheet(&req.data)?;
+        Ok(Duplicated { ids: vec![id], scene: bodies(doc)? })
+    })
+}
+
 /// Untrim: a sheet of the whole surface under each of `faces` of `body`, with the faces' edges
 /// imprinted on it with `keep`.
 #[derive(Deserialize, Debug, Clone)]

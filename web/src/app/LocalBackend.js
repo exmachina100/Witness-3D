@@ -22,6 +22,7 @@ import { extendSheet, extendSheetTo } from '../ExtendSheet.js';
 import { raiseFaces, rebuildFaces } from '../rebuildFace.js';
 import { matchFacesGrow, wideSurface } from '../matchFace.js';
 import { compound, untrimFace } from '../untrim.js';
+import { splineSheet } from '../splineSheet.js';
 import { unwrapFace } from '../unwrap.js';
 import { edgeCurvature } from '../edgeCurvature.js';
 import { edgeFaces } from '../edgeFaces.js';
@@ -829,6 +830,20 @@ export class LocalBackend {
         const s = this.shapes.get(body);
         if (!s) throw new Error('that body no longer exists');
         return edgeCurvature(s, edge, Math.min(2000, Math.max(1, n)));
+    }
+
+    /** Constrained Surface: the sheet of the surface fitted through the clicked points (splineSheet.js numbers). */
+    previewSplineSheet({ data }) {
+        return this.latest(async () => this.body(0, splineSheet(data)));
+    }
+
+    /** Constrained Surface as one undo step: the sheet is a new body. */
+    async commitSplineSheet({ data }) {
+        const sheet = splineSheet(data);
+        this.checkpoint();
+        const id = this.nextId++;
+        this.put(id, sheet);
+        return { ids: [id], scene: this.bodies() };
     }
 
     /** Plasticity's Untrim: a sheet of the whole surface under each of `faces` of `body`, edges imprinted with `keep`. */
