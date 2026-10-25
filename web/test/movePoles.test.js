@@ -23,9 +23,19 @@ test('a flat sheet corner lifts, its edges with it', async () => {
     assert.ok(Math.abs(top(facePoles(moved)[0]) - 5) < 1e-9);
 });
 
-test('a block corner is refused but a point inside a rebuilt face moves', () => {
+test('a block corner moves in every face meeting there', () => {
     const b = box({ x: 0, y: 0, z: 0 }, { x: 10, y: 10, z: 10 });
-    assert.throws(() => moveFacePoles(b, [[0, 0, [0, 0, 1]]]), /shared with another face/);
+    const faces = facePoles(b);
+    const n = faces.findIndex(rows => rows.flat().every(p => Math.abs(p[2] - 10) < 1e-9));
+    const k = faces[n].flat().findIndex(p => p[0] === 10 && p[1] === 10);
+    const moved = moveFacePoles(b, [[n, k, [0, 0, 5]]]);
+    assert.ok(Math.abs(Math.max(...facePoles(moved).map(top)) - 15) < 1e-6);
+    // The top and two sides become twisted (bilinear) faces: the top is z = 10 + 5 (x/10)(y/10).
+    assert.ok(Math.abs(volume(moved) - 1125) < 1e-6, `${volume(moved)}`);
+});
+
+test('a point inside a rebuilt face moves', () => {
+    const b = box({ x: 0, y: 0, z: 0 }, { x: 10, y: 10, z: 10 });
     const faces = facePoles(b);
     const topFace = faces.findIndex(rows => rows.flat().every(p => Math.abs(p[2] - 10) < 1e-9));
     const { shape } = rebuildFaces(b, [topFace], { explicit: true, degree: [3, 3], spans: [3, 3] });

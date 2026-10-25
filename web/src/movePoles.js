@@ -1,7 +1,8 @@
 // Moving a face's control points in the browser build (G on a face's points, Slide Surface CV), as
 // w3d_move_face_poles does it on the desktop: the face's control surface (facePoles.js) with the
 // points moved, the face made again on it and sewn back among the body's other faces. Edges the
-// face shares with another face must stay put; its own open edges follow the surface.
+// face shares with another face move only with points the other face has too (a block's corner is
+// a point of each face meeting there, and moves in all of them); its own open edges follow the surface.
 
 import { boundaryEdges, numbered, oc } from './Kernel.js';
 import { controlSurface } from './facePoles.js';
@@ -19,12 +20,39 @@ export function moveFacePoles(shape, moves) {
         if (!by.every(Number.isFinite)) throw new Error('the move must be a number');
         byFace.set(face, [...(byFace.get(face) ?? []), [pole, by]]);
     }
+    const surfaces = new Map(), surfaceOf = n => {
+        if (!surfaces.has(n)) surfaces.set(n, all[n] ? controlSurface(all[n]) : null);
+        return surfaces.get(n);
+    };
+    const poleAt = (s, k) => { const nv = s.NbVPoles(), p = s.Pole(Math.floor(k / nv) + 1, k % nv + 1); return [p.X(), p.Y(), p.Z()]; };
+    // A point that sits where another face has one too (a block's corner is a corner of each of its
+    // three faces) moves in every such face, so the faces stay joined, as Plasticity does.
+    for (const [n, list] of [...byFace]) {
+        const cs = surfaceOf(n);
+        if (!cs) continue;
+        for (const [k, by] of list) {
+            if (!(k >= 0 && k < cs.surface.NbUPoles() * cs.surface.NbVPoles())) continue;
+            const at = poleAt(cs.surface, k);
+            all.forEach((_, m) => {
+                if (m === n) return;
+                const other = surfaceOf(m);
+                if (!other) return;
+                const count = other.surface.NbUPoles() * other.surface.NbVPoles();
+                for (let j = 0; j < count; j++) {
+                    const q = poleAt(other.surface, j);
+                    if (Math.hypot(q[0] - at[0], q[1] - at[1], q[2] - at[2]) > 1e-6) continue;
+                    const mine = byFace.get(m) ?? [];
+                    if (!mine.some(([i]) => i === j)) byFace.set(m, [...mine, [j, by]]);
+                }
+            });
+        }
+    }
     const replaced = new Map();
     let gap = 1e-4;
     for (const [n, list] of byFace) {
         const face = all[n];
         if (!face) throw new Error('that face no longer exists');
-        const cs = controlSurface(face);
+        const cs = surfaceOf(n);
         if (!cs) throw new Error('this build cannot move the points of that face; rebuild it first');
         const s = cs.surface, nv = s.NbVPoles();
         for (const [k, [dx, dy, dz]] of list) {

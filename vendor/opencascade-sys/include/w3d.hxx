@@ -2256,6 +2256,72 @@ inline TopoDS_Face w3d_face_on_spline(const TopoDS_Face &f, const W3dSplineFace 
   return nf;
 }
 
+// The faces of `work` (numbered in `map`) with the poles in `byFace` moved, each moved face made
+// again on its moved surface from its own edges' curves on it, and all faces sewn back together (a
+// solid again if it was one). For points that several faces share, which move together.
+template <class SplineOf>
+inline std::unique_ptr<TopoDS_Shape> w3d_move_poles_sewn(const TopoDS_Shape &work, const TopTools_IndexedMapOfShape &map,
+                                                       const std::map<int, std::vector<std::pair<int, gp_Vec>>> &byFace, SplineOf splineOf) {
+  BRepBuilderAPI_Sewing sew(1e-4);
+  for (int n = 0; n < map.Extent(); n++) {
+    const TopoDS_Face f = TopoDS::Face(map(n + 1));
+    auto found = byFace.find(n);
+    if (found == byFace.end()) { sew.Add(f); continue; }
+    W3dSplineFace *sf = splineOf(n);
+    if (!sf) throw std::runtime_error("the points of that face can't be moved");
+    Handle(Geom_BSplineSurface) made = Handle(Geom_BSplineSurface)::DownCast(sf->surface->Copy());
+    const gp_Trsf back = sf->loc.Transformation().Inverted();
+    const int nv = made->NbVPoles();
+    for (auto &[k, by] : found->second) {
+      if (k < 0 || k >= made->NbUPoles() * nv) throw std::out_of_range("that control point no longer exists");
+      made->SetPole(k / nv + 1, k % nv + 1, made->Pole(k / nv + 1, k % nv + 1).Translated(by.Transformed(back)));
+    }
+    const TopoDS_Face src = TopoDS::Face(sf->face.Oriented(TopAbs_FORWARD));
+    std::unique_ptr<BRepBuilderAPI_MakeFace> mk;
+    for (TopoDS_Iterator wi(src); wi.More(); wi.Next()) {
+      if (wi.Value().ShapeType() != TopAbs_WIRE) continue;
+      BRepBuilderAPI_MakeWire wire;
+      for (BRepTools_WireExplorer ex(TopoDS::Wire(wi.Value()), src); ex.More(); ex.Next()) {
+        const TopoDS_Edge e = ex.Current();
+        if (BRep_Tool::IsClosed(e, src)) throw std::runtime_error("those points hold an edge on a seam; move points inside the face");
+        if (BRep_Tool::Degenerated(e)) continue;
+        double a, b;
+        Handle(Geom2d_Curve) pc = BRep_Tool::CurveOnSurface(e, src, a, b);
+        if (pc.IsNull()) throw std::runtime_error("an edge of that face has no curve on it");
+        TopoDS_Edge ne = BRepBuilderAPI_MakeEdge(pc, made, a, b).Edge();
+        if (e.Orientation() == TopAbs_REVERSED) ne.Reverse();
+        BRepLib::BuildCurves3d(ne);
+        wire.Add(ne);
+        if (!wire.IsDone()) throw std::runtime_error("the face's edges could not be joined on the moved surface");
+      }
+      if (!mk) mk.reset(new BRepBuilderAPI_MakeFace(made, wire.Wire(), Standard_True));
+      else mk->Add(wire.Wire());
+    }
+    if (!mk || !mk->IsDone()) throw std::runtime_error("the moved surface could not be made into a face");
+    TopoDS_Face nf = mk->Face();
+    ShapeFix_Face fix(nf);
+    fix.Perform();
+    nf = fix.Face();
+    if (!sf->loc.IsIdentity()) nf.Move(sf->loc);
+    if (f.Orientation() == TopAbs_REVERSED) nf.Reverse();
+    sew.Add(nf);
+  }
+  sew.Perform();
+  TopoDS_Shape result = sew.SewedShape();
+  TopExp_Explorer solid(work, TopAbs_SOLID);
+  if (solid.More()) {
+    TopExp_Explorer shell(result, TopAbs_SHELL);
+    if (!shell.More()) throw std::runtime_error("moving those points no longer closes the solid");
+    BRepBuilderAPI_MakeSolid ms(TopoDS::Shell(shell.Current()));
+    shell.Next();
+    if (shell.More() || !ms.IsDone()) throw std::runtime_error("moving those points no longer closes the solid");
+    result = ms.Solid();
+    BRepLib::OrientClosedSolid(TopoDS::Solid(result));
+  }
+  if (!w3d_is_valid(result)) throw std::runtime_error("moving those points would leave the faces invalid; move them less, or move fewer");
+  return std::unique_ptr<TopoDS_Shape>(new TopoDS_Shape(result));
+}
+
 // Plasticity's surface control points moved (G on a face's points, Slide Surface CV): `moves` is
 // (face, pole, dx, dy, dz) per point, poles numbered as w3d_face_poles gives them. A face that isn't
 // a B-spline becomes one exactly first. The face's own open edges follow the new surface; an edge it
@@ -2270,6 +2336,46 @@ inline std::unique_ptr<TopoDS_Shape> w3d_move_face_poles(const TopoDS_Shape &sha
     TopExp::MapShapesAndAncestors(work, TopAbs_EDGE, TopAbs_FACE, owners);
     std::map<int, std::vector<std::pair<int, gp_Vec>>> byFace;
     for (size_t i = 0; i < moves.size(); i += 5) byFace[(int)moves[i]].push_back({(int)moves[i + 1], gp_Vec(moves[i + 2], moves[i + 3], moves[i + 4])});
+    for (auto &[index, list] : byFace)
+      if (index < 0 || index >= map.Extent()) throw std::out_of_range("that face no longer exists");
+    // A point that sits where another face has one too (a block's corner is a corner of each of
+    // its three faces) moves in every such face, so the faces stay joined, as Plasticity does.
+    std::map<int, W3dSplineFace> splines;
+    auto splineOf = [&](int n) -> W3dSplineFace * {
+      auto it = splines.find(n);
+      if (it != splines.end()) return it->second.surface.IsNull() ? nullptr : &it->second;
+      W3dSplineFace sf;
+      try { sf = w3d_spline_face(TopoDS::Face(map(n + 1))); } catch (const std::exception &) { sf.surface.Nullify(); } catch (const Standard_Failure &) { sf.surface.Nullify(); }
+      auto &slot = splines[n] = sf;
+      return slot.surface.IsNull() ? nullptr : &slot;
+    };
+    auto poleAt = [](const W3dSplineFace &sf, int k) {
+      const int nv = sf.surface->NbVPoles();
+      return sf.surface->Pole(k / nv + 1, k % nv + 1).Transformed(sf.loc.Transformation());
+    };
+    bool spread = false;
+    for (auto [n, list] : std::map<int, std::vector<std::pair<int, gp_Vec>>>(byFace)) {
+      W3dSplineFace *sf = splineOf(n);
+      if (!sf) continue;
+      for (auto &[k, by] : list) {
+        if (k < 0 || k >= sf->surface->NbUPoles() * sf->surface->NbVPoles()) continue;
+        const gp_Pnt at = poleAt(*sf, k);
+        for (int m = 0; m < map.Extent(); m++) {
+          if (m == n) continue;
+          W3dSplineFace *other = splineOf(m);
+          if (!other) continue;
+          const int count = other->surface->NbUPoles() * other->surface->NbVPoles();
+          for (int j = 0; j < count; j++) {
+            if (poleAt(*other, j).Distance(at) > 1e-6) continue;
+            auto &mine = byFace[m];
+            bool have = false;
+            for (auto &[i, _] : mine) have |= i == j;
+            if (!have) { mine.push_back({j, by}); spread = true; }
+          }
+        }
+      }
+    }
+    if (spread) return w3d_move_poles_sewn(work, map, byFace, splineOf);
     Handle(BRepTools_ReShape) rs = new BRepTools_ReShape();
     for (auto &[index, list] : byFace) {
       if (index < 0 || index >= map.Extent()) throw std::out_of_range("that face no longer exists");

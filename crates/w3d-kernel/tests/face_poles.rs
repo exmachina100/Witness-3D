@@ -60,11 +60,24 @@ fn moving_a_sheet_corner_lifts_it_with_its_edges() {
 }
 
 #[test]
-fn a_block_corner_point_is_refused_but_an_inner_one_moves() {
+fn a_block_corner_moves_in_every_face_meeting_there() {
     let k = Occt;
     let b = k.box_from_corners(DVec3::ZERO, DVec3::new(10.0, 10.0, 10.0));
-    // A corner of a block's face holds edges shared with its neighbours.
-    assert!(k.move_face_poles(&b, &[(0, 0, DVec3::new(0.0, 0.0, 1.0))]).is_err());
+    let faces = k.face_poles(&b);
+    let top = faces.iter().position(|rows| rows.iter().flatten().all(|p| (p.z - 10.0).abs() < 1e-9)).unwrap();
+    let n = faces[top].iter().flatten().position(|p| (*p - DVec3::splat(10.0)).length() < 1e-9).unwrap() as u32;
+    let moved = k.move_face_poles(&b, &[(top as u32, n, DVec3::new(0.0, 0.0, 5.0))]).unwrap();
+    assert!(k.is_valid(&moved) && !k.is_sheet(&moved), "the block no longer closes");
+    let t = k.tessellate(&moved, 0.001).unwrap();
+    assert!((highest(&t) - 15.0).abs() < 1e-3, "{}", highest(&t));
+    // The top is now the twisted face z = 10 + 5 (x/10)(y/10), and the two sides beside the corner twist with it.
+    assert!((t.volume() - 1125.0).abs() < 0.5, "{}", t.volume());
+}
+
+#[test]
+fn a_point_inside_a_rebuilt_block_face_moves() {
+    let k = Occt;
+    let b = k.box_from_corners(DVec3::ZERO, DVec3::new(10.0, 10.0, 10.0));
     // Rebuilt with three spans each way, the top face has points inside its edges that move freely.
     let t = k.tessellate(&b, 0.01).unwrap();
     let top = t.face_planes.iter().position(|p| p.as_ref().is_some_and(|p| p.origin[2] > 9.99 && p.normal[2] > 0.99)).unwrap() as u32;
