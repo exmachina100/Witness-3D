@@ -14,6 +14,7 @@ import { faceSurfaces } from '../faceSurfaces.js';
 import { facePoles } from '../facePoles.js';
 import { faceUvn } from '../faceUvn.js';
 import { deformBodies } from '../deformBody.js';
+import { filletFaces, refilletFaces, removeFaces } from '../removeFace.js';
 import { moveFacePoles, subdivideFaces } from '../movePoles.js';
 import { chordal, fullRound, limitRound, reshapeRounds } from '../filletShape.js';
 import { bridgeSurface } from '../BridgeSurface.js';
@@ -469,6 +470,43 @@ export class LocalBackend {
         if (req.keep) ids = made.map(s => { const id = this.nextId++; this.put(id, s); return id; });
         else req.bodies.forEach((id, i) => this.put(id, made[i]));
         return { ids, scene: this.bodies() };
+    }
+
+    /** Remove Face (see removeFace.js): the faces gone and the gap closed by their flat neighbours. */
+    removeFacesResult({ body, faces }) {
+        const s = this.shapes.get(body);
+        if (!s) throw new Error('that body no longer exists');
+        return removeFaces(s, faces);
+    }
+    previewRemoveFaces(req) { return this.latest(async () => this.body(req.body, this.removeFacesResult(req))) }
+    async commitRemoveFaces(req) {
+        const made = this.removeFacesResult(req);
+        this.checkpoint();
+        this.put(req.body, made);
+        return { id: req.body, scene: this.bodies() };
+    }
+
+    /** Remove Fillets: the fillet faces of a body, or the fillet chains holding `faces`. */
+    async filletFaces({ body, faces = [] }) {
+        const s = this.shapes.get(body);
+        if (!s) throw new Error('that body no longer exists');
+        const found = filletFaces(s, faces);
+        if (!found.length) throw new Error(faces.length ? 'those faces are not fillets' : 'no fillets found on that body');
+        return found;
+    }
+
+    /** Dimension on a fillet: the chain `faces` of `body` made again at `radius`. */
+    refilletResult({ body, faces, radius }) {
+        const s = this.shapes.get(body);
+        if (!s) throw new Error('that body no longer exists');
+        return refilletFaces(s, faces, radius);
+    }
+    previewRefillet(req) { return this.latest(async () => this.body(req.body, this.refilletResult(req))) }
+    async commitRefillet(req) {
+        const made = this.refilletResult(req);
+        this.checkpoint();
+        this.put(req.body, made);
+        return { id: req.body, scene: this.bodies() };
     }
 
     /** Deform Curve: points on a face to (s, t, n) face coordinates, or back with `map` (see faceUvn.js). */
