@@ -2949,11 +2949,15 @@ export async function mount(root, backend) {
   function startTransform(kind, { follow = null } = {}) {
     // A face's picked control points move on their own, not their body.
     const poles = sel.list('pole').filter(p => poleOf(p));
-    const ids = (sel.solids.length ? sel.solids : [...new Set(sel.list().filter(it => it.body !== undefined && it.kind !== 'pole').map(it => it.body))]).filter(id => org.shows(id));
+    // Faces on their own move and turn by themselves, their neighbours following (Move Face).
+    const fb = faceBody(), faceMove = fb !== null ? { body: fb, faces: sel.list('face').map(it => it.n).sort((a, b) => a - b) } : null;
+    if (faceMove && kind === 'scale') return toast('FACES MOVE (G) AND TURN (R); SCALE THE WHOLE SOLID');
+    if (faceMove && !backend.previewMoveFaces) return toast(`${kind.toUpperCase()} OF FACES IS NOT IN THIS BUILD YET`);
+    const ids = faceMove ? [] : (sel.solids.length ? sel.solids : [...new Set(sel.list().filter(it => it.body !== undefined && it.kind !== 'pole').map(it => it.body))]).filter(id => org.shows(id));
     // Curves move whole; picked vertices (a NURBS curve's control points) move within their curve's plane.
     const curves = sel.curves.filter(curveById);
     const verts = sel.list('vertex').filter(v => curveById(v.id) && !curves.includes(v.id));
-    if (!ids.length && !curves.length && !verts.length && !poles.length) return toast(`SELECT A SOLID, CURVE OR VERTEX TO ${kind.toUpperCase()}`);
+    if (!faceMove && !ids.length && !curves.length && !verts.length && !poles.length) return toast(`SELECT A SOLID, CURVE OR VERTEX TO ${kind.toUpperCase()}`);
     if ((curves.length || verts.length) && !backend.replaceCurves) return toast(`${kind.toUpperCase()} OF CURVES IS NOT IN THIS BUILD YET`);
     if (poles.length && !backend.previewMoveFacePoles) return toast(`${kind.toUpperCase()} OF SURFACE POINTS IS NOT IN THIS BUILD YET`);
     if (new Set(poles.map(p => p.body)).size > 1) return toast('PICK THE SURFACE POINTS OF ONE BODY AT A TIME');
@@ -2963,6 +2967,7 @@ export async function mount(root, backend) {
     for (const id of curves) { const src = curveById(id), f = curveFrame(src); for (const p of curve2d(src)) box.expandByPoint(lift(f, p)); }
     for (const v of verts) box.expandByPoint(vertexAt(v));
     for (const p of poles) box.expandByPoint(poleOf(p));
+    if (faceMove) for (const n of faceMove.faces) box.expandByPoint(faceCentre(bodyOf(faceMove.body), n));
     const pivot = box.getCenter(new THREE.Vector3());
     const handle = new THREE.Object3D();
     handle.position.copy(pivot);
@@ -2974,10 +2979,10 @@ export async function mount(root, backend) {
     tc.addEventListener('dragging-changed', e => { controls.enabled = !e.value; if (e.value) c.follow = null; });
     tc.addEventListener('objectChange', () => fromHandle());
     scene.add(tc.getHelper());
-    const c = cmd = { id: kind, ids, curves, verts, poles, vertexAt, curveOut: null, poleMoves: null, poleRows: null, sent: 0, shown: 0, pivot, handle, tc, offset: new THREE.Vector3(), quat: new THREE.Quaternion(), scale: 1, axis: 'z', follow: null };
+    const c = cmd = { id: kind, ids, curves, verts, poles, faceMove, vertexAt, curveOut: null, poleMoves: null, poleRows: null, sent: 0, shown: 0, pivot, handle, tc, offset: new THREE.Vector3(), quat: new THREE.Quaternion(), scale: 1, axis: 'z', follow: null };
     lastTool = kind;
     showTool(kind);
-    setTarget([...ids.map(label), ...curves.map(curveLabel), ...(verts.length ? [`${verts.length} VERTICES`] : []), ...(poles.length ? [`${poles.length} SURFACE POINT${poles.length > 1 ? 'S' : ''}`] : [])].join(' '));
+    setTarget([...(faceMove ? [`${faceMove.faces.length} FACE${faceMove.faces.length > 1 ? 'S' : ''} OF ${label(faceMove.body)}`] : []), ...ids.map(label), ...curves.map(curveLabel), ...(verts.length ? [`${verts.length} VERTICES`] : []), ...(poles.length ? [`${poles.length} SURFACE POINT${poles.length > 1 ? 'S' : ''}`] : [])].join(' '));
     setState('none');
     setAxis('z');
     snapsFor(false);
@@ -3121,6 +3126,10 @@ export async function mount(root, backend) {
       } catch (e) { c.curveOut = null; setHud(say(e)); }
     }
     if (c.poles.length) previewPoles(c);
+    if (c.faceMove) {
+      if (offset.lengthSq() > 1e-18 || Math.abs(quat.w) < 1 - 1e-12) livePreview(c, () => backend.previewMoveFaces(faceMoveRequest(c)), b => showPreviewBody(b));
+      else clearPreview();
+    }
     const user = toUser(offset.toArray());
     for (const input of $$('[data-move]')) if (document.activeElement !== input) input.value = +user[input.dataset.move].toFixed(3);
     const angle = angleAbout(quat, c.axis);
@@ -3211,16 +3220,23 @@ export async function mount(root, backend) {
     apply();
   }
 
+  /** Transform `c`'s turn as an axis and an angle in radians. */
+  function axisAngle(c) {
+    const q = c.quat.clone().normalize();
+    if (q.w < 0) q.set(-q.x, -q.y, -q.z, -q.w);
+    const angle = 2 * Math.acos(Math.min(1, q.w)), s = Math.sqrt(Math.max(0, 1 - q.w * q.w));
+    return s < 1e-9 ? { axis: [0, 1, 0], angle: 0 } : { axis: [q.x / s, q.y / s, q.z / s], angle };
+  }
+  /** Move Face's request for transform `c`: turned about the pivot, then moved. */
+  const faceMoveRequest = c => ({ ...c.faceMove, offset: c.offset.toArray(), pivot: c.pivot.toArray(), ...axisAngle(c) });
+
   async function commitTransform() {
     const c = cmd;
     endFollow(true);
     const moved = c.offset.lengthSq() > 1e-18 || Math.abs(c.quat.w) < 1 - 1e-12 || Math.abs(c.scale - 1) > 1e-12;
     if (!moved) return endCmd('cancelled');
-    const q = c.quat.clone().normalize();
-    if (q.w < 0) q.set(-q.x, -q.y, -q.z, -q.w);
-    const angle = 2 * Math.acos(Math.min(1, q.w)), s = Math.sqrt(Math.max(0, 1 - q.w * q.w));
-    const axis = s < 1e-9 ? [0, 1, 0] : [q.x / s, q.y / s, q.z / s];
-    const req = { bodies: c.ids, offset: c.offset.toArray(), pivot: c.pivot.toArray(), axis, angle: s < 1e-9 ? 0 : angle, scale: c.scale };
+    const { axis, angle } = axisAngle(c);
+    const req = { bodies: c.ids, offset: c.offset.toArray(), pivot: c.pivot.toArray(), axis, angle, scale: c.scale };
     const user = toUser(req.offset);
     const text = c.id === 'move' ? `MOVE ${user.map(fmt).join(' ')}`
       : c.id === 'rotate' ? `ROTATE ${fmt(angle / DEG)}°` : `SCALE ×${c.scale.toFixed(3)}`;
@@ -3237,6 +3253,11 @@ export async function mount(root, backend) {
       if (out) ({ ids: made } = await backend.replaceCurves(out.ids, out.list));
       if (c.poles.length) {
         const { id, scene: list } = await backend.commitMoveFacePoles({ body: c.poles[0].body, moves: c.poleMoves });
+        first ??= id;
+        await showScene(list);
+      }
+      if (c.faceMove) {
+        const { id, scene: list } = await backend.commitMoveFaces(faceMoveRequest(c));
         first ??= id;
         await showScene(list);
       }

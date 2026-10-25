@@ -192,6 +192,14 @@ impl Shape {
         Ok((Shape::from_shape(&ffi::w3d::w3d_result_shape(&r)), history(&r, 1)))
     }
 
+    /// The numbered faces carried by a rigid motion (offset, pivot, axis, angle), their neighbours
+    /// following (Move Face).
+    pub fn move_faces_with_history(&self, faces: &[usize], motion: [f64; 10]) -> Result<(Shape, ShapeHistory), String> {
+        let ids: Vec<i32> = faces.iter().map(|&f| f as i32).collect();
+        let r = ffi::w3d::w3d_move_faces(&self.inner, &ids, &motion).map_err(reason)?;
+        Ok((Shape::from_shape(&ffi::w3d::w3d_result_shape(&r)), history(&r, 1)))
+    }
+
     /// Hollowed to walls `thickness` thick inside the outer surface, open at the numbered faces
     /// (Plasticity's Shell).
     pub fn shell_with_history(&self, faces: &[usize], thickness: f64) -> Result<(Shape, ShapeHistory), String> {

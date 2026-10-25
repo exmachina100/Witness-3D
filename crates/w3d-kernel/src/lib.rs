@@ -376,6 +376,11 @@ pub trait Kernel {
     fn offset_faces(&self, _s: &Self::Solid, _faces: &[u32], _distance: f64, _angle: f64) -> Result<Traced<Self::Solid>, KernelError> {
         Err(KernelError::Invalid("this kernel cannot offset faces"))
     }
+    /// The numbered faces carried by the rigid `motion` (its scale ignored), the faces around them
+    /// stretching or shrinking to meet them where they now stand (Plasticity's Move Face).
+    fn move_faces(&self, _s: &Self::Solid, _faces: &[u32], _motion: &Motion) -> Result<Traced<Self::Solid>, KernelError> {
+        Err(KernelError::Invalid("this kernel cannot move faces"))
+    }
     /// Hollowed to walls `thickness` thick inside the outer surface, open at the numbered faces
     /// (Plasticity's Shell). The outer faces and edges are traced; the inner walls are new.
     fn shell(&self, _s: &Self::Solid, _faces: &[u32], _thickness: f64) -> Result<Traced<Self::Solid>, KernelError> {

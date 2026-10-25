@@ -335,6 +335,14 @@ impl Kernel for Occt {
         Ok(Traced { solid, history: history(h) })
     }
 
+    fn move_faces(&self, s: &Shape, faces: &[u32], m: &Motion) -> Result<Traced<Shape>, KernelError> {
+        let faces: Vec<usize> = faces.iter().map(|&f| f as usize).collect();
+        let a = m.axis.normalize_or_zero();
+        let motion = [m.offset.x, m.offset.y, m.offset.z, m.pivot.x, m.pivot.y, m.pivot.z, a.x, a.y, a.z, m.angle];
+        let (solid, h) = s.move_faces_with_history(&faces, motion).map_err(shim)?;
+        Ok(Traced { solid, history: history(h) })
+    }
+
     fn shell(&self, s: &Shape, faces: &[u32], thickness: f64) -> Result<Traced<Shape>, KernelError> {
         let faces: Vec<usize> = faces.iter().map(|&f| f as usize).collect();
         let (solid, h) = s.shell_with_history(&faces, thickness).map_err(shim)?;

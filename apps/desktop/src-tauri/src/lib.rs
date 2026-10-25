@@ -436,6 +436,24 @@ async fn commit_subdivide_faces(
 }
 
 #[tauri::command]
+async fn preview_move_faces(
+    model: State<'_, Model>,
+    req: api::MoveFacesRequest,
+) -> Result<Option<api::Body>, api::ApiError> {
+    on_model(&model, move |m| api::preview_move_faces(m, req))
+        .await?
+        .transpose()
+}
+
+#[tauri::command]
+async fn commit_move_faces(
+    model: State<'_, Model>,
+    req: api::MoveFacesRequest,
+) -> Result<api::Committed, api::ApiError> {
+    on_model(&model, move |m| api::commit_move_faces(m, req)).await?
+}
+
+#[tauri::command]
 async fn preview_move_face_poles(
     model: State<'_, Model>,
     req: api::MoveFacePolesRequest,
@@ -946,6 +964,8 @@ pub fn run() {
             commit_match_faces,
             commit_raise_faces,
             commit_subdivide_faces,
+            preview_move_faces,
+            commit_move_faces,
             preview_move_face_poles,
             commit_move_face_poles,
             preview_rebuild_faces,

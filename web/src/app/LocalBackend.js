@@ -301,6 +301,37 @@ export class LocalBackend {
         return { id: req.body, scene: this.bodies() };
     }
 
+    /**
+     * Move Face (G with faces selected): the faces carried by `offset`, the faces round them
+     * following. A flat face moved along itself looks the same, so here only the move across it
+     * counts: the faces are offset that far (they must all be flat and moved the same distance
+     * across). Turning faces, and moving round ones, is the desktop's (document.rs preview_move_faces).
+     */
+    moveFacesResult({ body, faces, offset = [0, 0, 0], angle = 0 }) {
+        const shape = this.shapes.get(body);
+        if (!shape) throw new Error('that body no longer exists');
+        if (!faces?.length) throw new Error('select the faces to move');
+        if (Math.abs(angle) > 1e-12) throw new Error('the browser demo moves faces; the desktop app turns them too');
+        const planes = faces.map(f => facePlane(shape, f));
+        if (planes.some(p => !p)) throw new Error('the browser demo moves flat faces only; the desktop app moves any face');
+        const across = planes.map(p => offset[0] * p.normal.x + offset[1] * p.normal.y + offset[2] * p.normal.z);
+        if (across.some(d => Math.abs(d - across[0]) > 1e-9)) throw new Error('the browser demo moves faces the same distance across them; move them one at a time');
+        if (Math.abs(across[0]) < 1e-9) return null;
+        return this.offset({ body, faces, distance: across[0], grow: 'none' });
+    }
+
+    previewMoveFaces(req) {
+        return this.latest(async () => { const r = this.moveFacesResult(req); return this.body(req.body, (r ?? { shape: this.shapes.get(req.body) }).shape); });
+    }
+
+    async commitMoveFaces(req) {
+        const r = this.moveFacesResult(req);
+        if (!r) throw new Error('nothing to do');
+        this.checkpoint();
+        this.put(req.body, r.shape, r.history);
+        return { id: req.body, scene: this.bodies() };
+    }
+
     // --- Round 6: Box, Cylinder, Sphere, Shell, Mirror and arrays (as document.rs) ---------------
 
     /**
