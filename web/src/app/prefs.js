@@ -24,6 +24,13 @@ export const PREF_FIELDS = {
         { key: 'pointSize', label: 'CONTROL POINT SIZE', type: 'number', value: 5, min: 2, max: 20 },
         { key: 'uiScale', label: 'ZOOM FACTOR', type: 'number', value: 1, min: 0.5, max: 2 },
     ],
+    commands: [
+        { key: 'autoInvoke', label: 'AUTO-INVOKE COMMANDS', type: 'bool', value: true },
+        { key: 'autoExtrude', label: 'EXTRUDE', type: 'bool', value: true },
+        { key: 'autoOffset', label: 'PUSH FACE', type: 'bool', value: true },
+        { key: 'autoExtendSheet', label: 'EXTEND SHEET', type: 'bool', value: true },
+        { key: 'autoFillet', label: 'FILLET', type: 'bool', value: true },
+    ],
     network: [
         { key: 'bridge', label: 'BRIDGE ENABLE', type: 'bool', value: true, restart: true, desktop: true },
         { key: 'bridgePort', label: 'BRIDGE PORT', type: 'number', value: 8981, min: 1024, max: 65535, step: 1, restart: true, desktop: true },

@@ -2506,12 +2506,23 @@ export async function mount(root, backend) {
     // Plasticity's default command: with edges selected the fillet's dot is already there to drag.
     defaultCommand();
   }
-  /** Plasticity's default commands: the fillet's dot with edges selected, the extrude's with regions, Offset Face's with faces. */
+  /**
+   * Plasticity's auto-invoked commands (Preferences › Commands, each its own switch): the fillet's
+   * dot with edges selected, Extend Sheet with one edge of a sheet, the extrude's with regions,
+   * Offset Face's (push face) with faces.
+   */
   function defaultCommand() {
-    if (cmd) return;
-    if (edgeBody()) startFillet({ auto: true });
-    else if (regionsOnly()) startExtrude({ auto: true });
-    else if (faceBody() !== null) startOffset({ auto: true });
+    const on = prefs.commands;
+    if (cmd || !on.autoInvoke) return;
+    if (sheetEdge() && on.autoExtendSheet && backend.previewExtendSheet) startExtendSheet({ auto: true });
+    else if (edgeBody()) { if (on.autoFillet) startFillet({ auto: true }); }
+    else if (regionsOnly()) { if (on.autoExtrude) startExtrude({ auto: true }); }
+    else if (faceBody() !== null) { if (on.autoOffset) startOffset({ auto: true }); }
+  }
+  /** The one selected edge, when it is an edge of a sheet and nothing else is selected. */
+  function sheetEdge() {
+    const items = sel.list();
+    return items.length === 1 && items[0].kind === 'edge' && current.find(b => b.id === items[0].body)?.sheet ? items[0] : null;
   }
   /** The one body all selected faces are on, and only faces are selected; else null. */
   function faceBody() {
@@ -2715,6 +2726,8 @@ export async function mount(root, backend) {
     c.onSelection = () => {
       drawOverlays();
       const body = edgeBody();
+      // An untouched auto fillet gives way to Extend Sheet when one sheet edge is all that's picked.
+      if (c.auto && c.value === 0 && sheetEdge() && prefs.commands.autoExtendSheet) { abortFillet(null); return defaultCommand(); }
       if (!body) {
         // In Plasticity the default command goes when the selection stops being edges.
         if (c.auto && c.value === 0) return abortFillet(null);
@@ -6774,12 +6787,14 @@ export async function mount(root, backend) {
    * curvature (Natural) or straight on from its face (Linear); Tab cycles them, D types the distance.
    * The sheet keeps its body.
    */
-  function startExtendSheet() {
+  function startExtendSheet({ auto = false } = {}) {
     if (!backend.previewExtendSheet) return toast('EXTEND SHEET IS NOT IN THIS BUILD YET');
     const isSheetBody = id => !!current.find(b => b.id === id)?.sheet;
     const picked = () => { const es = sel.list('edge'); return es.length === 1 && isSheetBody(es[0].body) ? es[0] : null; };
     if (!picked()) return toast('SELECT ONE EDGE OF A SHEET');
-    const c = cmd = { id: 'extend-sheet', edge: picked(), shape: 'natural', limit: null, sent: 0, shown: 0 };
+    // Auto-invoked, it waits for a distance (typed, D, or Enter for the one shown) before previewing,
+    // and goes when the selection stops being one sheet edge, as the auto fillet does.
+    const c = cmd = { id: 'extend-sheet', auto, armed: !auto, edge: picked(), shape: 'natural', limit: null, sent: 0, shown: 0 };
     lastTool = 'extend-sheet';
     showTool('extend-sheet');
     $('es-limit').textContent = '—';
@@ -6816,7 +6831,7 @@ export async function mount(root, backend) {
       for (const b of $$('[data-esshape]')) b.setAttribute('aria-pressed', String(b.dataset.esshape === k));
       c.preview();
     };
-    c.preview = () => livePreview(c, () => backend.previewExtendSheet(c.request()), b => {
+    c.preview = () => (c.armed = true) && livePreview(c, () => backend.previewExtendSheet(c.request()), b => {
       const m = showPreviewBody(b, phantom.add.face, phantom.add.edge);
       m.renderOrder = 5;
       const how = c.limit != null ? `${c.outside ? 'THROUGH' : 'UP TO'} ${label(c.limit)}` : `${num('es-d')} MM`;
@@ -6826,6 +6841,7 @@ export async function mount(root, backend) {
     c.onSelection = () => {
       drawOverlays();
       const e = picked();
+      if (!e && c.auto && !c.armed) { endCmd(null); return defaultCommand(); }
       if (!e) {
         const missing = 'SELECT ONE EDGE OF A SHEET';
         $('es-hint').textContent = missing;
@@ -6834,6 +6850,10 @@ export async function mount(root, backend) {
       }
       c.edge = e;
       setTarget(label(e.body));
+      if (!c.armed) {
+        $('es-hint').textContent = `${label(e.body)} · TYPE A DISTANCE (D) OR ENTER FOR ${num('es-d')} MM`;
+        return setHud('EXTEND SHEET');
+      }
       c.preview();
     };
     c.key = action => {
@@ -9325,7 +9345,7 @@ export async function mount(root, backend) {
   }
   // Preferences: Plasticity's window of settings, by section; each change applies and is kept at once.
   // The bridge settings live with the desktop app and take effect the next time it starts.
-  const PREF_SECTIONS = { navigation: 'NAVIGATION', appearance: 'APPEARANCE', network: 'NETWORK' };
+  const PREF_SECTIONS = { navigation: 'NAVIGATION', appearance: 'APPEARANCE', commands: 'COMMANDS', network: 'NETWORK' };
   function applyPrefs() {
     Object.assign(controls, controlSettings(prefs.navigation));
     const look = prefs.appearance, c = viewColors(look);
