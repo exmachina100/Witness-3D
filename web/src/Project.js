@@ -145,12 +145,36 @@ function blocked(tris, from, d, far) {
     return false;
 }
 
+/** An open wire carried on straight past both ends along its tangents there, `length` each way. */
+function extended(wire, length) {
+    const o = oc(), a = new o.BRepAdaptor_CompCurve(wire, false), t0 = a.FirstParameter(), t1 = a.LastParameter();
+    const at = t => { const p = a.Value(t); return new THREE.Vector3(p.X(), p.Y(), p.Z()); };
+    const p = at(t0), q = at(t1), h = (t1 - t0) * 1e-6;
+    if (p.distanceTo(q) < 1e-7) return wire;
+    const tp = at(t0 + h).sub(p).normalize(), tq = q.clone().sub(at(t1 - h)).normalize();
+    const pnt = v => new o.gp_Pnt(v.x, v.y, v.z);
+    const mk = new o.BRepBuilderAPI_MakeWire();
+    mk.Add(new o.BRepBuilderAPI_MakeEdge(pnt(p.clone().addScaledVector(tp, -length)), pnt(p)).Edge());
+    mk.Add(wire);
+    mk.Add(new o.BRepBuilderAPI_MakeEdge(pnt(q), pnt(q.clone().addScaledVector(tq, length))).Edge());
+    return mk.IsDone() ? mk.Wire() : wire;
+}
+
+/** Whether `face` is flat and lies along `dir`. */
+function edgeOn(face, dir) {
+    const o = oc(), a = new o.BRepAdaptor_Surface(o.TopoDS.Face(face), true);
+    if (a.GetType() !== o.GeomAbs_SurfaceType.GeomAbs_Plane) return false;
+    const n = a.Plane().Axis().Direction();
+    return Math.abs(n.X() * dir.x + n.Y() * dir.y + n.Z() * dir.z) < 1e-6;
+}
+
 /**
- * Plasticity's Project Curve Body: the drawn curves carried along `dir` (a unit THREE.Vector3)
- * onto `faces` of `shape` (all when empty), forwards only unless `both`; with `hide`, only what is
- * seen looking along `dir` from the curve. Returns NURBS in model space. Throws when nothing lands.
+ * The drawn curves carried along their directions (`dirOf(curve)`, unit THREE.Vector3s) onto
+ * `faces` of `shape` (all when empty), as edges lying on them: forwards only unless `both`; with
+ * `hide`, only what is seen looking along the direction from the curve; with `extend`, open curves
+ * carried on straight past their ends first (Imprint's Completion Edge). Throws when nothing lands.
  */
-export function projectCurves(shape, faces, curves, dir, { length, both = false, hide = false }) {
+export function projectedEdges(shape, faces, curves, dirOf, { length, both = false, hide = false, extend = false }) {
     const o = oc();
     const all = numbered(shape, 'TopAbs_FACE');
     for (const f of faces) if (!all[f]) throw new Error('that face no longer exists');
@@ -158,12 +182,14 @@ export function projectCurves(shape, faces, curves, dir, { length, both = false,
     const tris = hide ? triangles(shape) : null;
     // The mesh lies within its deflection of the faces, so rays start a little off them, and a
     // piece no longer than that start is the rim of a face seen edge-on, not a curve.
-    const skip = 1e-2, splines = [];
+    const skip = 1e-2, kept = [];
     for (const c of curves) {
-        const wire = curveWire(c);
+        const dir = dirOf(c);
+        const wire = extend ? extended(curveWire(c), length) : curveWire(c);
         const sheet = curtain(wire, dir, length, both);
-        const edges = targets.flatMap(f => meet(f, sheet));
-        if (!hide) { splines.push(...edges.map(e => bspline(e))); continue; }
+        if (!hide) { kept.push(...targets.flatMap(f => meet(f, sheet))); continue; }
+        // Flat faces met edge-on, looking along the way, can't be seen.
+        const edges = targets.filter(f => !edgeOn(f, dir)).flatMap(f => meet(f, sheet));
         const source = samples(wire);
         // Seen when no face crosses the way back from the point to the curve it came from.
         const seen = p => {
@@ -171,7 +197,8 @@ export function projectCurves(shape, faces, curves, dir, { length, both = false,
             for (const q of source) { const off = q.clone().sub(p).cross(dir).length(); if (off < best) { best = off; s = q; } }
             const far = Math.abs(p.clone().sub(s).dot(dir));
             const back = p.clone().sub(s).dot(dir) >= 0 ? dir.clone().negate() : dir.clone();
-            return !blocked(tris, p.clone().addScaledVector(back, skip), back, far - 2 * skip);
+            // A face through the curve itself counts: a curve drawn on a face hides what lies behind it.
+            return !blocked(tris, p.clone().addScaledVector(back, skip), back, far - skip + 1e-3);
         };
         for (const e of edges) {
             const { returnValue: g, First: t0, Last: t1 } = o.BRep_Tool.Curve(e, 0, 0);
@@ -186,12 +213,23 @@ export function projectCurves(shape, faces, curves, dir, { length, both = false,
                 const a = i === 0 ? t0 : edge(t0 + (t1 - t0) * (i - 1) / N, t0 + (t1 - t0) * i / N, false);
                 const b = j === N ? t1 : edge(t0 + (t1 - t0) * j / N, t0 + (t1 - t0) * (j + 1) / N, true);
                 const [p, m, q] = [a, (a + b) / 2, b].map(t => g.Value(t));
-                if (p.Distance(m) + m.Distance(q) > 2 * skip) splines.push(bspline(e, a, b));
+                if (p.Distance(m) + m.Distance(q) > 2 * skip) kept.push(a === t0 && b === t1 ? e : new o.BRepBuilderAPI_MakeEdge(g, a, b).Edge());
                 i = j + 1;
             }
         }
     }
-    const out = chains(splines);
+    if (!kept.length) throw new Error(hide ? 'the curves miss what can be seen of the body along that direction' : 'the curves miss the body along that direction');
+    return kept;
+}
+
+/**
+ * Plasticity's Project Curve Body: the drawn curves carried along `dir` (a unit THREE.Vector3)
+ * onto `faces` of `shape` (all when empty), forwards only unless `both`; with `hide`, only what is
+ * seen looking along `dir` from the curve. Returns NURBS in model space. Throws when nothing lands.
+ */
+export function projectCurves(shape, faces, curves, dir, { length, both = false, hide = false }) {
+    const edges = projectedEdges(shape, faces, curves, () => dir, { length, both, hide });
+    const out = chains(edges.map(e => bspline(e)));
     if (!out.length) throw new Error(hide ? 'the curves miss what can be seen of the body along that direction' : 'the curves miss the body along that direction');
     return out;
 }

@@ -392,6 +392,12 @@ pub trait Kernel {
     fn imprint(&self, _s: &Self::Solid, _faces: &[u32], _cutters: &[(Path, DVec3)], _extra: &[&Self::Solid], _length: f64) -> Result<Traced<Self::Solid>, KernelError> {
         Err(KernelError::Invalid("this kernel cannot imprint"))
     }
+    /// Imprint Curve Body with its options: the numbered faces (all when empty) split along the
+    /// paths projected as `project` projects them; `extend` carries open paths on straight past
+    /// their ends first (Completion Edge). Edges ending inside a face stay as edges of it.
+    fn imprint_projected(&self, _s: &Self::Solid, _faces: &[u32], _cutters: &[(Path, DVec3)], _length: f64, _both: bool, _hide: bool, _extend: bool) -> Result<Traced<Self::Solid>, KernelError> {
+        Err(KernelError::Invalid("this kernel cannot imprint"))
+    }
     /// Plasticity's Project Curve Body: each path carried along its direction, `length` forwards
     /// (and backwards as well when `both`), onto the numbered faces (all when empty). With `hide`,
     /// only the parts seen looking along the direction from the curve. The curves it leaves there.

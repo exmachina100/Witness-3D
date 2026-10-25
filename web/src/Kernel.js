@@ -690,6 +690,28 @@ export function imprintWithHistory(shape, faces, sheets) {
     return { shape: result, history: trace([shape], result, s => successors(mk, s)) };
 }
 
+/**
+ * Imprint Curve Body with its options: `shape` split along `edges` lying on its faces (from
+ * projectedEdges). Edges ending inside a face stay there as edges of it (Completion None).
+ */
+export function imprintEdgesWithHistory(shape, edges) {
+    const o = oc();
+    const tools = new o.NCollection_List_TopoDS_Shape();
+    for (const e of edges) tools.Append(e);
+    const args = new o.NCollection_List_TopoDS_Shape();
+    args.Append(shape);
+    const mk = new o.BRepAlgoAPI_Splitter();
+    mk.SetArguments(args);
+    mk.SetTools(tools);
+    mk.Build(new o.Message_ProgressRange());
+    if (!mk.IsDone() || mk.HasErrors()) throw new Error('the curves could not be imprinted there');
+    const solid = numbered(mk.Shape(), 'TopAbs_SOLID')[0], shell = numbered(mk.Shape(), 'TopAbs_SHELL')[0];
+    if (!solid && !shell) throw new Error('the curves could not be imprinted there');
+    const result = solid ? o.TopoDS.Solid(solid) : o.TopoDS.Shell(shell);
+    if (count(result, 'TopAbs_EDGE') <= count(shape, 'TopAbs_EDGE')) throw new Error('the curves do not reach those faces');
+    return { shape: result, history: trace([shape], result, s => successors(mk, s)) };
+}
+
 /** A square sheet `size` each way on the plane through `origin` with `normal`, for cutting. */
 export function planeSheet(origin, normal, size) {
     const o = oc();

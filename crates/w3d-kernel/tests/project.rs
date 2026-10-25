@@ -68,11 +68,11 @@ fn forwards_only_unless_bidirectional() {
     let up = DVec3::Y;
     assert!(matches!(k.project(&c, &[], &[(line(20.0, 5.0), up)], FAR, false, false), Err(KernelError::Refused(m)) if m.contains("miss")));
     assert_eq!(k.project(&c, &[], &[(line(20.0, 5.0), up)], FAR, true, false).unwrap().len(), 1);
-    // From inside the body, both ways with hide sees all round: the sides lie edge-on along the
-    // way, so nothing hides them either.
+    // From inside the body, both ways with hide sees the top and the bottom; the sides lie
+    // edge-on along the way, so they can't be seen and are left out.
     let seen = k.project(&c, &[], &[(line(5.0, 5.0), up)], FAR, true, true).unwrap();
-    assert_eq!(seen.len(), 1, "{seen:?}");
-    close(length(&k, &seen[0]), 40.0, 1e-3);
+    assert_eq!(seen.len(), 2, "{seen:?}");
+    for s in &seen { close(length(&k, s), 10.0, 1e-3); }
 }
 
 #[test]

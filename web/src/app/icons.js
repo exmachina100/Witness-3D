@@ -186,6 +186,14 @@ const ICONS = {
     'iso-u': `<path d="M4 6h16v12H4z"/><path ${A} d="M4 12h16M16 9l4 3-4 3"/>`,
     'iso-v': `<path d="M4 6h16v12H4z"/><path ${A} d="M12 6v12M9 14l3 4 3-4"/>`,
     'both-sides': `<path d="M12 4v16"/><path ${A} d="M8 8v8M16 8v8"/><path d="M4 12h4M16 12h4"/>`,
+    // Project and Imprint methods: along each curve's own normal, or one direction for all.
+    'proj-normal': `<path d="M4 16c4-6 12-6 16 0"/><path ${A} d="M8 12V5M6 7l2-2 2 2M16 12V5M14 7l2-2 2 2"/>`,
+    'proj-vector': `<path d="M4 20h16"/><path ${A} d="M7 4v12M5 14l2 2 2-2M12 4v12M10 14l2 2 2-2M17 4v12M15 14l2 2 2-2"/>`,
+    'proj-both': `<path d="M4 12h16" stroke-dasharray="2 2"/><path ${A} d="M12 3v18M9.5 5.5L12 3l2.5 2.5M9.5 18.5L12 21l2.5-2.5"/>`,
+    'proj-hide': `<path d="M4 9h16"/><path d="M4 17h16" stroke-dasharray="2 2"/><path ${A} d="M12 2v7M10 7l2 2 2-2"/>`,
+    // Completion: the imprinted edge left where it ends, or carried on to the face's edges.
+    'completion-none': `<path d="M4 5h16v14H4z"/><path ${A} d="M9 12h6"/>`,
+    'completion-edge': `<path d="M4 5h16v14H4z"/><path ${A} d="M4 12h16"/><path d="M9 12h6" stroke-width="3"/>`,
     'remove-fillets': `<path d="M4 20V10a6 6 0 0 1 6-6h10" stroke-dasharray="2 2"/><path d="M4 20V4h16"/><path ${A} d="M14 14l5 5M19 14l-5 5"/>`,
     'boundary-edges': `<path d="M4 8l8-4 8 4-8 4z" stroke-dasharray="2 2"/><path ${A} d="M4 8v8l8 4 8-4V8"/>`,
     unify: `<path d="M4 6h16v12H4z"/><path ${A} d="M12 6v12" stroke-dasharray="2 2"/><path ${A} d="M9 10l-2 2 2 2M15 10l2 2-2 2"/>`,
