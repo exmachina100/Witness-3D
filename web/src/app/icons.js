@@ -260,6 +260,8 @@ const ICONS = {
     combine: `<path d="M9 15a6 6 0 1 1 6-6" stroke-dasharray="2 2"/><path ${A} d="M9 15a6 6 0 0 1 6-6a6 6 0 1 1-6 6z"/><path ${A} d="M15 9a6 6 0 1 0-6 6"/>`,
     // Offset Region slot: a stadium round a line.
     slot: `<path d="M8 12h8"/><path ${A} d="M8 7h8a5 5 0 0 1 0 10H8a5 5 0 0 1 0-10z"/>`,
+    'taper-offset': `<path d="M3 20h18"/><path d="M3 14h18" stroke-dasharray="2 2"/><path ${A} d="M7 20l2-14M17 20l-2-14"/><path d="M20 14v-4M19 11l1-1 1 1"/>`,
+    'taper-curve': `<path d="M3 20h18"/><path ${A} d="M7 20l3-14h4l3 14"/><path d="M4 13h16" stroke-width="2"/><circle cx="12" cy="13" r="1.5"/>`,
     'grow-moving': `<path d="M3 20V5h6v10h9v5z"/><path ${A} d="M9 5h12v15h-3M14 9l2 1.5-2 1.5"/>`,
     'grow-fixed': `<path d="M3 20V5h6v10h9v5z"/><path ${A} d="M9 5h9v10M20 4v16"/>`,
     'grow-none': `<path d="M3 20V5h6v10h9v5z"/><path ${A} d="M9 5h12v10h-3M14 9l2 1.5-2 1.5"/>`,
