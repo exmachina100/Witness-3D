@@ -247,6 +247,10 @@ const ICONS = {
     'toggle-points': `<path d="M4 18C7 6 17 6 20 18"/><path ${A} d="M4 18L8 7l8 0 4 11" stroke-dasharray="2 2"/><path ${A} d="M4 18h0M8 7h0M16 7h0M20 18h0" stroke-width="3.5" stroke-linecap="round"/>`,
     // Place: a copy set down on a surface from a reference point.
     place: `<path d="M2 20h20"/><rect x="3" y="4" width="6" height="6"/><rect ${A} x="13" y="12" width="8" height="8"/><path ${A} d="M9 7c4 0 7 1 8 5"/>`,
+    // Copy with Placement: a solid with the reference point on it, and its copy behind.
+    'copy-place': `<rect x="8" y="3" width="12" height="12" stroke-dasharray="2 2"/><rect x="4" y="8" width="12" height="12"/><path ${A} d="M10 14h0" stroke-width="3.5" stroke-linecap="round"/>`,
+    // Paste with Placement: the copy set down on a surface at a point.
+    'paste-place': `<path d="M2 20h20"/><rect x="7" y="6" width="10" height="10"/><path ${A} d="M12 16v4M12 20h0" stroke-width="2"/><path ${A} d="M9 3h6"/>`,
     'place-normal': `<path d="M3 19h18"/><path ${A} d="M12 19V5M9 8l3-3 3 3"/>`,
     'axis-x': `<path d="M4 20h16"/><path ${A} d="M8 6l8 8M16 6l-8 8"/>`,
     'axis-y': `<path d="M4 20h16"/><path ${A} d="M8 5l4 5 4-5M12 10v7"/>`,

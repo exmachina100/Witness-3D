@@ -53,3 +53,20 @@ test('bad placements are refused', async () => {
     await assert.rejects(be.commitPlace({ bodies: [seed], motion, target: seed, op: 'union' }), /another body/);
     await assert.rejects(be.commitPlace({ bodies: [cube], motion: { ...motion, offset: [0, 500, 0] }, target: seed, op: 'difference' }), /does not meet/);
 });
+
+test('copy with placement keeps the solids aside and pastes them as Place does', async () => {
+    const { be, seed, cube } = await scene();
+    await assert.rejects(() => be.commitPlace({ clipboard: true, motion: { pivot, offset: [0, 0, 0], axis: [0, 1, 0], angle: 0 } }), /nothing is copied/);
+    assert.equal(await be.copyBodies([cube]), 1);
+    // Down onto the seed block's top (y = 30), cut 5 mm into it.
+    const { ids } = await be.commitPlace({ clipboard: true, motion: { pivot, offset: [0 - 105, 25, 0 + 5], axis: [0, 1, 0], angle: 0 }, target: seed, op: 'difference' });
+    assert.deepEqual(ids, [seed]);
+    close(volume(be.shapes.get(seed)), 120000 - 500, 1e-3);
+    be.undo();
+    close(volume(be.shapes.get(seed)), 120000, 1e-3);
+    // The clipboard outlives its bodies.
+    be.undo();
+    assert.ok(!be.shapes.has(cube));
+    const { ids: again } = await be.commitPlace({ clipboard: true, motion: { pivot, offset: [-100, 0, 0], axis: [0, 1, 0], angle: 0 } });
+    close(bounds(be.shapes.get(again[0])).min.x, 0, 1e-6);
+});

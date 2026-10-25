@@ -1758,7 +1758,11 @@ pub fn commit_unjoin(m: &Model, req: UnjoinRequest) -> Result<Duplicated, ApiErr
 /// `offset`), and with `op` combined with the body `target` the copies land on.
 #[derive(Deserialize, Debug, Clone)]
 pub struct PlaceRequest {
+    #[serde(default)]
     pub bodies: Vec<BodyId>,
+    /// Paste with Placement: place the copied bodies instead of `bodies`.
+    #[serde(default)]
+    pub clipboard: bool,
     pub motion: PlaceMotionIn,
     #[serde(default)]
     pub target: Option<BodyId>,
@@ -1803,7 +1807,7 @@ pub struct PlacePreview {
 
 pub fn preview_place(m: &Model, req: PlaceRequest) -> Option<Result<PlacePreview, ApiError>> {
     m.preview(move |doc| {
-        let p = doc.preview_place(&req.bodies, &req.motion(), req.target, req.operation())?;
+        let p = if req.clipboard { doc.preview_paste(&req.motion(), req.target, req.operation())? } else { doc.preview_place(&req.bodies, &req.motion(), req.target, req.operation())? };
         let result = match (&p.result, req.target) { (Some(t), Some(id)) => Some(body(&doc.kernel, id, &t.solid)?), _ => None };
         let next = doc.next_id();
         Ok(PlacePreview {
@@ -1816,9 +1820,14 @@ pub fn preview_place(m: &Model, req: PlaceRequest) -> Option<Result<PlacePreview
 
 pub fn commit_place(m: &Model, req: PlaceRequest) -> Result<Duplicated, ApiError> {
     m.call(move |doc| {
-        let ids = doc.commit_place(&req.bodies, &req.motion(), req.target, req.operation())?;
+        let ids = if req.clipboard { doc.commit_paste(&req.motion(), req.target, req.operation())? } else { doc.commit_place(&req.bodies, &req.motion(), req.target, req.operation())? };
         Ok(Duplicated { ids, scene: bodies(doc)? })
     })
+}
+
+/// Copy with Placement: keep the bodies to paste later. Returns how many were copied.
+pub fn copy_bodies(m: &Model, bodies: Vec<BodyId>) -> Result<usize, ApiError> {
+    m.call(move |doc| Ok(doc.copy_bodies(&bodies)?))
 }
 
 /// Deform Solid and Sheet: `bodies` wrapped from a face of `reference` onto a face of `target`.

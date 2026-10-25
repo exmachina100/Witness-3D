@@ -6064,15 +6064,23 @@ export async function mount(root, backend) {
    * combine it with the body it lands on (B keeps it separate). A click places it and starts
    * another; Enter or right-click places it and ends; Escape ends.
    */
-  function startPlace() {
-    const ids = targetBodies().filter(b => org.shows(b));
-    if (!ids.length) return toast('SELECT THE SOLIDS TO PLACE');
-    if (!backend.previewPlace) return toast('PLACE IS NOT IN THIS BUILD YET');
-    const c = cmd = { id: 'place', ids, stage: 'from', from: null, to: null, axis: 'normal', flip: false, instance: false, op: 'new', placed: 0, sent: 0, shown: 0 };
+  /**
+   * Copy with Placement (Ctrl+Shift+C) is Place's first step on its own: the selected solids are kept
+   * with the point clicked on them. Paste with Placement (Ctrl+Shift+V) is Place from there on with
+   * those solids, here or in another file opened since: click the destination, right-click places it
+   * and waits for the next, Escape ends.
+   */
+  function startPlace({ mode = 'place' } = {}) {
+    const paste = mode === 'paste';
+    if (paste && !placeClipboard) return toast('NOTHING IS COPIED · SELECT SOLIDS AND PRESS CTRL+SHIFT+C');
+    const ids = paste ? [] : targetBodies().filter(b => org.shows(b));
+    if (!paste && !ids.length) return toast(mode === 'copy' ? 'SELECT THE SOLIDS TO COPY' : 'SELECT THE SOLIDS TO PLACE');
+    if (!backend.previewPlace || (mode !== 'place' && !backend.copyBodies)) return toast(`${mode === 'place' ? 'PLACE' : 'COPY WITH PLACEMENT'} IS NOT IN THIS BUILD YET`);
+    const c = cmd = { id: 'place', mode, ids, stage: paste ? 'to' : 'from', from: paste ? placeClipboard.from : null, to: null, axis: 'normal', flip: false, instance: false, op: 'new', placed: 0, sent: 0, shown: 0 };
     lastTool = 'place';
     showTool('place');
     setState('none');
-    setTarget(ids.length === 1 ? label(ids[0]) : `${ids.length} SOLIDS`);
+    setTarget(paste ? `${placeClipboard.count} COPIED` : ids.length === 1 ? label(ids[0]) : `${ids.length} SOLIDS`);
     const hint = t => { $('pl-hint').textContent = t; setHud(t); };
     // A point with the way out of the surface there: a face's normal, else the construction plane's.
     const pointAt = e => {
@@ -6101,7 +6109,7 @@ export async function mount(root, backend) {
       const at = c.to.origin.clone().addScaledVector(dir, num('pl-d') || 0);
       return { pivot: c.from.origin.toArray(), offset: at.sub(c.from.origin).toArray(), axis, angle, scale: num('pl-scale') };
     };
-    c.request = () => ({ bodies: c.ids, motion: c.motion(), target: c.op === 'new' ? null : c.to.target ?? null, op: c.op });
+    c.request = () => ({ bodies: c.ids, ...(paste && { clipboard: true }), motion: c.motion(), target: c.op === 'new' ? null : c.to.target ?? null, op: c.op });
     c.preview = () => {
       sync();
       if (!c.to) return;
@@ -6126,6 +6134,7 @@ export async function mount(root, backend) {
       if (c.stage === 'from') {
         // Off a face the copy's up is the way out of it; on the plane, the plane's normal.
         c.from = { origin: p.origin, up: p.target !== null && p.target !== undefined ? p.normal.clone().negate() : cplane.normal.clone() };
+        if (mode === 'copy') { copyForPlacement(); return true; }
         c.stage = 'to';
         hint('CLICK THE DESTINATION');
         return true;
@@ -6133,12 +6142,13 @@ export async function mount(root, backend) {
       c.to = p;
       c.stage = 'adjust';
       c.preview();
-      hint('S A D F I X Y Z · Q W ⇧E ⇧Q B · CLICK TO PLACE');
+      hint(paste ? 'S A D F X Y Z · Q W ⇧E ⇧Q B · RIGHT-CLICK OR CLICK TO PLACE' : 'S A D F I X Y Z · Q W ⇧E ⇧Q B · CLICK TO PLACE');
       return true;
     };
     c.key = action => {
       if (action === 'flip') { c.flip = !c.flip; c.preview(); return true; }
       // An instance stands on its own, so it combines with nothing.
+      if (action === 'instance' && paste) { toast('PASTED SOLIDS ARE COPIES; PLACE (CTRL+D) MAKES INSTANCES'); return true; }
       if (action === 'instance') { c.instance = !c.instance; if (c.instance) c.op = 'new'; c.preview(); return true; }
       if (action.startsWith('axis-')) { const a = action.slice(5); c.axis = c.axis === a ? 'normal' : a; c.preview(); return true; }
       if (['union', 'difference', 'intersect', 'slice', 'new'].includes(action)) {
@@ -6167,7 +6177,7 @@ export async function mount(root, backend) {
         } else {
           const { ids: made, scene: list } = await backend.commitPlace(c.request());
           c.placed++;
-          record(`PLACE${c.op !== 'new' ? ` · ${c.op.toUpperCase()}` : ''}`, made[0], made.length > 1 ? `${made.length} BODIES` : label(made[0]));
+          record(`${paste ? 'PASTE WITH PLACEMENT' : 'PLACE'}${c.op !== 'new' ? ` · ${c.op.toUpperCase()}` : ''}`, made[0], made.length > 1 ? `${made.length} BODIES` : label(made[0]));
           await showScene(list);
         }
         if (!again) return endCmd('committed');
@@ -6177,13 +6187,25 @@ export async function mount(root, backend) {
         hint('CLICK WHERE THE NEXT GOES · ESC TO END');
       } catch (e) { setState('failed'); toast(say(e)); }
     }
-    c.finish = async () => { if (c.stage === 'adjust') return place(false); endCmd(c.placed ? 'committed' : 'cancelled'); };
+    async function copyForPlacement() {
+      try {
+        const count = await backend.copyBodies(c.ids);
+        placeClipboard = { count, from: { origin: c.from.origin.clone(), up: c.from.up.clone() } };
+        endCmd('committed');
+        toast(`COPIED ${count === 1 ? label(c.ids[0]) : `${count} SOLIDS`} · CTRL+SHIFT+V PASTES`);
+      } catch (e) { setState('failed'); toast(say(e)); }
+    }
+    // Paste with Placement: right-click (or Enter) places the copy and waits for the next.
+    c.finish = async () => { if (c.stage === 'adjust') return place(!paste ? false : true); endCmd(c.placed ? 'committed' : 'cancelled'); };
     c.abort = () => endCmd(c.placed ? 'committed' : 'cancelled');
     c.cleanup = () => clearPreview();
     for (const [id, v] of [['pl-scale', 1], ['pl-angle', 0], ['pl-d', 0]]) $(id).value = v;
     sync();
-    hint(`CLICK A POINT ON ${ids.length === 1 ? label(ids[0]) : 'THE SOLIDS'} TO PLACE FROM`);
+    if (paste) hint('CLICK THE DESTINATION · RIGHT-CLICK PLACES IT · ESC ENDS');
+    else hint(`CLICK A POINT ON ${ids.length === 1 ? label(ids[0]) : 'THE SOLIDS'} TO ${mode === 'copy' ? 'COPY' : 'PLACE'} FROM`);
   }
+  // Copy with Placement's solids are kept by the backend; this is the point picked on them.
+  let placeClipboard = null;
 
   /**
    * Plasticity's Unwrap Face: each selected face laid flat on the XY plane as a new sheet under where
@@ -9321,6 +9343,8 @@ export async function mount(root, backend) {
       case 'unwrap': if (cmd) await finish(); startUnwrap(); return true;
       case 'dimension': if (cmd) await finish(); await startDimension(); return true;
       case 'place': if (cmd) await finish(); startPlace(); return true;
+      case 'copy-place': if (cmd) await finish(); startPlace({ mode: 'copy' }); return true;
+      case 'paste-place': if (cmd) await finish(); startPlace({ mode: 'paste' }); return true;
       case 'text': if (cmd) await finish(); startText(); return true;
       case 'slide': if (cmd) await finish(); startSlide(); return true;
       case 'section': if (cmd && cmd.id !== 'section') await finish(); if (cmd?.id !== 'section') startSection(); return true;
@@ -9532,7 +9556,7 @@ export async function mount(root, backend) {
     const out = [];
     if (sel.solids.length > 1) out.push('tool:boolean');
     if (sel.solids.length === 2) out.push('tool:project');
-    if (kinds.has('solid')) out.push('tool:move', 'tool:rotate', 'tool:scale', 'duplicate', 'create-outline', 'toggle-points', 'place', 'dimension', 'tool:mirror', 'tool:rect-array', 'tool:radial-array', 'tool:curve-array', 'unify', 'boundary-edges', 'remove-fillets', 'raise-degree', 'deform-curve', 'create-instance', 'delete', 'hide', 'isolate', 'group', 'lock', 'material:set', 'export:step', 'export:mesh', 'export:drawing');
+    if (kinds.has('solid')) out.push('tool:move', 'tool:rotate', 'tool:scale', 'duplicate', 'create-outline', 'toggle-points', 'place', 'copy-place', 'dimension', 'tool:mirror', 'tool:rect-array', 'tool:radial-array', 'tool:curve-array', 'unify', 'boundary-edges', 'remove-fillets', 'raise-degree', 'deform-curve', 'create-instance', 'delete', 'hide', 'isolate', 'group', 'lock', 'material:set', 'export:step', 'export:mesh', 'export:drawing');
     if (kinds.has('face')) out.push('tool:extrude', 'tool:offset', 'tool:thicken', 'tool:shell', 'tool:hole', 'tool:remove-face', 'remove-fillets', 'isoparam', 'rebuild', 'raise-degree', 'subdivide', 'match-face', 'untrim', 'unwrap', 'toggle-points', 'view:surface-curvature', 'plane:selection', 'plane:selection-keep-view');
     if (kinds.has('edge')) out.push('tool:fillet', 'tool:patch', 'alt-duplicate', 'measure:radius', 'view:surface-curvature', ...(sel.list('edge').length === 2 ? ['bridge-edge', 'align-surface'] : []), ...([2, 3, 4].includes(sel.list('edge').length) ? ['square'] : []));
     if (sel.list('edge').length === 2) out.push('tool:bridge-surface');

@@ -38,6 +38,8 @@ export class LocalBackend {
 
     constructor() {
         this.shapes = new Map();
+        // Copy with Placement's bodies, outside the document and its undo steps.
+        this.clipboard = [];
         // Per body, persistent face and edge ids by number, as in the Rust Document (document.rs).
         this.refs = new Map();
         this.nextId = 1;
@@ -538,14 +540,18 @@ export class LocalBackend {
      * move), and with `op` combined with the body `target` one copy at a time. Mirrors document.rs
      * preview_place: a slice's pieces, and copies a union misses, become new bodies.
      */
-    placeResult({ bodies, motion, target = null, op = 'new' }) {
+    placeResult({ bodies = [], clipboard = false, motion, target = null, op = 'new' }) {
         const m = motion ?? {};
         const nums = [m.offset, m.pivot, m.axis].every(v => Array.isArray(v) && v.length === 3 && v.every(Number.isFinite));
         const scale = m.scale ?? 1;
         if (!nums || !Number.isFinite(m.angle ?? 0) || !Number.isFinite(scale)) throw new Error('the placement is not a number');
         if (scale <= 1e-9) throw new Error('the scale must be above zero');
         if (Math.abs(m.angle ?? 0) > 1e-12 && Math.hypot(...m.axis) < 1e-9) throw new Error("the placement's axis has no direction");
-        const copies = this.copies(bodies, s => [transform(s, { ...m, axis: Math.hypot(...m.axis) < 1e-9 ? [0, 1, 0] : m.axis, scale })]).flatMap(([, cs]) => cs);
+        const move = s => transform(s, { ...m, axis: Math.hypot(...m.axis) < 1e-9 ? [0, 1, 0] : m.axis, scale });
+        // Paste with Placement places the copied bodies instead.
+        if (clipboard && !this.clipboard.length) throw new Error('nothing is copied; select solids and copy them with Ctrl+Shift+C');
+        const copies = clipboard ? this.clipboard.map(move) : this.copies(bodies, s => [move(s)]).flatMap(([, cs]) => cs);
+        bodies = clipboard ? [] : bodies;
         if (op === 'new' || op === 'auto' || target === null || target === undefined) return { copies, result: null, pieces: [], loose: [] };
         if (bodies.includes(target)) throw new Error('place the copies on another body to combine with it');
         let shape = this.shapes.get(target), history = null;
@@ -585,6 +591,15 @@ export class LocalBackend {
                 pieces: [...p.pieces, ...p.loose].map((s, i) => this.body(this.nextId + i, s)),
             };
         });
+    }
+
+    /**
+     * Plasticity's Copy with Placement: the bodies kept to paste later, here or in a file opened
+     * after; nothing in the document changes. Returns how many were copied.
+     */
+    async copyBodies(bodies) {
+        this.clipboard = this.copies(bodies, s => [s]).flatMap(([, cs]) => cs);
+        return this.clipboard.length;
     }
 
     /** Place as one undo step: the bodies made, the target first when it changed. */
