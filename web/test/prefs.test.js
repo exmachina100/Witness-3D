@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { defaultPrefs, readPrefs, setPref, changedPrefs, controlSettings, viewColors, PREF_FIELDS } from '../src/app/prefs.js';
+import { wheelSpeed, defaultPrefs, readPrefs, setPref, changedPrefs, controlSettings, viewColors, PREF_FIELDS } from '../src/app/prefs.js';
 
 test('defaults cover every field', () => {
     const d = defaultPrefs();
@@ -33,5 +33,8 @@ test('inverted zoom is a negative zoom speed; colours are numbers', () => {
     const c = controlSettings({ zoomToCursor: false, invertZoom: true, zoomSpeed: 2, rotateSpeed: 1, panSpeed: 1 });
     assert.equal(c.zoomSpeed, -2);
     assert.equal(c.zoomToCursor, false);
+    // The wheel turns by its own switch, whatever the drag does.
+    assert.equal(wheelSpeed({ zoomSpeed: 2, invertZoom: true, invertWheel: false }), 2);
+    assert.equal(wheelSpeed({ zoomSpeed: 2, invertZoom: false, invertWheel: true }), -2);
     assert.deepEqual(viewColors(defaultPrefs().appearance), { accent: 0xff4d00, ground: 0x0f0f11, grid: 0x19191c, gridMajor: 0x232327 });
 });

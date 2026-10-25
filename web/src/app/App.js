@@ -95,7 +95,7 @@ import { ALIGN_CURVE_CONTINUITY, alignCurveEnd, BRIDGE_CONTINUITY, bridgeContinu
 import { ViewGizmo } from './ViewGizmo.js';
 import { Toolbar } from './Toolbar.js';
 import { dragAngles, orbitAbout } from './orbit.js';
-import { PREF_FIELDS, changedPrefs, controlSettings, readPrefs, setPref, viewColors } from './prefs.js';
+import { PREF_FIELDS, changedPrefs, controlSettings, readPrefs, setPref, viewColors, wheelSpeed } from './prefs.js';
 import { arcPoints, circleThrough, curveFromNurbs, cvPoints, ellipsePoints, endTangent, helixPoints, loops, nurbsLoop, nurbsPoints, polygonCorners, spiralAngle, tangentArc } from '../curves.js';
 
 const KEYS = {
@@ -979,7 +979,9 @@ export async function mount(root, backend) {
   let pivotDrag = null;
   viewEl.addEventListener('pointerdown', e => {
     if (e.button !== 1) return;
-    const dolly = e.ctrlKey || e.metaKey;
+    // The drag's zoom direction (Invert Zoom), and Ctrl + middle-drag zooms only with Zoom Vertical on.
+    controls.zoomSpeed = controlSettings(prefs.navigation).zoomSpeed;
+    const dolly = (e.ctrlKey || e.metaKey) && prefs.navigation.zoomVertical;
     controls.mouseButtons.MIDDLE = dolly ? THREE.MOUSE.DOLLY : THREE.MOUSE.ROTATE;
     if (dolly || e.shiftKey || !prefs.navigation.rotateAroundCursor || turning) return;
     ray(e);
@@ -998,6 +1000,8 @@ export async function mount(root, backend) {
     camera.lookAt(controls.target);
   });
   addEventListener('pointerup', e => { if (e.button === 1 && pivotDrag) { pivotDrag = null; controls.mouseButtons.MIDDLE = THREE.MOUSE.ROTATE; } });
+  // The wheel's zoom direction has its own switch (Invert Wheel Direction).
+  viewEl.addEventListener('wheel', () => { controls.zoomSpeed = wheelSpeed(prefs.navigation); }, { capture: true, passive: true });
   // Regular Polygon: Shift+wheel adds or takes away a side instead of zooming.
   viewEl.addEventListener('wheel', e => {
     if (cmd?.id !== 'polygon' || !e.shiftKey) return;
