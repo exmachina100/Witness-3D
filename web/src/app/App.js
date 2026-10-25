@@ -7314,12 +7314,14 @@ export async function mount(root, backend) {
     if (!backend.hiddenLines) return toast('DRAWING EXPORT IS NOT IN THIS BUILD YET');
     const ids = (sel.bodies.length ? sel.bodies : current.map(b => b.id)).filter(id => org.shows(id));
     const curves = (sel.bodies.length || sel.curves.length ? sel.curves : curveList.map(c => c.id)).map(curveById).filter(Boolean);
-    if (!ids.length && !curves.length) return toast('NOTHING TO EXPORT');
+    // With nothing selected, shown solid instances are drawn too, as their masters where they stand.
+    const placed = sel.bodies.length || sel.curves.length ? [] : placedSolids().map(({ n }) => ({ body: n.master, motion: motionOf(n) }));
+    if (!ids.length && !curves.length && !placed.length) return toast('NOTHING TO EXPORT');
     const c = cmd = { id: 'export-drawing', format: 'svg', hidden: true, curves: true };
     lastTool = 'export-drawing';
     showTool('export-drawing');
     setState('none');
-    $('dr-hint').textContent = [ids.length && `${ids.length} SOLID${ids.length > 1 ? 'S' : ''}`, curves.length && `${curves.length} CURVE${curves.length > 1 ? 'S' : ''}`].filter(Boolean).join(' · ');
+    $('dr-hint').textContent = [ids.length && `${ids.length} SOLID${ids.length > 1 ? 'S' : ''}`, placed.length && `${placed.length} INSTANCE${placed.length > 1 ? 'S' : ''}`, curves.length && `${curves.length} CURVE${curves.length > 1 ? 'S' : ''}`].filter(Boolean).join(' · ');
     setHud('EXPORT DRAWING · ⏎ TO SAVE');
     const sync = () => {
       for (const b of $$('[data-drf]')) b.setAttribute('aria-pressed', b.dataset.drf === c.format);
@@ -7340,7 +7342,7 @@ export async function mount(root, backend) {
       const x = new THREE.Vector3(1, 0, 0).applyQuaternion(camera.quaternion);
       const view = { origin: controls.target.toArray(), toward: toward.toArray(), x: x.toArray() };
       try {
-        const lines = ids.length ? await backend.hiddenLines({ bodies: ids, ...view, deflection: num('dr-tol') }) : [];
+        const lines = ids.length || placed.length ? await backend.hiddenLines({ bodies: ids, placed, ...view, deflection: num('dr-tol') }) : [];
         if (c.curves) for (const cv of curves) {
           const f = curveFrame(cv), pts = curve2d(cv).map(p => lift(f, p));
           if (isClosed(cv)) pts.push(pts[0]);
@@ -8904,8 +8906,10 @@ export async function mount(root, backend) {
   }
   async function exportSelected() {
     const ids = sel.bodies.length ? sel.bodies : current.map(b => b.id);
-    for (const id of ids) {
-      try { const msg = await backend.exportStep(id); if (!msg) return; toast(msg); }
+    // With nothing selected, each shown solid instance goes too, as its master where it stands.
+    const jobs = [...ids.map(id => [id, {}]), ...(sel.bodies.length ? [] : placedSolids().map(({ n }) => [n.master, { motion: motionOf(n), name: `instance-${n.id}` }]))];
+    for (const [id, opts] of jobs) {
+      try { const msg = await backend.exportStep(id, opts); if (!msg) return; toast(msg); }
       catch (e) { toast(say(e)); }
     }
   }
