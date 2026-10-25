@@ -1582,6 +1582,9 @@ pub fn commit_move_faces(m: &Model, req: MoveFacesRequest) -> Result<Committed, 
 pub struct MoveFacePolesRequest {
     pub body: BodyId,
     pub moves: Vec<(u32, u32, [f64; 3])>,
+    /// Other bodies' points moved in the same undo step (Align Surface's Symmetric).
+    #[serde(default)]
+    pub more: Vec<MoveFacePolesRequest>,
 }
 
 fn pole_moves(req: &MoveFacePolesRequest) -> Vec<(u32, u32, DVec3)> {
@@ -1597,7 +1600,8 @@ pub fn preview_move_face_poles(m: &Model, req: MoveFacePolesRequest) -> Option<R
 
 pub fn commit_move_face_poles(m: &Model, req: MoveFacePolesRequest) -> Result<Committed, ApiError> {
     m.call(move |doc| {
-        doc.commit_move_face_poles(req.body, &pole_moves(&req))?;
+        let all: Vec<_> = std::iter::once(&req).chain(&req.more).map(|r| (r.body, pole_moves(r))).collect();
+        doc.commit_move_face_poles_many(&all)?;
         Ok(Committed { id: req.body, scene: bodies(doc)? })
     })
 }

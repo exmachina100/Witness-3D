@@ -1188,10 +1188,21 @@ impl<K: Kernel> Document<K> {
 
     /// Moving surface control points as one undoable step. Faces and edges keep their numbers and refs.
     pub fn commit_move_face_poles(&mut self, body: BodyId, moves: &[(u32, u32, DVec3)]) -> Result<(), KernelError> {
-        let solid = self.preview_move_face_poles(body, moves)?;
-        let refs = self.state.bodies.get(&body).ok_or(KernelError::Invalid("that body no longer exists"))?.refs.clone();
+        self.commit_move_face_poles_many(&[(body, moves.to_vec())])
+    }
+
+    /// Surface control points of several bodies moved as one undo step; nothing changes if any fails.
+    pub fn commit_move_face_poles_many(&mut self, all: &[(BodyId, Vec<(u32, u32, DVec3)>)]) -> Result<(), KernelError> {
+        let mut made = Vec::new();
+        for (body, moves) in all {
+            let solid = self.preview_move_face_poles(*body, moves)?;
+            let refs = self.state.bodies.get(body).ok_or(KernelError::Invalid("that body no longer exists"))?.refs.clone();
+            made.push((*body, Body { solid, refs }));
+        }
         self.checkpoint();
-        self.state.bodies.insert(body, Rc::new(Body { solid, refs }));
+        for (body, b) in made {
+            self.state.bodies.insert(body, Rc::new(b));
+        }
         Ok(())
     }
 

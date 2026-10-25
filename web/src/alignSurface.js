@@ -287,12 +287,33 @@ export function pickFace(faces, away, target) {
 }
 
 /**
+ * The curve halfway between two edges (points along each, in order), matched by length end to
+ * end the way they lie: where Symmetric moves both sides.
+ */
+export function middleOf(a, b) {
+    if (dist(a[0], b.at(-1)) + dist(a.at(-1), b[0]) < dist(a[0], b[0]) + dist(a.at(-1), b.at(-1))) b = [...b].reverse();
+    const La = lengths(a), Lb = lengths(b);
+    return Array.from({ length: 257 }, (_, k) => mul(add(pointAt(a, La, k / 256), pointAt(b, Lb, k / 256)), 0.5));
+}
+
+/** A frame whose tangent plane lies halfway between two faces' (the normals averaged, either way round). */
+function meanFrame(f, g) {
+    const n1 = unit(cross(f.su, f.sv));
+    let n2 = unit(cross(g.su, g.sv));
+    if (dot(n1, n2) < 0) n2 = mul(n2, -1);
+    const n = unit(add(n1, n2));
+    const e = unit(cross(n, Math.abs(n[0]) < 0.9 ? [1, 0, 0] : [0, 1, 0]));
+    return { at: f.at, su: e, sv: cross(n, e), suu: [0, 0, 0], suv: [0, 0, 0], svv: [0, 0, 0] };
+}
+
+/**
  * The whole of Align Surface against a backend (either build): `target` and `reference` are
  * { body, edge }. Returns { body, moves } for previewMoveFacePoles / commitMoveFacePoles, moves as
  * [[face, pole, [dx, dy, dz]]].
  */
-export async function alignRequest(backend, { target, reference, continuity = 'G1', tension = 1, blend = 0, influence = 0, partial = [0, 1] }) {
+export async function alignRequest(backend, { target, reference, continuity = 'G1', tension = 1, blend = 0, influence = 0, partial = [0, 1], symmetric = false }) {
     if (target.body === reference.body && target.edge === reference.edge) throw new Error('pick two different edges: the one to move, then the one to meet');
+    if (symmetric) return symmetricRequest(backend, { target, reference, continuity, tension, blend, influence, partial });
     const [tTeeth, rTeeth] = await Promise.all([target, reference].map(e => backend.edgeCurvature({ body: e.body, edge: e.edge, n: 400 })));
     const tAlong = tTeeth.map(t => t.at), rAlong = rTeeth.map(t => t.at);
     const middle = pts => pts[Math.floor(pts.length / 2)];
@@ -303,4 +324,36 @@ export async function alignRequest(backend, { target, reference, continuity = 'G
     const rFace = pickFace(rFaces, middle(tAlong), false);
     const moves = alignMoves(side, plan, rFace.frames, { continuity, tension, blend, influence, partial });
     return { body: target.body, moves: moves.map(([pole, by]) => [tFace.face, pole, by]) };
+}
+
+/**
+ * Align Surface's Symmetric: both sides move, meeting on the curve halfway between their edges
+ * (G0) and, for G1, in the tangent plane halfway between their faces'. Both edges must lie on
+ * B-spline sheets. Returns { body, moves, more: [{ body, moves }] } (the second side in `more`
+ * when it is on another body, else among `moves`).
+ */
+async function symmetricRequest(backend, { target, reference, continuity, ...opts }) {
+    if (continuity === 'G2') throw new Error('Symmetric meets the sides in G0 or G1; set the continuity to G0 or G1');
+    const edges = [target, reference];
+    const along = (await Promise.all(edges.map(e => backend.edgeCurvature({ body: e.body, edge: e.edge, n: 400 })))).map(teeth => teeth.map(t => t.at));
+    const middle = pts => pts[Math.floor(pts.length / 2)];
+    const faces = await Promise.all(edges.map(async (e, k) => pickFace(readEdgeFaces(await backend.edgeFaces({ body: e.body, edge: e.edge, points: [] }), 0), middle(along[1 - k]), true)));
+    if (target.body === reference.body && faces[0].face === faces[1].face) throw new Error('the two edges are sides of one face; pick edges of two sheets');
+    const mid = middleOf(along[0], along[1]);
+    const out = await Promise.all(edges.map(async (e, k) => {
+        const side = sideOf(faces[k].spline, along[k].filter((_, i) => i % 25 === 0));
+        const plan = alignPoints(side, mid);
+        let frames = plan.points.map(() => null);
+        if (continuity === 'G1') {
+            // Both faces' frames at this side's points, averaged.
+            const [mine, theirs] = await Promise.all(edges.map(async (x, j) => {
+                const list = readEdgeFaces(await backend.edgeFaces({ body: x.body, edge: x.edge, points: plan.points }), plan.points.length);
+                return list.find(f => f.face === faces[j].face).frames;
+            }));
+            frames = mine.map((f, j) => meanFrame(f, theirs[j]));
+        }
+        return { body: e.body, moves: alignMoves(side, plan, frames, { continuity, ...opts }).map(([pole, by]) => [faces[k].face, pole, by]) };
+    }));
+    if (target.body === reference.body) return { body: target.body, moves: [...out[0].moves, ...out[1].moves] };
+    return { body: target.body, moves: out[0].moves, more: [out[1]] };
 }
