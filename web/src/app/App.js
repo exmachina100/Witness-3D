@@ -92,7 +92,7 @@ import { arcPoints, circleThrough, curveFromNurbs, cvPoints, ellipsePoints, endT
 const KEYS = {
   material: [['FORK', 'OWN COPY'], ['⏎ / RMB', 'OK'], ['ESC', 'CANCEL']],
   idle: [['CLICK', 'SELECT'], ['⇧ CLICK', 'ADD'], ['CTRL CLICK', 'REMOVE'], ['DRAG', 'BOX'], ['MMB', 'ORBIT'], ['RMB', 'PAN'], ['F', 'SEARCH']],
-  fillet: [['DRAG DOT', 'RADIUS'], ['IN', 'CHAMFER'], ['D', 'DISTANCE'], ['C', 'CHAMFER'], ['A', 'ANGLE'], ['V', 'VARIABLE POINT'], ['L', 'LIMIT POINTS'], ['CTRL CLICK', 'EDGES'], ['CLICK ROUND', 'COPY RADIUS'], ['⏎ / RMB', 'OK']],
+  fillet: [['DRAG DOT', 'RADIUS'], ['IN', 'CHAMFER'], ['D', 'DISTANCE'], ['C', 'CHAMFER'], ['A', 'ANGLE'], ['V', 'VARIABLE POINT'], ['L', 'LIMIT POINTS'], ['CTRL CLICK', 'EDGES'], ['T', 'TANGENT EDGES'], ['CLICK ROUND', 'COPY RADIUS'], ['⏎ / RMB', 'OK']],
   move: [['X Y Z', 'AXIS'], ['⇧ X Y Z', 'PLANE'], ['G', 'SCREEN'], ['CTRL', 'SNAP'], ['⏎ / RMB', 'OK']],
   rotate: [['X Y Z', 'AXIS'], ['R', 'SCREEN'], ['CTRL', '15°'], ['⏎ / RMB', 'OK']],
   scale: [['S', 'UNIFORM'], ['CTRL', '0.1'], ['⏎ / RMB', 'OK']],
@@ -276,6 +276,7 @@ const SHELL = `
       <div class="field"><label>EDGES</label><output data-id="blend-count">0</output></div>
       <div class="field"><label>VARIABLE POINTS</label><output data-id="blend-vars" title="V adds one on a rounded edge; drag its dot for the radius there">0</output></div>
       <div class="field"><label>LIMIT POINTS</label><output data-id="blend-limits" title="L adds one on a rounded edge; with two the round runs only between them">0</output></div>
+      <div class="chips"><button data-id="blend-tangent" aria-pressed="true" title="Add tangent edges: the round runs on along edges tangent to the picked ones. Off, it stops at the ends of the picked edges"><kbd>T</kbd>TANGENT EDGES</button></div>
     </div>
     <div class="sec" data-panel="spiral" hidden>
       <span class="hint" data-id="spiral-hint">CLICK THE START OF THE AXIS</span>
@@ -870,11 +871,11 @@ const VIEWS = {
 export async function mount(root, backend) {
   root.innerHTML = SHELL;
   // Panel options carry their icon ahead of the key and name.
-  for (const b of root.querySelectorAll('[data-draw],[data-bop],[data-xop],[data-fop],[data-spiral],[data-toggle],[data-gmethod],[data-galign],[data-grow],[data-mfgrow],[data-eslimit],[data-flshape],[data-avaxis],[data-extshape],[data-esshape],[data-isodir],[data-id="oe-both"],[data-id="oe-individual"],[data-id="ex-lock"],[data-id="bool-keep"],[data-id="ex-free"],[data-id="ex-pivot"],[data-id="ex-individual"],[data-id="dr-hidden"],[data-id="dr-curves"],[data-id="oc-lock"],[data-id="oc-free"],[data-id="oc-slot"],[data-id="oc-combine"],[data-id="es-unlimit"],[data-rbmethod],[data-oecorner],[data-saplane],[data-plaxis],[data-plop],[data-id="pl-flip"],[data-id="pl-instance"],[data-id="ra-instance"],[data-id="rr-instance"],[data-id="ca-instance"],[data-id="br-trim"],[data-id="br-comb"],[data-id="ac-comb"],[data-id="dc-reblend"],[data-id="section-btn"],[data-id="sa-flip"],[data-id="rf-shrink"],[data-id="ut-keep"],[data-txfont],[data-txalign],[data-sldir],[data-dcflip],[data-id="dc-keep"],[data-imdepth],[data-imcull],[data-id="im-delete"],[data-id="cc-extend"],[data-id="cc-screen"],[data-inmode],[data-id="in-realize"],[data-id="in-dup"],[data-id="in-delete"]')) {
+  for (const b of root.querySelectorAll('[data-draw],[data-bop],[data-xop],[data-fop],[data-spiral],[data-toggle],[data-gmethod],[data-galign],[data-grow],[data-mfgrow],[data-eslimit],[data-flshape],[data-avaxis],[data-extshape],[data-esshape],[data-isodir],[data-id="oe-both"],[data-id="oe-individual"],[data-id="blend-tangent"],[data-id="ex-lock"],[data-id="bool-keep"],[data-id="ex-free"],[data-id="ex-pivot"],[data-id="ex-individual"],[data-id="dr-hidden"],[data-id="dr-curves"],[data-id="oc-lock"],[data-id="oc-free"],[data-id="oc-slot"],[data-id="oc-combine"],[data-id="es-unlimit"],[data-rbmethod],[data-oecorner],[data-saplane],[data-plaxis],[data-plop],[data-id="pl-flip"],[data-id="pl-instance"],[data-id="ra-instance"],[data-id="rr-instance"],[data-id="ca-instance"],[data-id="br-trim"],[data-id="br-comb"],[data-id="ac-comb"],[data-id="dc-reblend"],[data-id="section-btn"],[data-id="sa-flip"],[data-id="rf-shrink"],[data-id="ut-keep"],[data-txfont],[data-txalign],[data-sldir],[data-dcflip],[data-id="dc-keep"],[data-imdepth],[data-imcull],[data-id="im-delete"],[data-id="cc-extend"],[data-id="cc-screen"],[data-inmode],[data-id="in-realize"],[data-id="in-dup"],[data-id="in-delete"]')) {
     const name = b.dataset.draw ?? b.dataset.bop ?? b.dataset.xop ?? b.dataset.fop ?? b.dataset.spiral ?? (b.dataset.toggle && `view-${b.dataset.toggle}`)
       ?? (b.dataset.gmethod && `guide-${b.dataset.gmethod}`) ?? (b.dataset.galign && `align-${b.dataset.galign}`) ?? (b.dataset.grow && `grow-${b.dataset.grow}`) ?? (b.dataset.mfgrow && `grow-${b.dataset.mfgrow}`) ?? (b.dataset.eslimit && `limit-${b.dataset.eslimit}`) ?? (b.dataset.flshape && `fillet-${b.dataset.flshape}`) ?? (b.dataset.avaxis && `axis-${b.dataset.avaxis}`) ?? (b.dataset.extshape && `extend-${b.dataset.extshape}`) ?? (b.dataset.esshape && `extend-${b.dataset.esshape}`) ?? (b.dataset.isodir && `iso-${b.dataset.isodir}`) ?? (b.dataset.rbmethod && `rebuild-${b.dataset.rbmethod}`) ?? (b.dataset.oecorner && `corner-${b.dataset.oecorner}`) ?? (b.dataset.saplane && `section-${b.dataset.saplane}`) ?? (b.dataset.plaxis && (b.dataset.plaxis === 'normal' ? 'place-normal' : `axis-${b.dataset.plaxis}`)) ?? b.dataset.plop
       ?? (b.dataset.txfont && `font-${b.dataset.txfont}`) ?? (b.dataset.txalign && `txalign-${b.dataset.txalign}`) ?? (b.dataset.sldir && { u: 'slide-u', '-u': 'slide-back', v: 'slide-v', '-v': 'slide-vback', n: 'slide-n' }[b.dataset.sldir]) ?? (b.dataset.dcflip && { mirror: 'mirror', swap: 'swap-uv', normal: 'reverse-sheet' }[b.dataset.dcflip]) ?? (b.dataset.imdepth && `depth-${b.dataset.imdepth}`) ?? (b.dataset.imcull && `cull-${b.dataset.imcull}`) ?? b.dataset.inmode
-      ?? { 'ex-lock': 'lock', 'bool-keep': 'keep', 'ex-free': 'freestyle', 'ex-pivot': 'pivot', 'ex-individual': 'individual', 'dr-hidden': 'hidden-lines', 'dr-curves': 'drawing-curves', 'oc-lock': 'lock', 'oc-free': 'freestyle', 'oc-slot': 'slot', 'oc-combine': 'combine', 'oe-both': 'both-sides', 'oe-individual': 'individual', 'es-unlimit': 'unlimit', 'rf-shrink': 'shrink', 'ut-keep': 'keep-edges', 'section-btn': 'view-section', 'sa-flip': 'flip', 'pl-flip': 'flip', 'pl-instance': 'instance', 'ra-instance': 'instance', 'rr-instance': 'instance', 'ca-instance': 'instance', 'br-trim': 'trim', 'br-comb': 'view-curvature', 'ac-comb': 'view-curvature', 'dc-reblend': 'reblend', 'dc-keep': 'keep', 'im-delete': 'delete', 'in-realize': 'realize-instance', 'cc-extend': 'extend', 'cc-screen': 'view-screen', 'in-dup': 'duplicate', 'in-delete': 'delete' }[b.dataset.id];
+      ?? { 'ex-lock': 'lock', 'bool-keep': 'keep', 'ex-free': 'freestyle', 'ex-pivot': 'pivot', 'ex-individual': 'individual', 'dr-hidden': 'hidden-lines', 'dr-curves': 'drawing-curves', 'oc-lock': 'lock', 'oc-free': 'freestyle', 'oc-slot': 'slot', 'oc-combine': 'combine', 'oe-both': 'both-sides', 'oe-individual': 'individual', 'blend-tangent': 'tangent-chain', 'es-unlimit': 'unlimit', 'rf-shrink': 'shrink', 'ut-keep': 'keep-edges', 'section-btn': 'view-section', 'sa-flip': 'flip', 'pl-flip': 'flip', 'pl-instance': 'instance', 'ra-instance': 'instance', 'rr-instance': 'instance', 'ca-instance': 'instance', 'br-trim': 'trim', 'br-comb': 'view-curvature', 'ac-comb': 'view-curvature', 'dc-reblend': 'reblend', 'dc-keep': 'keep', 'im-delete': 'delete', 'in-realize': 'realize-instance', 'cc-extend': 'extend', 'cc-screen': 'view-screen', 'in-dup': 'duplicate', 'in-delete': 'delete' }[b.dataset.id];
     b.insertAdjacentHTML('afterbegin', icon(name));
   }
   const $ = id => root.querySelector(`[data-id="${id}"]`);
@@ -2467,7 +2468,7 @@ export async function mount(root, backend) {
       id: 'fillet', auto, value: 0, angle: 45, shape: 'round', tension: 0.5, sent: 0, shown: 0, good: null, bad: null, body: null, edges: [],
       gizmo: null, entry: null, entryDone: () => previewFillet(),
       // Plasticity's variable points (V): { edge, point, scale, gizmo }, the radius there being value × scale.
-      vars: [], limits: [], placing: null, extraGizmos() { return this.vars.map(v => v.gizmo) },
+      vars: [], limits: [], placing: null, tangent: true, extraGizmos() { return this.vars.map(v => v.gizmo) },
       // Each body's face surfaces, read once, so a click on a round face can copy its radius.
       surfaces: new Map(),
       get kind() { return this.value < 0 ? 'chamfer' : 'fillet' },
@@ -2479,6 +2480,7 @@ export async function mount(root, backend) {
     $('blend-tension').value = 0.5;
     $('blend-kind').textContent = 'ROUND';
     $('blend-limits').textContent = 0;
+    $('blend-tangent').setAttribute('aria-pressed', 'true');
     for (const o of [...limitMarks.children]) dispose(o);
     setState('none');
     c.onSelection = () => {
@@ -2534,6 +2536,7 @@ export async function mount(root, backend) {
         setHud(`CLICK A ROUNDED EDGE · LIMIT POINT ${Math.min(c.limits.length, 1) + 1} OF 2`);
         return true;
       }
+      if (action === 'tangent') { setFilletTangent(!c.tangent); return true; }
       if (action === 'angle') {
         c.entry = { label: 'ANGLE °', text: '', apply: v => { if (v > 0 && v < 90) { c.angle = v; $('blend-angle').value = v; previewFillet(); } else toast('THE ANGLE MUST BE BETWEEN 0 AND 90'); } };
         setHud('ANGLE ° _');
@@ -2687,6 +2690,17 @@ export async function mount(root, backend) {
     return out.lengthSq() < 0.5 ? null : out;
   }
 
+  /** Plasticity's Add Tangent Edges (T): off, the round keeps to the picked edges. */
+  function setFilletTangent(on) {
+    const c = cmd;
+    if (c?.id !== 'fillet') return;
+    c.tangent = on;
+    $('blend-tangent').setAttribute('aria-pressed', String(on));
+    if (!on && c.edges.length && !runEnds(c).length && c.limits.length !== 2) toast('THE PICKED EDGES CLOSE INTO A LOOP; THE ROUND RUNS ALL ROUND IT');
+    c.good = c.bad = null;
+    previewFillet();
+  }
+
   /** Reads `body`'s face surfaces into the fillet command's cache (for copying a radius). */
   function fetchSurfaces(c, body) {
     if (!backend.faceSurfaces || body === undefined || c.surfaces.has(body)) return;
@@ -2711,8 +2725,28 @@ export async function mount(root, backend) {
     body: c.body, edges: c.edges, size: Math.abs(v), kind: v < 0 ? 'chamfer' : 'fillet', angle: c.angle * DEG,
     variable: v > 0 ? c.vars.map(p => ({ edge: p.edge, point: p.point.toArray(), scale: p.scale })) : [],
     shape: c.shape, tension: c.tension,
-    limits: v > 0 && c.limits.length === 2 ? c.limits.map(l => l.point.toArray()) : [],
+    limits: v > 0 && c.limits.length === 2 ? c.limits.map(l => l.point.toArray()) : v > 0 && !c.tangent ? runEnds(c) : [],
   });
+
+  /**
+   * With tangent edges off (T), the round stops at the ends of the picked edges instead of running
+   * on along edges tangent to them: those ends as limit points (none for a closed loop).
+   */
+  function runEnds(c) {
+    const body = bodyOf(c.body);
+    if (!body) return [];
+    const ends = [];
+    for (const n of c.edges) {
+      const e = body.edges[n];
+      if (!e?.length) continue;
+      for (const p of [e.slice(0, 3), e.slice(-3)]) {
+        const at = ends.findIndex(q => Math.hypot(q.p[0] - p[0], q.p[1] - p[1], q.p[2] - p[2]) < 1e-6);
+        if (at >= 0) ends[at].count++; else ends.push({ p, count: 1 });
+      }
+    }
+    const open = ends.filter(q => q.count === 1).map(q => q.p);
+    return open.length === 2 ? open : [];
+  }
 
   /** Plasticity's fillet Shape: Round, Chordal (the distance spans the round), Conic or G2 (with Tension), or Full. */
   function setFilletShape(shape) {
@@ -9347,6 +9381,7 @@ export async function mount(root, backend) {
   $('es-d').addEventListener('input', () => cmd?.id === 'extend-sheet' && cmd.preview());
   for (const b of $$('[data-esshape]')) b.onclick = () => cmd?.id === 'extend-sheet' && cmd.setShape(b.dataset.esshape);
   for (const b of $$('[data-flshape]')) b.onclick = () => setFilletShape(b.dataset.flshape);
+  $('blend-tangent').onclick = () => cmd?.id === 'fillet' && setFilletTangent(!cmd.tangent);
   $('blend-tension').addEventListener('input', () => {
     const t = parseFloat($('blend-tension').value);
     if (cmd?.id === 'fillet' && t >= 0.05 && t <= 0.95) { cmd.tension = t; cmd.good = cmd.bad = null; previewFillet(); }
