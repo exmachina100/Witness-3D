@@ -9,6 +9,7 @@ const sub = (a, b) => [a[0] - b[0], a[1] - b[1], a[2] - b[2]];
 const add = (a, b) => [a[0] + b[0], a[1] + b[1], a[2] + b[2]];
 const mul = (a, s) => [a[0] * s, a[1] * s, a[2] * s];
 const dist = (a, b) => Math.hypot(a[0] - b[0], a[1] - b[1], a[2] - b[2]);
+const dot = (a, b) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
 const lerp = (a, b, t) => add(mul(a, 1 - t), mul(b, t));
 
 /** A polyline as a function of its length fraction 0..1; with `values` (one per point), those interpolated instead. */
@@ -261,7 +262,9 @@ export function surfaceAt({ degree, uKnots, vKnots, poles }, u, v) {
  * `flatness` 0 to 1 pulls the inner control points (those the sides and continuity leave free)
  * toward the plane of the boundary, 1 onto it.
  */
-export function square(sides, { degree = 3, spans = 0, tolerance = 0.01, continuity = 'G0', angle = 0.5, tension = 1, flatness = 0 } = {}) {
+export function square(sides, { degree = 3, spans = 0, tolerance = 0.01, continuity = 'G0', angle = 0.5, tension = 1, flatness = 0, boundary = 'natural', weight = 1 } = {}) {
+    if (!BOUNDARY.includes(boundary)) throw new Error('the boundary is Natural, Normal, Next or Adjacent');
+    if (!(weight > 0 && weight <= 1)) throw new Error('the weight runs from above 0 to 1');
     if (!(degree >= 1 && degree <= 7)) throw new Error('the degree runs from 1 to 7');
     const curved = continuity === 'G2', tangent = continuity === 'G1' || curved;
     if (tangent && degree < 2) throw new Error(`${continuity} needs degree 2 or more`);
@@ -306,17 +309,118 @@ export function square(sides, { degree = 3, spans = 0, tolerance = 0.01, continu
     // Free: the sides only guide the sheet (corners held), one span each way unless set, for a
     // clean surface with few control points rather than one on the sides.
     if (continuity === 'Free' || continuity === 'FREE') spans = spans || 1;
+    // Boundary and Weight act on the chosen fit: the isocurves' flow at free sides, then the loosening.
+    const finish = out => {
+        if (boundary === 'natural' && weight === 1) return out;
+        const held = shape.outs.map(Boolean);
+        if (boundary !== 'natural') crossFlow(out.poles, boundary, held);
+        if (weight < 1) loosen(out.poles, 1 - weight, held.map(h => h ? (curved ? 3 : 2) : 0));
+        out.gap = sideGap(out, shape.sides);
+        out.turn = tangent ? sideTurn(out, shape.outs) : 0;
+        out.bend = curved ? sideBend(out, shape.bends) : 0;
+        return out;
+    };
     if (spans) {
         const [su, sv] = Array.isArray(spans) ? spans : [spans, spans];
         if (su + degree < rowsU || sv + degree < rowsV) throw new Error(`${continuity} needs more spans: at least ${rows} control points across the edge sides`);
-        return make(su, sv);
+        return finish(make(su, sv));
     }
     let out;
     for (let s = Math.max(1, Math.max(rowsU, rowsV) - degree); s <= 64; s *= 2) {
         out = make(s, s);
         if (out.gap <= tolerance && out.turn <= angle && out.bend <= bendTolerance(shape.bends)) break;
     }
-    return out;
+    return finish(out);
+}
+
+/** Square's boundary conditions, as Plasticity names them. */
+export const BOUNDARY = ['natural', 'normal', 'next', 'adjacent'];
+
+/**
+ * The flow of the isocurves leaving each side that no face holds (G1/G2 sides keep their faces'):
+ * Normal turns the second row of poles to leave square to the side; Next does so only where the
+ * side is nearly flat (within 1% of its length of a plane); Adjacent leans it from the one
+ * neighbouring side's direction to the other's along the side. Each pole keeps its reach; poles
+ * that two sides move take the average. Sides in order bottom (v = 0), right, top, left.
+ */
+function crossFlow(poles, mode, held) {
+    const nu = poles.length, nv = poles[0].length;
+    if (nu < 3 || nv < 3) return;
+    // Per side: the side's poles in order and the next row in, as [i, j] index pairs.
+    const sides = [
+        { side: Array.from({ length: nu }, (_, i) => [i, 0]), next: Array.from({ length: nu }, (_, i) => [i, 1]) },
+        { side: Array.from({ length: nv }, (_, j) => [nu - 1, j]), next: Array.from({ length: nv }, (_, j) => [nu - 2, j]) },
+        { side: Array.from({ length: nu }, (_, i) => [i, nv - 1]), next: Array.from({ length: nu }, (_, i) => [i, nv - 2]) },
+        { side: Array.from({ length: nv }, (_, j) => [0, j]), next: Array.from({ length: nv }, (_, j) => [1, j]) },
+    ];
+    const P = ([i, j]) => poles[i][j];
+    const moves = new Map();
+    sides.forEach(({ side, next }, s) => {
+        if (held[s]) return;
+        const B = side.map(P), m = B.length;
+        if (mode === 'next' && !nearlyFlat(B)) return;
+        // The neighbouring sides' directions at this side's ends, away from it.
+        const a0 = sub(P(next[0]), B[0]), a1 = sub(P(next[m - 1]), B[m - 1]);
+        for (let j = 1; j < m - 1; j++) {
+            const d = sub(P(next[j]), B[j]), reach = Math.hypot(...d);
+            if (reach < 1e-12) continue;
+            let dir;
+            if (mode === 'adjacent') {
+                const f = j / (m - 1), l0 = Math.hypot(...a0) || 1, l1 = Math.hypot(...a1) || 1;
+                dir = add(mul(a0, (1 - f) / l0), mul(a1, f / l1));
+            } else {
+                const t = sub(B[j + 1], B[j - 1]), tt = dot(t, t);
+                dir = tt > 1e-18 ? sub(d, mul(t, dot(d, t) / tt)) : d;
+            }
+            const l = Math.hypot(...dir);
+            if (l < 1e-12) continue;
+            const at = add(B[j], mul(dir, reach / l)), [i2, j2] = next[j], k = `${i2},${j2}`;
+            const mv = moves.get(k) ?? { i: i2, j: j2, sum: [0, 0, 0], n: 0 };
+            mv.sum = add(mv.sum, at); mv.n++;
+            moves.set(k, mv);
+        }
+    });
+    for (const { i, j, sum, n } of moves.values()) poles[i][j] = mul(sum, 1 / n);
+}
+
+/** Whether points lie within 1% of their extent of one plane (Newell's normal through their middle). */
+function nearlyFlat(pts) {
+    const c = [0, 1, 2].map(k => pts.reduce((a, p) => a + p[k], 0) / pts.length);
+    const n = [0, 0, 0];
+    pts.forEach((p, i) => {
+        const q = pts[(i + 1) % pts.length];
+        n[0] += (p[1] - q[1]) * (p[2] + q[2]); n[1] += (p[2] - q[2]) * (p[0] + q[0]); n[2] += (p[0] - q[0]) * (p[1] + q[1]);
+    });
+    const size = Math.max(...pts.map(p => Math.hypot(...sub(p, pts[0])))) || 1, len = Math.hypot(...n);
+    // A straight side lies in many planes: flat.
+    if (len < 1e-9 * size * size) return true;
+    return pts.every(p => Math.abs(dot(sub(p, c), n)) / len <= 0.01 * size);
+}
+
+/**
+ * Weight below 1 loosens the sides: every pole but the corners is drawn a fraction `f` of the way
+ * toward the mean of its neighbours (along the side for a side's poles), a few rounds, for a fairer
+ * sheet that follows the sides less closely. The rows a face holds (`keep` per side, rows in from
+ * it) stay as they are.
+ */
+function loosen(poles, f, keep) {
+    const nu = poles.length, nv = poles[0].length;
+    const fixed = (i, j) => (j < keep[0]) || (i > nu - 1 - keep[1]) || (j > nv - 1 - keep[2]) || (i < keep[3]);
+    for (let round = 0; round < 8; round++) {
+        const next = poles.map(r => r.map(p => [...p]));
+        for (let i = 0; i < nu; i++) for (let j = 0; j < nv; j++) {
+            const corner = (i === 0 || i === nu - 1) && (j === 0 || j === nv - 1);
+            if (corner || fixed(i, j)) continue;
+            const onU = i === 0 || i === nu - 1, onV = j === 0 || j === nv - 1;
+            const near = [];
+            if (!onU || onV) { if (i > 0) near.push(poles[i - 1][j]); if (i < nu - 1) near.push(poles[i + 1][j]); }
+            if (!onV || onU) { if (j > 0) near.push(poles[i][j - 1]); if (j < nv - 1) near.push(poles[i][j + 1]); }
+            if (onU && onV) continue;
+            const mean = [0, 1, 2].map(k => near.reduce((a, q) => a + q[k], 0) / near.length);
+            next[i][j] = poles[i][j].map((x, k) => x + f * (mean[k] - x));
+        }
+        for (let i = 0; i < nu; i++) for (let j = 0; j < nv; j++) poles[i][j] = next[i][j];
+    }
 }
 
 /**
