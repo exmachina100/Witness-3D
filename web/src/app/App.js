@@ -429,6 +429,7 @@ const SHELL = `
       <div class="field" title="The surface's degree each way (D)"><label for="w3d-sq-d">DEGREE</label><input id="w3d-sq-d" data-id="sq-d" type="number" step="1" min="1" max="7" value="3"></div>
       <div class="field" title="Spans across the first side; 0 picks them to follow the sides within 0.01 mm"><label for="w3d-sq-u">SPANS U</label><input id="w3d-sq-u" data-id="sq-u" type="number" step="1" min="0" max="64" value="0"></div>
       <div class="field" title="Spans across the second side; 0 is as many as U"><label for="w3d-sq-v">SPANS V</label><input id="w3d-sq-v" data-id="sq-v" type="number" step="1" min="0" max="64" value="0"></div>
+      <div class="field" title="How far the inner control points lie toward the plane of the sides: 0 follows the sides, 1 is as flat as they allow"><label for="w3d-sq-flat">FLATNESS</label><input id="w3d-sq-flat" data-id="sq-flat" type="number" step="0.1" min="0" max="1" value="0"></div>
     </div>
     <div class="sec" data-panel="constrained-surface" hidden>
       <span class="hint" data-id="cs-hint">—</span>
@@ -5097,10 +5098,10 @@ export async function mount(root, backend) {
         const su = Math.round(num('sq-u')) || 0, sv = Math.round(num('sq-v')) || su;
         const tension = num('sq-t');
         if (!(tension > 0)) throw new Error('the tension must be greater than zero');
-        fit = square(sides, { degree: Math.round(num('sq-d')), spans: su ? [su, sv] : 0, continuity: c.continuity, tension });
+        fit = square(sides, { degree: Math.round(num('sq-d')), spans: su ? [su, sv] : 0, continuity: c.continuity, tension, flatness: Math.min(1, Math.max(0, num('sq-flat') || 0)) });
       } catch (e) { c.data = null; clearPreview(); $('sq-hint').textContent = say(e); return setState('failed'); }
       c.data = splineSheetData(fit);
-      $('sq-hint').textContent = `${c.continuity === 'FREE' ? 'FREE · ' : ''}${items.length === 2 ? 'LOFT' : items.length === 3 ? 'THREE SIDES' : 'FOUR SIDES'} · DEGREE ${fit.degree[0]} · ${fit.spans.join(' × ')} SPANS · SIDES WITHIN ${fit.gap < 1e-4 ? '< 0.0001' : fit.gap.toFixed(4)} MM${c.continuity === 'G1' || c.continuity === 'G2' ? ` · TANGENT WITHIN ${fit.turn.toFixed(2)}°` : ''}${c.continuity === 'G2' ? ` · CURVATURE WITHIN ${fit.bend.toFixed(5)} /MM` : ''}`;
+      $('sq-hint').textContent = `${c.continuity === 'FREE' ? 'FREE · ' : ''}${items.length === 2 ? 'LOFT' : items.length === 3 ? 'THREE SIDES' : 'FOUR SIDES'} · DEGREE ${fit.degree[0]} · ${fit.spans.join(' × ')} SPANS · SIDES WITHIN ${fit.gap < 1e-4 ? '< 0.0001' : fit.gap.toFixed(4)} MM${c.continuity === 'G1' || c.continuity === 'G2' ? ` · TANGENT WITHIN ${fit.turn.toFixed(2)}°` : ''}${c.continuity === 'G2' ? ` · CURVATURE WITHIN ${fit.bend.toFixed(5)} /MM` : ''}${num('sq-flat') > 0 ? ` · FLATNESS ${Math.min(1, num('sq-flat'))}` : ''}`;
       setHud(`SQUARE · ${fit.spans.join(' × ')} SPANS`);
       livePreview(c, () => backend.previewSplineSheet({ data: c.data }), b => showPreviewBody(b), 'sq-hint');
     };
@@ -9995,7 +9996,7 @@ export async function mount(root, backend) {
   for (const id of ['be-p1', 'be-p2', 'be-t1a', 'be-t1b', 'be-t2a', 'be-t2b', 'be-t3a', 'be-t3b']) $(id).addEventListener('input', () => cmd?.id === 'bridge-edge' && cmd.preview());
   $('be-start').onclick = () => cmd?.id === 'bridge-edge' && cmd.cycleEnd(0);
   for (const b of $$('[data-sqcont]')) b.onclick = () => cmd?.id === 'square' && cmd.setContinuity(b.dataset.sqcont);
-  for (const id of ['sq-d', 'sq-u', 'sq-v', 'sq-t']) $(id).addEventListener('input', () => cmd?.id === 'square' && cmd.preview());
+  for (const id of ['sq-d', 'sq-u', 'sq-v', 'sq-t', 'sq-flat']) $(id).addEventListener('input', () => cmd?.id === 'square' && cmd.preview());
   for (const b of $$('[data-csopt]')) b.onclick = () => { if (cmd?.id === 'constrained-surface') { cmd.optimize = b.dataset.csopt; cmd.preview(); } };
   for (const id of ['cs-tol', 'cs-ang']) $(id).addEventListener('input', () => cmd?.id === 'constrained-surface' && num(id) > 0 && cmd.preview());
   for (const b of $$('[data-ascont]')) b.onclick = () => cmd?.id === 'align-surface' && cmd.setContinuity(b.dataset.ascont);

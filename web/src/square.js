@@ -258,8 +258,10 @@ export function surfaceAt({ degree, uKnots, vKnots, poles }, u, v) {
  * spans, gap (largest miss along the sides, mm) }. `degree` 1 to 7; `spans` [u, v], or 0 for auto;
  * `tolerance` the side gap auto spans aim for and the gap the sides' ends may have. `continuity`
  * is 'FREE' (one span each way unless set: near the sides, not on them), 'G0', 'G1' or 'G2'.
+ * `flatness` 0 to 1 pulls the inner control points (those the sides and continuity leave free)
+ * toward the plane of the boundary, 1 onto it.
  */
-export function square(sides, { degree = 3, spans = 0, tolerance = 0.01, continuity = 'G0', angle = 0.5, tension = 1 } = {}) {
+export function square(sides, { degree = 3, spans = 0, tolerance = 0.01, continuity = 'G0', angle = 0.5, tension = 1, flatness = 0 } = {}) {
     if (!(degree >= 1 && degree <= 7)) throw new Error('the degree runs from 1 to 7');
     const curved = continuity === 'G2', tangent = continuity === 'G1' || curved;
     if (tangent && degree < 2) throw new Error(`${continuity} needs degree 2 or more`);
@@ -292,6 +294,7 @@ export function square(sides, { degree = 3, spans = 0, tolerance = 0.01, continu
         const open = shape.sides.map(x => !x);
         if (tangent) tangentRows(poles, uk, vk, degree, shape.outs, open);
         if (curved) curvatureRows(poles, uk, vk, degree, shape.bends, open);
+        if (flatness > 0) flatten(poles, Math.min(1, flatness), rowsU / 2, rowsV / 2);
         const out = { degree: [degree, degree], uKnots: uk, vKnots: vk, poles, spans: [su, sv] };
         out.gap = sideGap(out, shape.sides);
         out.turn = tangent ? sideTurn(out, shape.outs) : 0;
@@ -314,6 +317,30 @@ export function square(sides, { degree = 3, spans = 0, tolerance = 0.01, continu
         if (out.gap <= tolerance && out.turn <= angle && out.bend <= bendTolerance(shape.bends)) break;
     }
     return out;
+}
+
+/**
+ * Flatness: the poles `ku` rows in from the u ends and `kv` in from the v ends and beyond move a
+ * fraction `f` of the way to the boundary ring's mean plane (Newell's normal through its centre).
+ */
+function flatten(poles, f, ku, kv) {
+    const nu = poles.length, nv = poles[0].length;
+    const ring = [...poles.map(r => r[0]), ...poles[nu - 1].slice(1), ...poles.map(r => r[nv - 1]).reverse().slice(1), ...poles[0].slice(1, -1).reverse()];
+    const c = [0, 1, 2].map(k => ring.reduce((a, p) => a + p[k], 0) / ring.length);
+    const n = [0, 0, 0];
+    ring.forEach((p, i) => {
+        const q = ring[(i + 1) % ring.length];
+        n[0] += (p[1] - q[1]) * (p[2] + q[2]); n[1] += (p[2] - q[2]) * (p[0] + q[0]); n[2] += (p[0] - q[0]) * (p[1] + q[1]);
+    });
+    const len = Math.hypot(...n);
+    if (len < 1e-12) return;
+    const u = n.map(x => x / len);
+    for (let i = ku; i <= nu - 1 - ku; i++) {
+        for (let j = kv; j <= nv - 1 - kv; j++) {
+            const p = poles[i][j], h = (p[0] - c[0]) * u[0] + (p[1] - c[1]) * u[1] + (p[2] - c[2]) * u[2];
+            poles[i][j] = p.map((x, k) => x - f * h * u[k]);
+        }
+    }
 }
 
 /** Greville abscissae of knots `t`, degree `p`. */

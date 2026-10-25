@@ -123,3 +123,20 @@ test('Free: one span each way, near the sides rather than on them, corners held'
     for (const [u, v, p] of [[0, 0, [0, 0, 0]], [1, 0, [20, 0, 0]], [1, 1, [20, 0, 10]], [0, 1, [0, 0, 10]]]) assert.ok(dist(surfaceAt(free, u, v), p) < 1e-9);
     assert.deepEqual(square([bottom, right, top, left], { continuity: 'FREE', spans: [2, 3] }).spans, [2, 3]);
 });
+
+test('Flatness pulls the inner control points onto the plane of the boundary', () => {
+    // A square frame 20 × 20 in z = 0 with one side bowed up 6: the fill bulges toward it.
+    const frame = [arc(t => [20 * t, 0, 0]), arc(t => [20, 20 * t, 0]), arc(t => [20 - 20 * t, 20, 6 * Math.sin(Math.PI * t)]), arc(t => [0, 20 - 20 * t, 0])];
+    const base = square(frame, { spans: [3, 3] }), flat = square(frame, { spans: [3, 3], flatness: 1 }), half = square(frame, { spans: [3, 3], flatness: 0.5 });
+    // The sides stay where they were.
+    assert.ok(Math.abs(flat.gap - base.gap) < 1e-9, `${flat.gap} ${base.gap}`);
+    const lift = s => surfaceAt(s, 0.5, 0.5)[2];
+    assert.ok(lift(flat) < lift(half) && lift(half) < lift(base), `${lift(flat)} ${lift(half)} ${lift(base)}`);
+    // Flatness 1: every inner pole is on the boundary ring's plane (tilted, since one side is up).
+    const inner = flat.poles.slice(1, -1).flatMap(r => r.slice(1, -1));
+    const [a, b, c] = [inner[0], inner[3], inner[inner.length - 1]];
+    const d1 = b.map((x, k) => x - a[k]), d2 = c.map((x, k) => x - a[k]);
+    const n = [d1[1] * d2[2] - d1[2] * d2[1], d1[2] * d2[0] - d1[0] * d2[2], d1[0] * d2[1] - d1[1] * d2[0]], ln = Math.hypot(...n);
+    for (const p of inner) assert.ok(Math.abs(p.reduce((t, x, k) => t + (x - a[k]) * n[k], 0) / ln) < 1e-9, `${p}`);
+    assert.ok(Math.abs(n[0] / ln) < 1e-9, 'tilted only toward the raised side');
+});
