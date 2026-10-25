@@ -83,7 +83,7 @@ import { newInstance, checkInstance, matrixOf, motionOf, instanceFromMotion, mir
 import { arrayMotions } from '../arrayMotions.js';
 import { Organise } from './Organise.js';
 import { P_MENU, RADIALS, mergeKeys, parseRadial, shortLabel, showKey, sliceAt, slicePosition } from './menus.js';
-import { ENVIRONMENTS, SHADERS, SHADER_OPTIONS, checkMaterial, formatMass, massOf, newMaterial, shader } from './shading.js';
+import { ADVANCED_MATERIAL, ENVIRONMENTS, SHADERS, SHADER_OPTIONS, checkMaterial, formatMass, isColorKey, massOf, newMaterial, shader } from './shading.js';
 import { claude, describe, MODEL, reply, request } from './ai.js';
 import { icon } from './icons.js';
 import { limitEdges, toObj, toStl } from '../meshExport.js';
@@ -707,6 +707,12 @@ const SHELL = `
       <div class="field"><label for="w3d-mat-opacity">OPACITY</label><input id="w3d-mat-opacity" data-mat="opacity" type="number" step="0.05" min="0" max="1" value="1"></div>
       <div class="field"><label for="w3d-mat-density">DENSITY G/CM³</label><input id="w3d-mat-density" data-mat="density" type="number" step="0.01" min="0.001" value="1"></div>
       <div class="field"><label>MASS</label><output data-id="mat-mass">—</output></div>
+      <details class="advanced" data-id="mat-advanced">
+        <summary title="Clearcoat, sheen, iridescence and transmission, seen in Render mode">ADVANCED</summary>
+        ${ADVANCED_MATERIAL.map(([k, label, lo, hi, step]) => lo === null
+          ? `<div class="field"><label for="w3d-mat-${k}">${label}</label><input id="w3d-mat-${k}" data-mat="${k}" type="color" value="#ffffff"></div>`
+          : `<div class="field"><label for="w3d-mat-${k}">${label}</label><input id="w3d-mat-${k}" data-mat="${k}" type="number" step="${step}" min="${lo}" max="${hi}" value="0"></div>`).join('')}
+      </details>
       <div class="seg" role="group" aria-label="Material"><button data-id="mat-fork" title="Fork material: these bodies get their own copy">${icon('fork-material')}FORK</button><button data-id="mat-remove" title="Remove material">${icon('remove-material')}REMOVE</button></div>
     </div>
     <div class="sec" data-panel="shell" hidden>
@@ -1159,7 +1165,8 @@ export async function mount(root, backend) {
       bodyMats.set(id, mat);
     }
     mat.color.set(m.color);
-    Object.assign(mat, { roughness: m.roughness, metalness: m.metalness, ior: m.ior });
+    Object.assign(mat, { roughness: m.roughness, metalness: m.metalness, ior: m.ior, clearcoat: m.clearcoat, clearcoatRoughness: m.clearcoatRoughness, sheen: m.sheen, sheenRoughness: m.sheenRoughness, iridescence: m.iridescence, transmission: m.transmission, thickness: m.thickness });
+    mat.sheenColor.set(m.sheenColor);
     mat.userData.opacity = m.opacity;
     return mat;
   }
@@ -7239,7 +7246,7 @@ export async function mount(root, backend) {
       materialsChanged();
     };
     c.edit = (key, value) => {
-      const next = { ...c.mat, [key]: key === 'color' ? value : parseFloat(value) };
+      const next = { ...c.mat, [key]: isColorKey(key) ? value : parseFloat(value) };
       if (checkMaterial(next).length) return false;
       Object.assign(c.mat, next);
       sync();
