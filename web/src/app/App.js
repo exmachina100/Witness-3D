@@ -762,6 +762,13 @@ const SHELL = `
           <button data-galign="parallel" aria-pressed="false" title="The section keeps its drawn angle">PARALLEL</button>
         </div>
       </div>
+      <div data-id="form-corner-row">
+        <span class="label">CORNER TYPE</span>
+        <div class="seg" role="group" aria-label="Corner type">
+          <button data-gcorner="mitre" aria-pressed="true" title="The section meets itself in a sharp mitre at the path's corners">MITRE</button>
+          <button data-gcorner="round" aria-pressed="false" title="The section turns round the path's corners">ROUND</button>
+        </div>
+      </div>
       <div class="field"><label>RESULT</label><output data-id="form-outcome">—</output></div>
       <div data-id="form-ops">
         <span class="label">OPERATION</span>
@@ -896,9 +903,9 @@ const VIEWS = {
 export async function mount(root, backend) {
   root.innerHTML = SHELL;
   // Panel options carry their icon ahead of the key and name.
-  for (const b of root.querySelectorAll('[data-proj],[data-imp],[data-impcomp],[data-draw],[data-bop],[data-xop],[data-fop],[data-spiral],[data-toggle],[data-gmethod],[data-galign],[data-grow],[data-mfgrow],[data-eslimit],[data-flshape],[data-drtaper],[data-avaxis],[data-extshape],[data-esshape],[data-isodir],[data-id="oe-both"],[data-id="oe-individual"],[data-id="blend-tangent"],[data-id="ex-lock"],[data-id="bool-keep"],[data-id="ex-free"],[data-id="ex-pivot"],[data-id="ex-individual"],[data-id="dr-hidden"],[data-id="dr-curves"],[data-id="oc-lock"],[data-id="oc-free"],[data-id="oc-slot"],[data-id="oc-combine"],[data-id="es-unlimit"],[data-rbmethod],[data-oecorner],[data-saplane],[data-plaxis],[data-plop],[data-id="pl-flip"],[data-id="pl-instance"],[data-id="mirror-instance"],[data-id="ra-instance"],[data-id="rr-instance"],[data-id="ca-instance"],[data-id="br-trim"],[data-id="br-comb"],[data-id="ac-comb"],[data-id="dc-reblend"],[data-id="section-btn"],[data-id="sa-flip"],[data-id="rf-shrink"],[data-id="ut-keep"],[data-txfont],[data-txalign],[data-sldir],[data-dcflip],[data-id="dc-keep"],[data-imdepth],[data-imcull],[data-id="im-delete"],[data-id="cc-extend"],[data-id="cc-screen"],[data-inmode],[data-id="in-realize"],[data-id="in-dup"],[data-id="in-delete"],[data-id="matcap-load"],[data-id="matcap-custom"],[data-id="hdr-load"],[data-id="hdr-custom"]')) {
+  for (const b of root.querySelectorAll('[data-proj],[data-imp],[data-impcomp],[data-draw],[data-bop],[data-xop],[data-fop],[data-spiral],[data-toggle],[data-gmethod],[data-galign],[data-gcorner],[data-grow],[data-mfgrow],[data-eslimit],[data-flshape],[data-drtaper],[data-avaxis],[data-extshape],[data-esshape],[data-isodir],[data-id="oe-both"],[data-id="oe-individual"],[data-id="blend-tangent"],[data-id="ex-lock"],[data-id="bool-keep"],[data-id="ex-free"],[data-id="ex-pivot"],[data-id="ex-individual"],[data-id="dr-hidden"],[data-id="dr-curves"],[data-id="oc-lock"],[data-id="oc-free"],[data-id="oc-slot"],[data-id="oc-combine"],[data-id="es-unlimit"],[data-rbmethod],[data-oecorner],[data-saplane],[data-plaxis],[data-plop],[data-id="pl-flip"],[data-id="pl-instance"],[data-id="mirror-instance"],[data-id="ra-instance"],[data-id="rr-instance"],[data-id="ca-instance"],[data-id="br-trim"],[data-id="br-comb"],[data-id="ac-comb"],[data-id="dc-reblend"],[data-id="section-btn"],[data-id="sa-flip"],[data-id="rf-shrink"],[data-id="ut-keep"],[data-txfont],[data-txalign],[data-sldir],[data-dcflip],[data-id="dc-keep"],[data-imdepth],[data-imcull],[data-id="im-delete"],[data-id="cc-extend"],[data-id="cc-screen"],[data-inmode],[data-id="in-realize"],[data-id="in-dup"],[data-id="in-delete"],[data-id="matcap-load"],[data-id="matcap-custom"],[data-id="hdr-load"],[data-id="hdr-custom"]')) {
     const name = (b.dataset.proj && (b.dataset.proj === 'screen' ? 'view-screen' : `proj-${b.dataset.proj}`)) ?? (b.dataset.imp && (b.dataset.imp === 'screen' ? 'view-screen' : `proj-${b.dataset.imp}`)) ?? (b.dataset.impcomp && `completion-${b.dataset.impcomp}`) ?? b.dataset.draw ?? b.dataset.bop ?? b.dataset.xop ?? b.dataset.fop ?? b.dataset.spiral ?? (b.dataset.toggle && `view-${b.dataset.toggle}`)
-      ?? (b.dataset.gmethod && `guide-${b.dataset.gmethod}`) ?? (b.dataset.galign && `align-${b.dataset.galign}`) ?? (b.dataset.grow && `grow-${b.dataset.grow}`) ?? (b.dataset.mfgrow && `grow-${b.dataset.mfgrow}`) ?? (b.dataset.eslimit && `limit-${b.dataset.eslimit}`) ?? (b.dataset.flshape && `fillet-${b.dataset.flshape}`) ?? (b.dataset.drtaper && `taper-${b.dataset.drtaper}`) ?? (b.dataset.avaxis && `axis-${b.dataset.avaxis}`) ?? (b.dataset.extshape && `extend-${b.dataset.extshape}`) ?? (b.dataset.esshape && `extend-${b.dataset.esshape}`) ?? (b.dataset.isodir && `iso-${b.dataset.isodir}`) ?? (b.dataset.rbmethod && `rebuild-${b.dataset.rbmethod}`) ?? (b.dataset.oecorner && `corner-${b.dataset.oecorner}`) ?? (b.dataset.saplane && `section-${b.dataset.saplane}`) ?? (b.dataset.plaxis && (b.dataset.plaxis === 'normal' ? 'place-normal' : `axis-${b.dataset.plaxis}`)) ?? b.dataset.plop
+      ?? (b.dataset.gmethod && `guide-${b.dataset.gmethod}`) ?? (b.dataset.galign && `align-${b.dataset.galign}`) ?? (b.dataset.gcorner && (b.dataset.gcorner === 'round' ? 'corner-round' : 'corner-linear')) ?? (b.dataset.grow && `grow-${b.dataset.grow}`) ?? (b.dataset.mfgrow && `grow-${b.dataset.mfgrow}`) ?? (b.dataset.eslimit && `limit-${b.dataset.eslimit}`) ?? (b.dataset.flshape && `fillet-${b.dataset.flshape}`) ?? (b.dataset.drtaper && `taper-${b.dataset.drtaper}`) ?? (b.dataset.avaxis && `axis-${b.dataset.avaxis}`) ?? (b.dataset.extshape && `extend-${b.dataset.extshape}`) ?? (b.dataset.esshape && `extend-${b.dataset.esshape}`) ?? (b.dataset.isodir && `iso-${b.dataset.isodir}`) ?? (b.dataset.rbmethod && `rebuild-${b.dataset.rbmethod}`) ?? (b.dataset.oecorner && `corner-${b.dataset.oecorner}`) ?? (b.dataset.saplane && `section-${b.dataset.saplane}`) ?? (b.dataset.plaxis && (b.dataset.plaxis === 'normal' ? 'place-normal' : `axis-${b.dataset.plaxis}`)) ?? b.dataset.plop
       ?? (b.dataset.txfont && `font-${b.dataset.txfont}`) ?? (b.dataset.txalign && `txalign-${b.dataset.txalign}`) ?? (b.dataset.sldir && { u: 'slide-u', '-u': 'slide-back', v: 'slide-v', '-v': 'slide-vback', n: 'slide-n' }[b.dataset.sldir]) ?? (b.dataset.dcflip && { mirror: 'mirror', swap: 'swap-uv', normal: 'reverse-sheet' }[b.dataset.dcflip]) ?? (b.dataset.imdepth && `depth-${b.dataset.imdepth}`) ?? (b.dataset.imcull && `cull-${b.dataset.imcull}`) ?? b.dataset.inmode
       ?? { 'matcap-load': 'matcap-load', 'matcap-custom': 'matcap', 'hdr-load': 'hdr-load', 'hdr-custom': 'hdr', 'ex-lock': 'lock', 'bool-keep': 'keep', 'ex-free': 'freestyle', 'ex-pivot': 'pivot', 'ex-individual': 'individual', 'dr-hidden': 'hidden-lines', 'dr-curves': 'drawing-curves', 'oc-lock': 'lock', 'oc-free': 'freestyle', 'oc-slot': 'slot', 'oc-combine': 'combine', 'oe-both': 'both-sides', 'oe-individual': 'individual', 'blend-tangent': 'tangent-chain', 'es-unlimit': 'unlimit', 'rf-shrink': 'shrink', 'ut-keep': 'keep-edges', 'section-btn': 'view-section', 'sa-flip': 'flip', 'pl-flip': 'flip', 'pl-instance': 'instance', 'mirror-instance': 'instance', 'ra-instance': 'instance', 'rr-instance': 'instance', 'ca-instance': 'instance', 'br-trim': 'trim', 'br-comb': 'view-curvature', 'ac-comb': 'view-curvature', 'dc-reblend': 'reblend', 'dc-keep': 'keep', 'im-delete': 'delete', 'in-realize': 'realize-instance', 'cc-extend': 'extend', 'cc-screen': 'view-screen', 'in-dup': 'duplicate', 'in-delete': 'delete' }[b.dataset.id];
     b.insertAdjacentHTML('afterbegin', icon(name));
@@ -8542,7 +8549,7 @@ export async function mount(root, backend) {
     if (!regions.length || (id === 'loft' && regions.length < 2)) return toast(id === 'loft' ? 'SELECT TWO REGIONS OR MORE, IN ORDER, TO LOFT' : `SELECT A REGION TO ${toolInfo(id).label}`);
     const first = curveList.find(c => c.id === regions[0]);
     const target = bodyAt(regionCentre(first), curveFrame(first).n);
-    const c = cmd = { id, regions: id === 'loft' ? regions : regions.slice(0, 1), target, op: 'new', angle: 360, thickness: 0, twist: 0, scale: 1, p1: null, p2: null, path: null, guides: [], method: 'point', align: 'normal', outcome: null, sent: 0, shown: 0, line: null };
+    const c = cmd = { id, regions: id === 'loft' ? regions : regions.slice(0, 1), target, op: 'new', angle: 360, thickness: 0, twist: 0, scale: 1, p1: null, p2: null, path: null, guides: [], method: 'point', align: 'normal', corner: 'mitre', outcome: null, sent: 0, shown: 0, line: null };
     lastTool = id;
     showTool(id);
     setState('none');
@@ -8551,7 +8558,7 @@ export async function mount(root, backend) {
     $('form-twist-row').hidden = $('form-scale-row').hidden = id !== 'sweep';
     $('form-ops').hidden = id === 'loft';
     $('form-guides-row').hidden = id === 'revolve';
-    $('form-method-row').hidden = $('form-align-row').hidden = id !== 'sweep';
+    $('form-method-row').hidden = $('form-align-row').hidden = $('form-corner-row').hidden = id !== 'sweep';
     setGuideChips(c);
     $('form-angle').value = c.angle; $('form-thickness').value = c.thickness; $('form-twist').value = c.twist; $('form-scale').value = c.scale;
     $('form-outcome').textContent = '—';
@@ -8639,6 +8646,7 @@ export async function mount(root, backend) {
   function setGuideChips(c) {
     for (const b of $$('[data-gmethod]')) b.setAttribute('aria-pressed', String(c.method === b.dataset.gmethod));
     for (const b of $$('[data-galign]')) b.setAttribute('aria-pressed', String(c.align === b.dataset.galign));
+    for (const b of $$('[data-gcorner]')) b.setAttribute('aria-pressed', String(c.corner === b.dataset.gcorner));
   }
   function setFormOps() { for (const b of $$('[data-fop]')) b.setAttribute('aria-pressed', !!FORMS[cmd?.id] && cmd.op === b.dataset.fop); }
   function setForm(values) {
@@ -8685,7 +8693,7 @@ export async function mount(root, backend) {
     }
     if (c.id === 'sweep') {
       if (c.path === null) return null;
-      Object.assign(req, { path: c.path, twist: c.twist * DEG, scale: c.scale, guides: c.guides, method: c.method, align: c.align });
+      Object.assign(req, { path: c.path, twist: c.twist * DEG, scale: c.scale, guides: c.guides, method: c.method, align: c.align, corner: c.corner });
     }
     if (c.id === 'loft') req.guides = c.guides;
     return req;
@@ -8729,7 +8737,7 @@ export async function mount(root, backend) {
     try {
       const { id, scene: list } = await backend.commitForm(req);
       endCmd('committed');
-      const what = c.id === 'revolve' ? `REVOLVE ${c.angle}°${c.thickness ? ` T ${c.thickness}` : ''}` : c.id === 'loft' ? `LOFT ×${c.regions.length}${c.guides.length ? ` · ${c.guides.length} GUIDES` : ''}` : `SWEEP${c.twist ? ` ${c.twist}°` : ''}${c.scale !== 1 ? ` ×${c.scale}` : ''}${c.guides.length ? ` · ${c.guides.length === 2 ? '2 GUIDES' : 'GUIDE'} ${c.method.toUpperCase()}` : ''}${c.align === 'parallel' ? ' · PARALLEL' : ''}`;
+      const what = c.id === 'revolve' ? `REVOLVE ${c.angle}°${c.thickness ? ` T ${c.thickness}` : ''}` : c.id === 'loft' ? `LOFT ×${c.regions.length}${c.guides.length ? ` · ${c.guides.length} GUIDES` : ''}` : `SWEEP${c.twist ? ` ${c.twist}°` : ''}${c.scale !== 1 ? ` ×${c.scale}` : ''}${c.guides.length ? ` · ${c.guides.length === 2 ? '2 GUIDES' : 'GUIDE'} ${c.method.toUpperCase()}` : ''}${c.align === 'parallel' ? ' · PARALLEL' : ''}${c.corner === 'round' ? ' · ROUND' : ''}`;
       record(`${what}${req.op === 'new' ? '' : ` ${req.op.toUpperCase()}`}`, id);
       await showScene(list);
       sel.replace({ kind: 'solid', body: id });
@@ -9718,6 +9726,7 @@ export async function mount(root, backend) {
   $('ex-individual').onclick = () => cmd?.id === 'extrude' && cmd.key('individual');
   for (const b of $$('[data-gmethod]')) b.onclick = () => { if (cmd?.id === 'sweep') { setForm({ method: b.dataset.gmethod }); setGuideChips(cmd); } };
   for (const b of $$('[data-galign]')) b.onclick = () => { if (cmd?.id === 'sweep') { setForm({ align: b.dataset.galign }); setGuideChips(cmd); } };
+  for (const b of $$('[data-gcorner]')) b.onclick = () => { if (cmd?.id === 'sweep') { setForm({ corner: b.dataset.gcorner }); setGuideChips(cmd); } };
   for (const b of $$('[data-proj]')) b.onclick = () => cmd?.id === 'project' && cmd.key(b.dataset.proj);
   for (const b of $$('[data-imp]')) b.onclick = () => cmd?.id === 'imprint' && cmd.key(b.dataset.imp);
   for (const b of $$('[data-impcomp]')) b.onclick = () => cmd?.id === 'imprint' && cmd.key(`complete-${b.dataset.impcomp}`);

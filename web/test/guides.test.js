@@ -120,3 +120,15 @@ test('Parallel keeps the section at its drawn angle', async () => {
     close(bounds(flat).max.y, 10, 0.01);
     assert.throws(() => be.form({ kind: 'sweep', regions: [ids[0]], path: ids[1], align: 'parallel', twist: 1 }), /twist/);
 });
+
+test('Round corners round the section about the path corner', async () => {
+    const be = new LocalBackend();
+    // A 2 × 2 square swept up 10 and then along +X 10, as crates/w3d-kernel/tests/guides.rs.
+    const { ids } = await be.addCurves([
+        { origin: [0, 0, 0], x: [1, 0, 0], normal: [0, 1, 0], kind: 'polyline', points: [[-1, -1], [1, -1], [1, 1], [-1, 1]], closed: true },
+        { origin: [0, 0, 0], x: [1, 0, 0], normal: [0, 0, 1], kind: 'polyline', points: [[0, 0], [0, 10], [10, 10]], closed: false },
+    ]);
+    const sweep = corner => be.form({ kind: 'sweep', regions: [ids[0]], path: ids[1], corner }).tool;
+    close(volume(sweep('mitre')), 80, 1e-6);
+    close(volume(sweep('round')), 80 - 2 + Math.PI / 2, 0.05);
+});

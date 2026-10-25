@@ -155,8 +155,8 @@ impl Shape {
 
     /// The profile swept along `path` following `guide` (empty for none) by `method` (0 Point,
     /// 1 Chord, 2 Curve), or kept at its drawn orientation when `parallel`.
-    pub fn sweep_guided(section: &[f64], path: &[f64], guide: &[f64], method: i32, parallel: bool) -> Result<Shape, String> {
-        let s = ffi::w3d::w3d_sweep_guided(section, path, guide, method, parallel).map_err(reason)?;
+    pub fn sweep_guided(section: &[f64], path: &[f64], guide: &[f64], method: i32, parallel: bool, round: bool) -> Result<Shape, String> {
+        let s = ffi::w3d::w3d_sweep_guided(section, path, guide, method, parallel, round).map_err(reason)?;
         Ok(Shape::from_shape(&s))
     }
 

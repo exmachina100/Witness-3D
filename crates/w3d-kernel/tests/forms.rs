@@ -319,6 +319,7 @@ fn sweep(
                 guides: vec![],
                 method: Default::default(),
                 align: Default::default(),
+                round: false,
             },
             operation: Operation::NewBody,
         },

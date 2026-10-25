@@ -23,7 +23,7 @@ pub enum FormKind {
     Loft { more: Vec<(Profile, Frame)>, guides: Vec<Path> },
     /// Sweep the profile along `path`, turning its far end by `twist` radians and scaling it by
     /// `scale`; or following `guide` by `method`; or kept parallel to itself (`align`).
-    Sweep { path: Path, twist: f64, scale: f64, guides: Vec<Path>, method: GuideMethod, align: Alignment },
+    Sweep { path: Path, twist: f64, scale: f64, guides: Vec<Path>, method: GuideMethod, align: Alignment, round: bool },
 }
 
 /// How a swept section follows its guide (Plasticity's Guide method).
@@ -94,17 +94,17 @@ pub fn tool<K: Kernel>(k: &K, p: &FormParams) -> Result<K::Solid, KernelError> {
             all.extend(more.iter().cloned());
             if guides.is_empty() { k.loft(&all) } else { k.loft_guided(&all, guides) }
         }
-        FormKind::Sweep { path, twist, scale, guides, method, align } => {
+        FormKind::Sweep { path, twist, scale, guides, method, align, round } => {
             if !twist.is_finite() || !(*scale > 0.0) || !scale.is_finite() {
                 return Err(KernelError::Invalid(
                     "the end scale must be greater than zero",
                 ));
             }
             let plain = twist.abs() < 1e-12 && (scale - 1.0).abs() < 1e-12;
-            if guides.is_empty() && *align == Alignment::Normal { return k.sweep(&p.profile, &p.frame, path, *twist, *scale) }
-            if !plain { return Err(KernelError::Invalid("twist and scale don't go with a guide or Parallel alignment; set them back to 0 and 1")) }
+            if guides.is_empty() && *align == Alignment::Normal && !*round { return k.sweep(&p.profile, &p.frame, path, *twist, *scale) }
+            if !plain { return Err(KernelError::Invalid("twist and scale don't go with a guide, Parallel alignment or Round corners; set them back to 0 and 1")) }
             let method = match method { GuideMethod::Point => 0, GuideMethod::Chord => 1, GuideMethod::Curve => 2 };
-            k.sweep_guided(&p.profile, &p.frame, path, guides, method, *align == Alignment::Parallel)
+            k.sweep_guided(&p.profile, &p.frame, path, guides, method, *align == Alignment::Parallel, *round)
         }
     }
 }

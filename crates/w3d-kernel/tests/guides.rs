@@ -59,7 +59,7 @@ fn loft(guides: Vec<Path>) -> Result<<Occt as Kernel>::Solid, KernelError> {
     })
 }
 fn sweep(profile: Profile, frame: Frame, path: Path, guide: Option<Path>, method: GuideMethod, align: Alignment) -> Result<<Occt as Kernel>::Solid, KernelError> {
-    form::tool(&Occt, &FormParams { profile, frame, kind: FormKind::Sweep { path, twist: 0.0, scale: 1.0, guides: guide.into_iter().collect(), method, align }, operation: Operation::NewBody })
+    form::tool(&Occt, &FormParams { profile, frame, kind: FormKind::Sweep { path, twist: 0.0, scale: 1.0, guides: guide.into_iter().collect(), method, align, round: false }, operation: Operation::NewBody })
 }
 
 #[test]
@@ -165,7 +165,7 @@ fn a_second_guide_scales_the_section_to_touch_both() {
         let s = form::tool(&Occt, &FormParams {
             profile: profile.clone(),
             frame: ground(0.0),
-            kind: FormKind::Sweep { path: line(DVec3::ZERO, DVec3::new(0.0, 0.0, 20.0)), twist: 0.0, scale: 1.0, guides: vec![a.clone(), b.clone()], method, align: Alignment::Normal },
+            kind: FormKind::Sweep { path: line(DVec3::ZERO, DVec3::new(0.0, 0.0, 20.0)), twist: 0.0, scale: 1.0, guides: vec![a.clone(), b.clone()], method, align: Alignment::Normal, round: false },
             operation: Operation::NewBody,
         }).unwrap();
         assert!(k.is_valid(&s));
@@ -177,6 +177,30 @@ fn a_second_guide_scales_the_section_to_touch_both() {
             assert!(off < 0.01, "{method:?}: a guide lies on the sweep within {off} mm");
         }
     }
+}
+
+#[test]
+fn round_corners_round_the_section_about_the_path_corner() {
+    let k = Occt;
+    // A 2 × 2 square swept up 10 and then along +X 10: mitred, the corner is a sharp elbow.
+    let path = Path::Polyline { points: vec![DVec3::ZERO, DVec3::new(0.0, 0.0, 10.0), DVec3::new(10.0, 0.0, 10.0)], closed: false };
+    let profile = Profile::Polygon(vec![(-1.0, -1.0), (1.0, -1.0), (1.0, 1.0), (-1.0, 1.0)]);
+    let sweep = |round| form::tool(&Occt, &FormParams {
+        profile: profile.clone(),
+        frame: ground(0.0),
+        kind: FormKind::Sweep { path: path.clone(), twist: 0.0, scale: 1.0, guides: vec![], method: GuideMethod::Point, align: Alignment::Normal, round },
+        operation: Operation::NewBody,
+    }).unwrap();
+    let (mitre, round) = (sweep(false), sweep(true));
+    assert!(k.is_valid(&mitre) && k.is_valid(&round));
+    // Mitred, the volume is the section times the path's length.
+    let vm = volume(&k, &mitre);
+    assert!((vm - 80.0).abs() < 1e-6, "mitre volume {vm}");
+    // Rounded, the outer corner is cut back to a quarter turn about the path's corner: the mitre's
+    // square tip (1 × 1 × 2) becomes a quarter of a radius-1 cylinder, and the outer corner sits on that radius.
+    let vr = volume(&k, &round);
+    let want = 80.0 - 2.0 + std::f64::consts::FRAC_PI_4 * 2.0;
+    assert!((vr - want).abs() < 0.05, "round volume {vr} vs {want}");
 }
 
 #[test]
@@ -201,7 +225,7 @@ fn guides_and_parallel_refuse_twist() {
     let r = form::tool(&Occt, &FormParams {
         profile: square(2.0),
         frame: ground(0.0),
-        kind: FormKind::Sweep { path: line(DVec3::ZERO, DVec3::new(0.0, 0.0, 5.0)), twist: 1.0, scale: 1.0, guides: vec![], method: GuideMethod::Point, align: Alignment::Parallel },
+        kind: FormKind::Sweep { path: line(DVec3::ZERO, DVec3::new(0.0, 0.0, 5.0)), twist: 1.0, scale: 1.0, guides: vec![], method: GuideMethod::Point, align: Alignment::Parallel, round: false },
         operation: Operation::NewBody,
     });
     assert!(r.err().unwrap().to_string().contains("twist"));
@@ -224,6 +248,6 @@ fn the_document_takes_guides_by_curve() {
     // The same guide as a sweep's, along a straight path up the squares' far corner.
     let path = Curve { origin: [0.0, 0.0, 0.0], x: [1.0, 0.0, 0.0], normal: [0.0, 0.0, 1.0], shape: CurveShape::Polyline { points: vec![[10.0, 0.0], [10.0, 20.0]], closed: false } };
     let path = doc.commit_curves(vec![path]).unwrap()[0];
-    let p = doc.form_params(&ids[..1], FormRequest::SweepGuided { path, guides: vec![ids[2]], method: GuideMethod::Chord, align: Alignment::Normal }, Operation::NewBody).unwrap();
+    let p = doc.form_params(&ids[..1], FormRequest::SweepGuided { path, guides: vec![ids[2]], method: GuideMethod::Chord, align: Alignment::Normal, round: false }, Operation::NewBody).unwrap();
     assert!(doc.preview_form(None, &p).is_ok());
 }

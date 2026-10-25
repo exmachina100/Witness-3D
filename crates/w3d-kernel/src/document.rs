@@ -61,7 +61,7 @@ pub enum FormRequest {
     /// Loft whose sides run along the `guides` curves.
     LoftGuided { guides: Vec<CurveId> },
     /// Sweep along `path` following the `guides` curves (none, one or two) by `method`, held by `align`.
-    SweepGuided { path: CurveId, guides: Vec<CurveId>, method: crate::form::GuideMethod, align: crate::form::Alignment },
+    SweepGuided { path: CurveId, guides: Vec<CurveId>, round: bool, method: crate::form::GuideMethod, align: crate::form::Alignment },
 }
 
 /// A planar curve drawn on a construction plane (Plasticity's Line, Rectangle and Circle). A closed
@@ -615,15 +615,15 @@ impl<K: Kernel> Document<K> {
             FormRequest::Sweep { path, twist, scale } => {
                 if regions.contains(&path) { return Err(KernelError::Invalid("pick a path other than the profile")) }
                 let path = self.curve(path).ok_or(KernelError::Invalid("that path no longer exists"))?.path();
-                FormKind::Sweep { path, twist, scale, guides: vec![], method: Default::default(), align: Default::default() }
+                FormKind::Sweep { path, twist, scale, guides: vec![], method: Default::default(), align: Default::default(), round: false }
             }
-            FormRequest::SweepGuided { path, guides, method, align } => {
+            FormRequest::SweepGuided { path, guides, method, align, round } => {
                 if regions.contains(&path) { return Err(KernelError::Invalid("pick a path other than the profile")) }
                 if guides.iter().any(|&g| g == path || regions.contains(&g)) { return Err(KernelError::Invalid("pick a guide other than the path and the profile")) }
                 let path = self.curve(path).ok_or(KernelError::Invalid("that path no longer exists"))?.path();
                 if guides.len() > 2 { return Err(KernelError::Invalid("Sweep follows one or two guides")) }
                 let guides = guides.iter().map(|&g| self.curve(g).map(|c| c.path()).ok_or(KernelError::Invalid("that guide no longer exists"))).collect::<Result<_, _>>()?;
-                FormKind::Sweep { path, twist: 0.0, scale: 1.0, guides, method, align }
+                FormKind::Sweep { path, twist: 0.0, scale: 1.0, guides, method, align, round }
             }
         };
         Ok(FormParams { profile, frame, kind, operation })
