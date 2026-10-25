@@ -88,7 +88,7 @@ import { P_MENU, RADIALS, mergeKeys, parseRadial, shortLabel, showKey, sliceAt, 
 import { ADVANCED_MATERIAL, ENVIRONMENTS, MATERIAL_LIBRARY, SHADERS, SHADER_OPTIONS, checkMaterial, formatMass, isColorKey, massOf, newMaterial, shader } from './shading.js';
 import { claude, describe, MODEL, reply, request } from './ai.js';
 import { icon } from './icons.js';
-import { limitEdges, toObj, toStl } from '../meshExport.js';
+import { limitEdges, to3mf, toGlb, toObj, toStl } from '../meshExport.js';
 import { flatten, toDxf, toSvg } from '../drawingExport.js';
 import { readDxf } from '../dxf.js';
 import { distanceToFace } from '../dependentOffset.js';
@@ -361,7 +361,7 @@ const SHELL = `
     <div class="sec" data-panel="export-mesh" hidden>
       <span class="hint" data-id="mx-hint">—</span>
       <span class="label">FORMAT</span>
-      <div class="seg" role="group" aria-label="Mesh format"><button data-mxf="obj" aria-pressed="true">OBJ</button><button data-mxf="stl" aria-pressed="false">STL</button></div>
+      <div class="seg" role="group" aria-label="Mesh format"><button data-mxf="obj" aria-pressed="true">OBJ</button><button data-mxf="stl" aria-pressed="false" title="Binary STL, millimetres">STL</button><button data-mxf="glb" aria-pressed="false" title="Binary glTF in metres, with each body's material">GLB</button><button data-mxf="3mf" aria-pressed="false" title="3MF for printing, millimetres, with each body's colour">3MF</button></div>
       <div class="field"><label for="w3d-mx-tol">TOLERANCE</label><input id="w3d-mx-tol" data-id="mx-tol" type="number" step="0.01" min="0.001" value="0.05"></div>
       <div class="field"><label for="w3d-mx-angle">ANGLE °</label><input id="w3d-mx-angle" data-id="mx-angle" type="number" step="1" min="0.5" value="15"></div>
       <div class="field"><label for="w3d-mx-width">MAX WIDTH</label><input id="w3d-mx-width" data-id="mx-width" type="number" step="1" min="0" value="0"></div>
@@ -7607,23 +7607,27 @@ export async function mount(root, backend) {
     $('mx-hint').textContent = [ids.length && `${ids.length} SOLID${ids.length > 1 ? 'S' : ''}`, placed.length && `${placed.length} INSTANCE${placed.length > 1 ? 'S' : ''}`].filter(Boolean).join(' · ');
     setHud('EXPORT MESH · ⏎ TO SAVE');
     const sync = () => { for (const b of $$('[data-mxf]')) b.setAttribute('aria-pressed', b.dataset.mxf === c.format); };
-    c.key = action => { if (action === 'obj' || action === 'stl') { c.format = action; sync(); return true; } return false; };
+    c.key = action => { if (['obj', 'stl', 'glb', '3mf'].includes(action)) { c.format = action; sync(); return true; } return false; };
     c.finish = async () => {
       const tolerance = num('mx-tol'), angle = num('mx-angle') * DEG, maxWidth = num('mx-width');
       try {
         const masters = placed.map(n => n.master).filter((id, i, all) => all.indexOf(id) === i);
         const made = await backend.meshBodies([...new Set([...ids, ...masters])], { tolerance, angle });
-        const meshes = made.filter(m => ids.includes(m.id)).map(m => ({ name: label(m.id), ...limitEdges(m.positions, m.indices, maxWidth) }));
+        // Each body's material, for the formats that carry one (glTF and 3MF).
+        const look = id => { const m = materials.get(materialOf.get(id)); return m ? { color: m.color, roughness: m.roughness, metalness: m.metalness, opacity: m.opacity } : {}; };
+        const sheet = id => !!current.find(b => b.id === id)?.sheet;
+        const meshes = made.filter(m => ids.includes(m.id)).map(m => ({ name: label(m.id), ...look(m.id), sheet: sheet(m.id), ...limitEdges(m.positions, m.indices, maxWidth) }));
         for (const n of placed) {
           const m = made.find(x => x.id === n.master), at = matrixOf(n), v = new THREE.Vector3(), pos = [];
           for (let i = 0; i < m.positions.length; i += 3) pos.push(...v.fromArray(m.positions, i).applyMatrix4(at).toArray());
           // A mirrored instance turns its triangles inside out; wind them back.
           const ix = at.determinant() < 0 ? m.indices.map((_, i) => m.indices[i - (i % 3) + [0, 2, 1][i % 3]]) : m.indices;
-          meshes.push({ name: instanceLabel(n.id), ...limitEdges(pos, ix, maxWidth) });
+          meshes.push({ name: instanceLabel(n.id), ...look(n.master), sheet: sheet(n.master), ...limitEdges(pos, ix, maxWidth) });
         }
         const triangles = meshes.reduce((n, m) => n + m.indices.length / 3, 0);
         const name = `witness3d-${ids.length === 1 ? label(ids[0]).toLowerCase() : 'model'}.${c.format}`;
-        const msg = await backend.saveExport(name, c.format === 'obj' ? toObj(meshes) : toStl(meshes));
+        const write = { obj: toObj, stl: toStl, glb: toGlb, '3mf': to3mf }[c.format];
+        const msg = await backend.saveExport(name, write(meshes));
         endCmd(msg ? 'committed' : 'cancelled');
         if (msg) toast(`${msg} · ${triangles} TRIANGLES`);
       } catch (e) { setState('failed'); toast(say(e)); }

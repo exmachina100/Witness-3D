@@ -138,7 +138,7 @@ opencascade.js (which lacks IGES).
 | DWG / DXF | DWG import (ODA) | DXF read and write in-house; DWG needs the ODA SDK | DXF drawing export done (R12, layers VISIBLE/HIDDEN/CURVES); DXF import done in both builds (File › Import): lines, polylines with bulges (as lines and arcs), circles, arcs, ellipses, splines (exact NURBS) become curves on the XY plane in mm by $INSUNITS; elliptical arcs come in as splines; blocks, text, hatches and dimensions are left out and counted |
 | OBJ | export (manual: Export OBJ; options angle tolerance, inflection, max width) | Re-meshed at the chosen tolerance in each build; max width splits long edges; written by `web/src/meshExport.js` | Done (the desktop mesher takes no separate angle; inflection not yet) |
 | SVG, hidden line | export (manual) | `HLRBRep` hidden-line removal seen from the camera, written by `web/src/drawingExport.js` in both builds | Done (Export drawing: hidden lines dashed, H leaves them out; drawn curves on their own layer, not occluded) |
-| STL, glTF, 3MF | not listed | Binary STL done with OBJ; glTF and 3MF later | STL done |
+| STL, glTF, 3MF | not listed | Binary STL, binary glTF (.glb, metres, y up, flat normals, each body's material as PBR) and 3MF (millimetres, z up, welded closed meshes, each body's colour) in Export Mesh, written by `web/src/meshExport.js` in both builds | Done |
 
 | Distribution | Plasticity 26.1.4 | Witness 3D plan | Status |
 |---|---|---|---|
