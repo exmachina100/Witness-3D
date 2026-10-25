@@ -5,7 +5,7 @@ use std::path::PathBuf;
 
 use glam::DVec3;
 use serde::{Deserialize, Serialize};
-use w3d_kernel::document::{BodyId, Document, FormRequest as FormKindRequest, Tools};
+use w3d_kernel::document::{BodyId, Document, FormRequest as FormKindRequest, Projection, Tools};
 use w3d_kernel::engine::Engine;
 use w3d_kernel::occt::Occt;
 use w3d_kernel::blend::FilletShape;
@@ -1127,18 +1127,21 @@ pub struct ImprintRequest {
     pub tools: Tools,
     #[serde(default)]
     pub consume: bool,
+    /// Imprint Curve Body's options; without them curves sweep both ways along their normals.
+    #[serde(default)]
+    pub projection: Option<Projection>,
 }
 
 pub fn preview_imprint(m: &Model, req: ImprintRequest) -> Option<Result<Body, ApiError>> {
     m.preview(move |doc| {
-        let t = doc.preview_imprint(req.body, &req.faces, &req.curves, &req.tools)?;
+        let t = doc.preview_imprint_with(req.body, &req.faces, &req.curves, &req.tools, req.projection.as_ref())?;
         Ok(body(&doc.kernel, req.body, &t.solid)?)
     })
 }
 
 pub fn commit_imprint(m: &Model, req: ImprintRequest) -> Result<Committed, ApiError> {
     m.call(move |doc| {
-        let id = doc.commit_imprint(req.body, &req.faces, &req.curves, &req.tools, req.consume)?;
+        let id = doc.commit_imprint_with(req.body, &req.faces, &req.curves, &req.tools, req.consume, req.projection.as_ref())?;
         Ok(Committed { id, scene: bodies(doc)? })
     })
 }

@@ -810,6 +810,39 @@ impl<K: Kernel> Document<K> {
     /// Plasticity's Imprint, without changing the document: the body with the numbered faces (all
     /// when `faces` is empty) split where the curves, projected along their normals, cross them.
     pub fn preview_imprint(&self, body: BodyId, faces: &[u32], curves: &[CurveId], tools: &Tools) -> Result<Traced<K::Solid>, KernelError> {
+        self.preview_imprint_with(body, faces, curves, tools, None)
+    }
+
+    /// Imprint with Imprint Curve Body's projection options, when given: the curves carried along
+    /// their normals (Normal) or one direction (Vector), forwards or both ways, seen faces only with
+    /// Hide Occlusion, and carried on past their ends with Completion Edge. Other bodies imprint too.
+    pub fn preview_imprint_with(&self, body: BodyId, faces: &[u32], curves: &[CurveId], tools: &Tools, projection: Option<&Projection>) -> Result<Traced<K::Solid>, KernelError> {
+        if let Some(p) = projection {
+            let mut cutters = self.cutters(curves)?;
+            for c in &tools.shapes {
+                c.check()?;
+                cutters.push((c.path(), c.frame().normal));
+            }
+            if let Some(d) = p.dir {
+                let d = DVec3::from(d);
+                if !(d.length() > 1e-12) { return Err(KernelError::Invalid("the projection has no direction")) }
+                for c in &mut cutters { c.1 = d.normalize(); }
+            }
+            let s = self.get(body).ok_or(KernelError::Invalid("that body no longer exists"))?;
+            let mut traced = if cutters.is_empty() { None } else {
+                Some(self.kernel.imprint_projected(s, faces, &cutters, SHEET, p.both, p.hide, p.complete)?)
+            };
+            // Other bodies imprint where they meet the faces, after the curves.
+            let sheets = self.sheets(tools)?;
+            let extra = self.extra(&sheets, tools, body)?;
+            if !extra.is_empty() {
+                let base = traced.as_ref().map(|t| &t.solid).unwrap_or(s);
+                let faces = if traced.is_some() { &[][..] } else { faces };
+                let next = self.kernel.imprint(base, faces, &[], &extra, SHEET)?;
+                traced = Some(match traced { Some(t) => Traced { solid: next.solid, history: chain(&t.history, &next.history) }, None => next });
+            }
+            return traced.ok_or(KernelError::Invalid("select curves or another body to imprint"));
+        }
         let mut cutters = self.cutters(curves)?;
         for c in &tools.shapes {
             c.check()?;
@@ -824,7 +857,12 @@ impl<K: Kernel> Document<K> {
 
     /// Imprint as one undoable step; `consume` also deletes the curves (the knife).
     pub fn commit_imprint(&mut self, body: BodyId, faces: &[u32], curves: &[CurveId], tools: &Tools, consume: bool) -> Result<BodyId, KernelError> {
-        let traced = self.preview_imprint(body, faces, curves, tools)?;
+        self.commit_imprint_with(body, faces, curves, tools, consume, None)
+    }
+
+    /// Imprint with projection options (see `preview_imprint_with`) as one undoable step.
+    pub fn commit_imprint_with(&mut self, body: BodyId, faces: &[u32], curves: &[CurveId], tools: &Tools, consume: bool, projection: Option<&Projection>) -> Result<BodyId, KernelError> {
+        let traced = self.preview_imprint_with(body, faces, curves, tools, projection)?;
         self.checkpoint();
         self.replace_traced(body, traced);
         if consume { for id in curves { self.state.curves.remove(id); } }
@@ -1407,6 +1445,21 @@ fn chain(a: &History, b: &History) -> History {
 
 /// How far cutting sheets reach each way: 100 m, past any body the document is likely to hold.
 const SHEET: f64 = 1e5;
+
+/// Imprint Curve Body's options. `dir` is the Vector method's direction (each curve's own normal
+/// without it, the Normal method); `both` sweeps both ways; `hide` keeps to faces seen along the
+/// direction from the curve; `complete` carries open curves on past their ends (Completion Edge).
+#[derive(Default, Clone, Copy, Debug, Serialize, Deserialize)]
+pub struct Projection {
+    #[serde(default)]
+    pub dir: Option<[f64; 3]>,
+    #[serde(default)]
+    pub both: bool,
+    #[serde(default)]
+    pub hide: bool,
+    #[serde(default)]
+    pub complete: bool,
+}
 
 /// Cut and Imprint's tools beside curves: faces (grown past their body), a plane, whole bodies.
 #[derive(Default, Clone, Debug, Serialize, Deserialize)]

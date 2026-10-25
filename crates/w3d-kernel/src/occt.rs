@@ -352,6 +352,13 @@ impl Kernel for Occt {
         Ok(Traced { solid, history: history(h) })
     }
 
+    fn imprint_projected(&self, s: &Shape, faces: &[u32], cutters: &[(Path, DVec3)], length: f64, both: bool, hide: bool, extend: bool) -> Result<Traced<Shape>, KernelError> {
+        if cutters.is_empty() { return Err(KernelError::Invalid("select the curves to imprint")) }
+        let faces: Vec<usize> = faces.iter().map(|&f| f as usize).collect();
+        let (solid, h) = s.imprint_projected_with_history(&faces, &cutter_numbers(cutters)?, length, both, hide, extend).map_err(shim)?;
+        Ok(Traced { solid, history: history(h) })
+    }
+
     fn project(&self, s: &Shape, faces: &[u32], curves: &[(Path, DVec3)], length: f64, both: bool, hide: bool) -> Result<Vec<Path>, KernelError> {
         if curves.is_empty() { return Err(KernelError::Invalid("select the curves to project")) }
         let faces: Vec<usize> = faces.iter().map(|&f| f as usize).collect();

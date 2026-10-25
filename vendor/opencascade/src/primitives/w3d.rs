@@ -287,6 +287,14 @@ impl Shape {
         Ok((Shape::from_shape(&ffi::w3d::w3d_result_shape(&r)), history(&r, 1)))
     }
 
+    /// Imprint Curve Body with its options: the faces split along the curves projected as
+    /// [`Shape::project_curves`] projects them, `extend` carrying open curves on past their ends.
+    pub fn imprint_projected_with_history(&self, faces: &[usize], data: &[f64], length: f64, both: bool, hide: bool, extend: bool) -> Result<(Shape, ShapeHistory), String> {
+        let faces: Vec<i32> = faces.iter().map(|&f| f as i32).collect();
+        let r = ffi::w3d::w3d_imprint_projected(&self.inner, &faces, data, length, both, hide, extend).map_err(reason)?;
+        Ok((Shape::from_shape(&ffi::w3d::w3d_result_shape(&r)), history(&r, 1)))
+    }
+
     /// Curves projected onto the numbered faces (all when empty), as `w3d_project` writes them:
     /// a count, then each curve as NURBS numbers.
     pub fn project_curves(&self, faces: &[usize], data: &[f64], length: f64, both: bool, hide: bool) -> Result<Vec<f64>, String> {

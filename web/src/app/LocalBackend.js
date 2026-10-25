@@ -4,10 +4,10 @@
 import * as THREE from 'three';
 import { ExtrudeFactory } from '../ExtrudeFactory.js';
 import { NoOpError } from '../GeometryFactory.js';
-import { arrayMotions, blendEdges, booleanWithHistory, bounds, box, count, draftFaces, faceSheet, imprintWithHistory, planeSheet, unifyWithHistory, boundaryEdges, splitWithHistory, draftWithHistory, exportSTEP, facePlane, mirror, numberedEdges, oc, primitive, shellFaces, tessellate, transform, volume } from '../Kernel.js';
+import { arrayMotions, blendEdges, booleanWithHistory, bounds, box, count, draftFaces, faceSheet, imprintEdgesWithHistory, imprintWithHistory, planeSheet, unifyWithHistory, boundaryEdges, splitWithHistory, draftWithHistory, exportSTEP, facePlane, mirror, numberedEdges, oc, primitive, shellFaces, tessellate, transform, volume } from '../Kernel.js';
 import { cutSheets, loft, loftGuided, offsetFlatFaces, pipe, regionFace, revolve, splineSamples, sweep, sweepGuided } from '../Forms.js';
 import { curveFromNurbs, ends, join, loops, MEET, nurbsLoop } from '../curves.js';
-import { isoparam, meetCurves, projectCurveCurve, projectCurves } from '../Project.js';
+import { isoparam, meetCurves, projectCurveCurve, projectCurves, projectedEdges } from '../Project.js';
 import { isSheet, patch } from '../Patch.js';
 import { offsetEdges } from '../edgeTube.js';
 import { faceSurfaces } from '../faceSurfaces.js';
@@ -585,12 +585,38 @@ export class LocalBackend {
     previewProject(req) { return this.latest(async () => this.projectResult(req)) }
 
     /** Plasticity's Imprint: the body's faces (all when `faces` is empty) split where the curves cross them. */
-    imprintResult({ body, faces = [], curves = [], tools = {} }) {
+    imprintResult({ body, faces = [], curves = [], tools = {}, projection = null }) {
         const s = this.shapes.get(body);
         if (!s) throw new Error('that body no longer exists');
+        if (projection) return this.imprintProjected(s, body, faces, curves, tools, projection);
         const all = [...this.toolSheets(curves, tools, this.sheetSize()), ...this.toolBodies(tools, body)];
         if (!all.length) throw new Error('select curves or another body to imprint');
         return imprintWithHistory(s, faces, all);
+    }
+
+    /**
+     * Imprint Curve Body's options: the curves carried along their normals (Normal) or `dir`
+     * (Vector), forwards or `both` ways, onto faces seen along the way with `hide`, carried on
+     * past their ends with `complete` (Completion Edge); then other bodies imprint where they meet.
+     */
+    imprintProjected(s, body, faces, curves, tools, { dir = null, both = false, hide = false, complete = false }) {
+        const cs = curves.map(id => { const c = this.curveMap.get(id); if (!c) throw new Error('that curve no longer exists'); return c; });
+        for (const c of tools.shapes ?? []) { checkCurve(c); cs.push(c); }
+        let fixed = null;
+        if (dir) {
+            fixed = new THREE.Vector3(...dir);
+            if (!(fixed.length() > 1e-12)) throw new Error('the projection has no direction');
+            fixed.normalize();
+        }
+        const dirOf = c => fixed ?? new THREE.Vector3(...c.normal).normalize();
+        let r = cs.length ? imprintEdgesWithHistory(s, projectedEdges(s, faces, cs, dirOf, { length: this.sheetSize(), both, hide, extend: complete })) : null;
+        const others = this.toolBodies(tools, body);
+        if (others.length) {
+            const next = imprintWithHistory(r ? r.shape : s, r ? [] : faces, others);
+            r = r ? { shape: next.shape, history: chain(r.history, next.history) } : next;
+        }
+        if (!r) throw new Error('select curves or another body to imprint');
+        return r;
     }
 
     previewImprint(req) { return this.latest(async () => this.body(req.body, this.imprintResult(req).shape)) }

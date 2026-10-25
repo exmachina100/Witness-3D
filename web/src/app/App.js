@@ -140,7 +140,7 @@ const KEYS = {
   'remove-face': [['⇧ CLICK', 'FACES'], ['⏎ / RMB', 'OK']],
   cut: [['⇧ CLICK', 'SOLIDS · CURVES'], ['⇧ ALT CLICK', 'FACES'], ['P', 'CONSTRUCTION PLANE'], ['⏎ / RMB', 'OK']],
   draft: [['A', 'ANGLE'], ['D', 'OFFSET'], ['⇧ CLICK', 'FACES'], ['⏎ / RMB', 'OK']],
-  imprint: [['⇧ CLICK', 'FACES · CURVES'], ['⇧ ALT CLICK', 'BODY THAT IMPRINTS'], ['⏎ / RMB', 'OK']],
+  imprint: [['⇧ CLICK', 'FACES · CURVES'], ['⇧ ALT CLICK', 'BODY THAT IMPRINTS'], ['X Y Z', 'VECTOR'], ['S', 'SCREEN SPACE'], ['C', 'COMPLETION'], ['⏎ / RMB', 'OK']],
   project: [['⇧ CLICK', 'SOLID · CURVES'], ['X Y Z', 'VECTOR'], ['S', 'SCREEN SPACE'], ['⏎ / RMB', 'OK']],
   'bridge-surface': [['⇧ CLICK', 'TWO EDGES'], ['T', 'TENSION'], ['⏎ / RMB', 'OK']],
   'extend-sheet': [['CLICK', "A SHEET'S EDGE"], ['D', 'DISTANCE'], ['CTRL+CLICK', 'A BODY TO REACH'], ['TAB', 'NATURAL · LINEAR · SOFT · REFLECTIVE'], ['⏎ / RMB', 'OK']],
@@ -561,16 +561,28 @@ const SHELL = `
       <div class="field"><label>FACES</label><output data-id="imp-faces">ALL</output></div>
       <div class="field"><label>CURVES</label><output data-id="imp-curves">0</output></div>
       <div class="field"><label>BODIES</label><output data-id="imp-bodies">0</output></div>
+      <div class="chips" data-id="imp-opts">
+        <button data-imp="normal" aria-pressed="true" title="Normal: each curve along its own plane's normal">NORMAL</button>
+        <button data-imp="vector" aria-pressed="false" title="Vector: every curve along one direction (X, Y, Z; again to flip)">VECTOR</button>
+        <button data-imp="both" aria-pressed="true" title="Bidirectional: both ways from the curves">BIDIRECTIONAL</button>
+        <button data-imp="hide" aria-pressed="false" title="Hide occlusion: not onto faces hidden behind others">HIDE OCCLUSION</button>
+        <button data-imp="screen" aria-pressed="false" title="Screen space: along the view (S)"><kbd>S</kbd>SCREEN SPACE</button>
+      </div>
+      <div class="chips" data-id="imp-complete">
+        <button data-impcomp="none" aria-pressed="true" title="Completion None: edges stay where the curves end (C)">NONE</button>
+        <button data-impcomp="edge" aria-pressed="false" title="Completion Edge: carried on until they meet the face's edges (C)">EDGE</button>
+      </div>
+      <div class="field"><label>DIRECTION</label><output data-id="imp-dir">—</output></div>
     </div>
     <div class="sec" data-panel="project" hidden>
       <span class="hint" data-id="proj-hint">—</span>
       <div class="field"><label>MAKES</label><output data-id="proj-mode">—</output></div>
       <div class="chips" data-id="proj-opts">
-        <button data-proj="normal" aria-pressed="true">NORMAL</button>
-        <button data-proj="vector" aria-pressed="false">VECTOR</button>
-        <button data-proj="both" aria-pressed="false">BIDIRECTIONAL</button>
-        <button data-proj="hide" aria-pressed="false">HIDE OCCLUDED</button>
-        <button data-proj="screen" aria-pressed="false"><kbd>S</kbd>SCREEN SPACE</button>
+        <button data-proj="normal" title="Normal: along the construction plane's normal" aria-pressed="true">NORMAL</button>
+        <button data-proj="vector" title="Vector: along one direction (X, Y, Z; again to flip)" aria-pressed="false">VECTOR</button>
+        <button data-proj="both" title="Bidirectional: both ways (Vector)" aria-pressed="false">BIDIRECTIONAL</button>
+        <button data-proj="hide" title="Hide occluded: not onto faces hidden behind others (Vector)" aria-pressed="false">HIDE OCCLUDED</button>
+        <button data-proj="screen" title="Screen space: along the view (S)" aria-pressed="false"><kbd>S</kbd>SCREEN SPACE</button>
       </div>
       <div class="field"><label>DIRECTION</label><output data-id="proj-dir">—</output></div>
       <div class="field"><label>CURVES</label><output data-id="proj-count">0</output></div>
@@ -872,8 +884,8 @@ const VIEWS = {
 export async function mount(root, backend) {
   root.innerHTML = SHELL;
   // Panel options carry their icon ahead of the key and name.
-  for (const b of root.querySelectorAll('[data-draw],[data-bop],[data-xop],[data-fop],[data-spiral],[data-toggle],[data-gmethod],[data-galign],[data-grow],[data-mfgrow],[data-eslimit],[data-flshape],[data-avaxis],[data-extshape],[data-esshape],[data-isodir],[data-id="oe-both"],[data-id="oe-individual"],[data-id="blend-tangent"],[data-id="ex-lock"],[data-id="bool-keep"],[data-id="ex-free"],[data-id="ex-pivot"],[data-id="ex-individual"],[data-id="dr-hidden"],[data-id="dr-curves"],[data-id="oc-lock"],[data-id="oc-free"],[data-id="oc-slot"],[data-id="oc-combine"],[data-id="es-unlimit"],[data-rbmethod],[data-oecorner],[data-saplane],[data-plaxis],[data-plop],[data-id="pl-flip"],[data-id="pl-instance"],[data-id="ra-instance"],[data-id="rr-instance"],[data-id="ca-instance"],[data-id="br-trim"],[data-id="br-comb"],[data-id="ac-comb"],[data-id="dc-reblend"],[data-id="section-btn"],[data-id="sa-flip"],[data-id="rf-shrink"],[data-id="ut-keep"],[data-txfont],[data-txalign],[data-sldir],[data-dcflip],[data-id="dc-keep"],[data-imdepth],[data-imcull],[data-id="im-delete"],[data-id="cc-extend"],[data-id="cc-screen"],[data-inmode],[data-id="in-realize"],[data-id="in-dup"],[data-id="in-delete"]')) {
-    const name = b.dataset.draw ?? b.dataset.bop ?? b.dataset.xop ?? b.dataset.fop ?? b.dataset.spiral ?? (b.dataset.toggle && `view-${b.dataset.toggle}`)
+  for (const b of root.querySelectorAll('[data-proj],[data-imp],[data-impcomp],[data-draw],[data-bop],[data-xop],[data-fop],[data-spiral],[data-toggle],[data-gmethod],[data-galign],[data-grow],[data-mfgrow],[data-eslimit],[data-flshape],[data-avaxis],[data-extshape],[data-esshape],[data-isodir],[data-id="oe-both"],[data-id="oe-individual"],[data-id="blend-tangent"],[data-id="ex-lock"],[data-id="bool-keep"],[data-id="ex-free"],[data-id="ex-pivot"],[data-id="ex-individual"],[data-id="dr-hidden"],[data-id="dr-curves"],[data-id="oc-lock"],[data-id="oc-free"],[data-id="oc-slot"],[data-id="oc-combine"],[data-id="es-unlimit"],[data-rbmethod],[data-oecorner],[data-saplane],[data-plaxis],[data-plop],[data-id="pl-flip"],[data-id="pl-instance"],[data-id="ra-instance"],[data-id="rr-instance"],[data-id="ca-instance"],[data-id="br-trim"],[data-id="br-comb"],[data-id="ac-comb"],[data-id="dc-reblend"],[data-id="section-btn"],[data-id="sa-flip"],[data-id="rf-shrink"],[data-id="ut-keep"],[data-txfont],[data-txalign],[data-sldir],[data-dcflip],[data-id="dc-keep"],[data-imdepth],[data-imcull],[data-id="im-delete"],[data-id="cc-extend"],[data-id="cc-screen"],[data-inmode],[data-id="in-realize"],[data-id="in-dup"],[data-id="in-delete"]')) {
+    const name = (b.dataset.proj && (b.dataset.proj === 'screen' ? 'view-screen' : `proj-${b.dataset.proj}`)) ?? (b.dataset.imp && (b.dataset.imp === 'screen' ? 'view-screen' : `proj-${b.dataset.imp}`)) ?? (b.dataset.impcomp && `completion-${b.dataset.impcomp}`) ?? b.dataset.draw ?? b.dataset.bop ?? b.dataset.xop ?? b.dataset.fop ?? b.dataset.spiral ?? (b.dataset.toggle && `view-${b.dataset.toggle}`)
       ?? (b.dataset.gmethod && `guide-${b.dataset.gmethod}`) ?? (b.dataset.galign && `align-${b.dataset.galign}`) ?? (b.dataset.grow && `grow-${b.dataset.grow}`) ?? (b.dataset.mfgrow && `grow-${b.dataset.mfgrow}`) ?? (b.dataset.eslimit && `limit-${b.dataset.eslimit}`) ?? (b.dataset.flshape && `fillet-${b.dataset.flshape}`) ?? (b.dataset.avaxis && `axis-${b.dataset.avaxis}`) ?? (b.dataset.extshape && `extend-${b.dataset.extshape}`) ?? (b.dataset.esshape && `extend-${b.dataset.esshape}`) ?? (b.dataset.isodir && `iso-${b.dataset.isodir}`) ?? (b.dataset.rbmethod && `rebuild-${b.dataset.rbmethod}`) ?? (b.dataset.oecorner && `corner-${b.dataset.oecorner}`) ?? (b.dataset.saplane && `section-${b.dataset.saplane}`) ?? (b.dataset.plaxis && (b.dataset.plaxis === 'normal' ? 'place-normal' : `axis-${b.dataset.plaxis}`)) ?? b.dataset.plop
       ?? (b.dataset.txfont && `font-${b.dataset.txfont}`) ?? (b.dataset.txalign && `txalign-${b.dataset.txalign}`) ?? (b.dataset.sldir && { u: 'slide-u', '-u': 'slide-back', v: 'slide-v', '-v': 'slide-vback', n: 'slide-n' }[b.dataset.sldir]) ?? (b.dataset.dcflip && { mirror: 'mirror', swap: 'swap-uv', normal: 'reverse-sheet' }[b.dataset.dcflip]) ?? (b.dataset.imdepth && `depth-${b.dataset.imdepth}`) ?? (b.dataset.imcull && `cull-${b.dataset.imcull}`) ?? b.dataset.inmode
       ?? { 'ex-lock': 'lock', 'bool-keep': 'keep', 'ex-free': 'freestyle', 'ex-pivot': 'pivot', 'ex-individual': 'individual', 'dr-hidden': 'hidden-lines', 'dr-curves': 'drawing-curves', 'oc-lock': 'lock', 'oc-free': 'freestyle', 'oc-slot': 'slot', 'oc-combine': 'combine', 'oe-both': 'both-sides', 'oe-individual': 'individual', 'blend-tangent': 'tangent-chain', 'es-unlimit': 'unlimit', 'rf-shrink': 'shrink', 'ut-keep': 'keep-edges', 'section-btn': 'view-section', 'sa-flip': 'flip', 'pl-flip': 'flip', 'pl-instance': 'instance', 'ra-instance': 'instance', 'rr-instance': 'instance', 'ca-instance': 'instance', 'br-trim': 'trim', 'br-comb': 'view-curvature', 'ac-comb': 'view-curvature', 'dc-reblend': 'reblend', 'dc-keep': 'keep', 'im-delete': 'delete', 'in-realize': 'realize-instance', 'cc-extend': 'extend', 'cc-screen': 'view-screen', 'in-dup': 'duplicate', 'in-delete': 'delete' }[b.dataset.id];
@@ -6261,14 +6273,51 @@ export async function mount(root, backend) {
    */
   function startImprint() {
     if (!backend.previewImprint) return toast('IMPRINT IS NOT IN THIS BUILD YET');
-    const c = cmd = { id: 'imprint', body: null, faces: [], curves: [], tools: [], sent: 0, shown: 0 };
+    const c = cmd = { id: 'imprint', body: null, faces: [], curves: [], tools: [], method: 'normal', axis: null, flip: false, screen: false, both: true, hide: false, complete: 'none', sent: 0, shown: 0 };
     lastTool = 'imprint';
     showTool('imprint');
     setState('none');
-    c.request = () => ({ body: c.body, faces: c.faces, curves: c.curves, tools: { bodies: c.tools } });
+    const AXES = { x: [1, 0, 0], y: [0, 0, -1], z: [0, 1, 0] };
+    // The Vector method's direction, in the viewport's axes: an axis, the view, or down the plane's normal.
+    const vector = () => c.screen ? camera.getWorldDirection(new THREE.Vector3())
+      : c.axis ? new THREE.Vector3(...AXES[c.axis]).multiplyScalar(c.flip ? -1 : 1) : cplane.normal.clone().negate();
+    const dirName = () => c.screen ? 'SCREEN' : c.method === 'normal' ? 'EACH CURVE\'S NORMAL' : c.axis ? `${c.flip ? '−' : '+'}${c.axis.toUpperCase()}` : `−${cplane.name} NORMAL`;
+    c.request = () => ({
+      body: c.body, faces: c.faces, curves: c.curves, tools: { bodies: c.tools },
+      projection: { dir: c.method === 'vector' || c.screen ? vector().toArray() : null, both: c.both, hide: c.hide, complete: c.complete === 'edge' },
+    });
+    const showOptions = () => {
+      for (const b of $$('[data-imp]')) {
+        const k = b.dataset.imp;
+        b.setAttribute('aria-pressed', String(k === 'normal' ? c.method === 'normal' && !c.screen : k === 'vector' ? c.method === 'vector' && !c.screen : !!c[k]));
+      }
+      for (const b of $$('[data-impcomp]')) b.setAttribute('aria-pressed', String(b.dataset.impcomp === c.complete));
+      $('imp-dir').textContent = dirName();
+    };
+    c.key = action => {
+      if (action === 'screen') { c.screen = !c.screen; if (c.screen) c.both = c.hide = true; }
+      else if (action.startsWith('axis-')) {
+        const a = action.slice(5);
+        c.flip = c.method === 'vector' && c.axis === a && !c.screen ? !c.flip : false;
+        c.axis = a;
+        // Choosing Vector turns Bidirectional and Hide Occlusion on, as the manual has it.
+        if (c.method !== 'vector') c.both = c.hide = true;
+        c.method = 'vector';
+        c.screen = false;
+      } else if (action === 'normal' || action === 'vector') {
+        if (action === 'vector' && c.method !== 'vector') c.both = c.hide = true;
+        c.method = action;
+        c.screen = false;
+      } else if (action === 'both' || action === 'hide') c[action] = !c[action];
+      else if (action === 'complete') c.complete = c.complete === 'none' ? 'edge' : 'none';
+      else if (action === 'complete-none' || action === 'complete-edge') c.complete = action.slice(9);
+      else return false;
+      c.onSelection();
+      return true;
+    };
     c.preview = () => livePreview(c, () => backend.previewImprint(c.request()), b => {
       showPreviewBody(b);
-      setHud(`IMPRINT ${c.curves.length} CURVE${c.curves.length > 1 ? 'S' : ''}`);
+      setHud(`IMPRINT ${c.curves.length} CURVE${c.curves.length > 1 ? 'S' : ''}${c.curves.length ? ` · ${dirName()}${c.both ? ' · BOTH WAYS' : ''}${c.hide ? ' · SEEN FACES' : ''}${c.complete === 'edge' ? ' · TO EDGES' : ''}` : ''}`);
     }, 'imp-hint');
     c.onSelection = () => {
       drawOverlays();
@@ -6281,6 +6330,7 @@ export async function mount(root, backend) {
       $('imp-faces').textContent = c.faces.length || 'ALL';
       $('imp-curves').textContent = c.curves.length;
       $('imp-bodies').textContent = c.tools.length;
+      showOptions();
       setTarget(c.body === null ? '—' : label(c.body));
       const by = [c.curves.length && `${c.curves.length} CURVE${c.curves.length > 1 ? 'S' : ''}`, ...c.tools.map(label)].filter(Boolean);
       const missing = c.body === null ? 'SELECT FACES OF ONE SOLID, OR THE SOLID' : !by.length ? 'SELECT CURVES, OR ANOTHER SOLID THAT MEETS IT' : null;
@@ -9415,6 +9465,8 @@ export async function mount(root, backend) {
   for (const b of $$('[data-gmethod]')) b.onclick = () => { if (cmd?.id === 'sweep') { setForm({ method: b.dataset.gmethod }); setGuideChips(cmd); } };
   for (const b of $$('[data-galign]')) b.onclick = () => { if (cmd?.id === 'sweep') { setForm({ align: b.dataset.galign }); setGuideChips(cmd); } };
   for (const b of $$('[data-proj]')) b.onclick = () => cmd?.id === 'project' && cmd.key(b.dataset.proj);
+  for (const b of $$('[data-imp]')) b.onclick = () => cmd?.id === 'imprint' && cmd.key(b.dataset.imp);
+  for (const b of $$('[data-impcomp]')) b.onclick = () => cmd?.id === 'imprint' && cmd.key(`complete-${b.dataset.impcomp}`);
   $('bool-keep').onclick = () => cmd?.id === 'boolean' && cmd.key('keep');
   for (const b of $$('[data-draw]')) b.onclick = () => DRAW[cmd?.id] && cmd.key(b.dataset.draw);
   $('commit').onclick = () => finish();

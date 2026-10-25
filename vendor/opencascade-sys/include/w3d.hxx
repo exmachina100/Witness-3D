@@ -2163,10 +2163,28 @@ inline std::unique_ptr<W3dResult> w3d_draft_faces(const TopoDS_Shape &shape, rus
 
 // --- Project (Plasticity's Project Curve Body, Body Body and Curve Curve) -------------------------
 
+// An open wire carried on straight past both ends along its tangents there, `length` each way, for
+// Imprint's Completion Edge. A closed wire stays as it is.
+inline TopoDS_Wire w3d_extended(const TopoDS_Wire &w, double length) {
+  BRepAdaptor_CompCurve c(w);
+  gp_Pnt a, b;
+  gp_Vec ta, tb;
+  c.D1(c.FirstParameter(), a, ta);
+  c.D1(c.LastParameter(), b, tb);
+  if (a.Distance(b) < 1e-7 || ta.Magnitude() < 1e-12 || tb.Magnitude() < 1e-12) return w;
+  ta.Normalize();
+  tb.Normalize();
+  BRepBuilderAPI_MakeWire mk;
+  mk.Add(BRepBuilderAPI_MakeEdge(a.Translated(ta * -length), a).Edge());
+  for (BRepTools_WireExplorer ex(w); ex.More(); ex.Next()) mk.Add(ex.Current());
+  mk.Add(BRepBuilderAPI_MakeEdge(b, b.Translated(tb * length)).Edge());
+  return mk.IsDone() ? mk.Wire() : w;
+}
+
 // The sheets of `data` (see w3d_cut) swept along each cutter's direction: `length` forwards, and as
 // far backwards too when `both`. Each sheet is paired with the wire it was swept from.
 inline std::vector<std::pair<TopoDS_Wire, TopoDS_Shape>> w3d_curtains(rust::Slice<const double> data, double length, bool both,
-                                                                     std::vector<gp_Vec> &dirs) {
+                                                                     std::vector<gp_Vec> &dirs, bool extend = false) {
   const double *p = data.data(), *end = p + data.size();
   if (p >= end) throw std::runtime_error("select the curves to project");
   int m = int(*p++);
@@ -2178,6 +2196,7 @@ inline std::vector<std::pair<TopoDS_Wire, TopoDS_Shape>> w3d_curtains(rust::Slic
     if (n.Magnitude() < 1e-12) throw std::runtime_error("the projection has no direction");
     n.Normalize();
     TopoDS_Wire w = w3d_section(p, end);
+    if (extend) w = w3d_extended(w, length);
     TopoDS_Shape start = w;
     if (both) {
       gp_Trsf back;
@@ -2199,14 +2218,15 @@ inline void w3d_meet(const TopoDS_Shape &a, const TopoDS_Shape &b, std::vector<T
   for (TopExp_Explorer ex(sec.Shape(), TopAbs_EDGE); ex.More(); ex.Next()) edges.push_back(TopoDS::Edge(ex.Current()));
 }
 
-// Whether a face of `skin` (loaded into `hits`) crosses the way between `from` and `to`, ends
-// excluded. Faces met edge-on, along the way, hide nothing.
+// Whether a face of `skin` (loaded into `hits`) crosses the way between `from` and `to`, the end
+// at `to` excluded. A face through `from` itself counts: a curve drawn on a face hides what lies
+// behind that face. Faces met edge-on, along the way, hide nothing.
 inline bool w3d_blocked(IntCurvesFace_ShapeIntersector &hits, const gp_Pnt &from, const gp_Pnt &to) {
   gp_Vec d(from, to);
   double len = d.Magnitude();
   double skip = std::max(1e-4, 1e-7 * len);
   if (len < 3 * skip) return false;
-  hits.Perform(gp_Lin(from, gp_Dir(d)), skip, len - skip);
+  hits.Perform(gp_Lin(from, gp_Dir(d)), -skip, len - skip);
   if (!hits.IsDone()) return false;
   for (int i = 1; i <= hits.NbPnt(); i++)
     if (hits.Transition(i) != IntCurveSurface_Tangent) return true;
@@ -2263,72 +2283,127 @@ inline rust::Vec<double> w3d_curves_out(const std::vector<TopoDS_Edge> &edges) {
 }
 
 // Plasticity's Project Curve Body: the curves of `data` (see w3d_cut, each with its direction)
-// projected onto the numbered faces of `shape` (all when `faces` is empty). Forwards along the
-// direction only, unless `both`; with `hide`, only what is seen looking along the direction from the
-// curve, faces behind others left out. The result as w3d_curves_out writes it.
+// carried onto the numbered faces of `shape` (all when `faces` is empty), as edges lying on them.
+// Forwards along the direction only, unless `both`; with `hide`, only what is seen looking along
+// the direction from the curve, faces behind others left out; with `extend`, open curves are
+// carried on straight past their ends first (Imprint's Completion Edge).
+inline std::vector<TopoDS_Edge> w3d_projected_edges(const TopoDS_Shape &shape, rust::Slice<const int32_t> faces, rust::Slice<const double> data,
+                                                    double length, bool both, bool hide, bool extend) {
+  TopTools_IndexedMapOfShape map;
+  TopExp::MapShapes(shape, TopAbs_FACE, map);
+  TopoDS_Compound targets;
+  BRep_Builder bb;
+  bb.MakeCompound(targets);
+  if (faces.empty()) for (int i = 1; i <= map.Extent(); i++) bb.Add(targets, map(i));
+  for (int32_t f : faces) {
+    if (f < 0 || f >= map.Extent()) throw std::out_of_range("no such face");
+    bb.Add(targets, map(f + 1));
+  }
+  std::vector<gp_Vec> dirs;
+  auto curtains = w3d_curtains(data, length, both, dirs, extend);
+  std::vector<TopoDS_Edge> kept;
+  const double tol = 1e-5;
+  // What can hide a curve: the body's faces, not its inside, so curves drawn within it see out.
+  TopoDS_Compound skin;
+  bb.MakeCompound(skin);
+  for (int i = 1; i <= map.Extent(); i++) bb.Add(skin, map(i));
+  IntCurvesFace_ShapeIntersector hits;
+  if (hide) hits.Load(skin, tol);
+  for (size_t c = 0; c < curtains.size(); c++) {
+    std::vector<TopoDS_Edge> edges;
+    const gp_Vec &dir = dirs[c];
+    if (!hide) {
+      w3d_meet(targets, curtains[c].second, edges);
+      kept.insert(kept.end(), edges.begin(), edges.end());
+      continue;
+    }
+    // Flat faces met edge-on, looking along the way, can't be seen.
+    TopoDS_Compound facing;
+    bb.MakeCompound(facing);
+    for (TopExp_Explorer ex(targets, TopAbs_FACE); ex.More(); ex.Next()) {
+      BRepAdaptor_Surface sa(TopoDS::Face(ex.Current()));
+      if (sa.GetType() == GeomAbs_Plane && std::abs(gp_Vec(sa.Plane().Axis().Direction()).Dot(dir)) < 1e-6) continue;
+      bb.Add(facing, ex.Current());
+    }
+    w3d_meet(facing, curtains[c].second, edges);
+    // Seen when nothing of the body lies between the point and the curve it came from.
+    auto seen = [&](const Handle(Geom_Curve) &g, double t) {
+      gp_Pnt p = g->Value(t), q;
+      if (!w3d_source(curtains[c].first, p, dir, length, q)) return true;
+      return !w3d_blocked(hits, q, p);
+    };
+    for (const auto &e : edges) {
+      double t0, t1;
+      Handle(Geom_Curve) g = BRep_Tool::Curve(e, t0, t1);
+      if (g.IsNull()) continue;
+      const int N = 16;
+      std::vector<bool> vis(N + 1);
+      for (int i = 0; i <= N; i++) vis[i] = seen(g, t0 + (t1 - t0) * i / N);
+      // Each run of seen samples is kept, its ends found by bisection where the view changes.
+      auto edge = [&](double a, double b, bool ia) {
+        double lo = a, hi = b;
+        for (int k = 0; k < 30; k++) { double mid = (lo + hi) / 2; (seen(g, mid) == ia ? lo : hi) = mid; }
+        return (lo + hi) / 2;
+      };
+      int i = 0;
+      while (i <= N) {
+        if (!vis[i]) { i++; continue; }
+        int j = i;
+        while (j < N && vis[j + 1]) j++;
+        double a = i == 0 ? t0 : edge(t0 + (t1 - t0) * (i - 1) / N, t0 + (t1 - t0) * i / N, false);
+        double b = j == N ? t1 : edge(t0 + (t1 - t0) * j / N, t0 + (t1 - t0) * (j + 1) / N, true);
+        // Shorter than a micron is a leftover where an edge-on face meets the way, not a curve.
+        if (g->Value(a).Distance(g->Value((a + b) / 2)) + g->Value((a + b) / 2).Distance(g->Value(b)) > 1e-3)
+          kept.push_back(BRepBuilderAPI_MakeEdge(g, a, b).Edge());
+        i = j + 1;
+      }
+    }
+  }
+  if (kept.empty()) throw std::runtime_error(hide ? "the curves miss what can be seen of the body along that direction" : "the curves miss the body along that direction");
+  return kept;
+}
+
+// Plasticity's Project Curve Body: w3d_projected_edges as w3d_curves_out writes them.
 inline rust::Vec<double> w3d_project(const TopoDS_Shape &shape, rust::Slice<const int32_t> faces, rust::Slice<const double> data,
                                      double length, bool both, bool hide) {
   try {
-    TopTools_IndexedMapOfShape map;
-    TopExp::MapShapes(shape, TopAbs_FACE, map);
-    TopoDS_Compound targets;
-    BRep_Builder bb;
-    bb.MakeCompound(targets);
-    if (faces.empty()) for (int i = 1; i <= map.Extent(); i++) bb.Add(targets, map(i));
-    for (int32_t f : faces) {
-      if (f < 0 || f >= map.Extent()) throw std::out_of_range("no such face");
-      bb.Add(targets, map(f + 1));
+    return w3d_curves_out(w3d_projected_edges(shape, faces, data, length, both, hide, false));
+  } catch (const Standard_Failure &f) {
+    throw w3d_kernel_error(f);
+  }
+}
+
+// Plasticity's Imprint Curve Body with its options: the faces of `shape` split along
+// w3d_projected_edges. Edges that end inside a face stay there as edges of it (Completion None);
+// `extend` carries open curves on until they cross their faces (Completion Edge).
+inline std::unique_ptr<W3dResult> w3d_imprint_projected(const TopoDS_Shape &shape, rust::Slice<const int32_t> faces, rust::Slice<const double> data,
+                                                        double length, bool both, bool hide, bool extend) {
+  try {
+    auto edges = w3d_projected_edges(shape, faces, data, length, both, hide, extend);
+    TopTools_ListOfShape args, tools;
+    args.Append(shape);
+    for (const auto &e : edges) tools.Append(e);
+    BRepAlgoAPI_Splitter mk;
+    mk.SetArguments(args);
+    mk.SetTools(tools);
+    mk.Build();
+    if (!mk.IsDone() || mk.HasErrors()) throw std::runtime_error("the curves could not be imprinted there");
+    TopExp_Explorer solid(mk.Shape(), TopAbs_SOLID);
+    TopoDS_Shape result = solid.More() ? solid.Current() : TopoDS_Shape();
+    if (result.IsNull()) {
+      // A sheet: the split shell (or face) itself.
+      TopExp_Explorer shell(mk.Shape(), TopAbs_SHELL);
+      if (shell.More()) result = shell.Current();
     }
-    std::vector<gp_Vec> dirs;
-    auto curtains = w3d_curtains(data, length, both, dirs);
-    std::vector<TopoDS_Edge> kept;
-    const double tol = 1e-5;
-    // What can hide a curve: the body's faces, not its inside, so curves drawn within it see out.
-    TopoDS_Compound skin;
-    bb.MakeCompound(skin);
-    for (int i = 1; i <= map.Extent(); i++) bb.Add(skin, map(i));
-    IntCurvesFace_ShapeIntersector hits;
-    if (hide) hits.Load(skin, tol);
-    for (size_t c = 0; c < curtains.size(); c++) {
-      std::vector<TopoDS_Edge> edges;
-      w3d_meet(targets, curtains[c].second, edges);
-      if (!hide) { kept.insert(kept.end(), edges.begin(), edges.end()); continue; }
-      const gp_Vec &dir = dirs[c];
-      // Seen when nothing of the body lies between the point and the curve it came from.
-      auto seen = [&](const Handle(Geom_Curve) &g, double t) {
-        gp_Pnt p = g->Value(t), q;
-        if (!w3d_source(curtains[c].first, p, dir, length, q)) return true;
-        return !w3d_blocked(hits, q, p);
-      };
-      for (const auto &e : edges) {
-        double t0, t1;
-        Handle(Geom_Curve) g = BRep_Tool::Curve(e, t0, t1);
-        if (g.IsNull()) continue;
-        const int N = 16;
-        std::vector<bool> vis(N + 1);
-        for (int i = 0; i <= N; i++) vis[i] = seen(g, t0 + (t1 - t0) * i / N);
-        // Each run of seen samples is kept, its ends found by bisection where the view changes.
-        auto edge = [&](double a, double b, bool ia) {
-          double lo = a, hi = b;
-          for (int k = 0; k < 30; k++) { double mid = (lo + hi) / 2; (seen(g, mid) == ia ? lo : hi) = mid; }
-          return (lo + hi) / 2;
-        };
-        int i = 0;
-        while (i <= N) {
-          if (!vis[i]) { i++; continue; }
-          int j = i;
-          while (j < N && vis[j + 1]) j++;
-          double a = i == 0 ? t0 : edge(t0 + (t1 - t0) * (i - 1) / N, t0 + (t1 - t0) * i / N, false);
-          double b = j == N ? t1 : edge(t0 + (t1 - t0) * j / N, t0 + (t1 - t0) * (j + 1) / N, true);
-          // Shorter than a micron is a leftover where an edge-on face meets the way, not a curve.
-          if (g->Value(a).Distance(g->Value((a + b) / 2)) + g->Value((a + b) / 2).Distance(g->Value(b)) > 1e-3)
-            kept.push_back(BRepBuilderAPI_MakeEdge(g, a, b).Edge());
-          i = j + 1;
-        }
-      }
-    }
-    if (kept.empty()) throw std::runtime_error(hide ? "the curves miss what can be seen of the body along that direction" : "the curves miss the body along that direction");
-    return w3d_curves_out(kept);
+    if (result.IsNull()) throw std::runtime_error("the curves could not be imprinted there");
+    TopTools_IndexedMapOfShape before, after;
+    TopExp::MapShapes(shape, TopAbs_EDGE, before);
+    TopExp::MapShapes(result, TopAbs_EDGE, after);
+    if (after.Extent() <= before.Extent()) throw std::runtime_error("the curves do not reach those faces");
+    std::unique_ptr<W3dResult> r(new W3dResult());
+    r->shape = result;
+    w3d_record(*r, 0, shape, {w3d_step(mk)});
+    return r;
   } catch (const Standard_Failure &f) {
     throw w3d_kernel_error(f);
   }
