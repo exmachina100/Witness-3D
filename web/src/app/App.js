@@ -2545,7 +2545,7 @@ export async function mount(root, backend) {
   /**
    * Plasticity's auto-invoked commands (Preferences › Commands, each its own switch): the fillet's
    * dot with edges selected, Extend Sheet with one edge of a sheet, the extrude's with regions,
-   * Offset Face's (push face) with faces.
+   * Offset Face's (push face) with faces, and Move's handles with solids or curves.
    */
   function defaultCommand() {
     const on = prefs.commands;
@@ -2554,6 +2554,8 @@ export async function mount(root, backend) {
     else if (edgeBody()) { if (on.autoFillet) startFillet({ auto: true }); }
     else if (regionsOnly()) { if (on.autoExtrude) startExtrude({ auto: true }); }
     else if (faceBody() !== null) { if (on.autoOffset) startOffset({ auto: true }); }
+    // 2026.2: Move comes up on selected solids and curves, its handles ready to drag.
+    else if (on.autoMove && sel.size && sel.list().every(it => it.kind === 'solid' || it.kind === 'curve')) startTransform('move', { auto: true });
   }
   /** The one selected edge, when it is an edge of a sheet and nothing else is selected. */
   function sheetEdge() {
@@ -3129,7 +3131,7 @@ export async function mount(root, backend) {
   // (Plasticity: X/Y/Z an axis, Shift+X/Y/Z a plane, G the screen; R the screen axis; S uniform),
   // and typing while it does sets the value exactly. The meshes follow as the preview, since a
   // rigid motion needs no kernel work; finishing sends one request, one undo step.
-  function startTransform(kind, { follow = null } = {}) {
+  function startTransform(kind, { follow = null, auto = false } = {}) {
     // A face's picked control points move on their own, not their body.
     const poles = sel.list('pole').filter(p => poleOf(p));
     // Faces on their own move and turn by themselves, their neighbours following (Move Face).
@@ -3167,10 +3169,10 @@ export async function mount(root, backend) {
     tc.setMode({ move: 'translate', rotate: 'rotate', scale: 'scale' }[kind]);
     tc.setSpace('world');
     tc.attach(handle);
-    tc.addEventListener('dragging-changed', e => { controls.enabled = !e.value; if (e.value) c.follow = null; });
+    tc.addEventListener('dragging-changed', e => { controls.enabled = !e.value; if (e.value) { c.follow = null; c.auto = false; } });
     tc.addEventListener('objectChange', () => fromHandle());
     scene.add(tc.getHelper());
-    const c = cmd = { id: kind, ids, curves, verts, poles, faceMove, vertexAt, curveOut: null, poleMoves: null, poleRows: null, sent: 0, shown: 0, pivot, handle, tc, offset: new THREE.Vector3(), quat: new THREE.Quaternion(), scale: 1, axis: 'z', follow: null };
+    const c = cmd = { id: kind, auto, ids, curves, verts, poles, faceMove, vertexAt, curveOut: null, poleMoves: null, poleRows: null, sent: 0, shown: 0, pivot, handle, tc, offset: new THREE.Vector3(), quat: new THREE.Quaternion(), scale: 1, axis: 'z', follow: null };
     lastTool = kind;
     showTool(kind);
     const moving = faceMove?.edges ?? faceMove?.faces ?? [];
@@ -3204,7 +3206,11 @@ export async function mount(root, backend) {
       else return false;
       return true;
     };
-    c.click = () => true; // clicks don't change the selection while transforming
+    // Clicks don't change the selection while transforming, unless Move only came up by itself:
+    // then a click selects as usual and Move follows the new selection.
+    const untouched = () => c.offset.lengthSq() < 1e-18 && Math.abs(c.quat.w) > 1 - 1e-12 && Math.abs(c.scale - 1) < 1e-12;
+    c.click = () => !(c.auto && untouched());
+    c.onSelection = () => { if (!c.auto || !untouched()) return; endCmd(null); defaultCommand(); };
     c.finish = () => commitTransform();
     c.abort = () => endCmd('cancelled');
     c.cleanup = () => {
@@ -3426,7 +3432,7 @@ export async function mount(root, backend) {
     const c = cmd;
     endFollow(true);
     const moved = c.offset.lengthSq() > 1e-18 || Math.abs(c.quat.w) < 1 - 1e-12 || Math.abs(c.scale - 1) > 1e-12;
-    if (!moved) return endCmd('cancelled');
+    if (!moved) return endCmd(c.auto ? null : 'cancelled');
     const { axis, angle } = axisAngle(c);
     const req = { bodies: c.ids, offset: c.offset.toArray(), pivot: c.pivot.toArray(), axis, angle, scale: c.scale };
     const user = toUser(req.offset);
