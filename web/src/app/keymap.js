@@ -159,7 +159,7 @@ export const COMMAND = {
     // Bridge Surface: T types the tension.
     'bridge-surface': { t: 'tension' },
     // Patch: T leaves the edges tangent to their faces.
-    patch: { t: 'tangent' },
+    patch: { t: 'tangent', i: 'individual' },
     thicken: { d: 'front', b: 'back' },
     // Pipe: R radius, T wall thickness, V sides.
     pipe: { r: 'radius', t: 'thickness', v: 'sides' },
