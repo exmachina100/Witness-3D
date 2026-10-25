@@ -21,6 +21,10 @@ test('materials carry the base parameters and are checked', () => {
     assert.equal(checkMaterial({ ...m, roughness: 1.5 }).length, 1);
     assert.equal(checkMaterial({ ...m, color: 'red', density: 0 }).length, 2);
     assert.equal(checkMaterial({ ...m, ior: 0.9 }).length, 1);
+    // The advanced parameters start off and are checked too.
+    for (const k of ['clearcoat', 'sheen', 'iridescence', 'transmission', 'thickness']) assert.equal(m[k], 0);
+    assert.equal(checkMaterial({ ...m, clearcoat: 1, transmission: 0.5, sheenColor: '#ff8800' }).length, 0);
+    assert.equal(checkMaterial({ ...m, sheen: 2, sheenColor: 'blue', thickness: -1 }).length, 3);
 });
 
 test('mass from volume in mm³ and density in g/cm³', () => {

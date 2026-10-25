@@ -36,16 +36,33 @@ export const ENVIRONMENTS = [
     { id: 'sky', name: 'Sky', use: 'Ambient gradient, outdoors' },
 ];
 
-/** A new material with Plasticity's base parameters; density in g/cm³ (steel is 7.85). */
+/**
+ * A new material with Plasticity's base parameters, and its advanced ones (clearcoat, sheen,
+ * iridescence, transmission) off; density in g/cm³ (steel is 7.85), thickness in mm.
+ */
 export function newMaterial(n, base = {}) {
-    return { id: n, name: `MATERIAL ${n}`, color: '#9a968c', roughness: 0.5, metalness: 0, ior: 1.5, opacity: 1, density: 1, ...base };
+    return {
+        id: n, name: `MATERIAL ${n}`, color: '#9a968c', roughness: 0.5, metalness: 0, ior: 1.5, opacity: 1, density: 1,
+        clearcoat: 0, clearcoatRoughness: 0, sheen: 0, sheenRoughness: 1, sheenColor: '#ffffff', iridescence: 0, transmission: 0, thickness: 0,
+        ...base,
+    };
 }
+
+/** The advanced parameters as [key, label, low, high, step]; a colour where low is null. */
+export const ADVANCED_MATERIAL = [
+    ['clearcoat', 'CLEARCOAT', 0, 1, 0.05], ['clearcoatRoughness', 'COAT ROUGHNESS', 0, 1, 0.05],
+    ['sheen', 'SHEEN', 0, 1, 0.05], ['sheenRoughness', 'SHEEN ROUGHNESS', 0, 1, 0.05], ['sheenColor', 'SHEEN COLOR', null],
+    ['iridescence', 'IRIDESCENCE', 0, 1, 0.05], ['transmission', 'TRANSMISSION', 0, 1, 0.05], ['thickness', 'THICKNESS MM', 0, 1000, 0.5],
+];
+/** Material keys holding a colour. */
+export const isColorKey = k => k === 'color' || k === 'sheenColor';
 
 /** Checks a material's values; returns the problems, empty when it is fine. */
 export function checkMaterial(m) {
     const out = [];
-    if (!/^#[0-9a-f]{6}$/i.test(m.color)) out.push('color must be #rrggbb');
-    for (const [k, lo, hi] of [['roughness', 0, 1], ['metalness', 0, 1], ['opacity', 0, 1], ['ior', 1, 2.333]]) if (!(m[k] >= lo && m[k] <= hi)) out.push(`${k} must be ${lo} to ${hi}`);
+    for (const k of ['color', 'sheenColor']) if (!/^#[0-9a-f]{6}$/i.test(m[k])) out.push(`${k} must be #rrggbb`);
+    const ranges = [['roughness', 0, 1], ['metalness', 0, 1], ['opacity', 0, 1], ['ior', 1, 2.333], ...ADVANCED_MATERIAL.filter(r => r[2] !== null).map(([k, , lo, hi]) => [k, lo, hi])];
+    for (const [k, lo, hi] of ranges) if (!(m[k] >= lo && m[k] <= hi)) out.push(`${k} must be ${lo} to ${hi}`);
     if (!(m.density > 0)) out.push('density must be above 0');
     return out;
 }
