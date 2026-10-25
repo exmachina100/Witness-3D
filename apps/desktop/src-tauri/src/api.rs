@@ -1465,6 +1465,42 @@ impl ExtendSheetRequest {
     }
 }
 
+/// Move Face: `faces` of `body` turned by `angle` radians about `axis` through `pivot`, then moved
+/// by `offset`, the faces round them following.
+#[derive(Deserialize, Debug, Clone)]
+pub struct MoveFacesRequest {
+    pub body: BodyId,
+    pub faces: Vec<u32>,
+    #[serde(default)]
+    pub offset: [f64; 3],
+    #[serde(default)]
+    pub pivot: [f64; 3],
+    #[serde(default = "up")]
+    pub axis: [f64; 3],
+    #[serde(default)]
+    pub angle: f64,
+}
+
+impl MoveFacesRequest {
+    fn motion(&self) -> Result<Motion, ApiError> {
+        MotionRequest { bodies: vec![self.body], offset: self.offset, pivot: self.pivot, axis: self.axis, angle: self.angle, scale: 1.0 }.motion()
+    }
+}
+
+pub fn preview_move_faces(m: &Model, req: MoveFacesRequest) -> Option<Result<Body, ApiError>> {
+    m.preview(move |doc| {
+        let t = doc.preview_move_faces(req.body, &req.faces, &req.motion()?)?;
+        Ok(body(&doc.kernel, req.body, &t.solid)?)
+    })
+}
+
+pub fn commit_move_faces(m: &Model, req: MoveFacesRequest) -> Result<Committed, ApiError> {
+    m.call(move |doc| {
+        doc.commit_move_faces(req.body, &req.faces, &req.motion()?)?;
+        Ok(Committed { id: req.body, scene: bodies(doc)? })
+    })
+}
+
 /// Surface control points of `body` moved: per point its face, its pole (as `face_poles` numbers
 /// them) and the offset.
 #[derive(Deserialize, Debug, Clone)]
