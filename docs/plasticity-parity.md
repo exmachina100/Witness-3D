@@ -41,11 +41,11 @@ a flat face imprints that face and is used up (round 10).
 | Corner Rectangle | corner, corner; Tab, K, C → centre, S square | Done |
 | Center Rectangle | centre, corner; Tab, K, C → corner, S square | Done |
 | Three Point Rectangle | corner, edge point, size; Tab, K, X/Y/Z | Done |
-| Corner Box | corner, corner, drag height; C → centre, S square, Tab; height step: Q W Shift+E B Shift+Q T (boolean with target bodies), H height; yellow dots; Width/Length/Height | Partial: yellow dots, T |
-| Center Box | as Corner Box from the centre | Partial: yellow dots, T |
+| Corner Box | corner, corner, drag height; C → centre, S square, Tab; height step: Q W Shift+E B Shift+Q T (boolean with target bodies), H height; yellow dots; Width/Length/Height | Done (T keeps the primitive as a body of its own after a union, difference, intersect or slice) |
+| Center Box | as Corner Box from the centre | Done (T keeps the primitive as a body of its own after a union, difference, intersect or slice) |
 | Three Point Box | corner, edge point, size, height; X/Y/Z; target bodies | Done |
-| Cylinder | centre, drag radius, drag height; Tab, V vertical, X/Y/Z; Q W Shift+E B Shift+Q T; F radius, D height; dots | Partial: yellow dots, T |
-| Sphere | centre, drag size; Tab, X/Y/Z; boolean keys; D diameter; dot | Partial: yellow dot, T |
+| Cylinder | centre, drag radius, drag height; Tab, V vertical, X/Y/Z; Q W Shift+E B Shift+Q T; F radius, D height; dots | Done (T keeps the primitive as a body of its own after a union, difference, intersect or slice) |
+| Sphere | centre, drag size; Tab, X/Y/Z; boolean keys; D diameter; dot | Done (T keeps the primitive as a body of its own after a union, difference, intersect or slice) |
 | Measure Distance · Measure Radius | | Done |
 | Measure Continuity · Toggle Curvature | | Done (combs on the convex side; G0/G1/G2 exact for lines and arcs) |
 
