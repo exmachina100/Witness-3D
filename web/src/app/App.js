@@ -1636,11 +1636,32 @@ export async function mount(root, backend) {
     }
     return best;
   }
+  /** The face in `nets` whose control net (rows of [x, y, z]) is nearest `net`, point by point; null without one. */
+  function nearestNet(net, nets) {
+    if (!net?.length) return null;
+    const flat = net.flat();
+    let best = null, bestD = Infinity;
+    nets.forEach((m, i) => {
+      const q = m?.flat();
+      if (!q || q.length !== flat.length || m.length !== net.length) return;
+      let d = 0;
+      for (let k = 0; k < q.length; k++) d += Math.hypot(q[k][0] - flat[k][0], q[k][1] - flat[k][1], q[k][2] - flat[k][2]);
+      if (d < bestD) { bestD = d; best = i; }
+    });
+    return best;
+  }
   /** After the bodies change: the shown faces' control points again, gone bodies dropped. */
   async function refreshShownPoints(list) {
     for (const body of [...shownPoints.faces.keys()]) if (!list.some(b => b.id === body)) shownPoints.faces.delete(body);
     const cache = new Map();
     for (const body of shownPoints.faces.keys()) { try { cache.set(body, await backend.facePoles({ body })); } catch { shownPoints.faces.delete(body); } }
+    // A rebuilt body numbers its faces afresh: follow each shown face to the face whose control
+    // net is nearest its old one (a moved point changes only a few).
+    for (const [body, which] of shownPoints.faces) {
+      const was = facePoleCache.get(body), now = cache.get(body);
+      if (which === 'all' || !was || !now) continue;
+      shownPoints.faces.set(body, new Set([...which].map(n => nearestNet(was[n], now) ?? n)));
+    }
     facePoleCache = cache;
     paintShownPoints();
   }
