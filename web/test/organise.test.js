@@ -136,3 +136,16 @@ test('new bodies go into the active collection; dissolving it hands the role to 
     assert.equal(o.groupOf.has(4), false);
     assert.equal(Organise.from({ ...o.toJSON(), active: 99 }).active, null);
 });
+
+test("the bridges' outline: each body's groups from the top, hidden ones marked, disabled ones out", () => {
+    const o = new Organise();
+    const outer = o.makeGroup([1, 2, 3]);
+    o.makeGroup([2, 3]);
+    o.setHidden([3], true);
+    o.setDisabled([1], true);
+    assert.deepEqual(o.outline([1, 2, 3, 4]), {
+        2: { path: [outer.name, 'GROUP 2'], hidden: false },
+        3: { path: [outer.name, 'GROUP 2'], hidden: true },
+        4: { path: [], hidden: false },
+    });
+});

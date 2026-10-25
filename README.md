@@ -9,6 +9,7 @@ A direct modeler in the OpenCascade kernel. Documents are in millimetres and sav
 | [`apps/desktop/`](apps/desktop/) | The desktop app: the Rust core in a Tauri window with the Three.js viewport. |
 | [`crates/w3d-kernel/`](crates/w3d-kernel/) | The Rust modeling core. Geometry goes through a `Kernel` trait, implemented today by OpenCascade via [opencascade-rs](https://github.com/bschwind/opencascade-rs). It also holds the extrude-to-boolean logic, fillet/chamfer, the native file format, the document with undo/redo, and the engine thread that keeps previews on the newest drag. |
 | [`tools/blender/`](tools/blender/) | The Blender add-on: Connect, Refresh and Live Link to the desktop app on 127.0.0.1:8981. Meshes only; updates keep Blender's materials and camera. |
+| [`tools/cinema4d/`](tools/cinema4d/) | The Cinema 4D plugin: the same bridge, with the document as a root null, outliner groups as nulls, Only visible and Unit Scale. |
 | [`vendor/`](vendor/) | opencascade-rs 0.3.0 with small Witness 3D additions (checked fillets, edge numbering, BREP text); see its README. |
 
 ## Run it
@@ -38,6 +39,11 @@ desktop app. The key is never written to this repository.
 `tools/blender/witness3d_bridge.py`, then use the "Witness 3D" tab in the 3D view sidebar while the
 desktop app runs. Its test runs against Blender as a Python module (`pip install bpy`):
 `python tools/blender/test_bridge.py target/release/examples/bridge_demo`.
+
+**Cinema 4D** (2023 or later): copy `tools/cinema4d/Witness3DBridge` into Cinema 4D's plugins folder,
+restart, and open Extensions > Witness 3D Bridge while the desktop app runs. The plugin uses a
+development plugin ID; a released build needs IDs registered with Maxon. Its connection and scene
+plan are tested with plain Python: `python3 tools/cinema4d/test_link.py target/debug/examples/bridge_demo`.
 
 ## Licensing note
 
