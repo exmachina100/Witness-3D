@@ -496,8 +496,9 @@ const SHELL = `
       <textarea data-id="tx-text" rows="3" spellcheck="false" title="The text; each line its own row">TEXT</textarea>
       <span class="label">FONT</span>
       <div class="seg" role="group" aria-label="Font">${FONTS.map(([name], i) => `<button data-txfont="${i}" aria-pressed="${i === 0}" title="${['A plain sans-serif (Outfit)', 'A serif (Lora)', 'A monospace (JetBrains Mono)'][i]}">${name}</button>`).join('')}</div>
-      <div class="chips"><button data-id="tx-load" title="Load a TrueType font (.ttf) from your computer; it stays for next time">LOAD FONT</button><button data-txfont="${FONTS.length}" data-id="tx-custom" aria-pressed="false" hidden title="Your font">MY FONT</button></div>
+      <div class="chips"><button data-id="tx-load" title="Load a TrueType font (.ttf) from your computer; it stays for next time">LOAD FONT</button><button data-id="tx-system" title="Pick one of the fonts installed on this computer; it stays for next time">SYSTEM FONT</button><button data-txfont="${FONTS.length}" data-id="tx-custom" aria-pressed="false" hidden title="Your font">MY FONT</button></div>
       <input type="file" data-id="tx-file" accept=".ttf,font/ttf,application/x-font-ttf" hidden>
+      <select data-id="tx-list" hidden title="The fonts installed on this computer" aria-label="Installed fonts"></select>
       <span class="label">ALIGN</span>
       <div class="seg" role="group" aria-label="Align"><button data-txalign="left" aria-pressed="true" title="Lines start at the click">LEFT</button><button data-txalign="center" aria-pressed="false" title="Lines centred on the click">CENTER</button><button data-txalign="right" aria-pressed="false" title="Lines end at the click">RIGHT</button></div>
       <div class="field"><label for="w3d-tx-size">SIZE</label><input id="w3d-tx-size" data-id="tx-size" type="number" step="1" min="0.1" value="10" title="The height of the font's em, in mm"></div>
@@ -911,11 +912,11 @@ const VIEWS = {
 export async function mount(root, backend) {
   root.innerHTML = SHELL;
   // Panel options carry their icon ahead of the key and name.
-  for (const b of root.querySelectorAll('[data-proj],[data-imp],[data-impcomp],[data-draw],[data-bop],[data-xop],[data-fop],[data-spiral],[data-toggle],[data-gmethod],[data-galign],[data-gcorner],[data-grow],[data-mfgrow],[data-eslimit],[data-flshape],[data-drtaper],[data-avaxis],[data-extshape],[data-esshape],[data-isodir],[data-id="oe-both"],[data-id="oe-individual"],[data-id="blend-tangent"],[data-id="ex-lock"],[data-id="bool-keep"],[data-id="ex-free"],[data-id="ex-pivot"],[data-id="ex-individual"],[data-id="dr-hidden"],[data-id="dr-curves"],[data-id="oc-lock"],[data-id="oc-free"],[data-id="oc-slot"],[data-id="oc-combine"],[data-id="es-unlimit"],[data-rbmethod],[data-oecorner],[data-saplane],[data-plaxis],[data-plop],[data-id="pl-flip"],[data-id="pl-instance"],[data-id="mirror-instance"],[data-id="ra-instance"],[data-id="rr-instance"],[data-id="ca-instance"],[data-id="br-trim"],[data-id="br-comb"],[data-id="ac-comb"],[data-id="dc-reblend"],[data-id="section-btn"],[data-id="sa-flip"],[data-id="rf-shrink"],[data-id="ut-keep"],[data-txfont],[data-id="tx-load"],[data-txalign],[data-sldir],[data-dcflip],[data-id="dc-keep"],[data-imdepth],[data-imcull],[data-id="im-delete"],[data-id="cc-extend"],[data-id="cc-screen"],[data-inmode],[data-id="in-realize"],[data-id="in-dup"],[data-id="in-delete"],[data-id="matcap-load"],[data-id="matcap-custom"],[data-id="hdr-load"],[data-id="hdr-custom"]')) {
+  for (const b of root.querySelectorAll('[data-proj],[data-imp],[data-impcomp],[data-draw],[data-bop],[data-xop],[data-fop],[data-spiral],[data-toggle],[data-gmethod],[data-galign],[data-gcorner],[data-grow],[data-mfgrow],[data-eslimit],[data-flshape],[data-drtaper],[data-avaxis],[data-extshape],[data-esshape],[data-isodir],[data-id="oe-both"],[data-id="oe-individual"],[data-id="blend-tangent"],[data-id="ex-lock"],[data-id="bool-keep"],[data-id="ex-free"],[data-id="ex-pivot"],[data-id="ex-individual"],[data-id="dr-hidden"],[data-id="dr-curves"],[data-id="oc-lock"],[data-id="oc-free"],[data-id="oc-slot"],[data-id="oc-combine"],[data-id="es-unlimit"],[data-rbmethod],[data-oecorner],[data-saplane],[data-plaxis],[data-plop],[data-id="pl-flip"],[data-id="pl-instance"],[data-id="mirror-instance"],[data-id="ra-instance"],[data-id="rr-instance"],[data-id="ca-instance"],[data-id="br-trim"],[data-id="br-comb"],[data-id="ac-comb"],[data-id="dc-reblend"],[data-id="section-btn"],[data-id="sa-flip"],[data-id="rf-shrink"],[data-id="ut-keep"],[data-txfont],[data-id="tx-load"],[data-id="tx-system"],[data-txalign],[data-sldir],[data-dcflip],[data-id="dc-keep"],[data-imdepth],[data-imcull],[data-id="im-delete"],[data-id="cc-extend"],[data-id="cc-screen"],[data-inmode],[data-id="in-realize"],[data-id="in-dup"],[data-id="in-delete"],[data-id="matcap-load"],[data-id="matcap-custom"],[data-id="hdr-load"],[data-id="hdr-custom"]')) {
     const name = (b.dataset.proj && (b.dataset.proj === 'screen' ? 'view-screen' : `proj-${b.dataset.proj}`)) ?? (b.dataset.imp && (b.dataset.imp === 'screen' ? 'view-screen' : `proj-${b.dataset.imp}`)) ?? (b.dataset.impcomp && `completion-${b.dataset.impcomp}`) ?? b.dataset.draw ?? b.dataset.bop ?? b.dataset.xop ?? b.dataset.fop ?? b.dataset.spiral ?? (b.dataset.toggle && `view-${b.dataset.toggle}`)
       ?? (b.dataset.gmethod && `guide-${b.dataset.gmethod}`) ?? (b.dataset.galign && `align-${b.dataset.galign}`) ?? (b.dataset.gcorner && (b.dataset.gcorner === 'round' ? 'corner-round' : 'corner-linear')) ?? (b.dataset.grow && `grow-${b.dataset.grow}`) ?? (b.dataset.mfgrow && `grow-${b.dataset.mfgrow}`) ?? (b.dataset.eslimit && `limit-${b.dataset.eslimit}`) ?? (b.dataset.flshape && `fillet-${b.dataset.flshape}`) ?? (b.dataset.drtaper && `taper-${b.dataset.drtaper}`) ?? (b.dataset.avaxis && `axis-${b.dataset.avaxis}`) ?? (b.dataset.extshape && `extend-${b.dataset.extshape}`) ?? (b.dataset.esshape && `extend-${b.dataset.esshape}`) ?? (b.dataset.isodir && `iso-${b.dataset.isodir}`) ?? (b.dataset.rbmethod && `rebuild-${b.dataset.rbmethod}`) ?? (b.dataset.oecorner && `corner-${b.dataset.oecorner}`) ?? (b.dataset.saplane && `section-${b.dataset.saplane}`) ?? (b.dataset.plaxis && (b.dataset.plaxis === 'normal' ? 'place-normal' : `axis-${b.dataset.plaxis}`)) ?? b.dataset.plop
       ?? (b.dataset.txfont && `font-${b.dataset.txfont}`) ?? (b.dataset.txalign && `txalign-${b.dataset.txalign}`) ?? (b.dataset.sldir && { u: 'slide-u', '-u': 'slide-back', v: 'slide-v', '-v': 'slide-vback', n: 'slide-n' }[b.dataset.sldir]) ?? (b.dataset.dcflip && { mirror: 'mirror', swap: 'swap-uv', normal: 'reverse-sheet' }[b.dataset.dcflip]) ?? (b.dataset.imdepth && `depth-${b.dataset.imdepth}`) ?? (b.dataset.imcull && `cull-${b.dataset.imcull}`) ?? b.dataset.inmode
-      ?? { 'matcap-load': 'matcap-load', 'matcap-custom': 'matcap', 'tx-load': 'font-load', 'hdr-load': 'hdr-load', 'hdr-custom': 'hdr', 'ex-lock': 'lock', 'bool-keep': 'keep', 'ex-free': 'freestyle', 'ex-pivot': 'pivot', 'ex-individual': 'individual', 'dr-hidden': 'hidden-lines', 'dr-curves': 'drawing-curves', 'oc-lock': 'lock', 'oc-free': 'freestyle', 'oc-slot': 'slot', 'oc-combine': 'combine', 'oe-both': 'both-sides', 'oe-individual': 'individual', 'blend-tangent': 'tangent-chain', 'es-unlimit': 'unlimit', 'rf-shrink': 'shrink', 'ut-keep': 'keep-edges', 'section-btn': 'view-section', 'sa-flip': 'flip', 'pl-flip': 'flip', 'pl-instance': 'instance', 'mirror-instance': 'instance', 'ra-instance': 'instance', 'rr-instance': 'instance', 'ca-instance': 'instance', 'br-trim': 'trim', 'br-comb': 'view-curvature', 'ac-comb': 'view-curvature', 'dc-reblend': 'reblend', 'dc-keep': 'keep', 'im-delete': 'delete', 'in-realize': 'realize-instance', 'cc-extend': 'extend', 'cc-screen': 'view-screen', 'in-dup': 'duplicate', 'in-delete': 'delete' }[b.dataset.id];
+      ?? { 'matcap-load': 'matcap-load', 'matcap-custom': 'matcap', 'tx-load': 'font-load', 'tx-system': 'font-system', 'hdr-load': 'hdr-load', 'hdr-custom': 'hdr', 'ex-lock': 'lock', 'bool-keep': 'keep', 'ex-free': 'freestyle', 'ex-pivot': 'pivot', 'ex-individual': 'individual', 'dr-hidden': 'hidden-lines', 'dr-curves': 'drawing-curves', 'oc-lock': 'lock', 'oc-free': 'freestyle', 'oc-slot': 'slot', 'oc-combine': 'combine', 'oe-both': 'both-sides', 'oe-individual': 'individual', 'blend-tangent': 'tangent-chain', 'es-unlimit': 'unlimit', 'rf-shrink': 'shrink', 'ut-keep': 'keep-edges', 'section-btn': 'view-section', 'sa-flip': 'flip', 'pl-flip': 'flip', 'pl-instance': 'instance', 'mirror-instance': 'instance', 'ra-instance': 'instance', 'rr-instance': 'instance', 'ca-instance': 'instance', 'br-trim': 'trim', 'br-comb': 'view-curvature', 'ac-comb': 'view-curvature', 'dc-reblend': 'reblend', 'dc-keep': 'keep', 'im-delete': 'delete', 'in-realize': 'realize-instance', 'cc-extend': 'extend', 'cc-screen': 'view-screen', 'in-dup': 'duplicate', 'in-delete': 'delete' }[b.dataset.id];
     b.insertAdjacentHTML('afterbegin', icon(name));
   }
   const $ = id => root.querySelector(`[data-id="${id}"]`);
@@ -9049,6 +9050,15 @@ export async function mount(root, backend) {
       case 'file': {
         if (arg === 'recent') { openPMenu(); return true; }
         if (arg === 'export') { openPalette(false, 'EXPORT'); return true; }
+        if (arg === 'save-startup' || arg === 'reset-startup') {
+          const fn = backend[arg === 'save-startup' ? 'saveStartupScene' : 'resetStartupScene'];
+          if (!fn) { toast('NOT IN THE BROWSER YET'); return true; }
+          await fileAction(async () => {
+            if (arg === 'save-startup') { await keepAppState(); await fn.call(backend); toast('NEW FILES START FROM THIS SCENE'); }
+            else toast(await fn.call(backend) ? 'NEW FILES START FROM THE DEFAULT SCENE' : 'NO STARTUP SCENE SAVED');
+          });
+          return true;
+        }
         if (arg === 'save-as' || arg === 'save-version') {
           const fn = backend[arg === 'save-as' ? 'saveAs' : 'saveVersion'];
           if (!fn) { toast('NOT IN THE BROWSER YET'); return true; }
@@ -9155,7 +9165,7 @@ export async function mount(root, backend) {
   // P-Menu: the file menu under the app's name (Plasticity's P at the top left).
   let recent = store.get('w3d-recent', []);
   const remember = path => { if (!path) return; recent = [path, ...recent.filter(p => p !== path)].slice(0, 8); store.set('w3d-recent', recent); };
-  const P_NEEDS = { 'file:new': 'newDocument', 'file:open': 'open', 'import:step': 'importStep', 'file:save': 'save', 'file:save-as': 'saveAs', 'file:save-version': 'saveVersion', 'app:quit': 'quit' };
+  const P_NEEDS = { 'file:new': 'newDocument', 'file:open': 'open', 'import:step': 'importStep', 'file:save': 'save', 'file:save-as': 'saveAs', 'file:save-version': 'saveVersion', 'file:save-startup': 'saveStartupScene', 'app:quit': 'quit' };
   function openPMenu() {
     const menu = $('pmenu');
     const can = e => e.action === 'import:step' ? !$('import').hidden : !P_NEEDS[e.action] || typeof backend[P_NEEDS[e.action]] === 'function';
@@ -9658,21 +9668,46 @@ export async function mount(root, backend) {
   for (const b of $$('[data-shader]')) b.onclick = () => { view.shader = b.dataset.shader; view.render = false; applyView(); };
   for (const b of $$('[data-env]')) b.onclick = () => { view.environment = b.dataset.env; applyView(); };
   $('tx-load').onclick = () => $('tx-file').click();
+  /** Use a font's bytes as MY FONT, kept for next time. */
+  function takeFont(buffer, name) {
+    useCustomFont(buffer, name);
+    try {
+      let bin = '';
+      const bytes = new Uint8Array(buffer);
+      for (let i = 0; i < bytes.length; i += 0x8000) bin += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
+      localStorage.setItem('w3d-font', JSON.stringify({ name, data: btoa(bin) }));
+    } catch { toast('FONT LOADED; TOO BIG TO KEEP FOR NEXT TIME'); }
+    if (cmd?.id === 'text') cmd.setFont(FONTS.length);
+  }
   $('tx-file').addEventListener('change', async e => {
     const f = e.target.files?.[0];
     e.target.value = '';
     if (!f) return;
-    try {
-      const buffer = await f.arrayBuffer();
-      useCustomFont(buffer, f.name);
-      try {
-        let bin = '';
-        const bytes = new Uint8Array(buffer);
-        for (let i = 0; i < bytes.length; i += 0x8000) bin += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
-        localStorage.setItem('w3d-font', JSON.stringify({ name: f.name, data: btoa(bin) }));
-      } catch { toast('FONT LOADED; TOO BIG TO KEEP FOR NEXT TIME'); }
-      if (cmd?.id === 'text') cmd.setFont(FONTS.length);
-    } catch (err) { toast(say(err)); }
+    try { takeFont(await f.arrayBuffer(), f.name); } catch (err) { toast(say(err)); }
+  });
+  // SYSTEM FONT: the installed fonts, from the desktop app, or from the browser's Local Font Access
+  // (Chrome and Edge ask first; fonts other than TrueType outlines are refused when picked).
+  const systemFonts = backend.systemFonts ? () => backend.systemFonts()
+    : typeof window.queryLocalFonts === 'function' ? async () => {
+      const seen = new Set();
+      return (await window.queryLocalFonts()).filter(f => !seen.has(f.fullName) && seen.add(f.fullName))
+        .map(f => ({ name: f.fullName, read: () => f.blob().then(b => b.arrayBuffer()) }));
+    } : null;
+  let installed = null;
+  $('tx-system').hidden = !systemFonts;
+  $('tx-system').onclick = async () => {
+    const list = $('tx-list');
+    if (!list.hidden) { list.hidden = true; return; }
+    try { installed ??= await systemFonts(); } catch (e) { return toast(say(e)); }
+    if (!installed.length) return toast('NO INSTALLED TRUETYPE FONTS FOUND');
+    list.replaceChildren(new Option('PICK A FONT', ''), ...installed.map((f, i) => new Option(f.name, String(i))));
+    list.hidden = false;
+    list.focus();
+  };
+  $('tx-list').addEventListener('change', async e => {
+    const f = installed?.[Number(e.target.value)];
+    if (!e.target.value || !f) return;
+    try { takeFont(await f.read(), f.name); e.target.hidden = true; } catch (err) { toast(say(err)); }
   });
   $('matcap-load').onclick = () => $('matcap-file').click();
   $('matcap-file').addEventListener('change', async e => {
@@ -9887,6 +9922,8 @@ export async function mount(root, backend) {
   setPlane({ origin: new THREE.Vector3(), normal: UP, name: 'XY' });
   showTool(null);
   showScene(await backend.scene());
+  // The startup scene (Save As Startup Scene) carries groups, materials and images too.
+  await restoreAppState();
   $('loading').hidden = true;
   // A model the app was started with opens straight away (desktop file association).
   if (typeof backend.startupFile === 'function') {

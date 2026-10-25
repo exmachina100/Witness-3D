@@ -277,6 +277,8 @@ const ICONS = {
     'font-1': `<path d="M6 20l6-15 6 15M8.5 14h7"/><path ${A} d="M3.5 20h5M15.5 20h5M10 5h4"/>`,
     // Your own font: a letter with a little arrow coming in (LOAD FONT), and the letter on a page (MY FONT).
     'font-load': `<path d="M4 20l6-14 6 14M6.5 15h7"/><path ${A} d="M19 3v7M16 7l3 3 3-3"/>`,
+    // An installed font: the letter beside a list of others (SYSTEM FONT).
+    'font-system': `<path d="M3 20l5-13 5 13M5 15.5h6"/><path ${A} d="M15 7h6M15 11h6M15 15h6M15 19h4"/>`,
     'font-3': `<path d="M4 3h12l4 4v14H4z"/><path ${A} d="M8 18l4-9 4 9M9.5 15h5"/>`,
     'font-2': `<path d="M6 20l6-15 6 15M8.5 14h7"/><path ${A} d="M4 20h4M16 20h4"/><path d="M4 3v2M20 3v2" stroke-dasharray="1 1"/>`,
     // Text alignment: lines lined up on the left, the middle or the right.

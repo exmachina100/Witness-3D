@@ -768,8 +768,31 @@ async fn duplicate_bodies(
 }
 
 #[tauri::command]
-async fn new_document(model: State<'_, Model>) -> Result<Vec<api::Body>, String> {
-    on_model(&model, api::new_document).await?
+async fn new_document(app: tauri::AppHandle, model: State<'_, Model>) -> Result<Vec<api::Body>, String> {
+    let startup = startup_scene(&app).ok();
+    on_model(&model, move |m| api::new_document(m, startup)).await?
+}
+
+/// Where File › Save As Startup Scene keeps the scene every new document starts from.
+fn startup_scene(app: &tauri::AppHandle) -> Result<PathBuf, String> {
+    Ok(app.path().app_config_dir().map_err(|e| e.to_string())?.join("startup.w3d"))
+}
+
+/// Save the document as the startup scene. Saving it never names the open file.
+#[tauri::command]
+async fn save_startup_scene(app: tauri::AppHandle, model: State<'_, Model>) -> Result<(), String> {
+    let path = startup_scene(&app)?;
+    if let Some(dir) = path.parent() { std::fs::create_dir_all(dir).map_err(|e| e.to_string())? }
+    on_model(&model, move |m| api::save(m, path)).await?
+}
+
+/// Go back to the seed enclosure for new documents.
+#[tauri::command]
+fn reset_startup_scene(app: tauri::AppHandle) -> Result<bool, String> {
+    let path = startup_scene(&app)?;
+    if !path.exists() { return Ok(false) }
+    std::fs::remove_file(&path).map_err(|e| e.to_string())?;
+    Ok(true)
 }
 
 #[tauri::command]
@@ -821,6 +844,61 @@ async fn read_image(path: PathBuf) -> Result<tauri::ipc::Response, String> {
     if !matches!(ext.as_deref(), Some("png" | "jpg" | "jpeg")) { return Err("reference images are .png or .jpg files".into()) }
     let size = std::fs::metadata(&path).map_err(|e| e.to_string())?.len();
     if size > 64 << 20 { return Err("that image is over 64 MB".into()) }
+    Ok(tauri::ipc::Response::new(std::fs::read(&path).map_err(|e| e.to_string())?))
+}
+
+/// An installed font for the Text command's font list.
+#[derive(serde::Serialize, Debug, PartialEq)]
+struct SystemFont { name: String, path: PathBuf }
+
+/// The folders fonts are installed in, for everyone and for this user.
+fn font_dirs() -> Vec<PathBuf> {
+    let home = std::env::var_os("HOME").or_else(|| std::env::var_os("USERPROFILE")).map(PathBuf::from);
+    let mut dirs: Vec<PathBuf> = Vec::new();
+    if cfg!(target_os = "windows") {
+        dirs.push(std::env::var_os("WINDIR").map_or_else(|| PathBuf::from(r"C:\Windows"), PathBuf::from).join("Fonts"));
+        if let Some(local) = std::env::var_os("LOCALAPPDATA") { dirs.push(PathBuf::from(local).join(r"Microsoft\Windows\Fonts")) }
+    } else if cfg!(target_os = "macos") {
+        dirs.extend(["/System/Library/Fonts", "/Library/Fonts"].map(PathBuf::from));
+        if let Some(h) = &home { dirs.push(h.join("Library/Fonts")) }
+    } else {
+        dirs.extend(["/usr/share/fonts", "/usr/local/share/fonts"].map(PathBuf::from));
+        if let Some(h) = &home { dirs.extend([h.join(".local/share/fonts"), h.join(".fonts")]) }
+    }
+    dirs
+}
+
+/// The TrueType fonts (.ttf; web/src/text.js reads only TrueType outlines) under `dirs`, a few
+/// folders deep, named by file and sorted by name.
+fn font_files(dirs: &[PathBuf]) -> Vec<SystemFont> {
+    fn walk(dir: &std::path::Path, depth: u32, out: &mut Vec<SystemFont>) {
+        let Ok(entries) = std::fs::read_dir(dir) else { return };
+        for e in entries.flatten() {
+            let path = e.path();
+            if path.is_dir() { if depth < 4 { walk(&path, depth + 1, out) } continue }
+            if !path.extension().and_then(|x| x.to_str()).is_some_and(|x| x.eq_ignore_ascii_case("ttf")) { continue }
+            if let Some(stem) = path.file_stem().and_then(|x| x.to_str()) { out.push(SystemFont { name: stem.replace('_', " "), path }) }
+            if out.len() >= 4000 { return }
+        }
+    }
+    let mut out = Vec::new();
+    for d in dirs { walk(d, 0, &mut out) }
+    out.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()).then(a.path.cmp(&b.path)));
+    out.dedup_by(|a, b| a.name == b.name);
+    out
+}
+
+#[tauri::command]
+async fn system_fonts() -> Vec<SystemFont> {
+    font_files(&font_dirs())
+}
+
+/// An installed font's bytes for the Text command.
+#[tauri::command]
+async fn read_font(path: PathBuf) -> Result<tauri::ipc::Response, String> {
+    if !path.extension().and_then(|e| e.to_str()).is_some_and(|e| e.eq_ignore_ascii_case("ttf")) { return Err("only TrueType fonts (.ttf) are read".into()) }
+    let size = std::fs::metadata(&path).map_err(|e| e.to_string())?.len();
+    if size > 32 << 20 { return Err("that font is over 32 MB".into()) }
     Ok(tauri::ipc::Response::new(std::fs::read(&path).map_err(|e| e.to_string())?))
 }
 
@@ -909,7 +987,7 @@ fn set_ai_key(app: tauri::AppHandle, key: String) -> Result<(), String> {
 
 #[cfg(test)]
 mod tests {
-    use super::w3d_arg;
+    use super::{font_files, w3d_arg};
     use std::path::PathBuf;
 
     #[test]
@@ -919,13 +997,23 @@ mod tests {
         assert_eq!(w3d_arg(args(&["witness-3d", "notes.txt"])), None);
         assert_eq!(w3d_arg(args(&["part.w3d"])), None);
     }
+
+    #[test]
+    fn lists_truetype_fonts_by_name() {
+        let dir = std::env::temp_dir().join(format!("w3d-fonts-{}", std::process::id()));
+        std::fs::create_dir_all(dir.join("truetype/sub")).unwrap();
+        for f in ["truetype/Zed_Sans.ttf", "truetype/sub/alpha.TTF", "truetype/beta.otf", "Alpha.ttf", "notes.txt"] { std::fs::write(dir.join(f), "").unwrap() }
+        let names: Vec<_> = font_files(&[dir.clone(), dir.join("missing")]).into_iter().map(|f| f.name).collect();
+        assert_eq!(names, ["Alpha", "alpha", "Zed Sans"]);
+        std::fs::remove_dir_all(dir).unwrap();
+    }
 }
 
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .setup(|app| {
-            let model = Arc::new(api::start());
+            let model = Arc::new(api::start_with(startup_scene(app.handle()).ok()));
             let m = model.clone();
             // Without the port (another copy running, say) the app still works, minus the bridge.
             let bridge = bridge::Bridge::start(bridge::PORT, Arc::new(move || api::scene(&m)))
@@ -1032,6 +1120,10 @@ pub fn run() {
             set_app_state,
             open,
             startup_file,
+            save_startup_scene,
+            system_fonts,
+            read_font,
+            reset_startup_scene,
             import_step,
             export_step,
             bridge_changed,

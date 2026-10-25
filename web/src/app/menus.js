@@ -10,6 +10,7 @@ export const P_MENU = [
     { action: 'import:step', label: 'IMPORT' },
     { action: 'file:save', label: 'SAVE' },
     { action: 'file:save-as', label: 'SAVE AS' },
+    { action: 'file:save-startup', label: 'SAVE AS STARTUP SCENE' },
     { action: 'file:export', label: 'EXPORT' },
     { action: 'file:save-version', label: 'QUICK SAVE VERSION' },
     { action: 'app:version', label: 'CURRENT VERSION' },
