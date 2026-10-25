@@ -1,5 +1,5 @@
-//! The Blender bridge: a WebSocket server on this machine that Witness 3D's Blender add-on
-//! (tools/blender/witness3d_bridge.py) connects to. It follows how Plasticity's bridge behaves from
+//! The Blender and Cinema 4D bridge: a WebSocket server on this machine that Witness 3D's Blender
+//! add-on (tools/blender/witness3d_bridge.py) and Cinema 4D plugin (tools/cinema4d) connect to. It follows how Plasticity's bridge behaves from
 //! Blender's side: the add-on connects, Refresh pulls every body as a mesh, and Live Link pushes
 //! the bodies again whenever the model changes. It is one-way: Blender only ever receives meshes,
 //! so its materials, cameras and lights are its own and are never sent back or overwritten.
@@ -8,8 +8,11 @@
 //!   server → client  { type: "hello", app, version, units: "mm" } on connect
 //!   client → server  { type: "refresh" }                  reply: one "meshes" message
 //!   client → server  { type: "live", on: bool }            Live Link on or off
-//!   server → client  { type: "meshes", objects: [{ id, name, revision, positions, indices, faceIds }] }
+//!   server → client  { type: "meshes", document, objects: [{ id, name, revision, positions, indices,
+//!                    faceIds, path, hidden }] }
 //!                    every body there is; z is up, millimetres. Bodies missing from it are gone.
+//!                    `document` is the file's name, `path` the outliner groups a body is in (from
+//!                    the top) and `hidden` whether it is hidden; disabled bodies are not sent.
 //!   server → client  { type: "error", message }
 //! Only 127.0.0.1 is listened on.
 
@@ -40,6 +43,7 @@ struct Client {
 pub struct Bridge {
     clients: Arc<Mutex<Vec<Arc<Mutex<Client>>>>>,
     scene: Scene,
+    outline: Arc<Mutex<Value>>,
     pub addr: SocketAddr,
 }
 
@@ -52,13 +56,25 @@ struct MeshOut<'a> {
     positions: Vec<f32>,
     indices: &'a [u32],
     face_ids: &'a [u32],
+    path: Vec<String>,
+    hidden: bool,
 }
 
-/// The bodies as a "meshes" message, turned from the viewport's y-up to z-up.
-pub fn meshes(bodies: &[Body]) -> String {
+/// The bodies as a "meshes" message, turned from the viewport's y-up to z-up. `outline` is what
+/// the app last said about the document ({ document, objects: { id: { path, hidden } } }); a body
+/// it names is sent with its groups, and once it has said anything, bodies it leaves out (disabled) go.
+pub fn meshes(bodies: &[Body], outline: &Value) -> String {
+    let known = outline["objects"].as_object();
     let objects: Vec<_> = bodies
         .iter()
-        .map(|b| MeshOut {
+        .filter_map(|b| {
+            let o = &outline["objects"][b.id.to_string()];
+            if known.is_some() && o.is_null() {
+                return None;
+            }
+            Some((b, o))
+        })
+        .map(|(b, o)| MeshOut {
             id: b.id,
             name: format!("Witness Body {:02}", b.id),
             revision: b.revision,
@@ -69,9 +85,15 @@ pub fn meshes(bodies: &[Body]) -> String {
                 .collect(),
             indices: &b.indices,
             face_ids: &b.face_ids,
+            path: o["path"]
+                .as_array()
+                .map(|p| p.iter().filter_map(|g| g.as_str().map(String::from)).collect())
+                .unwrap_or_default(),
+            hidden: o["hidden"].as_bool().unwrap_or(false),
         })
         .collect();
-    json!({ "type": "meshes", "objects": objects }).to_string()
+    let document = outline["document"].as_str().unwrap_or("Witness 3D");
+    json!({ "type": "meshes", "document": document, "objects": objects }).to_string()
 }
 
 impl Bridge {
@@ -81,6 +103,7 @@ impl Bridge {
         let bridge = Bridge {
             clients: Arc::default(),
             scene,
+            outline: Arc::new(Mutex::new(Value::Null)),
             addr: listener.local_addr()?,
         };
         let b = bridge.clone();
@@ -99,6 +122,11 @@ impl Bridge {
     pub fn status(&self) -> (usize, usize) {
         let c = self.clients.lock().unwrap();
         (c.len(), c.iter().filter(|c| c.lock().unwrap().live).count())
+    }
+
+    /// The app's document name and outliner groups, sent with the meshes from now on.
+    pub fn set_outline(&self, outline: Value) {
+        *self.outline.lock().unwrap() = outline;
     }
 
     /// The model changed: send the bodies to every add-on with Live Link on.
@@ -122,7 +150,7 @@ impl Bridge {
 
     fn message(&self) -> String {
         match (self.scene)() {
-            Ok(bodies) => meshes(&bodies),
+            Ok(bodies) => meshes(&bodies, &self.outline.lock().unwrap()),
             Err(e) => json!({ "type": "error", "message": e }).to_string(),
         }
     }

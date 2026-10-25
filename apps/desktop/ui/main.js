@@ -114,7 +114,7 @@ const rust = {
   aiKey: () => tauri.core.invoke('ai_key'),
   setAiKey: key => tauri.core.invoke('set_ai_key', { key }),
   // The Blender bridge: tell Live Link the model changed; both answer [connected, live].
-  sceneChanged: () => tauri.core.invoke('bridge_changed'),
+  sceneChanged: outline => tauri.core.invoke('bridge_changed', { outline: outline ?? null }),
   bridgeStatus: () => tauri.core.invoke('bridge_status'),
   undo: () => tauri.core.invoke('undo'),
   redo: () => tauri.core.invoke('redo'),

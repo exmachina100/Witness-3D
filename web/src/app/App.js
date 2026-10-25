@@ -883,7 +883,7 @@ const SHELL = `
     <span data-id="kernel"></span>
     <span>UNITS MM</span>
     <span>PLANE <span data-id="status-plane">XY</span></span>
-    <span data-id="blender" hidden>BLENDER <output data-id="blender-state">—</output></span>
+    <span data-id="blender" hidden title="Blender and Cinema 4D bridges">BRIDGE <output data-id="blender-state">—</output></span>
     <span>PREVIEW <output data-id="ms">—</output> MS · COALESCED <output data-id="coalesced">0→0</output></span>
     <span class="spacer"></span>
     <output data-id="cursor">X 0.00 Y 0.00 Z 0.00</output>
@@ -1352,7 +1352,7 @@ export async function mount(root, backend) {
     $('export').disabled = list.length === 0;
     hover = null;
     selectionChanged({ quiet: true });
-    if (backend.sceneChanged) backend.sceneChanged().then(showBridge, () => {});
+    bridgeOutline();
     if (shownPoints.faces.size) refreshShownPoints(list);
     drawInstances();
     return loadCurves();
@@ -9061,6 +9061,13 @@ export async function mount(root, backend) {
     for (const m of bodies.children) m.visible = org.shows(m.userData.id);
     renderIsolated();
     selectionChanged({ quiet: true });
+    bridgeOutline();
+  }
+  /** Tell the bridges (Blender, Cinema 4D) the scene changed, with its document name and groups. */
+  function bridgeOutline() {
+    if (!backend.sceneChanged) return;
+    const document = $('file-name').textContent.replace(/\.W3D$/i, '');
+    backend.sceneChanged({ document, objects: org.outline(current.map(b => b.id)) }).then(showBridge, () => {});
   }
   function renderIsolated() {
     const n = org.isolated, b = $('isolated');

@@ -1,4 +1,4 @@
-//! The Blender bridge, spoken to as the add-on does.
+//! The Blender and Cinema 4D bridge, spoken to as the add-ons do.
 
 use std::sync::Arc;
 
@@ -64,4 +64,16 @@ fn refresh_and_live_link_send_z_up_meshes() {
             > objs[0]["indices"].as_array().unwrap().len(),
         "the rounded body has more triangles"
     );
+
+    // The outliner: the document's name, each body's groups and whether it is hidden.
+    bridge.set_outline(json!({ "document": "HOUSING", "objects": { "1": { "path": ["PARTS", "LID"], "hidden": true } } }));
+    bridge.changed();
+    let named = read(&mut ws);
+    assert_eq!(named["document"], "HOUSING");
+    assert_eq!(named["objects"][0]["path"], json!(["PARTS", "LID"]));
+    assert_eq!(named["objects"][0]["hidden"], true);
+    // A disabled body is left out of the outline, so out of the bridge.
+    bridge.set_outline(json!({ "document": "HOUSING", "objects": { "2": { "path": [], "hidden": false } } }));
+    bridge.changed();
+    assert_eq!(read(&mut ws)["objects"].as_array().unwrap().len(), 0);
 }

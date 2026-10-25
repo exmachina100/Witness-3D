@@ -116,5 +116,20 @@ export class Organise {
         o.nextGroup = Math.max(Number.isInteger(data.nextGroup) ? data.nextGroup : 1, ...o.groups.map(g => g.id + 1));
         return o;
     }
+    /**
+     * What the bridges (Blender, Cinema 4D) need beside the meshes: each body's group path from the
+     * top and whether it is hidden. Disabled bodies are out of every process, so they are left out.
+     */
+    outline(ids) {
+        const objects = {};
+        for (const id of ids) {
+            if (this.disabled.has(id)) continue;
+            const path = [];
+            for (let g = this.group(this.groupOf.get(id) ?? null); g; g = this.group(g.parent)) path.unshift(g.name);
+            objects[id] = { path, hidden: !this.shows(id) };
+        }
+        return objects;
+    }
+
     rename(gid, name) { const g = this.group(gid); if (g && name.trim()) g.name = name.trim().toUpperCase(); }
 }

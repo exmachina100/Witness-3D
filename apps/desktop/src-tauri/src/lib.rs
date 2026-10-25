@@ -919,14 +919,18 @@ async fn export_step(model: State<'_, Model>, id: u32, path: PathBuf, motion: Op
     on_model(&model, move |m| api::export_step(m, id, path, motion, mirror)).await?
 }
 
-/// The model changed; send it to Blender add-ons with Live Link on. Returns (connected, live).
+/// The model or its outliner changed; send it to bridges (Blender, Cinema 4D) with Live Link on. Returns (connected, live).
 #[tauri::command]
 async fn bridge_changed(
     bridge: State<'_, Option<bridge::Bridge>>,
+    outline: Option<serde_json::Value>,
 ) -> Result<(usize, usize), String> {
     let Some(b) = bridge.inner().clone() else {
         return Ok((0, 0));
     };
+    if let Some(o) = outline {
+        b.set_outline(o);
+    }
     tauri::async_runtime::spawn_blocking(move || {
         b.changed();
         b.status()

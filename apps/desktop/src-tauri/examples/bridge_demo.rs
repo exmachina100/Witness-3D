@@ -1,6 +1,7 @@
 //! The Blender bridge without a window, for testing the add-on: serves the real model on the port
 //! given (default 8981) and takes lines on stdin. `fillet <mm>` rounds every edge of body 1 and
-//! tells Live Link; `quit` stops. Run: cargo run --example bridge_demo -p w3d-desktop -- 8981
+//! tells Live Link; `outline <json>` sets the document name and groups as the app does and tells
+//! Live Link; `quit` stops. Run: cargo run --example bridge_demo -p w3d-desktop -- 8981
 
 use std::io::BufRead;
 use std::sync::Arc;
@@ -30,6 +31,17 @@ fn main() {
                         println!("ok")
                     }
                     Err(e) => println!("error {}", e.message),
+                }
+            }
+            Some("outline") => {
+                let json = line.trim_start().trim_start_matches("outline").trim();
+                match serde_json::from_str(json) {
+                    Ok(v) => {
+                        bridge.set_outline(v);
+                        bridge.changed();
+                        println!("ok")
+                    }
+                    Err(e) => println!("error {e}"),
                 }
             }
             Some("status") => println!("{:?}", bridge.status()),
