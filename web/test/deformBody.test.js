@@ -1,9 +1,9 @@
 // Deform Solid and Sheet in the browser build (deformBody.js), as crates/w3d-kernel/tests/deform.rs.
 import assert from 'node:assert/strict';
 import { before, test } from 'node:test';
-import { box, count, loadKernel, primitive, tessellate, volume } from '../src/Kernel.js';
+import { blendEdges, box, count, loadKernel, numberedEdges, primitive, tessellate, volume } from '../src/Kernel.js';
 import { faceUvn } from '../src/faceUvn.js';
-import { deformBodies } from '../src/deformBody.js';
+import { deformBodies, deformReblend } from '../src/deformBody.js';
 import { LocalBackend } from '../src/app/LocalBackend.js';
 
 before(async () => { await loadKernel() });
@@ -58,7 +58,6 @@ test('the backend previews and commits a deform in place, or keeps the body', as
     assert.ok(Math.abs(volume(be.shapes.get(id)) - 800) < 1e-3);
     const kept = await be.commitDeform({ ...req, keep: true });
     assert.notEqual(kept.ids[0], id);
-    await assert.rejects(be.previewDeform({ ...req, reblend: true }), /desktop/);
 });
 
 test('a cylinder deforms across its seam', () => {
@@ -66,4 +65,29 @@ test('a cylinder deforms across its seam', () => {
     const cyl = primitive({ kind: 'cylinder', frame: { origin: [0, 0, 0], x: [1, 0, 0], normal: [0, 0, 1] }, radius: 5, height: 4 });
     const [b] = deformBodies([cyl], p, top, p, top, { scale: [2, 1, 1] });
     assert.ok(Math.abs(volume(b) - 2 * Math.PI * 100) < 0.05, String(volume(b)));
+});
+
+test('Reblend makes stretched fillets round again, as crates/w3d-kernel/tests/deform.rs', async () => {
+    const p = plate(), top = faceNear(p, [0, 0, 0]);
+    const round = (a, b) => { const s = box(a, b); return blendEdges(s, numberedEdges(s).map((_, i) => i), 1); };
+    // A 10 × 10 × 4 block, every edge rounded at 1 mm, stretched to twice its length along U.
+    const block = round({ x: -5, y: -5, z: 0 }, { x: 5, y: 5, z: 4 });
+    const o = { scale: [2, 1, 1] };
+    const [plain] = deformBodies([block], p, top, p, top, o);
+    const [again] = deformReblend([block], p, top, p, top, o);
+    // Reblended, it is the 20 × 10 × 4 block rounded at 1 mm; stretched, its rounds are wider.
+    const want = volume(round({ x: -10, y: -5, z: 0 }, { x: 10, y: 5, z: 4 }));
+    assert.ok(Math.abs(volume(again) - want) < 0.05, `${volume(again)} ${want}`);
+    assert.ok(volume(plain) < want - 0.5, `${volume(plain)} ${want}`);
+    assert.equal(count(again, 'TopAbs_FACE'), count(block, 'TopAbs_FACE'));
+    // A body with no fillets deforms as before.
+    const [bare] = deformReblend([box({ x: -5, y: -5, z: 0 }, { x: 5, y: 5, z: 4 })], p, top, p, top, o);
+    assert.ok(Math.abs(volume(bare) - 800) < 1e-3, String(volume(bare)));
+    // The backend takes Reblend now.
+    const be = new LocalBackend();
+    be.put(1, plate());
+    const id = be.nextId++;
+    be.put(id, block);
+    const shown = await be.previewDeform({ bodies: [id], reference: 1, rface: top, target: 1, tface: top, scale: [2, 1, 1], offset: [0, 0, 0], reblend: true });
+    assert.ok(Math.abs(shown[0].volume - want) < 0.1);
 });
