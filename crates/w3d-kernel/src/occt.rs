@@ -316,8 +316,9 @@ impl Kernel for Occt {
         Shape::sweep_section(&section(profile, frame)?, &path_numbers(path)?, twist, scale).map_err(shim)
     }
 
-    fn sweep_guided(&self, profile: &Profile, frame: &Frame, path: &Path, guide: Option<&Path>, method: u8, parallel: bool) -> Result<Shape, KernelError> {
-        let guide = match guide { Some(g) => path_numbers(g)?, None => Vec::new() };
+    fn sweep_guided(&self, profile: &Profile, frame: &Frame, path: &Path, guides: &[Path], method: u8, parallel: bool) -> Result<Shape, KernelError> {
+        let mut guide = Vec::new();
+        for g in guides { guide.extend(path_numbers(g)?) }
         Shape::sweep_guided(&section(profile, frame)?, &path_numbers(path)?, &guide, method as i32, parallel).map_err(shim)
     }
 

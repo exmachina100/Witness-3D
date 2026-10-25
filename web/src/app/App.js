@@ -8560,7 +8560,7 @@ export async function mount(root, backend) {
       const guides = c.guides.length ? ` · GUIDES ${c.guides.map(g => curveLabel(g)).join(', ')}` : '';
       const text = id === 'loft' ? `${c.regions.map(r => curveLabel(r)).join(' → ')}${guides || ' · CLICK GUIDES (OPTIONAL)'}`
         : id === 'revolve' ? (!c.p1 ? 'CLICK THE AXIS START' : !c.p2 ? 'CLICK THE AXIS END' : `${c.angle}° ABOUT THE AXIS${c.thickness ? ` · WALLS ${c.thickness}` : ''}`)
-        : !c.path ? 'CLICK THE CURVE TO SWEEP ALONG' : `ALONG ${curveLabel(c.path)}${guides || ' · CLICK A GUIDE (OPTIONAL)'}`;
+        : !c.path ? 'CLICK THE CURVE TO SWEEP ALONG' : `ALONG ${curveLabel(c.path)}${guides || ' · CLICK GUIDES (OPTIONAL, UP TO TWO)'}`;
       $('form-guides').textContent = c.guides.length;
       $('form-hint').textContent = text;
       setHud(text);
@@ -8612,11 +8612,11 @@ export async function mount(root, backend) {
         return true;
       }
       // Loft: each click on another curve adds it as a guide, or takes it off again. Sweep: the
-      // first click picks the path, a later one the guide (this build follows one).
+      // first click picks the path, later ones up to two guides (a third replaces the second).
       const picked = curveAt(e);
       if (picked === null || c.regions.includes(picked)) return true;
       if (id === 'sweep' && (c.path === null || picked === c.path)) c.path = picked;
-      else if (id === 'sweep') c.guides = c.guides[0] === picked ? [] : [picked];
+      else if (id === 'sweep') c.guides = c.guides.includes(picked) ? c.guides.filter(g => g !== picked) : [...c.guides.slice(0, 1), picked];
       else if (id === 'loft') c.guides = c.guides.includes(picked) ? c.guides.filter(g => g !== picked) : [...c.guides, picked];
       hint();
       previewFormCmd();
@@ -8729,7 +8729,7 @@ export async function mount(root, backend) {
     try {
       const { id, scene: list } = await backend.commitForm(req);
       endCmd('committed');
-      const what = c.id === 'revolve' ? `REVOLVE ${c.angle}°${c.thickness ? ` T ${c.thickness}` : ''}` : c.id === 'loft' ? `LOFT ×${c.regions.length}${c.guides.length ? ` · ${c.guides.length} GUIDES` : ''}` : `SWEEP${c.twist ? ` ${c.twist}°` : ''}${c.scale !== 1 ? ` ×${c.scale}` : ''}${c.guides.length ? ` · GUIDE ${c.method.toUpperCase()}` : ''}${c.align === 'parallel' ? ' · PARALLEL' : ''}`;
+      const what = c.id === 'revolve' ? `REVOLVE ${c.angle}°${c.thickness ? ` T ${c.thickness}` : ''}` : c.id === 'loft' ? `LOFT ×${c.regions.length}${c.guides.length ? ` · ${c.guides.length} GUIDES` : ''}` : `SWEEP${c.twist ? ` ${c.twist}°` : ''}${c.scale !== 1 ? ` ×${c.scale}` : ''}${c.guides.length ? ` · ${c.guides.length === 2 ? '2 GUIDES' : 'GUIDE'} ${c.method.toUpperCase()}` : ''}${c.align === 'parallel' ? ' · PARALLEL' : ''}`;
       record(`${what}${req.op === 'new' ? '' : ` ${req.op.toUpperCase()}`}`, id);
       await showScene(list);
       sel.replace({ kind: 'solid', body: id });

@@ -332,14 +332,13 @@ impl FormRequest {
             FormName::Loft => FormKindRequest::LoftGuided { guides: self.guides.clone() },
             FormName::Sweep => {
                 let path = self.path.ok_or_else(|| ApiError::from(String::from("pick the path to sweep along")))?;
-                if self.guides.len() > 1 { return Err(String::from("this build's Sweep follows one guide; select just one").into()) }
                 if self.guides.is_empty() && self.align == AlignName::Normal {
                     FormKindRequest::Sweep { path, twist: self.twist, scale: self.scale }
                 } else {
                     if self.twist.abs() > 1e-12 || (self.scale - 1.0).abs() > 1e-12 { return Err(String::from("twist and scale don't go with a guide or Parallel alignment; set them back to 0 and 1").into()) }
                     let method = match self.method { GuideName::Point => form::GuideMethod::Point, GuideName::Chord => form::GuideMethod::Chord, GuideName::Curve => form::GuideMethod::Curve };
                     let align = match self.align { AlignName::Normal => form::Alignment::Normal, AlignName::Parallel => form::Alignment::Parallel };
-                    FormKindRequest::SweepGuided { path, guide: self.guides.first().copied(), method, align }
+                    FormKindRequest::SweepGuided { path, guides: self.guides.clone(), method, align }
                 }
             }
         };

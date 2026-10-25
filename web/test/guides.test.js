@@ -83,6 +83,29 @@ test('Point keeps the section on the guide; Chord does not scale it', async () =
     close(volume(sweep('chord')), 2000, 0.5);
 });
 
+test('a second guide scales the section to touch both', async () => {
+    const be = new LocalBackend();
+    const { ids } = await be.addCurves([
+        { origin: [0, 0, 0], x: [1, 0, 0], normal: [0, 1, 0], kind: 'polyline', points: [[-5, -5], [5, -5], [5, 5], [-5, 5]], closed: true },
+        line([0, 0], [0, 20]),
+    ]);
+    // The (5, ·, -5) corner runs out to (10, 20, -10); the (-5, ·, 5) corner goes straight up, so
+    // the section grows to 15 × 15: a frustum, whatever the method.
+    const { ids: guides } = await be.addCurves([
+        { origin: [5, 0, -5], x: [5, 20, -5], normal: [1, 0, 1], kind: 'polyline', points: [[0, 0], [Math.hypot(5, 20, 5), 0]], closed: false },
+        { origin: [-5, 0, 5], x: [0, 1, 0], normal: [1, 0, 0], kind: 'polyline', points: [[0, 0], [20, 0]], closed: false },
+    ]);
+    const frustum = 20 / 3 * (100 + 225 + 150);
+    for (const method of ['point', 'chord', 'curve']) {
+        const tool = be.form({ kind: 'sweep', regions: [ids[0]], path: ids[1], guides, method }).tool;
+        close(volume(tool), frustum, frustum * 1e-3);
+        const b = bounds(tool);
+        close(b.max.x, 10, 0.01);
+        close(b.min.x, -5, 0.01);
+    }
+    assert.throws(() => be.form({ kind: 'sweep', regions: [ids[0]], path: ids[1], guides: [...guides, guides[0]] }), /one or two guides/);
+});
+
 test('Parallel keeps the section at its drawn angle', async () => {
     const be = new LocalBackend();
     const c = Math.SQRT1_2;

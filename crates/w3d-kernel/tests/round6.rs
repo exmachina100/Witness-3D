@@ -82,7 +82,7 @@ fn coil(left: bool) -> Result<Shape, KernelError> {
         &FormParams {
             profile: Profile::Circle { center: (0.0, 0.0), radius: 1.0 },
             frame: Frame::new(DVec3::new(10.0, 0.0, 0.0), DVec3::X, tangent),
-            kind: FormKind::Sweep { path: spring(left), twist: 0.0, scale: 1.0, guide: None, method: Default::default(), align: Default::default() },
+            kind: FormKind::Sweep { path: spring(left), twist: 0.0, scale: 1.0, guides: vec![], method: Default::default(), align: Default::default() },
             operation: Operation::NewBody,
         },
     )

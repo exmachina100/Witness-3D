@@ -59,7 +59,7 @@ fn loft(guides: Vec<Path>) -> Result<<Occt as Kernel>::Solid, KernelError> {
     })
 }
 fn sweep(profile: Profile, frame: Frame, path: Path, guide: Option<Path>, method: GuideMethod, align: Alignment) -> Result<<Occt as Kernel>::Solid, KernelError> {
-    form::tool(&Occt, &FormParams { profile, frame, kind: FormKind::Sweep { path, twist: 0.0, scale: 1.0, guide, method, align }, operation: Operation::NewBody })
+    form::tool(&Occt, &FormParams { profile, frame, kind: FormKind::Sweep { path, twist: 0.0, scale: 1.0, guides: guide.into_iter().collect(), method, align }, operation: Operation::NewBody })
 }
 
 #[test]
@@ -153,6 +153,33 @@ fn point_keeps_the_section_on_the_guide_and_chord_does_not_scale() {
 }
 
 #[test]
+fn a_second_guide_scales_the_section_to_touch_both() {
+    let k = Occt;
+    // The square's (5, 5) corner runs out to (10, 10, 20) while its (-5, -5) corner stays put, so
+    // the section grows to 15 × 15: a frustum, whatever the method.
+    let profile = Profile::Polygon(vec![(-5.0, -5.0), (5.0, -5.0), (5.0, 5.0), (-5.0, 5.0)]);
+    let a = line(DVec3::new(5.0, 5.0, 0.0), DVec3::new(10.0, 10.0, 20.0));
+    let b = line(DVec3::new(-5.0, -5.0, 0.0), DVec3::new(-5.0, -5.0, 20.0));
+    let frustum = 20.0 / 3.0 * (100.0 + 225.0 + 150.0);
+    for method in [GuideMethod::Point, GuideMethod::Chord, GuideMethod::Curve] {
+        let s = form::tool(&Occt, &FormParams {
+            profile: profile.clone(),
+            frame: ground(0.0),
+            kind: FormKind::Sweep { path: line(DVec3::ZERO, DVec3::new(0.0, 0.0, 20.0)), twist: 0.0, scale: 1.0, guides: vec![a.clone(), b.clone()], method, align: Alignment::Normal },
+            operation: Operation::NewBody,
+        }).unwrap();
+        assert!(k.is_valid(&s));
+        let v = volume(&k, &s);
+        assert!((v - frustum).abs() / frustum < 1e-3, "{method:?} volume {v} vs {frustum}");
+        for (p, q) in [(DVec3::new(5.0, 5.0, 0.0), DVec3::new(10.0, 10.0, 20.0)), (DVec3::new(-5.0, -5.0, 0.0), DVec3::new(-5.0, -5.0, 20.0))] {
+            let rail: Vec<DVec3> = (0..=40).map(|i| p.lerp(q, i as f64 / 40.0)).collect();
+            let off = farthest(&k, &s, &rail);
+            assert!(off < 0.01, "{method:?}: a guide lies on the sweep within {off} mm");
+        }
+    }
+}
+
+#[test]
 fn parallel_keeps_the_section_at_its_drawn_angle() {
     let k = Occt;
     // A 2 × 2 square on the ground, swept a quarter turn from the origin up to (10, 0, 10).
@@ -174,7 +201,7 @@ fn guides_and_parallel_refuse_twist() {
     let r = form::tool(&Occt, &FormParams {
         profile: square(2.0),
         frame: ground(0.0),
-        kind: FormKind::Sweep { path: line(DVec3::ZERO, DVec3::new(0.0, 0.0, 5.0)), twist: 1.0, scale: 1.0, guide: None, method: GuideMethod::Point, align: Alignment::Parallel },
+        kind: FormKind::Sweep { path: line(DVec3::ZERO, DVec3::new(0.0, 0.0, 5.0)), twist: 1.0, scale: 1.0, guides: vec![], method: GuideMethod::Point, align: Alignment::Parallel },
         operation: Operation::NewBody,
     });
     assert!(r.err().unwrap().to_string().contains("twist"));
@@ -197,6 +224,6 @@ fn the_document_takes_guides_by_curve() {
     // The same guide as a sweep's, along a straight path up the squares' far corner.
     let path = Curve { origin: [0.0, 0.0, 0.0], x: [1.0, 0.0, 0.0], normal: [0.0, 0.0, 1.0], shape: CurveShape::Polyline { points: vec![[10.0, 0.0], [10.0, 20.0]], closed: false } };
     let path = doc.commit_curves(vec![path]).unwrap()[0];
-    let p = doc.form_params(&ids[..1], FormRequest::SweepGuided { path, guide: Some(ids[2]), method: GuideMethod::Chord, align: Alignment::Normal }, Operation::NewBody).unwrap();
+    let p = doc.form_params(&ids[..1], FormRequest::SweepGuided { path, guides: vec![ids[2]], method: GuideMethod::Chord, align: Alignment::Normal }, Operation::NewBody).unwrap();
     assert!(doc.preview_form(None, &p).is_ok());
 }

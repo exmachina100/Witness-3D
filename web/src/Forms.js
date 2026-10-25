@@ -323,9 +323,10 @@ function onto(pivot, axis, from, to, grow) {
  * 'chord' and 'curve' only turn it) or, without one, `align` 'parallel' to keep the section at its
  * drawn angle. As w3d_sweep_guided.
  */
-export function sweepGuided(c, path, guide, method = 'point', align = 'normal') {
+export function sweepGuided(c, path, guides, method = 'point', align = 'normal') {
     const o = oc(), prof = section(c), g = geometry(path), spine = wireOf(g).Wire();
-    if (!guide) {
+    guides = guides ? [guides].flat() : [];
+    if (!guides.length) {
         const mk = new o.BRepOffsetAPI_MakePipeShell(spine);
         if (align === 'parallel') mk.SetMode(new o.gp_Ax2());
         else mk.SetMode(!!g.spiral);
@@ -338,25 +339,29 @@ export function sweepGuided(c, path, guide, method = 'point', align = 'normal') 
     }
     if (!['point', 'chord', 'curve'].includes(method)) throw new Error('the guide method is Point, Chord or Curve');
     if (g.circle || g.closed) throw new Error('a guide needs a path with two ends');
-    const gw = guideFrom(guide, prof.wire);
-    const along = adaptor(spine), rail = adaptor(gw);
-    const touch = nearest(new o.BRepBuilderAPI_MakeVertex(pnt(rail.at(rail.t0))).Shape(), prof.wire);
-    if (touch.gap > 0.01) throw new Error('the guide does not touch the profile; snap its end onto it');
-    const contact = touch.on2;
-    // The guide's length to each of many samples, for Curve.
-    const samples = 2000, lengths = [0];
-    for (let i = 1; i <= samples; i++) lengths.push(lengths[i - 1] + rail.at(rail.t0 + (rail.t1 - rail.t0) * i / samples).distanceTo(rail.at(rail.t0 + (rail.t1 - rail.t0) * (i - 1) / samples)));
-    const byLength = f => {
-        const want = f * lengths[samples];
-        let i = lengths.findIndex(l => l >= want);
-        if (i <= 0) return rail.at(i < 0 ? rail.t1 : rail.t0);
-        const k = (want - lengths[i - 1]) / Math.max(1e-12, lengths[i] - lengths[i - 1]);
-        return rail.at(rail.t0 + (rail.t1 - rail.t0) * (i - 1 + k) / samples);
-    };
+    if (guides.length > 2) throw new Error('Sweep follows one or two guides');
+    const along = adaptor(spine);
+    // Per guide: its curve, where it touches the profile, and its length to each of many samples (for Curve).
+    const rails = guides.map(guide => {
+        const rail = adaptor(guideFrom(guide, prof.wire));
+        const touch = nearest(new o.BRepBuilderAPI_MakeVertex(pnt(rail.at(rail.t0))).Shape(), prof.wire);
+        if (touch.gap > 0.01) throw new Error('a guide does not touch the profile; snap its end onto it');
+        const samples = 2000, lengths = [0];
+        for (let i = 1; i <= samples; i++) lengths.push(lengths[i - 1] + rail.at(rail.t0 + (rail.t1 - rail.t0) * i / samples).distanceTo(rail.at(rail.t0 + (rail.t1 - rail.t0) * (i - 1) / samples)));
+        const byLength = f => {
+            const want = f * lengths[samples];
+            let i = lengths.findIndex(l => l >= want);
+            if (i <= 0) return rail.at(i < 0 ? rail.t1 : rail.t0);
+            const k = (want - lengths[i - 1]) / Math.max(1e-12, lengths[i] - lengths[i - 1]);
+            return rail.at(rail.t0 + (rail.t1 - rail.t0) * (i - 1 + k) / samples);
+        };
+        return { rail, contact: touch.on2, last: touch.on2, byLength };
+    });
+    if (rails.length === 2 && rails[0].contact.distanceTo(rails[1].contact) < 1e-6) throw new Error('the two guides touch the profile at one point; start them apart');
     const stations = 32, sub = 8, start = along.at(along.t0);
     const mk = new o.BRepOffsetAPI_ThruSections(true, false, 1e-6);
     const carry = new THREE.Quaternion();
-    let prev = along.tangent(along.t0), lastG = contact;
+    let prev = along.tangent(along.t0);
     for (let i = 0; i <= stations; i++) {
         if (i > 0) for (let k = 1; k <= sub; k++) {
             const tan = along.tangent(along.t0 + (along.t1 - along.t0) * ((i - 1) * sub + k) / (stations * sub));
@@ -369,10 +374,20 @@ export function sweepGuided(c, path, guide, method = 'point', align = 'normal') 
         if (ax.length() > 1e-12) r.SetRotation(new o.gp_Ax1(pnt(start), dir(ax.clone().normalize())), 2 * Math.acos(Math.min(1, Math.max(-1, carry.w))));
         move.SetTranslation(pnt(start), pnt(p));
         const place = move.Multiplied(r);
-        const cNow = contact.clone().sub(start).applyQuaternion(carry).add(p);
-        const target = method === 'curve' ? byLength(i / stations) : i === 0 ? contact : i === stations ? rail.at(rail.t1) : crossing(rail, p, tan, lastG);
-        lastG = target;
-        const all = onto(p, tan, cNow, target, method === 'point').Multiplied(place);
+        // Where each guide is at this station: by length along it (Curve), or where it crosses the
+        // section's plane (Point, Chord).
+        const target = rails.map(g => (g.last = method === 'curve' ? g.byLength(i / stations) : i === 0 ? g.contact : i === stations ? g.rail.at(g.rail.t1) : crossing(g.rail, p, tan, g.last)));
+        const cNow = rails[0].contact.clone().sub(start).applyQuaternion(carry).add(p);
+        let all;
+        if (rails.length === 1) all = onto(p, tan, cNow, target[0], method === 'point').Multiplied(place);
+        else {
+            // Two guides: the section is moved onto the first guide's point, then turned and scaled
+            // in its plane about it onto the second's, so it touches both whatever the method.
+            const first = new o.gp_Trsf();
+            first.SetTranslation(pnt(cNow), pnt(target[0]));
+            all = first.Multiplied(place);
+            all = onto(target[0], tan, V3(pnt(rails[1].contact).Transformed(all)), target[1], true).Multiplied(all);
+        }
         mk.AddWire(o.TopoDS.Wire(new o.BRepBuilderAPI_Transform(prof.wire, all, true, false).Shape()));
     }
     mk.CheckCompatibility(false);

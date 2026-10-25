@@ -231,12 +231,11 @@ export class LocalBackend {
             if (req.path === undefined || req.path === null) throw new Error('pick the path to sweep along');
             if (req.regions.includes(req.path)) throw new Error('pick a path other than the profile');
             const guides = req.guides ?? [], align = req.align ?? 'normal';
-            if (guides.length > 1) throw new Error("this build's Sweep follows one guide; select just one");
             if (!guides.length && align === 'normal') tool = sweep(c(req.regions[0]), c(req.path), req.twist ?? 0, req.scale ?? 1);
             else {
                 if (Math.abs(req.twist ?? 0) > 1e-12 || Math.abs((req.scale ?? 1) - 1) > 1e-12) throw new Error("twist and scale don't go with a guide or Parallel alignment; set them back to 0 and 1");
                 if (guides.some(g => g === req.path || req.regions.includes(g))) throw new Error('pick a guide other than the path and the profile');
-                tool = sweepGuided(c(req.regions[0]), c(req.path), guides.length ? c(guides[0]) : null, req.method ?? 'point', align);
+                tool = sweepGuided(c(req.regions[0]), c(req.path), guides.map(c), req.method ?? 'point', align);
             }
         } else throw new Error('a form is a revolve, a loft or a sweep');
         if (!tool) return null;
