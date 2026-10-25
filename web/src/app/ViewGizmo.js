@@ -35,7 +35,7 @@ export class ViewGizmo {
             <button data-nav="pan" title="Drag to pan (right-drag)">${icon('nav-pan')}</button>
             <button data-nav="ortho" aria-pressed="false" title="Perspective or orthographic (Numpad 5)">${icon('nav-persp')}</button>
             <button data-nav="focus" title="Frame the selection, or everything (/)">${icon('nav-focus')}</button>
-            <button data-nav="home" title="Home: the starting view">${icon('nav-home')}</button>
+            <button data-nav="home" title="Home view: the standard isometric view (or right-click the cube)">${icon('nav-home')}</button>
           </div>`;
         this.axesEl = host.querySelector('[data-id="nav-axes"]');
         this.ball = host.querySelector('[data-id="nav-ball"]');
@@ -54,6 +54,8 @@ export class ViewGizmo {
         this.orthoBtn.onclick = () => this.on.ortho();
         host.querySelector('[data-nav="focus"]').onclick = () => this.on.focus();
         host.querySelector('[data-nav="home"]').onclick = () => this.on.home();
+        // Plasticity 2026.2: right-clicking the view cube offers Home View.
+        host.addEventListener('contextmenu', e => { e.preventDefault(); this.on.home(); });
     }
 
     /** Pointer drags on `el` call `move(dx, dy)` per step and `end(event, moved)` on release. */
