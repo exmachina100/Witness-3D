@@ -5797,9 +5797,9 @@ export async function mount(root, backend) {
       if (which.curve !== undefined) return curveDimensions(curveById(which.curve));
       const surfaces = await backend.faceSurfaces({ body: which.body ?? which.solid });
       if (which.solid !== undefined) return solidDimensions(which.solid, surfaces);
-      // One face of a fillet: its radius, the whole chain made again (desktop).
+      // One face of a fillet: its radius, the whole chain made again.
       if (which.faces.length === 1 && backend.filletFaces && backend.commitRefillet) {
-        const chain = await backend.filletFaces({ body: which.body, faces: which.faces });
+        const chain = await backend.filletFaces({ body: which.body, faces: which.faces }).catch(() => []);
         if (chain.length) return filletDimensions(which.body, chain, surfaces);
       }
       return faceDimensions(which.body, which.faces, surfaces);
