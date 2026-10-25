@@ -496,6 +496,8 @@ const SHELL = `
       <textarea data-id="tx-text" rows="3" spellcheck="false" title="The text; each line its own row">TEXT</textarea>
       <span class="label">FONT</span>
       <div class="seg" role="group" aria-label="Font">${FONTS.map(([name], i) => `<button data-txfont="${i}" aria-pressed="${i === 0}" title="${['A plain sans-serif (Outfit)', 'A serif (Lora)', 'A monospace (JetBrains Mono)'][i]}">${name}</button>`).join('')}</div>
+      <div class="chips"><button data-id="tx-load" title="Load a TrueType font (.ttf) from your computer; it stays for next time">LOAD FONT</button><button data-txfont="${FONTS.length}" data-id="tx-custom" aria-pressed="false" hidden title="Your font">MY FONT</button></div>
+      <input type="file" data-id="tx-file" accept=".ttf,font/ttf,application/x-font-ttf" hidden>
       <span class="label">ALIGN</span>
       <div class="seg" role="group" aria-label="Align"><button data-txalign="left" aria-pressed="true" title="Lines start at the click">LEFT</button><button data-txalign="center" aria-pressed="false" title="Lines centred on the click">CENTER</button><button data-txalign="right" aria-pressed="false" title="Lines end at the click">RIGHT</button></div>
       <div class="field"><label for="w3d-tx-size">SIZE</label><input id="w3d-tx-size" data-id="tx-size" type="number" step="1" min="0.1" value="10" title="The height of the font's em, in mm"></div>
@@ -909,11 +911,11 @@ const VIEWS = {
 export async function mount(root, backend) {
   root.innerHTML = SHELL;
   // Panel options carry their icon ahead of the key and name.
-  for (const b of root.querySelectorAll('[data-proj],[data-imp],[data-impcomp],[data-draw],[data-bop],[data-xop],[data-fop],[data-spiral],[data-toggle],[data-gmethod],[data-galign],[data-gcorner],[data-grow],[data-mfgrow],[data-eslimit],[data-flshape],[data-drtaper],[data-avaxis],[data-extshape],[data-esshape],[data-isodir],[data-id="oe-both"],[data-id="oe-individual"],[data-id="blend-tangent"],[data-id="ex-lock"],[data-id="bool-keep"],[data-id="ex-free"],[data-id="ex-pivot"],[data-id="ex-individual"],[data-id="dr-hidden"],[data-id="dr-curves"],[data-id="oc-lock"],[data-id="oc-free"],[data-id="oc-slot"],[data-id="oc-combine"],[data-id="es-unlimit"],[data-rbmethod],[data-oecorner],[data-saplane],[data-plaxis],[data-plop],[data-id="pl-flip"],[data-id="pl-instance"],[data-id="mirror-instance"],[data-id="ra-instance"],[data-id="rr-instance"],[data-id="ca-instance"],[data-id="br-trim"],[data-id="br-comb"],[data-id="ac-comb"],[data-id="dc-reblend"],[data-id="section-btn"],[data-id="sa-flip"],[data-id="rf-shrink"],[data-id="ut-keep"],[data-txfont],[data-txalign],[data-sldir],[data-dcflip],[data-id="dc-keep"],[data-imdepth],[data-imcull],[data-id="im-delete"],[data-id="cc-extend"],[data-id="cc-screen"],[data-inmode],[data-id="in-realize"],[data-id="in-dup"],[data-id="in-delete"],[data-id="matcap-load"],[data-id="matcap-custom"],[data-id="hdr-load"],[data-id="hdr-custom"]')) {
+  for (const b of root.querySelectorAll('[data-proj],[data-imp],[data-impcomp],[data-draw],[data-bop],[data-xop],[data-fop],[data-spiral],[data-toggle],[data-gmethod],[data-galign],[data-gcorner],[data-grow],[data-mfgrow],[data-eslimit],[data-flshape],[data-drtaper],[data-avaxis],[data-extshape],[data-esshape],[data-isodir],[data-id="oe-both"],[data-id="oe-individual"],[data-id="blend-tangent"],[data-id="ex-lock"],[data-id="bool-keep"],[data-id="ex-free"],[data-id="ex-pivot"],[data-id="ex-individual"],[data-id="dr-hidden"],[data-id="dr-curves"],[data-id="oc-lock"],[data-id="oc-free"],[data-id="oc-slot"],[data-id="oc-combine"],[data-id="es-unlimit"],[data-rbmethod],[data-oecorner],[data-saplane],[data-plaxis],[data-plop],[data-id="pl-flip"],[data-id="pl-instance"],[data-id="mirror-instance"],[data-id="ra-instance"],[data-id="rr-instance"],[data-id="ca-instance"],[data-id="br-trim"],[data-id="br-comb"],[data-id="ac-comb"],[data-id="dc-reblend"],[data-id="section-btn"],[data-id="sa-flip"],[data-id="rf-shrink"],[data-id="ut-keep"],[data-txfont],[data-id="tx-load"],[data-txalign],[data-sldir],[data-dcflip],[data-id="dc-keep"],[data-imdepth],[data-imcull],[data-id="im-delete"],[data-id="cc-extend"],[data-id="cc-screen"],[data-inmode],[data-id="in-realize"],[data-id="in-dup"],[data-id="in-delete"],[data-id="matcap-load"],[data-id="matcap-custom"],[data-id="hdr-load"],[data-id="hdr-custom"]')) {
     const name = (b.dataset.proj && (b.dataset.proj === 'screen' ? 'view-screen' : `proj-${b.dataset.proj}`)) ?? (b.dataset.imp && (b.dataset.imp === 'screen' ? 'view-screen' : `proj-${b.dataset.imp}`)) ?? (b.dataset.impcomp && `completion-${b.dataset.impcomp}`) ?? b.dataset.draw ?? b.dataset.bop ?? b.dataset.xop ?? b.dataset.fop ?? b.dataset.spiral ?? (b.dataset.toggle && `view-${b.dataset.toggle}`)
       ?? (b.dataset.gmethod && `guide-${b.dataset.gmethod}`) ?? (b.dataset.galign && `align-${b.dataset.galign}`) ?? (b.dataset.gcorner && (b.dataset.gcorner === 'round' ? 'corner-round' : 'corner-linear')) ?? (b.dataset.grow && `grow-${b.dataset.grow}`) ?? (b.dataset.mfgrow && `grow-${b.dataset.mfgrow}`) ?? (b.dataset.eslimit && `limit-${b.dataset.eslimit}`) ?? (b.dataset.flshape && `fillet-${b.dataset.flshape}`) ?? (b.dataset.drtaper && `taper-${b.dataset.drtaper}`) ?? (b.dataset.avaxis && `axis-${b.dataset.avaxis}`) ?? (b.dataset.extshape && `extend-${b.dataset.extshape}`) ?? (b.dataset.esshape && `extend-${b.dataset.esshape}`) ?? (b.dataset.isodir && `iso-${b.dataset.isodir}`) ?? (b.dataset.rbmethod && `rebuild-${b.dataset.rbmethod}`) ?? (b.dataset.oecorner && `corner-${b.dataset.oecorner}`) ?? (b.dataset.saplane && `section-${b.dataset.saplane}`) ?? (b.dataset.plaxis && (b.dataset.plaxis === 'normal' ? 'place-normal' : `axis-${b.dataset.plaxis}`)) ?? b.dataset.plop
       ?? (b.dataset.txfont && `font-${b.dataset.txfont}`) ?? (b.dataset.txalign && `txalign-${b.dataset.txalign}`) ?? (b.dataset.sldir && { u: 'slide-u', '-u': 'slide-back', v: 'slide-v', '-v': 'slide-vback', n: 'slide-n' }[b.dataset.sldir]) ?? (b.dataset.dcflip && { mirror: 'mirror', swap: 'swap-uv', normal: 'reverse-sheet' }[b.dataset.dcflip]) ?? (b.dataset.imdepth && `depth-${b.dataset.imdepth}`) ?? (b.dataset.imcull && `cull-${b.dataset.imcull}`) ?? b.dataset.inmode
-      ?? { 'matcap-load': 'matcap-load', 'matcap-custom': 'matcap', 'hdr-load': 'hdr-load', 'hdr-custom': 'hdr', 'ex-lock': 'lock', 'bool-keep': 'keep', 'ex-free': 'freestyle', 'ex-pivot': 'pivot', 'ex-individual': 'individual', 'dr-hidden': 'hidden-lines', 'dr-curves': 'drawing-curves', 'oc-lock': 'lock', 'oc-free': 'freestyle', 'oc-slot': 'slot', 'oc-combine': 'combine', 'oe-both': 'both-sides', 'oe-individual': 'individual', 'blend-tangent': 'tangent-chain', 'es-unlimit': 'unlimit', 'rf-shrink': 'shrink', 'ut-keep': 'keep-edges', 'section-btn': 'view-section', 'sa-flip': 'flip', 'pl-flip': 'flip', 'pl-instance': 'instance', 'mirror-instance': 'instance', 'ra-instance': 'instance', 'rr-instance': 'instance', 'ca-instance': 'instance', 'br-trim': 'trim', 'br-comb': 'view-curvature', 'ac-comb': 'view-curvature', 'dc-reblend': 'reblend', 'dc-keep': 'keep', 'im-delete': 'delete', 'in-realize': 'realize-instance', 'cc-extend': 'extend', 'cc-screen': 'view-screen', 'in-dup': 'duplicate', 'in-delete': 'delete' }[b.dataset.id];
+      ?? { 'matcap-load': 'matcap-load', 'matcap-custom': 'matcap', 'tx-load': 'font-load', 'hdr-load': 'hdr-load', 'hdr-custom': 'hdr', 'ex-lock': 'lock', 'bool-keep': 'keep', 'ex-free': 'freestyle', 'ex-pivot': 'pivot', 'ex-individual': 'individual', 'dr-hidden': 'hidden-lines', 'dr-curves': 'drawing-curves', 'oc-lock': 'lock', 'oc-free': 'freestyle', 'oc-slot': 'slot', 'oc-combine': 'combine', 'oe-both': 'both-sides', 'oe-individual': 'individual', 'blend-tangent': 'tangent-chain', 'es-unlimit': 'unlimit', 'rf-shrink': 'shrink', 'ut-keep': 'keep-edges', 'section-btn': 'view-section', 'sa-flip': 'flip', 'pl-flip': 'flip', 'pl-instance': 'instance', 'mirror-instance': 'instance', 'ra-instance': 'instance', 'rr-instance': 'instance', 'ca-instance': 'instance', 'br-trim': 'trim', 'br-comb': 'view-curvature', 'ac-comb': 'view-curvature', 'dc-reblend': 'reblend', 'dc-keep': 'keep', 'im-delete': 'delete', 'in-realize': 'realize-instance', 'cc-extend': 'extend', 'cc-screen': 'view-screen', 'in-dup': 'duplicate', 'in-delete': 'delete' }[b.dataset.id];
     b.insertAdjacentHTML('afterbegin', icon(name));
   }
   const $ = id => root.querySelector(`[data-id="${id}"]`);
@@ -5829,7 +5831,24 @@ export async function mount(root, backend) {
   /** The Text command's fonts, read once each (src/fonts, SIL Open Font License). */
   const fontCache = new Map();
   const FONT_URLS = [new URL('../fonts/Outfit-Regular.ttf', import.meta.url), new URL('../fonts/Lora-Regular.ttf', import.meta.url), new URL('../fonts/JetBrainsMono-Regular.ttf', import.meta.url)];
+  // A font of the user's own (LOAD FONT), read once and kept for next time; its chip follows the three.
+  let customFont = null;
+  const fontName = i => i === FONTS.length ? (customFont?.name ?? 'MY FONT') : FONTS[i][0];
+  function useCustomFont(buffer, name) {
+    const font = parseFont(buffer);
+    if (!textShapes(font, 'A', 10).shapes.length) throw new Error('that font has no outline for A');
+    customFont = { font, name: name.replace(/\.ttf$/i, '').toUpperCase().slice(0, 14) };
+    const chip = $('tx-custom');
+    chip.hidden = false;
+    chip.lastChild.textContent = customFont.name;
+    chip.title = `Your font (${name})`;
+  }
+  try {
+    const kept = JSON.parse(localStorage.getItem('w3d-font') ?? 'null');
+    if (kept?.data) useCustomFont(Uint8Array.from(atob(kept.data), ch => ch.charCodeAt(0)).buffer, kept.name);
+  } catch { /* no storage, or a font that no longer reads */ }
   function loadFont(i) {
+    if (i === FONTS.length) return customFont ? Promise.resolve(customFont.font) : Promise.reject(new Error('load a font first'));
     if (!fontCache.has(i)) fontCache.set(i, fetch(FONT_URLS[i]).then(r => { if (!r.ok) throw new Error(`the ${FONTS[i][0].toLowerCase()} font did not load`); return r.arrayBuffer(); }).then(parseFont));
     return fontCache.get(i).catch(e => { fontCache.delete(i); throw e; });
   }
@@ -5868,7 +5887,7 @@ export async function mount(root, backend) {
       showCurvePreview(c.shapes);
       const t = `${c.shapes.length} CURVE${c.shapes.length === 1 ? '' : 'S'} · ${width.toFixed(1)} WIDE`;
       $('tx-hint').textContent = t;
-      setHud(`TEXT ${FONTS[c.font][0]} ${h > 0 ? h : '—'} · ${t}`);
+      setHud(`TEXT ${fontName(c.font)} ${h > 0 ? h : '—'} · ${t}`);
     };
     c.setFont = i => { c.font = i; buttons(); c.preview(); };
     c.setAlign = a => { c.align = a; buttons(); c.preview(); };
@@ -9600,6 +9619,23 @@ export async function mount(root, backend) {
   $('mat-remove').onclick = () => cmd?.id === 'material' && cmd.remove();
   for (const b of $$('[data-shader]')) b.onclick = () => { view.shader = b.dataset.shader; view.render = false; applyView(); };
   for (const b of $$('[data-env]')) b.onclick = () => { view.environment = b.dataset.env; applyView(); };
+  $('tx-load').onclick = () => $('tx-file').click();
+  $('tx-file').addEventListener('change', async e => {
+    const f = e.target.files?.[0];
+    e.target.value = '';
+    if (!f) return;
+    try {
+      const buffer = await f.arrayBuffer();
+      useCustomFont(buffer, f.name);
+      try {
+        let bin = '';
+        const bytes = new Uint8Array(buffer);
+        for (let i = 0; i < bytes.length; i += 0x8000) bin += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
+        localStorage.setItem('w3d-font', JSON.stringify({ name: f.name, data: btoa(bin) }));
+      } catch { toast('FONT LOADED; TOO BIG TO KEEP FOR NEXT TIME'); }
+      if (cmd?.id === 'text') cmd.setFont(FONTS.length);
+    } catch (err) { toast(say(err)); }
+  });
   $('matcap-load').onclick = () => $('matcap-file').click();
   $('matcap-file').addEventListener('change', async e => {
     const f = e.target.files?.[0];

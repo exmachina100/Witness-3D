@@ -275,6 +275,9 @@ const ICONS = {
     text: `<path d="M3 21h18"/><path ${A} d="M6 4h12M12 4v14"/>`,
     'font-0': `<path d="M5 20l7-16 7 16M8 14h8"/>`,
     'font-1': `<path d="M6 20l6-15 6 15M8.5 14h7"/><path ${A} d="M3.5 20h5M15.5 20h5M10 5h4"/>`,
+    // Your own font: a letter with a little arrow coming in (LOAD FONT), and the letter on a page (MY FONT).
+    'font-load': `<path d="M4 20l6-14 6 14M6.5 15h7"/><path ${A} d="M19 3v7M16 7l3 3 3-3"/>`,
+    'font-3': `<path d="M4 3h12l4 4v14H4z"/><path ${A} d="M8 18l4-9 4 9M9.5 15h5"/>`,
     'font-2': `<path d="M6 20l6-15 6 15M8.5 14h7"/><path ${A} d="M4 20h4M16 20h4"/><path d="M4 3v2M20 3v2" stroke-dasharray="1 1"/>`,
     // Text alignment: lines lined up on the left, the middle or the right.
     'txalign-left': `<path d="M4 6h16M4 10h10M4 14h16M4 18h8"/><path ${A} d="M3 3v18"/>`,
