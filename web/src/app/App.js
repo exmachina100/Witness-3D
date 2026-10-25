@@ -1338,7 +1338,7 @@ export async function mount(root, backend) {
     org.prune(list.map(b => b.id));
     renderIsolated();
     for (const m of [...bodies.children]) dispose(m);
-    for (const id of [...materialOf.keys()]) if (!list.some(b => b.id === id)) { materialOf.delete(id); bodyMats.get(id)?.dispose(); bodyMats.delete(id); }
+    for (const id of [...materialOf.keys()]) if (typeof id === 'number' && !list.some(b => b.id === id)) { materialOf.delete(id); bodyMats.get(id)?.dispose(); bodyMats.delete(id); }
     for (const b of list) {
       const m = meshOf(b, faceMatFor(b.id));
       m.visible = org.shows(b.id);
@@ -1508,6 +1508,7 @@ export async function mount(root, backend) {
   async function loadCurves() {
     curveList = backend.curves ? await backend.curves() : [];
     sel.keepCurves(curveList.map(c => c.id));
+    for (const k of [...materialOf.keys()]) if (typeof k === 'string' && !curveById(curveKeyId(k))) materialOf.delete(k);
     for (const id of [...shownPoints.curves]) if (!curveById(id)) shownPoints.curves.delete(id);
     paintShownPoints();
     for (const o of [...curveGroup.children]) dispose(o);
@@ -1530,11 +1531,25 @@ export async function mount(root, backend) {
     renderOutliner();
     drawCombs();
   }
+  // Set Material on curves: their key in materialOf, and a line of the material's colour.
+  const curveKey = id => `c:${id}`, curveKeyId = k => Number(k.slice(2));
+  const curveLineMats = new Map();   // material id -> THREE line material
+  function curveLineMat(id) {
+    const m = materials.get(materialOf.get(curveKey(id)));
+    if (!m) return curveMat.normal;
+    let mat = curveLineMats.get(m.id);
+    if (!mat) curveLineMats.set(m.id, mat = new THREE.LineBasicMaterial());
+    mat.color.set(m.color);
+    return mat;
+  }
   /** Colour curves and regions for hover and selection. */
   function paintCurves() {
     const is = (kind, id) => sel.has({ kind, id }) ? 'selected' : hover?.kind === kind && hover.id === id ? 'hover' : 'normal';
     for (const o of curveGroup.children) {
-      if (o.userData.curve !== undefined) o.material = curveMat[is('curve', o.userData.curve) === 'normal' && sel.has({ kind: 'region', id: o.userData.curve }) ? 'selected' : is('curve', o.userData.curve)];
+      if (o.userData.curve !== undefined) {
+        const state = is('curve', o.userData.curve) === 'normal' && sel.has({ kind: 'region', id: o.userData.curve }) ? 'selected' : is('curve', o.userData.curve);
+        o.material = state === 'normal' ? curveLineMat(o.userData.curve) : curveMat[state];
+      }
       else if (o.userData.region !== undefined) o.material = regionMat[is('region', o.userData.region)];
     }
     paintVertices();
@@ -7232,6 +7247,7 @@ export async function mount(root, backend) {
   /** Bodies that use the material changed: their faces take the new values. */
   function materialsChanged() {
     for (const m of bodies.children) m.material = faceMatFor(m.userData.id);
+    paintCurves();
     drawInstances();
     applyView();
     renderMass();
@@ -7241,10 +7257,11 @@ export async function mount(root, backend) {
    * Plasticity's Set Material (M): a material for the selected solids and sheets (a group's bodies
    * when the group is picked in the outliner). When they already share one, it is that material that
    * changes, for every body using it; Fork gives them a copy of their own, Remove takes it off.
+   * Selected curves take the material too (its colour draws their line).
    */
   function startMaterial() {
-    const ids = sel.bodies.filter(id => org.picks(id));
-    if (!ids.length) return toast('SELECT SOLIDS OR SHEETS');
+    const ids = [...sel.bodies.filter(id => org.picks(id)), ...sel.curves.filter(curveById).map(curveKey)];
+    if (!ids.length) return toast('SELECT SOLIDS, SHEETS OR CURVES');
     const before = { materials: new Map([...materials].map(([k, v]) => [k, { ...v }])), materialOf: new Map(materialOf), next: nextMaterial };
     const shared = new Set(ids.map(id => materialOf.get(id)));
     let mat = shared.size === 1 && materials.get([...shared][0]);
@@ -7262,7 +7279,7 @@ export async function mount(root, backend) {
     setHud('SET MATERIAL · ⏎ TO KEEP');
     const sync = () => {
       const users = [...materialOf.values()].filter(m => m === c.mat.id).length;
-      $('mat-hint').textContent = `${c.mat.name} · ${users} BOD${users > 1 ? 'IES' : 'Y'}`;
+      $('mat-hint').textContent = `${c.mat.name} · USED BY ${users}`;
       for (const input of $$('[data-mat]')) if (input !== document.activeElement) input.value = c.mat[input.dataset.mat];
       const g = ids.reduce((sum, id) => sum + massOf(bodyOf(id)?.volume ?? 0, c.mat.density), 0);
       $('mat-mass').textContent = formatMass(g);
@@ -7288,7 +7305,7 @@ export async function mount(root, backend) {
       for (const k of [...materials.keys()]) if (![...materialOf.values()].includes(k)) materials.delete(k);
       materialsChanged();
       endCmd('committed');
-      toast(`MATERIAL REMOVED · ${ids.length} BOD${ids.length > 1 ? 'IES' : 'Y'}`);
+      toast(`MATERIAL REMOVED FROM ${ids.length}`);
     };
     c.finish = async () => {
       for (const k of [...materials.keys()]) if (![...materialOf.values()].includes(k)) materials.delete(k);
@@ -7305,7 +7322,7 @@ export async function mount(root, backend) {
     sync();
   }
   function removeMaterial() {
-    const ids = sel.bodies.filter(id => materialOf.has(id));
+    const ids = [...sel.bodies, ...sel.curves.map(curveKey)].filter(id => materialOf.has(id));
     if (!ids.length) return toast('NO MATERIAL ON THE SELECTION');
     for (const id of ids) materialOf.delete(id);
     for (const k of [...materials.keys()]) if (![...materialOf.values()].includes(k)) materials.delete(k);
