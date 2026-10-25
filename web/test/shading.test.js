@@ -3,10 +3,12 @@ import { test } from 'node:test';
 import { ENVIRONMENTS, MATERIAL_LIBRARY, SHADERS, SHADER_OPTIONS, checkMaterial, formatMass, massOf, newMaterial, shader } from '../src/app/shading.js';
 import { VIEWPORT, ACTIONS } from '../src/app/keymap.js';
 
-test('the fourteen shader modes of the manual, in its order, each with its own mode number', () => {
+test("the manual's fourteen shader modes in its order, then 2026.2's curvature shaders, each with its own mode number", () => {
     assert.deepEqual(SHADERS.map(s => s.name), ['Ceramic dark', 'Metal carpaint', 'Dark shiny', 'Gradient', 'Ceramic lightbulb', 'Color matcap',
-        'Black silhouette', 'Color silhouette', 'Isophote / isoangle', 'Draft angle', 'Horizontal zebra', 'Vertical zebra', 'Topography', 'Face direction']);
-    assert.deepEqual(SHADERS.map(s => s.mode), SHADERS.map((_, i) => i));
+        'Black silhouette', 'Color silhouette', 'Isophote / isoangle', 'Draft angle', 'Horizontal zebra', 'Vertical zebra', 'Topography', 'Face direction',
+        'Gaussian curvature', 'Mean curvature', 'Max curvature']);
+    // 14 is the custom matcap (Load Matcap), which has no button of its own here.
+    assert.deepEqual(SHADERS.map(s => s.mode), [...Array(14).keys(), 15, 16, 17]);
     for (const s of SHADERS) if (s.option) assert.ok(SHADER_OPTIONS[s.option], s.id);
     // The modes that show material colours, as the manual marks them.
     assert.deepEqual(SHADERS.filter(s => s.color).map(s => s.id), ['ceramic-light', 'color', 'color-silhouette']);

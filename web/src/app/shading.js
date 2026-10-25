@@ -18,14 +18,20 @@ export const SHADERS = [
     { id: 'zebra-v', name: 'Vertical zebra', use: 'Surface continuity', mode: 11, option: 'stripes', swatch: 'repeating-linear-gradient(90deg, #eee 0 3px, #111 3px 6px)' },
     { id: 'topography', name: 'Topography', use: 'Height lines along the construction plane normal', mode: 12, option: 'spacing', swatch: 'repeating-linear-gradient(#2a2926 0 4px, #ff4d00 4px 5px)' },
     { id: 'face-direction', name: 'Face direction', use: 'Blue faces out, red faces in', mode: 13, swatch: 'linear-gradient(90deg, #3d6fd9 50%, #d94a3d 50%)' },
+    // Plasticity 2026.2's curvature shaders: red where a face bends outward, blue inward, green flat,
+    // full colour at the curvature of the Radius option.
+    { id: 'gaussian', name: 'Gaussian curvature', use: 'Red domes, blue saddles, green flat or developable', mode: 15, option: 'radius', swatch: 'linear-gradient(90deg, #3d6fd9, #4db86b, #db4c42)' },
+    { id: 'mean', name: 'Mean curvature', use: 'Red bulging out, blue in, green flat or balanced', mode: 16, option: 'radius', swatch: 'linear-gradient(90deg, #3d6fd9, #4db86b 50%, #db4c42)' },
+    { id: 'max-curvature', name: 'Max curvature', use: 'How sharply each point bends, green flat to red tight', mode: 17, option: 'radius', swatch: 'linear-gradient(90deg, #4db86b, #ecad38, #db4c42)' },
 ];
 export const shader = id => SHADERS.find(s => s.id === id) ?? SHADERS[0];
 
-/** Material Options: stripe count for zebra and isophotes, draft threshold in degrees, topography spacing in mm. */
+/** Material Options: stripe count for zebra and isophotes, draft threshold in degrees, topography spacing in mm, and the radius whose curvature shows at full colour. */
 export const SHADER_OPTIONS = {
     stripes: { label: 'STRIPES', value: 24, min: 4, max: 96, step: 4 },
     draft: { label: 'DRAFT °', value: 1, min: 0.25, max: 15, step: 0.25 },
     spacing: { label: 'SPACING', value: 2, min: 0.25, max: 50, step: 0.25 },
+    radius: { label: 'RADIUS', value: 10, min: 1, max: 200, step: 1 },
 };
 
 /** Render mode lighting, built in the viewport from simple scenes (no HDR files). */
