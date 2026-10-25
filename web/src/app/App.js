@@ -2606,12 +2606,37 @@ export async function mount(root, backend) {
     }
     const body = bodyOf(m.userData.id);
     m.userData.facePlanes.forEach((p, f) => { const c = p && body && faceCentre(body, f); if (c) out.push({ point: c, kind: 'CENTER' }); });
+    // 2026.2: where edges cross the YZ and XZ planes (user x = 0 and y = 0), anywhere on them.
+    out.push(...crossings(m.userData.edges, new THREE.Plane(new THREE.Vector3(1, 0, 0), 0), 'YZ'), ...crossings(m.userData.edges, new THREE.Plane(new THREE.Vector3(0, 0, 1), 0), 'XZ'));
     return m.userData.snaps = out;
+  }
+  /** The points where edge polylines cross `plane`, as snaps of `kind`; edge ends are left to END. */
+  function crossings(edges, plane, kind) {
+    const out = [];
+    for (const e of edges) {
+      const n = e.length / 3;
+      let a = new THREE.Vector3(e[0], e[1], e[2]), da = plane.distanceToPoint(a);
+      for (let i = 1; i < n; i++) {
+        const b = new THREE.Vector3(e[3 * i], e[3 * i + 1], e[3 * i + 2]), db = plane.distanceToPoint(b);
+        if (da * db < 0) out.push({ point: a.clone().lerp(b, da / (da - db)), kind });
+        else if (db === 0 && i < n - 1) out.push({ point: b.clone(), kind });
+        a = b; da = db;
+      }
+    }
+    return out;
+  }
+  /** Where the mesh's edges cross the Section Analysis plane, while one is shown. */
+  function sectionSnaps(m) {
+    const p = section.plane;
+    if (!p) return [];
+    const key = `${p.normal.toArray()}|${p.constant}`;
+    if (m.userData.sectionKey !== key) { m.userData.sectionKey = key; m.userData.sectionSnaps = crossings(m.userData.edges, p, 'SECTION'); }
+    return m.userData.sectionSnaps;
   }
   function snapNear(e, meshes, plane = null) {
     const c = local(e);
     let best = null, bestD = SNAP_PX;
-    for (const m of meshes) for (const s of snapCandidates(m)) {
+    for (const m of meshes) for (const s of [...snapCandidates(m), ...sectionSnaps(m)]) {
       if (plane && Math.abs(plane.distanceToPoint(s.point)) > 1e-3) continue;
       const p = screenOf(s.point);
       if (p.behind) continue;
