@@ -54,18 +54,26 @@ export function orderLoop(sides, gap) {
     return loop;
 }
 
-/** A side's copy, keeping the directions out of its face (`out`, one per point) when it has them. */
+/** What a side may carry per point besides its position: the way out of its face, and for G2 the face's normal and its curvature that way (as [k, 0, 0]). */
+const EXTRAS = ['out', 'normal', 'kappa'];
+/** A side's copy, keeping its extras. */
 function copy(side) {
     const c = side.map(p => [...p]);
-    if (side.out) c.out = side.out.map(d => [...d]);
+    for (const k of EXTRAS) if (side[k]) c[k] = side[k].map(d => [...d]);
     return c;
 }
 /** A side the other way round. */
 function reversed(side) {
     const c = [...side].reverse();
-    if (side.out) c.out = [...side.out].reverse();
+    for (const k of EXTRAS) if (side[k]) c[k] = [...side[k]].reverse();
     return c;
 }
+/** For G2: the face's unit normal and normal curvature across the side at s, or null without them. */
+const bendOf = side => {
+    if (!side.out || !side.normal || !side.kappa) return null;
+    const n = byLength(side, side.normal), k = byLength(side, side.kappa);
+    return s => { const v = n(s), l = Math.hypot(...v); return { n: l > 0 ? mul(v, 1 / l) : v, k: k(s)[0] }; };
+};
 /** The way out of a side's face at its length fraction s, as a unit vector, or null for a curve. */
 const outOf = side => {
     if (!side.out) return null;
@@ -80,14 +88,14 @@ export function boundarySurface(sides, gap, tension = 1) {
         let [a, b] = sides;
         if (dist(a[0], b[0]) + dist(a.at(-1), b.at(-1)) > dist(a[0], b.at(-1)) + dist(a.at(-1), b[0])) b = reversed(b);
         const A = byLength(a), B = byLength(b), oa = outOf(a), ob = outOf(b);
-        const sides2 = [A, null, B, null], outs = [oa, null, ob, null];
-        if (!oa && !ob) return { at: (u, v) => lerp(A(u), B(u), v), sides: sides2, outs };
+        const sides2 = [A, null, B, null], outs = [oa, null, ob, null], bends = [bendOf(a), null, bendOf(b), null];
+        if (!oa && !ob) return { at: (u, v) => lerp(A(u), B(u), v), sides: sides2, outs, bends };
         // Leaving each edge side along its face, as far out as the sides are apart (times tension).
         const at = (u, v) => {
             const pa = A(u), pb = B(u), chord = sub(pb, pa), reach = Math.hypot(...chord) * tension;
             return hermite(v, pa, pb, oa ? mul(oa(u), reach) : chord, ob ? mul(ob(u), -reach) : chord);
         };
-        return { at, sides: sides2, outs };
+        return { at, sides: sides2, outs, bends };
     }
     if (sides.length !== 4) throw new Error('select four sides meeting end to end, or two to loft between');
     const [s0, s1, s2, s3] = orderLoop(sides, gap);
@@ -95,6 +103,7 @@ export function boundarySurface(sides, gap, tension = 1) {
     const r2 = reversed(s2), r3 = reversed(s3);
     const bottom = byLength(s0), right = byLength(s1), top = byLength(r2), leftSide = byLength(r3);
     const outs = [outOf(s0), outOf(s1), outOf(r2), outOf(r3)], all = [bottom, right, top, leftSide];
+    const bends = [bendOf(s0), bendOf(s1), bendOf(r2), bendOf(r3)];
     const P00 = bottom(0), P10 = bottom(1), P01 = top(0), P11 = top(1);
     if (!outs.some(Boolean)) {
         const at = (u, v) => {
@@ -102,7 +111,7 @@ export function boundarySurface(sides, gap, tension = 1) {
             const corners = lerp(lerp(P00, P10, u), lerp(P01, P11, u), v);
             return sub(add(ruledV, ruledU), corners);
         };
-        return { at, sides: all, outs };
+        return { at, sides: all, outs, bends };
     }
     // With faces to carry on: a Hermite-blended Coons patch. Across each side the patch leaves along
     // the face's way out (or, for a curve side, as its neighbours do at its ends), as fast as the
@@ -128,7 +137,7 @@ export function boundarySurface(sides, gap, tension = 1) {
         const T = hermite(v, RU(u, 0), RU(u, 1), dRU(u, 0), dRU(u, 1));
         return sub(add(RV(u, v), RU(u, v)), T);
     };
-    return { at, sides: all, outs };
+    return { at, sides: all, outs, bends };
 }
 
 /** The cubic Hermite curve from `a` to `b` leaving with derivative `da` and arriving with `db`, at t. */
@@ -224,8 +233,11 @@ export function surfaceAt({ degree, uKnots, vKnots, poles }, u, v) {
  */
 export function square(sides, { degree = 3, spans = 0, tolerance = 0.01, continuity = 'G0', angle = 0.5, tension = 1 } = {}) {
     if (!(degree >= 1 && degree <= 7)) throw new Error('the degree runs from 1 to 7');
-    const tangent = continuity === 'G1';
-    if (tangent && degree < 2) throw new Error('G1 needs degree 2 or more');
+    const curved = continuity === 'G2', tangent = continuity === 'G1' || curved;
+    if (tangent && degree < 2) throw new Error(`${continuity} needs degree 2 or more`);
+    if (curved && degree < 3) throw new Error('G2 needs degree 3 or more');
+    // Control points each way that G1 (two rows from each side) or G2 (three) needs.
+    const rows = curved ? 6 : tangent ? 4 : 2;
     const size = Math.max(...sides.flat().map(p => dist(p, sides[0][0])));
     const shape = boundarySurface(sides, Math.max(tolerance, 1e-3 * size), tension);
     const make = (su, sv) => {
@@ -248,21 +260,27 @@ export function square(sides, { degree = 3, spans = 0, tolerance = 0.01, continu
             const column = fit(Bu, C.map(r => r[j]), held);
             for (let i = 0; i < nu; i++) poles[i][j] = column[i];
         }
-        if (tangent) tangentRows(poles, uk, vk, degree, shape.outs);
+        // A loft's open ends (no side there) leave their end columns free to follow too.
+        const open = shape.sides.map(x => !x);
+        if (tangent) tangentRows(poles, uk, vk, degree, shape.outs, open);
+        if (curved) curvatureRows(poles, uk, vk, degree, shape.bends, open);
         const out = { degree: [degree, degree], uKnots: uk, vKnots: vk, poles, spans: [su, sv] };
         out.gap = sideGap(out, shape.sides);
         out.turn = tangent ? sideTurn(out, shape.outs) : 0;
+        out.bend = curved ? sideBend(out, shape.bends) : 0;
         return out;
     };
+    // Only a direction with held edge sides at its ends needs them: u for the right and left sides.
+    const rowsU = shape.outs[1] || shape.outs[3] ? rows : 2, rowsV = shape.outs[0] || shape.outs[2] ? rows : 2;
     if (spans) {
         const [su, sv] = Array.isArray(spans) ? spans : [spans, spans];
-        if (tangent && (su + degree < 4 || sv + degree < 4)) throw new Error('G1 needs more spans: at least 4 control points each way');
+        if (su + degree < rowsU || sv + degree < rowsV) throw new Error(`${continuity} needs more spans: at least ${rows} control points across the edge sides`);
         return make(su, sv);
     }
     let out;
-    for (let s = tangent && degree < 3 ? 2 : 1; s <= 64; s *= 2) {
+    for (let s = Math.max(1, Math.max(rowsU, rowsV) - degree); s <= 64; s *= 2) {
         out = make(s, s);
-        if (out.gap <= tolerance && out.turn <= angle) break;
+        if (out.gap <= tolerance && out.turn <= angle && out.bend <= bendTolerance(shape.bends)) break;
     }
     return out;
 }
@@ -275,7 +293,7 @@ const greville = (t, p) => Array.from({ length: t.length - p - 1 }, (_, i) => t.
  * leave the side along the face's way out (the face's tangent plane, carried on past the edge),
  * keeping its reach. A pole that two sides both move (next to a corner) takes the average.
  */
-function tangentRows(poles, uk, vk, p, outs) {
+function tangentRows(poles, uk, vk, p, outs, open = []) {
     const nu = poles.length, nv = poles[0].length, gu = greville(uk, p), gv = greville(vk, p);
     const moves = new Map();
     const propose = (i, j, from, d) => {
@@ -286,11 +304,71 @@ function tangentRows(poles, uk, vk, p, outs) {
         moves.set(k, m);
     };
     // Bottom (v = 0) and top (v = 1) run along u; right (u = 1) and left (u = 0) along v.
-    if (outs[0]) for (let i = 1; i < nu - 1; i++) propose(i, 1, poles[i][0], outs[0](gu[i]));
-    if (outs[2]) for (let i = 1; i < nu - 1; i++) propose(i, nv - 2, poles[i][nv - 1], outs[2](gu[i]));
-    if (outs[1]) for (let j = 1; j < nv - 1; j++) propose(nu - 2, j, poles[nu - 1][j], outs[1](gv[j]));
-    if (outs[3]) for (let j = 1; j < nv - 1; j++) propose(1, j, poles[0][j], outs[3](gv[j]));
+    const [i0, i1, j0, j1] = [open[3] ? 0 : 1, open[1] ? nu : nu - 1, open[0] ? 0 : 1, open[2] ? nv : nv - 1];
+    if (outs[0]) for (let i = i0; i < i1; i++) propose(i, 1, poles[i][0], outs[0](gu[i]));
+    if (outs[2]) for (let i = i0; i < i1; i++) propose(i, nv - 2, poles[i][nv - 1], outs[2](gu[i]));
+    if (outs[1]) for (let j = j0; j < j1; j++) propose(nu - 2, j, poles[nu - 1][j], outs[1](gv[j]));
+    if (outs[3]) for (let j = j0; j < j1; j++) propose(1, j, poles[0][j], outs[3](gv[j]));
     for (const { i, j, sum, n } of moves.values()) poles[i][j] = mul(sum, 1 / n);
+}
+
+/**
+ * G2 to the faces along edge sides (after {@link tangentRows}): the third row of poles in from each
+ * such side is moved square to the face, only, so the sheet bends across the side as the face does
+ * (its normal curvature that way). At the side, the second derivative across is
+ * p(p-1) / ((t[p+1] - t[2]) (t[p+2] - t[2])) · (P2 - P1) along the normal once P1 - P0 lies in the
+ * tangent plane, and the curvature is that over the first derivative's length squared,
+ * p (P1 - P0) / (t[p+1] - t[1]). Poles that two sides move take the average.
+ */
+function curvatureRows(poles, uk, vk, p, bends, open = []) {
+    const nu = poles.length, nv = poles[0].length, gu = greville(uk, p), gv = greville(vk, p);
+    const flipKnots = t => t.map(x => 1 - x).reverse();
+    const moves = new Map();
+    const propose = (P0, P1, P2, i, j, t, bend) => {
+        const { n, k } = bend;
+        const d1 = p / (t[p + 1] - t[1]), first = mul(sub(P1, P0), d1);
+        const want = k * (first[0] ** 2 + first[1] ** 2 + first[2] ** 2) * (t[p + 1] - t[2]) * (t[p + 2] - t[2]) / (p * (p - 1));
+        const off = sub(P2, P1), now = off[0] * n[0] + off[1] * n[1] + off[2] * n[2];
+        const at = add(P2, mul(n, want - now));
+        const key = `${i},${j}`, m = moves.get(key) ?? { i, j, sum: [0, 0, 0], n: 0 };
+        m.sum = add(m.sum, at); m.n++;
+        moves.set(key, m);
+    };
+    const rv = flipKnots(vk), ru = flipKnots(uk);
+    const [i0, i1, j0, j1] = [open[3] ? 0 : 1, open[1] ? nu : nu - 1, open[0] ? 0 : 1, open[2] ? nv : nv - 1];
+    if (bends[0]) for (let i = i0; i < i1; i++) propose(poles[i][0], poles[i][1], poles[i][2], i, 2, vk, bends[0](gu[i]));
+    if (bends[2]) for (let i = i0; i < i1; i++) propose(poles[i][nv - 1], poles[i][nv - 2], poles[i][nv - 3], i, nv - 3, rv, bends[2](gu[i]));
+    if (bends[1]) for (let j = j0; j < j1; j++) propose(poles[nu - 1][j], poles[nu - 2][j], poles[nu - 3][j], nu - 3, j, ru, bends[1](gv[j]));
+    if (bends[3]) for (let j = j0; j < j1; j++) propose(poles[0][j], poles[1][j], poles[2][j], 2, j, uk, bends[3](gv[j]));
+    for (const { i, j, sum, n } of moves.values()) poles[i][j] = mul(sum, 1 / n);
+}
+
+/** How far the sheet's curvature across a side may miss the face's: 1% of the largest, at least 1e-5 per mm. */
+function bendTolerance(bends) {
+    let most = 0;
+    for (const b of bends) if (b) for (let i = 0; i <= 8; i++) most = Math.max(most, Math.abs(b(i / 8).k));
+    return Math.max(1e-5, 0.01 * most);
+}
+
+/** The largest difference (per mm) between the sheet's normal curvature across an edge side and its face's. */
+function sideBend(surface, bends, n = 32) {
+    const e = 1e-4;
+    const sides = [[s => [s, 0], [0, 1]], [s => [1, s], [-1, 0]], [s => [s, 1], [0, -1]], [s => [0, s], [1, 0]]];
+    let most = 0;
+    sides.forEach(([uv, inward], k) => {
+        if (!bends[k]) return;
+        for (let i = 1; i < n; i++) {
+            const s = i / n, [u, v] = uv(s), { n: N, k: want } = bends[k](s);
+            const [f0, f1, f2, f3] = [0, 1, 2, 3].map(h => surfaceAt(surface, u + h * e * inward[0], v + h * e * inward[1]));
+            // Second-order one-sided differences into the sheet: first and second derivatives across.
+            const d1 = [0, 1, 2].map(c => (-3 * f0[c] + 4 * f1[c] - f2[c]) / (2 * e));
+            const d2 = [0, 1, 2].map(c => (2 * f0[c] - 5 * f1[c] + 4 * f2[c] - f3[c]) / (e * e));
+            const l2 = d1[0] ** 2 + d1[1] ** 2 + d1[2] ** 2;
+            if (l2 < 1e-18) continue;
+            most = Math.max(most, Math.abs((d2[0] * N[0] + d2[1] * N[1] + d2[2] * N[2]) / l2 - want));
+        }
+    });
+    return most;
 }
 
 /** The largest angle in degrees by which the sheet leaves an edge side out of the face's tangent plane. */

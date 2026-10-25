@@ -75,3 +75,30 @@ test('a G1 loft between two edges leaves each along its face', () => {
     const q1 = surfaceAt(s, 0.5, 0.25), q3 = surfaceAt(s, 0.5, 0.75);
     assert.ok(q1[1] > 6 && q3[1] < -1, `${q1} ${q3}`);
 });
+
+test('G2 also bends the sheet across each edge side as its face bends', () => {
+    const n = 40;
+    const ones = v => Array.from({ length: n + 1 }, () => v);
+    const shelf = (y, z, out, k) => Object.assign(arc(t => [20 * t, y, z], n), { out: ones(out), normal: ones([0, 1, 0]), kappa: ones([k, 0, 0]) });
+    // The upper face curls up (curvature 0.05 toward +y), the lower one is flat.
+    const sides = () => [shelf(10, 10, [0, 0, 1], 0.05), shelf(-5, 25, [0, 0, -1], 0)];
+    const g2 = square(sides(), { continuity: 'G2' });
+    assert.ok(g2.gap <= 0.01 && g2.turn <= 0.5, `gap ${g2.gap} turn ${g2.turn}`);
+    assert.ok(g2.bend <= 5e-4, `bend ${g2.bend}`);
+    // G1 alone leaves the curvature to chance.
+    const g1 = square(sides(), { continuity: 'G1', spans: g2.spans });
+    assert.ok(g1.bend === 0 && g1.turn <= 0.5);
+    assert.throws(() => square(sides(), { continuity: 'G2', degree: 2 }), /degree 3/);
+    assert.throws(() => square(sides(), { continuity: 'G2', spans: [1, 1] }), /6 control points/);
+    assert.ok(square(sides(), { continuity: 'G2', spans: [1, 3] }).bend <= 5e-4);
+});
+
+test('G2 on four sides with two flat faces: no bend across those sides', () => {
+    const n = 40, ones = v => Array.from({ length: n + 1 }, () => v);
+    const floor = Object.assign(arc(t => [20 * t, 0, 0], n), { out: ones([0, 0, 1]), normal: ones([0, 1, 0]), kappa: ones([0, 0, 0]) });
+    const wall = Object.assign(arc(t => [20 * t, 10, 10], n), { out: ones([0, 1, 0]), normal: ones([0, 0, 1]), kappa: ones([0, 0, 0]) });
+    const quarter = x => arc(t => [x, 10 - 10 * Math.cos(Math.PI / 2 * t), 10 * Math.sin(Math.PI / 2 * t)], n);
+    const g2 = square([floor, quarter(20), wall, quarter(0)], { continuity: 'G2' });
+    assert.ok(g2.gap <= 0.01 && g2.turn <= 0.5, `gap ${g2.gap} turn ${g2.turn}`);
+    assert.ok(g2.bend <= 1e-3, `bend ${g2.bend} at ${g2.spans}`);
+});
