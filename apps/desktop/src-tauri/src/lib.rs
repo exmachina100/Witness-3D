@@ -939,6 +939,29 @@ async fn bridge_changed(
     .map_err(|e| e.to_string())
 }
 
+/// Preferences › Network, in the app's config folder.
+fn network_file(app: &tauri::AppHandle) -> Result<PathBuf, String> {
+    Ok(app.path().app_config_dir().map_err(|e| e.to_string())?.join("network.json"))
+}
+
+fn network_settings(app: &tauri::AppHandle) -> bridge::Settings {
+    let text = network_file(app).ok().and_then(|p| std::fs::read_to_string(p).ok());
+    bridge::Settings::read(text.as_deref())
+}
+
+#[tauri::command]
+fn network_prefs(app: tauri::AppHandle) -> bridge::Settings {
+    network_settings(&app)
+}
+
+/// Keep the bridge settings; they take effect the next time the app starts.
+#[tauri::command]
+fn set_network_prefs(app: tauri::AppHandle, prefs: bridge::Settings) -> Result<(), String> {
+    let path = network_file(&app)?;
+    if let Some(dir) = path.parent() { std::fs::create_dir_all(dir).map_err(|e| e.to_string())? }
+    std::fs::write(path, serde_json::to_string(&prefs).map_err(|e| e.to_string())?).map_err(|e| e.to_string())
+}
+
 #[tauri::command]
 fn bridge_status(bridge: State<'_, Option<bridge::Bridge>>) -> (usize, usize) {
     bridge.as_ref().map_or((0, 0), |b| b.status())
@@ -1020,9 +1043,15 @@ pub fn run() {
             let model = Arc::new(api::start_with(startup_scene(app.handle()).ok()));
             let m = model.clone();
             // Without the port (another copy running, say) the app still works, minus the bridge.
-            let bridge = bridge::Bridge::start(bridge::PORT, Arc::new(move || api::scene(&m)))
-                .map_err(|e| eprintln!("Blender bridge off: {e}"))
-                .ok();
+            let net = network_settings(app.handle());
+            let bridge = net
+                .bridge
+                .then(|| {
+                    bridge::Bridge::start(net.port, Arc::new(move || api::scene(&m)))
+                        .map_err(|e| eprintln!("Blender bridge off: {e}"))
+                        .ok()
+                })
+                .flatten();
             app.manage(Model(model));
             app.manage(bridge);
             app.manage(StartupFile(Mutex::new(w3d_arg(std::env::args()))));
@@ -1125,6 +1154,8 @@ pub fn run() {
             open,
             startup_file,
             save_startup_scene,
+            network_prefs,
+            set_network_prefs,
             system_fonts,
             read_font,
             reset_startup_scene,

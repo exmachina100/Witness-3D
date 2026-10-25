@@ -13,6 +13,7 @@ export const P_MENU = [
     { action: 'file:save-startup', label: 'SAVE AS STARTUP SCENE' },
     { action: 'file:export', label: 'EXPORT' },
     { action: 'file:save-version', label: 'QUICK SAVE VERSION' },
+    { action: 'app:preferences', label: 'PREFERENCES' },
     { action: 'app:version', label: 'CURRENT VERSION' },
     { action: 'app:quit', label: 'QUIT' },
 ];

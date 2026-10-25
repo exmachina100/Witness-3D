@@ -308,6 +308,21 @@ input[type="range"] { accent-color: var(--accent); }
 .pmenu kbd { font: inherit; opacity: 0.6; }
 .pmenu .pm-title, .pmenu .pm-none { padding: 8px 14px 4px; color: var(--muted); font-size: 10px; }
 .pmenu hr { border: 0; border-top: 1px solid var(--rule-soft); margin: 4px 0; }
+.prefs { position: fixed; left: 50%; top: 64px; transform: translateX(-50%); width: 380px; max-height: calc(100vh - 120px); overflow-y: auto; z-index: 21; background: var(--raised); border: 1px solid var(--rule); box-shadow: 0 12px 40px rgba(0, 0, 0, 0.5); padding: 0 0 8px; font-size: 11px; }
+.prefs[hidden] { display: none; }
+.prefs .pf-head { display: flex; align-items: center; gap: 12px; padding: 10px 14px; border-bottom: 1px solid var(--rule-soft); position: sticky; top: 0; background: var(--raised); }
+.prefs .pf-head span { flex: 1; color: var(--accent); }
+.prefs .pf-head button { color: var(--muted); display: flex; }
+.prefs .pf-head button:hover { color: var(--ink); }
+.prefs .pf-head svg { width: 14px; height: 14px; }
+.prefs .pf-title { padding: 12px 14px 4px; color: var(--muted); font-size: 10px; }
+.prefs .pf-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 5px 14px; cursor: pointer; }
+.prefs .pf-row:hover { background: var(--hover); }
+.prefs .pf-row.off { color: var(--dim); cursor: default; }
+.prefs .pf-row small { display: block; color: var(--muted); font-size: 9px; }
+.prefs input[type=number] { width: 72px; background: transparent; color: var(--ink); border: 0; border-bottom: 1px solid var(--rule); font: inherit; text-align: right; }
+.prefs input[type=color] { width: 36px; height: 18px; padding: 0; border: 1px solid var(--rule); background: none; cursor: pointer; }
+.prefs input[type=checkbox] { accent-color: var(--accent); }
 .palette-foot { padding: 6px 12px; color: var(--dim); font-size: 9px; border-top: 1px solid var(--rule-soft); }
 /* Radial menus: items on a ring about the cursor, the one pointed at in orange, its name in the hub. */
 .radial { position: absolute; width: 0; height: 0; z-index: 6; }

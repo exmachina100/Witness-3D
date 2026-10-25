@@ -6,6 +6,7 @@
 const A = 'class="ac"'; // the accent stroke
 
 const ICONS = {
+    close: `<path d="M6 6l12 12M18 6L6 18"/>`,
     search: `<circle cx="10.5" cy="10.5" r="6"/><path d="M15 15l5.5 5.5"/>`,
     rect: `<rect x="4" y="6" width="16" height="12"/><path ${A} d="M4 6h0M20 18h0"/>`,
     'center-rect': `<rect x="4" y="6" width="16" height="12"/><path ${A} d="M12 12h0M12 12l8 6"/>`,

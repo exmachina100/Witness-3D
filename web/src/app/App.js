@@ -94,6 +94,7 @@ import { distanceToFace } from '../dependentOffset.js';
 import { ALIGN_CURVE_CONTINUITY, alignCurveEnd, BRIDGE_CONTINUITY, bridgeContinuous, bridgeEnd, continuity, curvatureComb, curveVertices, explode, EXTEND_SHAPES, extendCurve, filletCurve, nearestEnd, OFFSET_CORNERS, offsetCurve, offsetSlot, offsetThrough, unionLoops, moveVertices, alignedInPlane, offsetVertex, rebuildCurve, subdivideCurve, completeCurve, convertVertices, insertKnotAt, raiseDegree, reverseCurve, transformCurve, moveVerticesTo, slideCurveCVs, splitCurve, tangentCircle, trim, cutCurve, cuttersFor, samples as curveSamples } from '../curveEdit.js';
 import { ViewGizmo } from './ViewGizmo.js';
 import { Toolbar } from './Toolbar.js';
+import { PREF_FIELDS, changedPrefs, controlSettings, readPrefs, setPref, viewColors } from './prefs.js';
 import { arcPoints, circleThrough, curveFromNurbs, cvPoints, ellipsePoints, endTangent, helixPoints, loops, nurbsLoop, nurbsPoints, polygonCorners, spiralAngle, tangentArc } from '../curves.js';
 
 const KEYS = {
@@ -220,6 +221,7 @@ const SHELL = `
     <span class="file" data-id="file-name">UNTITLED.W3D</span>
   </header>
   <div class="pmenu" data-id="pmenu" role="menu" hidden></div>
+  <div class="prefs" data-id="prefs" role="dialog" aria-label="Preferences" hidden></div>
 
   <aside class="left" aria-label="Document">
     <div class="tabs" role="tablist">
@@ -956,6 +958,11 @@ export async function mount(root, backend) {
   // The GPU process can also go away later; the browser restores the context when it comes back.
   canvas.addEventListener('webglcontextlost', e => { e.preventDefault(); $('loading').textContent = NO_GL; $('loading').hidden = false; });
   canvas.addEventListener('webglcontextrestored', () => { $('loading').hidden = true; });
+  // Preferences (Ctrl+,): read before anything takes its colours, so the accent reaches every
+  // highlight; the rest also apply as they are changed.
+  let prefs = readPrefs((() => { try { return JSON.parse(localStorage.getItem('w3d-prefs')); } catch { return null; } })());
+  Object.assign(COLORS, viewColors(prefs.appearance));
+  root.style.setProperty('--accent', prefs.appearance.accent);
   const scene = new THREE.Scene();
   scene.background = new THREE.Color(COLORS.ground);
   const persp = new THREE.PerspectiveCamera(36, 1, 1, 4000);
@@ -9150,7 +9157,8 @@ export async function mount(root, backend) {
         return true;
       case 'radial': openRadial(arg); return true;
       case 'app':
-        if (arg === 'quit') { if (backend.quit) backend.quit(); else toast('CLOSE THE TAB TO QUIT'); }
+        if (arg === 'preferences') openPrefs();
+        else if (arg === 'quit') { if (backend.quit) backend.quit(); else toast('CLOSE THE TAB TO QUIT'); }
         else openPMenu();
         return true;
       case 'file': {
@@ -9290,6 +9298,66 @@ export async function mount(root, backend) {
     const v = backend.version ? backend.version() : Promise.resolve(null);
     v.then(n => { const el = $('pm-version'); if (el) el.textContent = `WITNESS 3D ${n ? `V${n}` : '· BROWSER'}`; }, () => {});
   }
+  // Preferences: Plasticity's window of settings, by section; each change applies and is kept at once.
+  // The bridge settings live with the desktop app and take effect the next time it starts.
+  const PREF_SECTIONS = { navigation: 'NAVIGATION', appearance: 'APPEARANCE', network: 'NETWORK' };
+  function applyPrefs() {
+    Object.assign(controls, controlSettings(prefs.navigation));
+    const look = prefs.appearance, c = viewColors(look);
+    scene.background.setHex(c.ground);
+    COLORS.ground = c.ground;
+    paintGrid(c.gridMajor, c.grid);
+    edgeMat.color.set(look.edge);
+    vertexMat.normal.size = look.pointSize;
+    vertexMat.hover.size = vertexMat.selected.size = look.pointSize + 4;
+    // Zoom Factor scales the whole interface; the shell keeps filling the window.
+    const shell = root.querySelector('.w3d'), z = look.uiScale;
+    shell.style.zoom = z === 1 ? '' : String(z);
+    shell.style.height = z === 1 ? '' : `${100 / z}vh`;
+  }
+  function paintGrid(major, minor) {
+    // GridHelper's lines come four points a line pair; the middle pair is the major colour.
+    const col = grid.geometry.getAttribute('color'), half = col.count / 8 - 0.5;
+    const a = new THREE.Color(major), b = new THREE.Color(minor);
+    for (let v = 0; v < col.count; v++) (Math.floor(v / 4) === half ? a : b).toArray(col.array, v * 3);
+    col.needsUpdate = true;
+  }
+  async function openPrefs() {
+    closePMenu();
+    if (backend.networkPrefs) {
+      try { const n = await backend.networkPrefs(); prefs = setPref(setPref(prefs, 'network', 'bridge', n.bridge), 'network', 'bridgePort', n.port); } catch { /* keep ours */ }
+    }
+    const el = $('prefs'), desktop = typeof backend.setNetworkPrefs === 'function';
+    const field = (s, f) => {
+      const v = prefs[s][f.key], off = f.desktop && !desktop, id = `pf-${s}-${f.key}`;
+      const input = f.type === 'bool' ? `<input type="checkbox" id="${id}" ${v ? 'checked' : ''}>`
+        : f.type === 'color' ? `<input type="color" id="${id}" value="${v}">`
+        : `<input type="number" id="${id}" value="${v}" min="${f.min}" max="${f.max}" step="${f.step ?? 0.1}">`;
+      const note = off ? 'DESKTOP APP ONLY' : f.restart ? 'AFTER A RESTART' : '';
+      return `<label class="pf-row${off ? ' off' : ''}" data-pref="${s}.${f.key}" title="${note ? note.charAt(0) + note.slice(1).toLowerCase() : f.label}"><span>${f.label}${note ? `<small>${note}</small>` : ''}</span>${input.replace('>', off ? ' disabled>' : '>')}</label>`;
+    };
+    el.innerHTML = `<div class="pf-head"><span>PREFERENCES</span><button data-id="prefs-reset" title="Put every setting back to its default">RESET</button><button data-id="prefs-close" title="Close (Esc)" aria-label="Close">${icon('close')}</button></div>`
+      + Object.entries(PREF_FIELDS).map(([s, fs]) => `<div class="pf-title">${PREF_SECTIONS[s]}</div>` + fs.map(f => field(s, f)).join('')).join('');
+    el.hidden = false;
+    for (const row of el.querySelectorAll('[data-pref]')) {
+      const [s, key] = row.dataset.pref.split('.'), input = row.querySelector('input');
+      input.onchange = input.oninput = () => {
+        if (input.type === 'number' && input.value === '') return;
+        prefs = setPref(prefs, s, key, input.type === 'checkbox' ? input.checked : input.value);
+        keepPrefs(s);
+      };
+      input.onblur = () => { const v = prefs[s][key]; if (input.type !== 'checkbox') input.value = v; };
+    }
+    $('prefs-close').onclick = closePrefs;
+    $('prefs-reset').onclick = () => { prefs = readPrefs(null); keepPrefs('network'); openPrefs(); toast('PREFERENCES BACK TO THEIR DEFAULTS'); };
+  }
+  function keepPrefs(section) {
+    const { network, ...kept } = changedPrefs(prefs);
+    store.set('w3d-prefs', kept);
+    if (section === 'network' && backend.setNetworkPrefs) backend.setNetworkPrefs({ bridge: prefs.network.bridge, port: prefs.network.bridgePort }).catch(e => toast(say(e)));
+    applyPrefs();
+  }
+  function closePrefs() { $('prefs').hidden = true; }
   function closePMenu() { $('pmenu').hidden = true; $('pmenu-open').setAttribute('aria-expanded', 'false'); }
   $('pmenu-open').onclick = () => $('pmenu').hidden ? openPMenu() : closePMenu();
   addEventListener('pointerdown', e => { if (!$('pmenu').hidden && !e.target.closest('.pmenu, .pmenu-open')) closePMenu(); }, true);
@@ -9338,6 +9406,7 @@ export async function mount(root, backend) {
   addEventListener('pointermove', e => { if (radial) hotRadial(sliceAt(e.clientX - radial.x, e.clientY - radial.y, radial.m.items.length)); });
   addEventListener('pointerdown', e => { if (radial && !e.target.closest('.radial')) closeRadial(); }, true);
   addEventListener('keydown', e => { if (radial && e.key === 'Escape') { e.stopImmediatePropagation(); closeRadial(); } }, true);
+  addEventListener('keydown', e => { if (!$('prefs').hidden && e.key === 'Escape') { e.stopImmediatePropagation(); closePrefs(); } }, true);
   addEventListener('keyup', e => {
     // Let go of the key that opened the menu: run what the pointer is on, or leave it open to click.
     if (radial?.key && e.code === radial.key) { radial.key = null; if (radial.hot >= 0) runRadial(radial.hot); }
@@ -10051,6 +10120,7 @@ export async function mount(root, backend) {
     ortho.left = -half * w / h; ortho.right = half * w / h;
     ortho.updateProjectionMatrix();
   }
+  applyPrefs();
   renderer.setAnimationLoop(() => {
     resize();
     stepTurn(performance.now());
