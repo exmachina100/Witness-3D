@@ -44,6 +44,7 @@ const ICONS = {
     cylinder: `<ellipse cx="12" cy="6" rx="7" ry="2.5"/><path d="M5 6v12c0 1.4 3.1 2.5 7 2.5s7-1.1 7-2.5V6"/><path ${A} d="M12 18h0M12 18h7"/>`,
     sphere: `<circle cx="12" cy="12" r="8"/><ellipse cx="12" cy="12" rx="8" ry="3"/><path ${A} d="M12 12h0"/>`,
     shell: `<path d="M4 8l8-4 8 4v9l-8 4-8-4z"/><path d="M7 9.5v6l5 2.5 5-2.5v-6"/><path ${A} d="M4 8l8 4 8-4-8-4z"/>`,
+    symmetric: `<path d="M12 3v18" stroke-dasharray="2 2"/><path d="M3 18c2-6 4-9 6-10"/><path d="M21 18c-2-6-4-9-6-10"/><path ${A} d="M7 5l3 3-3 1M17 5l-3 3 3 1"/>`,
     mirror: `<path d="M12 2v20" stroke-dasharray="2 2"/><path d="M9 6L3 9v8l6 2z"/><path ${A} d="M15 6l6 3v8l-6 2z"/>`,
     'rect-array': `<rect x="3" y="3" width="7" height="7"/><rect ${A} x="14" y="3" width="7" height="7"/><rect ${A} x="3" y="14" width="7" height="7"/><rect ${A} x="14" y="14" width="7" height="7"/>`,
     // Curve Array: copies strung along a curve.

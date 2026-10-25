@@ -919,11 +919,11 @@ export class LocalBackend {
 
     previewMoveFacePoles(req) { return this.latest(async () => this.body(req.body, this.movePolesResult(req))) }
 
-    /** Moving surface control points as one undo step: the body keeps its id. */
+    /** Moving surface control points as one undo step: the body keeps its id. `more` moves other bodies' in the same step. */
     async commitMoveFacePoles(req) {
-        const shape = this.movePolesResult(req);
+        const all = [req, ...(req.more ?? [])].map(r => [r.body, this.movePolesResult(r)]);
         this.checkpoint();
-        this.put(req.body, shape);
+        for (const [body, shape] of all) this.put(body, shape);
         return { id: req.body, scene: this.bodies() };
     }
 

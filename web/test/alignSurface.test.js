@@ -105,3 +105,43 @@ test('partial alignment eases out to the side\'s ends', async () => {
     assert.ok(dz.get(1) > -8 && dz.get(1) < 0, 'between, it eases');
     assert.throws(() => alignMoves(side, plan, [], { partial: [0.8, 0.2] }), /start before end/);
 });
+
+for (const continuity of ['G0', 'G1']) test(`Symmetric: both sides move to meet halfway in ${continuity}, one undo step`, async () => {
+    const be = new LocalBackend();
+    const ref = sheet((i, j) => [20 * i / 3, 20 * j / 3, [0, 0, 2, 6][i]]);
+    const tgt = sheet((i, j) => [21 + 14 * i / 3, 20 * j / 3, 8]);
+    be.put(901, ref);
+    be.put(902, tgt);
+    const reference = { body: 901, edge: edgeNear(ref, [20, 10, 6]) }, target = { body: 902, edge: edgeNear(tgt, [21, 10, 8]) };
+    const req = await alignRequest(be, { target, reference, continuity, symmetric: true });
+    assert.equal(req.body, 902);
+    assert.equal(req.more.length, 1);
+    assert.equal(req.more[0].body, 901);
+    await be.commitMoveFacePoles(req);
+    // Both edges now lie on the curve halfway between: x 20.5, z 7.
+    const pts = [0, 0.13, 0.5, 0.77, 1].map(t => [20.5, 20 * t, 7]);
+    const frames = [];
+    for (const body of [901, 902]) {
+        const s = be.shapes.get(body), edge = edgeNear(s, [20.5, 10, 7]);
+        assert.ok(edge >= 0, `B-${body}'s side lies halfway`);
+        const [f] = readEdgeFaces(await be.edgeFaces({ body, edge, points: pts }), pts.length);
+        pts.forEach((p, k) => assert.ok(Math.hypot(...sub(f.frames[k].at, p)) < 1e-6, 'G0'));
+        frames.push(f.frames);
+    }
+    if (continuity === 'G1') pts.forEach((_, k) => {
+        const [a, b] = frames.map(f => unit(cross(f[k].su, f[k].sv)));
+        const angle = Math.acos(Math.min(1, Math.abs(dot(a, b)))) * 180 / Math.PI;
+        assert.ok(angle < 1e-4, `G1: ${angle}°`);
+    });
+    // One step undoes both.
+    be.undo();
+    assert.ok(edgeNear(be.shapes.get(901), [20, 10, 6]) >= 0 && edgeNear(be.shapes.get(902), [21, 10, 8]) >= 0);
+});
+
+test('Symmetric refuses G2', async () => {
+    const be = new LocalBackend();
+    be.shapes.set(901, sheet((i, j) => [20 * i / 3, 20 * j / 3, 0]));
+    be.shapes.set(902, sheet((i, j) => [21 + 14 * i / 3, 20 * j / 3, 1]));
+    const target = { body: 902, edge: edgeNear(be.shapes.get(902), [21, 10, 1]) }, reference = { body: 901, edge: edgeNear(be.shapes.get(901), [20, 10, 0]) };
+    await assert.rejects(alignRequest(be, { target, reference, continuity: 'G2', symmetric: true }), /G0 or G1/);
+});
