@@ -2311,8 +2311,9 @@ export async function mount(root, backend) {
     const reach = faceHit ? faceHit.distance * 1.01 + 0.5 : Infinity; // in front of the face, or on it
     raycaster.params.Line.threshold = unitsPerPixel(faceHit?.point ?? controls.target) * 6;
     // Curves pick with edges or solids (Plasticity picks a curve whole), regions with faces.
-    const curveHit = (sel.allows('edge') || sel.allows('solid'))
-      && raycaster.intersectObjects(curveGroup.children.filter(o => o.userData.curve !== undefined), false).find(h => h.distance <= reach);
+    // Hidden curves (View › Curves off, or hidden in the outliner) can't be picked.
+    const curveHit = (sel.allows('edge') || sel.allows('solid')) && curveGroup.visible
+      && raycaster.intersectObjects(curveGroup.children.filter(o => o.visible && o.userData.curve !== undefined), false).find(h => h.distance <= reach);
     let edgeHit = null;
     if (sel.allows('edge')) {
       const hits = raycaster.intersectObjects(meshes.map(m => m.userData.lines), false);
@@ -2321,7 +2322,7 @@ export async function mount(root, backend) {
     if (curveHit && (!edgeHit || curveHit.distance <= edgeHit.distance + 0.5)) return { kind: 'curve', id: curveHit.object.userData.curve, point: curveHit.point };
     if (edgeHit) return { kind: 'edge', body: edgeHit.object.parent.userData.id, n: edgeHit.object.userData.segEdge[edgeHit.index / 2], point: edgeHit.point };
     if (sel.allows('face')) {
-      const r = raycaster.intersectObjects(curveGroup.children.filter(o => o.userData.region !== undefined), false).find(h => h.distance <= reach);
+      const r = curveGroup.visible && raycaster.intersectObjects(curveGroup.children.filter(o => o.visible && o.userData.region !== undefined), false).find(h => h.distance <= reach);
       if (r) return { kind: 'region', id: r.object.userData.region, point: r.point };
     }
     if (!faceHit) return null;
@@ -4963,7 +4964,6 @@ export async function mount(root, backend) {
       } catch (e) { c.out = null; $('ac-hint').textContent = say(e); setHud('ALIGN FAILED'); setState('failed'); }
     };
     c.setContinuity = g => { c.continuity = g; c.preview(); };
-    c.setSymmetric = on => { c.symmetric = on; if (on && c.continuity === 'G2') c.continuity = 'G1'; c.preview(); };
     c.key = action => {
       if (action === 'continuity') return c.setContinuity(ALIGN_CURVE_CONTINUITY[(ALIGN_CURVE_CONTINUITY.indexOf(c.continuity) + 1) % ALIGN_CURVE_CONTINUITY.length]), true;
       if (action === 'view-curvature') { c.comb = !c.comb; c.preview(); return true; }
@@ -5078,7 +5078,7 @@ export async function mount(root, backend) {
         fit = square(sides, { degree: Math.round(num('sq-d')), spans: su ? [su, sv] : 0, continuity: c.continuity, tension });
       } catch (e) { c.data = null; clearPreview(); $('sq-hint').textContent = say(e); return setState('failed'); }
       c.data = splineSheetData(fit);
-      $('sq-hint').textContent = `${items.length === 2 ? 'LOFT' : items.length === 3 ? 'THREE SIDES' : 'FOUR SIDES'} · DEGREE ${fit.degree[0]} · ${fit.spans.join(' × ')} SPANS · SIDES WITHIN ${fit.gap < 1e-4 ? '< 0.0001' : fit.gap.toFixed(4)} MM${c.continuity === 'G1' || c.continuity === 'G2' ? ` · TANGENT WITHIN ${fit.turn.toFixed(2)}°` : ''}${c.continuity === 'G2' ? ` · CURVATURE WITHIN ${fit.bend.toFixed(5)} /MM` : ''}`;
+      $('sq-hint').textContent = `${c.continuity === 'FREE' ? 'FREE · ' : ''}${items.length === 2 ? 'LOFT' : items.length === 3 ? 'THREE SIDES' : 'FOUR SIDES'} · DEGREE ${fit.degree[0]} · ${fit.spans.join(' × ')} SPANS · SIDES WITHIN ${fit.gap < 1e-4 ? '< 0.0001' : fit.gap.toFixed(4)} MM${c.continuity === 'G1' || c.continuity === 'G2' ? ` · TANGENT WITHIN ${fit.turn.toFixed(2)}°` : ''}${c.continuity === 'G2' ? ` · CURVATURE WITHIN ${fit.bend.toFixed(5)} /MM` : ''}`;
       setHud(`SQUARE · ${fit.spans.join(' × ')} SPANS`);
       livePreview(c, () => backend.previewSplineSheet({ data: c.data }), b => showPreviewBody(b), 'sq-hint');
     };
@@ -7063,7 +7063,7 @@ export async function mount(root, backend) {
       return out.some(b => !b) ? null : out;
     }, list => {
       for (const b of list) showPreviewBody(b, phantom.add.face, phantom.add.edge).renderOrder = 5;
-      $('patch-hint').textContent = (c.tangent && c.edges.length ? 'SMOOTH SHEET, TANGENT TO THE FACES' : 'SHEET THROUGH THE LOOP') + (list.length > 1 ? ` · ${list.length} SHEETS` : '');
+      $('patch-hint').textContent = (c.tangent && c.edges.length ? 'SMOOTH SHEET, TANGENT TO THE FACES' : (list.length > 1 ? 'A SHEET THROUGH EACH LOOP' : 'SHEET THROUGH THE LOOP')) + (list.length > 1 ? ` · ${list.length} SHEETS` : '');
       setHud(list.length > 1 ? `PATCH ×${list.length}` : 'PATCH');
     }, 'patch-hint');
     c.onSelection = () => {
@@ -7805,7 +7805,9 @@ export async function mount(root, backend) {
         return list;
       }, list => list.forEach(b => showPreviewBody(b)), 'as-hint');
     };
-    c.setContinuity = g => { c.continuity = g; c.preview(); };
+    // Symmetric meets halfway in G0 or G1 only, so G2 drops to G1 while it is on.
+    c.setContinuity = g => { c.continuity = c.symmetric && g === 'G2' ? 'G1' : g; c.preview(); };
+    c.setSymmetric = on => { c.symmetric = on; if (on && c.continuity === 'G2') c.continuity = 'G1'; c.preview(); };
     c.key = action => {
       if (action === 'continuity') return c.setContinuity(ALIGN_CONTINUITY[(ALIGN_CONTINUITY.indexOf(c.continuity) + 1) % ALIGN_CONTINUITY.length]), true;
       if (action !== 'tension') return false;
