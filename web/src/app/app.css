@@ -104,6 +104,14 @@ button:focus-visible, input:focus-visible { outline: 1px solid var(--accent); ou
 .row-item .lk .ico { width: 13px; height: 13px; }
 .row-item.locked .name { color: var(--muted); }
 .row-item.off .name { color: var(--dim); }
+.row-item .dis, .row-item .act { color: var(--dim); padding: 0 2px; display: grid; place-items: center; }
+.row-item .dis[aria-pressed="true"], .row-item .act[aria-pressed="true"] { color: var(--accent); }
+.row-item .dis .ico, .row-item .act .ico { width: 13px; height: 13px; }
+/* Disable is rare: its switch shows on hover, and stays while the body is disabled. */
+.row-item .dis:not([aria-pressed="true"]) { display: none; }
+.row-item:hover .dis { display: grid; }
+.row-item.disabled .name, .row-item.disabled .tag { color: var(--dim); text-decoration: line-through; }
+.row-item.active-collection .name { color: var(--accent); }
 .row-item.folder { padding-left: 14px; }
 .row-item.folder .tw { width: 10px; flex: none; color: var(--muted); }
 .row-item.folder.empty-group .name { color: var(--dim); }

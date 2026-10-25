@@ -97,3 +97,42 @@ test('groups, hidden and locked go through the file; isolation does not', () => 
         assert.equal(e.groups.length + e.groupOf.size + e.hidden.size, 0);
     }
 });
+
+test('disabled bodies leave the viewport and selection, and Unhide All does not bring them back', () => {
+    const o = new Organise();
+    o.prune([1, 2, 3]);
+    o.setDisabled([2], true);
+    assert.ok(!o.shows(2) && !o.picks(2) && o.shows(1));
+    o.setHidden([...o.hidden], false);
+    assert.ok(!o.shows(2));
+    o.isolate([2, 3]);
+    assert.deepEqual([1, 2, 3].filter(id => o.shows(id)), [3]);
+    o.unisolate();
+    const back = Organise.from(JSON.parse(JSON.stringify(o.toJSON())));
+    assert.deepEqual([...back.disabled], [2]);
+    back.setDisabled([2], false);
+    assert.ok(back.shows(2));
+    o.prune([1, 3]);
+    assert.equal(o.disabled.size, 0);
+});
+
+test('new bodies go into the active collection; dissolving it hands the role to its parent', () => {
+    const o = new Organise();
+    o.prune([1, 2]);
+    const outer = o.makeGroup([1]);
+    const inner = o.makeGroup([1]);
+    inner.parent = outer.id;
+    o.toggleActive(inner.id);
+    o.prune([1, 2, 3]);
+    assert.equal(o.groupOf.get(3), inner.id);
+    assert.equal(o.groupOf.has(2), false);
+    const back = Organise.from(JSON.parse(JSON.stringify(o.toJSON())));
+    assert.equal(back.active, inner.id);
+    o.dissolve(inner.id);
+    assert.equal(o.active, outer.id);
+    o.toggleActive(outer.id);
+    assert.equal(o.active, null);
+    o.prune([1, 2, 3, 4]);
+    assert.equal(o.groupOf.has(4), false);
+    assert.equal(Organise.from({ ...o.toJSON(), active: 99 }).active, null);
+});
