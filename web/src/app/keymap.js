@@ -191,7 +191,7 @@ for (const id of ['rect', 'circle', 'line', 'center-rect', 'rect3', 'circle2', '
 export const ACTIONS = {
     'view:front': 'View front', 'view:right': 'View right', 'view:top': 'View top',
     'view:back': 'View back', 'view:left': 'View left', 'view:bottom': 'View bottom',
-    'view:ortho': 'Toggle orthographic', 'view:focus': 'Focus on selection', 'view:xray': 'Toggle x-ray',
+    'view:home': 'Viewport: Home view', 'view:ortho': 'Toggle orthographic', 'view:focus': 'Focus on selection', 'view:xray': 'Toggle x-ray',
     'mode:point': 'Selection mode: points', 'mode:edge': 'Selection mode: edges', 'mode:face': 'Selection mode: faces',
     'mode:solid': 'Selection mode: solids', 'mode:all': 'Selection mode: all',
     'convert:edge': 'Convert selection to edges', 'convert:face': 'Convert selection to faces', 'convert:solid': 'Convert selection to solids',

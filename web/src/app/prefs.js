@@ -10,6 +10,7 @@ export const PREF_FIELDS = {
     navigation: [
         { key: 'zoomToCursor', label: 'ZOOM TO CURSOR', type: 'bool', value: true },
         { key: 'rotateAroundCursor', label: 'ROTATE AROUND CURSOR', type: 'bool', value: true },
+        { key: 'arcball', label: 'ARCBALL ROTATION', type: 'bool', value: false },
         { key: 'zoomVertical', label: 'ZOOM VERTICAL (CTRL + MIDDLE-DRAG)', type: 'bool', value: true },
         { key: 'invertZoom', label: 'INVERT ZOOM', type: 'bool', value: false },
         { key: 'invertWheel', label: 'INVERT WHEEL DIRECTION', type: 'bool', value: false },

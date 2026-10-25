@@ -94,7 +94,7 @@ import { distanceToFace } from '../dependentOffset.js';
 import { ALIGN_CURVE_CONTINUITY, alignCurveEnd, BRIDGE_CONTINUITY, bridgeContinuous, bridgeEnd, continuity, curvatureComb, curveVertices, explode, EXTEND_SHAPES, extendCurve, filletCurve, nearestEnd, OFFSET_CORNERS, offsetCurve, offsetSlot, offsetThrough, unionLoops, moveVertices, alignedInPlane, offsetVertex, rebuildCurve, subdivideCurve, completeCurve, convertVertices, insertKnotAt, raiseDegree, reverseCurve, transformCurve, moveVerticesTo, slideCurveCVs, splitCurve, tangentCircle, trim, cutCurve, cuttersFor, samples as curveSamples } from '../curveEdit.js';
 import { ViewGizmo } from './ViewGizmo.js';
 import { Toolbar } from './Toolbar.js';
-import { dragAngles, orbitAbout } from './orbit.js';
+import { arcballAbout, dragAngles, orbitAbout } from './orbit.js';
 import { PREF_FIELDS, changedPrefs, controlSettings, readPrefs, setPref, viewColors, wheelSpeed } from './prefs.js';
 import { arcPoints, circleThrough, curveFromNurbs, cvPoints, ellipsePoints, endTangent, helixPoints, loops, nurbsLoop, nurbsPoints, polygonCorners, spiralAngle, tangentArc } from '../curves.js';
 
@@ -984,17 +984,30 @@ export async function mount(root, backend) {
     controls.zoomSpeed = controlSettings(prefs.navigation).zoomSpeed;
     const dolly = (e.ctrlKey || e.metaKey) && prefs.navigation.zoomVertical;
     controls.mouseButtons.MIDDLE = dolly ? THREE.MOUSE.DOLLY : THREE.MOUSE.ROTATE;
-    if (dolly || e.shiftKey || !prefs.navigation.rotateAroundCursor || turning) return;
-    ray(e);
-    const hit = raycaster.intersectObjects(shownMeshes(), false)[0];
-    if (!hit) return;
+    const arcball = prefs.navigation.arcball;
+    if (dolly || e.shiftKey || turning || !(prefs.navigation.rotateAroundCursor || arcball)) return;
+    let pivot = null;
+    if (prefs.navigation.rotateAroundCursor) { ray(e); pivot = raycaster.intersectObjects(shownMeshes(), false)[0]?.point.clone() ?? null; }
+    if (!pivot && !arcball) return;
     controls.mouseButtons.MIDDLE = null;
-    pivotDrag = { pivot: hit.point.clone(), x: e.clientX, y: e.clientY };
+    pivotDrag = { pivot: pivot ?? controls.target.clone(), arcball, x: e.clientX, y: e.clientY };
   }, true);
   addEventListener('pointermove', e => {
     if (!pivotDrag) return;
-    const { azimuth, elevation } = dragAngles(e.clientX - pivotDrag.x, e.clientY - pivotDrag.y, canvas.clientHeight, prefs.navigation.rotateSpeed);
+    const dx = e.clientX - pivotDrag.x, dy = e.clientY - pivotDrag.y;
     pivotDrag.x = e.clientX; pivotDrag.y = e.clientY;
+    if (pivotDrag.arcball) {
+      // Arcball: no fixed up, so the camera's up turns with the view.
+      camera.updateMatrixWorld();
+      const right = new THREE.Vector3().setFromMatrixColumn(camera.matrixWorld, 0).normalize(), up = new THREE.Vector3().setFromMatrixColumn(camera.matrixWorld, 1).normalize();
+      const r = arcballAbout(camera.position, controls.target, up, right, pivotDrag.pivot, dx, dy, canvas.clientHeight, prefs.navigation.rotateSpeed);
+      camera.position.copy(r.position);
+      controls.target.copy(r.target);
+      camera.up.copy(r.up);
+      camera.lookAt(controls.target);
+      return;
+    }
+    const { azimuth, elevation } = dragAngles(dx, dy, canvas.clientHeight, prefs.navigation.rotateSpeed);
     const r = orbitAbout(camera.position, controls.target, pivotDrag.pivot, azimuth, elevation, camera.up);
     camera.position.copy(r.position);
     controls.target.copy(r.target);
@@ -1041,6 +1054,8 @@ export async function mount(root, backend) {
   }
   function setView(name, { animate = true } = {}) {
     const v = VIEWS[name];
+    // A named view stands upright again after arcball turns rolled it.
+    camera.up.set(0, 1, 0);
     const dist = name === 'iso' ? 225 : camera.position.distanceTo(controls.target);
     const target = name === 'iso' ? new THREE.Vector3(0, 15, 0) : controls.target.clone();
     const dir = new THREE.Vector3(...v.dir).normalize();
@@ -1082,6 +1097,7 @@ export async function mount(root, backend) {
     const next = on ? ortho : persp;
     next.position.copy(camera.position);
     next.quaternion.copy(camera.quaternion);
+    next.up.copy(camera.up);
     if (on) {
       // Keep what's at the target the same size on screen.
       const h = camera.position.distanceTo(controls.target) * Math.tan(persp.fov * DEG / 2);
@@ -9198,6 +9214,7 @@ export async function mount(root, backend) {
       case 'view':
         if (arg === 'radial') openRadial(a.split(':')[2]);
         else if (arg === 'ortho') setOrtho(!camera.isOrthographicCamera);
+        else if (arg === 'home') setView('iso');
         else if (arg === 'focus') focus();
         else if (arg === 'xray') { view.xray = !view.xray; applyView(); }
         else if (arg === 'curvature') { view.curvature = !view.curvature; applyView(); renderOutliner(); }
@@ -9371,6 +9388,8 @@ export async function mount(root, backend) {
   const PREF_SECTIONS = { navigation: 'NAVIGATION', appearance: 'APPEARANCE', commands: 'COMMANDS', network: 'NETWORK' };
   function applyPrefs() {
     Object.assign(controls, controlSettings(prefs.navigation));
+    // With Arcball off the view stands upright again.
+    if (!prefs.navigation.arcball && camera.up.y !== 1) { camera.up.set(0, 1, 0); camera.lookAt(controls.target); }
     const look = prefs.appearance, c = viewColors(look);
     scene.background.setHex(c.ground);
     COLORS.ground = c.ground;
@@ -10557,7 +10576,7 @@ export async function mount(root, backend) {
     get hidden() { return current.map(b => b.id).filter(id => !org.shows(id)) },
     get organise() { return { locked: [...org.locked], isolated: org.isolated, layers: org.layers.length, groups: org.groups.map(g => ({ ...g, members: org.allMembers(g.id, current.map(b => b.id)) })) } },
     get ortho() { return camera.isOrthographicCamera },
-    get camera() { return { position: camera.position.toArray(), target: controls.target.toArray() } },
+    get camera() { return { position: camera.position.toArray(), target: controls.target.toArray(), up: camera.up.toArray() } },
     get bodies() { return current },
     get curves() { return curveList },
     get history() { return history.slice(0, history.length - undone).map(h => h.text) },

@@ -31,3 +31,18 @@ export function dragAngles(dx, dy, height, speed = 1) {
     const k = 2 * Math.PI / (height || 1) * speed;
     return { azimuth: -dx * k, elevation: -dy * k };
 }
+
+/**
+ * Arcball rotation (Preferences › Navigation): the drag turns the view about an axis square to it
+ * in the screen, through `pivot`, with no fixed up, so the view can roll and go over the top. `right`
+ * and `up` are the camera's screen axes. Returns the new position, target and camera up.
+ */
+export function arcballAbout(position, target, up, right, pivot, dx, dy, height, speed = 1) {
+    const k = 2 * Math.PI / (height || 1) * speed;
+    const axis = up.clone().multiplyScalar(-dx).addScaledVector(right, -dy);
+    const len = axis.length();
+    if (len < 1e-12) return { position: position.clone(), target: target.clone(), up: up.clone() };
+    const turn = new THREE.Quaternion().setFromAxisAngle(axis.divideScalar(len), len * k);
+    const swing = p => p.clone().sub(pivot).applyQuaternion(turn).add(pivot);
+    return { position: swing(position), target: swing(target), up: up.clone().applyQuaternion(turn).normalize() };
+}
