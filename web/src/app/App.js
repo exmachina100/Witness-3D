@@ -2636,6 +2636,18 @@ export async function mount(root, backend) {
     }
     return out;
   }
+  /** An instance's snaps: its master's, moved by the instance's matrix (kept until it moves). */
+  function instanceSnaps(o) {
+    const n = instances.find(i => i.id === o.userData.instance), master = n && bodyMesh(n.master);
+    if (!master) return [];
+    const key = o.matrix.elements.join(',');
+    if (o.userData.snapKey !== key || o.userData.snapsOf !== master.userData.snaps) {
+      o.userData.snaps = snapCandidates(master).map(s => ({ point: s.point.clone().applyMatrix4(o.matrix), kind: s.kind }));
+      o.userData.snapKey = key;
+      o.userData.snapsOf = master.userData.snaps;
+    }
+    return o.userData.snaps;
+  }
   /** Where the mesh's edges cross the Section Analysis plane, while one is shown. */
   function sectionSnaps(m) {
     const p = section.plane;
@@ -2647,7 +2659,9 @@ export async function mount(root, backend) {
   function snapNear(e, meshes, plane = null) {
     const c = local(e);
     let best = null, bestD = SNAP_PX;
-    for (const m of meshes) for (const s of [...snapCandidates(m), ...sectionSnaps(m)]) {
+    // 2026.2: instances snap as their masters do, where they stand.
+    const placed = instanceGroup.children.filter(o => o.isMesh && o.visible).flatMap(o => instanceSnaps(o));
+    for (const s of [...meshes.flatMap(m => [...snapCandidates(m), ...sectionSnaps(m)]), ...placed]) {
       if (plane && Math.abs(plane.distanceToPoint(s.point)) > 1e-3) continue;
       const p = screenOf(s.point);
       if (p.behind) continue;
@@ -10719,6 +10733,7 @@ export async function mount(root, backend) {
     get camera() { return { position: camera.position.toArray(), target: controls.target.toArray(), up: camera.up.toArray() } },
     get bodies() { return current },
     get curves() { return curveList },
+    get instances() { return instances.map(n => ({ id: n.id, master: n.master, curve: !!n.curve })) },
     get history() { return history.slice(0, history.length - undone).map(h => h.text) },
     /** Turn a sentence into a command with its preview, as the ASK box does. */
     ask,
