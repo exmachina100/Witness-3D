@@ -125,3 +125,22 @@ fn a_face_with_a_round_beside_it_is_refused_with_a_reason() {
     let err = doc.preview_move_faces(b, &[top], &Motion::translation(DVec3::new(0.0, 4.0, 0.0))).err().unwrap();
     assert!(format!("{err:?}").contains("fillet") || format!("{err:?}").contains("smoothly"), "{err:?}");
 }
+
+/// Draft Face's Curve taper turns a face about a line on it with Move Face; about a line square to
+/// the pull it must match the neutral-plane draft through that line. The axis is the line turned so
+/// that (line × face normal) · pull > 0, as web/src/app/App.js draftHinge does.
+#[test]
+fn a_face_turned_about_a_line_on_it_matches_the_draft_through_that_line() {
+    let mut doc = Document::new(Occt);
+    let b = doc.add(doc.kernel.box_from_corners(DVec3::ZERO, DVec3::splat(20.0)));
+    let side = facing(&doc.kernel, doc.get(b).unwrap(), DVec3::X);
+    let a = 5f64.to_radians();
+    let p = DVec3::new(20.0, 5.0, 0.0);
+    let drafted = doc.preview_draft(b, &[side], DVec3::Y, p, a).unwrap().solid;
+    let (d, n) = (DVec3::Z, DVec3::X);
+    let axis = if d.cross(n).dot(DVec3::Y) > 0.0 { d } else { -d };
+    let turned = doc.preview_move_faces(b, &[side], &Motion::rotation(p, axis, a)).unwrap().solid;
+    let (vd, vt) = (volume(&doc.kernel, &drafted), volume(&doc.kernel, &turned));
+    assert!((vd - vt).abs() < 1e-6, "draft {vd} turn {vt}");
+    assert!((vd - 8000.0).abs() > 1.0);
+}

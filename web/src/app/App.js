@@ -145,7 +145,7 @@ const KEYS = {
   'fillet-curve': [['D', 'RADIUS'], ['TYPE', 'IN PANEL'], ['⏎ / RMB', 'OK']],
   'remove-face': [['⇧ CLICK', 'FACES'], ['⏎ / RMB', 'OK']],
   cut: [['⇧ CLICK', 'SOLIDS · CURVES'], ['⇧ ALT CLICK', 'FACES'], ['P', 'CONSTRUCTION PLANE'], ['⏎ / RMB', 'OK']],
-  draft: [['A', 'ANGLE'], ['D', 'OFFSET'], ['⇧ CLICK', 'FACES'], ['⏎ / RMB', 'OK']],
+  draft: [['A', 'ANGLE'], ['D', 'OFFSET'], ['⇧ CLICK', 'FACES'], ['CLICK LINE', 'CURVE TAPER'], ['⏎ / RMB', 'OK']],
   imprint: [['⇧ CLICK', 'FACES · CURVES'], ['⇧ ALT CLICK', 'BODY THAT IMPRINTS'], ['X Y Z', 'VECTOR'], ['S', 'SCREEN SPACE'], ['C', 'COMPLETION'], ['⏎ / RMB', 'OK']],
   project: [['⇧ CLICK', 'SOLID · CURVES'], ['X Y Z', 'VECTOR'], ['S', 'SCREEN SPACE'], ['⏎ / RMB', 'OK']],
   'bridge-surface': [['⇧ CLICK', 'TWO EDGES'], ['T', 'TENSION'], ['⏎ / RMB', 'OK']],
@@ -561,6 +561,7 @@ const SHELL = `
       <div class="field"><label>FACES</label><output data-id="draft-count">0</output></div>
       <div class="field" title="Moves the neutral plane along the pull direction (D)"><label for="w3d-draft-d">OFFSET</label><input id="w3d-draft-d" data-id="draft-d" type="number" step="0.5" value="0"></div>
       <div class="field"><label>NEUTRAL</label><output data-id="draft-pull">—</output></div>
+      <div class="seg" role="group" aria-label="Taper method"><button data-drtaper="offset" aria-pressed="true" title="Offset: the faces tilt about the neutral plane, moved along the pull by Offset">OFFSET</button><button data-drtaper="curve" aria-pressed="false" title="Curve: click a straight curve or edge; the faces tilt about it">CURVE</button></div>
     </div>
     <div class="sec" data-panel="imprint" hidden>
       <span class="hint" data-id="imp-hint">—</span>
@@ -895,9 +896,9 @@ const VIEWS = {
 export async function mount(root, backend) {
   root.innerHTML = SHELL;
   // Panel options carry their icon ahead of the key and name.
-  for (const b of root.querySelectorAll('[data-proj],[data-imp],[data-impcomp],[data-draw],[data-bop],[data-xop],[data-fop],[data-spiral],[data-toggle],[data-gmethod],[data-galign],[data-grow],[data-mfgrow],[data-eslimit],[data-flshape],[data-avaxis],[data-extshape],[data-esshape],[data-isodir],[data-id="oe-both"],[data-id="oe-individual"],[data-id="blend-tangent"],[data-id="ex-lock"],[data-id="bool-keep"],[data-id="ex-free"],[data-id="ex-pivot"],[data-id="ex-individual"],[data-id="dr-hidden"],[data-id="dr-curves"],[data-id="oc-lock"],[data-id="oc-free"],[data-id="oc-slot"],[data-id="oc-combine"],[data-id="es-unlimit"],[data-rbmethod],[data-oecorner],[data-saplane],[data-plaxis],[data-plop],[data-id="pl-flip"],[data-id="pl-instance"],[data-id="ra-instance"],[data-id="rr-instance"],[data-id="ca-instance"],[data-id="br-trim"],[data-id="br-comb"],[data-id="ac-comb"],[data-id="dc-reblend"],[data-id="section-btn"],[data-id="sa-flip"],[data-id="rf-shrink"],[data-id="ut-keep"],[data-txfont],[data-txalign],[data-sldir],[data-dcflip],[data-id="dc-keep"],[data-imdepth],[data-imcull],[data-id="im-delete"],[data-id="cc-extend"],[data-id="cc-screen"],[data-inmode],[data-id="in-realize"],[data-id="in-dup"],[data-id="in-delete"],[data-id="matcap-load"],[data-id="matcap-custom"],[data-id="hdr-load"],[data-id="hdr-custom"]')) {
+  for (const b of root.querySelectorAll('[data-proj],[data-imp],[data-impcomp],[data-draw],[data-bop],[data-xop],[data-fop],[data-spiral],[data-toggle],[data-gmethod],[data-galign],[data-grow],[data-mfgrow],[data-eslimit],[data-flshape],[data-drtaper],[data-avaxis],[data-extshape],[data-esshape],[data-isodir],[data-id="oe-both"],[data-id="oe-individual"],[data-id="blend-tangent"],[data-id="ex-lock"],[data-id="bool-keep"],[data-id="ex-free"],[data-id="ex-pivot"],[data-id="ex-individual"],[data-id="dr-hidden"],[data-id="dr-curves"],[data-id="oc-lock"],[data-id="oc-free"],[data-id="oc-slot"],[data-id="oc-combine"],[data-id="es-unlimit"],[data-rbmethod],[data-oecorner],[data-saplane],[data-plaxis],[data-plop],[data-id="pl-flip"],[data-id="pl-instance"],[data-id="ra-instance"],[data-id="rr-instance"],[data-id="ca-instance"],[data-id="br-trim"],[data-id="br-comb"],[data-id="ac-comb"],[data-id="dc-reblend"],[data-id="section-btn"],[data-id="sa-flip"],[data-id="rf-shrink"],[data-id="ut-keep"],[data-txfont],[data-txalign],[data-sldir],[data-dcflip],[data-id="dc-keep"],[data-imdepth],[data-imcull],[data-id="im-delete"],[data-id="cc-extend"],[data-id="cc-screen"],[data-inmode],[data-id="in-realize"],[data-id="in-dup"],[data-id="in-delete"],[data-id="matcap-load"],[data-id="matcap-custom"],[data-id="hdr-load"],[data-id="hdr-custom"]')) {
     const name = (b.dataset.proj && (b.dataset.proj === 'screen' ? 'view-screen' : `proj-${b.dataset.proj}`)) ?? (b.dataset.imp && (b.dataset.imp === 'screen' ? 'view-screen' : `proj-${b.dataset.imp}`)) ?? (b.dataset.impcomp && `completion-${b.dataset.impcomp}`) ?? b.dataset.draw ?? b.dataset.bop ?? b.dataset.xop ?? b.dataset.fop ?? b.dataset.spiral ?? (b.dataset.toggle && `view-${b.dataset.toggle}`)
-      ?? (b.dataset.gmethod && `guide-${b.dataset.gmethod}`) ?? (b.dataset.galign && `align-${b.dataset.galign}`) ?? (b.dataset.grow && `grow-${b.dataset.grow}`) ?? (b.dataset.mfgrow && `grow-${b.dataset.mfgrow}`) ?? (b.dataset.eslimit && `limit-${b.dataset.eslimit}`) ?? (b.dataset.flshape && `fillet-${b.dataset.flshape}`) ?? (b.dataset.avaxis && `axis-${b.dataset.avaxis}`) ?? (b.dataset.extshape && `extend-${b.dataset.extshape}`) ?? (b.dataset.esshape && `extend-${b.dataset.esshape}`) ?? (b.dataset.isodir && `iso-${b.dataset.isodir}`) ?? (b.dataset.rbmethod && `rebuild-${b.dataset.rbmethod}`) ?? (b.dataset.oecorner && `corner-${b.dataset.oecorner}`) ?? (b.dataset.saplane && `section-${b.dataset.saplane}`) ?? (b.dataset.plaxis && (b.dataset.plaxis === 'normal' ? 'place-normal' : `axis-${b.dataset.plaxis}`)) ?? b.dataset.plop
+      ?? (b.dataset.gmethod && `guide-${b.dataset.gmethod}`) ?? (b.dataset.galign && `align-${b.dataset.galign}`) ?? (b.dataset.grow && `grow-${b.dataset.grow}`) ?? (b.dataset.mfgrow && `grow-${b.dataset.mfgrow}`) ?? (b.dataset.eslimit && `limit-${b.dataset.eslimit}`) ?? (b.dataset.flshape && `fillet-${b.dataset.flshape}`) ?? (b.dataset.drtaper && `taper-${b.dataset.drtaper}`) ?? (b.dataset.avaxis && `axis-${b.dataset.avaxis}`) ?? (b.dataset.extshape && `extend-${b.dataset.extshape}`) ?? (b.dataset.esshape && `extend-${b.dataset.esshape}`) ?? (b.dataset.isodir && `iso-${b.dataset.isodir}`) ?? (b.dataset.rbmethod && `rebuild-${b.dataset.rbmethod}`) ?? (b.dataset.oecorner && `corner-${b.dataset.oecorner}`) ?? (b.dataset.saplane && `section-${b.dataset.saplane}`) ?? (b.dataset.plaxis && (b.dataset.plaxis === 'normal' ? 'place-normal' : `axis-${b.dataset.plaxis}`)) ?? b.dataset.plop
       ?? (b.dataset.txfont && `font-${b.dataset.txfont}`) ?? (b.dataset.txalign && `txalign-${b.dataset.txalign}`) ?? (b.dataset.sldir && { u: 'slide-u', '-u': 'slide-back', v: 'slide-v', '-v': 'slide-vback', n: 'slide-n' }[b.dataset.sldir]) ?? (b.dataset.dcflip && { mirror: 'mirror', swap: 'swap-uv', normal: 'reverse-sheet' }[b.dataset.dcflip]) ?? (b.dataset.imdepth && `depth-${b.dataset.imdepth}`) ?? (b.dataset.imcull && `cull-${b.dataset.imcull}`) ?? b.dataset.inmode
       ?? { 'matcap-load': 'matcap-load', 'matcap-custom': 'matcap', 'hdr-load': 'hdr-load', 'hdr-custom': 'hdr', 'ex-lock': 'lock', 'bool-keep': 'keep', 'ex-free': 'freestyle', 'ex-pivot': 'pivot', 'ex-individual': 'individual', 'dr-hidden': 'hidden-lines', 'dr-curves': 'drawing-curves', 'oc-lock': 'lock', 'oc-free': 'freestyle', 'oc-slot': 'slot', 'oc-combine': 'combine', 'oe-both': 'both-sides', 'oe-individual': 'individual', 'blend-tangent': 'tangent-chain', 'es-unlimit': 'unlimit', 'rf-shrink': 'shrink', 'ut-keep': 'keep-edges', 'section-btn': 'view-section', 'sa-flip': 'flip', 'pl-flip': 'flip', 'pl-instance': 'instance', 'ra-instance': 'instance', 'rr-instance': 'instance', 'ca-instance': 'instance', 'br-trim': 'trim', 'br-comb': 'view-curvature', 'ac-comb': 'view-curvature', 'dc-reblend': 'reblend', 'dc-keep': 'keep', 'im-delete': 'delete', 'in-realize': 'realize-instance', 'cc-extend': 'extend', 'cc-screen': 'view-screen', 'in-dup': 'duplicate', 'in-delete': 'delete' }[b.dataset.id];
     b.insertAdjacentHTML('afterbegin', icon(name));
@@ -8212,7 +8213,7 @@ export async function mount(root, backend) {
     const body = faceBody();
     if (body === null) return toast(sel.list('face').length ? 'DRAFT THE FACES OF ONE SOLID AT A TIME' : 'SELECT THE REFERENCE FACE, THEN SHIFT-SELECT THE FACES TO DRAFT');
     if (!backend.previewDraft) return toast('DRAFT FACE IS NOT IN THIS BUILD YET');
-    const c = cmd = { id: 'draft', body, faces: [], ref: null, plane: draftAboutPlane, gizmo: null, sent: 0, shown: 0 };
+    const c = cmd = { id: 'draft', body, faces: [], ref: null, plane: draftAboutPlane, gizmo: null, taper: 'offset', hinge: null, sent: 0, shown: 0 };
     draftAboutPlane = false;
     lastTool = 'draft';
     showTool('draft');
@@ -8227,12 +8228,47 @@ export async function mount(root, backend) {
       return { n, o: o.addScaledVector(n, num('draft-d') || 0) };
     };
     c.request = () => { const { n, o } = neutral(); return { body: c.body, faces: c.faces, pull: n.toArray(), origin: o.toArray(), angle: num('draft-a') * DEG }; };
-    const text = () => `DRAFT ${num('draft-a')}°${num('draft-d') ? ` · OFFSET ${num('draft-d')}` : ''}`;
+    // Taper Method Curve: the faces tilt about the picked line. A line square to the pull is the
+    // draft whose neutral plane runs through it; a slanted one turns its face about it (Move Face),
+    // the way that leans the face's normal towards the pull, as the draft does.
+    c.call = () => {
+      const r = c.request();
+      if (c.taper !== 'curve') return { draft: r };
+      if (!c.hinge) throw new Error('click the straight curve or edge to tilt the faces about');
+      const pull = new THREE.Vector3(...r.pull), { p, d } = c.hinge;
+      if (Math.abs(d.dot(pull)) < 1e-6) return { draft: { ...r, origin: p.toArray() } };
+      if (c.faces.length !== 1) throw new Error('a line slanted to the pull tilts one face at a time');
+      if (!backend.previewMoveFaces) throw new Error('the browser demo tilts faces about lines square to the pull; the desktop app takes slanted ones too');
+      const plane = bodyOf(c.body)?.facePlanes[c.faces[0]];
+      if (!plane) throw new Error('only a flat face tilts about a line');
+      const nf = new THREE.Vector3(...plane.normal);
+      const lean = d.clone().cross(nf).dot(pull);
+      if (Math.abs(lean) < 1e-6) throw new Error('turning about a line along the pull does not tilt the face towards it; pick a line across the face');
+      const axis = d.clone().multiplyScalar(lean > 0 ? 1 : -1);
+      return { turn: { body: c.body, faces: c.faces, offset: [0, 0, 0], pivot: p.toArray(), axis: axis.toArray(), angle: r.angle } };
+    };
+    const text = () => `DRAFT ${num('draft-a')}°${c.taper === 'curve' ? ' · ABOUT THE LINE' : num('draft-d') ? ` · OFFSET ${num('draft-d')}` : ''}`;
     c.preview = () => {
       c.gizmo?.render(num('draft-a'));
+      for (const b of $$('[data-drtaper]')) b.setAttribute('aria-pressed', String(b.dataset.drtaper === c.taper));
+      $('draft-pull').textContent = c.taper === 'curve' ? (c.hinge ? 'THE LINE' : 'CLICK A LINE') : c.ref !== null ? `FACE ${c.ref}` : `PLANE ${cplane.name}`;
       if (!c.faces.length) { clearPreview(); setState('none'); return setHud('SHIFT-SELECT THE FACES TO DRAFT'); }
-      livePreview(c, () => backend.previewDraft(c.request()), b => { showPreviewBody(b); setHud(text()); }, 'draft-hint');
+      if (c.taper === 'curve' && !c.hinge) { clearPreview(); setState('none'); return setHud('CLICK THE STRAIGHT CURVE OR EDGE TO TILT ABOUT'); }
+      livePreview(c, () => { const q = c.call(); return q.draft ? backend.previewDraft(q.draft) : backend.previewMoveFaces(q.turn); }, b => { showPreviewBody(b); setHud(text()); }, 'draft-hint');
     };
+    // A straight curve's or body edge's line in the world, or null.
+    const lineOf = hit => {
+      let pts = [];
+      if (hit?.kind === 'curve' && curveById(hit.id)) { const src = curveById(hit.id), f = curveFrame(src); pts = curve2d(src).map(q => lift(f, q)); }
+      else if (hit?.kind === 'edge') { const e = bodyOf(hit.body)?.edges[hit.n] ?? []; for (let i = 2; i < e.length; i += 3) pts.push(new THREE.Vector3(e[i - 2], e[i - 1], e[i])); }
+      if (pts.length < 2) return null;
+      const p = pts[0], d = pts[pts.length - 1].clone().sub(p);
+      if (d.length() < 1e-9) return null;
+      d.normalize();
+      const off = q => q.clone().sub(p).sub(d.clone().multiplyScalar(q.clone().sub(p).dot(d))).length();
+      return pts.every(q => off(q) < 1e-4) ? { p: p.clone(), d } : null;
+    };
+    c.taperTo = m => { c.taper = m; c.preview(); };
     // The white dot sets the angle: dragged out along the first drafted face's normal, a degree per unit.
     const place = () => {
       c.gizmo?.dispose();
@@ -8272,6 +8308,13 @@ export async function mount(root, backend) {
     };
     c.click = e => {
       const hit = pickAt(e);
+      if (c.taper === 'curve' && !(e.ctrlKey || e.metaKey || e.shiftKey) && (hit?.kind === 'curve' || hit?.kind === 'edge')) {
+        const line = lineOf(hit);
+        if (!line) { toast('PICK A STRAIGHT CURVE OR EDGE'); return true; }
+        c.hinge = line;
+        c.preview();
+        return true;
+      }
       if (hit?.kind !== 'face' || !(e.ctrlKey || e.metaKey || e.shiftKey)) return true;
       sel.toggle({ kind: 'face', body: hit.body, n: hit.n });
       selectionChanged();
@@ -8280,7 +8323,8 @@ export async function mount(root, backend) {
     c.finish = async () => {
       if (!c.faces.length) return toast('SHIFT-SELECT THE FACES TO DRAFT');
       try {
-        const { id, scene: list } = await backend.commitDraft(c.request());
+        const q = c.call();
+        const { id, scene: list } = q.draft ? await backend.commitDraft(q.draft) : await backend.commitMoveFaces(q.turn);
         endCmd('committed');
         record(`DRAFT ${num('draft-a')}° ×${c.faces.length}`, id);
         await showScene(list);
@@ -9575,6 +9619,7 @@ export async function mount(root, backend) {
   for (const b of $$('[data-rbmethod]')) b.onclick = () => cmd?.id === 'rebuild-face' && cmd.setMethod(b.dataset.rbmethod);
   $('rf-shrink').onclick = () => cmd?.id === 'rebuild-face' && cmd.setShrink(!cmd.shrink);
   for (const b of $$('[data-mfgrow]')) b.onclick = () => cmd?.id === 'match-face' && cmd.setGrow(b.dataset.mfgrow);
+  for (const b of $$('[data-drtaper]')) b.onclick = () => cmd?.id === 'draft' && cmd.taperTo(b.dataset.drtaper);
   $('ut-keep').onclick = () => cmd?.id === 'untrim' && cmd.setKeep(!cmd.keep);
   $('section-btn').onclick = () => doAction('section');
   $('pl-flip').onclick = () => cmd?.id === 'place' && cmd.key('flip');
