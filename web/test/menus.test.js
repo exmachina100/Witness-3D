@@ -4,8 +4,8 @@ import { P_MENU, RADIALS, mergeKeys, parseRadial, shortLabel, showKey, sliceAt, 
 import { ACTIONS, VIEWPORT } from '../src/app/keymap.js';
 
 test('the P-Menu follows the manual, with its keys', () => {
-    assert.deepEqual(P_MENU.map(e => e.label), ['RECENT FILES', 'NEW FILE', 'OPEN', 'IMPORT', 'SAVE', 'SAVE AS', 'SAVE AS STARTUP SCENE', 'EXPORT', 'QUICK SAVE VERSION', 'CURRENT VERSION', 'QUIT']);
-    for (const [k, a] of [['ctrl-n', 'file:new'], ['ctrl-o', 'file:open'], ['ctrl-shift-o', 'import:step'], ['ctrl-s', 'file:save'], ['ctrl-shift-s', 'file:save-as'], ['ctrl-shift-e', 'file:export'], ['ctrl-q', 'app:quit']]) assert.equal(VIEWPORT[k], a, k);
+    assert.deepEqual(P_MENU.map(e => e.label), ['RECENT FILES', 'NEW FILE', 'OPEN', 'IMPORT', 'SAVE', 'SAVE AS', 'SAVE AS STARTUP SCENE', 'EXPORT', 'QUICK SAVE VERSION', 'PREFERENCES', 'CURRENT VERSION', 'QUIT']);
+    for (const [k, a] of [['ctrl-n', 'file:new'], ['ctrl-o', 'file:open'], ['ctrl-shift-o', 'import:step'], ['ctrl-s', 'file:save'], ['ctrl-shift-s', 'file:save-as'], ['ctrl-shift-e', 'file:export'], ['ctrl-q', 'app:quit'], ['ctrl-,', 'app:preferences']]) assert.equal(VIEWPORT[k], a, k);
     for (const e of P_MENU) if (e.action !== 'app:version') assert.ok(ACTIONS[e.action], e.action);
 });
 

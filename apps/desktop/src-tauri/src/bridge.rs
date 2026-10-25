@@ -31,6 +31,30 @@ use crate::api::Body;
 /// Witness 3D's bridge port. Plasticity's own bridge uses a different one, so both apps can run.
 pub const PORT: u16 = 8981;
 
+/// Preferences › Network: whether the bridge runs and on which port, kept as JSON in the app's
+/// config folder and read when the app starts.
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, serde::Deserialize)]
+pub struct Settings {
+    pub bridge: bool,
+    pub port: u16,
+}
+
+impl Default for Settings {
+    fn default() -> Self {
+        Settings { bridge: true, port: PORT }
+    }
+}
+
+impl Settings {
+    /// The stored settings, or the defaults for a missing or unreadable file. Ports below 1024
+    /// need privileges, so they read as the default.
+    pub fn read(text: Option<&str>) -> Settings {
+        let mut s: Settings = text.and_then(|t| serde_json::from_str(t).ok()).unwrap_or_default();
+        if s.port < 1024 { s.port = PORT }
+        s
+    }
+}
+
 type Scene = Arc<dyn Fn() -> Result<Vec<Body>, String> + Send + Sync>;
 
 struct Client {

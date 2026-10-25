@@ -77,3 +77,12 @@ fn refresh_and_live_link_send_z_up_meshes() {
     bridge.changed();
     assert_eq!(read(&mut ws)["objects"].as_array().unwrap().len(), 0);
 }
+
+#[test]
+fn network_settings_read_safely() {
+    use w3d_desktop::bridge::{Settings, PORT};
+    assert_eq!(Settings::read(None), Settings { bridge: true, port: PORT });
+    assert_eq!(Settings::read(Some("not json")), Settings::default());
+    assert_eq!(Settings::read(Some(r#"{"bridge":false,"port":5000}"#)), Settings { bridge: false, port: 5000 });
+    assert_eq!(Settings::read(Some(r#"{"bridge":true,"port":80}"#)).port, PORT);
+}

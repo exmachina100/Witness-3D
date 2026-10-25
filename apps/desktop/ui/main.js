@@ -116,6 +116,8 @@ const rust = {
   // The Blender bridge: tell Live Link the model changed; both answer [connected, live].
   sceneChanged: outline => tauri.core.invoke('bridge_changed', { outline: outline ?? null }),
   bridgeStatus: () => tauri.core.invoke('bridge_status'),
+  networkPrefs: () => tauri.core.invoke('network_prefs'),
+  setNetworkPrefs: prefs => tauri.core.invoke('set_network_prefs', { prefs }),
   undo: () => tauri.core.invoke('undo'),
   redo: () => tauri.core.invoke('redo'),
   newDocument() { filePath = null; return tauri.core.invoke('new_document'); },
