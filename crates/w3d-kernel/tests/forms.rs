@@ -507,3 +507,23 @@ fn offset_face_grow_modes_past_the_outer_wall() {
     assert!(k.is_valid(&moved));
     assert_eq!(k.face_count(&moved), 6, "a plain block");
 }
+
+#[test]
+fn offset_face_on_a_chamfer_sets_its_distance() {
+    // Dimension on a chamfer moves the chamfer face, the faces beside it following: a 10 mm
+    // chamfer's face moved in by 2·cos 45° becomes a 12 mm chamfer.
+    let k = Occt;
+    let body = enclosure(&k);
+    let edge = {
+        let t = k.tessellate(&body, 0.01).unwrap();
+        t.edges.iter().position(|e| e.iter().all(|p| (p[1] - 30.0).abs() < 1e-6 && (p[2] - 25.0).abs() < 1e-6)).unwrap() as u32
+    };
+    let p = BlendParams { edges: vec![edge], size: 10.0, kind: Blend::Chamfer, angle: blend::EQUAL, variable: vec![], shape: w3d_kernel::blend::FilletShape::Round, tension: 0.5, limits: vec![] };
+    let bevel = blend(&k, &body, &p).unwrap().solid;
+    let n = DVec3::new(0.0, 1.0, 1.0).normalize();
+    let face = faces_facing(&k, &bevel, DVec3::new(0.0, 30.0, 15.0), n);
+    assert_eq!(face.len(), 1);
+    let deeper = offset_faces(&k, &bevel, &face, -2.0 * (PI / 4.0).cos(), 0.0).unwrap().solid;
+    assert_eq!(k.face_count(&deeper), 7);
+    close(volume(&k, &deeper), 80.0 * 50.0 * 30.0 - 80.0 * 12.0 * 12.0 / 2.0, 0.5);
+}

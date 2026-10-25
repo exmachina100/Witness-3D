@@ -184,3 +184,26 @@ export function refilletFaces(shape, faces, radius) {
     if (!fresh.length) throw new Error('taking the fillet off left no edge to round again');
     return blendEdges(sharp, fresh, radius);
 }
+
+/**
+ * Dimension on a chamfer in the browser build: the corner filled back in and cut again `to` from
+ * it. `corner` is a point on the line where the two faces beside the chamfer meet, `axis` that
+ * line's direction, `sides` the unit directions across each face from it, `span` the run along
+ * `axis` the chamfer covers and `size` its distance now (chamferDimensions in dimension.js).
+ */
+export function rechamfer(shape, { corner, axis, sides, span, size, to }) {
+    const o = oc();
+    if (!(to > 0)) throw new Error('a chamfer needs a distance above zero');
+    const prism = d => {
+        const at = (s, t) => new o.gp_Pnt(...corner.map((c, k) => c + axis[k] * span[0] + (s ? sides[s - 1][k] * t : 0)));
+        const ps = [at(0, 0), at(1, d), at(2, d)], mk = new o.BRepBuilderAPI_MakeWire();
+        for (let i = 0; i < 3; i++) mk.Add(new o.BRepBuilderAPI_MakeEdge(ps[i], ps[(i + 1) % 3]).Edge());
+        const f = new o.BRepBuilderAPI_MakeFace(mk.Wire(), true).Face();
+        return new o.BRepPrimAPI_MakePrism(f, new o.gp_Vec(...axis.map(x => x * (span[1] - span[0]))), false, true).Shape();
+    };
+    const filled = run_(new o.BRepAlgoAPI_Fuse(shape, prism(size), new o.Message_ProgressRange()));
+    const cut = run_(new o.BRepAlgoAPI_Cut(filled, prism(to), new o.Message_ProgressRange()));
+    const { shape: merged } = unifyWithHistory(cut);
+    if (numbered(merged, 'TopAbs_SOLID').length !== numbered(shape, 'TopAbs_SOLID').length) throw new Error('a chamfer that size cuts the body apart');
+    return merged;
+}

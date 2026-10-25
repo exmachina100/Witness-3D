@@ -80,6 +80,52 @@ export function filletDimensions(body, chain, surfaces) {
 }
 
 /**
+ * A chamfer's distance (Plasticity's Dimension on a chamfer): flat face `face` cutting the corner
+ * where two flat faces would meet, set back the same distance on each. `neighbours` is
+ * [{ face, points }]: each face beside it and the edge they share as [[x, y, z], ...]. A new
+ * distance moves the chamfer face in or out (Offset Face), the corner line staying where it is;
+ * `chamfer` on the edit says where the corner is for builds whose Offset Face cannot carry the
+ * faces beside a slanted face along (the browser's; see rechamfer in removeFace.js).
+ */
+export function chamferDimensions(body, face, surfaces, neighbours) {
+    const f = surfaces[face];
+    if (f?.kind !== 'plane') return [];
+    const cross = (a, b) => [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]];
+    const len = a => Math.hypot(...a);
+    // The straight edges shared with flat faces, longest first.
+    const sides = neighbours.map(({ face: g, points }) => {
+        const s = surfaces[g], a = points[0], b = points[points.length - 1], d = sub(b, a), l = len(d);
+        if (s?.kind !== 'plane' || l < 1e-9) return null;
+        const u = d.map(x => x / l);
+        const straight = points.every(q => { const r = sub(q, a), t = dot(r, u); return len(sub(r, u.map(x => x * t))) < 1e-6 * Math.max(1, l); });
+        return straight ? { s, a, u, l } : null;
+    }).filter(Boolean).sort((x, y) => y.l - x.l);
+    for (let i = 0; i < sides.length; i++) for (let j = i + 1; j < sides.length; j++) {
+        const A = sides[i], B = sides[j];
+        if (Math.abs(Math.abs(dot(A.u, B.u)) - 1) > 1e-6) continue;
+        if ([A.s.normal, B.s.normal, f.normal].some(n => Math.abs(dot(n, A.u)) > 1e-6)) continue;
+        const nn = dot(A.s.normal, B.s.normal);
+        if (Math.abs(nn) > 1 - 1e-6) continue;
+        // The corner line where the two faces' planes meet, as a point in the section across it.
+        const w = cross(A.s.normal, B.s.normal);
+        const hA = dot(A.s.normal, A.s.origin), hB = dot(B.s.normal, B.s.origin);
+        const corner = cross(w, A.s.normal).map((x, k) => (hB * x - hA * cross(w, B.s.normal)[k]) / dot(w, w));
+        const h = dot(sub(corner, f.origin), f.normal);
+        if (!(h > 1e-9)) continue;
+        // Setbacks: from the corner line to each shared edge, across the edge.
+        const setback = S => { const r = sub(S.a, corner); return len(sub(r, S.u.map(x => x * dot(r, S.u)))); };
+        const dA = setback(A), dB = setback(B);
+        if (Math.abs(dA - dB) > 1e-6 * Math.max(1, dA)) continue;
+        // Across the corner to each side, and the run of the chamfer along it.
+        const toward = S => { const r = sub(S.a, corner), t = sub(r, S.u.map(x => x * dot(r, S.u))); return t.map(x => x / len(t)); };
+        const span = [A.a, A.a.map((x, k) => x + A.u[k] * A.l)].map(q => dot(sub(q, corner), A.u)).sort((x, y) => x - y);
+        const chamfer = { corner, axis: A.u, sides: [toward(A), toward(B)], span, size: dA };
+        return [{ label: 'DISTANCE', value: dA, edit: v => ({ op: 'offset', body, faces: [face], distance: h * (1 - v / dA), chamfer: { ...chamfer, to: v } }) }];
+    }
+    return [];
+}
+
+/**
  * A whole solid's sizes: a ball's diameter (scaled about its centre: { op: 'scale', body, pivot,
  * scale }), or a block's width, length and height along its sides, the side facing most along
  * +x, back (model −z) and up (model +y) moving.
