@@ -84,7 +84,7 @@ import { newInstance, checkInstance, matrixOf, motionOf, instanceFromMotion, mir
 import { arrayMotions } from '../arrayMotions.js';
 import { Organise } from './Organise.js';
 import { P_MENU, RADIALS, mergeKeys, parseRadial, shortLabel, showKey, sliceAt, slicePosition } from './menus.js';
-import { ADVANCED_MATERIAL, ENVIRONMENTS, SHADERS, SHADER_OPTIONS, checkMaterial, formatMass, isColorKey, massOf, newMaterial, shader } from './shading.js';
+import { ADVANCED_MATERIAL, ENVIRONMENTS, MATERIAL_LIBRARY, SHADERS, SHADER_OPTIONS, checkMaterial, formatMass, isColorKey, massOf, newMaterial, shader } from './shading.js';
 import { claude, describe, MODEL, reply, request } from './ai.js';
 import { icon } from './icons.js';
 import { limitEdges, toObj, toStl } from '../meshExport.js';
@@ -704,6 +704,8 @@ const SHELL = `
     </div>
     <div class="sec" data-panel="material" hidden>
       <span class="hint" data-id="mat-hint">—</span>
+      <span class="label">LIBRARY</span>
+      <div class="swatches" role="group" aria-label="Material library" data-id="mat-library">${MATERIAL_LIBRARY.map((m, i) => `<button data-matlib="${i}" aria-label="${m.name}" title="${m.name} · ${m.density} G/CM³" style="background: ${m.color}"></button>`).join('')}</div>
       <div class="field"><label for="w3d-mat-color">COLOR</label><input id="w3d-mat-color" data-mat="color" type="color" value="#9a968c"></div>
       <div class="field"><label for="w3d-mat-rough">ROUGHNESS</label><input id="w3d-mat-rough" data-mat="roughness" type="number" step="0.05" min="0" max="1" value="0.5"></div>
       <div class="field"><label for="w3d-mat-metal">METALNESS</label><input id="w3d-mat-metal" data-mat="metalness" type="number" step="0.05" min="0" max="1" value="0"></div>
@@ -7348,6 +7350,7 @@ export async function mount(root, backend) {
       for (const id of ids) materialOf.set(id, mat.id);
     }
     const c = cmd = { id: 'material', ids, mat };
+    for (const b of $$('[data-matlib]')) b.setAttribute('aria-pressed', 'false');
     lastTool = 'material';
     showTool('material');
     setState('updated');
@@ -7366,6 +7369,15 @@ export async function mount(root, backend) {
       Object.assign(c.mat, next);
       sync();
       return true;
+    };
+    // A library material: these bodies get it as a material of their own, named after it.
+    c.pick = i => {
+      const preset = MATERIAL_LIBRARY[i];
+      if (!preset) return;
+      if ([...materialOf].some(([k, m]) => m === c.mat.id && !ids.includes(k))) c.fork();
+      Object.assign(c.mat, newMaterial(c.mat.id, { ...preset }));
+      for (const b of $$('[data-matlib]')) b.setAttribute('aria-pressed', String(b.dataset.matlib === String(i)));
+      sync();
     };
     c.fork = () => {
       const copy = newMaterial(nextMaterial++, { ...c.mat });
@@ -9736,6 +9748,7 @@ export async function mount(root, backend) {
   for (const id of ['hole-d', 'hole-depth']) $(id).addEventListener('input', () => cmd?.id === 'hole' && cmd.preview());
   $('hole-through').onclick = () => cmd?.id === 'hole' && cmd.key('through');
   for (const n of ['1', '2', '3']) for (const e of 'ab') $(`br-t${n}${e}`).addEventListener('input', () => cmd?.id === 'bridge' && cmd.preview());
+  for (const b of $$('[data-matlib]')) b.onclick = () => cmd?.id === 'material' && cmd.pick(Number(b.dataset.matlib));
   for (const input of $$('[data-mat]')) input.addEventListener('input', () => { if (cmd?.id === 'material' && !cmd.edit(input.dataset.mat, input.value)) input.setAttribute('aria-invalid', 'true'); else input.removeAttribute('aria-invalid'); });
   $('mat-fork').onclick = () => cmd?.id === 'material' && cmd.fork();
   $('mat-remove').onclick = () => cmd?.id === 'material' && cmd.remove();
