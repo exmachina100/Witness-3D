@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { byLength, orderLoop, square, surfaceAt } from '../src/square.js';
+import { BOUNDARY, byLength, orderLoop, square, surfaceAt } from '../src/square.js';
 
 const arc = (f, n = 40) => Array.from({ length: n + 1 }, (_, i) => f(i / n));
 const dist = (a, b) => Math.hypot(a[0] - b[0], a[1] - b[1], a[2] - b[2]);
@@ -139,4 +139,33 @@ test('Flatness pulls the inner control points onto the plane of the boundary', (
     const n = [d1[1] * d2[2] - d1[2] * d2[1], d1[2] * d2[0] - d1[0] * d2[2], d1[0] * d2[1] - d1[1] * d2[0]], ln = Math.hypot(...n);
     for (const p of inner) assert.ok(Math.abs(p.reduce((t, x, k) => t + (x - a[k]) * n[k], 0) / ln) < 1e-9, `${p}`);
     assert.ok(Math.abs(n[0] / ln) < 1e-9, 'tilted only toward the raised side');
+});
+
+test('Boundary Normal turns the isocurves to leave free sides square; Adjacent leans them along the neighbours', () => {
+    // A flat trapezoid: a straight bottom 0..40, slanted left and right sides, a shorter top.
+    const frame = [arc(t => [40 * t, 0, 0]), arc(t => [40 - 10 * t, 20 * t, 0]), arc(t => [30 - 20 * t, 20, 0]), arc(t => [10 - 10 * t, 20 - 20 * t, 0])];
+    const sq = boundary => square(frame, { spans: [4, 4], boundary });
+    const leave = (s, i) => sub3(s.poles[i][1], s.poles[i][0]);
+    const sub3 = (a, b) => a.map((v, k) => v - b[k]);
+    const natural = sq('natural'), normal = sq('normal'), adjacent = sq('adjacent');
+    // (The poles next to the corners are shared with the slanted sides, which pull them their way too.)
+    for (let i = 2; i < 5; i++) assert.ok(Math.abs(leave(normal, i)[0]) < 1e-9, `${leave(normal, i)}`);
+    assert.ok(Math.abs(leave(natural, 1)[0]) > 1e-3, 'Natural leans with the sides');
+    // Adjacent: next to the left side the flow runs nearly along it ([10, 20] from the corner), turned by the right side's.
+    const a = leave(adjacent, 1), l = Math.hypot(...a);
+    assert.ok(a[0] / l > 0.2, `${a}`);
+    // The sides themselves stay put.
+    assert.ok(Math.abs(normal.gap - natural.gap) < 1e-9);
+    assert.deepEqual(BOUNDARY, ['natural', 'normal', 'next', 'adjacent']);
+    assert.throws(() => square(frame, { boundary: 'sideways' }), /Natural, Normal/);
+});
+
+test('Weight below 1 loosens the sides for a fairer sheet', () => {
+    const wavy = [arc(t => [20 * t, 0, 1.5 * Math.sin(6 * Math.PI * t)]), arc(t => [20, 20 * t, 0]), arc(t => [20 - 20 * t, 20, 0]), arc(t => [0, 20 - 20 * t, 0])];
+    const fair = s => { let e = 0; const P = s.poles; for (let i = 1; i < P.length - 1; i++) for (let j = 0; j < P[0].length; j++) for (let k = 0; k < 3; k++) e += (P[i - 1][j][k] - 2 * P[i][j][k] + P[i + 1][j][k]) ** 2; return e; };
+    const full = square(wavy, { spans: [8, 4] }), loose = square(wavy, { spans: [8, 4], weight: 0.3 });
+    assert.ok(fair(loose) < fair(full) * 0.8, `${fair(loose)} ${fair(full)}`);
+    assert.ok(loose.gap > full.gap, `${loose.gap} ${full.gap}`);
+    for (const [u, v] of [[0, 0], [1, 0], [1, 1], [0, 1]]) assert.ok(dist(surfaceAt(loose, u, v), surfaceAt(full, u, v)) < 1e-9);
+    assert.throws(() => square(wavy, { weight: 0 }), /weight/);
 });
