@@ -5,10 +5,10 @@
 import { numbered, oc } from './Kernel.js';
 
 /**
- * Face `face` of `shape`: `points` ([x, y, z]) to their (s, t, n), or with `map` (s, t, n) back to
- * points. Also `size`, the face's length along u and along v through its middle, in mm.
+ * Face `face` of `shape` as Deform's map: `uvn(point)` its (s, t, n) and `at([s, t, n])` the point
+ * back, and `size`, the face's length along u and along v through its middle, in mm.
  */
-export function faceUvn(shape, face, map, points) {
+export function faceMap(shape, face) {
     const o = oc();
     const faces = numbered(shape, 'TopAbs_FACE');
     if (!(face >= 0 && face < faces.length)) throw new Error('that face no longer exists');
@@ -17,8 +17,8 @@ export function faceUvn(shape, face, map, points) {
     const ad = new o.BRepAdaptor_Surface(f, true);
     const { UMin: u0, UMax: u1, VMin: v0, VMax: v1 } = o.BRepTools.UVBounds(f, 0, 0, 0, 0);
     if (!(u1 - u0 > 1e-12) || !(v1 - v0 > 1e-12)) throw new Error('that face has no area');
+    const p = new o.gp_Pnt(), du = new o.gp_Vec(), dv = new o.gp_Vec();
     const frame = (u, v) => {
-        const p = new o.gp_Pnt(), du = new o.gp_Vec(), dv = new o.gp_Vec();
         ad.D1(u, v, p, du, dv);
         let n = du.Crossed(dv);
         if (n.Magnitude() < 1e-14) {
@@ -39,23 +39,36 @@ export function faceUvn(shape, face, map, points) {
         }
         return total;
     };
-    const size = [length(true), length(false)];
-    if (map) {
-        return {
-            size, points: points.map(([s, t, h]) => {
-                const { p, n } = frame(u0 + (u1 - u0) * s, v0 + (v1 - v0) * t);
-                return [p[0] + n[0] * h, p[1] + n[1] * h, p[2] + n[2] * h];
-            }),
-        };
-    }
     const surface = o.BRep_Tool.Surface(f);
+    // One projector, re-aimed at each point.
+    let pr = null;
     return {
-        size, points: points.map(q => {
-            const pr = new o.GeomAPI_ProjectPointOnSurf(new o.gp_Pnt(...q), surface, o.Extrema_ExtAlgo.Extrema_ExtAlgo_Grad);
-            if (!pr.NbPoints()) throw new Error('a curve does not lie over the reference face');
+        size: [length(true), length(false)],
+        at: ([s, t, h]) => {
+            const { p, n } = frame(u0 + (u1 - u0) * s, v0 + (v1 - v0) * t);
+            return [p[0] + n[0] * h, p[1] + n[1] * h, p[2] + n[2] * h];
+        },
+        uvn: q => {
+            const g = new o.gp_Pnt(q[0], q[1], q[2]);
+            if (!pr) pr = new o.GeomAPI_ProjectPointOnSurf(g, surface, o.Extrema_ExtAlgo.Extrema_ExtAlgo_Grad);
+            else pr.Perform(g);
+            if (!pr.NbPoints()) throw new Error('that does not lie over the reference face');
             const { U, V } = pr.LowerDistanceParameters(0, 0);
             const { p, n } = frame(U, V);
             return [(U - u0) / (u1 - u0), (V - v0) / (v1 - v0), (q[0] - p[0]) * n[0] + (q[1] - p[1]) * n[1] + (q[2] - p[2]) * n[2]];
-        }),
+        },
     };
+}
+
+/**
+ * Face `face` of `shape`: `points` ([x, y, z]) to their (s, t, n), or with `map` (s, t, n) back to
+ * points. Also `size`, the face's length along u and along v through its middle, in mm.
+ */
+export function faceUvn(shape, face, map, points) {
+    const m = faceMap(shape, face);
+    try {
+        return { size: m.size, points: points.map(map ? m.at : m.uvn) };
+    } catch (e) {
+        throw e.message === 'that does not lie over the reference face' ? new Error('a curve does not lie over the reference face') : e;
+    }
 }

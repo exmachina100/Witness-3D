@@ -13,6 +13,7 @@ import { offsetEdges } from '../edgeTube.js';
 import { faceSurfaces } from '../faceSurfaces.js';
 import { facePoles } from '../facePoles.js';
 import { faceUvn } from '../faceUvn.js';
+import { deformBodies } from '../deformBody.js';
 import { moveFacePoles, subdivideFaces } from '../movePoles.js';
 import { chordal, fullRound, limitRound, reshapeRounds } from '../filletShape.js';
 import { bridgeSurface } from '../BridgeSurface.js';
@@ -434,6 +435,28 @@ export class LocalBackend {
     }
     previewArray(req) { return this.latest(async () => this.arrayCopies(req).flatMap(([, cs]) => cs.map(c => this.body(0, c)))) }
     async commitArray(req) { return this.placeCopies(this.arrayCopies(req), !!req.join) }
+
+    /** Deform Solid and Sheet (see deformBody.js and document.rs preview_deform): the bodies wrapped onto the target face. */
+    deformResult(req) {
+        if (!req.bodies?.length) throw new Error('select the solids or sheets to deform');
+        if (req.reblend) throw new Error('Reblend is only in the desktop app so far; turn it off here');
+        const get = (id, what) => { const s = this.shapes.get(id); if (!s) throw new Error(`${what} no longer exists`); return s; };
+        const all = req.bodies.map(b => get(b, 'that body'));
+        const ref = get(req.reference, 'the reference body'), target = get(req.target, 'the target body');
+        if (req.bodies.includes(req.target)) throw new Error("deform onto another body's face, not one being deformed");
+        return deformBodies(all, ref, req.rface, target, req.tface, req);
+    }
+
+    previewDeform(req) { return this.latest(async () => this.deformResult(req).map((s, i) => this.body(req.bodies[i], s))) }
+
+    async commitDeform(req) {
+        const made = this.deformResult(req);
+        this.checkpoint();
+        let ids = req.bodies;
+        if (req.keep) ids = made.map(s => { const id = this.nextId++; this.put(id, s); return id; });
+        else req.bodies.forEach((id, i) => this.put(id, made[i]));
+        return { ids, scene: this.bodies() };
+    }
 
     /** Deform Curve: points on a face to (s, t, n) face coordinates, or back with `map` (see faceUvn.js). */
     async faceUvn({ body, face, map = false, points }) {
