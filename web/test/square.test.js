@@ -43,7 +43,8 @@ test('two sides loft straight between them', () => {
 
 test('a side of no length is refused', () => {
     assert.throws(() => byLength([[1, 1, 1], [1, 1, 1]]), /length/);
-    assert.throws(() => square([bottom, right, top]), /four sides/);
+    assert.throws(() => square([bottom, right, top]), /don't close/);
+    assert.throws(() => square([bottom]), /three or four sides/);
 });
 
 test('G1 turns the sheet to carry on the faces along edge sides', () => {
@@ -101,4 +102,14 @@ test('G2 on four sides with two flat faces: no bend across those sides', () => {
     const g2 = square([floor, quarter(20), wall, quarter(0)], { continuity: 'G2' });
     assert.ok(g2.gap <= 0.01 && g2.turn <= 0.5, `gap ${g2.gap} turn ${g2.turn}`);
     assert.ok(g2.bend <= 1e-3, `bend ${g2.bend} at ${g2.spans}`);
+});
+
+test('three sides fill too: the longest is split at its middle', () => {
+    // A triangle of arcs bulging up: two straight sides and a curved one.
+    const a = arc(t => [20 * t, 0, 0]), b = arc(t => [20 - 20 * t, 20 * t, 4 * Math.sin(Math.PI * t)]), c = arc(t => [0, 20 - 20 * t, 0]);
+    const s = square([a, b, c], { tolerance: 0.01 });
+    assert.ok(s.gap <= 0.01, `gap ${s.gap}`);
+    // Every side's points lie on the sheet's boundary, and the middle is inside the triangle.
+    const mid = surfaceAt(s, 0.5, 0.5);
+    assert.ok(mid[0] > 0 && mid[1] > 0 && mid[0] + mid[1] < 20, `${mid}`);
 });

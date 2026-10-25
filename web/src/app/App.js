@@ -4823,10 +4823,10 @@ export async function mount(root, backend) {
     c.preview = async () => {
       const items = picked();
       setTarget(`${items.length} SIDE${items.length === 1 ? '' : 'S'}`);
-      if (items.length !== 2 && items.length !== 4) {
+      if (items.length < 2 || items.length > 4) {
         c.data = null;
         clearPreview();
-        $('sq-hint').textContent = 'SELECT FOUR SIDES MEETING END TO END, OR TWO TO LOFT BETWEEN';
+        $('sq-hint').textContent = 'SELECT THREE OR FOUR SIDES MEETING END TO END, OR TWO TO LOFT BETWEEN';
         return setState('none');
       }
       let fit;
@@ -4843,7 +4843,7 @@ export async function mount(root, backend) {
         fit = square(sides, { degree: Math.round(num('sq-d')), spans: su ? [su, sv] : 0, continuity: c.continuity, tension });
       } catch (e) { c.data = null; clearPreview(); $('sq-hint').textContent = say(e); return setState('failed'); }
       c.data = splineSheetData(fit);
-      $('sq-hint').textContent = `${items.length === 2 ? 'LOFT' : 'FOUR SIDES'} · DEGREE ${fit.degree[0]} · ${fit.spans.join(' × ')} SPANS · SIDES WITHIN ${fit.gap < 1e-4 ? '< 0.0001' : fit.gap.toFixed(4)} MM${c.continuity !== 'G0' ? ` · TANGENT WITHIN ${fit.turn.toFixed(2)}°` : ''}${c.continuity === 'G2' ? ` · CURVATURE WITHIN ${fit.bend.toFixed(5)} /MM` : ''}`;
+      $('sq-hint').textContent = `${items.length === 2 ? 'LOFT' : items.length === 3 ? 'THREE SIDES' : 'FOUR SIDES'} · DEGREE ${fit.degree[0]} · ${fit.spans.join(' × ')} SPANS · SIDES WITHIN ${fit.gap < 1e-4 ? '< 0.0001' : fit.gap.toFixed(4)} MM${c.continuity !== 'G0' ? ` · TANGENT WITHIN ${fit.turn.toFixed(2)}°` : ''}${c.continuity === 'G2' ? ` · CURVATURE WITHIN ${fit.bend.toFixed(5)} /MM` : ''}`;
       setHud(`SQUARE · ${fit.spans.join(' × ')} SPANS`);
       livePreview(c, () => backend.previewSplineSheet({ data: c.data }), b => showPreviewBody(b), 'sq-hint');
     };
@@ -8908,7 +8908,7 @@ export async function mount(root, backend) {
     if (sel.solids.length === 2) out.push('tool:project');
     if (kinds.has('solid')) out.push('tool:move', 'tool:rotate', 'tool:scale', 'duplicate', 'create-outline', 'toggle-points', 'place', 'dimension', 'tool:mirror', 'tool:rect-array', 'tool:radial-array', 'tool:curve-array', 'unify', 'boundary-edges', 'remove-fillets', 'raise-degree', 'deform-curve', 'create-instance', 'delete', 'hide', 'isolate', 'group', 'lock', 'material:set', 'export:step', 'export:mesh', 'export:drawing');
     if (kinds.has('face')) out.push('tool:extrude', 'tool:offset', 'tool:thicken', 'tool:shell', 'tool:hole', 'tool:remove-face', 'remove-fillets', 'isoparam', 'rebuild', 'raise-degree', 'subdivide', 'match-face', 'untrim', 'unwrap', 'toggle-points', 'view:surface-curvature', 'plane:selection', 'plane:selection-keep-view');
-    if (kinds.has('edge')) out.push('tool:fillet', 'tool:patch', 'alt-duplicate', 'measure:radius', 'view:surface-curvature', ...(sel.list('edge').length === 2 ? ['bridge-edge', 'align-surface'] : []), ...([2, 4].includes(sel.list('edge').length) ? ['square'] : []));
+    if (kinds.has('edge')) out.push('tool:fillet', 'tool:patch', 'alt-duplicate', 'measure:radius', 'view:surface-curvature', ...(sel.list('edge').length === 2 ? ['bridge-edge', 'align-surface'] : []), ...([2, 3, 4].includes(sel.list('edge').length) ? ['square'] : []));
     if (sel.list('edge').length === 2) out.push('tool:bridge-surface');
     if (sel.solids.some(id => current.find(b => b.id === id)?.sheet)) out.push('tool:thicken', 'reverse-sheet');
     if (sel.solids.length > 1 && sel.solids.every(id => current.find(b => b.id === id)?.sheet)) out.push('join');
@@ -8923,7 +8923,7 @@ export async function mount(root, backend) {
       if (kinds.has('face')) out.push('tool:draft');
       out.push('trim', 'split', 'cut-curve', 'extend', 'tool:offset-curve', 'slot', 'tool:fillet-curve');
       if (sel.curves.length === 2) out.push('tool:bridge', 'align-curve');
-      if ([2, 4].includes(sel.curves.length + sel.list('edge').length)) out.push('square');
+      if ([2, 3, 4].includes(sel.curves.length + sel.list('edge').length)) out.push('square');
       if (sel.curves.length > 1) out.push('join');
       out.push('explode', 'reverse', 'rebuild', 'insert-knot', 'raise-degree', 'subdivide', 'complete-edge', 'deform-curve', 'measure:continuity', 'delete');
     }

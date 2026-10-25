@@ -68,6 +68,27 @@ function reversed(side) {
     for (const k of EXTRAS) if (side[k]) c[k] = [...side[k]].reverse();
     return c;
 }
+/** A side cut in two at half its length, its extras cut with it. */
+function halves(side) {
+    const at = byLength(side), half = at.total / 2;
+    let run = 0, k = 1;
+    for (; k < side.length - 1; k++) {
+        const next = run + dist(side[k], side[k - 1]);
+        if (next >= half) break;
+        run = next;
+    }
+    // The cut lies on the piece from k - 1 to k, a fraction t along it.
+    const piece = dist(side[k], side[k - 1]), t = piece > 0 ? (half - run) / piece : 0;
+    const cut = values => lerp(values[k - 1], values[k], t);
+    const a = [...side.slice(0, k).map(p => [...p]), cut(side)], b = [cut(side), ...side.slice(k).map(p => [...p])];
+    for (const key of EXTRAS) if (side[key]) {
+        const m = cut(side[key]);
+        a[key] = [...side[key].slice(0, k).map(d => [...d]), m];
+        b[key] = [m, ...side[key].slice(k).map(d => [...d])];
+    }
+    return [a, b];
+}
+
 /** For G2: the face's unit normal and normal curvature across the side at s, or null without them. */
 const bendOf = side => {
     if (!side.out || !side.normal || !side.kappa) return null;
@@ -97,8 +118,14 @@ export function boundarySurface(sides, gap, tension = 1) {
         };
         return { at, sides: sides2, outs, bends };
     }
-    if (sides.length !== 4) throw new Error('select four sides meeting end to end, or two to loft between');
-    const [s0, s1, s2, s3] = orderLoop(sides, gap);
+    if (sides.length !== 4 && sides.length !== 3) throw new Error('select three or four sides meeting end to end, or two to loft between');
+    // Three sides: the longest is split at its middle into two, making four with a straight corner there.
+    let loop = orderLoop(sides, gap);
+    if (loop.length === 3) {
+        const longest = loop.reduce((best, side, i) => byLength(side).total > byLength(loop[best]).total ? i : best, 0);
+        loop = loop.flatMap((side, i) => i === longest ? halves(side) : [side]);
+    }
+    const [s0, s1, s2, s3] = loop;
     // Bottom runs along u, right along v, top and left are the loop's last two sides turned round.
     const r2 = reversed(s2), r3 = reversed(s3);
     const bottom = byLength(s0), right = byLength(s1), top = byLength(r2), leftSide = byLength(r3);
