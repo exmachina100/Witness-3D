@@ -9533,9 +9533,19 @@ export async function mount(root, backend) {
   }
   // Preferences: Plasticity's window of settings, by section; each change applies and is kept at once.
   // The bridge settings live with the desktop app and take effect the next time it starts.
-  const PREF_SECTIONS = { navigation: 'NAVIGATION', appearance: 'APPEARANCE', commands: 'COMMANDS', network: 'NETWORK' };
+  const PREF_SECTIONS = { navigation: 'NAVIGATION', appearance: 'APPEARANCE', commands: 'COMMANDS', performance: 'PERFORMANCE', network: 'NETWORK' };
+  // Performance: the facets the bodies are drawn with, as last asked of the backend.
+  let facetQuality = 1, aoShader = false;
   function applyPrefs() {
     Object.assign(controls, controlSettings(prefs.navigation));
+    const perf = prefs.performance;
+    renderer.setPixelRatio(Math.min(devicePixelRatio, perf.renderQuality));
+    resize(true);
+    if (perf.aoShader !== aoShader) { aoShader = perf.aoShader; view.ao = aoShader; applyView(); }
+    if (perf.facetQuality !== facetQuality && backend.setMeshQuality) {
+      facetQuality = perf.facetQuality;
+      backend.setMeshQuality(facetQuality).then(list => showScene(list)).catch(e => toast(say(e)));
+    }
     // With Arcball off the view stands upright again.
     if (!prefs.navigation.arcball && camera.up.y !== 1) { camera.up.set(0, 1, 0); camera.lookAt(controls.target); }
     const look = prefs.appearance, c = viewColors(look);

@@ -2173,6 +2173,9 @@ inline W3dSplineFace w3d_spline_face(const TopoDS_Face &f) {
 
 // Per face of `shape`: [nu, nv, then nu * nv poles (x, y, z), v fastest], or [0, 0] where it has
 // none. These are the control points w3d_move_face_poles moves.
+// BRepMesh keeps facets that are already finer than asked; drop them so a coarser mesh takes.
+inline void w3d_clear_mesh(const TopoDS_Shape &shape) { BRepTools::Clean(shape, Standard_True); }
+
 inline rust::Vec<double> w3d_face_poles(const TopoDS_Shape &shape) {
   TopTools_IndexedMapOfShape faces;
   TopExp::MapShapes(shape, TopAbs_FACE, faces);

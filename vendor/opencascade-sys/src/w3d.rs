@@ -77,6 +77,7 @@ mod inner {
         pub fn w3d_edge_angles(shape: &TopoDS_Shape) -> Vec<f64>;
         pub fn w3d_face_surfaces(shape: &TopoDS_Shape) -> Vec<f64>;
         pub fn w3d_face_poles(shape: &TopoDS_Shape) -> Vec<f64>;
+        pub fn w3d_clear_mesh(shape: &TopoDS_Shape);
         pub fn w3d_fillet_faces(shape: &TopoDS_Shape, seeds: &[i32]) -> Vec<i32>;
         pub fn w3d_solid_at(shape: &TopoDS_Shape, index: i32) -> Result<UniquePtr<TopoDS_Shape>>;
         pub fn w3d_project(shape: &TopoDS_Shape, faces: &[i32], data: &[f64], length: f64, both: bool, hide: bool) -> Result<Vec<f64>>;

@@ -395,3 +395,15 @@ fn a_fillet_is_made_again_at_a_new_radius() {
     let all_round = w3d_kernel::solids::refillet(&k, &soft, &chain, 2.0).unwrap();
     close(volume(&k, &all_round.solid), 216.0 + 6.0 * 36.0 * 2.0 + 3.0 * PI * 6.0 * 4.0 + 4.0 * PI * 8.0 / 3.0, 0.5);
 }
+
+#[test]
+fn a_cleared_mesh_can_be_made_coarser() {
+    // Preferences › Performance › CPU facet quality: the scene re-faceted coarser after finer.
+    let k = Occt;
+    let s = primitive(&k, &Primitive::Cylinder { frame: ground(), radius: 20.0, height: 10.0 }).unwrap();
+    let tris = |t: f64| k.tessellate(&s, t).unwrap().indices.len();
+    let fine = tris(0.0125);
+    k.clear_mesh(&s);
+    let coarse = tris(0.2);
+    assert!(coarse < fine, "{coarse} !< {fine}");
+}
