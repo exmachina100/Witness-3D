@@ -221,13 +221,15 @@ export class LocalBackend {
      */
     form(req) {
         const c = id => { const x = this.curveMap.get(id); if (!x) throw new Error('that curve no longer exists'); return x; };
+        // A guide is a drawn curve's id, or a curve given whole (a body edge picked as a guide).
+        const guide = g => typeof g === 'object' && g ? g : c(g);
         if (!req.regions?.length) throw new Error('select a region first');
         let tool;
         if (req.kind === 'revolve') tool = revolve(c(req.regions[0]), req.axisPoint ?? [0, 0, 0], req.axisDir ?? [0, 1, 0], req.angle ?? 2 * Math.PI, req.thickness ?? 0);
         else if (req.kind === 'loft') {
             const guides = req.guides ?? [];
             if (guides.some(g => req.regions.includes(g))) throw new Error("a curve can't be both a profile and a guide");
-            tool = guides.length ? loftGuided(req.regions.map(c), guides.map(c)) : loft(req.regions.map(c));
+            tool = guides.length ? loftGuided(req.regions.map(c), guides.map(guide)) : loft(req.regions.map(c));
         } else if (req.kind === 'sweep') {
             if (req.path === undefined || req.path === null) throw new Error('pick the path to sweep along');
             if (req.regions.includes(req.path)) throw new Error('pick a path other than the profile');
@@ -236,7 +238,7 @@ export class LocalBackend {
             else {
                 if (Math.abs(req.twist ?? 0) > 1e-12 || Math.abs((req.scale ?? 1) - 1) > 1e-12) throw new Error("twist and scale don't go with a guide, Parallel alignment or Round corners; set them back to 0 and 1");
                 if (guides.some(g => g === req.path || req.regions.includes(g))) throw new Error('pick a guide other than the path and the profile');
-                tool = sweepGuided(c(req.regions[0]), c(req.path), guides.map(c), req.method ?? 'point', align, corner);
+                tool = sweepGuided(c(req.regions[0]), c(req.path), guides.map(guide), req.method ?? 'point', align, corner);
             }
         } else throw new Error('a form is a revolve, a loft or a sweep');
         if (!tool) return null;

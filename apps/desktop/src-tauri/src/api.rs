@@ -9,7 +9,7 @@ use w3d_kernel::document::{BodyId, Document, FormRequest as FormKindRequest, Pro
 use w3d_kernel::engine::Engine;
 use w3d_kernel::occt::Occt;
 use w3d_kernel::blend::FilletShape;
-use w3d_kernel::{extrude, file, form, ArraySpec, Primitive, FormParams, Blend, BlendParams, BooleanOp, Curve, CurveId, CurveShape, ExtrudeParams, ExtrudeResult, Frame, Kernel, KernelError, Motion, Operation, Profile, Ref, Refs, FaceRebuild, RebuiltFace, SheetExtension, Tessellation};
+use w3d_kernel::{extrude, file, form, ArraySpec, Primitive, FormParams, Blend, BlendParams, BooleanOp, Curve, CurveId, CurveShape, GuideRef, ExtrudeParams, ExtrudeResult, Frame, Kernel, KernelError, Motion, Operation, Profile, Ref, Refs, FaceRebuild, RebuiltFace, SheetExtension, Tessellation};
 
 /// Chord tolerance for display meshes, in millimetres.
 const MESH_TOLERANCE: f64 = 0.05;
@@ -300,7 +300,7 @@ pub struct FormRequest {
     pub op: OpChoice,
     /// Loft and Sweep: guide curves the sides run along.
     #[serde(default)]
-    pub guides: Vec<CurveId>,
+    pub guides: Vec<GuideRef>,
     /// Sweep: how the section follows its guide.
     #[serde(default)]
     pub method: GuideName,

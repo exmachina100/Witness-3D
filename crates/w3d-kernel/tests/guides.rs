@@ -240,14 +240,23 @@ fn the_document_takes_guides_by_curve() {
     let at = |z: f64| Curve { origin: [0.0, z, 0.0], x: [1.0, 0.0, 0.0], normal: [0.0, 1.0, 0.0], shape: CurveShape::Polyline { points: vec![[0.0, 0.0], [10.0, 0.0], [10.0, -10.0], [0.0, -10.0]], closed: true } };
     let guide = Curve { origin: [0.0, 0.0, 0.0], x: [1.0, 0.0, 0.0], normal: [0.0, 0.0, 1.0], shape: CurveShape::Arc { start: [0.0, 0.0], mid: [-5.0, 10.0], end: [0.0, 20.0] } };
     let ids = doc.commit_curves(vec![at(0.0), at(20.0), guide]).unwrap();
-    let p = doc.form_params(&ids[..2], FormRequest::LoftGuided { guides: vec![ids[2]] }, Operation::NewBody).unwrap();
+    let p = doc.form_params(&ids[..2], FormRequest::LoftGuided { guides: vec![ids[2].into()] }, Operation::NewBody).unwrap();
     let body = doc.commit_form(None, &p).unwrap();
     let (lo, _) = bounds(&doc.kernel, doc.get(body).unwrap());
     assert!((lo.x + 5.0).abs() < 0.01, "min x {}", lo.x);
-    assert!(doc.form_params(&ids[..2], FormRequest::LoftGuided { guides: vec![ids[0]] }, Operation::NewBody).is_err());
+    assert!(doc.form_params(&ids[..2], FormRequest::LoftGuided { guides: vec![ids[0].into()] }, Operation::NewBody).is_err());
     // The same guide as a sweep's, along a straight path up the squares' far corner.
     let path = Curve { origin: [0.0, 0.0, 0.0], x: [1.0, 0.0, 0.0], normal: [0.0, 0.0, 1.0], shape: CurveShape::Polyline { points: vec![[10.0, 0.0], [10.0, 20.0]], closed: false } };
     let path = doc.commit_curves(vec![path]).unwrap()[0];
-    let p = doc.form_params(&ids[..1], FormRequest::SweepGuided { path, guides: vec![ids[2]], method: GuideMethod::Chord, align: Alignment::Normal, round: false }, Operation::NewBody).unwrap();
+    let p = doc.form_params(&ids[..1], FormRequest::SweepGuided { path, guides: vec![ids[2].into()], method: GuideMethod::Chord, align: Alignment::Normal, round: false }, Operation::NewBody).unwrap();
     assert!(doc.preview_form(None, &p).is_ok());
+    // A guide given whole (a body edge as a curve), not drawn: the same loft.
+    let given = Curve { origin: [0.0, 0.0, 0.0], x: [1.0, 0.0, 0.0], normal: [0.0, 0.0, 1.0], shape: CurveShape::Arc { start: [0.0, 0.0], mid: [-5.0, 10.0], end: [0.0, 20.0] } };
+    let p = doc.form_params(&ids[..2], FormRequest::LoftGuided { guides: vec![GuideRef::Shape(given)] }, Operation::NewBody).unwrap();
+    let ExtrudeResult::New(made) = doc.preview_form(None, &p).unwrap() else { panic!("a new body") };
+    let (lo, _) = bounds(&doc.kernel, &made);
+    assert!((lo.x + 5.0).abs() < 0.01, "min x {}", lo.x);
+    // Guides arrive from the app as ids or whole curves.
+    let g: Vec<GuideRef> = serde_json::from_str(r#"[3, {"origin":[0,0,0],"x":[1,0,0],"normal":[0,0,1],"kind":"polyline","points":[[0,0],[1,0]],"closed":false}]"#).unwrap();
+    assert!(matches!(g[0], GuideRef::Drawn(3)) && matches!(g[1], GuideRef::Shape(_)));
 }

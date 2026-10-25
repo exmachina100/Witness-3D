@@ -132,3 +132,22 @@ test('Round corners round the section about the path corner', async () => {
     close(volume(sweep('mitre')), 80, 1e-6);
     close(volume(sweep('round')), 80 - 2 + Math.PI / 2, 0.05);
 });
+
+test('a body edge serves as a guide, given as a curve through points along it', async () => {
+    const { be, f } = await loftWith([arc([0, 0], [-5, 10], [0, 20])]);
+    const { id } = await be.commitForm({ kind: 'loft', regions: [1, 2], guides: [3] });
+    // The bowed edge of that loft, read as Loft and Sweep read a picked edge.
+    const { numberedEdges } = await import('../src/Kernel.js');
+    const { smoothThrough } = await import('../src/deform.js');
+    const { curveFromNurbs } = await import('../src/curves.js');
+    let edge = null;
+    for (let n = 0; n < numberedEdges(be.shapes.get(id)).length; n++) {
+        const teeth = await be.edgeCurvature({ body: id, edge: n, n: 64 });
+        if (Math.min(...teeth.map(t => t.at[0])) < -4.9) { edge = teeth; break; }
+    }
+    assert.ok(edge, 'the bowed edge');
+    const guide = curveFromNurbs(smoothThrough(edge.map(t => t.at), false), [0, -1, 0]);
+    const b = bounds(be.form({ kind: 'loft', regions: [1, 2], guides: [guide] }).tool);
+    close(b.min.x, -5, 0.01);
+    close(bounds(f().tool).min.x, b.min.x, 0.01);
+});
