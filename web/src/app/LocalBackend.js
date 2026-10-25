@@ -307,9 +307,10 @@ export class LocalBackend {
      * counts: the faces are offset that far (they must all be flat and moved the same distance
      * across). Turning faces, and moving round ones, is the desktop's (document.rs preview_move_faces).
      */
-    moveFacesResult({ body, faces, offset = [0, 0, 0], angle = 0 }) {
+    moveFacesResult({ body, faces, edges, offset = [0, 0, 0], angle = 0 }) {
         const shape = this.shapes.get(body);
         if (!shape) throw new Error('that body no longer exists');
+        if (!faces?.length && edges?.length) throw new Error('the browser demo moves faces; the desktop app moves edges too');
         if (!faces?.length) throw new Error('select the faces to move');
         if (Math.abs(angle) > 1e-12) throw new Error('the browser demo moves faces; the desktop app turns them too');
         const planes = faces.map(f => facePlane(shape, f));

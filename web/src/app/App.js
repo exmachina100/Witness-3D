@@ -2950,9 +2950,13 @@ export async function mount(root, backend) {
     // A face's picked control points move on their own, not their body.
     const poles = sel.list('pole').filter(p => poleOf(p));
     // Faces on their own move and turn by themselves, their neighbours following (Move Face).
-    const fb = faceBody(), faceMove = fb !== null ? { body: fb, faces: sel.list('face').map(it => it.n).sort((a, b) => a - b) } : null;
-    if (faceMove && kind === 'scale') return toast('FACES MOVE (G) AND TURN (R); SCALE THE WHOLE SOLID');
-    if (faceMove && !backend.previewMoveFaces) return toast(`${kind.toUpperCase()} OF FACES IS NOT IN THIS BUILD YET`);
+    // So do a solid's edges on their own, the flat faces beside them tilting (Move Edge).
+    const fb = faceBody(), eb = fb === null ? edgeBody() : null;
+    const faceMove = fb !== null ? { body: fb, faces: sel.list('face').map(it => it.n).sort((a, b) => a - b) }
+      : eb !== null && bodyOf(eb) ? { body: eb, faces: [], edges: sel.list('edge').map(it => it.n).sort((a, b) => a - b) } : null;
+    const what = faceMove?.edges ? 'EDGES' : 'FACES';
+    if (faceMove && kind === 'scale') return toast(`${what} MOVE (G) AND TURN (R); SCALE THE WHOLE SOLID`);
+    if (faceMove && !backend.previewMoveFaces) return toast(`${kind.toUpperCase()} OF ${what} IS NOT IN THIS BUILD YET`);
     const ids = faceMove ? [] : (sel.solids.length ? sel.solids : [...new Set(sel.list().filter(it => it.body !== undefined && it.kind !== 'pole').map(it => it.body))]).filter(id => org.shows(id));
     // Curves move whole; picked vertices (a NURBS curve's control points) move within their curve's plane.
     const curves = sel.curves.filter(curveById);
@@ -2968,6 +2972,10 @@ export async function mount(root, backend) {
     for (const v of verts) box.expandByPoint(vertexAt(v));
     for (const p of poles) box.expandByPoint(poleOf(p));
     if (faceMove) for (const n of faceMove.faces) box.expandByPoint(faceCentre(bodyOf(faceMove.body), n));
+    if (faceMove?.edges) for (const n of faceMove.edges) {
+      const e = bodyOf(faceMove.body).edges[n] ?? [];
+      for (let i = 2; i < e.length; i += 3) box.expandByPoint(new THREE.Vector3(e[i - 2], e[i - 1], e[i]));
+    }
     const pivot = box.getCenter(new THREE.Vector3());
     const handle = new THREE.Object3D();
     handle.position.copy(pivot);
@@ -2982,7 +2990,8 @@ export async function mount(root, backend) {
     const c = cmd = { id: kind, ids, curves, verts, poles, faceMove, vertexAt, curveOut: null, poleMoves: null, poleRows: null, sent: 0, shown: 0, pivot, handle, tc, offset: new THREE.Vector3(), quat: new THREE.Quaternion(), scale: 1, axis: 'z', follow: null };
     lastTool = kind;
     showTool(kind);
-    setTarget([...(faceMove ? [`${faceMove.faces.length} FACE${faceMove.faces.length > 1 ? 'S' : ''} OF ${label(faceMove.body)}`] : []), ...ids.map(label), ...curves.map(curveLabel), ...(verts.length ? [`${verts.length} VERTICES`] : []), ...(poles.length ? [`${poles.length} SURFACE POINT${poles.length > 1 ? 'S' : ''}`] : [])].join(' '));
+    const moving = faceMove?.edges ?? faceMove?.faces ?? [];
+    setTarget([...(faceMove ? [`${moving.length} ${what.slice(0, -1)}${moving.length > 1 ? 'S' : ''} OF ${label(faceMove.body)}`] : []), ...ids.map(label), ...curves.map(curveLabel), ...(verts.length ? [`${verts.length} VERTICES`] : []), ...(poles.length ? [`${poles.length} SURFACE POINT${poles.length > 1 ? 'S' : ''}`] : [])].join(' '));
     setState('none');
     setAxis('z');
     snapsFor(false);

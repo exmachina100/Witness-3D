@@ -1466,11 +1466,15 @@ impl ExtendSheetRequest {
 }
 
 /// Move Face: `faces` of `body` turned by `angle` radians about `axis` through `pivot`, then moved
-/// by `offset`, the faces round them following.
+/// by `offset`, the faces round them following. With `edges` instead of faces, those edges move and
+/// the flat faces beside them tilt (Move Edge).
 #[derive(Deserialize, Debug, Clone)]
 pub struct MoveFacesRequest {
     pub body: BodyId,
+    #[serde(default)]
     pub faces: Vec<u32>,
+    #[serde(default)]
+    pub edges: Vec<u32>,
     #[serde(default)]
     pub offset: [f64; 3],
     #[serde(default)]
@@ -1489,14 +1493,22 @@ impl MoveFacesRequest {
 
 pub fn preview_move_faces(m: &Model, req: MoveFacesRequest) -> Option<Result<Body, ApiError>> {
     m.preview(move |doc| {
-        let t = doc.preview_move_faces(req.body, &req.faces, &req.motion()?)?;
+        let t = if req.faces.is_empty() && !req.edges.is_empty() {
+            doc.preview_move_edges(req.body, &req.edges, &req.motion()?)?
+        } else {
+            doc.preview_move_faces(req.body, &req.faces, &req.motion()?)?
+        };
         Ok(body(&doc.kernel, req.body, &t.solid)?)
     })
 }
 
 pub fn commit_move_faces(m: &Model, req: MoveFacesRequest) -> Result<Committed, ApiError> {
     m.call(move |doc| {
-        doc.commit_move_faces(req.body, &req.faces, &req.motion()?)?;
+        if req.faces.is_empty() && !req.edges.is_empty() {
+            doc.commit_move_edges(req.body, &req.edges, &req.motion()?)?;
+        } else {
+            doc.commit_move_faces(req.body, &req.faces, &req.motion()?)?;
+        }
         Ok(Committed { id: req.body, scene: bodies(doc)? })
     })
 }
