@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { edgeOffsetsBothSides, edgeOffsetsOnFace, edgePiece, faceFrame, faceLoopOffsets, lineSweptAlong } from '../src/edgeOffset.js';
+import { edgeOffsetsBothSides, edgeOffsetsOnFace, edgePiece, faceFrame, faceLoopOffsets, facesLoopOffsets, lineSweptAlong } from '../src/edgeOffset.js';
 import { samples } from '../src/curveEdit.js';
 
 // The top face of a 40 × 20 block at height 10, with a round hole of radius 3 at (10, 10, 10).
@@ -59,4 +59,36 @@ test('both sides: a line on each face, framed to sweep along the other face', ()
     assert.ok(Math.abs(Math.abs(top.normal[1]) - 1) < 1e-9);
     assert.ok(Math.abs(Math.abs(front.normal[2]) - 1) < 1e-9);
     assert.throws(() => lineSweptAlong({ ...top, kind: 'arc' }, [0, 1, 0]), /straight/);
+});
+
+test('offset face loop on two faces side by side: their outline together, or each alone (I)', () => {
+    // Two 20 × 20 squares on y = 10 sharing the edge x = 20 (edge 3).
+    const two = {
+        facePlanes: [{ origin: [0, 10, 0], normal: [0, 1, 0] }, { origin: [20, 10, 0], normal: [0, 1, 0] }],
+        edges: [line([0, 10, 0], [20, 10, 0]), line([0, 10, 20], [0, 10, 0]), line([20, 10, 20], [0, 10, 20]), line([20, 10, 0], [20, 10, 20]),
+            line([20, 10, 0], [40, 10, 0]), line([40, 10, 0], [40, 10, 20]), line([40, 10, 20], [20, 10, 20])],
+    };
+    const faceEdges = f => f === 0 ? [0, 1, 2, 3] : [3, 4, 5, 6];
+    const together = facesLoopOffsets(two, [0, 1], faceEdges, 2);
+    assert.equal(together.shapes.length, 1);
+    assert.deepEqual(together.faces, [0, 1]);
+    const pts = samples(together.shapes[0]).points.map(p => model(together.shapes[0], p));
+    assert.ok(Math.abs(Math.min(...pts.map(p => p[0])) - 2) < 1e-6 && Math.abs(Math.max(...pts.map(p => p[0])) - 38) < 1e-6);
+    const alone = facesLoopOffsets(two, [0, 1], faceEdges, 2, 'linear', true);
+    assert.equal(alone.shapes.length, 2);
+    const xs = alone.shapes.map(s => samples(s).points.map(p => model(s, p)[0]));
+    assert.ok(Math.abs(Math.max(...xs[0]) - 18) < 1e-6 && Math.abs(Math.min(...xs[1]) - 22) < 1e-6);
+});
+
+test("a face's own edges, not its coplanar neighbour's", async () => {
+    const { faceBoundEdges } = await import('../src/app/Selection.js');
+    const pos = [[0, 10, 0], [20, 10, 0], [20, 10, 20], [0, 10, 20], [40, 10, 0], [40, 10, 20]].flat();
+    const two = {
+        positions: pos, indices: [0, 2, 1, 0, 3, 2, 1, 5, 4, 1, 2, 5], faceIds: [0, 0, 1, 1],
+        facePlanes: [{ origin: [0, 10, 0], normal: [0, 1, 0] }, { origin: [20, 10, 0], normal: [0, 1, 0] }],
+        edges: [line([0, 10, 0], [20, 10, 0]), line([0, 10, 20], [0, 10, 0]), line([20, 10, 20], [0, 10, 20]), line([20, 10, 0], [20, 10, 20]),
+            line([20, 10, 0], [40, 10, 0]), line([40, 10, 0], [40, 10, 20]), line([40, 10, 20], [20, 10, 20])],
+    };
+    assert.deepEqual(faceBoundEdges(two, 0), [0, 1, 2, 3]);
+    assert.deepEqual(faceBoundEdges(two, 1), [3, 4, 5, 6]);
 });

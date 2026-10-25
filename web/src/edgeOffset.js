@@ -123,7 +123,35 @@ export function faceLoops(body, face, edgeIds) {
 export function faceLoopOffsets(body, face, edgeIds, d, corner = 'linear') {
     if (!(Number.isFinite(d) && Math.abs(d) > 1e-9)) throw new Error('the distance must not be zero');
     const { frame, loops } = faceLoops(body, face, edgeIds);
-    return loops.map((l, i) => offsetCurve(runCurve(frame, l.run), i === 0 ? -d : d, corner));
+    // An outline inside an even number of others bounds the region from outside (in), else a hole (out).
+    return loops.map((l, i) => {
+        const depth = loops.filter((m, j) => j !== i && inside(m.pts, l.pts[0])).length;
+        return offsetCurve(runCurve(frame, l.run), depth % 2 ? d : -d, corner);
+    });
+}
+
+/**
+ * Offset Face Loop on several flat faces. Combined (Plasticity's default): the faces lying in one
+ * plane go together and only their shared outline moves, the edges between them dropped. Individual
+ * (I): each face's own outline. `faceEdges(f)` gives face f's edges. Returns { shapes, faces }, the
+ * curves and the faces they are imprinted on.
+ */
+export function facesLoopOffsets(body, faces, faceEdges, d, corner = 'linear', individual = false) {
+    const planes = faces.map(f => body.facePlanes[f]);
+    if (planes.some(p => !p)) throw new Error('Offset Face Loop works on flat faces');
+    const groups = [];
+    for (const f of faces) {
+        const p = body.facePlanes[f], n = unit3(p.normal);
+        const g = !individual && groups.find(g => { const q = body.facePlanes[g[0]]; return dot3(unit3(q.normal), n) > 1 - 1e-9 && Math.abs(dot3(sub3(p.origin, q.origin), n)) < 1e-6; });
+        g ? g.push(f) : groups.push([f]);
+    }
+    const shapes = groups.flatMap(g => {
+        // An edge two faces of the group share is inside the region, not on its outline.
+        const count = new Map();
+        for (const f of g) for (const e of new Set(faceEdges(f))) count.set(e, (count.get(e) ?? 0) + 1);
+        return faceLoopOffsets(body, g[0], [...count].filter(([, k]) => k === 1).map(([e]) => e), d, corner);
+    });
+    return { shapes, faces: [...faces] };
 }
 
 /**

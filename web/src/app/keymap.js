@@ -121,7 +121,7 @@ export const COMMAND = {
     // Slide Curve CV (manual: U positive U, Shift+U negative U, N normal)
     slide: { d: 'distance', u: 'u', 'shift-u': '-u', v: 'v', 'shift-v': '-v', n: 'n' },
     // Offset Edge / Offset Face Loop (manual: D distance, V gap fill)
-    'offset-edge': { d: 'distance', v: 'corner', s: 'both' },
+    'offset-edge': { d: 'distance', v: 'corner', s: 'both', i: 'individual' },
     isoparam: { tab: 'direction', u: 'u', v: 'v' },
     'fillet-vertex': { d: 'distance', c: 'chamfer' },
     'align-vertex': { x: 'x', y: 'y', z: 'z', v: 'value' },

@@ -148,3 +148,32 @@ export function faceEdges(body, face) {
     });
     return out;
 }
+
+/**
+ * The edges that bound one flat face: {@link faceEdges} keeps every edge lying in the face's plane,
+ * which takes in a neighbouring face's edges when two faces share a plane; here an edge must also
+ * touch one of the face's own triangles at its middle.
+ */
+export function faceBoundEdges(body, face) {
+    const { positions: p, indices: ix, faceIds } = body;
+    const tris = [];
+    for (let t = 0; t < faceIds.length; t++) if (faceIds[t] === face) tris.push([0, 1, 2].map(k => { const i = ix[3 * t + k]; return [p[3 * i], p[3 * i + 1], p[3 * i + 2]]; }));
+    return faceEdges(body, face).filter(n => {
+        const e = body.edges[n], m = Math.max(0, Math.floor((e.length / 3 - 1) / 2));
+        // The middle of the edge's middle segment.
+        const q = [0, 1, 2].map(k => (e[3 * m + k] + e[3 * Math.min(m + 1, e.length / 3 - 1) + k]) / 2);
+        return tris.some(t => nearTriangle(q, t, 1e-4));
+    });
+}
+
+/** Whether `q` lies within `tol` of the triangle (in its plane, inside or on its sides). */
+function nearTriangle(q, [a, b, c], tol) {
+    const sub = (u, v) => [u[0] - v[0], u[1] - v[1], u[2] - v[2]];
+    const dot = (u, v) => u[0] * v[0] + u[1] * v[1] + u[2] * v[2];
+    const cross = (u, v) => [u[1] * v[2] - u[2] * v[1], u[2] * v[0] - u[0] * v[2], u[0] * v[1] - u[1] * v[0]];
+    const n = cross(sub(b, a), sub(c, a)), l = Math.hypot(...n);
+    if (l < 1e-12) return false;
+    if (Math.abs(dot(sub(q, a), n)) / l > tol) return false;
+    // Inside or within tol of each side, measured in the plane.
+    return [[a, b], [b, c], [c, a]].every(([s, e]) => dot(cross(sub(e, s), sub(q, s)), n) / l >= -tol * Math.hypot(...sub(e, s)));
+}

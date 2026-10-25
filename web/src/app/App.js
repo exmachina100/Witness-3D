@@ -57,8 +57,8 @@ import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
 import { MagnitudeGizmo, typed } from '../MagnitudeGizmo.js';
 import { TOOLS, check, tool as toolInfo, withDefaults } from './tools.js';
 import { ACTIONS, COMMAND, VIEWPORT, keyFor, keyOf } from './keymap.js';
-import { Selection, faceEdges } from './Selection.js';
-import { edgeOffsetsBothSides, edgeOffsetsOnFace, faceLoopOffsets } from '../edgeOffset.js';
+import { Selection, faceBoundEdges, faceEdges } from './Selection.js';
+import { edgeOffsetsBothSides, edgeOffsetsOnFace, facesLoopOffsets } from '../edgeOffset.js';
 import { curveArrayMotions } from '../curveArray.js';
 import { curveDimensions, faceDimensions, filletDimensions, solidDimensions } from '../dimension.js';
 import { edgeCurve, flattenCurve } from '../altDuplicate.js';
@@ -165,7 +165,7 @@ const KEYS = {
   'cut-curve': [['CLICK', 'CUTTER CURVES'], ['TAB', 'EXTEND'], ['S', 'SCREEN SPACE'], ['⏎ / RMB', 'OK'], ['ESC', 'CANCEL']],
   'insert-knot': [['CLICK', 'ADD A CONTROL POINT'], ['ESC / ⏎', 'DONE']],
   'isoparam': [['HOVER', 'FACE'], ['CLICK', 'KEEP'], ['TAB', 'U / V'], ['⏎ / RMB', 'DONE']],
-  'offset-edge': [['D', 'DISTANCE'], ['−', 'OTHER FACE'], ['S', 'BOTH SIDES'], ['V', 'GAP FILL'], ['⏎ / RMB', 'OK']],
+  'offset-edge': [['D', 'DISTANCE'], ['−', 'OTHER FACE'], ['S', 'BOTH SIDES'], ['I', 'INDIVIDUAL'], ['V', 'GAP FILL'], ['⏎ / RMB', 'OK']],
   box: [['CLICK', 'CORNER · CORNER · HEIGHT'], ['C', 'FROM CENTRE'], ['S', 'SQUARE'], ['TAB', 'TYPE'], ['H', 'HEIGHT'], ['Q W ⇧E ⇧Q', 'BOOLEAN'], ['B', 'NEW BODY'], ['⏎ / RMB', 'OK']],
   'center-box': [['CLICK', 'CENTRE · CORNER · HEIGHT'], ['C', 'FROM CORNER'], ['S', 'SQUARE'], ['TAB', 'TYPE'], ['H', 'HEIGHT'], ['Q W ⇧E ⇧Q', 'BOOLEAN'], ['B', 'NEW BODY'], ['⏎ / RMB', 'OK']],
   box3: [['CLICK', 'CORNER · SIDE · WIDTH · HEIGHT'], ['X Y Z', 'AXIS'], ['TAB', 'TYPE'], ['Q W ⇧E ⇧Q', 'BOOLEAN'], ['B', 'NEW BODY'], ['⏎ / RMB', 'OK']],
@@ -372,7 +372,7 @@ const SHELL = `
       <div class="field"><label for="w3d-oe-d">DISTANCE</label><input id="w3d-oe-d" data-id="oe-d" type="number" step="0.5" value="2"></div>
       <span class="label">GAP FILL</span>
       <div class="chips"><button data-oecorner="linear" aria-pressed="true" title="Offsets meet in a sharp corner">LINEAR</button><button data-oecorner="round" aria-pressed="false" title="An arc round the corner">ROUND</button><button data-oecorner="natural" aria-pressed="false" title="The offsets run on into each other smoothly">NATURAL</button></div>
-      <div class="chips"><button data-id="oe-both" aria-pressed="false" title="Offset onto both faces of the edge at once"><kbd>S</kbd>BOTH SIDES</button></div>
+      <div class="chips"><button data-id="oe-both" aria-pressed="false" title="Offset onto both faces of the edge at once"><kbd>S</kbd>BOTH SIDES</button><button data-id="oe-individual" aria-pressed="false" title="Individual: each picked face's own outline, rather than the outline of the faces together" hidden><kbd>I</kbd>INDIVIDUAL</button></div>
     </div>
     <div class="sec" data-panel="isoparam" hidden>
       <span class="hint" data-id="iso-hint">HOVER A FACE</span>
@@ -870,11 +870,11 @@ const VIEWS = {
 export async function mount(root, backend) {
   root.innerHTML = SHELL;
   // Panel options carry their icon ahead of the key and name.
-  for (const b of root.querySelectorAll('[data-draw],[data-bop],[data-xop],[data-fop],[data-spiral],[data-toggle],[data-gmethod],[data-galign],[data-grow],[data-mfgrow],[data-eslimit],[data-flshape],[data-avaxis],[data-extshape],[data-esshape],[data-isodir],[data-id="oe-both"],[data-id="ex-lock"],[data-id="bool-keep"],[data-id="ex-free"],[data-id="ex-pivot"],[data-id="ex-individual"],[data-id="dr-hidden"],[data-id="dr-curves"],[data-id="oc-lock"],[data-id="oc-free"],[data-id="oc-slot"],[data-id="oc-combine"],[data-id="es-unlimit"],[data-rbmethod],[data-oecorner],[data-saplane],[data-plaxis],[data-plop],[data-id="pl-flip"],[data-id="pl-instance"],[data-id="ra-instance"],[data-id="rr-instance"],[data-id="ca-instance"],[data-id="br-trim"],[data-id="br-comb"],[data-id="ac-comb"],[data-id="dc-reblend"],[data-id="section-btn"],[data-id="sa-flip"],[data-id="rf-shrink"],[data-id="ut-keep"],[data-txfont],[data-txalign],[data-sldir],[data-dcflip],[data-id="dc-keep"],[data-imdepth],[data-imcull],[data-id="im-delete"],[data-id="cc-extend"],[data-id="cc-screen"],[data-inmode],[data-id="in-realize"],[data-id="in-dup"],[data-id="in-delete"]')) {
+  for (const b of root.querySelectorAll('[data-draw],[data-bop],[data-xop],[data-fop],[data-spiral],[data-toggle],[data-gmethod],[data-galign],[data-grow],[data-mfgrow],[data-eslimit],[data-flshape],[data-avaxis],[data-extshape],[data-esshape],[data-isodir],[data-id="oe-both"],[data-id="oe-individual"],[data-id="ex-lock"],[data-id="bool-keep"],[data-id="ex-free"],[data-id="ex-pivot"],[data-id="ex-individual"],[data-id="dr-hidden"],[data-id="dr-curves"],[data-id="oc-lock"],[data-id="oc-free"],[data-id="oc-slot"],[data-id="oc-combine"],[data-id="es-unlimit"],[data-rbmethod],[data-oecorner],[data-saplane],[data-plaxis],[data-plop],[data-id="pl-flip"],[data-id="pl-instance"],[data-id="ra-instance"],[data-id="rr-instance"],[data-id="ca-instance"],[data-id="br-trim"],[data-id="br-comb"],[data-id="ac-comb"],[data-id="dc-reblend"],[data-id="section-btn"],[data-id="sa-flip"],[data-id="rf-shrink"],[data-id="ut-keep"],[data-txfont],[data-txalign],[data-sldir],[data-dcflip],[data-id="dc-keep"],[data-imdepth],[data-imcull],[data-id="im-delete"],[data-id="cc-extend"],[data-id="cc-screen"],[data-inmode],[data-id="in-realize"],[data-id="in-dup"],[data-id="in-delete"]')) {
     const name = b.dataset.draw ?? b.dataset.bop ?? b.dataset.xop ?? b.dataset.fop ?? b.dataset.spiral ?? (b.dataset.toggle && `view-${b.dataset.toggle}`)
       ?? (b.dataset.gmethod && `guide-${b.dataset.gmethod}`) ?? (b.dataset.galign && `align-${b.dataset.galign}`) ?? (b.dataset.grow && `grow-${b.dataset.grow}`) ?? (b.dataset.mfgrow && `grow-${b.dataset.mfgrow}`) ?? (b.dataset.eslimit && `limit-${b.dataset.eslimit}`) ?? (b.dataset.flshape && `fillet-${b.dataset.flshape}`) ?? (b.dataset.avaxis && `axis-${b.dataset.avaxis}`) ?? (b.dataset.extshape && `extend-${b.dataset.extshape}`) ?? (b.dataset.esshape && `extend-${b.dataset.esshape}`) ?? (b.dataset.isodir && `iso-${b.dataset.isodir}`) ?? (b.dataset.rbmethod && `rebuild-${b.dataset.rbmethod}`) ?? (b.dataset.oecorner && `corner-${b.dataset.oecorner}`) ?? (b.dataset.saplane && `section-${b.dataset.saplane}`) ?? (b.dataset.plaxis && (b.dataset.plaxis === 'normal' ? 'place-normal' : `axis-${b.dataset.plaxis}`)) ?? b.dataset.plop
       ?? (b.dataset.txfont && `font-${b.dataset.txfont}`) ?? (b.dataset.txalign && `txalign-${b.dataset.txalign}`) ?? (b.dataset.sldir && { u: 'slide-u', '-u': 'slide-back', v: 'slide-v', '-v': 'slide-vback', n: 'slide-n' }[b.dataset.sldir]) ?? (b.dataset.dcflip && { mirror: 'mirror', swap: 'swap-uv', normal: 'reverse-sheet' }[b.dataset.dcflip]) ?? (b.dataset.imdepth && `depth-${b.dataset.imdepth}`) ?? (b.dataset.imcull && `cull-${b.dataset.imcull}`) ?? b.dataset.inmode
-      ?? { 'ex-lock': 'lock', 'bool-keep': 'keep', 'ex-free': 'freestyle', 'ex-pivot': 'pivot', 'ex-individual': 'individual', 'dr-hidden': 'hidden-lines', 'dr-curves': 'drawing-curves', 'oc-lock': 'lock', 'oc-free': 'freestyle', 'oc-slot': 'slot', 'oc-combine': 'combine', 'oe-both': 'both-sides', 'es-unlimit': 'unlimit', 'rf-shrink': 'shrink', 'ut-keep': 'keep-edges', 'section-btn': 'view-section', 'sa-flip': 'flip', 'pl-flip': 'flip', 'pl-instance': 'instance', 'ra-instance': 'instance', 'rr-instance': 'instance', 'ca-instance': 'instance', 'br-trim': 'trim', 'br-comb': 'view-curvature', 'ac-comb': 'view-curvature', 'dc-reblend': 'reblend', 'dc-keep': 'keep', 'im-delete': 'delete', 'in-realize': 'realize-instance', 'cc-extend': 'extend', 'cc-screen': 'view-screen', 'in-dup': 'duplicate', 'in-delete': 'delete' }[b.dataset.id];
+      ?? { 'ex-lock': 'lock', 'bool-keep': 'keep', 'ex-free': 'freestyle', 'ex-pivot': 'pivot', 'ex-individual': 'individual', 'dr-hidden': 'hidden-lines', 'dr-curves': 'drawing-curves', 'oc-lock': 'lock', 'oc-free': 'freestyle', 'oc-slot': 'slot', 'oc-combine': 'combine', 'oe-both': 'both-sides', 'oe-individual': 'individual', 'es-unlimit': 'unlimit', 'rf-shrink': 'shrink', 'ut-keep': 'keep-edges', 'section-btn': 'view-section', 'sa-flip': 'flip', 'pl-flip': 'flip', 'pl-instance': 'instance', 'ra-instance': 'instance', 'rr-instance': 'instance', 'ca-instance': 'instance', 'br-trim': 'trim', 'br-comb': 'view-curvature', 'ac-comb': 'view-curvature', 'dc-reblend': 'reblend', 'dc-keep': 'keep', 'im-delete': 'delete', 'in-realize': 'realize-instance', 'cc-extend': 'extend', 'cc-screen': 'view-screen', 'in-dup': 'duplicate', 'in-delete': 'delete' }[b.dataset.id];
     b.insertAdjacentHTML('afterbegin', icon(name));
   }
   const $ = id => root.querySelector(`[data-id="${id}"]`);
@@ -5001,16 +5001,19 @@ export async function mount(root, backend) {
     const id = loop ? faceBody() : eb, body = bodyOf(id);
     const picked = loop ? sel.list('face').map(it => it.n) : sel.list('edge').map(it => it.n);
     const flat = f => body.facePlanes[f] ? f : null;
-    if (loop && picked.length !== 1) return toast('OFFSET FACE LOOP WORKS ON ONE FACE AT A TIME');
-    if (loop && flat(picked[0]) === null) return toast('OFFSET FACE LOOP WORKS ON FLAT FACES');
+    if (loop && !picked.length) return toast('PICK FACES OR EDGES TO OFFSET');
+    if (loop && picked.some(f => flat(f) === null)) return toast('OFFSET FACE LOOP WORKS ON FLAT FACES');
     // The flat faces the picked edges all lie on: those an edge offset can run across.
-    const sides = loop ? [picked[0]] : body.facePlanes.map((_, f) => f).filter(f => flat(f) !== null && picked.every(n => faceEdges(body, f).includes(n)));
+    const sides = loop ? [...picked] : body.facePlanes.map((_, f) => f).filter(f => flat(f) !== null && picked.every(n => faceEdges(body, f).includes(n)));
     if (!sides.length && !backend.previewOffsetEdges) return toast('PICK EDGES THAT ALL BORDER ONE FLAT FACE');
-    const c = cmd = { id: 'offset-edge', body: id, corner: 'linear', both: false, shapes: null, faces: [], any: null, sent: 0, shown: 0 };
+    const c = cmd = { id: 'offset-edge', body: id, corner: 'linear', both: false, individual: false, shapes: null, faces: [], any: null, sent: 0, shown: 0 };
     lastTool = 'offset-edge';
     showTool('offset-edge');
     setState('none');
-    setTarget(`${label(id)} · ${loop ? 'FACE LOOP' : `${picked.length} EDGE${picked.length > 1 ? 'S' : ''}`}`);
+    setTarget(`${label(id)} · ${loop ? `FACE LOOP${picked.length > 1 ? ` ×${picked.length}` : ''}` : `${picked.length} EDGE${picked.length > 1 ? 'S' : ''}`}`);
+    $('oe-both').hidden = loop;
+    $('oe-individual').hidden = !loop;
+    $('oe-individual').setAttribute('aria-pressed', 'false');
     const setCorner = k => {
       c.corner = k;
       for (const b of $$('[data-oecorner]')) b.setAttribute('aria-pressed', String(b.dataset.oecorner === k));
@@ -5036,15 +5039,17 @@ export async function mount(root, backend) {
           if (loop || sides.length < 2) throw new Error('both sides works on edges between two flat faces');
           c.faces = sides.slice(0, 2);
           c.shapes = edgeOffsetsBothSides(body, sides[0], sides[1], f => faceEdges(body, f), picked, Math.abs(d));
+        } else if (loop) {
+          ({ shapes: c.shapes, faces: c.faces } = facesLoopOffsets(body, picked, f => faceBoundEdges(body, f), d, c.corner, c.individual));
         } else {
           const face = d < 0 && sides.length > 1 ? sides[1] : sides[0];
           const edges = faceEdges(body, face);
           c.faces = [face];
-          c.shapes = loop ? faceLoopOffsets(body, face, edges, d, c.corner) : edgeOffsetsOnFace(body, face, edges, picked, Math.abs(d), c.corner);
+          c.shapes = edgeOffsetsOnFace(body, face, edges, picked, Math.abs(d), c.corner);
         }
       } catch (e) { c.shapes = null; $('oe-hint').textContent = say(e); setState('failed'); return; }
       showCurvePreview(c.shapes);
-      $('oe-hint').textContent = `${c.shapes.length} ${loop ? 'LOOP' : 'OFFSET'}${c.shapes.length > 1 ? 'S' : ''} ON FACE${c.faces.length > 1 ? 'S' : ''} ${c.faces.join(' AND ')}${(sides.length > 1 || (!loop && backend.previewOffsetEdges)) && !c.both ? ' · − FOR THE OTHER FACE, S FOR BOTH' : ''}`;
+      $('oe-hint').textContent = `${c.shapes.length} ${loop ? 'LOOP' : 'OFFSET'}${c.shapes.length > 1 ? 'S' : ''} ON FACE${c.faces.length > 1 ? 'S' : ''} ${c.faces.join(' AND ')}${loop ? (picked.length > 1 ? ` · I FOR ${c.individual ? 'COMBINED' : 'INDIVIDUAL'}` : '') : (sides.length > 1 || backend.previewOffsetEdges) && !c.both ? ' · − FOR THE OTHER FACE, S FOR BOTH' : ''}`;
       livePreview(c, () => backend.previewImprint(c.request()), b => { showPreviewBody(b); showCurvePreview(c.shapes); setHud(`${loop ? 'OFFSET FACE LOOP' : 'OFFSET EDGE'} ${d} MM · ${c.both ? 'BOTH SIDES' : c.corner.toUpperCase()}`); }, 'oe-hint');
     };
     c.request = () => ({ body: c.body, faces: c.faces, curves: [], tools: { shapes: c.shapes } });
@@ -5054,9 +5059,16 @@ export async function mount(root, backend) {
       $('oe-both').setAttribute('aria-pressed', String(on));
       c.preview();
     };
+    c.setIndividual = on => {
+      if (!loop) return;
+      c.individual = on;
+      $('oe-individual').setAttribute('aria-pressed', String(on));
+      c.preview();
+    };
     c.key = action => {
       if (action === 'corner') { setCorner(OFFSET_CORNERS[(OFFSET_CORNERS.indexOf(c.corner) + 1) % OFFSET_CORNERS.length]); return true; }
       if (action === 'both') { c.setBoth(!c.both); return true; }
+      if (action === 'individual') { c.setIndividual(!c.individual); return true; }
       if (action !== 'distance') return false;
       c.entry = { label: 'DISTANCE', text: '', apply: v => { $('oe-d').value = v; c.preview(); } };
       setHud('DISTANCE _');
@@ -9288,6 +9300,7 @@ export async function mount(root, backend) {
   $('oe-d').addEventListener('input', () => cmd?.id === 'offset-edge' && cmd.preview());
   for (const b of $$('[data-oecorner]')) b.onclick = () => cmd?.id === 'offset-edge' && cmd.setCorner(b.dataset.oecorner);
   $('oe-both').onclick = () => cmd?.id === 'offset-edge' && cmd.setBoth(!cmd.both);
+  $('oe-individual').onclick = () => cmd?.id === 'offset-edge' && cmd.setIndividual(!cmd.individual);
   for (const b of $$('[data-isodir]')) b.onclick = () => cmd?.id === 'isoparam' && cmd.setDir(b.dataset.isodir === 'u');
   for (const b of $$('[data-accont]')) b.onclick = () => cmd?.id === 'align-curve' && cmd.setContinuity(b.dataset.accont);
   for (const id of ['ac-p', 'ac-t']) $(id).addEventListener('input', () => cmd?.id === 'align-curve' && cmd.preview());
