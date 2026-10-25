@@ -9,6 +9,7 @@ const HEX = /^#[0-9a-f]{6}$/i;
 export const PREF_FIELDS = {
     navigation: [
         { key: 'zoomToCursor', label: 'ZOOM TO CURSOR', type: 'bool', value: true },
+        { key: 'rotateAroundCursor', label: 'ROTATE AROUND CURSOR', type: 'bool', value: true },
         { key: 'invertZoom', label: 'INVERT ZOOM', type: 'bool', value: false },
         { key: 'zoomSpeed', label: 'ZOOM SPEED', type: 'number', value: 1, min: 0.1, max: 5 },
         { key: 'rotateSpeed', label: 'ROTATE SPEED', type: 'number', value: 1, min: 0.1, max: 5 },
