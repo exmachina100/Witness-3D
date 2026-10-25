@@ -1110,7 +1110,7 @@ export async function mount(root, backend) {
   const view = { edges: true, faces: true, curves: true, xray: false, snap: false, curvature: false, shader: 'ceramic-dark', render: false, environment: 'studio', envRotation: 0, envIntensity: 1, ao: false };
   const shadeU = {
     mode: { value: 0 }, sectioned: { value: false }, pull: { value: new THREE.Vector3(0, 1, 0) }, stripes: { value: SHADER_OPTIONS.stripes.value },
-    draftSin: { value: Math.sin(SHADER_OPTIONS.draft.value * DEG) }, spacing: { value: SHADER_OPTIONS.spacing.value },
+    draftSin: { value: Math.sin(SHADER_OPTIONS.draft.value * DEG) }, spacing: { value: SHADER_OPTIONS.spacing.value }, bend: { value: 1 / SHADER_OPTIONS.radius.value },
     // A matcap image of your own (Load Matcap): looked up by the view-space normal, shown as it is.
     matcap: { value: new THREE.DataTexture(new Uint8Array([160, 156, 148, 255]), 1, 1) },
   };
@@ -1126,8 +1126,8 @@ export async function mount(root, backend) {
   // images. Zebra stripes mirror even bands, so they stay smooth over G2 joins, kink at G1 ones and
   // break where faces only touch (G0). In render mode the faces keep the lit physical material.
   const shade = (own = false) => shader => {
-    Object.assign(shader.uniforms, { ownColor: { value: own }, sectioned: shadeU.sectioned, shadeMode: shadeU.mode, pull: shadeU.pull, stripes: shadeU.stripes, draftSin: shadeU.draftSin, spacing: shadeU.spacing, matcap: shadeU.matcap });
-    shader.fragmentShader = 'uniform bool ownColor;\nuniform bool sectioned;\nuniform int shadeMode;\nuniform vec3 pull;\nuniform float stripes;\nuniform float draftSin;\nuniform float spacing;\nuniform sampler2D matcap;\n' + shader.fragmentShader.replace('#include <dithering_fragment>', `
+    Object.assign(shader.uniforms, { ownColor: { value: own }, sectioned: shadeU.sectioned, shadeMode: shadeU.mode, pull: shadeU.pull, stripes: shadeU.stripes, draftSin: shadeU.draftSin, spacing: shadeU.spacing, bend: shadeU.bend, matcap: shadeU.matcap });
+    shader.fragmentShader = 'uniform bool ownColor;\nuniform bool sectioned;\nuniform int shadeMode;\nuniform vec3 pull;\nuniform float stripes;\nuniform float draftSin;\nuniform float spacing;\nuniform float bend;\nuniform sampler2D matcap;\n' + shader.fragmentShader.replace('#include <dithering_fragment>', `
       // In a block of its own, so its names can't clash with the physical material's (clearcoat,
       // sheen and the rest declare their own in main).
       {
@@ -1179,6 +1179,20 @@ export async function mount(root, backend) {
         // A matcap image: the sphere's picture at the view-space normal, tinted by a material's colour.
         vec3 m = texture2D(matcap, n.xy * 0.495 + 0.5).rgb;
         gl_FragColor.rgb = ownColor ? m * diffuseColor.rgb / 0.62 : m;
+      } else if (shadeMode >= 15 && shadeMode <= 17) {
+        // Curvature from how the normal turns across the pixel: the first and second fundamental
+        // forms in screen directions give Gaussian K and mean H, and the larger principal curvature.
+        vec3 p = -vViewPosition, a = dFdx(p), b = dFdy(p), na = dFdx(n), nb = dFdy(n);
+        float E = dot(a, a), F = dot(a, b), G = dot(b, b);
+        float L = dot(na, a), M = 0.5 * (dot(na, b) + dot(nb, a)), N = dot(nb, b);
+        float det = max(E * G - F * F, 1e-24);
+        float K = (L * N - M * M) / det, H = (E * N - 2.0 * F * M + G * L) / (2.0 * det);
+        float k = shadeMode == 15 ? sign(K) * sqrt(abs(K)) : shadeMode == 16 ? H : abs(H) + sqrt(max(H * H - K, 0.0));
+        float t = clamp(k / bend, -1.0, 1.0);
+        vec3 flat_ = vec3(0.30, 0.72, 0.42), out_ = vec3(0.86, 0.30, 0.26), in_ = vec3(0.24, 0.44, 0.85);
+        vec3 c = shadeMode == 17 ? (t < 0.5 ? mix(flat_, vec3(0.93, 0.68, 0.22), t * 2.0) : mix(vec3(0.93, 0.68, 0.22), out_, t * 2.0 - 1.0))
+          : t >= 0.0 ? mix(flat_, out_, t) : mix(flat_, in_, -t);
+        gl_FragColor.rgb = c * (0.6 + 0.4 * lam);
       }
       // Section Analysis: where the slice opens a solid, its inside shows flat in the accent.
       if (sectioned && !gl_FrontFacing) gl_FragColor.rgb = vec3(1.0, 0.30, 0.0) * 0.7;
@@ -1299,6 +1313,7 @@ export async function mount(root, backend) {
     shadeU.stripes.value = shaderOpts.stripes;
     shadeU.draftSin.value = Math.sin(shaderOpts.draft * DEG);
     shadeU.spacing.value = shaderOpts.spacing;
+    shadeU.bend.value = 1 / shaderOpts.radius;
     scene.environment = view.render ? environmentMap(view.environment) : null;
     scene.environmentIntensity = view.envIntensity;
     scene.environmentRotation.set(0, view.envRotation * DEG, 0);
