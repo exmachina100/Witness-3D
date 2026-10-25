@@ -180,6 +180,30 @@ fn a_second_guide_scales_the_section_to_touch_both() {
 }
 
 #[test]
+fn a_third_sweep_guide_bends_the_sections_onto_it() {
+    let k = Occt;
+    // As above, plus a guide from the (5, -5) corner bowed 3 mm out in -y on its way to
+    // (10, -5, 20), where the first two alone would carry that corner straight.
+    let profile = Profile::Polygon(vec![(-5.0, -5.0), (5.0, -5.0), (5.0, 5.0), (-5.0, 5.0)]);
+    let a = line(DVec3::new(5.0, 5.0, 0.0), DVec3::new(10.0, 10.0, 20.0));
+    let b = line(DVec3::new(-5.0, -5.0, 0.0), DVec3::new(-5.0, -5.0, 20.0));
+    let (c0, cm, c1) = (DVec3::new(5.0, -5.0, 0.0), DVec3::new(7.5, -8.0, 10.0), DVec3::new(10.0, -5.0, 20.0));
+    let c = Path::Arc { start: c0, mid: cm, end: c1 };
+    let s = form::tool(&Occt, &FormParams {
+        profile,
+        frame: ground(0.0),
+        kind: FormKind::Sweep { path: line(DVec3::ZERO, DVec3::new(0.0, 0.0, 20.0)), twist: 0.0, scale: 1.0, guides: vec![a, b, c], method: GuideMethod::Point, align: Alignment::Normal, round: false },
+        operation: Operation::NewBody,
+    }).unwrap();
+    assert!(k.is_valid(&s));
+    let (lo, _) = bounds(&k, &s);
+    assert!((lo.y + 8.0).abs() < 0.1, "bowed out to y {}", lo.y);
+    let rail = arc_points(c0, cm, c1);
+    let off = farthest(&k, &s, &rail[5..36]);
+    assert!(off < 0.1, "the third guide lies on the sweep within {off} mm");
+}
+
+#[test]
 fn round_corners_round_the_section_about_the_path_corner() {
     let k = Occt;
     // A 2 × 2 square swept up 10 and then along +X 10: mitred, the corner is a sharp elbow.

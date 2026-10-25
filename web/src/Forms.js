@@ -340,7 +340,6 @@ export function sweepGuided(c, path, guides, method = 'point', align = 'normal',
     }
     if (!['point', 'chord', 'curve'].includes(method)) throw new Error('the guide method is Point, Chord or Curve');
     if (g.circle || g.closed) throw new Error('a guide needs a path with two ends');
-    if (guides.length > 2) throw new Error('Sweep follows one or two guides');
     const along = adaptor(spine);
     // Per guide: its curve, where it touches the profile, and its length to each of many samples (for Curve).
     const rails = guides.map(guide => {
@@ -389,7 +388,11 @@ export function sweepGuided(c, path, guides, method = 'point', align = 'normal',
             all = first.Multiplied(place);
             all = onto(target[0], tan, V3(pnt(rails[1].contact).Transformed(all)), target[1], true).Multiplied(all);
         }
-        mk.AddWire(o.TopoDS.Wire(new o.BRepBuilderAPI_Transform(prof.wire, all, true, false).Shape()));
+        let placed = o.TopoDS.Wire(new o.BRepBuilderAPI_Transform(prof.wire, all, true, false).Shape());
+        // Past two guides the placed section is bent to meet the rest too, as Loft does; the first
+        // two already touch theirs and stay pinned.
+        if (rails.length > 2) placed = warpWire(placed, rails.map(g => V3(pnt(g.contact).Transformed(all))), target);
+        mk.AddWire(placed);
     }
     mk.CheckCompatibility(false);
     mk.Build(new o.Message_ProgressRange());

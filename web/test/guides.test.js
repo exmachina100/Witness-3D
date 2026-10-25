@@ -103,7 +103,19 @@ test('a second guide scales the section to touch both', async () => {
         close(b.max.x, 10, 0.01);
         close(b.min.x, -5, 0.01);
     }
-    assert.throws(() => be.form({ kind: 'sweep', regions: [ids[0]], path: ids[1], guides: [...guides, guides[0]] }), /one or two guides/);
+    // A third guide from the (5, ·, 5) corner, bowed out 3 mm in +z on its way to (10, 20, 5),
+    // where the first two alone would carry that corner in a straight line.
+    const L = Math.hypot(5, 20);
+    const { ids: [third] } = await be.addCurves([{ origin: [5, 0, 5], x: [5 / L, 20 / L, 0], normal: [60, -15, 0], kind: 'arc', start: [0, 0], mid: [L / 2, 3], end: [L, 0] }]);
+    const tool = be.form({ kind: 'sweep', regions: [ids[0]], path: ids[1], guides: [...guides, third], method: 'point' }).tool, o = oc();
+    close(bounds(tool).max.z, 8, 0.1);
+    for (const t of [0.25, 0.5, 0.75]) {
+        // Points on the arc: the chord's point at t lifted by the arc's sagitta there.
+        const r = ((L / 2) ** 2 + 9) / 6, x = L * t - L / 2, lift = Math.sqrt(r * r - x * x) - (r - 3);
+        const p = [5 + 5 * t, 20 * t, 5 + lift];
+        const d = new o.BRepExtrema_DistShapeShape(new o.BRepBuilderAPI_MakeVertex(new o.gp_Pnt(...p)).Shape(), tool);
+        assert.ok(d.Value() < 0.1, `${d.Value()} mm off the third guide at ${t}`);
+    }
 });
 
 test('Parallel keeps the section at its drawn angle', async () => {
