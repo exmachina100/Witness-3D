@@ -151,6 +151,14 @@ fn document_runs_each_as_one_undo_step() {
     close(vol(&doc, seed), before - std::f64::consts::PI * 250.0, 0.5);
     assert_eq!(doc.ids().len(), 1);
     assert!(doc.undo());
+    // T keeps the cylinder too: the pocket and the cylinder as a body of its own, one step.
+    let (cut, kept) = doc.commit_primitive_keeping(&pocket, seed, Operation::Difference).unwrap();
+    assert_eq!(cut, seed);
+    close(vol(&doc, seed), before - std::f64::consts::PI * 250.0, 0.5);
+    close(vol(&doc, kept), std::f64::consts::PI * 250.0, 0.5);
+    assert!(doc.undo());
+    assert_eq!(doc.ids().len(), 1);
+    assert!(doc.commit_primitive_keeping(&pocket, seed, Operation::NewBody).is_err());
     assert!(matches!(doc.preview_primitive(&Primitive::Sphere { center: DVec3::new(0.0, 500.0, 0.0), radius: 1.0 }, Some(seed), Operation::Difference), Err(KernelError::Invalid(_))));
 }
 

@@ -843,6 +843,9 @@ pub struct PrimitiveRequest {
     pub target: Option<BodyId>,
     #[serde(default = "primitive_new_op")]
     pub op: OpChoice,
+    /// T: the primitive stays as a body of its own after combining.
+    #[serde(default)]
+    pub keep: bool,
 }
 
 fn primitive_new_op() -> OpChoice { OpChoice::New }
@@ -880,7 +883,10 @@ pub fn preview_primitive(m: &Model, req: PrimitiveRequest) -> Option<Result<Prev
 pub fn commit_primitive(m: &Model, req: PrimitiveRequest) -> Result<Committed, ApiError> {
     m.call(move |doc| {
         let target = req.target.filter(|_| req.operation() != Operation::NewBody);
-        let id = doc.commit_primitive(&req.primitive()?, target, req.operation())?;
+        let id = match target {
+            Some(t) if req.keep => doc.commit_primitive_keeping(&req.primitive()?, t, req.operation())?.0,
+            _ => doc.commit_primitive(&req.primitive()?, target, req.operation())?,
+        };
         Ok(Committed { id, scene: bodies(doc)? })
     })
 }

@@ -706,6 +706,7 @@ const SHELL = `
         <button data-pop="slice" aria-pressed="false"><kbd>⇧Q</kbd>SLICE</button>
         <button data-pop="new" aria-pressed="true"><kbd>B</kbd>NEW</button>
       </div>
+      <div class="chips"><button data-id="prim-keep" aria-pressed="false" title="Keep the primitive as a body of its own after combining (T)"><kbd>T</kbd>KEEP TOOL</button></div>
     </div>
     <div class="sec" data-panel="material" hidden>
       <span class="hint" data-id="mat-hint">—</span>
@@ -920,11 +921,11 @@ const VIEWS = {
 export async function mount(root, backend) {
   root.innerHTML = SHELL;
   // Panel options carry their icon ahead of the key and name.
-  for (const b of root.querySelectorAll('[data-proj],[data-imp],[data-impcomp],[data-draw],[data-bop],[data-xop],[data-fop],[data-spiral],[data-toggle],[data-gmethod],[data-galign],[data-gcorner],[data-grow],[data-mfgrow],[data-eslimit],[data-flshape],[data-drtaper],[data-avaxis],[data-extshape],[data-esshape],[data-isodir],[data-id="oe-both"],[data-id="oe-individual"],[data-id="blend-tangent"],[data-id="ex-lock"],[data-id="bool-keep"],[data-id="ex-free"],[data-id="ex-pivot"],[data-id="ex-individual"],[data-id="patch-individual"],[data-id="as-symmetric"],[data-id="dr-hidden"],[data-id="dr-curves"],[data-id="oc-lock"],[data-id="oc-free"],[data-id="oc-slot"],[data-id="oc-combine"],[data-id="es-unlimit"],[data-rbmethod],[data-oecorner],[data-saplane],[data-plaxis],[data-plop],[data-id="pl-flip"],[data-id="pl-instance"],[data-id="mirror-instance"],[data-id="ra-instance"],[data-id="rr-instance"],[data-id="ca-instance"],[data-id="br-trim"],[data-id="br-comb"],[data-id="ac-comb"],[data-id="dc-reblend"],[data-id="section-btn"],[data-id="sa-flip"],[data-id="rf-shrink"],[data-id="ut-keep"],[data-txfont],[data-id="tx-load"],[data-id="tx-system"],[data-txalign],[data-sldir],[data-dcflip],[data-id="dc-keep"],[data-imdepth],[data-imcull],[data-id="im-delete"],[data-id="cc-extend"],[data-id="cc-screen"],[data-inmode],[data-id="in-realize"],[data-id="in-dup"],[data-id="in-delete"],[data-id="matcap-load"],[data-id="matcap-custom"],[data-id="hdr-load"],[data-id="hdr-custom"]')) {
+  for (const b of root.querySelectorAll('[data-proj],[data-imp],[data-impcomp],[data-draw],[data-bop],[data-xop],[data-fop],[data-spiral],[data-toggle],[data-gmethod],[data-galign],[data-gcorner],[data-grow],[data-mfgrow],[data-eslimit],[data-flshape],[data-drtaper],[data-avaxis],[data-extshape],[data-esshape],[data-isodir],[data-id="oe-both"],[data-id="oe-individual"],[data-id="blend-tangent"],[data-id="ex-lock"],[data-id="bool-keep"],[data-id="prim-keep"],[data-id="ex-free"],[data-id="ex-pivot"],[data-id="ex-individual"],[data-id="patch-individual"],[data-id="as-symmetric"],[data-id="dr-hidden"],[data-id="dr-curves"],[data-id="oc-lock"],[data-id="oc-free"],[data-id="oc-slot"],[data-id="oc-combine"],[data-id="es-unlimit"],[data-rbmethod],[data-oecorner],[data-saplane],[data-plaxis],[data-plop],[data-id="pl-flip"],[data-id="pl-instance"],[data-id="mirror-instance"],[data-id="ra-instance"],[data-id="rr-instance"],[data-id="ca-instance"],[data-id="br-trim"],[data-id="br-comb"],[data-id="ac-comb"],[data-id="dc-reblend"],[data-id="section-btn"],[data-id="sa-flip"],[data-id="rf-shrink"],[data-id="ut-keep"],[data-txfont],[data-id="tx-load"],[data-id="tx-system"],[data-txalign],[data-sldir],[data-dcflip],[data-id="dc-keep"],[data-imdepth],[data-imcull],[data-id="im-delete"],[data-id="cc-extend"],[data-id="cc-screen"],[data-inmode],[data-id="in-realize"],[data-id="in-dup"],[data-id="in-delete"],[data-id="matcap-load"],[data-id="matcap-custom"],[data-id="hdr-load"],[data-id="hdr-custom"]')) {
     const name = (b.dataset.proj && (b.dataset.proj === 'screen' ? 'view-screen' : `proj-${b.dataset.proj}`)) ?? (b.dataset.imp && (b.dataset.imp === 'screen' ? 'view-screen' : `proj-${b.dataset.imp}`)) ?? (b.dataset.impcomp && `completion-${b.dataset.impcomp}`) ?? b.dataset.draw ?? b.dataset.bop ?? b.dataset.xop ?? b.dataset.fop ?? b.dataset.spiral ?? (b.dataset.toggle && `view-${b.dataset.toggle}`)
       ?? (b.dataset.gmethod && `guide-${b.dataset.gmethod}`) ?? (b.dataset.galign && `align-${b.dataset.galign}`) ?? (b.dataset.gcorner && (b.dataset.gcorner === 'round' ? 'corner-round' : 'corner-linear')) ?? (b.dataset.grow && `grow-${b.dataset.grow}`) ?? (b.dataset.mfgrow && `grow-${b.dataset.mfgrow}`) ?? (b.dataset.eslimit && `limit-${b.dataset.eslimit}`) ?? (b.dataset.flshape && `fillet-${b.dataset.flshape}`) ?? (b.dataset.drtaper && `taper-${b.dataset.drtaper}`) ?? (b.dataset.avaxis && `axis-${b.dataset.avaxis}`) ?? (b.dataset.extshape && `extend-${b.dataset.extshape}`) ?? (b.dataset.esshape && `extend-${b.dataset.esshape}`) ?? (b.dataset.isodir && `iso-${b.dataset.isodir}`) ?? (b.dataset.rbmethod && `rebuild-${b.dataset.rbmethod}`) ?? (b.dataset.oecorner && `corner-${b.dataset.oecorner}`) ?? (b.dataset.saplane && `section-${b.dataset.saplane}`) ?? (b.dataset.plaxis && (b.dataset.plaxis === 'normal' ? 'place-normal' : `axis-${b.dataset.plaxis}`)) ?? b.dataset.plop
       ?? (b.dataset.txfont && `font-${b.dataset.txfont}`) ?? (b.dataset.txalign && `txalign-${b.dataset.txalign}`) ?? (b.dataset.sldir && { u: 'slide-u', '-u': 'slide-back', v: 'slide-v', '-v': 'slide-vback', n: 'slide-n' }[b.dataset.sldir]) ?? (b.dataset.dcflip && { mirror: 'mirror', swap: 'swap-uv', normal: 'reverse-sheet' }[b.dataset.dcflip]) ?? (b.dataset.imdepth && `depth-${b.dataset.imdepth}`) ?? (b.dataset.imcull && `cull-${b.dataset.imcull}`) ?? b.dataset.inmode
-      ?? { 'matcap-load': 'matcap-load', 'matcap-custom': 'matcap', 'tx-load': 'font-load', 'tx-system': 'font-system', 'hdr-load': 'hdr-load', 'hdr-custom': 'hdr', 'ex-lock': 'lock', 'bool-keep': 'keep', 'ex-free': 'freestyle', 'ex-pivot': 'pivot', 'ex-individual': 'individual', 'patch-individual': 'individual', 'as-symmetric': 'symmetric', 'dr-hidden': 'hidden-lines', 'dr-curves': 'drawing-curves', 'oc-lock': 'lock', 'oc-free': 'freestyle', 'oc-slot': 'slot', 'oc-combine': 'combine', 'oe-both': 'both-sides', 'oe-individual': 'individual', 'blend-tangent': 'tangent-chain', 'es-unlimit': 'unlimit', 'rf-shrink': 'shrink', 'ut-keep': 'keep-edges', 'section-btn': 'view-section', 'sa-flip': 'flip', 'pl-flip': 'flip', 'pl-instance': 'instance', 'mirror-instance': 'instance', 'ra-instance': 'instance', 'rr-instance': 'instance', 'ca-instance': 'instance', 'br-trim': 'trim', 'br-comb': 'view-curvature', 'ac-comb': 'view-curvature', 'dc-reblend': 'reblend', 'dc-keep': 'keep', 'im-delete': 'delete', 'in-realize': 'realize-instance', 'cc-extend': 'extend', 'cc-screen': 'view-screen', 'in-dup': 'duplicate', 'in-delete': 'delete' }[b.dataset.id];
+      ?? { 'matcap-load': 'matcap-load', 'matcap-custom': 'matcap', 'tx-load': 'font-load', 'tx-system': 'font-system', 'hdr-load': 'hdr-load', 'hdr-custom': 'hdr', 'ex-lock': 'lock', 'bool-keep': 'keep', 'prim-keep': 'keep', 'ex-free': 'freestyle', 'ex-pivot': 'pivot', 'ex-individual': 'individual', 'patch-individual': 'individual', 'as-symmetric': 'symmetric', 'dr-hidden': 'hidden-lines', 'dr-curves': 'drawing-curves', 'oc-lock': 'lock', 'oc-free': 'freestyle', 'oc-slot': 'slot', 'oc-combine': 'combine', 'oe-both': 'both-sides', 'oe-individual': 'individual', 'blend-tangent': 'tangent-chain', 'es-unlimit': 'unlimit', 'rf-shrink': 'shrink', 'ut-keep': 'keep-edges', 'section-btn': 'view-section', 'sa-flip': 'flip', 'pl-flip': 'flip', 'pl-instance': 'instance', 'mirror-instance': 'instance', 'ra-instance': 'instance', 'rr-instance': 'instance', 'ca-instance': 'instance', 'br-trim': 'trim', 'br-comb': 'view-curvature', 'ac-comb': 'view-curvature', 'dc-reblend': 'reblend', 'dc-keep': 'keep', 'im-delete': 'delete', 'in-realize': 'realize-instance', 'cc-extend': 'extend', 'cc-screen': 'view-screen', 'in-dup': 'duplicate', 'in-delete': 'delete' }[b.dataset.id];
     b.insertAdjacentHTML('afterbegin', icon(name));
   }
   const $ = id => root.querySelector(`[data-id="${id}"]`);
@@ -8188,7 +8189,7 @@ export async function mount(root, backend) {
     if (!backend.previewPrimitive) return toast(`${toolInfo(id).label} IS NOT IN THIS BUILD YET`);
     const box = id === 'box' || id === 'center-box' || id === 'box3';
     const c = cmd = { id, box, plane: null, pts: [], cursor: null, axis: null, centre: id === 'center-box', square: false, vertical: false,
-      stage: 'base', size: null, height: null, drive: 'height', op: 'new', target: null, sent: 0, shown: 0, entry: null };
+      stage: 'base', size: null, height: null, drive: 'height', op: 'new', keep: false, target: null, sent: 0, shown: 0, entry: null };
     lastTool = id;
     showTool(id);
     setState('none');
@@ -8204,6 +8205,7 @@ export async function mount(root, backend) {
       for (const b of $$('[data-popt]')) b.setAttribute('aria-pressed', !!c[b.dataset.popt]);
       for (const b of $$('[data-pop]')) b.setAttribute('aria-pressed', b.dataset.pop === c.op);
       $('prim-hint').dataset.op = c.op;
+      $('prim-keep').setAttribute('aria-pressed', c.keep);
     }
     /** The base in plane coordinates: a box's corner, its side along u and its extent along v; a circle's centre and radius. */
     function base() {
@@ -8229,7 +8231,7 @@ export async function mount(root, backend) {
       const b = base(), pl = c.plane;
       if (!b || !pl) return null;
       const at2 = q => pl.o.clone().addScaledVector(pl.x, q.x).addScaledVector(pl.y, q.y);
-      const extra = { target: pl.target ?? null, op: c.op };
+      const extra = { target: pl.target ?? null, op: c.op, keep: c.keep && c.op !== 'new' };
       if (id === 'sphere') return { kind: 'sphere', center: at2(b.centre).toArray(), radius: b.radius, ...extra };
       if (id === 'cylinder') {
         // V stands the base circle up: its axis runs along the plane instead of off it.
@@ -8360,7 +8362,7 @@ export async function mount(root, backend) {
         advance();
         return true;
       }
-      if (c.stage === 'height' || c.dragging) { c.stage = 'adjust'; c.dragging = false; solidPreview(); hint('DRAG THE DOTS · Q W ⇧E ⇧Q B FOR THE TARGET · ⏎ TO FINISH'); return true; }
+      if (c.stage === 'height' || c.dragging) { c.stage = 'adjust'; c.dragging = false; solidPreview(); hint('DRAG THE DOTS · Q W ⇧E ⇧Q B FOR THE TARGET · T KEEPS THE TOOL · ⏎ TO FINISH'); return true; }
       return true;
     };
     c.key = action => {
@@ -8370,6 +8372,8 @@ export async function mount(root, backend) {
         if (action !== 'new' && !c.plane?.target) { toast('START ON A FACE OF A SOLID TO COMBINE WITH IT'); return true; }
         c.op = action; syncOpts(); solidPreview(); return true;
       }
+      // T, keep tools: after a union, difference, intersect or slice the primitive stays as well.
+      if (action === 'keep') { c.keep = !c.keep; syncOpts(); return true; }
       if (action === 'height' || action === 'radius') {
         if (c.stage === 'base') return true;
         c.drive = id === 'sphere' ? 'radius' : action; c.dragging = true; c.stage = 'adjust';
@@ -8415,7 +8419,7 @@ export async function mount(root, backend) {
       try {
         const { id: made, scene: list } = await backend.commitPrimitive(req);
         endCmd('committed');
-        record(`${toolInfo(id).label}${c.op !== 'new' ? ` · ${c.op.toUpperCase()}` : ''}`, made);
+        record(`${toolInfo(id).label}${c.op !== 'new' ? ` · ${c.op.toUpperCase()}${req.keep ? ' · KEEP TOOL' : ''}` : ''}`, made);
         await showScene(list);
         sel.replace({ kind: 'solid', body: made });
         selectionChanged({ quiet: true });
@@ -10054,6 +10058,7 @@ export async function mount(root, backend) {
     if (cmd?.id === 'offset-curve') cmd.preview();
   };
   for (const id of ['prim-w', 'prim-d', 'prim-r', 'prim-h']) $(id).addEventListener('input', () => PRIMS[cmd?.id] && cmd.fromFields(id));
+  $('prim-keep').onclick = () => PRIMS[cmd?.id] && cmd.key('keep');
   for (const b of $$('[data-popt], [data-pop]')) b.onclick = () => PRIMS[cmd?.id] && cmd.key(b.dataset.popt ?? b.dataset.pop);
   $('shell-t').addEventListener('input', () => cmd?.id === 'shell' && cmd.preview());
   $('draft-a').addEventListener('input', () => cmd?.id === 'draft' && cmd.preview());

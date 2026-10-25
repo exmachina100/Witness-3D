@@ -109,11 +109,11 @@ export const COMMAND = {
     // Primitives (manual: Corner / Center / Three Point Box, Cylinder, Sphere). Tab types sizes; C and S
     // shape a box's base; H, F and D hand the cursor to the height, radius or diameter; V stands a
     // cylinder up; X, Y and Z hold the base to an axis; Q W Shift+E Shift+Q B pick the boolean.
-    box: { tab: 'typed', c: 'centre', s: 'square', h: 'height', x: 'axis-x', y: 'axis-y', z: 'axis-z', q: 'union', w: 'difference', 'shift-e': 'intersect', 'shift-q': 'slice', b: 'new' },
-    'center-box': { tab: 'typed', c: 'centre', s: 'square', h: 'height', x: 'axis-x', y: 'axis-y', z: 'axis-z', q: 'union', w: 'difference', 'shift-e': 'intersect', 'shift-q': 'slice', b: 'new' },
-    box3: { tab: 'typed', h: 'height', x: 'axis-x', y: 'axis-y', z: 'axis-z', q: 'union', w: 'difference', 'shift-e': 'intersect', 'shift-q': 'slice', b: 'new' },
-    cylinder: { tab: 'typed', v: 'vertical', f: 'radius', d: 'height', x: 'axis-x', y: 'axis-y', z: 'axis-z', q: 'union', w: 'difference', 'shift-e': 'intersect', 'shift-q': 'slice', b: 'new' },
-    sphere: { tab: 'typed', d: 'radius', x: 'axis-x', y: 'axis-y', z: 'axis-z', q: 'union', w: 'difference', 'shift-e': 'intersect', 'shift-q': 'slice', b: 'new' },
+    box: { tab: 'typed', c: 'centre', s: 'square', h: 'height', x: 'axis-x', y: 'axis-y', z: 'axis-z', q: 'union', w: 'difference', 'shift-e': 'intersect', 'shift-q': 'slice', b: 'new', t: 'keep' },
+    'center-box': { tab: 'typed', c: 'centre', s: 'square', h: 'height', x: 'axis-x', y: 'axis-y', z: 'axis-z', q: 'union', w: 'difference', 'shift-e': 'intersect', 'shift-q': 'slice', b: 'new', t: 'keep' },
+    box3: { tab: 'typed', h: 'height', x: 'axis-x', y: 'axis-y', z: 'axis-z', q: 'union', w: 'difference', 'shift-e': 'intersect', 'shift-q': 'slice', b: 'new', t: 'keep' },
+    cylinder: { tab: 'typed', v: 'vertical', f: 'radius', d: 'height', x: 'axis-x', y: 'axis-y', z: 'axis-z', q: 'union', w: 'difference', 'shift-e': 'intersect', 'shift-q': 'slice', b: 'new', t: 'keep' },
+    sphere: { tab: 'typed', d: 'radius', x: 'axis-x', y: 'axis-y', z: 'axis-z', q: 'union', w: 'difference', 'shift-e': 'intersect', 'shift-q': 'slice', b: 'new', t: 'keep' },
     // Round 7: D types the distance or radius.
     // Offset Curve (manual: D distance, V gap fill, S lock distances, F freestyle; C kept for the gap fill)
     'offset-curve': { d: 'distance', c: 'corner', v: 'corner', s: 'lock', f: 'freestyle', o: 'slot', i: 'combine' },

@@ -391,6 +391,8 @@ export class LocalBackend {
         if (!p.result) { const id = this.nextId++; this.put(id, p.tool); return { id, scene: this.bodies() }; }
         this.put(req.target, p.result.shape, p.result.history);
         if (p.piece) this.put(this.nextId++, p.piece);
+        // T keeps the primitive as a body of its own too.
+        if (req.keep) this.put(this.nextId++, p.tool);
         return { id: req.target, scene: this.bodies() };
     }
 

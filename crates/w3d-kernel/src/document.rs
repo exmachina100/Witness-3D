@@ -729,6 +729,16 @@ impl<K: Kernel> Document<K> {
         Ok(self.commit_result(target, r))
     }
 
+    /// A primitive combined with `target` that also stays as a body of its own (Plasticity's T, keep
+    /// tools), as one undoable step. Returns the changed target and the kept primitive.
+    pub fn commit_primitive_keeping(&mut self, p: &Primitive, target: BodyId, operation: Operation) -> Result<(BodyId, BodyId), KernelError> {
+        if matches!(operation, Operation::NewBody | Operation::Auto) { return Err(KernelError::Invalid("only a union, difference, intersect or slice keeps the primitive")) }
+        let tool = crate::solids::primitive(&self.kernel, p)?;
+        let r = self.preview_primitive(p, Some(target), operation)?;
+        let id = self.commit_result(Some(target), r);
+        Ok((id, self.add_unrecorded(tool)))
+    }
+
     /// Compute a Shell without changing the document.
     pub fn preview_shell(&self, body: BodyId, faces: &[u32], thickness: f64) -> Result<K::Solid, KernelError> {
         let solid = self.get(body).ok_or(KernelError::Invalid("that body no longer exists"))?;
