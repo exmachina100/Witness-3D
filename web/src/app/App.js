@@ -8594,7 +8594,7 @@ export async function mount(root, backend) {
     $('form-outcome').textContent = '—';
     setFormOps();
     const hint = () => {
-      const guides = c.guides.length ? ` · GUIDES ${c.guides.map(g => curveLabel(g)).join(', ')}` : '';
+      const guides = c.guides.length ? ` · GUIDES ${c.guides.map(g => g.key ? `${label(g.body)} EDGE ${g.n + 1}` : curveLabel(g)).join(', ')}` : '';
       const text = id === 'loft' ? `${c.regions.map(r => curveLabel(r)).join(' → ')}${guides || ' · CLICK GUIDES (OPTIONAL)'}`
         : id === 'revolve' ? (!c.p1 ? 'CLICK THE AXIS START' : !c.p2 ? 'CLICK THE AXIS END' : `${c.angle}° ABOUT THE AXIS${c.thickness ? ` · WALLS ${c.thickness}` : ''}`)
         : !c.path ? 'CLICK THE CURVE TO SWEEP ALONG' : `ALONG ${curveLabel(c.path)}${guides || ' · CLICK GUIDES (OPTIONAL, UP TO TWO)'}`;
@@ -8650,7 +8650,22 @@ export async function mount(root, backend) {
       }
       // Loft: each click on another curve adds it as a guide, or takes it off again. Sweep: the
       // first click picks the path, later ones up to two guides (a third replaces the second).
-      const picked = curveAt(e);
+      // A body edge can be a guide too (not a path): it goes as a curve through points along it.
+      let picked = curveAt(e);
+      if (picked === null && (id === 'loft' || (id === 'sweep' && c.path !== null))) {
+        const hit = pickAt(e);
+        if (hit?.kind === 'edge') {
+          const key = `${hit.body}:${hit.n}`;
+          picked = c.guides.find(g => g.key === key) ?? { key, body: hit.body, n: hit.n };
+          if (!picked.curve) {
+            const ask = picked;
+            backend.edgeCurvature({ body: hit.body, edge: hit.n, n: 64 }).then(teeth => {
+              ask.curve = curveFromNurbs(smoothThrough(teeth.map(t => t.at), false), [0, -1, 0]);
+              if (cmd === c && c.guides.includes(ask)) previewFormCmd();
+            }).catch(err => toast(say(err)));
+          }
+        }
+      }
       if (picked === null || c.regions.includes(picked)) return true;
       if (id === 'sweep' && (c.path === null || picked === c.path)) c.path = picked;
       else if (id === 'sweep') c.guides = c.guides.includes(picked) ? c.guides.filter(g => g !== picked) : [...c.guides.slice(0, 1), picked];
@@ -8708,6 +8723,8 @@ export async function mount(root, backend) {
     c.line.geometry.setFromPoints([c.p1.clone().addScaledVector(d, -ext), p.clone().addScaledVector(d, ext)]);
   }
   /** The drawn curve under the pointer, whatever the selection modes, or null. */
+  /** Loft and Sweep guides as the backends take them: drawn curves by id, edges as their curves (once read). */
+  function guideRequest(c) { return c.guides.filter(g => !g.key || g.curve).map(g => g.key ? g.curve : g); }
   function curveAt(e) {
     ray(e);
     raycaster.params.Line.threshold = unitsPerPixel(controls.target) * 6;
@@ -8723,9 +8740,9 @@ export async function mount(root, backend) {
     }
     if (c.id === 'sweep') {
       if (c.path === null) return null;
-      Object.assign(req, { path: c.path, twist: c.twist * DEG, scale: c.scale, guides: c.guides, method: c.method, align: c.align, corner: c.corner });
+      Object.assign(req, { path: c.path, twist: c.twist * DEG, scale: c.scale, guides: guideRequest(c), method: c.method, align: c.align, corner: c.corner });
     }
-    if (c.id === 'loft') req.guides = c.guides;
+    if (c.id === 'loft') req.guides = guideRequest(c);
     return req;
   }
   async function previewFormCmd() {

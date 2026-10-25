@@ -51,6 +51,15 @@ impl Refs {
 
 pub type CurveId = u32;
 
+/// A Loft or Sweep guide: a drawn curve, or a curve given whole (a body edge picked as a guide).
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum GuideRef { Drawn(CurveId), Shape(Curve) }
+
+impl From<CurveId> for GuideRef {
+    fn from(id: CurveId) -> Self { GuideRef::Drawn(id) }
+}
+
 /// What a Revolve, Loft or Sweep needs besides its regions.
 #[derive(Clone, Debug)]
 pub enum FormRequest {
@@ -59,9 +68,9 @@ pub enum FormRequest {
     /// Sweep along the curve `path`.
     Sweep { path: CurveId, twist: f64, scale: f64 },
     /// Loft whose sides run along the `guides` curves.
-    LoftGuided { guides: Vec<CurveId> },
+    LoftGuided { guides: Vec<GuideRef> },
     /// Sweep along `path` following the `guides` curves (none, one or two) by `method`, held by `align`.
-    SweepGuided { path: CurveId, guides: Vec<CurveId>, round: bool, method: crate::form::GuideMethod, align: crate::form::Alignment },
+    SweepGuided { path: CurveId, guides: Vec<GuideRef>, round: bool, method: crate::form::GuideMethod, align: crate::form::Alignment },
 }
 
 /// A planar curve drawn on a construction plane (Plasticity's Line, Rectangle and Circle). A closed
@@ -600,6 +609,14 @@ impl<K: Kernel> Document<K> {
         Ok((profile, c.frame()))
     }
 
+    /// The guides' curves: drawn ones looked up, given ones as they are.
+    fn guide_paths(&self, guides: &[GuideRef]) -> Result<Vec<Path>, KernelError> {
+        guides.iter().map(|g| match g {
+            GuideRef::Drawn(id) => self.curve(*id).map(|c| c.path()).ok_or(KernelError::Invalid("that guide no longer exists")),
+            GuideRef::Shape(c) => Ok(c.path()),
+        }).collect()
+    }
+
     /// Revolve, Loft or Sweep of drawn regions. Loft takes them in order; the others take one.
     pub fn form_params(&self, regions: &[CurveId], kind: FormRequest, operation: Operation) -> Result<FormParams, KernelError> {
         let (first, rest) = regions.split_first().ok_or(KernelError::Invalid("select a region first"))?;
@@ -608,8 +625,8 @@ impl<K: Kernel> Document<K> {
             FormRequest::Revolve { axis_point, axis_dir, angle, thickness } => FormKind::Revolve { axis_point, axis_dir, angle, thickness },
             FormRequest::Loft => FormKind::Loft { more: rest.iter().map(|&id| self.region(id)).collect::<Result<_, _>>()?, guides: vec![] },
             FormRequest::LoftGuided { guides } => {
-                if guides.iter().any(|g| regions.contains(g)) { return Err(KernelError::Invalid("a curve can't be both a profile and a guide")) }
-                let guides = guides.iter().map(|&g| self.curve(g).map(|c| c.path()).ok_or(KernelError::Invalid("that guide no longer exists"))).collect::<Result<_, _>>()?;
+                if guides.iter().any(|g| matches!(g, GuideRef::Drawn(id) if regions.contains(id))) { return Err(KernelError::Invalid("a curve can't be both a profile and a guide")) }
+                let guides = self.guide_paths(&guides)?;
                 FormKind::Loft { more: rest.iter().map(|&id| self.region(id)).collect::<Result<_, _>>()?, guides }
             }
             FormRequest::Sweep { path, twist, scale } => {
@@ -619,10 +636,10 @@ impl<K: Kernel> Document<K> {
             }
             FormRequest::SweepGuided { path, guides, method, align, round } => {
                 if regions.contains(&path) { return Err(KernelError::Invalid("pick a path other than the profile")) }
-                if guides.iter().any(|&g| g == path || regions.contains(&g)) { return Err(KernelError::Invalid("pick a guide other than the path and the profile")) }
+                if guides.iter().any(|g| matches!(g, GuideRef::Drawn(id) if *id == path || regions.contains(id))) { return Err(KernelError::Invalid("pick a guide other than the path and the profile")) }
                 let path = self.curve(path).ok_or(KernelError::Invalid("that path no longer exists"))?.path();
                 if guides.len() > 2 { return Err(KernelError::Invalid("Sweep follows one or two guides")) }
-                let guides = guides.iter().map(|&g| self.curve(g).map(|c| c.path()).ok_or(KernelError::Invalid("that guide no longer exists"))).collect::<Result<_, _>>()?;
+                let guides = self.guide_paths(&guides)?;
                 FormKind::Sweep { path, twist: 0.0, scale: 1.0, guides, method, align, round }
             }
         };

@@ -41,7 +41,7 @@ impl Default for DeformOptions {
     }
 }
 pub use solids::{ArraySpec, Primitive};
-pub use document::{Curve, CurveId, CurveShape};
+pub use document::{Curve, CurveId, CurveShape, GuideRef};
 pub mod join;
 
 /// A closed 2D profile, drawn in a sketch plane.
