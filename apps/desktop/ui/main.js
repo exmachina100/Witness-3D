@@ -111,6 +111,7 @@ const rust = {
   previewPlace: req => tauri.core.invoke('preview_place', { req }),
   commitPlace: req => tauri.core.invoke('commit_place', { req }),
   copyBodies: bodies => tauri.core.invoke('copy_bodies', { bodies }),
+  setMeshQuality: quality => tauri.core.invoke('set_mesh_quality', { quality }),
   // The Anthropic key for AI commands lives in the app's config folder (or ANTHROPIC_API_KEY).
   aiKey: () => tauri.core.invoke('ai_key'),
   setAiKey: key => tauri.core.invoke('set_ai_key', { key }),

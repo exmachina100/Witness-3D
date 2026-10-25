@@ -13,6 +13,19 @@ use w3d_kernel::{extrude, file, form, ArraySpec, Primitive, FormParams, Blend, B
 
 /// Chord tolerance for display meshes, in millimetres.
 const MESH_TOLERANCE: f64 = 0.05;
+/// Preferences › Performance › CPU facet quality, as f64 bits: the tolerance is MESH_TOLERANCE over it.
+static MESH_QUALITY: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0x3FF0_0000_0000_0000);
+fn mesh_tolerance() -> f64 { MESH_TOLERANCE / f64::from_bits(MESH_QUALITY.load(std::sync::atomic::Ordering::Relaxed)) }
+
+/// Draw the bodies with finer (above 1) or coarser facets from now on; the scene comes back redrawn.
+pub fn set_mesh_quality(m: &Model, quality: f64) -> Result<Vec<Body>, String> {
+    if !(0.25..=4.0).contains(&quality) { return Err("the facet quality runs from 0.25 to 4".into()) }
+    MESH_QUALITY.store(quality.to_bits(), std::sync::atomic::Ordering::Relaxed);
+    m.call(|doc| {
+        for id in doc.ids() { if let Some(s) = doc.get(id) { doc.kernel.clear_mesh(s) } }
+        bodies(doc)
+    })
+}
 
 pub type Model = Engine<Occt>;
 
@@ -188,7 +201,7 @@ pub struct Committed {
 }
 
 fn body(k: &Occt, id: BodyId, solid: &<Occt as Kernel>::Solid) -> Result<Body, String> {
-    let t: Tessellation = k.tessellate(solid, MESH_TOLERANCE).map_err(|e| e.to_string())?;
+    let t: Tessellation = k.tessellate(solid, mesh_tolerance()).map_err(|e| e.to_string())?;
     Ok(Body {
         id,
         volume: if k.is_sheet(solid) { 0.0 } else { t.volume() },

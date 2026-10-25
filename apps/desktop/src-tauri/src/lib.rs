@@ -214,6 +214,11 @@ async fn commit_place(
 }
 
 #[tauri::command]
+async fn set_mesh_quality(model: State<'_, Model>, quality: f64) -> Result<Vec<api::Body>, String> {
+    on_model(&model, move |m| api::set_mesh_quality(m, quality)).await?
+}
+
+#[tauri::command]
 async fn copy_bodies(model: State<'_, Model>, bodies: Vec<w3d_kernel::document::BodyId>) -> Result<usize, api::ApiError> {
     on_model(&model, move |m| api::copy_bodies(m, bodies)).await?
 }
@@ -1142,6 +1147,7 @@ pub fn run() {
             preview_place,
             commit_place,
             copy_bodies,
+            set_mesh_quality,
             commit_motion,
             delete_bodies,
             duplicate_bodies,

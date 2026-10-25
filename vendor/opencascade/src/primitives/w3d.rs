@@ -259,6 +259,9 @@ impl Shape {
     }
 
     /// Per face, its control points: nu, nv, then nu × nv points (see w3d.hxx).
+    /// Drops the shape's facets, so the next mesh is made afresh even when coarser.
+    pub fn clear_mesh(&self) { ffi::w3d::w3d_clear_mesh(&self.inner) }
+
     pub fn face_poles(&self) -> Vec<f64> {
         ffi::w3d::w3d_face_poles(&self.inner).into_iter().collect()
     }

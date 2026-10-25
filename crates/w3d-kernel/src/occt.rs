@@ -561,6 +561,8 @@ impl Kernel for Occt {
         s.edge_angles()
     }
 
+    fn clear_mesh(&self, s: &Shape) { s.clear_mesh() }
+
     fn face_poles(&self, s: &Shape) -> Vec<Vec<Vec<DVec3>>> {
         let raw = s.face_poles();
         let (mut out, mut i) = (Vec::new(), 0);

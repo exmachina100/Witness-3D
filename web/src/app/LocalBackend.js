@@ -73,7 +73,7 @@ export class LocalBackend {
     }
 
     body(id, shape) {
-        const { mesh, polylines } = tessellate(shape, { deflection: 0.05 });
+        const { mesh, polylines } = tessellate(shape, { deflection: 0.05 / (this.meshQuality ?? 1) });
         const index = mesh.index.array, faceIndex = mesh.getAttribute('faceIndex').array;
         const faceIds = new Uint32Array(index.length / 3);
         for (let t = 0; t < faceIds.length; t++) faceIds[t] = faceIndex[index[3 * t]];
@@ -82,6 +82,16 @@ export class LocalBackend {
             return p ? { origin: p.origin.toArray(), normal: p.normal.toArray() } : null;
         });
         return { id, positions: mesh.getAttribute('position').array, indices: Array.from(index), faceIds, facePlanes, edges: polylines, volume: isSheet(shape) ? 0 : volume(shape), sheet: isSheet(shape), faceRefs: [], edgeRefs: [], revision: 0 };
+    }
+
+    /** Preferences › Performance › CPU facet quality: finer (above 1) or coarser facets; the scene redrawn. */
+    async setMeshQuality(q) {
+        if (!(q >= 0.25 && q <= 4)) throw new Error('the facet quality runs from 0.25 to 4');
+        this.meshQuality = q;
+        // OCCT keeps a shape's facets when they are already finer than asked, so drop them first.
+        const o = oc();
+        for (const s of this.shapes.values()) o.BRepTools.Clean(s, true);
+        return this.bodies();
     }
 
     bodies() {

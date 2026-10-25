@@ -35,6 +35,11 @@ export const PREF_FIELDS = {
         { key: 'autoFillet', label: 'FILLET', type: 'bool', value: true },
         { key: 'autoMove', label: 'MOVE', type: 'bool', value: true },
     ],
+    performance: [
+        { key: 'renderQuality', label: 'GPU RENDERING QUALITY (PIXEL RATIO)', type: 'number', value: 2, min: 0.5, max: 2 },
+        { key: 'facetQuality', label: 'CPU FACET QUALITY', type: 'number', value: 1, min: 0.25, max: 4 },
+        { key: 'aoShader', label: 'AMBIENT OCCLUSION IN SHADER MODE', type: 'bool', value: false },
+    ],
     network: [
         { key: 'bridge', label: 'BRIDGE ENABLE', type: 'bool', value: true, restart: true, desktop: true },
         { key: 'bridgePort', label: 'BRIDGE PORT', type: 'number', value: 8981, min: 1024, max: 65535, step: 1, restart: true, desktop: true },
