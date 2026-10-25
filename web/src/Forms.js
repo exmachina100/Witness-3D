@@ -408,15 +408,70 @@ function wiresOf(edges) {
 }
 
 /**
+ * The closed wire `w` bent so that its points `at` land on `to`: each point moves by the moves of the
+ * guide points either side of it along the wire, eased between them (smoothstep in arc length), as
+ * w3d_warp_wire. The wire is sampled, split at its corners, and each piece remade as a smooth curve.
+ */
+function warpWire(w, at, to) {
+    const o = oc(), a = adaptor(w), n = 96;
+    const pts = [];
+    for (let i = 0; i < n; i++) pts.push(a.at(a.t0 + (a.t1 - a.t0) * i / n));
+    // The guide points themselves are samples, so they land exactly.
+    for (const p of at) {
+        let best = 0, bestD = Infinity, foot = null;
+        for (let i = 0; i < pts.length; i++) {
+            const u = pts[i], v = pts[(i + 1) % pts.length], d = v.clone().sub(u);
+            const t = Math.min(1, Math.max(0, p.clone().sub(u).dot(d) / Math.max(d.lengthSq(), 1e-30))), q = u.clone().addScaledVector(d, t);
+            if (q.distanceTo(p) < bestD) { bestD = q.distanceTo(p); best = i; foot = t; }
+        }
+        if (foot < 1e-9) pts[best] = p.clone();
+        else if (foot > 1 - 1e-9) pts[(best + 1) % pts.length] = p.clone();
+        else pts.splice(best + 1, 0, p.clone());
+    }
+    const s = [0];
+    for (let i = 1; i <= pts.length; i++) s.push(s[i - 1] + pts[i % pts.length].distanceTo(pts[i - 1]));
+    const total = s[pts.length];
+    if (total < 1e-9) throw new Error('a section of the loft has no length');
+    const where = p => s[pts.findIndex(q => q.distanceTo(p) < 1e-9)];
+    const pins = at.map((p, j) => ({ s: where(p), d: to[j].clone().sub(p) })).sort((x, y) => x.s - y.s);
+    const shift = x => {
+        let hi = pins.findIndex(q => q.s > x);
+        if (hi < 0) hi = pins.length;
+        const A = pins[(hi + pins.length - 1) % pins.length], B = pins[hi % pins.length];
+        let gap = B.s - A.s, off = x - A.s;
+        if (gap <= 0) gap += total;
+        if (off < 0) off += total;
+        let t = gap > 1e-12 ? Math.min(1, off / gap) : 0;
+        t = t * t * (3 - 2 * t);
+        return A.d.clone().multiplyScalar(1 - t).addScaledVector(B.d, t);
+    };
+    const moved = pts.map((p, i) => p.clone().add(shift(s[i])));
+    // Corners: where the wire turns by more than 15° between samples.
+    const turn = i => {
+        const u = pts[i].clone().sub(pts[(i + pts.length - 1) % pts.length]).normalize(), v = pts[(i + 1) % pts.length].clone().sub(pts[i]).normalize();
+        return u.dot(v) < Math.cos(15 * Math.PI / 180);
+    };
+    const corners = pts.map((_, i) => i).filter(turn);
+    const mk = new o.BRepBuilderAPI_MakeWire();
+    if (!corners.length) mk.Add(new o.BRepBuilderAPI_MakeEdge(interpolate(moved, true)).Edge());
+    else corners.forEach((c, k) => {
+        const end = corners[(k + 1) % corners.length], piece = [];
+        for (let i = c; ; i = (i + 1) % pts.length) { piece.push(moved[i]); if (i === end && piece.length > 1) break; }
+        mk.Add(new o.BRepBuilderAPI_MakeEdge(interpolate(piece, false)).Edge());
+    });
+    if (!mk.IsDone()) throw new Error('a section of the loft could not be bent onto the guides');
+    return mk.Wire();
+}
+
+/**
  * Plasticity's Loft with guides: the plain loft cut at stations between each pair of regions, each
- * cut moved onto the one guide, or turned and scaled in its plane onto the two, and the regions and
- * cuts lofted. As w3d_loft_guided.
+ * cut moved onto the one guide, or turned and scaled in its plane onto the two (and bent onto any
+ * more), and the regions and cuts lofted. As w3d_loft_guided.
  */
 export function loftGuided(cs, guides) {
     const o = oc();
     if (cs.length < 2) throw new Error('select two regions or more to loft');
     if (!guides.length) throw new Error('select the guide curves');
-    if (guides.length > 2) throw new Error('this build follows up to two guides; select fewer');
     const profiles = cs.map(c => section(c).wire);
     const rails = guides.map(g => guideFrom(g, profiles[0]));
     const curves = rails.map(adaptor);
@@ -461,7 +516,10 @@ export function loftGuided(cs, guides) {
                 move.SetTranslation(pnt(r[0]), pnt(gs[0]));
                 t = move.Multiplied(onto(r[0], n, r[1], r[0].clone().add(gs[1].clone().sub(gs[0])), true));
             }
-            mk.AddWire(o.TopoDS.Wire(new o.BRepBuilderAPI_Transform(w, t, true, false).Shape()));
+            let placed = o.TopoDS.Wire(new o.BRepBuilderAPI_Transform(w, t, true, false).Shape());
+            // Past two guides the section is bent to meet the rest too (the first two already do).
+            if (curves.length > 2) placed = warpWire(placed, r.map(p => V3(pnt(p).Transformed(t))), gs);
+            mk.AddWire(placed);
         }
         mk.AddWire(profiles[i + 1]);
     }

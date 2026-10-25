@@ -104,8 +104,25 @@ fn guides_that_miss_the_profiles_are_refused() {
     let off = line(DVec3::new(-3.0, 0.0, 0.0), DVec3::new(-3.0, 0.0, 20.0));
     let e = loft(vec![off]).err().unwrap().to_string();
     assert!(e.contains("touch"), "{e}");
-    let three = vec![line(DVec3::ZERO, DVec3::new(0.0, 0.0, 20.0)); 3];
-    assert!(loft(three).err().unwrap().to_string().contains("two guides"));
+}
+
+#[test]
+fn a_third_guide_bends_the_sections_onto_it_too() {
+    let k = Occt;
+    let a = line(DVec3::ZERO, DVec3::new(0.0, 0.0, 20.0));
+    let b = Path::Arc { start: DVec3::new(10.0, 10.0, 0.0), mid: DVec3::new(15.0, 10.0, 10.0), end: DVec3::new(10.0, 10.0, 20.0) };
+    // The corner (10, 0) bows the other way, out to y = -4.
+    let (c0, cm, c1) = (DVec3::new(10.0, 0.0, 0.0), DVec3::new(10.0, -4.0, 10.0), DVec3::new(10.0, 0.0, 20.0));
+    let c = Path::Arc { start: c0, mid: cm, end: c1 };
+    let s = loft(vec![a, b, c]).unwrap();
+    assert!(k.is_valid(&s));
+    let (lo, hi) = bounds(&k, &s);
+    assert!((hi.x - 15.0).abs() < 0.05, "follows the second guide: max x {}", hi.x);
+    assert!((lo.y + 4.0).abs() < 0.05, "follows the third guide: min y {}", lo.y);
+    let off = farthest(&k, &s, &arc_points(c0, cm, c1));
+    assert!(off < 0.05, "the third guide lies on the loft within {off} mm");
+    let off = farthest(&k, &s, &arc_points(DVec3::new(10.0, 10.0, 0.0), DVec3::new(15.0, 10.0, 10.0), DVec3::new(10.0, 10.0, 20.0)));
+    assert!(off < 0.05, "the second guide still lies on it within {off} mm");
 }
 
 /// A 10 × 10 square centred on the Z axis, swept up 20 with its corner (5, 5) led along `guide`.
