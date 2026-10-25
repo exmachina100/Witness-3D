@@ -1161,7 +1161,7 @@ pub fn hidden_lines(m: &Model, req: DrawingRequest) -> Result<Vec<DrawnLineOut>,
 /// Only those formats, so this can't be turned into writing anything anywhere.
 pub fn write_export(path: PathBuf, data: Vec<u8>) -> Result<(), ApiError> {
     let ext = path.extension().and_then(|e| e.to_str()).map(|e| e.to_ascii_lowercase());
-    if !matches!(ext.as_deref(), Some("obj" | "stl" | "svg" | "dxf")) { return Err(KernelError::Invalid("exports are .obj, .stl, .svg or .dxf files").into()) }
+    if !matches!(ext.as_deref(), Some("obj" | "stl" | "glb" | "3mf" | "svg" | "dxf")) { return Err(KernelError::Invalid("exports are .obj, .stl, .glb, .3mf, .svg or .dxf files").into()) }
     std::fs::write(&path, data).map_err(|e| ApiError::from(e.to_string()))
 }
 
