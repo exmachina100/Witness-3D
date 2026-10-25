@@ -79,3 +79,24 @@ fn bad_placements_are_refused() {
     let missed = doc.commit_place(&[cube], &Motion::translation(DVec3::new(0.0, 500.0, 0.0)), Some(slab), Operation::Difference);
     assert!(missed.is_err(), "a cut that misses says so");
 }
+
+#[test]
+fn copy_with_placement_pastes_into_another_file_too() {
+    let (mut doc, cube, slab) = scene();
+    assert!(doc.preview_paste(&Motion::translation(DVec3::ZERO), None, Operation::NewBody).is_err(), "nothing copied yet");
+    assert_eq!(doc.copy_bodies(&[cube]).unwrap(), 1);
+    assert_eq!(doc.ids().len(), 2, "copying adds nothing");
+    // Pasted onto the slab's top, cut into it.
+    let pivot = DVec3::new(5.0, 0.0, 5.0);
+    let down = Motion::translation(DVec3::new(150.0, 15.0, 50.0) - pivot);
+    let made = doc.commit_paste(&down, Some(slab), Operation::Difference).unwrap();
+    assert_eq!(made, vec![slab]);
+    assert!((volume(&doc.kernel, doc.get(slab).unwrap()) - (200_000.0 - 500.0)).abs() < 1e-3);
+    // A new file: the clipboard stays, and pastes as a new body.
+    doc.replace_all(Vec::new(), 1, 1);
+    let made = doc.commit_paste(&Motion::translation(DVec3::new(20.0, 0.0, 0.0)), None, Operation::NewBody).unwrap();
+    assert_eq!(made.len(), 1);
+    let (lo, hi) = extent(&doc.kernel, doc.get(made[0]).unwrap());
+    close(lo, DVec3::new(20.0, 0.0, 0.0));
+    close(hi, DVec3::new(30.0, 10.0, 10.0));
+}

@@ -292,11 +292,14 @@ pub struct Document<K: Kernel> {
     /// What the app keeps with the document and the kernel never reads (groups, hidden and locked
     /// bodies, materials), saved in the file as it is.
     pub app_state: Option<serde_json::Value>,
+    /// Copy with Placement's bodies, kept apart from the document and its undo history so they can
+    /// be pasted into another file opened in this one.
+    clipboard: Vec<K::Solid>,
 }
 
 impl<K: Kernel> Document<K> {
     pub fn new(kernel: K) -> Self {
-        Document { kernel, state: Snapshot::empty(1, 1), undo: vec![], redo: vec![], revision: 0, app_state: None }
+        Document { kernel, state: Snapshot::empty(1, 1), undo: vec![], redo: vec![], revision: 0, app_state: None, clipboard: vec![] }
     }
 
     pub fn ids(&self) -> Vec<BodyId> { self.state.bodies.keys().copied().collect() }
@@ -1461,10 +1464,17 @@ impl<K: Kernel> Document<K> {
     pub fn preview_place(&self, bodies: &[BodyId], motion: &Motion, target: Option<BodyId>, operation: Operation) -> Result<Placed<K::Solid>, KernelError> {
         crate::solids::check_motion(motion)?;
         let copies: Vec<K::Solid> = self.copies(bodies, |s| Ok(vec![self.kernel.transform(s, motion)]))?.into_iter().flat_map(|(_, c)| c).collect();
+        if target.is_some_and(|t| bodies.contains(&t)) && operation != Operation::NewBody && operation != Operation::Auto {
+            return Err(KernelError::Invalid("place the copies on another body to combine with it"))
+        }
+        self.placed(copies, target, operation)
+    }
+
+    /// Copies already moved into place, combined with `target` by `operation` one at a time.
+    fn placed(&self, copies: Vec<K::Solid>, target: Option<BodyId>, operation: Operation) -> Result<Placed<K::Solid>, KernelError> {
         let Some(target) = target.filter(|_| operation != Operation::NewBody && operation != Operation::Auto) else {
             return Ok(Placed { copies, result: None, pieces: vec![], loose: vec![] });
         };
-        if bodies.contains(&target) { return Err(KernelError::Invalid("place the copies on another body to combine with it")) }
         let mut cur: Option<Traced<K::Solid>> = None;
         let (mut pieces, mut loose) = (vec![], vec![]);
         for c in &copies {
@@ -1482,6 +1492,35 @@ impl<K: Kernel> Document<K> {
     /// Place as one undoable step. Returns the bodies made, the target first when it changed.
     pub fn commit_place(&mut self, bodies: &[BodyId], motion: &Motion, target: Option<BodyId>, operation: Operation) -> Result<Vec<BodyId>, KernelError> {
         let p = self.preview_place(bodies, motion, target, operation)?;
+        Ok(self.commit_placed(p, target))
+    }
+
+    /// Plasticity's Copy with Placement: the bodies kept to paste later, here or in another file
+    /// opened after. Nothing in the document changes. Returns how many were copied.
+    pub fn copy_bodies(&mut self, bodies: &[BodyId]) -> Result<usize, KernelError> {
+        let copied = self.copies(bodies, |s| Ok(vec![self.kernel.transform(s, &Motion::translation(DVec3::ZERO))]))?.into_iter().flat_map(|(_, c)| c).collect::<Vec<_>>();
+        self.clipboard = copied;
+        Ok(self.clipboard.len())
+    }
+
+    /// How many bodies Paste with Placement has to paste.
+    pub fn clipboard_len(&self) -> usize { self.clipboard.len() }
+
+    /// Paste with Placement: the copied bodies moved by `motion`, and combined with `target` as Place
+    /// does. Nothing changes.
+    pub fn preview_paste(&self, motion: &Motion, target: Option<BodyId>, operation: Operation) -> Result<Placed<K::Solid>, KernelError> {
+        crate::solids::check_motion(motion)?;
+        if self.clipboard.is_empty() { return Err(KernelError::Invalid("nothing is copied; select solids and copy them with Ctrl+Shift+C")) }
+        self.placed(self.clipboard.iter().map(|s| self.kernel.transform(s, motion)).collect(), target, operation)
+    }
+
+    /// Paste with Placement as one undoable step. Returns the bodies made, the target first when it changed.
+    pub fn commit_paste(&mut self, motion: &Motion, target: Option<BodyId>, operation: Operation) -> Result<Vec<BodyId>, KernelError> {
+        let p = self.preview_paste(motion, target, operation)?;
+        Ok(self.commit_placed(p, target))
+    }
+
+    fn commit_placed(&mut self, p: Placed<K::Solid>, target: Option<BodyId>) -> Vec<BodyId> {
         self.checkpoint();
         let mut ids = vec![];
         match p.result {
@@ -1491,7 +1530,7 @@ impl<K: Kernel> Document<K> {
             None => {}
         }
         ids.extend(p.pieces.into_iter().chain(p.loose).map(|s| self.add_unrecorded(s)));
-        Ok(ids)
+        ids
     }
 
     /// Extrude a closed curve's region (Plasticity's Extrude on a region).

@@ -214,6 +214,11 @@ async fn commit_place(
 }
 
 #[tauri::command]
+async fn copy_bodies(model: State<'_, Model>, bodies: Vec<w3d_kernel::document::BodyId>) -> Result<usize, api::ApiError> {
+    on_model(&model, move |m| api::copy_bodies(m, bodies)).await?
+}
+
+#[tauri::command]
 async fn preview_array(
     model: State<'_, Model>,
     req: api::ArrayRequest,
@@ -1136,6 +1141,7 @@ pub fn run() {
             commit_deform,
             preview_place,
             commit_place,
+            copy_bodies,
             commit_motion,
             delete_bodies,
             duplicate_bodies,
