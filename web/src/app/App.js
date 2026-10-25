@@ -63,10 +63,10 @@ import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 import { MagnitudeGizmo, typed } from '../MagnitudeGizmo.js';
 import { TOOLS, check, tool as toolInfo, withDefaults } from './tools.js';
 import { ACTIONS, COMMAND, VIEWPORT, keyFor, keyOf } from './keymap.js';
-import { Selection, faceBoundEdges, faceEdges } from './Selection.js';
+import { Selection, faceBoundEdges, faceEdges, faceNeighbours } from './Selection.js';
 import { edgeOffsetsBothSides, edgeOffsetsOnFace, facesLoopOffsets } from '../edgeOffset.js';
 import { curveArrayMotions } from '../curveArray.js';
-import { curveDimensions, faceDimensions, filletDimensions, solidDimensions } from '../dimension.js';
+import { chamferDimensions, curveDimensions, faceDimensions, filletDimensions, solidDimensions } from '../dimension.js';
 import { edgeCurve, flattenCurve } from '../altDuplicate.js';
 import { EDGE_CONTINUITY, bridgeCurve, bridgePoles, edgePoint } from '../bridgeEdge.js';
 import { ALIGN_CONTINUITY, alignRequest, readEdgeFaces } from '../alignSurface.js';
@@ -1785,7 +1785,7 @@ export async function mount(root, backend) {
     const ids = current.map(b => b.id);
     const solids = current.filter(b => !b.sheet), sheets = current.filter(b => b.sheet);
     const toggles = (shown, locked, off) => `<button class="dis" aria-pressed="${off}" aria-label="Disable or enable" title="${off ? 'Enable' : 'Disable: off the viewport and out of every command, for heavy scenes'}">${icon('disable')}</button><button class="lk" aria-pressed="${locked}" aria-label="Lock or unlock" title="${locked ? 'Unlock' : 'Lock'}">${icon(locked ? 'padlock' : 'unlock')}</button><button class="eye" aria-pressed="${shown}" aria-label="Show or hide">◉</button>`;
-    const setDisabled = (list, off) => { org.setDisabled(list, off); organised(); renderOutliner(); };
+    const setDisabled = (list, off) => { org.setDisabled(list, off); organised(); renderOutliner(); renderTotals(); };
     const indent = depth => `padding-left: ${14 + 14 * depth}px`;
     const bodyRow = (b, depth) => {
       const row = document.createElement('div');
@@ -2059,9 +2059,10 @@ export async function mount(root, backend) {
   const placedSolids = () => instances.filter(n => !n.curve && !n.hidden).map(n => ({ n, b: bodyOf(n.master) })).filter(x => x.b);
   /** The scene's volume and faces; an instance counts as its master at its scale. */
   function renderTotals() {
-    const placed = placedSolids();
-    $('volume').textContent = (current.reduce((v, b) => v + b.volume, 0) + placed.reduce((v, { n, b }) => v + b.volume * n.scale ** 3, 0)).toFixed(3);
-    $('faces').textContent = current.reduce((k, b) => k + b.facePlanes.length, 0) + placed.reduce((k, { b }) => k + b.facePlanes.length, 0);
+    // Disabled bodies are left out of the scene, so out of its totals too.
+    const placed = placedSolids().filter(({ n }) => !org.disabled.has(n.master)), on = current.filter(b => !org.disabled.has(b.id));
+    $('volume').textContent = (on.reduce((v, b) => v + b.volume, 0) + placed.reduce((v, { n, b }) => v + b.volume * n.scale ** 3, 0)).toFixed(3);
+    $('faces').textContent = on.reduce((k, b) => k + b.facePlanes.length, 0) + placed.reduce((k, { b }) => k + b.facePlanes.length, 0);
   }
   function drawInstances() {
     renderTotals();
@@ -5792,7 +5793,7 @@ export async function mount(root, backend) {
     const which = curves.length === 1 && sel.size === 1 ? { curve: curves[0] }
       : faces.length && faceBody() !== null ? { body: faceBody(), faces: faces.map(f => f.n) }
       : solids.length === 1 && sel.list().every(it => it.kind === 'solid') ? { solid: solids[0] } : null;
-    const ask = 'SELECT A CIRCLE, ARC OR RECTANGLE, A ROUND FACE OR FILLET, TWO FLAT FACES, OR A BLOCK OR BALL';
+    const ask = 'SELECT A CIRCLE, ARC OR RECTANGLE, A ROUND FACE, FILLET OR CHAMFER, TWO FLAT FACES, OR A BLOCK OR BALL';
     if (!which) return toast(ask);
     if (which.curve === undefined && !backend.faceSurfaces) return toast('DIMENSION IS NOT IN THIS BUILD YET');
     /** The sizes as they are now, measured afresh (an edit can renumber faces). */
@@ -5804,6 +5805,13 @@ export async function mount(root, backend) {
       if (which.faces.length === 1 && backend.filletFaces && backend.commitRefillet) {
         const chain = await backend.filletFaces({ body: which.body, faces: which.faces }).catch(() => []);
         if (chain.length) return filletDimensions(which.body, chain, surfaces);
+      }
+      // One face of a chamfer: its distance.
+      if (which.faces.length === 1 && surfaces[which.faces[0]]?.kind === 'plane') {
+        const mesh = bodyOf(which.body), points = e => Array.from({ length: e.length / 3 }, (_, i) => [e[3 * i], e[3 * i + 1], e[3 * i + 2]]);
+        const near = mesh ? faceNeighbours(mesh, which.faces[0]).map(({ face, edge }) => ({ face, points: points(mesh.edges[edge]) })) : [];
+        const chamfer = chamferDimensions(which.body, which.faces[0], surfaces, near);
+        if (chamfer.length) return chamfer;
       }
       return faceDimensions(which.body, which.faces, surfaces);
     };
@@ -5831,7 +5839,7 @@ export async function mount(root, backend) {
       if (edit?.op === 'offset' && backend.previewOffset) livePreview(c, () => backend.previewOffset({ ...editRequest(edit) }), b => showPreviewBody(b), 'dm-hint');
       if (edit?.op === 'refillet' && backend.previewRefillet) livePreview(c, () => backend.previewRefillet({ body: edit.body, faces: edit.faces, radius: edit.radius }), b => showPreviewBody(b), 'dm-hint');
     };
-    const editRequest = edit => ({ body: edit.body, faces: edit.faces, distance: edit.distance, angle: 0, grow: 'moving' });
+    const editRequest = edit => ({ body: edit.body, faces: edit.faces, distance: edit.distance, angle: 0, grow: 'moving', chamfer: edit.chamfer });
     fields.forEach((f, i) => { f.oninput = () => { const v = parseFloat(f.value); if (Number.isFinite(v)) { c.values[i] = v; c.preview(); } }; });
     c.key = action => {
       if (action !== 'typed') return false;

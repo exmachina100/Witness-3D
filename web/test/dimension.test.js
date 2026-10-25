@@ -2,9 +2,9 @@
 import assert from 'node:assert/strict';
 import { before, test } from 'node:test';
 import * as THREE from 'three';
-import { boolean, box, loadKernel, primitive, volume } from '../src/Kernel.js';
+import { blendEdges, boolean, box, loadKernel, numbered, numberedEdges, oc, primitive, volume } from '../src/Kernel.js';
 import { LocalBackend } from '../src/app/LocalBackend.js';
-import { curveDimensions, faceDimensions, filletDimensions, solidDimensions } from '../src/dimension.js';
+import { chamferDimensions, curveDimensions, faceDimensions, filletDimensions, solidDimensions } from '../src/dimension.js';
 import { faceSurfaces } from '../src/faceSurfaces.js';
 
 before(async () => { await loadKernel() });
@@ -78,4 +78,37 @@ test('a round on a circular edge, a torus rather than a cylinder, still reads as
     close(rounds[0].radius, 3, 1e-6);
     // A flat or straight-sided face is not a round.
     assert.ok(faceSurfaces(cyl).every(f => f.kind !== 'round'));
+});
+
+test("a chamfer's distance, and a new one", async () => {
+    const o = oc();
+    const be = new LocalBackend();
+    const id = be.scene()[0].id;
+    const block = be.shapes.get(id);
+    be.shapes.set(id, blendEdges(block, [0], 3, true));
+    // The chamfer face and the faces beside it with the edges they share, as the viewport's mesh gives them.
+    const measure = async () => {
+        const shape = be.shapes.get(id), surfaces = await be.faceSurfaces({ body: id });
+        const face = surfaces.findIndex(f => f.kind === 'plane' && f.normal.filter(x => Math.abs(x) > 1e-6).length === 2);
+        const faces = numbered(shape, 'TopAbs_FACE').map(f => o.TopoDS.Face(f));
+        const ends = e => { const c = new o.BRepAdaptor_Curve(e); return [c.FirstParameter(), c.LastParameter()].map(t => { const p = c.Value(t); return [p.X(), p.Y(), p.Z()]; }); };
+        const near = [];
+        faces.forEach((f, g) => { if (g !== face) for (const e of numberedEdges(f)) if (numberedEdges(faces[face]).some(x => x.IsSame(e))) near.push({ face: g, points: ends(e) }); });
+        return chamferDimensions(id, face, surfaces, near);
+    };
+    const [d] = await measure();
+    assert.equal(d.label, 'DISTANCE');
+    close(d.value, 3);
+    // The block is 50 long along the chamfer: 4.5 mm² of section off at 3 mm, 12.5 at 5, 2 at 2.
+    close(volume(be.shapes.get(id)), volume(block) - 4.5 * 50, 1e-3);
+    await be.commitOffset({ ...d.edit(5), angle: 0, grow: 'moving' });
+    close(volume(be.shapes.get(id)), volume(block) - 12.5 * 50, 1e-3);
+    const [d5] = await measure();
+    close(d5.value, 5);
+    await be.commitOffset({ ...d5.edit(2), angle: 0, grow: 'moving' });
+    close(volume(be.shapes.get(id)), volume(block) - 2 * 50, 1e-3);
+    assert.equal(numbered(be.shapes.get(id), 'TopAbs_FACE').length, 7);
+    // A flat face with no corner beside it to set back from is not a chamfer.
+    const surfaces = await be.faceSurfaces({ body: id });
+    assert.equal(chamferDimensions(id, surfaces.findIndex(f => f.kind === 'plane' && f.normal[1] > 0.99), surfaces, []).length, 0);
 });

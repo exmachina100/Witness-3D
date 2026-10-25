@@ -166,6 +166,21 @@ export function faceBoundEdges(body, face) {
     });
 }
 
+/**
+ * The faces beside flat face `face` across each of its own edges: [{ face, edge }], the other face
+ * being the one whose triangles touch the edge's middle.
+ */
+export function faceNeighbours(body, face) {
+    const { positions: p, indices: ix, faceIds } = body;
+    const tri = t => [0, 1, 2].map(k => { const i = ix[3 * t + k]; return [p[3 * i], p[3 * i + 1], p[3 * i + 2]]; });
+    return faceBoundEdges(body, face).flatMap(n => {
+        const e = body.edges[n], m = Math.max(0, Math.floor((e.length / 3 - 1) / 2));
+        const q = [0, 1, 2].map(k => (e[3 * m + k] + e[3 * Math.min(m + 1, e.length / 3 - 1) + k]) / 2);
+        for (let t = 0; t < faceIds.length; t++) if (faceIds[t] !== face && nearTriangle(q, tri(t), 1e-4)) return [{ face: faceIds[t], edge: n }];
+        return [];
+    });
+}
+
 /** Whether `q` lies within `tol` of the triangle (in its plane, inside or on its sides). */
 function nearTriangle(q, [a, b, c], tol) {
     const sub = (u, v) => [u[0] - v[0], u[1] - v[1], u[2] - v[2]];
