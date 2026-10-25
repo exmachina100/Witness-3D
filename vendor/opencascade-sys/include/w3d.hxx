@@ -855,10 +855,11 @@ inline gp_Trsf w3d_onto(const gp_Pnt &pivot, const gp_Vec &axis, const gp_Pnt &f
 // stays on it; 1 (Chord) and 2 (Curve) only turn it, Chord meeting the guide where it crosses the
 // section's plane and Curve at the same fraction of the guide's length. With a second guide the
 // section is also turned and scaled in its plane about the first guide's point to touch the
-// second. The stations are lofted. Without a guide, `parallel` keeps the section at its drawn orientation all along (Alignment:
-// Parallel) instead of turning with the path (Normal).
+// second. The stations are lofted. Without a guide, `parallel` keeps the section at its drawn
+// orientation all along (Alignment: Parallel) instead of turning with the path (Normal), and
+// `round` rounds it round the path's corners instead of mitring them (Corner type).
 inline std::unique_ptr<TopoDS_Shape> w3d_sweep_guided(rust::Slice<const double> section, rust::Slice<const double> path,
-                                                      rust::Slice<const double> guide, int32_t method, bool parallel) {
+                                                      rust::Slice<const double> guide, int32_t method, bool parallel, bool round) {
   try {
     TopoDS_Wire profile = w3d_one_section(section);
     TopoDS_Wire spine = w3d_one_section(path);
@@ -866,7 +867,7 @@ inline std::unique_ptr<TopoDS_Shape> w3d_sweep_guided(rust::Slice<const double> 
       BRepOffsetAPI_MakePipeShell mk(spine);
       if (parallel) mk.SetMode(gp_Ax2());
       else mk.SetMode(path.size() > 0 && int(path[0]) == 7 ? Standard_True : Standard_False);
-      mk.SetTransitionMode(BRepBuilderAPI_RightCorner);
+      mk.SetTransitionMode(round ? BRepBuilderAPI_RoundCorner : BRepBuilderAPI_RightCorner);
       mk.Add(profile, Standard_False, Standard_False);
       mk.Build();
       if (!mk.IsDone()) throw std::runtime_error("the profile could not be swept along that path");

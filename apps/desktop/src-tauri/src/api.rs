@@ -307,7 +307,14 @@ pub struct FormRequest {
     /// Sweep: whether the section turns with the path or stays parallel to itself.
     #[serde(default)]
     pub align: AlignName,
+    /// Sweep: corners of the path mitred (the default) or rounded.
+    #[serde(default)]
+    pub corner: CornerName,
 }
+
+#[derive(Deserialize, Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[serde(rename_all = "lowercase")]
+pub enum CornerName { #[default] Mitre, Round }
 
 #[derive(Deserialize, Debug, Clone, Copy, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
@@ -332,13 +339,14 @@ impl FormRequest {
             FormName::Loft => FormKindRequest::LoftGuided { guides: self.guides.clone() },
             FormName::Sweep => {
                 let path = self.path.ok_or_else(|| ApiError::from(String::from("pick the path to sweep along")))?;
-                if self.guides.is_empty() && self.align == AlignName::Normal {
+                let round = self.corner == CornerName::Round;
+                if self.guides.is_empty() && self.align == AlignName::Normal && !round {
                     FormKindRequest::Sweep { path, twist: self.twist, scale: self.scale }
                 } else {
-                    if self.twist.abs() > 1e-12 || (self.scale - 1.0).abs() > 1e-12 { return Err(String::from("twist and scale don't go with a guide or Parallel alignment; set them back to 0 and 1").into()) }
+                    if self.twist.abs() > 1e-12 || (self.scale - 1.0).abs() > 1e-12 { return Err(String::from("twist and scale don't go with a guide, Parallel alignment or Round corners; set them back to 0 and 1").into()) }
                     let method = match self.method { GuideName::Point => form::GuideMethod::Point, GuideName::Chord => form::GuideMethod::Chord, GuideName::Curve => form::GuideMethod::Curve };
                     let align = match self.align { AlignName::Normal => form::Alignment::Normal, AlignName::Parallel => form::Alignment::Parallel };
-                    FormKindRequest::SweepGuided { path, guides: self.guides.clone(), method, align }
+                    FormKindRequest::SweepGuided { path, guides: self.guides.clone(), method, align, round }
                 }
             }
         };

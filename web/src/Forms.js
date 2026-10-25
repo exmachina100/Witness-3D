@@ -321,16 +321,17 @@ function onto(pivot, axis, from, to, grow) {
 /**
  * Plasticity's Sweep with a guide (`method` 'point' scales the section to keep touching it,
  * 'chord' and 'curve' only turn it) or, without one, `align` 'parallel' to keep the section at its
- * drawn angle. As w3d_sweep_guided.
+ * drawn angle, and `corner` 'round' to round it about the path's corners rather than mitre them.
+ * As w3d_sweep_guided.
  */
-export function sweepGuided(c, path, guides, method = 'point', align = 'normal') {
+export function sweepGuided(c, path, guides, method = 'point', align = 'normal', corner = 'mitre') {
     const o = oc(), prof = section(c), g = geometry(path), spine = wireOf(g).Wire();
     guides = guides ? [guides].flat() : [];
     if (!guides.length) {
         const mk = new o.BRepOffsetAPI_MakePipeShell(spine);
         if (align === 'parallel') mk.SetMode(new o.gp_Ax2());
         else mk.SetMode(!!g.spiral);
-        mk.SetTransitionMode(o.BRepBuilderAPI_TransitionMode.BRepBuilderAPI_RightCorner);
+        mk.SetTransitionMode(corner === 'round' ? o.BRepBuilderAPI_TransitionMode.BRepBuilderAPI_RoundCorner : o.BRepBuilderAPI_TransitionMode.BRepBuilderAPI_RightCorner);
         mk.Add(prof.wire, false, false);
         mk.Build(new o.Message_ProgressRange());
         if (!mk.IsDone()) throw new Error('the profile could not be swept along that path');
