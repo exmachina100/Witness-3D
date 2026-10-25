@@ -59,6 +59,9 @@ button:focus-visible, input:focus-visible { outline: 1px solid var(--accent); ou
 .row-item .tag { color: var(--muted); }
 .row-item .eye { color: var(--muted); padding: 0 2px; }
 .row-item .eye[aria-pressed="false"] { color: var(--dim); }
+.row-item .drop { color: var(--muted); padding: 0 2px; display: flex; }
+.row-item .drop .ico { width: 12px; height: 12px; }
+.row-item .drop:hover { color: var(--accent); }
 .row-item.curve { padding-left: 24px; color: var(--muted); cursor: default; }
 .row-item.curve:hover { background: none; }
 .row-item.hist { cursor: default; }

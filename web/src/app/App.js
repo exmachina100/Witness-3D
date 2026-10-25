@@ -1305,10 +1305,11 @@ export async function mount(root, backend) {
   function showScene(list) {
     // The selection is kept as refs across the change and turned back into the new numbers.
     const saved = sel.toRefs(current);
-    const combRefs = surfaceCombs.map(c => ({ body: c.body, ref: current.find(b => b.id === c.body)?.edgeRefs?.[c.n] }));
-    surfaceCombs = combRefs.flatMap(({ body, ref }) => {
-      const n = ref === undefined ? -1 : list.find(b => b.id === body)?.edgeRefs?.indexOf(ref) ?? -1;
-      return n < 0 ? [] : [{ body, n, teeth: null }];
+    // Curvature combs follow their edge or face through the change too.
+    const combRefs = surfaceCombs.map(c => ({ ...c, ref: current.find(b => b.id === c.body)?.[c.face === undefined ? 'edgeRefs' : 'faceRefs']?.[c.face ?? c.n] }));
+    surfaceCombs = combRefs.flatMap(({ body, face, ref, hidden }) => {
+      const n = ref === undefined ? -1 : list.find(b => b.id === body)?.[face === undefined ? 'edgeRefs' : 'faceRefs']?.indexOf(ref) ?? -1;
+      return n < 0 ? [] : [face === undefined ? { body, n, teeth: null, hidden } : { body, face: n, runs: null, hidden }];
     });
     refreshSurfaceCombs();
     current = list;
@@ -1416,7 +1417,7 @@ export async function mount(root, backend) {
   scene.add(surfaceCombGroup);
   function drawSurfaceCombs() {
     for (const o of [...surfaceCombGroup.children]) dispose(o);
-    const shown = surfaceCombs.filter(c => (c.teeth || c.runs) && org.shows(c.body));
+    const shown = surfaceCombs.filter(c => (c.teeth || c.runs) && !c.hidden && org.shows(c.body));
     if (!shown.length) return;
     const lines = shown.flatMap(c => c.runs ?? [c.teeth]);
     const kMax = Math.max(1e-12, ...lines.flatMap(l => l.map(t => t.k)));
@@ -1446,7 +1447,7 @@ export async function mount(root, backend) {
         else c.runs = await faceCombs(c.body, c.face);
       } catch { c.teeth = c.runs = null; }
     }));
-    if (list === surfaceCombs) { surfaceCombs = list.filter(c => c.teeth || c.runs?.length); drawSurfaceCombs(); }
+    if (list === surfaceCombs) { surfaceCombs = list.filter(c => c.teeth || c.runs); drawSurfaceCombs(); renderOutliner(); }
   }
   /** Comb teeth along isoparams of a face, cut to the face, one list per piece. */
   async function faceCombs(id, face) {
@@ -1470,6 +1471,7 @@ export async function mount(root, backend) {
       if (!surfaceCombs.length) return toast('SELECT THE EDGES OR FACES TO SHOW CURVATURE ON');
       surfaceCombs = [];
       drawSurfaceCombs();
+      renderOutliner();
       return toast('SURFACE CURVATURE OFF');
     }
     const same = (c, x) => c.body === x.body && (x.kind === 'face' ? c.face === x.n : c.face === undefined && c.n === x.n);
@@ -1803,6 +1805,30 @@ export async function mount(root, backend) {
         if (cmd) await finish();
         startInstance(n.id);
         renderOutliner();
+      };
+      out.append(row);
+    }
+    // Plasticity lists each curvature measurement under Measurements: an eye shows or hides it, a
+    // click selects its edge or face, and × takes it off.
+    if (surfaceCombs.length || view.curvature) out.insertAdjacentHTML('beforeend', '<div class="group-title">▾ MEASUREMENTS</div>');
+    if (view.curvature) {
+      const row = document.createElement('div');
+      row.className = 'row-item curve measurement';
+      row.innerHTML = `${icon('view-curvature')}<span class="name" title="Curvature combs on every curve (Toggle Curvature)">CURVATURE</span><span class="tag">CURVES</span><button class="eye" aria-pressed="true" aria-label="Hide">◉</button>`;
+      row.onclick = () => { view.curvature = false; applyView(); renderOutliner(); };
+      out.append(row);
+    }
+    for (const c of surfaceCombs) {
+      const row = document.createElement('div');
+      const item = c.face === undefined ? { kind: 'edge', body: c.body, n: c.n } : { kind: 'face', body: c.body, n: c.face };
+      row.className = 'row-item curve measurement' + (c.hidden ? ' off' : '');
+      row.setAttribute('aria-current', sel.has(item));
+      row.innerHTML = `${icon('view-curvature')}<span class="name" title="Curvature of ${item.kind === 'edge' ? 'an edge' : 'a face'} of ${label(c.body)}">${item.kind.toUpperCase()} ${item.n}</span><span class="tag">${label(c.body)}</span><button class="eye" aria-pressed="${!c.hidden}" aria-label="Show or hide">◉</button><button class="drop" aria-label="Remove" title="Remove this measurement">${icon('delete')}</button>`;
+      row.onclick = e => {
+        if (e.target.closest('.eye')) { c.hidden = !c.hidden; drawSurfaceCombs(); return renderOutliner(); }
+        if (e.target.closest('.drop')) { surfaceCombs = surfaceCombs.filter(x => x !== c); drawSurfaceCombs(); return renderOutliner(); }
+        applySelect(item, modOf(e));
+        selectionChanged();
       };
       out.append(row);
     }
@@ -8855,7 +8881,7 @@ export async function mount(root, backend) {
         else if (arg === 'ortho') setOrtho(!camera.isOrthographicCamera);
         else if (arg === 'focus') focus();
         else if (arg === 'xray') { view.xray = !view.xray; applyView(); }
-        else if (arg === 'curvature') { view.curvature = !view.curvature; applyView(); }
+        else if (arg === 'curvature') { view.curvature = !view.curvature; applyView(); renderOutliner(); }
         else if (arg === 'surface-curvature') await toggleSurfaceCurvature();
         else if (arg === 'zebra' || arg === 'draft') { view.shader = view.shader === (arg === 'zebra' ? 'zebra-v' : 'draft') ? 'ceramic-dark' : arg === 'zebra' ? 'zebra-v' : 'draft'; view.render = false; applyView(); }
         else if (arg === 'render') { view.render = !view.render; applyView(); }
@@ -9440,7 +9466,7 @@ export async function mount(root, backend) {
   // --- panel input ----------------------------------------------------------
   for (const b of $$('[data-profile]')) b.onclick = () => setProfile(b.dataset.profile);
   for (const b of $$('[data-op]')) b.onclick = () => setOperation(b.dataset.op);
-  for (const b of $$('[data-toggle]')) b.onclick = () => { view[b.dataset.toggle] = !view[b.dataset.toggle]; applyView(); snapsFor(view.snap); };
+  for (const b of $$('[data-toggle]')) b.onclick = () => { view[b.dataset.toggle] = !view[b.dataset.toggle]; applyView(); snapsFor(view.snap); if (b.dataset.toggle === 'curvature') renderOutliner(); };
   for (const input of $$('[data-move]')) input.addEventListener('input', () => setOffset($$('[data-move]').map(i => parseFloat(i.value) || 0)));
   $('angle').addEventListener('input', e => { const v = parseFloat(e.target.value); if (!isNaN(v)) setAngle(v); });
   $('factor').addEventListener('input', e => setFactor(parseFloat(e.target.value)));
