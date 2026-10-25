@@ -3346,12 +3346,21 @@ export async function mount(root, backend) {
   }
   /** Body `body`'s face nets with `moves` ([[face, n, by]]) applied, keyed `body:face`. */
   function movedNets(body, moves) {
-    const out = new Map();
-    for (const [face, n, by] of moves) {
+    const out = new Map(), all = facePoleCache.get(body) ?? [];
+    const rowsOf = face => {
       const key = `${body}:${face}`;
-      if (!out.has(key)) out.set(key, (facePoleCache.get(body)?.[face] ?? []).map(r => r.map(q => [...q])));
-      const rows = out.get(key), nv = rows[0]?.length ?? 1, q = rows[Math.floor(n / nv)]?.[n % nv];
-      if (q) for (let i = 0; i < 3; i++) q[i] += by[i];
+      if (!out.has(key)) out.set(key, (all[face] ?? []).map(r => r.map(q => [...q])));
+      return out.get(key);
+    };
+    for (const [face, n, by] of moves) {
+      const at = all[face]?.flat()[n];
+      if (!at) continue;
+      // The point moves wherever the body has it: a block's corner in each face, a seam twice.
+      all.forEach((net, f) => net.flat().forEach((q, k) => {
+        if (Math.hypot(q[0] - at[0], q[1] - at[1], q[2] - at[2]) > 1e-6) return;
+        const rows = rowsOf(f), nv = rows[0]?.length ?? 1, p = rows[Math.floor(k / nv)]?.[k % nv];
+        if (p) for (let i = 0; i < 3; i++) p[i] += by[i];
+      }));
     }
     return out;
   }

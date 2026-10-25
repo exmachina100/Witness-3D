@@ -140,3 +140,21 @@ fn subdividing_doubles_the_spans_and_keeps_the_shape() {
     assert!((v - 4.0 / 3.0 * std::f64::consts::PI * 1000.0).abs() < 2.0, "{v}");
     assert!(k.subdivide_faces(&b, &[9]).is_err());
 }
+
+#[test]
+fn a_point_on_a_cylinders_rim_moves_its_flat_end_following() {
+    let k = Occt;
+    let c = solids::primitive(&k, &solids::Primitive::Cylinder { frame: Frame::new(DVec3::ZERO, DVec3::X, DVec3::Z), radius: 5.0, height: 20.0 }).unwrap();
+    let before = k.tessellate(&c, 0.01).unwrap().volume();
+    let faces = k.face_poles(&c);
+    // The side: the face whose net has points both at the bottom and the top.
+    let (side, rows) = faces.iter().enumerate()
+        .find(|(_, r)| r.iter().flatten().any(|p| p.z.abs() < 1e-6) && r.iter().flatten().any(|p| (p.z - 20.0).abs() < 1e-6))
+        .expect("no side face");
+    let n = rows.iter().flatten().position(|p| (p.z - 20.0).abs() < 1e-6).unwrap() as u32;
+    let moved = k.move_face_poles(&c, &[(side as u32, n, DVec3::new(0.0, 0.0, 5.0))]).unwrap();
+    let t = k.tessellate(&moved, 0.01).unwrap();
+    let grew = t.volume() - before;
+    assert!(grew > 20.0 && grew < 500.0, "volume grew by {grew}");
+    assert!(highest(&t) > 24.0, "{}", highest(&t));
+}
