@@ -7,7 +7,7 @@ import { NoOpError } from '../GeometryFactory.js';
 import { arrayMotions, blendEdges, booleanWithHistory, bounds, box, count, draftFaces, faceSheet, imprintEdgesWithHistory, imprintWithHistory, planeSheet, unifyWithHistory, boundaryEdges, splitWithHistory, draftWithHistory, exportSTEP, facePlane, mirror, numberedEdges, oc, primitive, shellFaces, tessellate, transform, volume } from '../Kernel.js';
 import { cutSheets, loft, loftGuided, offsetFlatFaces, pipe, regionFace, revolve, splineSamples, sweep, sweepGuided } from '../Forms.js';
 import { curveFromNurbs, ends, join, loops, MEET, nurbsLoop } from '../curves.js';
-import { isoparam, meetCurves, projectCurveCurve, projectCurves, projectedEdges } from '../Project.js';
+import { isoparam, meetCurves, projectCurveCurve, projectCurves, projectedEdges, sectionCurves } from '../Project.js';
 import { isSheet, patch } from '../Patch.js';
 import { offsetEdges } from '../edgeTube.js';
 import { faceSurfaces } from '../faceSurfaces.js';
@@ -563,6 +563,13 @@ export class LocalBackend {
             if (req.curves[0] === req.curves[1]) throw new Error('select two different curves');
             const [a, b] = req.curves.map(curve);
             return projectCurveCurve(a, b, this.sheetSize()).map(p => curveFromNurbs(p, a.normal.map(v => -v)));
+        }
+        if (req.mode === 'section') {
+            // Where the plane crosses the faces (all when none are given); Cut Curve cuts with faces by these.
+            const normal = new THREE.Vector3(...req.normal);
+            if (!(normal.length() > 1e-12)) throw new Error('the plane has no direction');
+            normal.normalize();
+            return sectionCurves(shape(req.body), req.faces ?? [], planeSheet(req.origin, normal.toArray(), this.sheetSize())).map(p => curveFromNurbs(p, normal.clone().negate().toArray()));
         }
         if (req.mode === 'isoparam') return [curveFromNurbs(isoparam(shape(req.body), req.face, req.point, !!req.u), [0, -1, 0])];
         if (req.mode === 'outline') {

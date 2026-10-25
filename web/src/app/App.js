@@ -162,7 +162,7 @@ const KEYS = {
   square: [['⇧ CLICK', 'SIDES: CURVES OR EDGES'], ['TAB', 'CONTINUITY G0 G1 G2'], ['T', 'TENSION'], ['D', 'DEGREE'], ['⏎ / RMB', 'OK']],
   'constrained-surface': [['CLICK', 'ADD A POINT'], ['CTRL Z', 'REMOVE THE LAST'], ['TAB', 'PERFORMANCE / SMOOTHNESS'], ['⏎ / RMB', 'OK']],
   trim: [['CLICK', 'PIECE TO CUT AWAY'], ['CTRL Z', 'UNDO ONE'], ['ESC / ⏎', 'DONE']],
-  'cut-curve': [['CLICK', 'CUTTER CURVES'], ['TAB', 'EXTEND'], ['S', 'SCREEN SPACE'], ['⏎ / RMB', 'OK'], ['ESC', 'CANCEL']],
+  'cut-curve': [['CLICK', 'CUTTER CURVES · FACES'], ['TAB', 'EXTEND'], ['S', 'SCREEN SPACE'], ['⏎ / RMB', 'OK'], ['ESC', 'CANCEL']],
   'insert-knot': [['CLICK', 'ADD A CONTROL POINT'], ['ESC / ⏎', 'DONE']],
   'isoparam': [['HOVER', 'FACE'], ['CLICK', 'KEEP'], ['TAB', 'U / V'], ['⏎ / RMB', 'DONE']],
   'offset-edge': [['D', 'DISTANCE'], ['−', 'OTHER FACE'], ['S', 'BOTH SIDES'], ['I', 'INDIVIDUAL'], ['V', 'GAP FILL'], ['⏎ / RMB', 'OK']],
@@ -672,6 +672,7 @@ const SHELL = `
       <span class="hint" data-id="cc-hint">—</span>
       <div class="field"><label>TARGETS</label><output data-id="cc-targets">0</output></div>
       <div class="field"><label>CUTTERS</label><output data-id="cc-cutters">0</output></div>
+      <div class="field"><label>FACES</label><output data-id="cc-faces">0</output></div>
       <div class="chips"><button data-id="cc-extend" aria-pressed="false" title="Carry short cutters on past their ends (Tab)"><kbd>TAB</kbd>EXTEND</button><button data-id="cc-screen" aria-pressed="false" title="Cutters in other planes sweep along the view instead of their own normal (S)"><kbd>S</kbd>SCREEN SPACE</button></div>
     </div>
     <div class="sec" data-panel="primitive" hidden>
@@ -6093,7 +6094,9 @@ export async function mount(root, backend) {
     if (!backend.replaceCurves) return toast('CUT CURVE IS NOT IN THIS BUILD YET');
     const targets = sel.curves.filter(curveById);
     if (!targets.length) return toast('SELECT THE CURVES TO CUT, THEN RUN CUT CURVE');
-    const c = cmd = { id: 'cut-curve', targets, cutters: [], extend: false, screen: false, out: null };
+    const c = cmd = { id: 'cut-curve', targets, cutters: [], faces: [], sections: new Map(), extend: false, screen: false, out: null };
+    // A face cuts each curve where the face crosses the curve's plane; those crossings, by face and plane.
+    const sectionKey = (f, src) => `${f.body}:${f.n}:${src.origin.join()}:${src.normal.join()}`;
     lastTool = 'cut-curve';
     showTool('cut-curve');
     setState('none');
@@ -6104,14 +6107,35 @@ export async function mount(root, backend) {
       for (const o of [...dots.children]) { o.geometry.dispose(); o.removeFromParent(); }
       $('cc-targets').textContent = targets.length;
       $('cc-cutters').textContent = c.cutters.length;
+      $('cc-faces').textContent = c.faces.length;
       $('cc-extend').setAttribute('aria-pressed', String(c.extend));
       $('cc-screen').setAttribute('aria-pressed', String(c.screen));
       c.out = null;
-      if (!c.cutters.length) { $('cc-hint').textContent = 'CLICK THE CURVES TO CUT WITH'; setHud('CLICK THE CUTTERS'); return setState('none'); }
+      if (!c.cutters.length && !c.faces.length) { $('cc-hint').textContent = 'CLICK THE CURVES OR FACES TO CUT WITH'; setHud('CLICK THE CUTTERS'); return setState('none'); }
+      // Faces' crossings with each curve's plane come from the kernel; fetch any missing, then come back.
+      const missing = [];
+      for (const id of targets) { const src = curveById(id); for (const f of c.faces) if (!c.sections.has(sectionKey(f, src))) missing.push([f, src]); }
+      if (missing.length) {
+        setState('updating');
+        // One at a time: a newer preview call answers an older one with nothing, and then takes over.
+        (async () => {
+          for (const [f, src] of missing) {
+            const curves = await backend.previewProject({ mode: 'section', body: f.body, faces: [f.n], origin: src.origin, normal: src.normal });
+            if (cmd !== c || curves == null) return;
+            c.sections.set(sectionKey(f, src), curves);
+          }
+          c.preview();
+        })().catch(e => { setState('failed'); toast(say(e)); });
+        return;
+      }
       const dir = c.screen ? camera.getWorldDirection(new THREE.Vector3()).toArray() : null;
       try {
         const others = c.cutters.map(curveById);
-        const out = targets.map(id => { const src = curveById(id); return { id, src, pieces: cutCurve(src, cuttersFor(src, others, { dir, extend: c.extend })) }; });
+        const faceCuts = src => c.faces.flatMap(f => c.sections.get(sectionKey(f, src)));
+        const out = targets.map(id => {
+          const src = curveById(id);
+          return { id, src, pieces: cutCurve(src, [...cuttersFor(src, others, { dir, extend: c.extend }), ...cuttersFor(src, faceCuts(src))]) };
+        });
         const ends = [];
         for (const { src, pieces } of out) {
           if (pieces.length < 2 && pieces[0] === src) continue;
@@ -6133,6 +6157,12 @@ export async function mount(root, backend) {
     };
     c.click = e => {
       const hit = pickAt(e);
+      if (hit?.kind === 'face') {
+        const has = c.faces.some(f => f.body === hit.body && f.n === hit.n);
+        c.faces = has ? c.faces.filter(f => !(f.body === hit.body && f.n === hit.n)) : [...c.faces, { body: hit.body, n: hit.n }];
+        c.preview();
+        return true;
+      }
       const id = (hit?.kind === 'curve' || hit?.kind === 'region') ? hit.id : null;
       if (id === null || targets.includes(id)) return true;
       c.cutters = c.cutters.includes(id) ? c.cutters.filter(x => x !== id) : [...c.cutters, id];
@@ -6141,7 +6171,7 @@ export async function mount(root, backend) {
     };
     c.finish = async () => {
       const changed = (c.out ?? []).filter(o => !(o.pieces.length === 1 && o.pieces[0] === o.src));
-      if (!changed.length) { setState('failed'); return toast(c.cutters.length ? 'THE CUTTERS DO NOT CROSS THOSE CURVES (TAB EXTENDS THEM)' : 'CLICK THE CURVES TO CUT WITH'); }
+      if (!changed.length) { setState('failed'); return toast(c.cutters.length || c.faces.length ? 'THE CUTTERS DO NOT CROSS THOSE CURVES (TAB EXTENDS THEM)' : 'CLICK THE CURVES OR FACES TO CUT WITH'); }
       try {
         const { ids: made } = await backend.replaceCurves(changed.map(o => o.id), changed.flatMap(o => o.pieces));
         endCmd('committed');

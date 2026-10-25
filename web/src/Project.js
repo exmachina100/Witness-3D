@@ -241,6 +241,14 @@ export function meetCurves(a, b) {
     return out;
 }
 
+/** Where `sheet` crosses `faces` of `shape` (all when empty), as NURBS; none when it misses. */
+export function sectionCurves(shape, faces, sheet) {
+    const all = numbered(shape, 'TopAbs_FACE');
+    for (const f of faces) if (!all[f]) throw new Error('that face no longer exists');
+    const targets = faces.length ? faces.map(i => all[i]) : all;
+    return chains(targets.flatMap(f => meet(f, sheet)).map(e => bspline(e)));
+}
+
 /** Plasticity's Project Curve Curve: where the two curves' sheets, each swept both ways along its own normal, meet. */
 export function projectCurveCurve(a, b, length) {
     const sheet = c => curtain(curveWire(c), new THREE.Vector3(...c.normal).normalize(), length, true);

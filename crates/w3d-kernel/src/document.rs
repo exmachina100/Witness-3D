@@ -953,6 +953,28 @@ impl<K: Kernel> Document<K> {
         self.kernel.meet(sa, sb)?.iter().map(|p| Curve::from_nurbs(p, DVec3::NEG_Y)).collect()
     }
 
+    /// Where the plane through `origin` square to `normal` crosses the numbered faces of `body`
+    /// (every face when empty): curves lying in the plane. Cut Curve cuts with faces by these.
+    pub fn preview_section(&self, body: BodyId, faces: &[u32], origin: DVec3, normal: DVec3) -> Result<Vec<Curve>, KernelError> {
+        let s = self.get(body).ok_or(KernelError::Invalid("that body no longer exists"))?;
+        if !(normal.length() > 1e-12) { return Err(KernelError::Invalid("the plane has no direction")) }
+        let normal = normal.normalize();
+        let plane = self.kernel.plane_sheet(origin, normal, SHEET)?;
+        let count = self.kernel.face_count(s) as u32;
+        let mut out = vec![];
+        if faces.is_empty() || count == 1 {
+            if let Ok(paths) = self.kernel.meet(s, &plane) { for p in paths { out.push(Curve::from_nurbs(&p, -normal)?) } }
+            return Ok(out);
+        }
+        let sheets = self.kernel.unjoin(s, true)?;
+        for &f in faces {
+            let face = sheets.get(f as usize).ok_or(KernelError::Invalid("that face no longer exists"))?;
+            // A face the plane misses gives nothing, not an error.
+            if let Ok(paths) = self.kernel.meet(face, &plane) { for p in paths { out.push(Curve::from_nurbs(&p, -normal)?) } }
+        }
+        Ok(out)
+    }
+
     /// Plasticity's Project Curve Curve, without changing the document: where the two curves'
     /// sheets, each swept along its own plane's normal, meet.
     pub fn preview_project_curves(&self, a: CurveId, b: CurveId) -> Result<Vec<Curve>, KernelError> {
