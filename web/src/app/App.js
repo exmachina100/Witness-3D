@@ -159,7 +159,7 @@ const KEYS = {
   bridge: [['T / D', 'TENSION'], ['TAB', 'CONTINUITY G0 G1 G2 G3'], ['Q', 'TRIM'], ['⏎ / RMB', 'OK']],
   'bridge-edge': [['D', 'TENSION'], ['TAB', 'CONTINUITY G0 G1 G2 G3'], ['⏎ / RMB', 'OK']],
   'align-surface': [['TAB', 'CONTINUITY G0 G1 G2'], ['D', 'TENSION'], ['⏎ / RMB', 'OK']],
-  square: [['⇧ CLICK', 'SIDES: CURVES OR EDGES'], ['TAB', 'CONTINUITY G0 G1'], ['D', 'DEGREE'], ['⏎ / RMB', 'OK']],
+  square: [['⇧ CLICK', 'SIDES: CURVES OR EDGES'], ['TAB', 'CONTINUITY G0 G1 G2'], ['T', 'TENSION'], ['D', 'DEGREE'], ['⏎ / RMB', 'OK']],
   'constrained-surface': [['CLICK', 'ADD A POINT'], ['CTRL Z', 'REMOVE THE LAST'], ['TAB', 'PERFORMANCE / SMOOTHNESS'], ['⏎ / RMB', 'OK']],
   trim: [['CLICK', 'PIECE TO CUT AWAY'], ['CTRL Z', 'UNDO ONE'], ['ESC / ⏎', 'DONE']],
   'cut-curve': [['CLICK', 'CUTTER CURVES'], ['TAB', 'EXTEND'], ['S', 'SCREEN SPACE'], ['⏎ / RMB', 'OK'], ['ESC', 'CANCEL']],
@@ -414,7 +414,8 @@ const SHELL = `
     <div class="sec" data-panel="square" hidden>
       <span class="hint" data-id="sq-hint">—</span>
       <span class="label">CONTINUITY</span>
-      <div class="seg" role="group" aria-label="Continuity with the faces along edge sides"><button data-sqcont="G0" aria-pressed="true" title="Meet the sides (G0) (Tab)">G0</button><button data-sqcont="G1" aria-pressed="false" title="Carry on the faces along edge sides (G1) (Tab)">G1</button></div>
+      <div class="seg" role="group" aria-label="Continuity with the faces along edge sides"><button data-sqcont="G0" aria-pressed="true" title="Meet the sides (G0) (Tab)">G0</button><button data-sqcont="G1" aria-pressed="false" title="Carry on the faces along edge sides (G1) (Tab)">G1</button><button data-sqcont="G2" aria-pressed="false" title="Carry on the faces along edge sides and bend as they do (G2) (Tab)">G2</button></div>
+      <div class="field" title="How far the sheet carries on along the faces before turning (G1, G2) (T)"><label for="w3d-sq-t">TENSION</label><input id="w3d-sq-t" data-id="sq-t" type="number" step="0.1" min="0.1" value="1"></div>
       <div class="field" title="The surface's degree each way (D)"><label for="w3d-sq-d">DEGREE</label><input id="w3d-sq-d" data-id="sq-d" type="number" step="1" min="1" max="7" value="3"></div>
       <div class="field" title="Spans across the first side; 0 picks them to follow the sides within 0.01 mm"><label for="w3d-sq-u">SPANS U</label><input id="w3d-sq-u" data-id="sq-u" type="number" step="1" min="0" max="64" value="0"></div>
       <div class="field" title="Spans across the second side; 0 is as many as U"><label for="w3d-sq-v">SPANS V</label><input id="w3d-sq-v" data-id="sq-v" type="number" step="1" min="0" max="64" value="0"></div>
@@ -4792,20 +4793,30 @@ export async function mount(root, backend) {
       const dot = (a, b) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
       let best = null;
       for (const f of faces) {
+        const normals = [], kappas = [];
         const outs = f.frames.map((fr, k) => {
           const T = unit(at[Math.min(k + 1, at.length - 1)].map((x, i) => x - at[Math.max(k - 1, 0)][i]));
           const N = unit(cross(fr.su, fr.sv));
           let d = unit(cross(N, T));
           if (dot(d, fr.at.map((x, i) => x - f.middle[i])) < 0) d = d.map(x => -x);
+          // For G2, the face's normal curvature along d: d as a·Su + b·Sv, then II(d) / I(d).
+          const E = dot(fr.su, fr.su), F = dot(fr.su, fr.sv), G = dot(fr.sv, fr.sv), det = E * G - F * F;
+          const du = dot(d, fr.su), dv = dot(d, fr.sv), a = (G * du - F * dv) / det, b = (E * dv - F * du) / det;
+          const I = a * a * E + 2 * a * b * F + b * b * G, II = a * a * dot(fr.suu, N) + 2 * a * b * dot(fr.suv, N) + b * b * dot(fr.svv, N);
+          normals.push(N);
+          kappas.push([det > 1e-24 && I > 1e-24 ? II / I : 0, 0, 0]);
           return d;
         });
         const score = outs.reduce((sum, d, k) => sum + dot(d, unit(centre.map((x, i) => x - at[k][i]))), 0);
-        if (!best || score > best.score) best = { score, outs };
+        if (!best || score > best.score) best = { score, outs, normals, kappas };
       }
       if (!best) return pts;
-      // Spread the sampled ways out over every point of the side.
+      // Spread the sampled ways out (and normals and curvatures) over every point of the side.
       const side = pts.map(p => [...p]);
-      side.out = pts.map((_, i) => { const k = i / (pts.length - 1) * (at.length - 1), a = Math.floor(k), b = Math.min(a + 1, at.length - 1), t = k - a; return best.outs[a].map((x, j) => x * (1 - t) + best.outs[b][j] * t); });
+      const spread = vals => pts.map((_, i) => { const k = i / (pts.length - 1) * (at.length - 1), a = Math.floor(k), b = Math.min(a + 1, at.length - 1), t = k - a; return vals[a].map((x, j) => x * (1 - t) + vals[b][j] * t); });
+      side.out = spread(best.outs);
+      side.normal = spread(best.normals);
+      side.kappa = spread(best.kappas);
       return side;
     };
     const picked = () => [...sel.curves.map(id => ({ kind: 'curve', id })), ...sel.list('edge').map(e => ({ kind: 'edge', body: e.body, n: e.n }))];
@@ -4821,16 +4832,18 @@ export async function mount(root, backend) {
       let fit;
       try {
         let sides = await Promise.all(items.map(sideOf));
-        if (c.continuity === 'G1') {
+        if (c.continuity !== 'G0') {
           const all = sides.flat(), centre = [0, 1, 2].map(k => all.reduce((t, p) => t + p[k], 0) / all.length);
           sides = await Promise.all(sides.map((pts, i) => items[i].kind === 'edge' ? withOut(items[i], pts, centre) : pts));
         }
         if (cmd !== c) return;
         const su = Math.round(num('sq-u')) || 0, sv = Math.round(num('sq-v')) || su;
-        fit = square(sides, { degree: Math.round(num('sq-d')), spans: su ? [su, sv] : 0, continuity: c.continuity });
+        const tension = num('sq-t');
+        if (!(tension > 0)) throw new Error('the tension must be greater than zero');
+        fit = square(sides, { degree: Math.round(num('sq-d')), spans: su ? [su, sv] : 0, continuity: c.continuity, tension });
       } catch (e) { c.data = null; clearPreview(); $('sq-hint').textContent = say(e); return setState('failed'); }
       c.data = splineSheetData(fit);
-      $('sq-hint').textContent = `${items.length === 2 ? 'LOFT' : 'FOUR SIDES'} · DEGREE ${fit.degree[0]} · ${fit.spans.join(' × ')} SPANS · SIDES WITHIN ${fit.gap < 1e-4 ? '< 0.0001' : fit.gap.toFixed(4)} MM${c.continuity === 'G1' ? ` · G1 WITHIN ${fit.turn.toFixed(2)}°` : ''}`;
+      $('sq-hint').textContent = `${items.length === 2 ? 'LOFT' : 'FOUR SIDES'} · DEGREE ${fit.degree[0]} · ${fit.spans.join(' × ')} SPANS · SIDES WITHIN ${fit.gap < 1e-4 ? '< 0.0001' : fit.gap.toFixed(4)} MM${c.continuity !== 'G0' ? ` · TANGENT WITHIN ${fit.turn.toFixed(2)}°` : ''}${c.continuity === 'G2' ? ` · CURVATURE WITHIN ${fit.bend.toFixed(5)} /MM` : ''}`;
       setHud(`SQUARE · ${fit.spans.join(' × ')} SPANS`);
       livePreview(c, () => backend.previewSplineSheet({ data: c.data }), b => showPreviewBody(b), 'sq-hint');
     };
@@ -4849,7 +4862,12 @@ export async function mount(root, backend) {
       c.preview();
     };
     c.key = action => {
-      if (action === 'continuity') { c.setContinuity(c.continuity === 'G0' ? 'G1' : 'G0'); return true; }
+      if (action === 'continuity') { c.setContinuity({ G0: 'G1', G1: 'G2', G2: 'G0' }[c.continuity]); return true; }
+      if (action === 'tension') {
+        c.entry = { label: 'TENSION', text: '', apply: v => { if (v > 0) { $('sq-t').value = v; c.preview(); } else toast('THE TENSION MUST BE GREATER THAN ZERO'); } };
+        setHud('TENSION _');
+        return true;
+      }
       if (action !== 'degree') return false;
       c.entry = { label: 'DEGREE', text: '', apply: v => { if (v >= 1 && v <= 7) { $('sq-d').value = Math.round(v); c.preview(); } else toast('THE DEGREE RUNS FROM 1 TO 7'); } };
       setHud('DEGREE _');
@@ -9349,7 +9367,7 @@ export async function mount(root, backend) {
   for (const id of ['be-p1', 'be-p2', 'be-t1a', 'be-t1b', 'be-t2a', 'be-t2b', 'be-t3a', 'be-t3b']) $(id).addEventListener('input', () => cmd?.id === 'bridge-edge' && cmd.preview());
   $('be-start').onclick = () => cmd?.id === 'bridge-edge' && cmd.cycleEnd(0);
   for (const b of $$('[data-sqcont]')) b.onclick = () => cmd?.id === 'square' && cmd.setContinuity(b.dataset.sqcont);
-  for (const id of ['sq-d', 'sq-u', 'sq-v']) $(id).addEventListener('input', () => cmd?.id === 'square' && cmd.preview());
+  for (const id of ['sq-d', 'sq-u', 'sq-v', 'sq-t']) $(id).addEventListener('input', () => cmd?.id === 'square' && cmd.preview());
   for (const b of $$('[data-csopt]')) b.onclick = () => { if (cmd?.id === 'constrained-surface') { cmd.optimize = b.dataset.csopt; cmd.preview(); } };
   for (const id of ['cs-tol', 'cs-ang']) $(id).addEventListener('input', () => cmd?.id === 'constrained-surface' && num(id) > 0 && cmd.preview());
   for (const b of $$('[data-ascont]')) b.onclick = () => cmd?.id === 'align-surface' && cmd.setContinuity(b.dataset.ascont);
