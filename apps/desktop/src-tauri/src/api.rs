@@ -579,15 +579,30 @@ pub fn redo(m: &Model) -> Result<Vec<Body>, String> {
     m.call(|doc| { doc.redo(); bodies(doc) })
 }
 
-/// Body `id` written as STEP (or IGES by the extension); with `motion`, where an instance of it
-/// stands rather than where it is.
-pub fn export_step(m: &Model, id: BodyId, path: PathBuf, motion: Option<MotionRequest>) -> Result<(), String> {
+/// A mirrored instance's plane: its master is reflected in it before it is placed.
+#[derive(Deserialize, Debug, Clone)]
+pub struct MirrorPlane {
+    pub origin: [f64; 3],
+    pub normal: [f64; 3],
+}
+
+/// Body `solid` where an instance stands: reflected in `mirror`, then moved by `motion`.
+fn placed_solid(doc: &Document<Occt>, solid: &<Occt as Kernel>::Solid, motion: Option<&MotionRequest>, mirror: Option<&MirrorPlane>) -> Result<<Occt as Kernel>::Solid, ApiError> {
+    let mirrored = match mirror { Some(p) => Some(doc.kernel.mirror(solid, DVec3::from(p.origin), DVec3::from(p.normal))?), None => None };
+    let motion = match motion { Some(r) => r.motion()?, None => Motion::translation(DVec3::ZERO) };
+    Ok(match mirrored {
+        Some(m) if motion.is_identity() => m,
+        Some(m) => doc.kernel.transform(&m, &motion),
+        None => doc.kernel.transform(solid, &motion),
+    })
+}
+
+/// Body `id` written as STEP (or IGES by the extension); with `motion` (and `mirror`), where an
+/// instance of it stands rather than where it is.
+pub fn export_step(m: &Model, id: BodyId, path: PathBuf, motion: Option<MotionRequest>, mirror: Option<MirrorPlane>) -> Result<(), String> {
     m.call(move |doc| {
         let solid = doc.get(id).ok_or("no such body")?;
-        let placed = match &motion {
-            Some(r) => Some(doc.kernel.transform(solid, &r.motion().map_err(|e| e.message)?)),
-            None => None,
-        };
+        let placed = if motion.is_some() || mirror.is_some() { Some(placed_solid(doc, solid, motion.as_ref(), mirror.as_ref()).map_err(|e| e.message)?) } else { None };
         let solid = placed.as_ref().unwrap_or(solid);
         if is_iges(&path) { doc.kernel.write_iges(solid, &path) } else { doc.kernel.write_step(solid, &path) }.map_err(|e| e.to_string())
     })
@@ -1074,6 +1089,8 @@ pub struct DrawingRequest {
 pub struct PlacedBody {
     pub body: BodyId,
     pub motion: MotionRequest,
+    #[serde(default)]
+    pub mirror: Option<MirrorPlane>,
 }
 
 /// A drawn line in the drawing's x, y: [x0, y0, x1, y1, ...].
@@ -1089,7 +1106,7 @@ pub fn hidden_lines(m: &Model, req: DrawingRequest) -> Result<Vec<DrawnLineOut>,
     m.call(move |doc| {
         let placed = req.placed.iter().map(|p| {
             let s = doc.get(p.body).ok_or(KernelError::Invalid("an instance's master no longer exists"))?;
-            Ok(doc.kernel.transform(s, &p.motion.motion()?))
+            placed_solid(doc, s, Some(&p.motion), p.mirror.as_ref())
         }).collect::<Result<Vec<_>, ApiError>>()?;
         let mut solids = req.bodies.iter().map(|&id| doc.get(id).ok_or(KernelError::Invalid("that body no longer exists"))).collect::<Result<Vec<_>, _>>()?;
         solids.extend(placed.iter());

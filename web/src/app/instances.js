@@ -5,7 +5,8 @@
 //
 // An instance takes a master point x to  position + q · (scale · (x − pivot)),  where pivot is the
 // master's centre when the instance was made. That is the kernels' Motion with offset = position − pivot,
-// so realizing is one Place of the master.
+// so realizing is one Place of the master. A mirrored instance (Mirror with I) first reflects x in its
+// `mirror` plane { origin, normal }, and its pivot is the reflected centre.
 
 import * as THREE from 'three';
 
@@ -26,15 +27,35 @@ export function checkInstance(m) {
     if (!(m?.scale > 0) || !Number.isFinite(m.scale)) bad.push('scale');
     if (typeof m?.hidden !== 'boolean') bad.push('hidden');
     if (m?.curve !== undefined && typeof m.curve !== 'boolean') bad.push('curve');
+    if (m?.mirror !== undefined && !(nums(m.mirror?.origin, 3) && nums(m.mirror?.normal, 3) && Math.hypot(...m.mirror.normal) > 1e-9)) bad.push('mirror');
     return bad;
+}
+
+/** The reflection in plane { origin, normal }, as a matrix. */
+export function reflection({ origin, normal }) {
+    const n = new THREE.Vector3(...normal).normalize(), o = new THREE.Vector3(...origin), d = n.dot(o);
+    const { x, y, z } = n;
+    return new THREE.Matrix4().set(
+        1 - 2 * x * x, -2 * x * y, -2 * x * z, 2 * d * x,
+        -2 * x * y, 1 - 2 * y * y, -2 * y * z, 2 * d * y,
+        -2 * x * z, -2 * y * z, 1 - 2 * z * z, 2 * d * z,
+        0, 0, 0, 1);
 }
 
 /** The instance's placement as a matrix for the master's mesh. */
 export function matrixOf(m) {
     const s = m.scale;
-    return new THREE.Matrix4()
+    const at = new THREE.Matrix4()
         .compose(new THREE.Vector3(...m.position), new THREE.Quaternion(...m.quaternion), new THREE.Vector3(s, s, s))
         .multiply(new THREE.Matrix4().makeTranslation(-m.pivot[0], -m.pivot[1], -m.pivot[2]));
+    return m.mirror ? at.multiply(reflection(m.mirror)) : at;
+}
+
+/** A mirrored instance of body `master`: its reflection in `mirror` ({ origin, normal }), standing
+ * where Mirror would put the copy; `centre` is the master's centre. */
+export function mirroredInstance(id, master, mirror, centre) {
+    const pivot = new THREE.Vector3(...centre).applyMatrix4(reflection(mirror)).toArray();
+    return { ...newInstance(id, master, pivot), mirror: { origin: [...mirror.origin], normal: [...mirror.normal] } };
 }
 
 /** The kernels' Motion that takes the master to where the instance stands. */
