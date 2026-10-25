@@ -33,6 +33,7 @@ export const PREF_FIELDS = {
         { key: 'autoOffset', label: 'PUSH FACE', type: 'bool', value: true },
         { key: 'autoExtendSheet', label: 'EXTEND SHEET', type: 'bool', value: true },
         { key: 'autoFillet', label: 'FILLET', type: 'bool', value: true },
+        { key: 'autoMove', label: 'MOVE', type: 'bool', value: true },
     ],
     network: [
         { key: 'bridge', label: 'BRIDGE ENABLE', type: 'bool', value: true, restart: true, desktop: true },
