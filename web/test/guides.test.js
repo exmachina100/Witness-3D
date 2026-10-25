@@ -151,3 +151,13 @@ test('a body edge serves as a guide, given as a curve through points along it', 
     close(b.min.x, -5, 0.01);
     close(bounds(f().tool).min.x, b.min.x, 0.01);
 });
+
+test('a curve replaced by an edited copy of itself is listed under its new id, and lofts', async () => {
+    const be = new LocalBackend();
+    await be.addCurves([square(0), square(5)]);
+    // A move hands back the listed curve spread with new points: it still carries id 2 and samples.
+    const listed = be.curves().find(c => c.id === 2);
+    const { ids: [moved] } = await be.replaceCurves([2], [{ ...listed, origin: [0, 20, 0] }]);
+    assert.deepEqual(be.curves().map(c => c.id), [1, moved]);
+    close(volume(be.form({ kind: 'loft', regions: [1, moved] }).tool), 2000, 0.5);
+});

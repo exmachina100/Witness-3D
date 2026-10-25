@@ -1636,11 +1636,32 @@ export async function mount(root, backend) {
     }
     return best;
   }
+  /** The face in `nets` whose control net (rows of [x, y, z]) is nearest `net`, point by point; null without one. */
+  function nearestNet(net, nets) {
+    if (!net?.length) return null;
+    const flat = net.flat();
+    let best = null, bestD = Infinity;
+    nets.forEach((m, i) => {
+      const q = m?.flat();
+      if (!q || q.length !== flat.length || m.length !== net.length) return;
+      let d = 0;
+      for (let k = 0; k < q.length; k++) d += Math.hypot(q[k][0] - flat[k][0], q[k][1] - flat[k][1], q[k][2] - flat[k][2]);
+      if (d < bestD) { bestD = d; best = i; }
+    });
+    return best;
+  }
   /** After the bodies change: the shown faces' control points again, gone bodies dropped. */
   async function refreshShownPoints(list) {
     for (const body of [...shownPoints.faces.keys()]) if (!list.some(b => b.id === body)) shownPoints.faces.delete(body);
     const cache = new Map();
     for (const body of shownPoints.faces.keys()) { try { cache.set(body, await backend.facePoles({ body })); } catch { shownPoints.faces.delete(body); } }
+    // A rebuilt body numbers its faces afresh: follow each shown face to the face whose control
+    // net is nearest its old one (a moved point changes only a few).
+    for (const [body, which] of shownPoints.faces) {
+      const was = facePoleCache.get(body), now = cache.get(body);
+      if (which === 'all' || !was || !now) continue;
+      shownPoints.faces.set(body, new Set([...which].map(n => nearestNet(was[n], now) ?? n)));
+    }
     facePoleCache = cache;
     paintShownPoints();
   }
@@ -1760,16 +1781,19 @@ export async function mount(root, backend) {
     out.innerHTML = '<div class="group-title">▾ SOLIDS</div>';
     const ids = current.map(b => b.id);
     const solids = current.filter(b => !b.sheet), sheets = current.filter(b => b.sheet);
-    const toggles = (shown, locked) => `<button class="lk" aria-pressed="${locked}" aria-label="Lock or unlock" title="${locked ? 'Unlock' : 'Lock'}">${icon(locked ? 'padlock' : 'unlock')}</button><button class="eye" aria-pressed="${shown}" aria-label="Show or hide">◉</button>`;
+    const toggles = (shown, locked, off) => `<button class="dis" aria-pressed="${off}" aria-label="Disable or enable" title="${off ? 'Enable' : 'Disable: off the viewport and out of every command, for heavy scenes'}">${icon('disable')}</button><button class="lk" aria-pressed="${locked}" aria-label="Lock or unlock" title="${locked ? 'Unlock' : 'Lock'}">${icon(locked ? 'padlock' : 'unlock')}</button><button class="eye" aria-pressed="${shown}" aria-label="Show or hide">◉</button>`;
+    const setDisabled = (list, off) => { org.setDisabled(list, off); organised(); renderOutliner(); };
     const indent = depth => `padding-left: ${14 + 14 * depth}px`;
     const bodyRow = (b, depth) => {
       const row = document.createElement('div');
-      const locked = org.locked.has(b.id), shown = !org.hidden.has(b.id);
-      row.className = 'row-item' + (locked ? ' locked' : '') + (org.shows(b.id) ? '' : ' off');
+      const locked = org.locked.has(b.id), shown = !org.hidden.has(b.id), off = org.disabled.has(b.id);
+      row.className = 'row-item' + (locked ? ' locked' : '') + (org.shows(b.id) ? '' : ' off') + (off ? ' disabled' : '');
       row.style = indent(depth);
       row.setAttribute('aria-current', sel.has({ kind: 'solid', body: b.id }));
-      row.innerHTML = `<span class="sq"></span><span class="name">${b.sheet ? 'SHEET' : 'BODY'} ${b.id}</span><span class="tag">${label(b.id)}</span>${toggles(shown, locked)}`;
+      row.innerHTML = `<span class="sq"></span><span class="name">${b.sheet ? 'SHEET' : 'BODY'} ${b.id}</span><span class="tag">${label(b.id)}</span>${toggles(shown, locked, off)}`;
       row.onclick = e => {
+        if (e.target.closest('.dis')) return setDisabled([b.id], !off);
+        if (off) return toast('DISABLED · ENABLE TO SELECT');
         if (e.target.closest('.eye')) return setHidden([b.id], shown);
         if (e.target.closest('.lk')) { org.setLocked([b.id], !locked); return organised(); }
         if (!org.picks(b.id)) return toast(locked ? 'LOCKED · UNLOCK TO SELECT' : 'HIDDEN');
@@ -1781,15 +1805,18 @@ export async function mount(root, backend) {
     // A group is a folder: its own groups, then its bodies. Clicking it selects everything in it.
     const folder = (g, depth) => {
       const all = org.allMembers(g.id, ids), shown = all.some(id => !org.hidden.has(id)), locked = all.length > 0 && all.every(id => org.locked.has(id));
+      const off = all.length > 0 && all.every(id => org.disabled.has(id)), active = org.active === g.id;
       const row = document.createElement('div');
-      row.className = 'row-item folder' + (all.length ? '' : ' empty-group');
+      row.className = 'row-item folder' + (all.length ? '' : ' empty-group') + (off ? ' disabled' : '') + (active ? ' active-collection' : '');
       row.style = indent(depth);
       row.setAttribute('aria-current', all.length > 0 && all.every(id => sel.has({ kind: 'solid', body: id })));
-      row.innerHTML = `<span class="tw">${g.open ? '▾' : '▸'}</span>${icon('folder')}<span class="name" title="Double-click to rename">${g.name}</span><span class="tag">${all.length}</span>${toggles(shown, locked)}`;
+      row.innerHTML = `<span class="tw">${g.open ? '▾' : '▸'}</span><button class="act" aria-pressed="${active}" aria-label="Toggle active collection" title="${active ? 'The active collection: new bodies go in here. Click or double-click the row to stop' : 'Make this the active collection: new bodies go in here (or double-click the row)'}">${icon('folder')}</button><span class="name" title="Double-click to rename">${g.name}</span><span class="tag">${all.length}</span>${toggles(shown, locked, off)}`;
       const name = row.querySelector('.name');
       row.onclick = e => {
         if (name.isContentEditable) return;
         if (e.target.closest('.tw')) { g.open = !g.open; return renderOutliner(); }
+        if (e.target.closest('.act')) { org.toggleActive(g.id); return renderOutliner(); }
+        if (e.target.closest('.dis')) return setDisabled(all, !off);
         if (e.target.closest('.eye')) return setHidden(all, shown);
         if (e.target.closest('.lk')) { org.setLocked(all, !locked); return organised(); }
         const mod = e.shiftKey ? 'add' : (e.ctrlKey || e.metaKey) ? 'remove' : 'replace';
@@ -1806,6 +1833,8 @@ export async function mount(root, backend) {
         name.onkeydown = k => { k.stopPropagation(); if (k.key === 'Enter') { k.preventDefault(); done(true); } else if (k.key === 'Escape') done(false); };
         name.onblur = () => done(true);
       };
+      // Plasticity: double-clicking a group makes it the active collection (the name renames).
+      row.ondblclick = e => { if (e.target.closest('button, .name')) return; org.toggleActive(g.id); renderOutliner(); };
       out.append(row);
       if (!g.open) return;
       for (const c of org.childGroups(g.id)) folder(c, depth + 1);
@@ -9132,7 +9161,7 @@ export async function mount(root, backend) {
       case 'hide': setHidden(sel.bodies, true); return true;
       case 'hide-others': setHidden(current.map(b => b.id).filter(id => !sel.bodies.includes(id)), true); return true;
       case 'unhide-all': setHidden([...org.hidden], false); return true;
-      case 'invert-hidden': org.invertHidden(current.map(b => b.id)); organised(); return true;
+      case 'invert-hidden': org.invertHidden(current.map(b => b.id).filter(id => !org.disabled.has(id))); organised(); return true;
       case 'isolate': isolateSelected(); return true;
       case 'unisolate': org.unisolate(); organised(); return true;
       case 'group': groupSelected(); return true;

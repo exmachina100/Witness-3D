@@ -128,14 +128,25 @@ export class LocalBackend {
     }
 
     /** Drawn curves, as { id, ...curve }. */
-    curves() { return [...this.curveMap].map(([id, c]) => ({ id, ...structuredClone(c), ...((c.kind === 'spline' || c.kind === 'contour') && { samples: splineSamples(c) }) })) }
+    curves() { return [...this.curveMap].map(([id, c]) => ({ ...structuredClone(c), id, ...((c.kind === 'spline' || c.kind === 'contour') && { samples: splineSamples(c) }) })) }
+
+    /**
+     * Keep a curve under a new id. Edits hand back copies of listed curves, which carry the old id
+     * and display samples; neither is the curve's own, and a stale id would hide the new one.
+     */
+    keepCurve(c) {
+        const { id: _id, samples: _samples, ...curve } = structuredClone(c);
+        const id = this.nextCurve++;
+        this.curveMap.set(id, curve);
+        return id;
+    }
 
     /** Add drawn curves, as one undo step. */
     async addCurves(list) {
         if (!list.length) throw new Error('nothing to do');
         for (const c of list) checkCurve(c);
         this.checkpoint();
-        return { ids: list.map(c => { const id = this.nextCurve++; this.curveMap.set(id, structuredClone(c)); return id; }) };
+        return { ids: list.map(c => this.keepCurve(c)) };
     }
 
     /** Join Curves (J): the curves replaced by their joined runs, as one undo step. */
@@ -145,7 +156,7 @@ export class LocalBackend {
         for (const c of joined) checkCurve(c);
         this.checkpoint();
         for (const id of ids) this.curveMap.delete(id);
-        return { ids: joined.map(c => { const id = this.nextCurve++; this.curveMap.set(id, c); return id; }) };
+        return { ids: joined.map(c => this.keepCurve(c)) };
     }
 
     /** Curve edits (Trim, Fillet Curve, Explode): the curves `ids` replaced by `list`, as one undo step. */
@@ -155,7 +166,7 @@ export class LocalBackend {
         for (const c of list) checkCurve(c);
         this.checkpoint();
         for (const id of ids) this.curveMap.delete(id);
-        return { ids: list.map(c => { const id = this.nextCurve++; this.curveMap.set(id, structuredClone(c)); return id; }) };
+        return { ids: list.map(c => this.keepCurve(c)) };
     }
 
     /** Delete bodies and curves together, as one undo step. */

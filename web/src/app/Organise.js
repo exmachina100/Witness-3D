@@ -9,6 +9,8 @@ export class Organise {
     constructor() {
         this.hidden = new Set();
         this.locked = new Set();
+        this.disabled = new Set(); // Plasticity's Disable: off the viewport and out of every command
+        this.active = null;        // the active collection: the group new bodies go into
         this.layers = [];        // isolation layers, outermost first: each the set of ids it shows
         this.groups = [];        // { id, name, parent (group id or null), open }
         this.groupOf = new Map(); // body id -> group id
@@ -21,21 +23,28 @@ export class Organise {
      */
     prune(ids) {
         const live = new Set(ids);
-        if (this.known) for (const id of ids) if (!this.known.has(id)) for (const l of this.layers) l.add(id);
+        if (this.known) for (const id of ids) if (!this.known.has(id)) {
+            for (const l of this.layers) l.add(id);
+            if (this.active !== null && !this.groupOf.has(id)) this.groupOf.set(id, this.active);
+        }
         this.known = live;
-        for (const s of [this.hidden, this.locked, ...this.layers]) for (const id of [...s]) if (!live.has(id)) s.delete(id);
+        for (const s of [this.hidden, this.locked, this.disabled, ...this.layers]) for (const id of [...s]) if (!live.has(id)) s.delete(id);
         for (const id of [...this.groupOf.keys()]) if (!live.has(id)) this.groupOf.delete(id);
         while (this.layers.length && !this.layers.at(-1).size) this.layers.pop();
     }
 
-    /** Shown in the viewport: not hidden, and in the innermost isolation layer when there is one. */
-    shows(id) { return !this.hidden.has(id) && (!this.layers.length || this.layers.at(-1).has(id)); }
+    /** Shown in the viewport: not hidden or disabled, and in the innermost isolation layer when there is one. */
+    shows(id) { return !this.hidden.has(id) && !this.disabled.has(id) && (!this.layers.length || this.layers.at(-1).has(id)); }
     /** Can be picked: shown and not locked. */
     picks(id) { return this.shows(id) && !this.locked.has(id); }
 
     setHidden(ids, hide) { for (const id of ids) hide ? this.hidden.add(id) : this.hidden.delete(id); }
     /** Ctrl+H: what was hidden shows and what showed hides. */
     invertHidden(ids) { for (const id of ids) this.hidden.has(id) ? this.hidden.delete(id) : this.hidden.add(id); }
+    /** Disable: unlike Hide, Unhide All and Invert Hidden leave disabled bodies alone. */
+    setDisabled(ids, off) { for (const id of ids) off ? this.disabled.add(id) : this.disabled.delete(id); }
+    /** Double-click a group: it becomes the active collection, or stops being it. */
+    toggleActive(gid) { this.active = this.active === gid || !this.group(gid) ? null : gid; }
     setLocked(ids, lock) { for (const id of ids) lock ? this.locked.add(id) : this.locked.delete(id); }
 
     /** Isolate (.): a new layer showing only these; with none, step back out one layer. Returns the depth. */
@@ -85,10 +94,11 @@ export class Organise {
         for (const [id, at] of this.groupOf) if (at === gid) g.parent === null ? this.groupOf.delete(id) : this.groupOf.set(id, g.parent);
         for (const c of this.groups) if (c.parent === gid) c.parent = g.parent;
         this.groups = this.groups.filter(x => x !== g);
+        if (this.active === gid) this.active = g.parent;
     }
-    /** What is kept in the file: groups, the group of each body, hidden and locked. Isolation is a view and isn't kept. */
+    /** What is kept in the file: groups, the group of each body, hidden, locked and disabled, and the active collection. Isolation is a view and isn't kept. */
     toJSON() {
-        return { groups: this.groups.map(g => ({ ...g })), groupOf: [...this.groupOf], hidden: [...this.hidden], locked: [...this.locked], nextGroup: this.nextGroup };
+        return { groups: this.groups.map(g => ({ ...g })), groupOf: [...this.groupOf], hidden: [...this.hidden], locked: [...this.locked], disabled: [...this.disabled], active: this.active, nextGroup: this.nextGroup };
     }
     /** Back from toJSON(); anything missing or malformed is left empty. */
     static from(data) {
@@ -97,10 +107,12 @@ export class Organise {
         const ids = list => Array.isArray(list) ? list.filter(Number.isInteger) : [];
         o.hidden = new Set(ids(data.hidden));
         o.locked = new Set(ids(data.locked));
+        o.disabled = new Set(ids(data.disabled));
         o.groups = Array.isArray(data.groups) ? data.groups.filter(g => Number.isInteger(g?.id)).map(g => ({ id: g.id, name: String(g.name ?? `GROUP ${g.id}`), parent: Number.isInteger(g.parent) ? g.parent : null, open: g.open !== false })) : [];
         const known = new Set(o.groups.map(g => g.id));
         for (const g of o.groups) if (!known.has(g.parent)) g.parent = null;
         o.groupOf = new Map((Array.isArray(data.groupOf) ? data.groupOf : []).filter(([b, g]) => Number.isInteger(b) && known.has(g)));
+        o.active = known.has(data.active) ? data.active : null;
         o.nextGroup = Math.max(Number.isInteger(data.nextGroup) ? data.nextGroup : 1, ...o.groups.map(g => g.id + 1));
         return o;
     }

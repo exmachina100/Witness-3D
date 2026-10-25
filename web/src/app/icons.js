@@ -265,6 +265,8 @@ const ICONS = {
     'grow-moving': `<path d="M3 20V5h6v10h9v5z"/><path ${A} d="M9 5h12v15h-3M14 9l2 1.5-2 1.5"/>`,
     'grow-fixed': `<path d="M3 20V5h6v10h9v5z"/><path ${A} d="M9 5h9v10M20 4v16"/>`,
     'grow-none': `<path d="M3 20V5h6v10h9v5z"/><path ${A} d="M9 5h12v10h-3M14 9l2 1.5-2 1.5"/>`,
+    // Disable: a power symbol, the body switched off.
+    disable: `<path d="M8 6.5a7 7 0 1 0 8 0"/><path ${A} d="M12 3v8"/>`,
     padlock: `<rect x="5" y="11" width="14" height="10"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/><path ${A} d="M12 15v2"/>`,
     unlock: `<rect x="5" y="11" width="14" height="10"/><path d="M8 11V7a4 4 0 0 1 8 0"/><path ${A} d="M12 15v2"/>`,
     // Materials: a shaded ball, split in two for Fork, struck through for Remove.
