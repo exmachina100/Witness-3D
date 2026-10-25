@@ -421,7 +421,7 @@ const SHELL = `
     <div class="sec" data-panel="square" hidden>
       <span class="hint" data-id="sq-hint">—</span>
       <span class="label">CONTINUITY</span>
-      <div class="seg" role="group" aria-label="Continuity with the faces along edge sides"><button data-sqcont="G0" aria-pressed="true" title="Meet the sides (G0) (Tab)">G0</button><button data-sqcont="G1" aria-pressed="false" title="Carry on the faces along edge sides (G1) (Tab)">G1</button><button data-sqcont="G2" aria-pressed="false" title="Carry on the faces along edge sides and bend as they do (G2) (Tab)">G2</button></div>
+      <div class="seg" role="group" aria-label="Continuity with the faces along edge sides"><button data-sqcont="FREE" aria-pressed="false" title="Free: one span each way unless set, near the sides rather than on them, for a clean draft (Tab)">FREE</button><button data-sqcont="G0" aria-pressed="true" title="Meet the sides (G0) (Tab)">G0</button><button data-sqcont="G1" aria-pressed="false" title="Carry on the faces along edge sides (G1) (Tab)">G1</button><button data-sqcont="G2" aria-pressed="false" title="Carry on the faces along edge sides and bend as they do (G2) (Tab)">G2</button></div>
       <div class="field" title="How far the sheet carries on along the faces before turning (G1, G2) (T)"><label for="w3d-sq-t">TENSION</label><input id="w3d-sq-t" data-id="sq-t" type="number" step="0.1" min="0.1" value="1"></div>
       <div class="field" title="The surface's degree each way (D)"><label for="w3d-sq-d">DEGREE</label><input id="w3d-sq-d" data-id="sq-d" type="number" step="1" min="1" max="7" value="3"></div>
       <div class="field" title="Spans across the first side; 0 picks them to follow the sides within 0.01 mm"><label for="w3d-sq-u">SPANS U</label><input id="w3d-sq-u" data-id="sq-u" type="number" step="1" min="0" max="64" value="0"></div>
@@ -5071,7 +5071,7 @@ export async function mount(root, backend) {
         fit = square(sides, { degree: Math.round(num('sq-d')), spans: su ? [su, sv] : 0, continuity: c.continuity, tension });
       } catch (e) { c.data = null; clearPreview(); $('sq-hint').textContent = say(e); return setState('failed'); }
       c.data = splineSheetData(fit);
-      $('sq-hint').textContent = `${items.length === 2 ? 'LOFT' : items.length === 3 ? 'THREE SIDES' : 'FOUR SIDES'} · DEGREE ${fit.degree[0]} · ${fit.spans.join(' × ')} SPANS · SIDES WITHIN ${fit.gap < 1e-4 ? '< 0.0001' : fit.gap.toFixed(4)} MM${c.continuity !== 'G0' ? ` · TANGENT WITHIN ${fit.turn.toFixed(2)}°` : ''}${c.continuity === 'G2' ? ` · CURVATURE WITHIN ${fit.bend.toFixed(5)} /MM` : ''}`;
+      $('sq-hint').textContent = `${items.length === 2 ? 'LOFT' : items.length === 3 ? 'THREE SIDES' : 'FOUR SIDES'} · DEGREE ${fit.degree[0]} · ${fit.spans.join(' × ')} SPANS · SIDES WITHIN ${fit.gap < 1e-4 ? '< 0.0001' : fit.gap.toFixed(4)} MM${c.continuity === 'G1' || c.continuity === 'G2' ? ` · TANGENT WITHIN ${fit.turn.toFixed(2)}°` : ''}${c.continuity === 'G2' ? ` · CURVATURE WITHIN ${fit.bend.toFixed(5)} /MM` : ''}`;
       setHud(`SQUARE · ${fit.spans.join(' × ')} SPANS`);
       livePreview(c, () => backend.previewSplineSheet({ data: c.data }), b => showPreviewBody(b), 'sq-hint');
     };
@@ -5090,7 +5090,7 @@ export async function mount(root, backend) {
       c.preview();
     };
     c.key = action => {
-      if (action === 'continuity') { c.setContinuity({ G0: 'G1', G1: 'G2', G2: 'G0' }[c.continuity]); return true; }
+      if (action === 'continuity') { c.setContinuity({ FREE: 'G0', G0: 'G1', G1: 'G2', G2: 'FREE' }[c.continuity]); return true; }
       if (action === 'tension') {
         c.entry = { label: 'TENSION', text: '', apply: v => { if (v > 0) { $('sq-t').value = v; c.preview(); } else toast('THE TENSION MUST BE GREATER THAN ZERO'); } };
         setHud('TENSION _');

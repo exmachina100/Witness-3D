@@ -113,3 +113,13 @@ test('three sides fill too: the longest is split at its middle', () => {
     const mid = surfaceAt(s, 0.5, 0.5);
     assert.ok(mid[0] > 0 && mid[1] > 0 && mid[0] + mid[1] < 20, `${mid}`);
 });
+
+test('Free: one span each way, near the sides rather than on them, corners held', () => {
+    const free = square([bottom, right, top, left], { continuity: 'FREE' });
+    assert.deepEqual(free.spans, [1, 1]);
+    assert.equal(free.poles.length * free.poles[0].length, 16);
+    const g0 = square([bottom, right, top, left], { continuity: 'G0' });
+    assert.ok(g0.gap <= 0.01 && free.gap > g0.gap && free.gap < 1, `${free.gap}`);
+    for (const [u, v, p] of [[0, 0, [0, 0, 0]], [1, 0, [20, 0, 0]], [1, 1, [20, 0, 10]], [0, 1, [0, 0, 10]]]) assert.ok(dist(surfaceAt(free, u, v), p) < 1e-9);
+    assert.deepEqual(square([bottom, right, top, left], { continuity: 'FREE', spans: [2, 3] }).spans, [2, 3]);
+});

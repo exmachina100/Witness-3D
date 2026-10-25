@@ -256,7 +256,8 @@ export function surfaceAt({ degree, uKnots, vKnots, poles }, u, v) {
 /**
  * Plasticity's Square on `sides` (polylines, [x, y, z] points): { degree, uKnots, vKnots, poles,
  * spans, gap (largest miss along the sides, mm) }. `degree` 1 to 7; `spans` [u, v], or 0 for auto;
- * `tolerance` the side gap auto spans aim for and the gap the sides' ends may have.
+ * `tolerance` the side gap auto spans aim for and the gap the sides' ends may have. `continuity`
+ * is 'FREE' (one span each way unless set: near the sides, not on them), 'G0', 'G1' or 'G2'.
  */
 export function square(sides, { degree = 3, spans = 0, tolerance = 0.01, continuity = 'G0', angle = 0.5, tension = 1 } = {}) {
     if (!(degree >= 1 && degree <= 7)) throw new Error('the degree runs from 1 to 7');
@@ -299,6 +300,9 @@ export function square(sides, { degree = 3, spans = 0, tolerance = 0.01, continu
     };
     // Only a direction with held edge sides at its ends needs them: u for the right and left sides.
     const rowsU = shape.outs[1] || shape.outs[3] ? rows : 2, rowsV = shape.outs[0] || shape.outs[2] ? rows : 2;
+    // Free: the sides only guide the sheet (corners held), one span each way unless set, for a
+    // clean surface with few control points rather than one on the sides.
+    if (continuity === 'Free' || continuity === 'FREE') spans = spans || 1;
     if (spans) {
         const [su, sv] = Array.isArray(spans) ? spans : [spans, spans];
         if (su + degree < rowsU || sv + degree < rowsV) throw new Error(`${continuity} needs more spans: at least ${rows} control points across the edge sides`);
