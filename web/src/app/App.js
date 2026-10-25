@@ -54,6 +54,12 @@ import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { TransformControls } from 'three/addons/controls/TransformControls.js';
 import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
+import { HDRLoader } from 'three/addons/loaders/HDRLoader.js';
+import { EXRLoader } from 'three/addons/loaders/EXRLoader.js';
+import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
+import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
+import { GTAOPass } from 'three/addons/postprocessing/GTAOPass.js';
+import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 import { MagnitudeGizmo, typed } from '../MagnitudeGizmo.js';
 import { TOOLS, check, tool as toolInfo, withDefaults } from './tools.js';
 import { ACTIONS, COMMAND, VIEWPORT, keyFor, keyOf } from './keymap.js';
@@ -812,15 +818,19 @@ const SHELL = `
         <button data-toggle="curves" aria-pressed="true" aria-label="Curves" title="Curves: show or hide them in the viewport"></button>
         <button data-toggle="curvature" aria-pressed="false" aria-label="Curvature" title="Curvature combs on curves (Toggle Curvature)"></button>
         <button data-toggle="render" aria-pressed="false" aria-label="Render" title="Render mode: lit by an environment, with the materials' roughness and metal"></button>
+        <button data-toggle="ao" aria-pressed="false" aria-label="Ambient occlusion" title="Ambient occlusion: darken creases and corners where light reaches less"></button>
         <button data-id="section-btn" aria-pressed="false" aria-label="Section analysis" title="Section analysis: slice the view through a face or the construction plane; click again to end it"></button>
       </div>
       <div class="field"><label for="w3d-comb-scale">COMB SCALE</label><input id="w3d-comb-scale" data-id="comb-scale" type="range" min="0.1" max="4" step="0.1" value="1" title="Length of the curvature combs on curves and edges"></div>
       <span class="label">SHADER <output data-id="shader-name">CERAMIC DARK</output></span>
       <div class="swatches" role="group" aria-label="Shader mode">${SHADERS.map(s => `<button data-shader="${s.id}" aria-pressed="${s.id === 'ceramic-dark'}" aria-label="${s.name}" title="${s.name}: ${s.use}" style="background: ${s.swatch}"></button>`).join('')}</div>
+      <div class="chips"><button data-id="matcap-load" title="Load a matcap image (PNG or JPEG) as the shader; it stays for next time">LOAD MATCAP</button><button data-id="matcap-custom" aria-pressed="false" hidden title="Your matcap">MY MATCAP</button></div>
+      <input type="file" data-id="matcap-file" accept=".png,.jpg,.jpeg,image/png,image/jpeg" hidden>
       <div class="stepper" data-id="shader-option" hidden><span data-id="shader-option-label">STRIPES</span><button data-id="shader-option-dec" aria-label="Less">−</button><output data-id="shader-option-value">24</output><button data-id="shader-option-inc" aria-label="More">+</button></div>
       <div data-id="render-options" hidden>
         <span class="label">ENVIRONMENT</span>
-        <div class="chips">${ENVIRONMENTS.map(e => `<button data-env="${e.id}" aria-pressed="${e.id === 'studio'}" title="${e.use}">${e.name.toUpperCase()}</button>`).join('')}</div>
+        <div class="chips">${ENVIRONMENTS.map(e => `<button data-env="${e.id}" aria-pressed="${e.id === 'studio'}" title="${e.use}">${e.name.toUpperCase()}</button>`).join('')}<button data-id="hdr-custom" aria-pressed="false" hidden title="Your HDR environment">HDR</button><button data-id="hdr-load" title="Load an HDR or EXR environment image (equirectangular) to light render mode">LOAD HDR</button></div>
+        <input type="file" data-id="hdr-file" accept=".hdr,.exr" hidden>
         <div class="field"><label for="w3d-env-rot">ROTATION</label><input id="w3d-env-rot" data-id="env-rot" type="range" min="-180" max="180" step="1" value="0"></div>
         <div class="field"><label for="w3d-env-int">INTENSITY</label><input id="w3d-env-int" data-id="env-int" type="range" min="0" max="10" step="0.1" value="1"></div>
       </div>
@@ -885,11 +895,11 @@ const VIEWS = {
 export async function mount(root, backend) {
   root.innerHTML = SHELL;
   // Panel options carry their icon ahead of the key and name.
-  for (const b of root.querySelectorAll('[data-proj],[data-imp],[data-impcomp],[data-draw],[data-bop],[data-xop],[data-fop],[data-spiral],[data-toggle],[data-gmethod],[data-galign],[data-grow],[data-mfgrow],[data-eslimit],[data-flshape],[data-avaxis],[data-extshape],[data-esshape],[data-isodir],[data-id="oe-both"],[data-id="oe-individual"],[data-id="blend-tangent"],[data-id="ex-lock"],[data-id="bool-keep"],[data-id="ex-free"],[data-id="ex-pivot"],[data-id="ex-individual"],[data-id="dr-hidden"],[data-id="dr-curves"],[data-id="oc-lock"],[data-id="oc-free"],[data-id="oc-slot"],[data-id="oc-combine"],[data-id="es-unlimit"],[data-rbmethod],[data-oecorner],[data-saplane],[data-plaxis],[data-plop],[data-id="pl-flip"],[data-id="pl-instance"],[data-id="ra-instance"],[data-id="rr-instance"],[data-id="ca-instance"],[data-id="br-trim"],[data-id="br-comb"],[data-id="ac-comb"],[data-id="dc-reblend"],[data-id="section-btn"],[data-id="sa-flip"],[data-id="rf-shrink"],[data-id="ut-keep"],[data-txfont],[data-txalign],[data-sldir],[data-dcflip],[data-id="dc-keep"],[data-imdepth],[data-imcull],[data-id="im-delete"],[data-id="cc-extend"],[data-id="cc-screen"],[data-inmode],[data-id="in-realize"],[data-id="in-dup"],[data-id="in-delete"]')) {
+  for (const b of root.querySelectorAll('[data-proj],[data-imp],[data-impcomp],[data-draw],[data-bop],[data-xop],[data-fop],[data-spiral],[data-toggle],[data-gmethod],[data-galign],[data-grow],[data-mfgrow],[data-eslimit],[data-flshape],[data-avaxis],[data-extshape],[data-esshape],[data-isodir],[data-id="oe-both"],[data-id="oe-individual"],[data-id="blend-tangent"],[data-id="ex-lock"],[data-id="bool-keep"],[data-id="ex-free"],[data-id="ex-pivot"],[data-id="ex-individual"],[data-id="dr-hidden"],[data-id="dr-curves"],[data-id="oc-lock"],[data-id="oc-free"],[data-id="oc-slot"],[data-id="oc-combine"],[data-id="es-unlimit"],[data-rbmethod],[data-oecorner],[data-saplane],[data-plaxis],[data-plop],[data-id="pl-flip"],[data-id="pl-instance"],[data-id="ra-instance"],[data-id="rr-instance"],[data-id="ca-instance"],[data-id="br-trim"],[data-id="br-comb"],[data-id="ac-comb"],[data-id="dc-reblend"],[data-id="section-btn"],[data-id="sa-flip"],[data-id="rf-shrink"],[data-id="ut-keep"],[data-txfont],[data-txalign],[data-sldir],[data-dcflip],[data-id="dc-keep"],[data-imdepth],[data-imcull],[data-id="im-delete"],[data-id="cc-extend"],[data-id="cc-screen"],[data-inmode],[data-id="in-realize"],[data-id="in-dup"],[data-id="in-delete"],[data-id="matcap-load"],[data-id="matcap-custom"],[data-id="hdr-load"],[data-id="hdr-custom"]')) {
     const name = (b.dataset.proj && (b.dataset.proj === 'screen' ? 'view-screen' : `proj-${b.dataset.proj}`)) ?? (b.dataset.imp && (b.dataset.imp === 'screen' ? 'view-screen' : `proj-${b.dataset.imp}`)) ?? (b.dataset.impcomp && `completion-${b.dataset.impcomp}`) ?? b.dataset.draw ?? b.dataset.bop ?? b.dataset.xop ?? b.dataset.fop ?? b.dataset.spiral ?? (b.dataset.toggle && `view-${b.dataset.toggle}`)
       ?? (b.dataset.gmethod && `guide-${b.dataset.gmethod}`) ?? (b.dataset.galign && `align-${b.dataset.galign}`) ?? (b.dataset.grow && `grow-${b.dataset.grow}`) ?? (b.dataset.mfgrow && `grow-${b.dataset.mfgrow}`) ?? (b.dataset.eslimit && `limit-${b.dataset.eslimit}`) ?? (b.dataset.flshape && `fillet-${b.dataset.flshape}`) ?? (b.dataset.avaxis && `axis-${b.dataset.avaxis}`) ?? (b.dataset.extshape && `extend-${b.dataset.extshape}`) ?? (b.dataset.esshape && `extend-${b.dataset.esshape}`) ?? (b.dataset.isodir && `iso-${b.dataset.isodir}`) ?? (b.dataset.rbmethod && `rebuild-${b.dataset.rbmethod}`) ?? (b.dataset.oecorner && `corner-${b.dataset.oecorner}`) ?? (b.dataset.saplane && `section-${b.dataset.saplane}`) ?? (b.dataset.plaxis && (b.dataset.plaxis === 'normal' ? 'place-normal' : `axis-${b.dataset.plaxis}`)) ?? b.dataset.plop
       ?? (b.dataset.txfont && `font-${b.dataset.txfont}`) ?? (b.dataset.txalign && `txalign-${b.dataset.txalign}`) ?? (b.dataset.sldir && { u: 'slide-u', '-u': 'slide-back', v: 'slide-v', '-v': 'slide-vback', n: 'slide-n' }[b.dataset.sldir]) ?? (b.dataset.dcflip && { mirror: 'mirror', swap: 'swap-uv', normal: 'reverse-sheet' }[b.dataset.dcflip]) ?? (b.dataset.imdepth && `depth-${b.dataset.imdepth}`) ?? (b.dataset.imcull && `cull-${b.dataset.imcull}`) ?? b.dataset.inmode
-      ?? { 'ex-lock': 'lock', 'bool-keep': 'keep', 'ex-free': 'freestyle', 'ex-pivot': 'pivot', 'ex-individual': 'individual', 'dr-hidden': 'hidden-lines', 'dr-curves': 'drawing-curves', 'oc-lock': 'lock', 'oc-free': 'freestyle', 'oc-slot': 'slot', 'oc-combine': 'combine', 'oe-both': 'both-sides', 'oe-individual': 'individual', 'blend-tangent': 'tangent-chain', 'es-unlimit': 'unlimit', 'rf-shrink': 'shrink', 'ut-keep': 'keep-edges', 'section-btn': 'view-section', 'sa-flip': 'flip', 'pl-flip': 'flip', 'pl-instance': 'instance', 'ra-instance': 'instance', 'rr-instance': 'instance', 'ca-instance': 'instance', 'br-trim': 'trim', 'br-comb': 'view-curvature', 'ac-comb': 'view-curvature', 'dc-reblend': 'reblend', 'dc-keep': 'keep', 'im-delete': 'delete', 'in-realize': 'realize-instance', 'cc-extend': 'extend', 'cc-screen': 'view-screen', 'in-dup': 'duplicate', 'in-delete': 'delete' }[b.dataset.id];
+      ?? { 'matcap-load': 'matcap-load', 'matcap-custom': 'matcap', 'hdr-load': 'hdr-load', 'hdr-custom': 'hdr', 'ex-lock': 'lock', 'bool-keep': 'keep', 'ex-free': 'freestyle', 'ex-pivot': 'pivot', 'ex-individual': 'individual', 'dr-hidden': 'hidden-lines', 'dr-curves': 'drawing-curves', 'oc-lock': 'lock', 'oc-free': 'freestyle', 'oc-slot': 'slot', 'oc-combine': 'combine', 'oe-both': 'both-sides', 'oe-individual': 'individual', 'blend-tangent': 'tangent-chain', 'es-unlimit': 'unlimit', 'rf-shrink': 'shrink', 'ut-keep': 'keep-edges', 'section-btn': 'view-section', 'sa-flip': 'flip', 'pl-flip': 'flip', 'pl-instance': 'instance', 'ra-instance': 'instance', 'rr-instance': 'instance', 'ca-instance': 'instance', 'br-trim': 'trim', 'br-comb': 'view-curvature', 'ac-comb': 'view-curvature', 'dc-reblend': 'reblend', 'dc-keep': 'keep', 'im-delete': 'delete', 'in-realize': 'realize-instance', 'cc-extend': 'extend', 'cc-screen': 'view-screen', 'in-dup': 'duplicate', 'in-delete': 'delete' }[b.dataset.id];
     b.insertAdjacentHTML('afterbegin', icon(name));
   }
   const $ = id => root.querySelector(`[data-id="${id}"]`);
@@ -1046,11 +1056,14 @@ export async function mount(root, backend) {
   }
 
   // --- drawing what the backend sends ---------------------------------------
-  const view = { edges: true, faces: true, curves: true, xray: false, snap: false, curvature: false, shader: 'ceramic-dark', render: false, environment: 'studio', envRotation: 0, envIntensity: 1 };
+  const view = { edges: true, faces: true, curves: true, xray: false, snap: false, curvature: false, shader: 'ceramic-dark', render: false, environment: 'studio', envRotation: 0, envIntensity: 1, ao: false };
   const shadeU = {
     mode: { value: 0 }, sectioned: { value: false }, pull: { value: new THREE.Vector3(0, 1, 0) }, stripes: { value: SHADER_OPTIONS.stripes.value },
     draftSin: { value: Math.sin(SHADER_OPTIONS.draft.value * DEG) }, spacing: { value: SHADER_OPTIONS.spacing.value },
+    // A matcap image of your own (Load Matcap): looked up by the view-space normal, shown as it is.
+    matcap: { value: new THREE.DataTexture(new Uint8Array([160, 156, 148, 255]), 1, 1) },
   };
+  shadeU.matcap.value.needsUpdate = true;
   const shaderOpts = Object.fromEntries(Object.entries(SHADER_OPTIONS).map(([k, o]) => [k, o.value]));
   const faceMat = new THREE.MeshStandardMaterial({ color: COLORS.face, roughness: 0.85, metalness: 0, side: THREE.DoubleSide, polygonOffset: true, polygonOffsetFactor: 1, polygonOffsetUnits: 1 });
   const edgeMat = new THREE.LineBasicMaterial({ color: COLORS.ink, transparent: true, opacity: 0.8 });
@@ -1062,8 +1075,8 @@ export async function mount(root, backend) {
   // images. Zebra stripes mirror even bands, so they stay smooth over G2 joins, kink at G1 ones and
   // break where faces only touch (G0). In render mode the faces keep the lit physical material.
   const shade = (own = false) => shader => {
-    Object.assign(shader.uniforms, { ownColor: { value: own }, sectioned: shadeU.sectioned, shadeMode: shadeU.mode, pull: shadeU.pull, stripes: shadeU.stripes, draftSin: shadeU.draftSin, spacing: shadeU.spacing });
-    shader.fragmentShader = 'uniform bool ownColor;\nuniform bool sectioned;\nuniform int shadeMode;\nuniform vec3 pull;\nuniform float stripes;\nuniform float draftSin;\nuniform float spacing;\n' + shader.fragmentShader.replace('#include <dithering_fragment>', `
+    Object.assign(shader.uniforms, { ownColor: { value: own }, sectioned: shadeU.sectioned, shadeMode: shadeU.mode, pull: shadeU.pull, stripes: shadeU.stripes, draftSin: shadeU.draftSin, spacing: shadeU.spacing, matcap: shadeU.matcap });
+    shader.fragmentShader = 'uniform bool ownColor;\nuniform bool sectioned;\nuniform int shadeMode;\nuniform vec3 pull;\nuniform float stripes;\nuniform float draftSin;\nuniform float spacing;\nuniform sampler2D matcap;\n' + shader.fragmentShader.replace('#include <dithering_fragment>', `
       // Faces draw both sides so a sheet shows from behind (Reverse Sheet); three.js has already
       // turned the normal of a back face towards the eye.
       vec3 n = normalize(normal);
@@ -1108,8 +1121,17 @@ export async function mount(root, backend) {
         float line = abs(fract(h - 0.5) - 0.5) / max(fwidth(h), 1e-6);
         gl_FragColor.rgb = mix(vec3(1.0, 0.30, 0.0), vec3(0.16 + 0.2 * lam), clamp(line, 0.0, 1.0));
       } else if (shadeMode == 13) gl_FragColor.rgb = (gl_FrontFacing ? vec3(0.24, 0.44, 0.85) : vec3(0.85, 0.29, 0.24)) * (0.45 + 0.55 * lam);
+      else if (shadeMode == 14) {
+        // A matcap image: the sphere's picture at the view-space normal, tinted by a material's colour.
+        vec3 m = texture2D(matcap, n.xy * 0.495 + 0.5).rgb;
+        gl_FragColor.rgb = ownColor ? m * diffuseColor.rgb / 0.62 : m;
+      }
       // Section Analysis: where the slice opens a solid, its inside shows flat in the accent.
       if (sectioned && !gl_FrontFacing) gl_FragColor.rgb = vec3(1.0, 0.30, 0.0) * 0.7;
+      // The modes above write colours as shown on screen. Drawn into a linear buffer (ambient
+      // occlusion, whose last pass makes them screen colours again), they are made linear first.
+      if (shadeMode >= 0 && !(shadeMode == 0 && !ownColor) || (sectioned && !gl_FrontFacing))
+        gl_FragColor = linearToOutputTexel(sRGBTransferEOTF(vec4(clamp(gl_FragColor.rgb, 0.0, 1.0), gl_FragColor.a)));
       #include <dithering_fragment>`);
   };
   faceMat.onBeforeCompile = shade();
@@ -1141,6 +1163,7 @@ export async function mount(root, backend) {
   const envMaps = {};
   function environmentMap(id) {
     if (envMaps[id]) return envMaps[id];
+    if (id === 'hdr') return environmentMap('studio');
     pmrem ??= new THREE.PMREMGenerator(renderer);
     let room;
     if (id === 'studio') room = new RoomEnvironment();
@@ -1161,8 +1184,60 @@ export async function mount(root, backend) {
     envMaps[id] = pmrem.fromScene(room, 0.02).texture;
     return envMaps[id];
   }
+  // Your own matcap (kept for next time in this browser or app) and HDR environment (this session).
+  let matcapUrl = null, hdrName = '';
+  function useMatcap(url) {
+    return new Promise((ok, fail) => new THREE.TextureLoader().load(url, t => {
+      t.colorSpace = THREE.NoColorSpace;   // shown as drawn: the shader writes display colours
+      shadeU.matcap.value.dispose();
+      shadeU.matcap.value = t;
+      matcapUrl = url;
+      ok();
+    }, undefined, () => fail(new Error('that image could not be read'))));
+  }
+  try { const kept = localStorage.getItem('w3d-matcap'); if (kept) useMatcap(kept).catch(() => {}); } catch { /* no storage */ }
+  async function loadHdr(file) {
+    const exr = /\.exr$/i.test(file.name);
+    const url = URL.createObjectURL(file);
+    try {
+      const tex = await (exr ? new EXRLoader() : new HDRLoader()).loadAsync(url);
+      tex.mapping = THREE.EquirectangularReflectionMapping;
+      pmrem ??= new THREE.PMREMGenerator(renderer);
+      envMaps.hdr?.dispose();
+      envMaps.hdr = pmrem.fromEquirectangular(tex).texture;
+      tex.dispose();
+      hdrName = file.name;
+    } catch { throw new Error(`${file.name} could not be read as an ${exr ? 'EXR' : 'HDR'} image`); }
+    finally { URL.revokeObjectURL(url); }
+  }
+  // Ambient occlusion: the view drawn into a linear buffer, darkened in creases by ground-truth AO,
+  // then turned into screen colours.
+  let composer = null, aoCamera = null, aoRadius = 0;
+  function renderAO() {
+    const w = canvas.width, h = canvas.height;
+    // GTAO is built for one kind of camera; switching between perspective and orthographic rebuilds it.
+    if (composer && aoCamera !== camera) { composer.passes.forEach(p => p.dispose?.()); composer.renderTarget1.dispose(); composer.renderTarget2.dispose(); composer = null; }
+    if (!composer) {
+      const target = new THREE.WebGLRenderTarget(w, h, { type: THREE.HalfFloatType, samples: 4 });
+      composer = new EffectComposer(renderer, target);
+      composer.setPixelRatio(1);
+      composer.addPass(new RenderPass(scene, camera));
+      composer.addPass(new GTAOPass(scene, camera, w, h));
+      composer.addPass(new OutputPass());
+      aoCamera = camera;
+      aoRadius = 0;
+    }
+    if (composer.renderTarget1.width !== w || composer.renderTarget1.height !== h) composer.setSize(w, h);
+    // The darkening reaches a few percent of the view across, so it reads the same at any zoom.
+    const across = camera.isOrthographicCamera ? (camera.top - camera.bottom) / camera.zoom : camera.position.distanceTo(controls.target);
+    const radius = 0.04 * across;
+    if (Math.abs(radius - aoRadius) > 0.01 * radius) { composer.passes[1].updateGtaoMaterial({ radius, thickness: radius, distanceExponent: 1, scale: 1 }); aoRadius = radius; }
+    composer.render();
+  }
+
   function applyView() {
-    const sh = shader(view.shader);
+    const custom = view.shader === 'custom' && matcapUrl;
+    const sh = custom ? { id: 'custom', name: 'My matcap', mode: 14 } : shader(view.shader);
     shadeU.mode.value = view.render ? -1 : sh.mode;
     shadeU.pull.value.copy(cplane.normal);
     shadeU.stripes.value = shaderOpts.stripes;
@@ -1183,8 +1258,14 @@ export async function mount(root, backend) {
     for (const b of $$('[data-toggle]')) b.setAttribute('aria-pressed', view[b.dataset.toggle]);
     for (const b of $$('[data-shader]')) b.setAttribute('aria-pressed', !view.render && b.dataset.shader === sh.id);
     for (const b of $$('[data-env]')) b.setAttribute('aria-pressed', b.dataset.env === view.environment);
+    $('matcap-custom').hidden = !matcapUrl;
+    $('matcap-custom').setAttribute('aria-pressed', String(!view.render && !!custom));
+    $('hdr-custom').hidden = !envMaps.hdr;
+    $('hdr-custom').setAttribute('aria-pressed', String(view.environment === 'hdr'));
+    if (envMaps.hdr) $('hdr-custom').title = `Your HDR environment: ${hdrName}`;
     $('render-options').hidden = !view.render;
     const opt = !view.render && sh.option ? SHADER_OPTIONS[sh.option] : null;
+    if (composer) composer.passes[1].enabled = view.ao;
     $('shader-option').hidden = !opt;
     if (opt) { $('shader-option-label').textContent = opt.label; $('shader-option-value').textContent = shaderOpts[sh.option]; }
     $('shader-name').textContent = view.render ? 'RENDER' : sh.name.toUpperCase();
@@ -9383,6 +9464,27 @@ export async function mount(root, backend) {
   $('mat-remove').onclick = () => cmd?.id === 'material' && cmd.remove();
   for (const b of $$('[data-shader]')) b.onclick = () => { view.shader = b.dataset.shader; view.render = false; applyView(); };
   for (const b of $$('[data-env]')) b.onclick = () => { view.environment = b.dataset.env; applyView(); };
+  $('matcap-load').onclick = () => $('matcap-file').click();
+  $('matcap-file').addEventListener('change', async e => {
+    const f = e.target.files?.[0];
+    e.target.value = '';
+    if (!f) return;
+    try {
+      const url = await asDataUrl(f);
+      await useMatcap(url);
+      try { localStorage.setItem('w3d-matcap', url); } catch { toast('MATCAP LOADED; TOO BIG TO KEEP FOR NEXT TIME'); }
+      view.shader = 'custom'; view.render = false; applyView();
+    } catch (err) { toast(say(err)); }
+  });
+  $('matcap-custom').onclick = () => { view.shader = 'custom'; view.render = false; applyView(); };
+  $('hdr-load').onclick = () => $('hdr-file').click();
+  $('hdr-file').addEventListener('change', async e => {
+    const f = e.target.files?.[0];
+    e.target.value = '';
+    if (!f) return;
+    try { await loadHdr(f); view.environment = 'hdr'; view.render = true; applyView(); toast(`${f.name.toUpperCase()} LIGHTS RENDER MODE`); } catch (err) { toast(say(err)); }
+  });
+  $('hdr-custom').onclick = () => { view.environment = 'hdr'; applyView(); };
   $('comb-scale').addEventListener('input', () => drawCombs());
   $('env-rot').addEventListener('input', e => { view.envRotation = parseFloat(e.target.value); applyView(); });
   $('env-int').addEventListener('input', e => { view.envIntensity = parseFloat(e.target.value); applyView(); });
@@ -9598,7 +9700,7 @@ export async function mount(root, backend) {
     nav.update(camera, camera.isOrthographicCamera);
     if (cmd?.gizmo) cmd.gizmo.render(cmd.gizmo.value);
     for (const g of Object.values(cmd?.dots ?? {})) g.render(g.value);
-    renderer.render(scene, camera);
+    if (view.ao) renderAO(); else renderer.render(scene, camera);
   });
 
   /** Select by refs or numbers for `run`: edges of one body. */

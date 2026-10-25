@@ -186,6 +186,14 @@ const ICONS = {
     'iso-u': `<path d="M4 6h16v12H4z"/><path ${A} d="M4 12h16M16 9l4 3-4 3"/>`,
     'iso-v': `<path d="M4 6h16v12H4z"/><path ${A} d="M12 6v12M9 14l3 4 3-4"/>`,
     'both-sides': `<path d="M12 4v16"/><path ${A} d="M8 8v8M16 8v8"/><path d="M4 12h4M16 12h4"/>`,
+    // Ambient occlusion: a corner darkened where its faces meet.
+    'view-ao': `<path d="M4 20V8l8-4 8 4v12"/><path ${A} d="M12 12v8M4 8l8 4 8-4"/><path ${A} d="M9 18l3-3 3 3" stroke-dasharray="1.5 1.5"/>`,
+    // A matcap: a lit sphere; loading one adds an arrow in.
+    matcap: `<circle cx="12" cy="12" r="8"/><path ${A} d="M8.5 9.5a4 4 0 0 1 3-2.5"/>`,
+    'matcap-load': `<circle cx="10" cy="13" r="7"/><path ${A} d="M7 11a3 3 0 0 1 2.5-2M19 3v7M16 7l3 3 3-3"/>`,
+    // An HDR environment: a horizon with the sun over it; loading one adds an arrow in.
+    hdr: `<path d="M3 15h18M3 19h18"/><circle cx="12" cy="10" r="3"/><path ${A} d="M12 3v2M6 6l1.5 1.5M18 6l-1.5 1.5"/>`,
+    'hdr-load': `<path d="M3 17h13M3 21h13"/><circle cx="9" cy="12" r="3"/><path ${A} d="M19 3v7M16 7l3 3 3-3"/>`,
     // Project and Imprint methods: along each curve's own normal, or one direction for all.
     'proj-normal': `<path d="M4 16c4-6 12-6 16 0"/><path ${A} d="M8 12V5M6 7l2-2 2 2M16 12V5M14 7l2-2 2 2"/>`,
     'proj-vector': `<path d="M4 20h16"/><path ${A} d="M7 4v12M5 14l2 2 2-2M12 4v12M10 14l2 2 2-2M17 4v12M15 14l2 2 2-2"/>`,
