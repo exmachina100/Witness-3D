@@ -22,9 +22,25 @@ fn seed(doc: &mut Document<Occt>) {
     doc.replace_all([(1, body, None)], 2, 1);
 }
 
-pub fn start() -> Model {
+/// A new document: the user's startup scene (File › Save As Startup Scene) when there is one that
+/// opens, else the seed enclosure.
+fn fresh(doc: &mut Document<Occt>, startup: Option<&std::path::Path>) {
+    doc.app_state = None;
+    if let Some(path) = startup.filter(|p| p.exists()) {
+        match file::open(doc, path) {
+            Ok(()) => return,
+            Err(e) => eprintln!("startup scene {} not opened: {e}", path.display()),
+        }
+    }
+    seed(doc);
+}
+
+pub fn start() -> Model { start_with(None) }
+
+/// The model at launch, from the startup scene at `startup` if there is one.
+pub fn start_with(startup: Option<PathBuf>) -> Model {
     let engine = Engine::new(|| Occt);
-    engine.call(seed);
+    engine.call(move |doc| fresh(doc, startup.as_deref()));
     engine
 }
 
@@ -691,9 +707,9 @@ pub fn commit_blend(m: &Model, req: BlendRequest) -> Result<Committed, ApiError>
     })
 }
 
-/// Start over with the seed enclosure.
-pub fn new_document(m: &Model) -> Result<Vec<Body>, String> {
-    m.call(|doc| { doc.app_state = None; seed(doc); bodies(doc) })
+/// Start over with the startup scene, or the seed enclosure.
+pub fn new_document(m: &Model, startup: Option<PathBuf>) -> Result<Vec<Body>, String> {
+    m.call(move |doc| { fresh(doc, startup.as_deref()); bodies(doc) })
 }
 
 /// The app's own state saved with the document (groups, locks, materials), or null.

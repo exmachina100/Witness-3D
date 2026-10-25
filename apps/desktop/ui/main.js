@@ -150,6 +150,14 @@ const rust = {
     return { name: baseName(path), scene };
   },
   get filePath() { return filePath; },
+  // File › Save As Startup Scene: the scene New File and launch start from, in the app's config folder.
+  saveStartupScene: () => tauri.core.invoke('save_startup_scene'),
+  resetStartupScene: () => tauri.core.invoke('reset_startup_scene'),
+  // The Text command's SYSTEM FONT list: the installed TrueType fonts, each read when picked.
+  async systemFonts() {
+    const fonts = await tauri.core.invoke('system_fonts');
+    return fonts.map(({ name, path }) => ({ name, read: () => tauri.core.invoke('read_font', { path }) }));
+  },
   // A .w3d the app was opened with (a double-click in the file manager), once; and, on macOS, files
   // handed to the running app.
   startupFile: () => tauri.core.invoke('startup_file'),

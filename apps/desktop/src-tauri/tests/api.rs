@@ -1,24 +1,18 @@
 //! The commands the viewport calls, run against real OpenCascade without opening a window.
 
-use w3d_desktop::api::{self, BlendKind, BlendRequest, BooleanRequest, ExtrudeRequest, MotionRequest, OpChoice, Outcome, ProfileShape};
+use w3d_desktop::api::{self, BlendKind, BlendRequest, BooleanRequest, ExtrudeRequest, MotionRequest, Outcome, ProfileShape};
 
 /// A 10×10 mm square on the seed enclosure's top face (y = 30), pulled or pushed by `distance`.
 fn on_top(target: Option<u32>, distance: f64) -> ExtrudeRequest {
-    ExtrudeRequest {
-        target,
-        origin: [0.0, 30.0, 0.0],
-        normal: [0.0, 1.0, 0.0],
-        x_axis: [1.0, 0.0, 0.0],
-        profile: Some(ProfileShape::Rect { width: 10.0, height: 10.0 }),
-        region: None,
-        face: None,
-        distance,
-        new_body: false,
-        op: OpChoice::Auto,
-        back: 0.0,
-        angle: 0.0,
-        thickness: 0.0,
-    }
+    serde_json::from_value(serde_json::json!({
+        "target": target, "origin": [0.0, 30.0, 0.0], "normal": [0.0, 1.0, 0.0], "xAxis": [1.0, 0.0, 0.0],
+        "profile": { "kind": "rect", "width": 10.0, "height": 10.0 }, "distance": distance,
+    })).unwrap()
+}
+
+/// A plain fillet of `edges` of `body`.
+fn fillet(body: u32, edges: Vec<u32>, size: f64) -> BlendRequest {
+    serde_json::from_value(serde_json::json!({ "body": body, "edges": edges, "size": size, "kind": "fillet" })).unwrap()
 }
 
 fn close(a: f64, b: f64) { assert!((a - b).abs() < 1e-3, "{a} != {b}") }
@@ -74,7 +68,7 @@ fn requests_parse_from_the_viewport_json() {
 fn exports_step() {
     let m = api::start();
     let path = std::env::temp_dir().join("w3d-desktop-test.step");
-    api::export_step(&m, 1, path.clone()).unwrap();
+    api::export_step(&m, 1, path.clone(), None, None).unwrap();
     assert!(std::fs::read_to_string(path).unwrap().starts_with("ISO-10303-21;"));
 }
 
@@ -92,7 +86,7 @@ fn fillet_previews_commits_and_undoes() {
     let b = &api::scene(&m).unwrap()[0];
     let edges = vertical_edges(b);
     assert_eq!(edges.len(), 4);
-    let req = BlendRequest { body: b.id, edges, size: 4.0, kind: BlendKind::Fillet, angle: std::f64::consts::FRAC_PI_4 };
+    let req = fillet(b.id, edges, 4.0);
 
     let preview = api::preview_blend(&m, req.clone()).expect("not superseded").unwrap();
     let rounded = 120_000.0 - 4.0 * (16.0 - std::f64::consts::PI * 4.0) * 30.0;
@@ -109,7 +103,7 @@ fn fillet_previews_commits_and_undoes() {
 fn a_failed_fillet_says_why_and_changes_nothing() {
     let m = api::start();
     let b = &api::scene(&m).unwrap()[0];
-    let req = BlendRequest { body: b.id, edges: vertical_edges(b), size: 30.0, kind: BlendKind::Fillet, angle: std::f64::consts::FRAC_PI_4 };
+    let req = fillet(b.id, vertical_edges(b), 30.0);
     let err = api::commit_blend(&m, req).unwrap_err();
     assert!(!err.message.is_empty());
     close(api::scene(&m).unwrap()[0].volume, 120_000.0);
@@ -130,9 +124,18 @@ fn saves_reopens_and_imports_step() {
     std::fs::create_dir_all(&dir).unwrap();
     api::commit(&m, on_top(Some(1), 10.0)).unwrap();
     api::save(&m, dir.join("a.w3d")).unwrap();
-    api::export_step(&m, 1, dir.join("a.step")).unwrap();
+    api::export_step(&m, 1, dir.join("a.step"), None, None).unwrap();
 
-    api::new_document(&m).unwrap();
+    api::new_document(&m, None).unwrap();
+    close(api::scene(&m).unwrap()[0].volume, 120_000.0);
+    // A startup scene is what new documents start from; one that is missing or unreadable is not.
+    api::new_document(&m, Some(dir.join("a.w3d"))).unwrap();
+    close(api::scene(&m).unwrap()[0].volume, 121_000.0);
+    close(api::scene(&api::start_with(Some(dir.join("a.w3d")))).unwrap()[0].volume, 121_000.0);
+    std::fs::write(dir.join("bad.w3d"), "not a model").unwrap();
+    api::new_document(&m, Some(dir.join("bad.w3d"))).unwrap();
+    close(api::scene(&m).unwrap()[0].volume, 120_000.0);
+    api::new_document(&m, Some(dir.join("none.w3d"))).unwrap();
     close(api::scene(&m).unwrap()[0].volume, 120_000.0);
     let reopened = api::open(&m, dir.join("a.w3d")).unwrap();
     close(reopened[0].volume, 121_000.0);
@@ -158,7 +161,7 @@ fn bodies_carry_refs_that_survive_a_fillet() {
     assert_eq!(before.edge_refs.len(), before.edges.len());
     assert_eq!(before.face_refs.len(), before.face_planes.len());
     let r = before.edge_refs[top_front(&before)[0] as usize];
-    let done = api::commit_blend(&m, BlendRequest { body: before.id, edges: vertical_edges(&before), size: 4.0, kind: BlendKind::Fillet, angle: std::f64::consts::FRAC_PI_4 }).unwrap();
+    let done = api::commit_blend(&m, fillet(before.id, vertical_edges(&before), 4.0)).unwrap();
     let after = &done.scene[0];
     assert!(after.revision > before.revision);
     let found: Vec<u32> = (0..after.edge_refs.len() as u32).filter(|&i| after.edge_refs[i as usize] == r).collect();
