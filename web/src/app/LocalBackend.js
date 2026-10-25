@@ -1195,8 +1195,8 @@ export class LocalBackend {
     }
 
     /** The hidden-line drawing of bodies seen from the camera (see Drawing.js). */
-    async hiddenLines({ bodies, origin, toward, x, deflection = 0.01 }) {
-        const shapes = bodies.map(id => { const s = this.shapes.get(id); if (!s) throw new Error('that body no longer exists'); return s; });
+    async hiddenLines({ bodies, placed = [], origin, toward, x, deflection = 0.01 }) {
+        const shapes = [...bodies.map(id => this.placedShape(id)), ...placed.map(p => this.placedShape(p.body, p.motion))];
         return hiddenLines(shapes, origin, toward, x, deflection);
     }
 
@@ -1208,9 +1208,17 @@ export class LocalBackend {
         return `SAVED ${name.toUpperCase()}`;
     }
 
-    exportStep(id) {
-        const name = `witness3d-body-${id}.step`;
-        const url = URL.createObjectURL(new Blob([exportSTEP(this.shapes.get(id))], { type: 'application/step' }));
+    /** Body `id`'s shape, or with `motion` (an instance's motionOf) where an instance of it stands. */
+    placedShape(id, motion = null) {
+        const shape = this.shapes.get(id);
+        if (!shape) throw new Error('that body no longer exists');
+        return motion ? transform(shape, { ...motion, axis: Math.hypot(...motion.axis) < 1e-9 ? [0, 1, 0] : motion.axis }) : shape;
+    }
+
+    /** Body `id` as a STEP download; with `motion`, where an instance of it stands. */
+    exportStep(id, { motion = null, name: what = `body-${id}` } = {}) {
+        const name = `witness3d-${what}.step`;
+        const url = URL.createObjectURL(new Blob([exportSTEP(this.placedShape(id, motion))], { type: 'application/step' }));
         Object.assign(document.createElement('a'), { href: url, download: name }).click();
         setTimeout(() => URL.revokeObjectURL(url), 1000);
         return `SAVED ${name.toUpperCase()}`;

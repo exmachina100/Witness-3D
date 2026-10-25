@@ -579,9 +579,16 @@ pub fn redo(m: &Model) -> Result<Vec<Body>, String> {
     m.call(|doc| { doc.redo(); bodies(doc) })
 }
 
-pub fn export_step(m: &Model, id: BodyId, path: PathBuf) -> Result<(), String> {
+/// Body `id` written as STEP (or IGES by the extension); with `motion`, where an instance of it
+/// stands rather than where it is.
+pub fn export_step(m: &Model, id: BodyId, path: PathBuf, motion: Option<MotionRequest>) -> Result<(), String> {
     m.call(move |doc| {
         let solid = doc.get(id).ok_or("no such body")?;
+        let placed = match &motion {
+            Some(r) => Some(doc.kernel.transform(solid, &r.motion().map_err(|e| e.message)?)),
+            None => None,
+        };
+        let solid = placed.as_ref().unwrap_or(solid);
         if is_iges(&path) { doc.kernel.write_iges(solid, &path) } else { doc.kernel.write_step(solid, &path) }.map_err(|e| e.to_string())
     })
 }
@@ -704,6 +711,7 @@ pub fn import_step(m: &Model, path: PathBuf) -> Result<Committed, String> {
 #[derive(Deserialize, Debug, Clone)]
 #[serde(rename_all = "camelCase")]
 pub struct MotionRequest {
+    #[serde(default)]
     pub bodies: Vec<BodyId>,
     /// Moved by this much after the turn, in millimetres.
     #[serde(default)]
@@ -1050,12 +1058,22 @@ pub fn mesh_bodies(m: &Model, ids: Vec<BodyId>, tolerance: f64) -> Result<Vec<Me
 #[derive(Deserialize, Debug, Clone)]
 pub struct DrawingRequest {
     pub bodies: Vec<BodyId>,
+    /// Instances to draw too: each a body drawn where `motion` takes it.
+    #[serde(default)]
+    pub placed: Vec<PlacedBody>,
     pub origin: [f64; 3],
     /// From the scene toward the viewer.
     pub toward: [f64; 3],
     /// The drawing's x: the camera's right.
     pub x: [f64; 3],
     pub deflection: f64,
+}
+
+/// An instance in a drawing: body `body` where `motion` takes it.
+#[derive(Deserialize, Debug, Clone)]
+pub struct PlacedBody {
+    pub body: BodyId,
+    pub motion: MotionRequest,
 }
 
 /// A drawn line in the drawing's x, y: [x0, y0, x1, y1, ...].
@@ -1067,9 +1085,14 @@ pub struct DrawnLineOut {
 
 pub fn hidden_lines(m: &Model, req: DrawingRequest) -> Result<Vec<DrawnLineOut>, ApiError> {
     if !(req.deflection > 0.0) || !req.deflection.is_finite() { return Err(KernelError::Invalid("the tolerance must be greater than zero").into()) }
-    if req.bodies.is_empty() { return Err(KernelError::Invalid("nothing to draw").into()) }
+    if req.bodies.is_empty() && req.placed.is_empty() { return Err(KernelError::Invalid("nothing to draw").into()) }
     m.call(move |doc| {
-        let solids = req.bodies.iter().map(|&id| doc.get(id).ok_or(KernelError::Invalid("that body no longer exists"))).collect::<Result<Vec<_>, _>>()?;
+        let placed = req.placed.iter().map(|p| {
+            let s = doc.get(p.body).ok_or(KernelError::Invalid("an instance's master no longer exists"))?;
+            Ok(doc.kernel.transform(s, &p.motion.motion()?))
+        }).collect::<Result<Vec<_>, ApiError>>()?;
+        let mut solids = req.bodies.iter().map(|&id| doc.get(id).ok_or(KernelError::Invalid("that body no longer exists"))).collect::<Result<Vec<_>, _>>()?;
+        solids.extend(placed.iter());
         let lines = doc.kernel.hidden_lines(&solids, DVec3::from(req.origin), DVec3::from(req.toward), DVec3::from(req.x), req.deflection)?;
         Ok(lines.into_iter().map(|l| DrawnLineOut { hidden: l.hidden, points: l.points.into_iter().flatten().collect() }).collect())
     })
