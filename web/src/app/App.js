@@ -70,6 +70,7 @@ import { chamferDimensions, curveDimensions, faceDimensions, filletDimensions, s
 import { edgeCurve, flattenCurve } from '../altDuplicate.js';
 import { EDGE_CONTINUITY, bridgeCurve, bridgePoles, edgePoint } from '../bridgeEdge.js';
 import { ALIGN_CONTINUITY, alignRequest, readEdgeFaces } from '../alignSurface.js';
+import { PROJECT_CONTINUITY, projectAlignRequest } from '../projectAlign.js';
 import { constrainedSurface, splineSheetData } from '../constrainedSurface.js';
 import { square } from '../square.js';
 import { combTeeth, isoLines, onFace } from '../isoCombs.js';
@@ -168,6 +169,7 @@ const KEYS = {
   bridge: [['T / D', 'TENSION'], ['TAB', 'CONTINUITY G0 G1 G2 G3'], ['Q', 'TRIM'], ['⏎ / RMB', 'OK']],
   'bridge-edge': [['D', 'TENSION'], ['TAB', 'CONTINUITY G0 G1 G2 G3'], ['⏎ / RMB', 'OK']],
   'align-surface': [['TAB', 'CONTINUITY G0 G1 G2'], ['D', 'TENSION'], ['⏎ / RMB', 'OK']],
+  'project-align': [['TAB', 'CONTINUITY G0 G1 G2 PERP'], ['N X Y Z S', 'PROJECTION'], ['D', 'TENSION'], ['⏎ / RMB', 'OK']],
   square: [['⇧ CLICK', 'SIDES: CURVES OR EDGES'], ['TAB', 'CONTINUITY G0 G1 G2'], ['T', 'TENSION'], ['D', 'DEGREE'], ['⏎ / RMB', 'OK']],
   'constrained-surface': [['CLICK', 'ADD A POINT'], ['CTRL Z', 'REMOVE THE LAST'], ['TAB', 'PERFORMANCE / SMOOTHNESS'], ['⏎ / RMB', 'OK']],
   trim: [['CLICK', 'PIECE TO CUT AWAY'], ['CTRL Z', 'UNDO ONE'], ['ESC / ⏎', 'DONE']],
@@ -201,7 +203,7 @@ const CLICKS = { rect: 2, 'center-rect': 2, rect3: 3, circle: 2, circle2: 2, cir
 const FORMS = { revolve: true, loft: true, sweep: true };
 const PRIMS = { box: true, 'center-box': true, box3: true, cylinder: true, sphere: true };
 // Commands that aren't tools in the registry (they act on a click, not on settings).
-const EDITS = { isoparam: 'ISOPARAM', 'offset-vertex': 'OFFSET VERTEX', slide: 'SLIDE CURVE CV', 'fillet-vertex': 'FILLET VERTEX', 'align-vertex': 'ALIGN VERTEX', 'align-curve': 'ALIGN CURVE', rebuild: 'REBUILD CURVE', 'rebuild-face': 'REBUILD FACE', 'match-face': 'MATCH FACE', 'deform-curve': 'DEFORM', image: 'REFERENCE IMAGE', instance: 'INSTANCE', untrim: 'UNTRIM', unwrap: 'UNWRAP FACE', section: 'SECTION ANALYSIS', place: 'PLACE', dimension: 'DIMENSION', text: 'TEXT', 'insert-knot': 'INSERT KNOT', 'offset-edge': 'OFFSET EDGE', material: 'SET MATERIAL', 'export-mesh': 'EXPORT MESH', 'export-drawing': 'EXPORT DRAWING', 'measure-continuity': 'MEASURE CONTINUITY', trim: 'TRIM', 'cut-curve': 'CUT CURVE', 'bridge-edge': 'BRIDGE EDGE', 'align-surface': 'ALIGN SURFACE', 'constrained-surface': 'CONSTRAINED SURFACE', square: 'SQUARE', extend: 'EXTEND CURVE', 'tangent-circle': 'TANGENT CIRCLE', split: 'SPLIT CURVE', 'measure-distance': 'MEASURE DISTANCE', 'measure-radius': 'MEASURE RADIUS' };
+const EDITS = { isoparam: 'ISOPARAM', 'offset-vertex': 'OFFSET VERTEX', slide: 'SLIDE CURVE CV', 'fillet-vertex': 'FILLET VERTEX', 'align-vertex': 'ALIGN VERTEX', 'align-curve': 'ALIGN CURVE', rebuild: 'REBUILD CURVE', 'rebuild-face': 'REBUILD FACE', 'match-face': 'MATCH FACE', 'deform-curve': 'DEFORM', image: 'REFERENCE IMAGE', instance: 'INSTANCE', untrim: 'UNTRIM', unwrap: 'UNWRAP FACE', section: 'SECTION ANALYSIS', place: 'PLACE', dimension: 'DIMENSION', text: 'TEXT', 'insert-knot': 'INSERT KNOT', 'offset-edge': 'OFFSET EDGE', material: 'SET MATERIAL', 'export-mesh': 'EXPORT MESH', 'export-drawing': 'EXPORT DRAWING', 'measure-continuity': 'MEASURE CONTINUITY', trim: 'TRIM', 'cut-curve': 'CUT CURVE', 'bridge-edge': 'BRIDGE EDGE', 'align-surface': 'ALIGN SURFACE', 'project-align': 'PROJECT ALIGN', 'constrained-surface': 'CONSTRAINED SURFACE', square: 'SQUARE', extend: 'EXTEND CURVE', 'tangent-circle': 'TANGENT CIRCLE', split: 'SPLIT CURVE', 'measure-distance': 'MEASURE DISTANCE', 'measure-radius': 'MEASURE RADIUS' };
 const keysHtml = id => KEYS[id].map(([k, v]) => `<kbd>${k}</kbd><span>${v}</span>`).join('');
 // The Command Bar, exactly the manual's list (Plasticity Essentials › Command Bar).
 const BAR = [['palette', 'F', 'SEARCH'], ['tool:move', 'G', 'MOVE'], ['tool:rotate', 'R', 'ROTATE'], ['tool:scale', 'S', 'SCALE'], ['duplicate', '⇧D', 'DUPLICATE'], ['tool:boolean', 'Q', 'BOOLEAN'], ['tool:rect-array', '', 'RECTANGULAR ARRAY'], ['tool:radial-array', '', 'RADIAL ARRAY'], ['suggest', '⇧F', 'SUGGESTED COMMANDS']];
@@ -677,6 +679,15 @@ const SHELL = `
       <div class="field" title="How much the sheet's own shape holds the blended rows back (0 to 1)"><label for="w3d-as-infl">INPUT SHAPE INFLUENCE</label><input id="w3d-as-infl" data-id="as-infl" type="number" step="0.1" min="0" max="1" value="0"></div>
       <div class="field two" title="Align in full only between these fractions along the side, easing out to the side's ends"><label for="w3d-as-p0">PARTIAL START · END</label><input id="w3d-as-p0" data-id="as-p0" type="number" step="0.05" min="0" max="1" value="0" aria-label="Partial start"><input data-id="as-p1" type="number" step="0.05" min="0" max="1" value="1" aria-label="Partial end"></div>
       <div class="chips"><button data-id="as-symmetric" aria-pressed="false" title="Symmetric: both sheets move, meeting halfway between their edges (G0 or G1)">SYMMETRIC</button></div>
+    </div>
+    <div class="sec" data-panel="project-align" hidden>
+      <span class="hint" data-id="pa-hint">—</span>
+      <span class="label">CONTINUITY</span>
+      <div class="seg" role="group" aria-label="Continuity with the reference surface"><button data-pacont="G0" aria-pressed="false" title="Meet the reference surface (G0)">G0</button><button data-pacont="G1" aria-pressed="true" title="Meet it and its tangent plane (G1)">G1</button><button data-pacont="G2" aria-pressed="false" title="Meet it, its tangent plane and its curvature (G2)">G2</button><button data-pacont="PERP" aria-pressed="false" title="Meet it and leave it square (Perpendicular)">PERP</button></div>
+      <span class="label">PROJECTION</span>
+      <div class="seg" role="group" aria-label="Projection direction"><button data-padir="normal" aria-pressed="true" title="Along the reference surface's normal: the nearest points (N)">NORMAL</button><button data-padir="x" aria-pressed="false" title="Along X (X)">X</button><button data-padir="y" aria-pressed="false" title="Along Y (Y)">Y</button><button data-padir="z" aria-pressed="false" title="Along Z (Z)">Z</button><button data-padir="screen" aria-pressed="false" title="Along the view (S)">SCREEN</button></div>
+      <div class="field" title="How fast the sheet leaves its side, against how fast it does now (D)"><label for="w3d-pa-t">TENSION</label><input id="w3d-pa-t" data-id="pa-t" type="number" step="0.1" min="0.05" value="1"></div>
+      <div class="field" title="How many more rows of control points follow the aligned ones, less and less (0: none)"><label for="w3d-pa-blend">BLEND EXTRA ROWS</label><input id="w3d-pa-blend" data-id="pa-blend" type="number" step="1" min="0" value="0"></div>
     </div>
     <div class="sec" data-panel="insert-knot" hidden>
       <span class="hint" data-id="ik-hint">CLICK A CURVE TO ADD A CONTROL POINT THERE; ITS SHAPE STAYS THE SAME</span>
@@ -7961,6 +7972,69 @@ export async function mount(root, backend) {
     c.preview();
   }
 
+  /**
+   * Plasticity's Project Align: select the edge of a B-spline sheet to move, then a face of another
+   * body (the reference surface); the sheet's side drops onto the surface along its normal or a
+   * vector (X/Y/Z or the view) and meets it in G0, G1, G2 or square (Tab).
+   */
+  async function startProjectAlign() {
+    if (cmd) await finish();
+    if (!backend.edgeFaces || !backend.faceUvn || !backend.previewMoveFacePoles) return toast('PROJECT ALIGN IS NOT IN THIS BUILD YET');
+    const edges = sel.list('edge'), faces = sel.list('face');
+    if (edges.length !== 1 || faces.length !== 1) return toast('SELECT THE SHEET EDGE TO MOVE, THEN SHIFT-SELECT THE REFERENCE FACE');
+    const target = { body: edges[0].body, edge: edges[0].n }, reference = { body: faces[0].body, face: faces[0].n };
+    const c = cmd = { id: 'project-align', continuity: 'G1', dir: 'normal', screen: null, req: null, sent: 0, shown: 0 };
+    lastTool = 'project-align';
+    showTool('project-align');
+    setState('none');
+    setTarget(`${label(target.body)} → ${label(reference.body)}`);
+    const buttons = () => {
+      for (const b of $$('[data-pacont]')) b.setAttribute('aria-pressed', String(b.dataset.pacont === c.continuity));
+      for (const b of $$('[data-padir]')) b.setAttribute('aria-pressed', String(b.dataset.padir === c.dir));
+    };
+    const direction = () => c.dir === 'normal' ? null : c.dir === 'screen' ? c.screen : toWorld(userAxis(c.dir));
+    c.preview = () => {
+      buttons();
+      const along = c.dir === 'normal' ? 'ALONG ITS NORMAL' : c.dir === 'screen' ? 'ALONG THE VIEW' : `ALONG ${c.dir.toUpperCase()}`;
+      $('pa-hint').textContent = `${label(target.body)} PROJECTS ONTO ${label(reference.body)} ${along} · ${c.continuity === 'PERP' ? 'PERPENDICULAR' : c.continuity}`;
+      setHud(`PROJECT ALIGN ${c.continuity === 'PERP' ? 'PERPENDICULAR' : c.continuity} · TENSION ${num('pa-t')}`);
+      livePreview(c, async () => {
+        c.req = null;
+        const req = await projectAlignRequest(backend, { target, reference, direction: direction(), continuity: c.continuity, tension: num('pa-t'), blend: Math.max(0, Math.round(num('pa-blend') || 0)) });
+        const b = await backend.previewMoveFacePoles(req);
+        c.req = req;
+        return b;
+      }, b => showPreviewBody(b), 'pa-hint');
+    };
+    c.setContinuity = g => { c.continuity = g; c.preview(); };
+    c.setDirection = d => {
+      c.dir = d;
+      if (d === 'screen') c.screen = controls.target.clone().sub(camera.position).normalize().toArray();
+      c.preview();
+    };
+    c.key = action => {
+      if (action === 'continuity') return c.setContinuity(PROJECT_CONTINUITY[(PROJECT_CONTINUITY.indexOf(c.continuity) + 1) % PROJECT_CONTINUITY.length]), true;
+      if (action === 'normal' || action === 'screen') return c.setDirection(action), true;
+      if (action.startsWith('axis-')) return c.setDirection(action.slice(5)), true;
+      if (action !== 'tension') return false;
+      c.entry = { label: 'TENSION', text: '', apply: v => { if (v > 0) { $('pa-t').value = v; c.preview(); } else toast('THE TENSION MUST BE ABOVE ZERO'); } };
+      setHud('TENSION _');
+      return true;
+    };
+    c.finish = async () => {
+      if (!c.req) return toast($('pa-hint').textContent);
+      try {
+        const { id, scene: list } = await backend.commitMoveFacePoles(c.req);
+        endCmd('committed');
+        record(`PROJECT ALIGN ${c.continuity === 'PERP' ? 'PERPENDICULAR' : c.continuity}`, id, label(id));
+        await showScene(list);
+      } catch (e) { setState('failed'); toast(say(e)); }
+    };
+    c.abort = () => endCmd('cancelled');
+    c.cleanup = () => clearPreview();
+    c.preview();
+  }
+
   /** Plasticity's Explode: split the selected lines and joined curves into their pieces, one undo step. */
   async function explodeSelected() {
     if (cmd) await finish();
@@ -9347,6 +9421,7 @@ export async function mount(root, backend) {
       case 'cut-curve': if (cmd) await finish(); startCutCurve(); return true;
       case 'bridge-edge': await startBridgeEdge(); return true;
       case 'align-surface': await startAlignSurface(); return true;
+      case 'project-align': await startProjectAlign(); return true;
       case 'constrained-surface': if (cmd) await finish(); startConstrainedSurface(); return true;
       case 'square': await startSquare(); return true;
       case 'realize-instance': if (cmd?.id === 'instance') await cmd.realize(); else toast('CLICK AN INSTANCE, THEN REALIZE IT'); return true;
@@ -9589,6 +9664,7 @@ export async function mount(root, backend) {
     if (sel.solids.length === 2) out.push('tool:project');
     if (kinds.has('solid')) out.push('tool:move', 'tool:rotate', 'tool:scale', 'duplicate', 'create-outline', 'toggle-points', 'place', 'copy-place', 'dimension', 'tool:mirror', 'tool:rect-array', 'tool:radial-array', 'tool:curve-array', 'unify', 'boundary-edges', 'remove-fillets', 'raise-degree', 'deform-curve', 'create-instance', 'delete', 'hide', 'isolate', 'group', 'lock', 'material:set', 'export:step', 'export:mesh', 'export:drawing');
     if (kinds.has('face')) out.push('tool:extrude', 'tool:offset', 'tool:thicken', 'tool:shell', 'tool:hole', 'tool:remove-face', 'remove-fillets', 'isoparam', 'rebuild', 'raise-degree', 'subdivide', 'match-face', 'untrim', 'unwrap', 'toggle-points', 'view:surface-curvature', 'plane:selection', 'plane:selection-keep-view');
+    if (sel.list('edge').length === 1 && sel.list('face').length === 1) out.push('project-align');
     if (kinds.has('edge')) out.push('tool:fillet', 'tool:patch', 'alt-duplicate', 'measure:radius', 'view:surface-curvature', ...(sel.list('edge').length === 2 ? ['bridge-edge', 'align-surface'] : []), ...([2, 3, 4].includes(sel.list('edge').length) ? ['square'] : []));
     if (sel.list('edge').length === 2) out.push('tool:bridge-surface');
     if (sel.solids.some(id => current.find(b => b.id === id)?.sheet)) out.push('tool:thicken', 'reverse-sheet');
@@ -10116,6 +10192,9 @@ export async function mount(root, backend) {
   for (const id of ['sq-d', 'sq-u', 'sq-v', 'sq-t', 'sq-flat']) $(id).addEventListener('input', () => cmd?.id === 'square' && cmd.preview());
   for (const b of $$('[data-csopt]')) b.onclick = () => { if (cmd?.id === 'constrained-surface') { cmd.optimize = b.dataset.csopt; cmd.preview(); } };
   for (const id of ['cs-tol', 'cs-ang']) $(id).addEventListener('input', () => cmd?.id === 'constrained-surface' && num(id) > 0 && cmd.preview());
+  for (const b of $$('[data-pacont]')) b.onclick = () => cmd?.id === 'project-align' && cmd.setContinuity(b.dataset.pacont);
+  for (const b of $$('[data-padir]')) b.onclick = () => cmd?.id === 'project-align' && cmd.setDirection(b.dataset.padir);
+  for (const id of ['pa-t', 'pa-blend']) $(id).addEventListener('input', () => cmd?.id === 'project-align' && num('pa-t') > 0 && cmd.preview());
   for (const b of $$('[data-ascont]')) b.onclick = () => cmd?.id === 'align-surface' && cmd.setContinuity(b.dataset.ascont);
   $('as-symmetric').onclick = () => cmd?.id === 'align-surface' && cmd.setSymmetric(!cmd.symmetric);
   $('as-t').addEventListener('input', () => cmd?.id === 'align-surface' && num('as-t') > 0 && cmd.preview());
@@ -10299,6 +10378,12 @@ export async function mount(root, backend) {
     selectEdges(body, edges) {
       sel.clear();
       for (const n of edges) sel.add({ kind: 'edge', body, n });
+      selectionChanged();
+    },
+    /** Replace the selection with `items` ({ kind, body, n } and the like), any kinds mixed. */
+    select(items) {
+      sel.clear();
+      for (const it of items) sel.add(it);
       selectionChanged();
     },
     selectFaces(body, faces) {

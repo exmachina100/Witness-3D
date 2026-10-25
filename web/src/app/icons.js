@@ -72,6 +72,8 @@ const ICONS = {
     bridge: `<path d="M2 18h6M16 6h6"/><path ${A} d="M8 18c5 0 3-12 8-12"/>`,
     // Two body corners with the curve between points on their edges.
     'align-curve': `<path d="M2 18c4 0 7-2 9-6"/><path ${A} d="M13 9c2-3 5-4 9-4"/><path d="M11 12h0" stroke-width="3.5" stroke-linecap="round"/><path ${A} d="M18 13l-4-2 1 4"/>`,
+    // Project Align: a sheet's edge dropped onto the surface below.
+    'project-align': `<path d="M2 21l4-6h16l-4 6z"/><path d="M5 4h12l-3 5H2z"/><path ${A} d="M8 9v6M14 9v6M6 13l2 2 2-2M12 13l2 2 2-2"/>`,
     'align-surface': `<path d="M2 20l4-8h7l-4 8z"/><path d="M15 6c2 0 3 3 7 3"/><path d="M13 12c1-3 1-6 2-6"/><path ${A} d="M18 15l-3-3m0 0v3m0-3h3"/>`,
     // A sheet bellied through three clicked points.
     'constrained-surface': `<path d="M2 17c3-5 6-7 10-7s7 2 10 7"/><path d="M2 17l3 4h14l3-4"/><path ${A} d="M6 13h0M12 10h0M18 13h0" stroke-width="3.5" stroke-linecap="round"/>`,

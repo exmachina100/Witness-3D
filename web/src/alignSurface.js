@@ -105,7 +105,7 @@ function solve(A, b) {
 }
 
 /** A point of a clamped B-spline curve (`poles`, flat knots `t`, degree `p`) at `x`. */
-const curveAt = (poles, t, p, x) => basis(t, p, x).N.reduce((s, w, i) => w ? add(s, mul(poles[i], w)) : s, [0, 0, 0]);
+export const curveAt = (poles, t, p, x) => basis(t, p, x).N.reduce((s, w, i) => w ? add(s, mul(poles[i], w)) : s, [0, 0, 0]);
 
 /** Cumulative lengths of a polyline, ending in the total. */
 function lengths(pts) {
@@ -206,7 +206,9 @@ export function normalCurvature(f, n, e) {
  * with poles in the face's own numbering.
  */
 export function alignMoves(side, { greville, points }, frames, { continuity = 'G1', tension = 1, blend = 0, influence = 0, partial = [0, 1] } = {}) {
-    const order = ALIGN_CONTINUITY.indexOf(continuity);
+    // Perpendicular (Project Align): the sheet leaves its side square to the reference, as fast as now.
+    const perpendicular = continuity === 'PERP';
+    const order = perpendicular ? 1 : ALIGN_CONTINUITY.indexOf(continuity);
     if (order < 0) throw new Error('the continuity is G0, G1 or G2');
     if (!(tension > 0) || !Number.isFinite(tension)) throw new Error('the tension must be greater than zero');
     if (!Number.isInteger(blend) || blend < 0) throw new Error('the blend rows are a whole number, 0 or more');
@@ -226,6 +228,7 @@ export function alignMoves(side, { greville, points }, frames, { continuity = 'G
         const want = greville.map((_, j) => {
             const f = frames[j], n = unit(cross(f.su, f.sv));
             const c = mul(sub(at(rows[1], j), at(rows[0], j)), a);
+            if (perpendicular) return { n, d: mul(n, (dot(c, n) < 0 ? -1 : 1) * len(c) * tension) };
             let d = sub(c, mul(n, dot(c, n)));
             if (len(d) < 1e-9 * (len(c) + 1)) throw new Error('the sheet leaves its side square to the reference there; G1 cannot lay it flat');
             d = mul(unit(d), len(c) * tension);
