@@ -8798,7 +8798,7 @@ export async function mount(root, backend) {
         return true;
       }
       // Loft: each click on another curve adds it as a guide, or takes it off again. Sweep: the
-      // first click picks the path, later ones up to two guides (a third replaces the second).
+      // first click picks the path, later ones its guides (past two the sections bend onto the rest).
       // A body edge can be a guide too (not a path): it goes as a curve through points along it.
       let picked = curveAt(e);
       if (picked === null && (id === 'loft' || (id === 'sweep' && c.path !== null))) {
@@ -8817,7 +8817,7 @@ export async function mount(root, backend) {
       }
       if (picked === null || c.regions.includes(picked)) return true;
       if (id === 'sweep' && (c.path === null || picked === c.path)) c.path = picked;
-      else if (id === 'sweep') c.guides = c.guides.includes(picked) ? c.guides.filter(g => g !== picked) : [...c.guides.slice(0, 1), picked];
+      else if (id === 'sweep') c.guides = c.guides.includes(picked) ? c.guides.filter(g => g !== picked) : [...c.guides, picked];
       else if (id === 'loft') c.guides = c.guides.includes(picked) ? c.guides.filter(g => g !== picked) : [...c.guides, picked];
       hint();
       previewFormCmd();

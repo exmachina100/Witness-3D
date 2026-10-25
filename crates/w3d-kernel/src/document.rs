@@ -69,7 +69,7 @@ pub enum FormRequest {
     Sweep { path: CurveId, twist: f64, scale: f64 },
     /// Loft whose sides run along the `guides` curves.
     LoftGuided { guides: Vec<GuideRef> },
-    /// Sweep along `path` following the `guides` curves (none, one or two) by `method`, held by `align`.
+    /// Sweep along `path` following the `guides` curves (any number; past two the sections bend onto the rest) by `method`, held by `align`.
     SweepGuided { path: CurveId, guides: Vec<GuideRef>, round: bool, method: crate::form::GuideMethod, align: crate::form::Alignment },
 }
 
@@ -638,7 +638,6 @@ impl<K: Kernel> Document<K> {
                 if regions.contains(&path) { return Err(KernelError::Invalid("pick a path other than the profile")) }
                 if guides.iter().any(|g| matches!(g, GuideRef::Drawn(id) if *id == path || regions.contains(id))) { return Err(KernelError::Invalid("pick a guide other than the path and the profile")) }
                 let path = self.curve(path).ok_or(KernelError::Invalid("that path no longer exists"))?.path();
-                if guides.len() > 2 { return Err(KernelError::Invalid("Sweep follows one or two guides")) }
                 let guides = self.guide_paths(&guides)?;
                 FormKind::Sweep { path, twist: 0.0, scale: 1.0, guides, method, align, round }
             }

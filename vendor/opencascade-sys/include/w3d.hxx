@@ -858,6 +858,8 @@ inline gp_Trsf w3d_onto(const gp_Pnt &pivot, const gp_Vec &axis, const gp_Pnt &f
 // second. The stations are lofted. Without a guide, `parallel` keeps the section at its drawn
 // orientation all along (Alignment: Parallel) instead of turning with the path (Normal), and
 // `round` rounds it round the path's corners instead of mitring them (Corner type).
+inline TopoDS_Wire w3d_warp_wire(const TopoDS_Wire &w, const std::vector<gp_Pnt> &at, const std::vector<gp_Pnt> &to);
+
 inline std::unique_ptr<TopoDS_Shape> w3d_sweep_guided(rust::Slice<const double> section, rust::Slice<const double> path,
                                                       rust::Slice<const double> guide, int32_t method, bool parallel, bool round) {
   try {
@@ -878,7 +880,6 @@ inline std::unique_ptr<TopoDS_Shape> w3d_sweep_guided(rust::Slice<const double> 
     if (spine.Closed()) throw std::runtime_error("a guide needs a path with two ends");
     std::vector<TopoDS_Wire> gs;
     for (const double *q = guide.data(), *end = q + guide.size(); q < end;) gs.push_back(w3d_guide_from(w3d_section(q, end), profile));
-    if (gs.size() > 2) throw std::runtime_error("Sweep follows one or two guides");
     // Per guide: its curve, its far end, where it touches the profile, and its length.
     std::vector<BRepAdaptor_CompCurve> rails;
     std::vector<gp_Pnt> contact, far_end, last_g;
@@ -949,7 +950,15 @@ inline std::unique_ptr<TopoDS_Shape> w3d_sweep_guided(rust::Slice<const double> 
         all = onto_first * place;
         all = w3d_onto(target[0], tan, contact[1].Transformed(all), target[1], true) * all;
       }
-      mk.AddWire(TopoDS::Wire(BRepBuilderAPI_Transform(profile, all, Standard_True).Shape()));
+      TopoDS_Wire placed = TopoDS::Wire(BRepBuilderAPI_Transform(profile, all, Standard_True).Shape());
+      if (rails.size() > 2) {
+        // Past two guides the placed section is bent to meet the rest too, as Loft does; the
+        // first two already touch theirs and stay pinned.
+        std::vector<gp_Pnt> at, to;
+        for (size_t j = 0; j < rails.size(); j++) { at.push_back(contact[j].Transformed(all)); to.push_back(target[j]); }
+        placed = w3d_warp_wire(placed, at, to);
+      }
+      mk.AddWire(placed);
     }
     mk.CheckCompatibility(Standard_False);
     mk.Build();
