@@ -362,9 +362,9 @@ pub trait Kernel {
     fn sweep(&self, _profile: &Profile, _frame: &Frame, _path: &Path, _twist: f64, _scale: f64) -> Result<Self::Solid, KernelError> {
         Err(KernelError::Invalid("this kernel cannot sweep"))
     }
-    /// `profile` swept along `path` following `guide` by `method` (0 Point, 1 Chord, 2 Curve), or
-    /// without a guide kept at its drawn orientation when `parallel` (Plasticity's Sweep options).
-    fn sweep_guided(&self, _profile: &Profile, _frame: &Frame, _path: &Path, _guide: Option<&Path>, _method: u8, _parallel: bool) -> Result<Self::Solid, KernelError> {
+    /// `profile` swept along `path` following one or two `guides` by `method` (0 Point, 1 Chord, 2
+    /// Curve), or without a guide kept at its drawn orientation when `parallel` (Plasticity's Sweep options).
+    fn sweep_guided(&self, _profile: &Profile, _frame: &Frame, _path: &Path, _guides: &[Path], _method: u8, _parallel: bool) -> Result<Self::Solid, KernelError> {
         Err(KernelError::Invalid("this kernel cannot sweep along guides"))
     }
     /// A solid through the profiles, in order, its sides running along the `guides`.

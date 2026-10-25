@@ -316,7 +316,7 @@ fn sweep(
                 },
                 twist,
                 scale,
-                guide: None,
+                guides: vec![],
                 method: Default::default(),
                 align: Default::default(),
             },

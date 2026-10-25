@@ -853,8 +853,9 @@ inline gp_Trsf w3d_onto(const gp_Pnt &pivot, const gp_Vec &axis, const gp_Pnt &f
 // carried along the path as in a plain sweep and then, at each of many stations, turned about the
 // path toward the guide: `method` 0 (Point) also scales it so the point that touched the guide
 // stays on it; 1 (Chord) and 2 (Curve) only turn it, Chord meeting the guide where it crosses the
-// section's plane and Curve at the same fraction of the guide's length. The stations are lofted.
-// Without a guide, `parallel` keeps the section at its drawn orientation all along (Alignment:
+// section's plane and Curve at the same fraction of the guide's length. With a second guide the
+// section is also turned and scaled in its plane about the first guide's point to touch the
+// second. The stations are lofted. Without a guide, `parallel` keeps the section at its drawn orientation all along (Alignment:
 // Parallel) instead of turning with the path (Normal).
 inline std::unique_ptr<TopoDS_Shape> w3d_sweep_guided(rust::Slice<const double> section, rust::Slice<const double> path,
                                                       rust::Slice<const double> guide, int32_t method, bool parallel) {
@@ -874,20 +875,32 @@ inline std::unique_ptr<TopoDS_Shape> w3d_sweep_guided(rust::Slice<const double> 
     }
     if (method < 0 || method > 2) throw std::runtime_error("the guide method is Point, Chord or Curve");
     if (spine.Closed()) throw std::runtime_error("a guide needs a path with two ends");
-    TopoDS_Wire g = w3d_guide_from(w3d_one_section(guide), profile);
-    if (w3d_gap(g, profile) > 0.01) throw std::runtime_error("the guide does not touch the profile; snap its end onto it");
-    BRepAdaptor_CompCurve along(spine), rail(g);
-    TopoDS_Vertex g0, g1;
-    TopExp::Vertices(g, g0, g1);
-    BRepExtrema_DistShapeShape touch(g0, profile);
-    gp_Pnt contact = touch.PointOnShape2(1);
-    double rail_length = GCPnts_AbscissaPoint::Length(rail);
+    std::vector<TopoDS_Wire> gs;
+    for (const double *q = guide.data(), *end = q + guide.size(); q < end;) gs.push_back(w3d_guide_from(w3d_section(q, end), profile));
+    if (gs.size() > 2) throw std::runtime_error("Sweep follows one or two guides");
+    // Per guide: its curve, its far end, where it touches the profile, and its length.
+    std::vector<BRepAdaptor_CompCurve> rails;
+    std::vector<gp_Pnt> contact, far_end, last_g;
+    std::vector<double> rail_length;
+    for (const auto &g : gs) {
+      if (w3d_gap(g, profile) > 0.01) throw std::runtime_error("a guide does not touch the profile; snap its end onto it");
+      rails.emplace_back(g);
+      TopoDS_Vertex g0, g1;
+      TopExp::Vertices(g, g0, g1);
+      BRepExtrema_DistShapeShape touch(g0, profile);
+      contact.push_back(touch.PointOnShape2(1));
+      far_end.push_back(BRep_Tool::Pnt(g1));
+      rail_length.push_back(GCPnts_AbscissaPoint::Length(rails.back()));
+    }
+    last_g = contact;
+    if (gs.size() == 2 && contact[0].Distance(contact[1]) < 1e-6) throw std::runtime_error("the two guides touch the profile at one point; start them apart");
+    BRepAdaptor_CompCurve along(spine);
 
     double t0 = along.FirstParameter(), t1 = along.LastParameter();
     const int stations = 32, sub = 8;
     BRepOffsetAPI_ThruSections mk(Standard_True, Standard_False, 1e-6);
     gp_Trsf carry;
-    gp_Pnt start, p, last_g = contact;
+    gp_Pnt start, p;
     gp_Vec prev, tan;
     along.D1(t0, start, prev);
     for (int i = 0; i <= stations; i++) {
@@ -905,24 +918,36 @@ inline std::unique_ptr<TopoDS_Shape> w3d_sweep_guided(rust::Slice<const double> 
       }
       double t = t0 + (t1 - t0) * i / stations;
       along.D1(t, p, tan);
-      gp_Trsf move, at_start, back;
+      gp_Trsf move, at_start;
       at_start.SetTranslation(start, gp::Origin());
       move.SetTranslation(gp::Origin(), p);
       gp_Trsf place = move * carry * at_start;
-      gp_Pnt c = contact.Transformed(place);
-      gp_Pnt target;
-      if (method == 2) {
-        GCPnts_AbscissaPoint at(rail, rail_length * i / stations, rail.FirstParameter());
-        target = rail.Value(at.Parameter());
-      } else if (i == 0) {
-        target = contact;
-      } else if (i == stations) {
-        target = BRep_Tool::Pnt(g1);
-      } else {
-        target = w3d_crossing(rail, rail.FirstParameter(), rail.LastParameter(), p, tan, last_g);
+      // Where each guide is at this station: by length along it (Curve), or where it crosses the
+      // section's plane (Point, Chord).
+      std::vector<gp_Pnt> target(rails.size());
+      for (size_t j = 0; j < rails.size(); j++) {
+        if (method == 2) {
+          GCPnts_AbscissaPoint at(rails[j], rail_length[j] * i / stations, rails[j].FirstParameter());
+          target[j] = rails[j].Value(at.Parameter());
+        } else if (i == 0) {
+          target[j] = contact[j];
+        } else if (i == stations) {
+          target[j] = far_end[j];
+        } else {
+          target[j] = w3d_crossing(rails[j], rails[j].FirstParameter(), rails[j].LastParameter(), p, tan, last_g[j]);
+        }
+        last_g[j] = target[j];
       }
-      last_g = target;
-      gp_Trsf all = w3d_onto(p, tan, c, target, method == 0) * place;
+      gp_Trsf all;
+      if (rails.size() == 1) all = w3d_onto(p, tan, contact[0].Transformed(place), target[0], method == 0) * place;
+      else {
+        // Two guides: the section is moved onto the first guide's point, then turned and scaled in
+        // its plane about it onto the second's, so it touches both whatever the method.
+        gp_Trsf onto_first;
+        onto_first.SetTranslation(contact[0].Transformed(place), target[0]);
+        all = onto_first * place;
+        all = w3d_onto(target[0], tan, contact[1].Transformed(all), target[1], true) * all;
+      }
       mk.AddWire(TopoDS::Wire(BRepBuilderAPI_Transform(profile, all, Standard_True).Shape()));
     }
     mk.CheckCompatibility(Standard_False);
