@@ -297,6 +297,12 @@ const ICONS = {
     'txalign-right': `<path d="M4 6h16M10 10h10M4 14h16M12 18h8"/><path ${A} d="M21 3v18"/>`,
     // Slide Curve CV: a control point moved along its cage (U), back along it, or across it (N).
     slide: `<path d="M3 18L9 8l6 4 6-8" stroke-dasharray="2 2"/><path ${A} d="M9 8h0M5 10.5l8-5M11 4.5l2 1-1 2" stroke-width="2" stroke-linecap="round"/>`,
+    'falloff-none': `<path d="M3 19h18"/><path ${A} d="M12 19V7M12 7h0"/>`,
+    'falloff-all': `<path d="M3 19h18"/><path ${A} d="M3 18c4 0 5-11 9-11s5 11 9 11"/>`,
+    'falloff-selected': `<path d="M3 19h18M7 19v-6M17 19v-6" stroke-dasharray="2 2"/><path ${A} d="M7 13c2 0 3-6 5-6s3 6 5 6"/>`,
+    'mirror-none': `<path d="M12 3v18" stroke-dasharray="2 2"/><path ${A} d="M6 15V8M6 8h0"/>`,
+    'mirror-u': `<path d="M3 12h18" stroke-dasharray="2 2"/><path ${A} d="M8 9V4M8 4h0M8 15v5M8 20h0"/>`,
+    'mirror-v': `<path d="M12 3v18" stroke-dasharray="2 2"/><path ${A} d="M9 16H4M4 16h0M15 16h5M20 16h0"/>`,
     'slide-u': `<path d="M4 16L20 8" stroke-dasharray="2 2"/><path ${A} d="M8 14l8-4M13 9l3 1-1 3"/>`,
     'slide-back': `<path d="M4 16L20 8" stroke-dasharray="2 2"/><path ${A} d="M16 10l-8 4M11 15l-3-1 1-3"/>`,
     'slide-v': `<path d="M8 4L16 20" stroke-dasharray="2 2"/><path ${A} d="M10 8l4 8M11 14l3 2 1-3"/>`,

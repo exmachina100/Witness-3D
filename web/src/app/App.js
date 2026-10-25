@@ -96,6 +96,7 @@ import { ALIGN_CURVE_CONTINUITY, alignCurveEnd, BRIDGE_CONTINUITY, bridgeContinu
 import { ViewGizmo } from './ViewGizmo.js';
 import { Toolbar } from './Toolbar.js';
 import { arcballAbout, dragAngles, orbitAbout } from './orbit.js';
+import { poleMoves } from '../poleFalloff.js';
 import { PREF_FIELDS, changedPrefs, controlSettings, readPrefs, setPref, viewColors, wheelSpeed } from './prefs.js';
 import { arcPoints, circleThrough, curveFromNurbs, cvPoints, ellipsePoints, endTangent, helixPoints, loops, nurbsLoop, nurbsPoints, polygonCorners, spiralAngle, tangentArc } from '../curves.js';
 
@@ -818,6 +819,22 @@ const SHELL = `
       <div class="field"><label for="w3d-dy">ΔY</label><input id="w3d-dy" data-move="1" type="number" step="2.5" value="0"></div>
       <div class="field"><label for="w3d-dz">ΔZ</label><input id="w3d-dz" data-move="2" type="number" step="2.5" value="0"></div>
     </div>
+    <div class="sec" data-panel="pole-opts" hidden>
+      <span class="label">PROPORTIONAL</span>
+      <div class="seg" role="group" aria-label="Proportional">
+        <button data-pfmode="none" aria-pressed="true" title="Only the picked points move">NONE</button>
+        <button data-pfmode="all" aria-pressed="false" title="The points round the picked ones follow, less the further they are">ALL</button>
+        <button data-pfmode="selected" aria-pressed="false" title="The picked points move most in the middle of the selection, less at its rim">SELECTED</button>
+      </div>
+      <div class="field"><label for="w3d-pfu">FALLOFF U</label><input id="w3d-pfu" data-id="pf-u" type="number" step="1" min="0.5" value="2"></div>
+      <div class="field"><label for="w3d-pfv">FALLOFF V</label><input id="w3d-pfv" data-id="pf-v" type="number" step="1" min="0.5" value="2"></div>
+      <span class="label">MIRROR</span>
+      <div class="seg" role="group" aria-label="Mirror">
+        <button data-pfmirror="none" aria-pressed="true" title="No mirror">NONE</button>
+        <button data-pfmirror="u" aria-pressed="false" title="The point across the net in U moves too, mirrored">U</button>
+        <button data-pfmirror="v" aria-pressed="false" title="The point across the net in V moves too, mirrored">V</button>
+      </div>
+    </div>
     <div class="sec" data-panel="rotate" hidden>
       <span class="hint">DRAG A RING, PRESS X Y Z OR R, OR TYPE</span>
       <span class="label">AXIS</span>
@@ -935,10 +952,10 @@ const VIEWS = {
 export async function mount(root, backend) {
   root.innerHTML = SHELL;
   // Panel options carry their icon ahead of the key and name.
-  for (const b of root.querySelectorAll('[data-proj],[data-imp],[data-impcomp],[data-draw],[data-bop],[data-xop],[data-fop],[data-spiral],[data-toggle],[data-gmethod],[data-galign],[data-gcorner],[data-grow],[data-mfgrow],[data-eslimit],[data-flshape],[data-drtaper],[data-avaxis],[data-extshape],[data-esshape],[data-isodir],[data-id="oe-both"],[data-id="oe-individual"],[data-id="blend-tangent"],[data-id="ex-lock"],[data-id="bool-keep"],[data-id="prim-keep"],[data-id="ex-free"],[data-id="ex-pivot"],[data-id="ex-individual"],[data-id="patch-individual"],[data-id="as-symmetric"],[data-id="dr-hidden"],[data-id="dr-curves"],[data-id="oc-lock"],[data-id="oc-free"],[data-id="oc-slot"],[data-id="oc-combine"],[data-id="es-unlimit"],[data-rbmethod],[data-oecorner],[data-saplane],[data-plaxis],[data-plop],[data-id="pl-flip"],[data-id="pl-instance"],[data-id="mirror-instance"],[data-id="ra-instance"],[data-id="rr-instance"],[data-id="ca-instance"],[data-id="br-trim"],[data-id="br-comb"],[data-id="ac-comb"],[data-id="dc-reblend"],[data-id="section-btn"],[data-id="sa-flip"],[data-id="rf-shrink"],[data-id="ut-keep"],[data-txfont],[data-id="tx-load"],[data-id="tx-system"],[data-txalign],[data-sldir],[data-dcflip],[data-id="dc-keep"],[data-imdepth],[data-imcull],[data-id="im-delete"],[data-id="cc-extend"],[data-id="cc-screen"],[data-inmode],[data-id="in-realize"],[data-id="in-dup"],[data-id="in-delete"],[data-id="matcap-load"],[data-id="matcap-custom"],[data-id="hdr-load"],[data-id="hdr-custom"]')) {
+  for (const b of root.querySelectorAll('[data-proj],[data-imp],[data-impcomp],[data-draw],[data-bop],[data-xop],[data-fop],[data-spiral],[data-toggle],[data-gmethod],[data-galign],[data-gcorner],[data-grow],[data-mfgrow],[data-eslimit],[data-flshape],[data-drtaper],[data-avaxis],[data-extshape],[data-esshape],[data-isodir],[data-id="oe-both"],[data-id="oe-individual"],[data-id="blend-tangent"],[data-id="ex-lock"],[data-id="bool-keep"],[data-id="prim-keep"],[data-id="ex-free"],[data-id="ex-pivot"],[data-id="ex-individual"],[data-id="patch-individual"],[data-id="as-symmetric"],[data-id="dr-hidden"],[data-id="dr-curves"],[data-id="oc-lock"],[data-id="oc-free"],[data-id="oc-slot"],[data-id="oc-combine"],[data-id="es-unlimit"],[data-rbmethod],[data-oecorner],[data-saplane],[data-plaxis],[data-plop],[data-id="pl-flip"],[data-id="pl-instance"],[data-id="mirror-instance"],[data-id="ra-instance"],[data-id="rr-instance"],[data-id="ca-instance"],[data-id="br-trim"],[data-id="br-comb"],[data-id="ac-comb"],[data-id="dc-reblend"],[data-id="section-btn"],[data-id="sa-flip"],[data-id="rf-shrink"],[data-id="ut-keep"],[data-txfont],[data-id="tx-load"],[data-id="tx-system"],[data-txalign],[data-sldir],[data-dcflip],[data-id="dc-keep"],[data-imdepth],[data-imcull],[data-id="im-delete"],[data-id="cc-extend"],[data-id="cc-screen"],[data-inmode],[data-pfmode],[data-pfmirror],[data-id="in-realize"],[data-id="in-dup"],[data-id="in-delete"],[data-id="matcap-load"],[data-id="matcap-custom"],[data-id="hdr-load"],[data-id="hdr-custom"]')) {
     const name = (b.dataset.proj && (b.dataset.proj === 'screen' ? 'view-screen' : `proj-${b.dataset.proj}`)) ?? (b.dataset.imp && (b.dataset.imp === 'screen' ? 'view-screen' : `proj-${b.dataset.imp}`)) ?? (b.dataset.impcomp && `completion-${b.dataset.impcomp}`) ?? b.dataset.draw ?? b.dataset.bop ?? b.dataset.xop ?? b.dataset.fop ?? b.dataset.spiral ?? (b.dataset.toggle && `view-${b.dataset.toggle}`)
       ?? (b.dataset.gmethod && `guide-${b.dataset.gmethod}`) ?? (b.dataset.galign && `align-${b.dataset.galign}`) ?? (b.dataset.gcorner && (b.dataset.gcorner === 'round' ? 'corner-round' : 'corner-linear')) ?? (b.dataset.grow && `grow-${b.dataset.grow}`) ?? (b.dataset.mfgrow && `grow-${b.dataset.mfgrow}`) ?? (b.dataset.eslimit && `limit-${b.dataset.eslimit}`) ?? (b.dataset.flshape && `fillet-${b.dataset.flshape}`) ?? (b.dataset.drtaper && `taper-${b.dataset.drtaper}`) ?? (b.dataset.avaxis && `axis-${b.dataset.avaxis}`) ?? (b.dataset.extshape && `extend-${b.dataset.extshape}`) ?? (b.dataset.esshape && `extend-${b.dataset.esshape}`) ?? (b.dataset.isodir && `iso-${b.dataset.isodir}`) ?? (b.dataset.rbmethod && `rebuild-${b.dataset.rbmethod}`) ?? (b.dataset.oecorner && `corner-${b.dataset.oecorner}`) ?? (b.dataset.saplane && `section-${b.dataset.saplane}`) ?? (b.dataset.plaxis && (b.dataset.plaxis === 'normal' ? 'place-normal' : `axis-${b.dataset.plaxis}`)) ?? b.dataset.plop
-      ?? (b.dataset.txfont && `font-${b.dataset.txfont}`) ?? (b.dataset.txalign && `txalign-${b.dataset.txalign}`) ?? (b.dataset.sldir && { u: 'slide-u', '-u': 'slide-back', v: 'slide-v', '-v': 'slide-vback', n: 'slide-n' }[b.dataset.sldir]) ?? (b.dataset.dcflip && { mirror: 'mirror', swap: 'swap-uv', normal: 'reverse-sheet' }[b.dataset.dcflip]) ?? (b.dataset.imdepth && `depth-${b.dataset.imdepth}`) ?? (b.dataset.imcull && `cull-${b.dataset.imcull}`) ?? b.dataset.inmode
+      ?? (b.dataset.txfont && `font-${b.dataset.txfont}`) ?? (b.dataset.txalign && `txalign-${b.dataset.txalign}`) ?? (b.dataset.sldir && { u: 'slide-u', '-u': 'slide-back', v: 'slide-v', '-v': 'slide-vback', n: 'slide-n' }[b.dataset.sldir]) ?? (b.dataset.dcflip && { mirror: 'mirror', swap: 'swap-uv', normal: 'reverse-sheet' }[b.dataset.dcflip]) ?? (b.dataset.imdepth && `depth-${b.dataset.imdepth}`) ?? (b.dataset.imcull && `cull-${b.dataset.imcull}`) ?? b.dataset.inmode ?? (b.dataset.pfmode && `falloff-${b.dataset.pfmode}`) ?? (b.dataset.pfmirror && `mirror-${b.dataset.pfmirror}`)
       ?? { 'matcap-load': 'matcap-load', 'matcap-custom': 'matcap', 'tx-load': 'font-load', 'tx-system': 'font-system', 'hdr-load': 'hdr-load', 'hdr-custom': 'hdr', 'ex-lock': 'lock', 'bool-keep': 'keep', 'prim-keep': 'keep', 'ex-free': 'freestyle', 'ex-pivot': 'pivot', 'ex-individual': 'individual', 'patch-individual': 'individual', 'as-symmetric': 'symmetric', 'dr-hidden': 'hidden-lines', 'dr-curves': 'drawing-curves', 'oc-lock': 'lock', 'oc-free': 'freestyle', 'oc-slot': 'slot', 'oc-combine': 'combine', 'oe-both': 'both-sides', 'oe-individual': 'individual', 'blend-tangent': 'tangent-chain', 'es-unlimit': 'unlimit', 'rf-shrink': 'shrink', 'ut-keep': 'keep-edges', 'section-btn': 'view-section', 'sa-flip': 'flip', 'pl-flip': 'flip', 'pl-instance': 'instance', 'mirror-instance': 'instance', 'ra-instance': 'instance', 'rr-instance': 'instance', 'ca-instance': 'instance', 'br-trim': 'trim', 'br-comb': 'view-curvature', 'ac-comb': 'view-curvature', 'dc-reblend': 'reblend', 'dc-keep': 'keep', 'im-delete': 'delete', 'in-realize': 'realize-instance', 'cc-extend': 'extend', 'cc-screen': 'view-screen', 'in-dup': 'duplicate', 'in-delete': 'delete' }[b.dataset.id];
     b.insertAdjacentHTML('afterbegin', icon(name));
   }
@@ -1658,6 +1675,8 @@ export async function mount(root, backend) {
   // control net. Faces are kept per body, 'all' for a whole solid.
   const shownPoints = { curves: new Set(), faces: new Map() };
   let facePoleCache = new Map();
+  // Move's Proportional and Mirror options for face control points.
+  const poleOpts = { mode: 'none', fu: 2, fv: 2, mirror: 'none' };
   const pointsGroup = new THREE.Group();
   scene.add(pointsGroup);
   const netLine = new THREE.LineBasicMaterial({ color: 0x9a968c, transparent: true, opacity: 0.7, depthTest: false });
@@ -3233,6 +3252,7 @@ export async function mount(root, backend) {
     setState('none');
     setAxis('z');
     snapsFor(false);
+    $$('[data-panel="pole-opts"]')[0].hidden = !poles.length;
 
     function fromHandle() {
       c.offset.copy(handle.position).sub(pivot);
@@ -3337,7 +3357,8 @@ export async function mount(root, backend) {
   function previewPoles(c) {
     const { pivot, offset, quat, scale } = c;
     const at = p => p.clone().sub(pivot).multiplyScalar(scale).applyQuaternion(quat).add(pivot).add(offset);
-    c.poleMoves = c.poles.map(p => { const q = poleOf(p); return [p.face, p.n, at(q).sub(q).toArray()]; });
+    const by = q => { const v = new THREE.Vector3(...q); return at(v).sub(v).toArray(); };
+    c.poleMoves = poleMoves(facePoleCache.get(c.poles[0].body) ?? [], c.poles, by, poleOpts);
     c.poleRows = movedNets(c.poles[0].body, c.poleMoves);
     paintShownPoints();
     const moved = c.poleMoves.some(([, , d]) => Math.hypot(...d) > 1e-12);
@@ -10254,6 +10275,15 @@ export async function mount(root, backend) {
   };
   for (const id of ['prim-w', 'prim-d', 'prim-r', 'prim-h']) $(id).addEventListener('input', () => PRIMS[cmd?.id] && cmd.fromFields(id));
   $('prim-keep').onclick = () => PRIMS[cmd?.id] && cmd.key('keep');
+  const setPoleOpt = (k, v) => {
+    poleOpts[k] = v;
+    for (const b of $$('[data-pfmode]')) b.setAttribute('aria-pressed', b.dataset.pfmode === poleOpts.mode);
+    for (const b of $$('[data-pfmirror]')) b.setAttribute('aria-pressed', b.dataset.pfmirror === poleOpts.mirror);
+    if (cmd?.poles?.length) apply();
+  };
+  for (const b of $$('[data-pfmode]')) b.onclick = () => setPoleOpt('mode', b.dataset.pfmode);
+  for (const b of $$('[data-pfmirror]')) b.onclick = () => setPoleOpt('mirror', b.dataset.pfmirror);
+  for (const [id, k] of [['pf-u', 'fu'], ['pf-v', 'fv']]) $(id).oninput = e => { const v = +e.target.value; if (v > 0) setPoleOpt(k, v); };
   for (const b of $$('[data-popt], [data-pop]')) b.onclick = () => PRIMS[cmd?.id] && cmd.key(b.dataset.popt ?? b.dataset.pop);
   $('shell-t').addEventListener('input', () => cmd?.id === 'shell' && cmd.preview());
   $('draft-a').addEventListener('input', () => cmd?.id === 'draft' && cmd.preview());
