@@ -1093,6 +1093,9 @@ export async function mount(root, backend) {
   const shade = (own = false) => shader => {
     Object.assign(shader.uniforms, { ownColor: { value: own }, sectioned: shadeU.sectioned, shadeMode: shadeU.mode, pull: shadeU.pull, stripes: shadeU.stripes, draftSin: shadeU.draftSin, spacing: shadeU.spacing, matcap: shadeU.matcap });
     shader.fragmentShader = 'uniform bool ownColor;\nuniform bool sectioned;\nuniform int shadeMode;\nuniform vec3 pull;\nuniform float stripes;\nuniform float draftSin;\nuniform float spacing;\nuniform sampler2D matcap;\n' + shader.fragmentShader.replace('#include <dithering_fragment>', `
+      // In a block of its own, so its names can't clash with the physical material's (clearcoat,
+      // sheen and the rest declare their own in main).
+      {
       // Faces draw both sides so a sheet shows from behind (Reverse Sheet); three.js has already
       // turned the normal of a back face towards the eye.
       vec3 n = normalize(normal);
@@ -1148,6 +1151,7 @@ export async function mount(root, backend) {
       // occlusion, whose last pass makes them screen colours again), they are made linear first.
       if (shadeMode >= 0 && !(shadeMode == 0 && !ownColor) || (sectioned && !gl_FrontFacing))
         gl_FragColor = linearToOutputTexel(sRGBTransferEOTF(vec4(clamp(gl_FragColor.rgb, 0.0, 1.0), gl_FragColor.a)));
+      }
       #include <dithering_fragment>`);
   };
   faceMat.onBeforeCompile = shade();
