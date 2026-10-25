@@ -74,6 +74,7 @@
 #include <TopTools_MapOfShape.hxx>
 #include <GeomAPI_PointsToBSpline.hxx>
 #include <GeomAdaptor_Surface.hxx>
+#include <GProp_PEquation.hxx>
 #include <GeomConvert_CompCurveToBSplineCurve.hxx>
 #include <Geom_TrimmedCurve.hxx>
 #include <ShapeAnalysis_FreeBounds.hxx>
@@ -1141,7 +1142,8 @@ class W3dMoveFaces : public BRepTools_Modification {
 public:
   gp_Trsf t;
   TopTools_IndexedMapOfShape faces, edges, verts;
-  std::vector<bool> moved;                       // per face
+  std::vector<bool> moved;                       // per face: its surface changes
+  std::vector<bool> rigid;                       // per face: carried by t, parameters and all
   std::vector<int> kind;                         // per edge: 0 kept, 1 carried by t, 2 crossing
   std::vector<Handle(Geom_Curve)> curves;        // per edge, kinds 1 and 2
   std::vector<bool> carried;                     // per vertex: at t(old)
@@ -1149,12 +1151,15 @@ public:
   std::vector<double> tolerance;                 // per vertex
   std::vector<Handle(Geom_Surface)> surfaces;    // per face, as it will be
 
-  W3dMoveFaces(const TopoDS_Shape &shape, const std::vector<int32_t> &which, const gp_Trsf &motion) : t(motion) {
+  // `which` faces carried by `motion`, or (Move Edge) the `picked` edges with their corners carried
+  // and the flat faces beside them tilting to follow.
+  W3dMoveFaces(const TopoDS_Shape &shape, const std::vector<int32_t> &which, const std::vector<int32_t> &picked, const gp_Trsf &motion) : t(motion) {
     TopExp::MapShapes(shape, TopAbs_FACE, faces);
     TopExp::MapShapes(shape, TopAbs_EDGE, edges);
     TopExp::MapShapes(shape, TopAbs_VERTEX, verts);
     moved.assign(faces.Extent(), false);
     for (int32_t f : which) moved[f] = true;
+    rigid = moved;
     for (int i = 1; i <= faces.Extent(); i++) {
       Handle(Geom_Surface) s = BRep_Tool::Surface(TopoDS::Face(faces(i)));
       if (moved[i - 1]) s = Handle(Geom_Surface)::DownCast(s->Transformed(t));
@@ -1163,6 +1168,65 @@ public:
     TopTools_IndexedDataMapOfShapeListOfShape ef, ve;
     TopExp::MapShapesAndAncestors(shape, TopAbs_EDGE, TopAbs_FACE, ef);
     TopExp::MapShapesAndAncestors(shape, TopAbs_VERTEX, TopAbs_EDGE, ve);
+    const bool edgeMode = !picked.empty();
+    std::vector<bool> chosen(edges.Extent(), false), forced(verts.Extent(), false);
+    for (int32_t e : picked) {
+      chosen[e] = true;
+      TopoDS_Vertex v0, v1;
+      TopExp::Vertices(TopoDS::Edge(edges(e + 1)), v0, v1);
+      forced[verts.FindIndex(v0) - 1] = forced[verts.FindIndex(v1) - 1] = true;
+    }
+    auto isForced = [&](const TopoDS_Shape &v) { return forced[verts.FindIndex(v) - 1]; };
+    auto onOld = [&](const gp_Pnt &p, const Handle(Geom_Surface) &s) {
+      GeomAPI_ProjectPointOnSurf pr(p, s);
+      return pr.NbPoints() > 0 && pr.LowerDistance() < 1e-6;
+    };
+    // Each face at a carried corner keeps its surface while that still holds the corners and edges
+    // where they will be; else a flat one tilts to the plane through them, and a curved one can't.
+    if (edgeMode)
+      for (int i = 1; i <= faces.Extent(); i++) {
+        const TopoDS_Face face = TopoDS::Face(faces(i));
+        std::vector<gp_Pnt> pts;
+        bool touched = false, off = false;
+        for (TopExp_Explorer x(face, TopAbs_VERTEX); x.More(); x.Next()) {
+          gp_Pnt p = BRep_Tool::Pnt(TopoDS::Vertex(x.Current()));
+          if (isForced(x.Current())) { touched = true; p.Transform(t); }
+          pts.push_back(p);
+        }
+        if (!touched) continue;
+        for (TopExp_Explorer x(face, TopAbs_EDGE); x.More(); x.Next()) {
+          const TopoDS_Edge e = TopoDS::Edge(x.Current());
+          if (BRep_Tool::Degenerated(e)) continue;
+          TopoDS_Vertex v0, v1;
+          TopExp::Vertices(e, v0, v1);
+          const bool carriedEdge = chosen[edges.FindIndex(e) - 1] || (isForced(v0) && isForced(v1));
+          if (!carriedEdge && (isForced(v0) || isForced(v1))) continue;
+          double a, b;
+          Handle(Geom_Curve) c = BRep_Tool::Curve(e, a, b);
+          if (c.IsNull()) continue;
+          for (int k = 1; k < 8; k++) {
+            gp_Pnt p = c->Value(a + (b - a) * k / 8);
+            if (carriedEdge) p.Transform(t);
+            pts.push_back(p);
+          }
+        }
+        for (const gp_Pnt &p : pts) off = off || !onOld(p, surfaces[i - 1]);
+        if (!off) continue;
+        GeomAdaptor_Surface was(surfaces[i - 1]);
+        if (was.GetType() != GeomAbs_Plane) throw std::runtime_error("a curved face beside the edges would have to bend to follow them; only flat faces tilt");
+        TColgp_Array1OfPnt arr(1, (int)pts.size());
+        for (size_t k = 0; k < pts.size(); k++) arr.SetValue((int)k + 1, pts[k]);
+        GProp_PEquation eq(arr, 1e-6);
+        if (!eq.IsPlanar()) throw std::runtime_error("a face beside the edges would have to bend to follow that move; move them within its plane");
+        const gp_Pln old = was.Plane();
+        gp_Dir n = eq.Plane().Axis().Direction();
+        if (n.Dot(old.Axis().Direction()) < 0) n.Reverse();
+        gp_Vec x = gp_Vec(old.XAxis().Direction());
+        x -= gp_Vec(n) * x.Dot(gp_Vec(n));
+        if (x.Magnitude() < 1e-9) x = gp_Vec(old.YAxis().Direction()) - gp_Vec(n) * gp_Vec(old.YAxis().Direction()).Dot(gp_Vec(n));
+        surfaces[i - 1] = new Geom_Plane(gp_Pln(gp_Ax3(eq.Plane().Location(), n, gp_Dir(x))));
+        moved[i - 1] = true;
+      }
     auto ids = [&](const TopoDS_Shape &e) {
       std::vector<int> out;
       for (TopTools_ListOfShape::Iterator it(ef.FindFromKey(e)); it.More(); it.Next()) {
@@ -1182,19 +1246,39 @@ public:
       if (BRep_Tool::Degenerated(e)) continue;
       std::vector<int> fs = ids(e), still, going;
       for (int f : fs) (moved[f] ? going : still).push_back(f);
-      if (going.empty()) continue;
+      TopoDS_Vertex v0, v1;
+      TopExp::Vertices(e, v0, v1);
+      if (going.empty() && !(edgeMode && (isForced(v0) || isForced(v1)))) continue;
       double a, b;
       Handle(Geom_Curve) c = BRep_Tool::Curve(e, a, b);
       if (c.IsNull()) throw std::runtime_error("an edge of that face has no curve to move");
       Handle(Geom_Curve) tc = Handle(Geom_Curve)::DownCast(c->Transformed(t));
-      bool stays = true;
-      for (int f : still)
-        for (int k = 0; k <= 8 && stays; k++) stays = on(tc->Value(a + (b - a) * k / 8), f, 1e-6);
-      if (stays) { kind[i - 1] = 1; curves[i - 1] = tc; continue; }
-      if (going.size() != 1 || still.size() != 1) throw std::runtime_error("an edge of that face is shared by more than two faces");
-      TopoDS_Vertex v0, v1;
-      TopExp::Vertices(e, v0, v1);
-      GeomAPI_IntSS cross(surfaces[going[0]], surfaces[still[0]], 1e-7);
+      auto lies = [&](const Handle(Geom_Curve) &cc, const std::vector<int> &on_) {
+        bool ok = true;
+        for (int f : on_)
+          for (int k = 0; k <= 8 && ok; k++) ok = on(cc->Value(a + (b - a) * k / 8), f, 1e-6);
+        return ok;
+      };
+      int sa, sb;
+      if (edgeMode) {
+        // A picked edge, or one between two carried corners, is carried; the rest stay where their
+        // faces still hold them, else run where those faces now cross.
+        if (chosen[i - 1] || (isForced(v0) && isForced(v1))) {
+          if (!lies(tc, fs)) throw std::runtime_error("the faces beside the edges can't follow that move");
+          kind[i - 1] = 1;
+          curves[i - 1] = tc;
+          continue;
+        }
+        if (lies(c, fs)) continue;
+        if (fs.size() != 2) throw std::runtime_error("an edge there is shared by more than two faces");
+        sa = fs[0], sb = fs[1];
+        tc = c;
+      } else {
+        if (lies(tc, still)) { kind[i - 1] = 1; curves[i - 1] = tc; continue; }
+        if (going.size() != 1 || still.size() != 1) throw std::runtime_error("an edge of that face is shared by more than two faces");
+        sa = going[0], sb = still[0];
+      }
+      GeomAPI_IntSS cross(surfaces[sa], surfaces[sb], 1e-7);
       if (!cross.IsDone() || cross.NbLines() == 0)
         throw std::runtime_error("a face beside it no longer meets it there; faces running smoothly into it (fillets) can't follow a move");
       // The crossing nearest the moved edge's middle, running the edge's way.
@@ -1238,11 +1322,18 @@ public:
         for (int f : ids(it.Value()))
           if (std::find(fs.begin(), fs.end(), f) == fs.end()) { fs.push_back(f); any |= moved[f]; all &= moved[f]; }
       }
-      if (!any) continue;
       const gp_Pnt tp = p.Transformed(t);
+      if (edgeMode && forced[i - 1]) {
+        for (int f : fs)
+          if (!on(tp, f, 1e-6)) throw std::runtime_error("the faces round a corner of the edges can't follow that move");
+        carried[i - 1] = true;
+        points[i - 1] = tp;
+        continue;
+      }
+      if (!any) continue;
       bool fits = true;
       for (int f : fs) fits = fits && on(tp, f, 1e-6);
-      if (all || fits) { carried[i - 1] = true; points[i - 1] = tp; continue; }
+      if (!edgeMode && (all || fits)) { carried[i - 1] = true; points[i - 1] = tp; continue; }
       // Projected onto each face and edge it stays on in turn, until it settles on all of them.
       gp_Pnt x = p;
       double worst = 0;
@@ -1336,7 +1427,7 @@ public:
     if (e < 0 || f < 0) return Standard_False;
     // A moved face's surface and its moved edges keep their parameters, so their curves on it stay.
     if (!moved[f] && kind[e] == 0) return Standard_False;
-    if (moved[f] && kind[e] == 1) {
+    if (rigid[f] && kind[e] == 1) {
       double oa, ob;
       Handle(Geom2d_Curve) old = BRep_Tool::CurveOnSurface(E, F, oa, ob);
       if (old.IsNull()) return Standard_False;
@@ -1389,16 +1480,23 @@ public:
 // Move Face: `faces` of `shape` carried by `motion` (offset x y z, pivot x y z, axis x y z, angle
 // in radians: turned about the axis through the pivot, then moved by the offset), the faces round
 // them following (see W3dMoveFaces). Faces and edges are traced through.
-inline std::unique_ptr<W3dResult> w3d_move_faces(const TopoDS_Shape &shape, rust::Slice<const int32_t> faces, rust::Slice<const double> motion) {
+inline std::unique_ptr<W3dResult> w3d_move_topology(const TopoDS_Shape &shape, rust::Slice<const int32_t> faces, rust::Slice<const int32_t> edges, rust::Slice<const double> motion) {
   if (motion.size() != 10) throw std::runtime_error("a face move takes an offset, a pivot, an axis and an angle");
-  TopTools_IndexedMapOfShape map;
+  TopTools_IndexedMapOfShape map, emap;
   TopExp::MapShapes(shape, TopAbs_FACE, map);
-  std::vector<int32_t> which;
+  TopExp::MapShapes(shape, TopAbs_EDGE, emap);
+  std::vector<int32_t> which, picked;
   for (int32_t f : faces) {
     if (f < 0 || f >= map.Extent()) throw std::out_of_range("that face no longer exists");
     which.push_back(f);
   }
-  if (which.empty()) throw std::runtime_error("select the faces to move");
+  for (int32_t e : edges) {
+    if (e < 0 || e >= emap.Extent()) throw std::out_of_range("that edge no longer exists");
+    if (BRep_Tool::Degenerated(TopoDS::Edge(emap(e + 1)))) throw std::runtime_error("that edge is a point and can't move");
+    picked.push_back(e);
+  }
+  if (which.empty() && picked.empty()) throw std::runtime_error("select the faces or edges to move");
+  if (!which.empty() && !picked.empty()) throw std::runtime_error("move faces or edges, not both at once");
   try {
     gp_Trsf turn, shift;
     const gp_Vec axis(motion[6], motion[7], motion[8]);
@@ -1408,17 +1506,17 @@ inline std::unique_ptr<W3dResult> w3d_move_faces(const TopoDS_Shape &shape, rust
     }
     shift.SetTranslation(gp_Vec(motion[0], motion[1], motion[2]));
     const gp_Trsf t = shift * turn;
-    W3dMoveFaces *mod = new W3dMoveFaces(shape, which, t);
+    W3dMoveFaces *mod = new W3dMoveFaces(shape, which, picked, t);
     Handle(BRepTools_Modification) keep(mod);
     std::shared_ptr<BRepTools_Modifier> m(new BRepTools_Modifier(shape, keep));
-    if (!m->IsDone()) throw std::runtime_error("the faces could not be moved");
+    if (!m->IsDone()) throw std::runtime_error("that could not be moved");
     TopoDS_Shape made = m->ModifiedShape(shape);
     BRepLib::SameParameter(made, 1e-5, Standard_True);
-    if (!w3d_is_valid(made)) throw std::runtime_error("moving the faces that far breaks the body; try a smaller move");
+    if (!w3d_is_valid(made)) throw std::runtime_error("moving them that far breaks the body; try a smaller move");
     GProp_GProps props;
     BRepGProp::VolumeProperties(made, props);
     if (TopExp_Explorer(shape, TopAbs_SOLID).More() && props.Mass() <= 1e-9)
-      throw std::runtime_error("moving the faces that far turns the body inside out; try a smaller move");
+      throw std::runtime_error("moving them that far turns the body inside out; try a smaller move");
     std::unique_ptr<W3dResult> r(new W3dResult());
     r->shape = made;
     w3d_record(*r, 0, shape, {[m](const TopoDS_Shape &s, TopTools_ListOfShape &out) { out.Append(m->ModifiedShape(s)); }});
@@ -1426,6 +1524,16 @@ inline std::unique_ptr<W3dResult> w3d_move_faces(const TopoDS_Shape &shape, rust
   } catch (const Standard_Failure &f) {
     throw w3d_kernel_error(f);
   }
+}
+
+inline std::unique_ptr<W3dResult> w3d_move_faces(const TopoDS_Shape &shape, rust::Slice<const int32_t> faces, rust::Slice<const double> motion) {
+  return w3d_move_topology(shape, faces, rust::Slice<const int32_t>(), motion);
+}
+
+// Move Edge (G or R with edges selected): the edges and their corners carried by `motion`, the flat
+// faces beside them tilting to keep them and the edges round those faces running where they now meet.
+inline std::unique_ptr<W3dResult> w3d_move_edges(const TopoDS_Shape &shape, rust::Slice<const int32_t> edges, rust::Slice<const double> motion) {
+  return w3d_move_topology(shape, rust::Slice<const int32_t>(), edges, motion);
 }
 
 // --- Extrude with an angle, a wall thickness and a second side ----------------------------------

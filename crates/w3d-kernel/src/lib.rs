@@ -381,6 +381,12 @@ pub trait Kernel {
     fn move_faces(&self, _s: &Self::Solid, _faces: &[u32], _motion: &Motion) -> Result<Traced<Self::Solid>, KernelError> {
         Err(KernelError::Invalid("this kernel cannot move faces"))
     }
+    /// The numbered edges and their corners carried by the rigid `motion`, the flat faces beside
+    /// them tilting to keep them and the edges round those faces following (Plasticity's G or R on
+    /// edges).
+    fn move_edges(&self, _s: &Self::Solid, _edges: &[u32], _motion: &Motion) -> Result<Traced<Self::Solid>, KernelError> {
+        Err(KernelError::Invalid("this kernel cannot move edges"))
+    }
     /// Hollowed to walls `thickness` thick inside the outer surface, open at the numbered faces
     /// (Plasticity's Shell). The outer faces and edges are traced; the inner walls are new.
     fn shell(&self, _s: &Self::Solid, _faces: &[u32], _thickness: f64) -> Result<Traced<Self::Solid>, KernelError> {

@@ -675,6 +675,28 @@ impl<K: Kernel> Document<K> {
         Ok(body)
     }
 
+    /// G or R with edges of a solid selected, without changing the document: `edges` of `body` and
+    /// their corners moved and turned by `motion`, the flat faces beside them tilting to follow.
+    pub fn preview_move_edges(&self, body: BodyId, edges: &[u32], motion: &Motion) -> Result<Traced<K::Solid>, KernelError> {
+        let solid = self.get(body).ok_or(KernelError::Invalid("that body no longer exists"))?;
+        if edges.is_empty() { return Err(KernelError::Invalid("select the edges to move")) }
+        if (motion.scale - 1.0).abs() > 1e-12 { return Err(KernelError::Invalid("edges move and turn; scale the whole body instead")) }
+        if motion.is_identity() { return Err(KernelError::NoOp) }
+        let t = self.kernel.move_edges(solid, edges, motion)?;
+        if !self.kernel.is_valid(&t.solid) || self.kernel.solid_count(&t.solid) != self.kernel.solid_count(solid) {
+            return Err(KernelError::Invalid("moving the edges that far breaks the body; try a smaller move"));
+        }
+        Ok(t)
+    }
+
+    /// Move Edge as one undoable step; faces and edges keep their refs.
+    pub fn commit_move_edges(&mut self, body: BodyId, edges: &[u32], motion: &Motion) -> Result<BodyId, KernelError> {
+        let t = self.preview_move_edges(body, edges, motion)?;
+        self.checkpoint();
+        self.replace_traced(body, t);
+        Ok(body)
+    }
+
     /// Box, Cylinder or Sphere, as a new body or combined with `target` by `operation` (Plasticity's
     /// Q, W, Shift+E, Shift+Q and B while sizing a primitive), without changing the document.
     pub fn preview_primitive(&self, p: &Primitive, target: Option<BodyId>, operation: Operation) -> Result<ExtrudeResult<K::Solid>, KernelError> {

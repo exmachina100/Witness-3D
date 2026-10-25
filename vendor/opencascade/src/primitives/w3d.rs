@@ -200,6 +200,14 @@ impl Shape {
         Ok((Shape::from_shape(&ffi::w3d::w3d_result_shape(&r)), history(&r, 1)))
     }
 
+    /// The numbered edges and their corners carried by a rigid motion, the flat faces beside them
+    /// tilting to follow (Move Edge).
+    pub fn move_edges_with_history(&self, edges: &[usize], motion: [f64; 10]) -> Result<(Shape, ShapeHistory), String> {
+        let ids: Vec<i32> = edges.iter().map(|&e| e as i32).collect();
+        let r = ffi::w3d::w3d_move_edges(&self.inner, &ids, &motion).map_err(reason)?;
+        Ok((Shape::from_shape(&ffi::w3d::w3d_result_shape(&r)), history(&r, 1)))
+    }
+
     /// Hollowed to walls `thickness` thick inside the outer surface, open at the numbered faces
     /// (Plasticity's Shell).
     pub fn shell_with_history(&self, faces: &[usize], thickness: f64) -> Result<(Shape, ShapeHistory), String> {
