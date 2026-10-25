@@ -10,7 +10,9 @@ export const PREF_FIELDS = {
     navigation: [
         { key: 'zoomToCursor', label: 'ZOOM TO CURSOR', type: 'bool', value: true },
         { key: 'rotateAroundCursor', label: 'ROTATE AROUND CURSOR', type: 'bool', value: true },
+        { key: 'zoomVertical', label: 'ZOOM VERTICAL (CTRL + MIDDLE-DRAG)', type: 'bool', value: true },
         { key: 'invertZoom', label: 'INVERT ZOOM', type: 'bool', value: false },
+        { key: 'invertWheel', label: 'INVERT WHEEL DIRECTION', type: 'bool', value: false },
         { key: 'zoomSpeed', label: 'ZOOM SPEED', type: 'number', value: 1, min: 0.1, max: 5 },
         { key: 'rotateSpeed', label: 'ROTATE SPEED', type: 'number', value: 1, min: 0.1, max: 5 },
         { key: 'panSpeed', label: 'PAN SPEED', type: 'number', value: 1, min: 0.1, max: 5 },
@@ -80,7 +82,11 @@ export function changedPrefs(prefs) {
     return out;
 }
 
-/** The orbit controls' settings: an inverted zoom is a negative zoom speed. */
+/**
+ * The orbit controls' settings: an inverted zoom is a negative zoom speed. This is the drag's;
+ * `wheel` gives the wheel's, which App.js swaps in as each wheel turn arrives.
+ */
+export const wheelSpeed = nav => nav.zoomSpeed * (nav.invertWheel ? -1 : 1);
 export function controlSettings(nav) {
     return {
         zoomToCursor: nav.zoomToCursor,
