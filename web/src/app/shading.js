@@ -48,6 +48,35 @@ export function newMaterial(n, base = {}) {
     };
 }
 
+/**
+ * The material library: common workshop materials as physical parameters of our own choosing (no
+ * textures, nothing taken from Plasticity's library), with densities in g/cm³ for Mass. Picking one
+ * sets every parameter, so the advanced ones not named go back to their defaults.
+ */
+export const MATERIAL_LIBRARY = [
+    { name: 'ALUMINIUM', color: '#c9ccd0', metalness: 1, roughness: 0.35, density: 2.70 },
+    { name: 'BRUSHED STEEL', color: '#a7aaad', metalness: 1, roughness: 0.45, density: 7.85 },
+    { name: 'CHROME', color: '#e8e8e8', metalness: 1, roughness: 0.05, density: 7.19 },
+    { name: 'TITANIUM', color: '#8c8780', metalness: 1, roughness: 0.4, density: 4.51 },
+    { name: 'GOLD', color: '#e6b84a', metalness: 1, roughness: 0.2, density: 19.32 },
+    { name: 'COPPER', color: '#c8775a', metalness: 1, roughness: 0.3, density: 8.96 },
+    { name: 'BRASS', color: '#cfa64a', metalness: 1, roughness: 0.3, density: 8.50 },
+    { name: 'ABS WHITE', color: '#ecebe6', roughness: 0.45, density: 1.05 },
+    { name: 'ABS BLACK', color: '#1d1d1f', roughness: 0.5, density: 1.05 },
+    { name: 'PLA ORANGE', color: '#ff4d00', roughness: 0.55, density: 1.24 },
+    { name: 'NYLON', color: '#d9d4c7', roughness: 0.75, density: 1.14 },
+    { name: 'RUBBER', color: '#2a2a2a', roughness: 0.9, density: 1.15, sheen: 0.2, sheenRoughness: 0.8 },
+    { name: 'CERAMIC', color: '#f2f0ea', roughness: 0.15, density: 2.40, clearcoat: 0.6, clearcoatRoughness: 0.05 },
+    { name: 'CAR PAINT', color: '#9c1b1b', roughness: 0.35, metalness: 0.3, density: 1.50, clearcoat: 1, clearcoatRoughness: 0.03 },
+    { name: 'GLASS', color: '#ffffff', roughness: 0, ior: 1.52, density: 2.50, transmission: 1, thickness: 2 },
+    { name: 'CLEAR POLYCARBONATE', color: '#f4f8ff', roughness: 0.05, ior: 1.585, density: 1.20, transmission: 0.95, thickness: 3 },
+    { name: 'SMOKED ACRYLIC', color: '#5b5e66', roughness: 0.05, ior: 1.49, density: 1.18, transmission: 0.7, thickness: 3 },
+    { name: 'FABRIC', color: '#4a5a73', roughness: 1, density: 0.30, sheen: 1, sheenRoughness: 0.6, sheenColor: '#c9d2e6' },
+    { name: 'OAK', color: '#a77b4f', roughness: 0.7, density: 0.75 },
+    { name: 'CONCRETE', color: '#8f8c86', roughness: 0.95, density: 2.40 },
+    { name: 'ANODISED BLUE', color: '#2b5fa8', metalness: 1, roughness: 0.3, density: 2.70, iridescence: 0.15 },
+];
+
 /** The advanced parameters as [key, label, low, high, step]; a colour where low is null. */
 export const ADVANCED_MATERIAL = [
     ['clearcoat', 'CLEARCOAT', 0, 1, 0.05], ['clearcoatRoughness', 'COAT ROUGHNESS', 0, 1, 0.05],

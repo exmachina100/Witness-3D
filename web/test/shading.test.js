@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { ENVIRONMENTS, SHADERS, SHADER_OPTIONS, checkMaterial, formatMass, massOf, newMaterial, shader } from '../src/app/shading.js';
+import { ENVIRONMENTS, MATERIAL_LIBRARY, SHADERS, SHADER_OPTIONS, checkMaterial, formatMass, massOf, newMaterial, shader } from '../src/app/shading.js';
 import { VIEWPORT, ACTIONS } from '../src/app/keymap.js';
 
 test('the fourteen shader modes of the manual, in its order, each with its own mode number', () => {
@@ -37,4 +37,10 @@ test('mass from volume in mm³ and density in g/cm³', () => {
 test('M sets a material; render and the viewport toggles are in the palette', () => {
     assert.equal(VIEWPORT.m, 'material:set');
     for (const a of ['material:set', 'material:remove', 'view:render', 'view:edges', 'view:faces', 'view:curves']) assert.ok(ACTIONS[a], a);
+});
+
+test('the material library presets are valid materials with their own names', () => {
+    assert.ok(MATERIAL_LIBRARY.length >= 20);
+    assert.equal(new Set(MATERIAL_LIBRARY.map(m => m.name)).size, MATERIAL_LIBRARY.length);
+    for (const preset of MATERIAL_LIBRARY) assert.deepEqual(checkMaterial(newMaterial(1, { ...preset })), [], preset.name);
 });
