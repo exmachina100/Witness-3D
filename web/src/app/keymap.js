@@ -172,7 +172,7 @@ export const COMMAND = {
     'tangent-circle': { f: 'freeze', tab: 'typed' },
     // Round 6: Shell's D types the thickness; Mirror and Radial Array take X/Y/Z for the axis and J to join.
     shell: { d: 'thickness' },
-    mirror: { x: 'x', y: 'y', z: 'z', j: 'join' },
+    mirror: { x: 'x', y: 'y', z: 'z', j: 'join', i: 'instance' },
     'rect-array': { j: 'join', i: 'instance' },
     'radial-array': { x: 'x', y: 'y', z: 'z', j: 'join', i: 'instance' },
     'curve-array': { a: 'align', j: 'join', i: 'instance' },

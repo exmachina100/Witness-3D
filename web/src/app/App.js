@@ -79,7 +79,7 @@ import { regionsToExtrude } from '../regions.js';
 import { slidePoles } from '../polesEdit.js';
 import { densify, placeOnFace, smoothThrough } from '../deform.js';
 import { CULLING, DEPTHS, checkImage, imageLook, newImage } from './images.js';
-import { newInstance, checkInstance, matrixOf, motionOf, instanceFromMotion } from './instances.js';
+import { newInstance, checkInstance, matrixOf, motionOf, instanceFromMotion, mirroredInstance } from './instances.js';
 import { arrayMotions } from '../arrayMotions.js';
 import { Organise } from './Organise.js';
 import { P_MENU, RADIALS, mergeKeys, parseRadial, shortLabel, showKey, sliceAt, slicePosition } from './menus.js';
@@ -178,7 +178,7 @@ const KEYS = {
   cylinder: [['CLICK', 'CENTRE · RADIUS · HEIGHT'], ['V', 'VERTICAL'], ['TAB', 'TYPE'], ['F', 'RADIUS'], ['D', 'HEIGHT'], ['Q W ⇧E ⇧Q', 'BOOLEAN'], ['B', 'NEW BODY'], ['⏎ / RMB', 'OK']],
   sphere: [['CLICK', 'CENTRE · SIZE'], ['TAB', 'TYPE'], ['D', 'DIAMETER'], ['Q W ⇧E ⇧Q', 'BOOLEAN'], ['B', 'NEW BODY'], ['⏎ / RMB', 'OK']],
   shell: [['D', 'THICKNESS'], ['⇧ CLICK', 'FACES'], ['⏎ / RMB', 'OK']],
-  mirror: [['X Y Z', 'PLANE'], ['J', 'JOIN'], ['⏎ / RMB', 'OK']],
+  mirror: [['X Y Z', 'PLANE'], ['J', 'JOIN'], ['I', 'INSTANCES'], ['⏎ / RMB', 'OK']],
   'rect-array': [['TYPE', 'COUNTS · SPACING'], ['J', 'JOIN'], ['I', 'INSTANCES'], ['⏎ / RMB', 'OK']],
   'radial-array': [['X Y Z', 'AXIS'], ['J', 'JOIN'], ['I', 'INSTANCES'], ['⏎ / RMB', 'OK']],
   'curve-array': [['CLICK', 'CURVE'], ['A', 'ALIGN'], ['J', 'JOIN'], ['I', 'INSTANCES'], ['⏎ / RMB', 'OK']],
@@ -719,7 +719,7 @@ const SHELL = `
       <span class="label">PLANE SQUARE TO</span>
       <div class="seg" role="group" aria-label="Mirror axis"><button data-mx="x" aria-pressed="true"><kbd>X</kbd>X</button><button data-mx="y" aria-pressed="false"><kbd>Y</kbd>Y</button><button data-mx="z" aria-pressed="false"><kbd>Z</kbd>Z</button></div>
       <div class="field"><label for="w3d-mirror-at">AT</label><input id="w3d-mirror-at" data-id="mirror-at" type="number" step="1" value="0"></div>
-      <div class="chips"><button data-id="mirror-join" aria-pressed="false"><kbd>J</kbd>JOIN</button></div>
+      <div class="chips"><button data-id="mirror-join" aria-pressed="false"><kbd>J</kbd>JOIN</button><button data-id="mirror-instance" aria-pressed="false" title="Make mirrored instances of the solids, sharing their geometry, rather than copies (I)"><kbd>I</kbd>INSTANCE</button></div>
     </div>
     <div class="sec" data-panel="rect-array" hidden>
       <span class="hint" data-id="ra-hint">—</span>
@@ -896,11 +896,11 @@ const VIEWS = {
 export async function mount(root, backend) {
   root.innerHTML = SHELL;
   // Panel options carry their icon ahead of the key and name.
-  for (const b of root.querySelectorAll('[data-proj],[data-imp],[data-impcomp],[data-draw],[data-bop],[data-xop],[data-fop],[data-spiral],[data-toggle],[data-gmethod],[data-galign],[data-grow],[data-mfgrow],[data-eslimit],[data-flshape],[data-drtaper],[data-avaxis],[data-extshape],[data-esshape],[data-isodir],[data-id="oe-both"],[data-id="oe-individual"],[data-id="blend-tangent"],[data-id="ex-lock"],[data-id="bool-keep"],[data-id="ex-free"],[data-id="ex-pivot"],[data-id="ex-individual"],[data-id="dr-hidden"],[data-id="dr-curves"],[data-id="oc-lock"],[data-id="oc-free"],[data-id="oc-slot"],[data-id="oc-combine"],[data-id="es-unlimit"],[data-rbmethod],[data-oecorner],[data-saplane],[data-plaxis],[data-plop],[data-id="pl-flip"],[data-id="pl-instance"],[data-id="ra-instance"],[data-id="rr-instance"],[data-id="ca-instance"],[data-id="br-trim"],[data-id="br-comb"],[data-id="ac-comb"],[data-id="dc-reblend"],[data-id="section-btn"],[data-id="sa-flip"],[data-id="rf-shrink"],[data-id="ut-keep"],[data-txfont],[data-txalign],[data-sldir],[data-dcflip],[data-id="dc-keep"],[data-imdepth],[data-imcull],[data-id="im-delete"],[data-id="cc-extend"],[data-id="cc-screen"],[data-inmode],[data-id="in-realize"],[data-id="in-dup"],[data-id="in-delete"],[data-id="matcap-load"],[data-id="matcap-custom"],[data-id="hdr-load"],[data-id="hdr-custom"]')) {
+  for (const b of root.querySelectorAll('[data-proj],[data-imp],[data-impcomp],[data-draw],[data-bop],[data-xop],[data-fop],[data-spiral],[data-toggle],[data-gmethod],[data-galign],[data-grow],[data-mfgrow],[data-eslimit],[data-flshape],[data-drtaper],[data-avaxis],[data-extshape],[data-esshape],[data-isodir],[data-id="oe-both"],[data-id="oe-individual"],[data-id="blend-tangent"],[data-id="ex-lock"],[data-id="bool-keep"],[data-id="ex-free"],[data-id="ex-pivot"],[data-id="ex-individual"],[data-id="dr-hidden"],[data-id="dr-curves"],[data-id="oc-lock"],[data-id="oc-free"],[data-id="oc-slot"],[data-id="oc-combine"],[data-id="es-unlimit"],[data-rbmethod],[data-oecorner],[data-saplane],[data-plaxis],[data-plop],[data-id="pl-flip"],[data-id="pl-instance"],[data-id="mirror-instance"],[data-id="ra-instance"],[data-id="rr-instance"],[data-id="ca-instance"],[data-id="br-trim"],[data-id="br-comb"],[data-id="ac-comb"],[data-id="dc-reblend"],[data-id="section-btn"],[data-id="sa-flip"],[data-id="rf-shrink"],[data-id="ut-keep"],[data-txfont],[data-txalign],[data-sldir],[data-dcflip],[data-id="dc-keep"],[data-imdepth],[data-imcull],[data-id="im-delete"],[data-id="cc-extend"],[data-id="cc-screen"],[data-inmode],[data-id="in-realize"],[data-id="in-dup"],[data-id="in-delete"],[data-id="matcap-load"],[data-id="matcap-custom"],[data-id="hdr-load"],[data-id="hdr-custom"]')) {
     const name = (b.dataset.proj && (b.dataset.proj === 'screen' ? 'view-screen' : `proj-${b.dataset.proj}`)) ?? (b.dataset.imp && (b.dataset.imp === 'screen' ? 'view-screen' : `proj-${b.dataset.imp}`)) ?? (b.dataset.impcomp && `completion-${b.dataset.impcomp}`) ?? b.dataset.draw ?? b.dataset.bop ?? b.dataset.xop ?? b.dataset.fop ?? b.dataset.spiral ?? (b.dataset.toggle && `view-${b.dataset.toggle}`)
       ?? (b.dataset.gmethod && `guide-${b.dataset.gmethod}`) ?? (b.dataset.galign && `align-${b.dataset.galign}`) ?? (b.dataset.grow && `grow-${b.dataset.grow}`) ?? (b.dataset.mfgrow && `grow-${b.dataset.mfgrow}`) ?? (b.dataset.eslimit && `limit-${b.dataset.eslimit}`) ?? (b.dataset.flshape && `fillet-${b.dataset.flshape}`) ?? (b.dataset.drtaper && `taper-${b.dataset.drtaper}`) ?? (b.dataset.avaxis && `axis-${b.dataset.avaxis}`) ?? (b.dataset.extshape && `extend-${b.dataset.extshape}`) ?? (b.dataset.esshape && `extend-${b.dataset.esshape}`) ?? (b.dataset.isodir && `iso-${b.dataset.isodir}`) ?? (b.dataset.rbmethod && `rebuild-${b.dataset.rbmethod}`) ?? (b.dataset.oecorner && `corner-${b.dataset.oecorner}`) ?? (b.dataset.saplane && `section-${b.dataset.saplane}`) ?? (b.dataset.plaxis && (b.dataset.plaxis === 'normal' ? 'place-normal' : `axis-${b.dataset.plaxis}`)) ?? b.dataset.plop
       ?? (b.dataset.txfont && `font-${b.dataset.txfont}`) ?? (b.dataset.txalign && `txalign-${b.dataset.txalign}`) ?? (b.dataset.sldir && { u: 'slide-u', '-u': 'slide-back', v: 'slide-v', '-v': 'slide-vback', n: 'slide-n' }[b.dataset.sldir]) ?? (b.dataset.dcflip && { mirror: 'mirror', swap: 'swap-uv', normal: 'reverse-sheet' }[b.dataset.dcflip]) ?? (b.dataset.imdepth && `depth-${b.dataset.imdepth}`) ?? (b.dataset.imcull && `cull-${b.dataset.imcull}`) ?? b.dataset.inmode
-      ?? { 'matcap-load': 'matcap-load', 'matcap-custom': 'matcap', 'hdr-load': 'hdr-load', 'hdr-custom': 'hdr', 'ex-lock': 'lock', 'bool-keep': 'keep', 'ex-free': 'freestyle', 'ex-pivot': 'pivot', 'ex-individual': 'individual', 'dr-hidden': 'hidden-lines', 'dr-curves': 'drawing-curves', 'oc-lock': 'lock', 'oc-free': 'freestyle', 'oc-slot': 'slot', 'oc-combine': 'combine', 'oe-both': 'both-sides', 'oe-individual': 'individual', 'blend-tangent': 'tangent-chain', 'es-unlimit': 'unlimit', 'rf-shrink': 'shrink', 'ut-keep': 'keep-edges', 'section-btn': 'view-section', 'sa-flip': 'flip', 'pl-flip': 'flip', 'pl-instance': 'instance', 'ra-instance': 'instance', 'rr-instance': 'instance', 'ca-instance': 'instance', 'br-trim': 'trim', 'br-comb': 'view-curvature', 'ac-comb': 'view-curvature', 'dc-reblend': 'reblend', 'dc-keep': 'keep', 'im-delete': 'delete', 'in-realize': 'realize-instance', 'cc-extend': 'extend', 'cc-screen': 'view-screen', 'in-dup': 'duplicate', 'in-delete': 'delete' }[b.dataset.id];
+      ?? { 'matcap-load': 'matcap-load', 'matcap-custom': 'matcap', 'hdr-load': 'hdr-load', 'hdr-custom': 'hdr', 'ex-lock': 'lock', 'bool-keep': 'keep', 'ex-free': 'freestyle', 'ex-pivot': 'pivot', 'ex-individual': 'individual', 'dr-hidden': 'hidden-lines', 'dr-curves': 'drawing-curves', 'oc-lock': 'lock', 'oc-free': 'freestyle', 'oc-slot': 'slot', 'oc-combine': 'combine', 'oe-both': 'both-sides', 'oe-individual': 'individual', 'blend-tangent': 'tangent-chain', 'es-unlimit': 'unlimit', 'rf-shrink': 'shrink', 'ut-keep': 'keep-edges', 'section-btn': 'view-section', 'sa-flip': 'flip', 'pl-flip': 'flip', 'pl-instance': 'instance', 'mirror-instance': 'instance', 'ra-instance': 'instance', 'rr-instance': 'instance', 'ca-instance': 'instance', 'br-trim': 'trim', 'br-comb': 'view-curvature', 'ac-comb': 'view-curvature', 'dc-reblend': 'reblend', 'dc-keep': 'keep', 'im-delete': 'delete', 'in-realize': 'realize-instance', 'cc-extend': 'extend', 'cc-screen': 'view-screen', 'in-dup': 'duplicate', 'in-delete': 'delete' }[b.dataset.id];
     b.insertAdjacentHTML('afterbegin', icon(name));
   }
   const $ = id => root.querySelector(`[data-id="${id}"]`);
@@ -2142,7 +2142,13 @@ export async function mount(root, backend) {
         return;
       }
       try {
-        const { ids, scene: list } = await backend.commitPlace({ bodies: [n.master], motion: motionOf(n), target: null, op: 'new' });
+        let ids, list;
+        if (n.mirror) {
+          // A mirrored instance: the master mirrored as Mirror does, then placed where the instance stands.
+          ({ ids, scene: list } = await backend.commitMirror({ bodies: [n.master], ...n.mirror, join: false }));
+          const m = motionOf(n);
+          if (Math.hypot(...m.offset) > 1e-12 || Math.abs(m.angle) > 1e-12 || Math.abs(m.scale - 1) > 1e-12) ({ scene: list } = await backend.commitMotion({ bodies: ids, ...m }));
+        } else ({ ids, scene: list } = await backend.commitPlace({ bodies: [n.master], motion: motionOf(n), target: null, op: 'new' }));
         if (materialOf.has(n.master)) for (const b of ids) materialOf.set(b, materialOf.get(n.master));
         instances = instances.filter(m => m.id !== id);
         endCmd('committed');
@@ -7292,7 +7298,9 @@ export async function mount(root, backend) {
         for (const n of placed) {
           const m = made.find(x => x.id === n.master), at = matrixOf(n), v = new THREE.Vector3(), pos = [];
           for (let i = 0; i < m.positions.length; i += 3) pos.push(...v.fromArray(m.positions, i).applyMatrix4(at).toArray());
-          meshes.push({ name: instanceLabel(n.id), ...limitEdges(pos, m.indices, maxWidth) });
+          // A mirrored instance turns its triangles inside out; wind them back.
+          const ix = at.determinant() < 0 ? m.indices.map((_, i) => m.indices[i - (i % 3) + [0, 2, 1][i % 3]]) : m.indices;
+          meshes.push({ name: instanceLabel(n.id), ...limitEdges(pos, ix, maxWidth) });
         }
         const triangles = meshes.reduce((n, m) => n + m.indices.length / 3, 0);
         const name = `witness3d-${ids.length === 1 ? label(ids[0]).toLowerCase() : 'model'}.${c.format}`;
@@ -7315,7 +7323,7 @@ export async function mount(root, backend) {
     const ids = (sel.bodies.length ? sel.bodies : current.map(b => b.id)).filter(id => org.shows(id));
     const curves = (sel.bodies.length || sel.curves.length ? sel.curves : curveList.map(c => c.id)).map(curveById).filter(Boolean);
     // With nothing selected, shown solid instances are drawn too, as their masters where they stand.
-    const placed = sel.bodies.length || sel.curves.length ? [] : placedSolids().map(({ n }) => ({ body: n.master, motion: motionOf(n) }));
+    const placed = sel.bodies.length || sel.curves.length ? [] : placedSolids().map(({ n }) => ({ body: n.master, motion: motionOf(n), mirror: n.mirror ?? null }));
     if (!ids.length && !curves.length && !placed.length) return toast('NOTHING TO EXPORT');
     const c = cmd = { id: 'export-drawing', format: 'svg', hidden: true, curves: true };
     lastTool = 'export-drawing';
@@ -8396,7 +8404,7 @@ export async function mount(root, backend) {
     if (!backend[preview]) { toast(`${toolInfo(id).label} IS NOT IN THIS BUILD YET`); return null; }
     const hint = { mirror: 'mirror-hint', 'rect-array': 'ra-hint', 'radial-array': 'rr-hint', 'curve-array': 'ca-hint' }[id];
     const joinBtn = { mirror: 'mirror-join', 'rect-array': 'ra-join', 'radial-array': 'rr-join', 'curve-array': 'ca-join' }[id];
-    const instanceBtn = { 'rect-array': 'ra-instance', 'radial-array': 'rr-instance', 'curve-array': 'ca-instance' }[id];
+    const instanceBtn = { mirror: 'mirror-instance', 'rect-array': 'ra-instance', 'radial-array': 'rr-instance', 'curve-array': 'ca-instance' }[id];
     const c = cmd = { id, ids, join: false, instance: false, sent: 0, shown: 0 };
     lastTool = id;
     showTool(id);
@@ -8422,6 +8430,15 @@ export async function mount(root, backend) {
       return false;
     };
     c.finish = async () => {
+      if (c.instance && id === 'mirror') {
+        // Mirror with I: each solid gets a mirrored instance where its copy would stand.
+        const plane = request(c);
+        for (const b of c.ids) instances.push(mirroredInstance(nextInstance++, b, plane, new THREE.Box3().setFromObject(bodyMesh(b)).getCenter(new THREE.Vector3()).toArray()));
+        endCmd('committed');
+        drawInstances();
+        renderOutliner();
+        return toast(`${c.ids.length} MIRRORED INSTANCE${c.ids.length > 1 ? 'S' : ''}`);
+      }
       if (c.instance) {
         try {
           const { spec } = request(c), motions = spec.kind === 'motions' ? spec.motions : arrayMotions(spec);
@@ -8907,7 +8924,7 @@ export async function mount(root, backend) {
   async function exportSelected() {
     const ids = sel.bodies.length ? sel.bodies : current.map(b => b.id);
     // With nothing selected, each shown solid instance goes too, as its master where it stands.
-    const jobs = [...ids.map(id => [id, {}]), ...(sel.bodies.length ? [] : placedSolids().map(({ n }) => [n.master, { motion: motionOf(n), name: `instance-${n.id}` }]))];
+    const jobs = [...ids.map(id => [id, {}]), ...(sel.bodies.length ? [] : placedSolids().map(({ n }) => [n.master, { motion: motionOf(n), mirror: n.mirror ?? null, name: `instance-${n.id}` }]))];
     for (const [id, opts] of jobs) {
       try { const msg = await backend.exportStep(id, opts); if (!msg) return; toast(msg); }
       catch (e) { toast(say(e)); }
@@ -9680,7 +9697,7 @@ export async function mount(root, backend) {
   for (const b of $$('[data-mx], [data-rx]')) b.onclick = () => cmd?.key?.(b.dataset.mx ?? b.dataset.rx);
   for (const id of ['mirror-join', 'ra-join', 'rr-join', 'ca-join']) $(id).onclick = () => cmd?.key?.('join');
   $('ca-align').onclick = () => cmd?.id === 'curve-array' && cmd.key('align');
-  for (const id of ['ra-instance', 'rr-instance', 'ca-instance']) $(id).onclick = () => cmd?.key?.('instance');
+  for (const id of ['mirror-instance', 'ra-instance', 'rr-instance', 'ca-instance']) $(id).onclick = () => cmd?.key?.('instance');
   $('cut-plane').onclick = () => cmd?.id === 'cut' && cmd.key('plane');
   $('bs-t').addEventListener('input', () => cmd?.id === 'bridge-surface' && cmd.preview());
   $('es-d').addEventListener('input', () => cmd?.id === 'extend-sheet' && cmd.preview());

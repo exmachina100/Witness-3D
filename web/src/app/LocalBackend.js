@@ -4,7 +4,7 @@
 import * as THREE from 'three';
 import { ExtrudeFactory } from '../ExtrudeFactory.js';
 import { NoOpError } from '../GeometryFactory.js';
-import { arrayMotions, blendEdges, booleanWithHistory, bounds, box, count, draftFaces, faceSheet, imprintEdgesWithHistory, imprintWithHistory, planeSheet, unifyWithHistory, boundaryEdges, splitWithHistory, draftWithHistory, exportSTEP, facePlane, mirror, numberedEdges, oc, primitive, shellFaces, tessellate, transform, volume } from '../Kernel.js';
+import { arrayMotions, blendEdges, booleanWithHistory, bounds, box, count, draftFaces, faceSheet, imprintEdgesWithHistory, imprintWithHistory, planeSheet, unifyWithHistory, boundaryEdges, splitWithHistory, draftWithHistory, exportSTEP, facePlane, mirror, mirror as mirrorShape, numberedEdges, oc, primitive, shellFaces, tessellate, transform, volume } from '../Kernel.js';
 import { cutSheets, loft, loftGuided, offsetFlatFaces, pipe, regionFace, revolve, splineSamples, sweep, sweepGuided } from '../Forms.js';
 import { curveFromNurbs, ends, join, loops, MEET, nurbsLoop } from '../curves.js';
 import { isoparam, meetCurves, projectCurveCurve, projectCurves, projectedEdges, sectionCurves } from '../Project.js';
@@ -1196,7 +1196,7 @@ export class LocalBackend {
 
     /** The hidden-line drawing of bodies seen from the camera (see Drawing.js). */
     async hiddenLines({ bodies, placed = [], origin, toward, x, deflection = 0.01 }) {
-        const shapes = [...bodies.map(id => this.placedShape(id)), ...placed.map(p => this.placedShape(p.body, p.motion))];
+        const shapes = [...bodies.map(id => this.placedShape(id)), ...placed.map(p => this.placedShape(p.body, p.motion, p.mirror))];
         return hiddenLines(shapes, origin, toward, x, deflection);
     }
 
@@ -1208,17 +1208,19 @@ export class LocalBackend {
         return `SAVED ${name.toUpperCase()}`;
     }
 
-    /** Body `id`'s shape, or with `motion` (an instance's motionOf) where an instance of it stands. */
-    placedShape(id, motion = null) {
-        const shape = this.shapes.get(id);
+    /** Body `id`'s shape, or with `motion` (an instance's motionOf) where an instance of it stands,
+     * reflected in `mirror` ({ origin, normal }) first for a mirrored instance. */
+    placedShape(id, motion = null, mirror = null) {
+        let shape = this.shapes.get(id);
         if (!shape) throw new Error('that body no longer exists');
+        if (mirror) shape = mirrorShape(shape, mirror.origin, mirror.normal);
         return motion ? transform(shape, { ...motion, axis: Math.hypot(...motion.axis) < 1e-9 ? [0, 1, 0] : motion.axis }) : shape;
     }
 
     /** Body `id` as a STEP download; with `motion`, where an instance of it stands. */
-    exportStep(id, { motion = null, name: what = `body-${id}` } = {}) {
+    exportStep(id, { motion = null, mirror = null, name: what = `body-${id}` } = {}) {
         const name = `witness3d-${what}.step`;
-        const url = URL.createObjectURL(new Blob([exportSTEP(this.placedShape(id, motion))], { type: 'application/step' }));
+        const url = URL.createObjectURL(new Blob([exportSTEP(this.placedShape(id, motion, mirror))], { type: 'application/step' }));
         Object.assign(document.createElement('a'), { href: url, download: name }).click();
         setTimeout(() => URL.revokeObjectURL(url), 1000);
         return `SAVED ${name.toUpperCase()}`;

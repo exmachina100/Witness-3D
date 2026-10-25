@@ -38,3 +38,21 @@ test('a drawing takes instances where they stand', async () => {
     const xs = lines => lines.flatMap(l => l.points.filter((_, i) => i % 2 === 0));
     assert.ok(Math.max(...xs(both)) > Math.max(...xs(alone)) + 150, 'the instance is drawn 200 to the right');
 });
+
+test('a mirrored instance stands where Mirror puts the copy, and exports there', async () => {
+    const { mirroredInstance, matrixOf, checkInstance } = await import('../src/app/instances.js');
+    const be = new LocalBackend();
+    const id = be.scene()[0].id;
+    const box = bounds(be.shapes.get(id)), centre = box.getCenter(new THREE.Vector3());
+    const plane = { origin: [box.max.x + 10, 0, 0], normal: [1, 0, 0] };
+    const n = mirroredInstance(1, id, plane, centre.toArray());
+    assert.deepEqual(checkInstance(n), []);
+    assert.deepEqual(checkInstance({ ...n, mirror: { origin: [0, 0, 0], normal: [0, 0, 0] } }), ['mirror']);
+    // The master's far corner lands as far beyond the plane.
+    const at = matrixOf(n), p = box.min.clone().applyMatrix4(at);
+    close(p.x, 2 * (box.max.x + 10) - box.min.x);
+    assert.ok(at.determinant() < 0);
+    const placed = bounds(be.placedShape(id, motionOf(n), n.mirror));
+    close(placed.min.x, box.max.x + 20, 1e-3);
+    close(placed.max.x, 2 * (box.max.x + 10) - box.min.x, 1e-3);
+});

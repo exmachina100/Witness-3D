@@ -168,10 +168,10 @@ const rust = {
     }
     return tauri.core.invoke('import_step', { path });
   },
-  async exportStep(id, { motion = null, name = `body-${id}` } = {}) {
+  async exportStep(id, { motion = null, mirror = null, name = `body-${id}` } = {}) {
     const path = await tauri.dialog.save({ defaultPath: `witness3d-${name}.step`, filters: STEP });
     if (!path) return null;
-    await tauri.core.invoke('export_step', { id, path, motion });
+    await tauri.core.invoke('export_step', { id, path, motion, mirror });
     return `SAVED ${path}`;
   },
 };

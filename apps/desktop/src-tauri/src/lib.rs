@@ -837,8 +837,8 @@ async fn read_dxf(path: PathBuf) -> Result<String, String> {
 }
 
 #[tauri::command]
-async fn export_step(model: State<'_, Model>, id: u32, path: PathBuf, motion: Option<api::MotionRequest>) -> Result<(), String> {
-    on_model(&model, move |m| api::export_step(m, id, path, motion)).await?
+async fn export_step(model: State<'_, Model>, id: u32, path: PathBuf, motion: Option<api::MotionRequest>, mirror: Option<api::MirrorPlane>) -> Result<(), String> {
+    on_model(&model, move |m| api::export_step(m, id, path, motion, mirror)).await?
 }
 
 /// The model changed; send it to Blender add-ons with Live Link on. Returns (connected, live).
