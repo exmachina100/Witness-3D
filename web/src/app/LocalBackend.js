@@ -14,7 +14,7 @@ import { faceSurfaces } from '../faceSurfaces.js';
 import { facePoles } from '../facePoles.js';
 import { faceUvn } from '../faceUvn.js';
 import { moveFacePoles, subdivideFaces } from '../movePoles.js';
-import { chordal, fullRound, limitRound } from '../filletShape.js';
+import { chordal, fullRound, limitRound, reshapeRounds } from '../filletShape.js';
 import { bridgeSurface } from '../BridgeSurface.js';
 import { projectOutline } from '../Outline.js';
 import { thicken, thickenFaces } from '../Thicken.js';
@@ -1072,7 +1072,7 @@ export class LocalBackend {
         return withHistory ? r : r.shape;
     }
 
-    blendWhole({ body, edges, size, kind, angle = Math.PI / 4, variable = [], shape: section = 'round' }, withHistory = false) {
+    blendWhole({ body, edges, size, kind, angle = Math.PI / 4, variable = [], shape: section = 'round', tension = 0.5 }, withHistory = false) {
         const shape = this.shapes.get(body);
         if (!shape) throw new Error('that body no longer exists');
         if (!edges.length) throw new Error('select at least one edge');
@@ -1083,7 +1083,13 @@ export class LocalBackend {
         if (!(size > 0)) throw new Error(`the ${kind === 'chamfer' ? 'distance' : 'radius'} must be greater than zero`);
         if (kind === 'chamfer' && !(angle > 0 && angle < Math.PI / 2)) throw new Error('the chamfer angle must be between 0 and 90 degrees');
         const unique = [...new Set(edges)];
-        if (kind !== 'chamfer' && (section === 'conic' || section === 'g2')) throw new Error('conic and G2 rounds are in the desktop app; this build makes round and chordal ones');
+        if (kind !== 'chamfer' && (section === 'conic' || section === 'g2')) {
+            if (variable.length) throw new Error('a conic or G2 round takes one radius; remove the variable points');
+            const r = blendEdges(shape, unique, size, false, true, angle);
+            const rounds = [...new Set(r.history.generatedFaces.map(([, f]) => f))];
+            const out = reshapeRounds(r.shape, rounds, section, tension);
+            return withHistory ? { shape: out, history: undefined } : out;
+        }
         if (kind !== 'chamfer' && section === 'chordal') {
             if (variable.length) throw new Error('a chordal round takes one distance; remove the variable points');
             const c = chordal(shape, unique, size);
