@@ -75,6 +75,7 @@
 #include <GeomAPI_PointsToBSpline.hxx>
 #include <GeomAdaptor_Surface.hxx>
 #include <GProp_PEquation.hxx>
+#include <Extrema_ExtPC.hxx>
 #include <GeomConvert_CompCurveToBSplineCurve.hxx>
 #include <Geom_TrimmedCurve.hxx>
 #include <ShapeAnalysis_FreeBounds.hxx>
@@ -951,6 +952,76 @@ inline std::pair<gp_Pnt, gp_Vec> w3d_plane_of(const TopoDS_Wire &w) {
 // the guides. The plain loft is cut at stations between each pair of sections; each cut is moved
 // so its point nearest one guide lies on it, or, with two guides, turned and scaled in its plane so
 // it meets both; then the sections and cuts are lofted. Every guide must touch every section.
+// The closed wire `w` bent so that its points `at` move onto `to`: each point of the wire moves by
+// the move of the guide points either side of it along the wire, eased between them (smoothstep
+// in arc length), so the points themselves land exactly and the wire stays smooth between them.
+// Each edge is remade as a curve through 33 moved samples, so corners stay corners.
+inline TopoDS_Wire w3d_warp_wire(const TopoDS_Wire &w, const std::vector<gp_Pnt> &at, const std::vector<gp_Pnt> &to) {
+  std::vector<TopoDS_Edge> order;
+  std::vector<double> start;
+  double total = 0;
+  for (BRepTools_WireExplorer ex(w); ex.More(); ex.Next()) {
+    order.push_back(ex.Current());
+    start.push_back(total);
+    total += GCPnts_AbscissaPoint::Length(BRepAdaptor_Curve(ex.Current()));
+  }
+  if (order.empty() || total < 1e-9) throw std::runtime_error("a section of the loft has no length");
+  // Where along the wire each guide point lies, by arc length from the wire's start.
+  auto along = [&](const gp_Pnt &p) {
+    double best = 1e300, s = 0;
+    for (size_t i = 0; i < order.size(); i++) {
+      BRepAdaptor_Curve c(order[i]);
+      Extrema_ExtPC ext(p, c);
+      if (!ext.IsDone()) continue;
+      for (int k = 1; k <= ext.NbExt(); k++) {
+        if (ext.SquareDistance(k) >= best) continue;
+        best = ext.SquareDistance(k);
+        const double u = ext.Point(k).Parameter();
+        const bool fwd = order[i].Orientation() != TopAbs_REVERSED;
+        const double from = fwd ? c.FirstParameter() : u, till = fwd ? u : c.LastParameter();
+        s = start[i] + (till - from > 1e-12 ? GCPnts_AbscissaPoint::Length(c, from, till) : 0);
+      }
+    }
+    return s;
+  };
+  struct Pin { double s; gp_Vec d; };
+  std::vector<Pin> pins;
+  for (size_t j = 0; j < at.size(); j++) pins.push_back({along(at[j]), gp_Vec(at[j], to[j])});
+  std::sort(pins.begin(), pins.end(), [](const Pin &a, const Pin &b) { return a.s < b.s; });
+  auto shift = [&](double s) {
+    // The pins either side of s, round the closed wire.
+    size_t n = pins.size(), hi = 0;
+    while (hi < n && pins[hi].s <= s) hi++;
+    const Pin &a = pins[(hi + n - 1) % n], &b = pins[hi % n];
+    double gap = b.s - a.s, off = s - a.s;
+    if (gap <= 0) gap += total;
+    if (off < 0) off += total;
+    double t = gap > 1e-12 ? std::min(1.0, off / gap) : 0;
+    t = t * t * (3 - 2 * t);
+    return a.d * (1 - t) + b.d * t;
+  };
+  BRepBuilderAPI_MakeWire mk;
+  for (size_t i = 0; i < order.size(); i++) {
+    BRepAdaptor_Curve c(order[i]);
+    const bool fwd = order[i].Orientation() != TopAbs_REVERSED;
+    const int n = 33;
+    const double length = GCPnts_AbscissaPoint::Length(c);
+    Handle(TColgp_HArray1OfPnt) pts = new TColgp_HArray1OfPnt(1, n);
+    for (int k = 0; k < n; k++) {
+      const double f = double(k) / (n - 1);
+      GCPnts_AbscissaPoint ap(c, (fwd ? f : 1 - f) * length, c.FirstParameter());
+      const gp_Pnt p = c.Value(ap.Parameter());
+      pts->SetValue(k + 1, p.Translated(shift(start[i] + f * length)));
+    }
+    GeomAPI_Interpolate fit(pts, Standard_False, 1e-7);
+    fit.Perform();
+    if (!fit.IsDone()) throw std::runtime_error("a section of the loft could not be bent onto the guides");
+    mk.Add(BRepBuilderAPI_MakeEdge(fit.Curve()).Edge());
+  }
+  if (!mk.IsDone()) throw std::runtime_error("a section of the loft could not be bent onto the guides");
+  return mk.Wire();
+}
+
 inline std::unique_ptr<TopoDS_Shape> w3d_loft_guided(rust::Slice<const double> sections, rust::Slice<const double> guides) {
   try {
     std::vector<TopoDS_Wire> profiles, rails;
@@ -958,7 +1029,7 @@ inline std::unique_ptr<TopoDS_Shape> w3d_loft_guided(rust::Slice<const double> s
     for (const double *p = guides.data(), *end = p + guides.size(); p < end;) rails.push_back(w3d_section(p, end));
     if (profiles.size() < 2) throw std::runtime_error("a loft needs two profiles or more");
     if (rails.empty()) throw std::runtime_error("select the guide curves");
-    if (rails.size() > 2) throw std::runtime_error("this build follows up to two guides; select fewer");
+
     // Where each guide touches each profile, and its curve parameter there.
     std::vector<BRepAdaptor_CompCurve> curves;
     std::vector<std::vector<gp_Pnt>> touch(rails.size());
@@ -1018,7 +1089,14 @@ inline std::unique_ptr<TopoDS_Shape> w3d_loft_guided(rust::Slice<const double> s
           move.SetTranslation(r[0], g[0]);
           t = move * onto;
         }
-        mk.AddWire(TopoDS::Wire(BRepBuilderAPI_Transform(w, t, Standard_True).Shape()));
+        TopoDS_Wire placed = TopoDS::Wire(BRepBuilderAPI_Transform(w, t, Standard_True).Shape());
+        // Past two guides the section is bent to meet the rest too (the first two already do).
+        if (rails.size() > 2) {
+          std::vector<gp_Pnt> at, to;
+          for (size_t j = 0; j < rails.size(); j++) { at.push_back(r[j].Transformed(t)); to.push_back(g[j]); }
+          placed = w3d_warp_wire(placed, at, to);
+        }
+        mk.AddWire(placed);
       }
       mk.AddWire(profiles[i + 1]);
     }

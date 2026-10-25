@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 import { before, test } from 'node:test';
 import { LocalBackend } from '../src/app/LocalBackend.js';
 import * as THREE from 'three';
-import { loadKernel, tessellate, volume } from '../src/Kernel.js';
+import { loadKernel, oc, tessellate, volume } from '../src/Kernel.js';
 
 before(async () => { await loadKernel() });
 
@@ -44,11 +44,25 @@ test('a loft bends out to its guide, and a second guide stretches it', async () 
     close(b.min.x, 0, 0.01);
 });
 
-test('guides that miss the profiles, or too many, are refused', async () => {
-    let { f } = await loftWith([line([-3, 0], [-3, 20])]);
+test('guides that miss the profiles are refused', async () => {
+    const { f } = await loftWith([line([-3, 0], [-3, 20])]);
     assert.throws(f, /touch/);
-    ({ f } = await loftWith([line([0, 0], [0, 20]), line([0, 0], [0, 20]), line([0, 0], [0, 20])]));
-    assert.throws(f, /two guides/);
+});
+
+test('a third guide bends the sections onto it too', async () => {
+    // On the x = 10 plane, (u, v) is (10, v, -u): the squares' (10, y, 10) corner bowed out to z = 14.
+    const third = { origin: [10, 0, 0], x: [0, 0, -1], normal: [1, 0, 0], kind: 'arc', start: [-10, 0], mid: [-14, 10], end: [-10, 20] };
+    const { f } = await loftWith([line([0, 0], [0, 20]), arc([10, 0], [15, 10], [10, 20]), third]);
+    const tool = f().tool, o = oc();
+    close(bounds(tool).max.x, 15, 0.1);
+    // Points along the third guide lie on the loft.
+    // The arc has radius 14.5 about (y, z) = (10, -0.5).
+    const end = Math.asin(10 / 14.5);
+    for (const t of [-0.5, 0, 0.5]) {
+        const a = end * t, y = 10 + 14.5 * Math.sin(a), z = -0.5 + 14.5 * Math.cos(a);
+        const d = new o.BRepExtrema_DistShapeShape(new o.BRepBuilderAPI_MakeVertex(new o.gp_Pnt(10, y, z)).Shape(), tool);
+        assert.ok(d.Value() < 0.05, `${d.Value()} mm off the third guide at ${t}`);
+    }
 });
 
 test('Point keeps the section on the guide; Chord does not scale it', async () => {
