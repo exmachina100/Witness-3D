@@ -62,6 +62,11 @@ test('a round in an inside corner goes and the corner comes back sharp', () => {
     assert.equal(faces(back).length, 8);
 });
 
+test('a face of a plain box is refused: its neighbours do not close round it', () => {
+    const b = box({ x: 0, y: 0, z: 0 }, { x: 10, y: 10, z: 10 });
+    assert.throws(() => removeFaces(b, [0]), /do not close round them/);
+});
+
 test('curved neighbours are refused in the browser, and the whole body cannot go', () => {
     const c = primitive({ kind: 'cylinder', frame: { origin: [0, 0, 0], x: [1, 0, 0], normal: [0, 0, 1] }, radius: 5, height: 10 });
     const top = faces(c).findIndex(f => new (oc().BRepAdaptor_Surface)(f, true).GetType() === oc().GeomAbs_SurfaceType.GeomAbs_Plane);
