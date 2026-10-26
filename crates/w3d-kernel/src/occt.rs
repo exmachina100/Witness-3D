@@ -442,6 +442,10 @@ impl Kernel for Occt {
         Shape::bridge_surface(a.0, a.1 as usize, b.0, b.1 as usize, same, tension).map_err(shim)
     }
 
+    fn sheet_fillet(&self, a: &Shape, b: &Shape, width: f64, chamfer: bool, sense: [bool; 2], trim: u8) -> Result<[Option<Shape>; 3], KernelError> {
+        Shape::sheet_fillet(a, b, width, chamfer, sense, trim as i32).map_err(shim)
+    }
+
     fn patch_within(&self, curves: &[Path], edges: &[(&Shape, Vec<(u32, u32)>)], tolerance: f64) -> Result<Shape, KernelError> {
         let curves: Vec<(Path, DVec3)> = curves.iter().map(|c| (c.clone(), DVec3::Z)).collect();
         let edges: Vec<(&Shape, Vec<(usize, u32)>)> = edges.iter().map(|(s, e)| (*s, e.iter().map(|&(i, t)| (i as usize, t)).collect())).collect();

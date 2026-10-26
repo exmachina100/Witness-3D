@@ -5738,3 +5738,127 @@ inline std::unique_ptr<TopoDS_Shape> w3d_unwrap_face(const TopoDS_Shape &shape, 
     throw w3d_kernel_error(f);
   }
 }
+
+// Plasticity's Bridge Surface between two crossing sheets (`all` holds the two, one face each),
+// mirroring web/src/sheetFillet.js: each sheet split where the other crosses it, one piece of each
+// kept (the larger; `sense1`/`sense2` take the other), sewn along the crossing and that edge rounded
+// (G2, `chamfer` false) or chamfered by `width`. Trim walls (`trim`: 0 both, 1 short, 2 long,
+// 3 none) then says what comes back: a compound of three, the new first sheet, the new second sheet
+// and a new bridge body, each an empty compound where there is none (a sheet that stays as it was
+// comes back as it was).
+inline std::unique_ptr<TopoDS_Shape> w3d_sheet_fillet(const TopoDS_Shape &all, double width, bool chamfer, bool sense1, bool sense2, int32_t trim) {
+  if (!(width > 0)) throw std::runtime_error("the width must be above zero");
+  std::vector<TopoDS_Shape> sheets;
+  for (TopoDS_Iterator it(all); it.More(); it.Next()) sheets.push_back(it.Value());
+  if (sheets.size() != 2) throw std::runtime_error("select two sheets that cross");
+  const TopoDS_Shape &a = sheets[0], &b = sheets[1];
+  auto faceCount = [](const TopoDS_Shape &s) { TopTools_IndexedMapOfShape m; TopExp::MapShapes(s, TopAbs_FACE, m); return m.Extent(); };
+  if (faceCount(a) != 1 || faceCount(b) != 1) throw std::runtime_error("select two sheets of one face each that cross");
+  auto area = [](const TopoDS_Shape &f) { GProp_GProps p; BRepGProp::SurfaceProperties(f, p); return p.Mass(); };
+  auto touches = [](const TopoDS_Shape &x, const TopoDS_Shape &y, double tol) { BRepExtrema_DistShapeShape d(x, y); return d.IsDone() && d.Value() < tol; };
+  const double size = std::sqrt(area(a) + area(b)), near = 1e-4 * std::max(1.0, size), tol = 1e-6 * std::max(1.0, size);
+  auto on = [&](const TopoDS_Shape &f, const TopoDS_Shape &s) {
+    GProp_GProps p;
+    BRepGProp::SurfaceProperties(f, p);
+    return touches(BRepBuilderAPI_MakeVertex(p.CentreOfMass()).Vertex(), s, near);
+  };
+  auto sew = [](const std::vector<TopoDS_Shape> &shapes) {
+    BRepBuilderAPI_Sewing s(1e-6, true, true, true, false);
+    for (const TopoDS_Shape &x : shapes) s.Add(x);
+    s.Perform();
+    return s.SewedShape();
+  };
+  auto compound = [](const std::vector<TopoDS_Shape> &shapes) {
+    BRep_Builder bb;
+    TopoDS_Compound c;
+    bb.MakeCompound(c);
+    for (const TopoDS_Shape &x : shapes) bb.Add(c, x);
+    return c;
+  };
+  try {
+    BRepAlgoAPI_Fuse fuse(a, b);
+    if (!fuse.IsDone() || fuse.HasErrors()) throw std::runtime_error("the sheets could not be crossed");
+    std::vector<TopoDS_Shape> ofA, ofB;
+    for (TopExp_Explorer ex(fuse.Shape(), TopAbs_FACE); ex.More(); ex.Next()) {
+      const bool inA = on(ex.Current(), a), inB = on(ex.Current(), b);
+      if (inA && !inB) ofA.push_back(ex.Current());
+      if (inB && !inA) ofB.push_back(ex.Current());
+    }
+    if (ofA.size() < 2 || ofB.size() < 2) throw std::runtime_error("the sheets do not cross; to bridge sheets apart, pick an edge of each");
+    if (ofA.size() > 2 || ofB.size() > 2) throw std::runtime_error("the sheets cross more than once; trim them so they cross along one line");
+    auto pick = [&](std::vector<TopoDS_Shape> &two, bool flip) {
+      const bool firstBig = area(two[0]) >= area(two[1]);
+      return two[(firstBig != flip) ? 0 : 1];
+    };
+    const TopoDS_Shape ka = pick(ofA, sense1), kb = pick(ofB, sense2);
+    const TopoDS_Shape shell = sew({ka, kb});
+    // The edges along the crossing: on both kept pieces.
+    std::vector<TopoDS_Edge> shared;
+    for (TopExp_Explorer ex(shell, TopAbs_EDGE); ex.More(); ex.Next()) {
+      const TopoDS_Edge e = TopoDS::Edge(ex.Current());
+      BRepAdaptor_Curve c(e);
+      const TopoDS_Vertex mid = BRepBuilderAPI_MakeVertex(c.Value((c.FirstParameter() + c.LastParameter()) / 2)).Vertex();
+      if (touches(mid, ka, tol * 10) && touches(mid, kb, tol * 10) && std::find_if(shared.begin(), shared.end(), [&](const TopoDS_Edge &x) { return x.IsSame(e); }) == shared.end()) shared.push_back(e);
+    }
+    if (shared.empty()) throw std::runtime_error("the kept pieces do not meet along the crossing");
+    TopoDS_Shape out;
+    const char *wide = "a bridge that wide does not fit between the sheets";
+    try {
+      if (chamfer) {
+        BRepFilletAPI_MakeChamfer mk(shell);
+        for (const TopoDS_Edge &e : shared) mk.Add(width, e);
+        mk.Build();
+        if (!mk.IsDone()) throw std::runtime_error(wide);
+        out = mk.Shape();
+      } else {
+        BRepFilletAPI_MakeFillet mk(shell, ChFi3d_Rational);
+        for (const TopoDS_Edge &e : shared) mk.Add(width, e);
+        mk.Build();
+        if (!mk.IsDone()) throw std::runtime_error(wide);
+        out = mk.Shape();
+      }
+    } catch (const Standard_Failure &) {
+      throw std::runtime_error(wide);
+    }
+    auto bridgeFaces = [&](const TopoDS_Shape &s) {
+      TopTools_IndexedMapOfShape fmap;
+      TopExp::MapShapes(s, TopAbs_FACE, fmap);
+      std::vector<int32_t> ids;
+      for (int i = 1; i <= fmap.Extent(); i++) if (!on(fmap(i), a) && !on(fmap(i), b)) ids.push_back(i - 1);
+      return ids;
+    };
+    if (!chamfer) {
+      std::vector<int32_t> ids = bridgeFaces(out);
+      out = *w3d_reshape_fillets(out, rust::Slice<const int32_t>(ids.data(), ids.size()), 3, 0.5);
+    }
+    TopTools_IndexedMapOfShape fmap;
+    TopExp::MapShapes(out, TopAbs_FACE, fmap);
+    std::vector<int32_t> ids = bridgeFaces(out);
+    std::vector<TopoDS_Shape> wa, wb, br;
+    double areaA = 0, areaB = 0;
+    for (int i = 1; i <= fmap.Extent(); i++) {
+      const bool round = std::find(ids.begin(), ids.end(), i - 1) != ids.end();
+      if (round) br.push_back(fmap(i));
+      else if (on(fmap(i), a)) { wa.push_back(fmap(i)); areaA += area(fmap(i)); }
+      else if (on(fmap(i), b)) { wb.push_back(fmap(i)); areaB += area(fmap(i)); }
+    }
+    const TopoDS_Compound none = compound({});
+    std::vector<TopoDS_Shape> result;
+    if (trim == 0) {
+      std::vector<TopoDS_Shape> every(wa);
+      every.insert(every.end(), br.begin(), br.end());
+      every.insert(every.end(), wb.begin(), wb.end());
+      result = {sew(every), none, none};
+    } else if (trim == 3) {
+      result = {a, b, sew(br)};
+    } else {
+      const bool trimA = trim == 1 ? areaA <= areaB : areaA > areaB;
+      std::vector<TopoDS_Shape> wall(trimA ? wa : wb);
+      wall.insert(wall.end(), br.begin(), br.end());
+      result = trimA ? std::vector<TopoDS_Shape>{sew(wall), b, none} : std::vector<TopoDS_Shape>{a, sew(wall), none};
+    }
+    return std::unique_ptr<TopoDS_Shape>(new TopoDS_Shape(compound(result)));
+  } catch (const Standard_Failure &f) {
+    throw w3d_kernel_error(f);
+  }
+}

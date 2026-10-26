@@ -18,6 +18,7 @@ import { filletFaces, rechamfer, refilletFaces, removeFaces, turnFlatFace } from
 import { moveFacePoles, subdivideFaces } from '../movePoles.js';
 import { chordal, fullRound, limitRound, reshapeRounds } from '../filletShape.js';
 import { bridgeSurface } from '../BridgeSurface.js';
+import { sheetFillet, trimWalls } from '../sheetFillet.js';
 import { projectOutline } from '../Outline.js';
 import { thicken, thickenFaces } from '../Thicken.js';
 import { extendSheet, extendSheetTo } from '../ExtendSheet.js';
@@ -848,6 +849,35 @@ export class LocalBackend {
         const id = this.nextId++;
         this.put(id, sheet);
         return { id, scene: this.bodies() };
+    }
+
+    /**
+     * Bridge Surface between two crossing sheets (sheetFillet.js): what becomes of each sheet and
+     * the bridge, as w3d_sheet_fillet, and which of them to show.
+     */
+    sheetBridgeResult({ a, b, width, shape = 'g2', trim = 'both', sense = [false, false] }) {
+        if (a === b) throw new Error('select two different sheets');
+        const sa = this.shapes.get(a), sb = this.shapes.get(b);
+        if (!sa || !sb) throw new Error('that body no longer exists');
+        const w = trimWalls(sa, sb, sheetFillet(sa, sb, { width, shape, sense }), trim);
+        const out = [w.a, w.b, w.bridge];
+        const shown = trim === 'both' ? 0 : trim === 'none' ? 2 : out[0] !== sa ? 0 : 1;
+        return { out, shown };
+    }
+
+    previewSheetBridge(req) { return this.latest(async () => { const { out, shown } = this.sheetBridgeResult(req); return this.body(0, out[shown]); }) }
+
+    /** As one undo step: each sheet replaced by what it became (or gone), the bridge a body where it stands alone. */
+    async commitSheetBridge(req) {
+        const { out: [na, nb, bridge], shown } = this.sheetBridgeResult(req);
+        this.checkpoint();
+        for (const [id, s] of [[req.a, na], [req.b, nb]]) {
+            if (s) this.put(id, s);
+            else { this.shapes.delete(id); this.refs.delete(id); }
+        }
+        let added = null;
+        if (bridge) { added = this.nextId++; this.put(added, bridge); }
+        return { id: shown === 2 ? added : shown === 1 ? req.b : req.a, scene: this.bodies() };
     }
 
     /** Plasticity's Patch: a sheet filling one closed loop of curves and body edges. */

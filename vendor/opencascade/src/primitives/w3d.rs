@@ -515,6 +515,18 @@ impl Shape {
         Ok(Shape::from_shape(&joined))
     }
 
+    /// Plasticity's Bridge Surface between crossing sheets `a` and `b` (see `w3d_sheet_fillet`): the
+    /// new first sheet, second sheet and bridge body, each `None` where there is none.
+    pub fn sheet_fillet(a: &Shape, b: &Shape, width: f64, chamfer: bool, sense: [bool; 2], trim: i32) -> Result<[Option<Shape>; 3], String> {
+        let all = Shape::from(crate::primitives::Compound::from_shapes([a, b]));
+        let out = ffi::w3d::w3d_sheet_fillet(&all.inner, width, chamfer, sense[0], sense[1], trim).map_err(reason)?;
+        let piece = |i: i32| -> Result<Option<Shape>, String> {
+            let s = ffi::w3d::w3d_child_at(&out, i).map_err(reason)?;
+            Ok(if ffi::w3d::w3d_child_count(&s) == 0 { None } else { Some(Shape::from_shape(&s)) })
+        };
+        Ok([piece(0)?, piece(1)?, piece(2)?])
+    }
+
     /// Plasticity's Unjoin: each face as a sheet (`faces`), or each separate shell or solid (see `w3d_unjoin`).
     pub fn unjoin(&self, faces: bool) -> Result<Vec<Shape>, String> {
         let all = ffi::w3d::w3d_unjoin(&self.inner, faces).map_err(reason)?;
