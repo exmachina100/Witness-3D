@@ -434,6 +434,8 @@ const SHELL = `
       <div class="field" title="Spans across the second side; 0 is as many as U"><label for="w3d-sq-v">SPANS V</label><input id="w3d-sq-v" data-id="sq-v" type="number" step="1" min="0" max="64" value="0"></div>
       <div class="field" title="How far the inner control points lie toward the plane of the sides: 0 follows the sides, 1 is as flat as they allow"><label for="w3d-sq-flat">FLATNESS</label><input id="w3d-sq-flat" data-id="sq-flat" type="number" step="0.1" min="0" max="1" value="0"></div>
       <div class="field" title="How strictly the sheet keeps to the sides: 1 on them, lower loosens them for a fairer surface"><label for="w3d-sq-w">WEIGHT</label><input id="w3d-sq-w" data-id="sq-w" type="number" step="0.1" min="0.05" max="1" value="1"></div>
+      <div class="chips" data-id="sq-xrow" hidden><button data-id="sq-quad" aria-pressed="false" title="Fill the whole loop as one untrimmed four-sided surface, cut at its four corners (Q)"><kbd>Q</kbd>QUAD SIDED</button></div>
+      <div class="seg" data-id="sq-qrow" role="group" aria-label="Quality: how closely the fit follows the sides" hidden><button data-sqquality="auto" aria-pressed="true" title="Auto: within 0.01 mm of the sides">AUTO</button><button data-sqquality="high" aria-pressed="false" title="High: within 0.001 mm">HIGH</button><button data-sqquality="max" aria-pressed="false" title="Max: within 0.0001 mm">MAX</button></div>
       <span class="label">BOUNDARY</span>
       <div class="seg" role="group" aria-label="How the isocurves leave the free sides"><button data-sqbound="natural" aria-pressed="true" title="Natural: the isocurves leave the sides as the fit has them">NATURAL</button><button data-sqbound="normal" aria-pressed="false" title="Normal: the isocurves leave the sides square to them">NORMAL</button><button data-sqbound="next" aria-pressed="false" title="Next: square to the sides that are nearly flat">NEXT</button><button data-sqbound="adjacent" aria-pressed="false" title="Adjacent: the isocurves lean from one neighbouring side's direction to the other's">ADJ.</button></div>
     </div>
@@ -5188,12 +5190,14 @@ export async function mount(root, backend) {
    * meeting end to end, or two to loft between), with its degree and spans set. Shift+click adds or
    * takes off sides while it runs. The fill is square.js; OK or right-click makes the sheet.
    */
-  async function startSquare() {
+  async function startSquare({ xnurbs = false } = {}) {
     if (cmd) await finish();
-    if (!backend.previewSplineSheet || !backend.edgeCurvature) return toast('SQUARE IS NOT IN THIS BUILD YET');
-    const c = cmd = { id: 'square', data: null, sent: 0, shown: 0, edges: new Map(), faces: new Map(), continuity: 'G0' };
+    if (!backend.previewSplineSheet || !backend.edgeCurvature) return toast(`${xnurbs ? 'XNURBS' : 'SQUARE'} IS NOT IN THIS BUILD YET`);
+    const c = cmd = { id: 'square', xnurbs, quad: xnurbs, quality: 'auto', data: null, sent: 0, shown: 0, edges: new Map(), faces: new Map(), continuity: 'G0' };
+    $('sq-xrow').hidden = $('sq-qrow').hidden = !xnurbs;
     lastTool = 'square';
     showTool('square');
+    if (xnurbs) { $('tool-name').textContent = 'XNURBS'; $('status-tool').textContent = 'XNURBS'; }
     setState('none');
     // Each side as a polyline in model space.
     const sideOf = async it => {
@@ -5255,10 +5259,11 @@ export async function mount(root, backend) {
     c.preview = async () => {
       const items = picked();
       setTarget(`${items.length} SIDE${items.length === 1 ? '' : 'S'}`);
-      if (items.length < 2 || items.length > 4) {
+      const loose = c.quad ? items.length < 1 : items.length < 2 || items.length > 4;
+      if (loose) {
         c.data = null;
         clearPreview();
-        $('sq-hint').textContent = 'SELECT THREE OR FOUR SIDES MEETING END TO END, OR TWO TO LOFT BETWEEN';
+        $('sq-hint').textContent = c.quad ? 'SELECT THE CURVES AND EDGES ROUND ONE CLOSED LOOP' : 'SELECT THREE OR FOUR SIDES MEETING END TO END, OR TWO TO LOFT BETWEEN';
         return setState('none');
       }
       let fit;
@@ -5269,15 +5274,22 @@ export async function mount(root, backend) {
           sides = await Promise.all(sides.map((pts, i) => items[i].kind === 'edge' ? withOut(items[i], pts, centre) : pts));
         }
         if (cmd !== c) return;
+        // Quad sided: the whole loop is chained and cut at its four corners (xNURBS' option).
+        if (c.quad) {
+          const size = Math.max(...sides.flat().map(p => Math.hypot(...p.map((x, k) => x - sides[0][0][k])))) || 1;
+          sides = quadSides(sides, Math.max(0.01, 1e-3 * size));
+        }
+        for (const b of $$('[data-sqquality]')) b.setAttribute('aria-pressed', String(b.dataset.sqquality === c.quality));
+        $('sq-quad').setAttribute('aria-pressed', String(!!c.quad));
         const su = Math.round(num('sq-u')) || 0, sv = Math.round(num('sq-v')) || su;
         const tension = num('sq-t');
         if (!(tension > 0)) throw new Error('the tension must be greater than zero');
-        fit = square(sides, { degree: Math.round(num('sq-d')), spans: su ? [su, sv] : 0, continuity: c.continuity, tension, flatness: Math.min(1, Math.max(0, num('sq-flat') || 0)), boundary: c.boundary ?? 'natural', weight: Math.min(1, Math.max(0.05, num('sq-w') || 1)) });
+        fit = square(sides, { degree: Math.round(num('sq-d')), spans: su ? [su, sv] : 0, tolerance: { auto: 0.01, high: 0.001, max: 0.0001 }[c.quality], continuity: c.continuity, tension, flatness: Math.min(1, Math.max(0, num('sq-flat') || 0)), boundary: c.boundary ?? 'natural', weight: Math.min(1, Math.max(0.05, num('sq-w') || 1)) });
         for (const b of $$('[data-sqbound]')) b.setAttribute('aria-pressed', String(b.dataset.sqbound === (c.boundary ?? 'natural')));
       } catch (e) { c.data = null; clearPreview(); $('sq-hint').textContent = say(e); return setState('failed'); }
       c.data = splineSheetData(fit);
-      $('sq-hint').textContent = `${c.continuity === 'FREE' ? 'FREE · ' : ''}${items.length === 2 ? 'LOFT' : items.length === 3 ? 'THREE SIDES' : 'FOUR SIDES'} · DEGREE ${fit.degree[0]} · ${fit.spans.join(' × ')} SPANS · SIDES WITHIN ${fit.gap < 1e-4 ? '< 0.0001' : fit.gap.toFixed(4)} MM${c.continuity === 'G1' || c.continuity === 'G2' ? ` · TANGENT WITHIN ${fit.turn.toFixed(2)}°` : ''}${c.continuity === 'G2' ? ` · CURVATURE WITHIN ${fit.bend.toFixed(5)} /MM` : ''}${num('sq-flat') > 0 ? ` · FLATNESS ${Math.min(1, num('sq-flat'))}` : ''}${num('sq-w') < 1 ? ` · WEIGHT ${Math.max(0.05, num('sq-w'))}` : ''}${c.boundary && c.boundary !== 'natural' ? ` · ${c.boundary.toUpperCase()} BOUNDARY` : ''}`;
-      setHud(`SQUARE · ${fit.spans.join(' × ')} SPANS`);
+      $('sq-hint').textContent = `${c.xnurbs ? 'XNURBS · ' : ''}${c.continuity === 'FREE' ? 'FREE · ' : ''}${c.quad ? 'QUAD SIDED' : items.length === 2 ? 'LOFT' : items.length === 3 ? 'THREE SIDES' : 'FOUR SIDES'} · DEGREE ${fit.degree[0]} · ${fit.spans.join(' × ')} SPANS · SIDES WITHIN ${fit.gap < 1e-4 ? '< 0.0001' : fit.gap.toFixed(4)} MM${c.continuity === 'G1' || c.continuity === 'G2' ? ` · TANGENT WITHIN ${fit.turn.toFixed(2)}°` : ''}${c.continuity === 'G2' ? ` · CURVATURE WITHIN ${fit.bend.toFixed(5)} /MM` : ''}${num('sq-flat') > 0 ? ` · FLATNESS ${Math.min(1, num('sq-flat'))}` : ''}${num('sq-w') < 1 ? ` · WEIGHT ${Math.max(0.05, num('sq-w'))}` : ''}${c.boundary && c.boundary !== 'natural' ? ` · ${c.boundary.toUpperCase()} BOUNDARY` : ''}`;
+      setHud(`${c.xnurbs ? 'XNURBS' : 'SQUARE'} · ${fit.spans.join(' × ')} SPANS`);
       livePreview(c, () => backend.previewSplineSheet({ data: c.data }), b => showPreviewBody(b), 'sq-hint');
     };
     c.onSelection = () => { drawOverlays(); c.preview(); };
@@ -5301,6 +5313,7 @@ export async function mount(root, backend) {
         setHud('TENSION _');
         return true;
       }
+      if (action === 'quad' && c.xnurbs) { c.quad = !c.quad; c.preview(); return true; }
       if (action !== 'degree') return false;
       c.entry = { label: 'DEGREE', text: '', apply: v => { if (v >= 1 && v <= 7) { $('sq-d').value = Math.round(v); c.preview(); } else toast('THE DEGREE RUNS FROM 1 TO 7'); } };
       setHud('DEGREE _');
@@ -5311,7 +5324,7 @@ export async function mount(root, backend) {
       try {
         const { ids, scene: list } = await backend.commitSplineSheet({ data: c.data });
         endCmd('committed');
-        record('SQUARE', ids[0], $('sq-hint').textContent);
+        record(c.xnurbs ? 'XNURBS' : 'SQUARE', ids[0], $('sq-hint').textContent);
         await showScene(list);
         sel.clear();
         sel.add({ kind: 'solid', body: ids[0] });
@@ -9653,6 +9666,7 @@ export async function mount(root, backend) {
       case 'project-align': await startProjectAlign(); return true;
       case 'constrained-surface': if (cmd) await finish(); startConstrainedSurface(); return true;
       case 'square': await startSquare(); return true;
+      case 'xnurbs': await startSquare({ xnurbs: true }); return true;
       case 'realize-instance': if (cmd?.id === 'instance') await cmd.realize(); else toast('CLICK AN INSTANCE, THEN REALIZE IT'); return true;
       case 'join': await joinSelected(); return true;
       case 'trim': await startTool('trim'); return true;
@@ -10431,6 +10445,8 @@ export async function mount(root, backend) {
   $('be-start').onclick = () => cmd?.id === 'bridge-edge' && cmd.cycleEnd(0);
   for (const b of $$('[data-sqcont]')) b.onclick = () => cmd?.id === 'square' && cmd.setContinuity(b.dataset.sqcont);
   for (const id of ['sq-d', 'sq-u', 'sq-v', 'sq-t', 'sq-flat', 'sq-w']) $(id).addEventListener('input', () => cmd?.id === 'square' && cmd.preview());
+  $('sq-quad').onclick = () => cmd?.id === 'square' && cmd.key('quad');
+  for (const b of $$('[data-sqquality]')) b.onclick = () => { if (cmd?.id === 'square') { cmd.quality = b.dataset.sqquality; cmd.preview(); } };
   for (const b of $$('[data-sqbound]')) b.onclick = () => { if (cmd?.id === 'square') { cmd.boundary = b.dataset.sqbound; cmd.preview(); } };
   for (const b of $$('[data-csopt]')) b.onclick = () => { if (cmd?.id === 'constrained-surface') { cmd.optimize = b.dataset.csopt; cmd.preview(); } };
   for (const id of ['cs-tol', 'cs-ang']) $(id).addEventListener('input', () => cmd?.id === 'constrained-surface' && num(id) > 0 && cmd.preview());
