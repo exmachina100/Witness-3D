@@ -69,7 +69,7 @@ import { curveArrayMotions } from '../curveArray.js';
 import { chamferDimensions, curveDimensions, faceDimensions, filletDimensions, solidDimensions } from '../dimension.js';
 import { edgeCurve, flattenCurve } from '../altDuplicate.js';
 import { EDGE_CONTINUITY, bridgeCurve, bridgePoles, edgePoint } from '../bridgeEdge.js';
-import { ALIGN_CONTINUITY, alignAnalysis, alignRequest, readEdgeFaces } from '../alignSurface.js';
+import { ALIGN_CONTINUITY, alignAnalysis, alignRequest, readEdgeFaces, targetFace } from '../alignSurface.js';
 import { PROJECT_CONTINUITY, projectAlignRequest } from '../projectAlign.js';
 import { constrainedSurface, splineSheetData } from '../constrainedSurface.js';
 import { square } from '../square.js';
@@ -681,6 +681,7 @@ const SHELL = `
       <div class="field" title="How fast the sheet leaves its side, against how fast it does now (D)"><label for="w3d-as-t">TENSION</label><input id="w3d-as-t" data-id="as-t" type="number" step="0.1" min="0.05" value="1"></div>
       <div class="field" title="How many more rows of control points follow the aligned ones, less and less (0: none)"><label for="w3d-as-blend">BLEND EXTRA ROWS</label><input id="w3d-as-blend" data-id="as-blend" type="number" step="1" min="0" value="0"></div>
       <div class="field" title="How much the sheet's own shape holds the blended rows back (0 to 1)"><label for="w3d-as-infl">INPUT SHAPE INFLUENCE</label><input id="w3d-as-infl" data-id="as-infl" type="number" step="0.1" min="0" max="1" value="0"></div>
+      <div class="field two" title="Rebuild the sheet to this degree and number of spans each way before aligning (0: keep it as it is)"><label for="w3d-as-deg">DEGREE · SPANS</label><input id="w3d-as-deg" data-id="as-deg" type="number" step="1" min="0" max="7" value="0" aria-label="Degree"><input data-id="as-spans" type="number" step="1" min="0" value="0" aria-label="Spans"></div>
       <div class="field two" title="Align in full only between these fractions along the side, easing out to the side's ends"><label for="w3d-as-p0">PARTIAL START · END</label><input id="w3d-as-p0" data-id="as-p0" type="number" step="0.05" min="0" max="1" value="0" aria-label="Partial start"><input data-id="as-p1" type="number" step="0.05" min="0" max="1" value="1" aria-label="Partial end"></div>
       <span class="label">BOUNDARY</span>
       <div class="seg" role="group" aria-label="How the sheet leaves the aligned side at its ends"><button data-asbound="natural" aria-pressed="true" title="Natural: the sheet leaves the side's ends as the fit has it">NATURAL</button><button data-asbound="normal" aria-pressed="false" title="Normal: the sheet leaves the side's ends square to the side">NORMAL</button><button data-asbound="next" aria-pressed="false" title="Next: square where the neighbouring side is nearly flat">NEXT</button><button data-asbound="adjacent" aria-pressed="false" title="Adjacent: along the sheet's own neighbouring sides, as they ran before">ADJ.</button></div>
@@ -8011,6 +8012,38 @@ export async function mount(root, backend) {
         $('as-r2').textContent = r.bend === null ? 'NEEDS 3 ROWS' : `${r.bend.toFixed(1)}%${mark(r.ok.g2)}`;
       } catch (e) { $('as-r0').textContent = say(e); }
     };
+    // Degree/Spans: the target sheet rebuilt first (an undo step of its own, taken back if Align is
+    // cancelled or set back to 0), then aligned. The edges are found again by where they lie.
+    const middleOf = (body, n) => { const e = bodyOf(body)?.edges?.[n] ?? []; const k = Math.floor(e.length / 6) * 3; return e.slice(k, k + 3); };
+    const refind = (body, at) => {
+      let best = -1, bd = Infinity;
+      (bodyOf(body)?.edges ?? []).forEach((e, n) => { const m = middleOf(body, n), d = Math.hypot(m[0] - at[0], m[1] - at[1], m[2] - at[2]); if (d < bd) { bd = d; best = n; } });
+      return best;
+    };
+    const marks = { t: middleOf(target.body, target.edge), r: middleOf(reference.body, reference.edge) };
+    c.rebuilt = 0; c.rebuiltKey = '';
+    const unbuild = async () => {
+      if (!c.rebuilt) return;
+      let list;
+      while (c.rebuilt) { list = await backend.undo(); history.pop(); c.rebuilt--; }
+      renderHistory();
+      await showScene(list);
+    };
+    const rebuildTo = async () => {
+      const d = Math.round(num('as-deg') || 0), sp = Math.round(num('as-spans') || 0), key = d > 0 && sp > 0 ? `${d}/${sp}` : '';
+      if (key === c.rebuiltKey) return;
+      await unbuild();
+      c.rebuiltKey = key;
+      if (key) {
+        const face = await targetFace(backend, target, reference);
+        const { id, scene: list, rebuilt } = await backend.commitRebuildFaces({ body: target.body, faces: [face], explicit: true, tolerance: 0.01, degree: [d, d], spans: [sp, sp], extend: [0, 0], shrink: false });
+        c.rebuilt = 1;
+        record(`REBUILD FACE ×1`, id, `${(rebuilt ?? []).map(f => `${f.poles[0]}×${f.poles[1]} CVS`).join(' ')} · FOR ALIGN`);
+        await showScene(list);
+      }
+      target.edge = refind(target.body, marks.t);
+      reference.edge = refind(reference.body, marks.r);
+    };
     c.preview = () => {
       buttons();
       const text = `ALIGN ${c.continuity} · TENSION ${num('as-t')}`;
@@ -8018,6 +8051,8 @@ export async function mount(root, backend) {
       setHud(text);
       livePreview(c, async () => {
         c.req = null;
+        c.ready = (c.ready ?? Promise.resolve()).then(rebuildTo);
+        await c.ready;
         const req = await alignRequest(backend, { target, reference, continuity: c.continuity, tension: num('as-t'), blend: Math.max(0, Math.round(num('as-blend') || 0)), influence: Math.min(1, Math.max(0, num('as-infl') || 0)), partial: [num('as-p0'), num('as-p1')], symmetric: c.symmetric, boundary: c.boundary });
         // Symmetric moves the other sheet too: both previewed.
         const list = [];
@@ -8048,7 +8083,7 @@ export async function mount(root, backend) {
         await showScene(list);
       } catch (e) { setState('failed'); toast(say(e)); }
     };
-    c.abort = () => endCmd('cancelled');
+    c.abort = async () => { await (c.ready ?? null)?.catch(() => {}); await unbuild(); endCmd('cancelled'); };
     c.cleanup = () => clearPreview();
     c.preview();
   }
@@ -10293,7 +10328,7 @@ export async function mount(root, backend) {
   $('as-analysis').onclick = () => cmd?.id === 'align-surface' && cmd.setAnalysis(!cmd.analysis);
   for (const id of ['as-tg0', 'as-tg1', 'as-tg2']) $(id).addEventListener('input', () => cmd?.id === 'align-surface' && cmd.analyse());
   $('as-t').addEventListener('input', () => cmd?.id === 'align-surface' && num('as-t') > 0 && cmd.preview());
-  for (const id of ['as-blend', 'as-infl', 'as-p0', 'as-p1']) $(id).addEventListener('input', () => cmd?.id === 'align-surface' && cmd.preview());
+  for (const id of ['as-blend', 'as-infl', 'as-p0', 'as-p1', 'as-deg', 'as-spans']) $(id).addEventListener('input', () => cmd?.id === 'align-surface' && cmd.preview());
   $('be-end').onclick = () => cmd?.id === 'bridge-edge' && cmd.cycleEnd(1);
   $('br-end').onclick = () => cmd?.id === 'bridge' && cmd.cycleEnd(1);
   $('oc-lock').onclick = () => cmd?.id === 'offset-curve' && cmd.key('lock');

@@ -351,8 +351,14 @@ export async function alignRequest(backend, { target, reference, continuity = 'G
     const rFace = pickFace(rFaces, middle(tAlong), false);
     const moves = alignMoves(side, plan, rFace.frames, { continuity, tension, blend, influence, partial, boundary });
     // What Analysis needs to check the result: the side, and the reference edge and face.
-    const check = { side, reference, face: rFace.face, moves };
+    const check = { side, reference, face: rFace.face, target: tFace.face, moves };
     return { body: target.body, moves: moves.map(([pole, by]) => [tFace.face, pole, by]), check };
+}
+
+/** The face of the target edge that Align Surface moves: a B-spline face, away from the reference. */
+export async function targetFace(backend, target, reference) {
+    const teeth = await backend.edgeCurvature({ body: reference.body, edge: reference.edge, n: 64 });
+    return pickFace(readEdgeFaces(await backend.edgeFaces({ body: target.body, edge: target.edge, points: [] }), 0), teeth[Math.floor(teeth.length / 2)].at, true).face;
 }
 
 /**
