@@ -1366,6 +1366,8 @@ public:
       Handle(Geom_Curve) c = BRep_Tool::Curve(e, a, b);
       if (c.IsNull()) throw std::runtime_error("an edge of that face has no curve to move");
       Handle(Geom_Curve) tc = Handle(Geom_Curve)::DownCast(c->Transformed(t));
+      // Untrimmed, so a corner that slides further along it (a chamfer turned wider) still lands on it.
+      while (tc->IsKind(STANDARD_TYPE(Geom_TrimmedCurve))) tc = Handle(Geom_TrimmedCurve)::DownCast(tc)->BasisCurve();
       auto lies = [&](const Handle(Geom_Curve) &cc, const std::vector<int> &on_) {
         bool ok = true;
         for (int f : on_)

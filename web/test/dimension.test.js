@@ -112,3 +112,45 @@ test("a chamfer's distance, and a new one", async () => {
     const surfaces = await be.faceSurfaces({ body: id });
     assert.equal(chamferDimensions(id, surfaces.findIndex(f => f.kind === 'plane' && f.normal[1] > 0.99), surfaces, []).length, 0);
 });
+
+test("an unequal chamfer's two distances, each turning the face about its other edge", async () => {
+    const o = oc();
+    const be = new LocalBackend();
+    const id = be.scene()[0].id;
+    const block = be.shapes.get(id);
+    // 3 mm on one side and 6 on the other.
+    be.shapes.set(id, blendEdges(block, [0], 3, true, false, Math.atan(2)));
+    const measure = async () => {
+        const shape = be.shapes.get(id), surfaces = await be.faceSurfaces({ body: id });
+        const face = surfaces.findIndex(f => f.kind === 'plane' && f.normal.filter(x => Math.abs(x) > 1e-6).length === 2);
+        const faces = numbered(shape, 'TopAbs_FACE').map(f => o.TopoDS.Face(f));
+        const ends = e => { const c = new o.BRepAdaptor_Curve(e); return [c.FirstParameter(), c.LastParameter()].map(t => { const p = c.Value(t); return [p.X(), p.Y(), p.Z()]; }); };
+        const near = [];
+        faces.forEach((f, g) => { if (g !== face) for (const e of numberedEdges(f)) if (numberedEdges(faces[face]).some(x => x.IsSame(e))) near.push({ face: g, points: ends(e) }); });
+        return chamferDimensions(id, face, surfaces, near);
+    };
+    const dims = await measure();
+    assert.deepEqual(dims.map(d => d.label), ['DISTANCE 1', 'DISTANCE 2']);
+    const [a, b] = dims.map(d => d.value);
+    close(a * b, 18, 1e-6);
+    close(volume(be.shapes.get(id)), volume(block) - 9 * 50, 1e-3);
+    // The turn lands the face's edge on side 1 at the new setback: the corner of the turned face
+    // lies on the line from the pivot to it (what the desktop's Move Face gets).
+    const e = dims[0].edit(4);
+    assert.equal(e.op, 'turn');
+    const rot = (p, axis, t) => { const [x, y, z] = axis, c = Math.cos(t), s = Math.sin(t), d = p[0] * x + p[1] * y + p[2] * z; return [0, 1, 2].map(k => p[k] * c + [y * p[2] - z * p[1], z * p[0] - x * p[2], x * p[1] - y * p[0]][k] * s + axis[k] * d * (1 - c)); };
+    const { corner, sides, size } = e.chamfer;
+    const from = corner.map((c, k) => c + sides[0][k] * size[0] - e.pivot[k]), want = corner.map((c, k) => c + sides[0][k] * 4 - e.pivot[k]);
+    const got = rot(from, e.axis, e.angle), cr = [got[1] * want[2] - got[2] * want[1], got[2] * want[0] - got[0] * want[2], got[0] * want[1] - got[1] * want[0]];
+    assert.ok(Math.hypot(...cr) < 1e-9 && got.reduce((s, v, k) => s + v * want[k], 0) > 0);
+    await be.commitMoveFaces(e);
+    close(volume(be.shapes.get(id)), volume(block) - 0.5 * 4 * b * 50, 1e-3);
+    const after = await measure();
+    close(after[0].value, 4); close(after[1].value, b);
+    // Made equal again, DISTANCE is back.
+    await be.commitMoveFaces(after[1].edit(4));
+    const even = await measure();
+    assert.deepEqual(even.map(d => d.label), ['DISTANCE', 'DISTANCE 1', 'DISTANCE 2']);
+    close(even[0].value, 4);
+    close(volume(be.shapes.get(id)), volume(block) - 8 * 50, 1e-3);
+});

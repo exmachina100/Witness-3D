@@ -80,8 +80,10 @@ export function filletDimensions(body, chain, surfaces) {
 }
 
 /**
- * A chamfer's distance (Plasticity's Dimension on a chamfer): flat face `face` cutting the corner
- * where two flat faces would meet, set back the same distance on each. `neighbours` is
+ * A chamfer's distances (Plasticity's Dimension on a chamfer): flat face `face` cutting the corner
+ * where two flat faces would meet. Set back the same distance on each, it shows DISTANCE as well as
+ * DISTANCE 1 and 2, the setback on each side; a new DISTANCE 1 or 2 turns the chamfer face about
+ * its edge on the other side (Move Face), so the other setback stays. `neighbours` is
  * [{ face, points }]: each face beside it and the edge they share as [[x, y, z], ...]. A new
  * distance moves the chamfer face in or out (Offset Face), the corner line staying where it is;
  * `chamfer` on the edit says where the corner is for builds whose Offset Face cannot carry the
@@ -114,13 +116,26 @@ export function chamferDimensions(body, face, surfaces, neighbours) {
         if (!(h > 1e-9)) continue;
         // Setbacks: from the corner line to each shared edge, across the edge.
         const setback = S => { const r = sub(S.a, corner); return len(sub(r, S.u.map(x => x * dot(r, S.u)))); };
-        const dA = setback(A), dB = setback(B);
-        if (Math.abs(dA - dB) > 1e-6 * Math.max(1, dA)) continue;
+        // Side 1 and 2 by their faces' normals, so the numbering holds while the chamfer turns.
+        const [P, Q] = [A, B].sort((x, y) => { const k = [0, 1, 2].find(i => Math.abs(x.s.normal[i] - y.s.normal[i]) > 1e-6); return k === undefined ? 0 : x.s.normal[k] - y.s.normal[k]; });
+        const size = [setback(P), setback(Q)];
         // Across the corner to each side, and the run of the chamfer along it.
         const toward = S => { const r = sub(S.a, corner), t = sub(r, S.u.map(x => x * dot(r, S.u))); return t.map(x => x / len(t)); };
         const span = [A.a, A.a.map((x, k) => x + A.u[k] * A.l)].map(q => dot(sub(q, corner), A.u)).sort((x, y) => x - y);
-        const chamfer = { corner, axis: A.u, sides: [toward(A), toward(B)], span, size: dA };
-        return [{ label: 'DISTANCE', value: dA, edit: v => ({ op: 'offset', body, faces: [face], distance: h * (1 - v / dA), chamfer: { ...chamfer, to: v } }) }];
+        const across = [toward(P), toward(Q)], axis = A.u;
+        const chamfer = { corner, axis, sides: across, span, size };
+        const at = (i, d) => corner.map((c, k) => c + across[i][k] * d);
+        // Side i set back `v`: the face turned about its edge on the other side.
+        const turn = (i, v) => {
+            const j = 1 - i, pivot = at(j, size[j]), v0 = sub(at(i, size[i]), pivot), v1 = sub(at(i, v), pivot);
+            const angle = Math.atan2(dot(cross(v0, v1), axis), dot(v0, v1));
+            const to = [...size]; to[i] = v;
+            return { op: 'turn', body, faces: [face], offset: [0, 0, 0], pivot, axis, angle, chamfer: { ...chamfer, to } };
+        };
+        const each = [0, 1].map(i => ({ label: `DISTANCE ${i + 1}`, value: size[i], edit: v => turn(i, v) }));
+        if (Math.abs(size[0] - size[1]) > 1e-6 * Math.max(1, size[0])) return each;
+        const dA = size[0];
+        return [{ label: 'DISTANCE', value: dA, edit: v => ({ op: 'offset', body, faces: [face], distance: h * (1 - v / dA), chamfer: { ...chamfer, to: [v, v] } }) }, ...each];
     }
     return [];
 }
