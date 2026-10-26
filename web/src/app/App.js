@@ -167,8 +167,8 @@ const KEYS = {
   'export-drawing': [['VIEW', 'AS THE CAMERA SEES IT'], ['H', 'HIDDEN LINES'], ['C', 'CURVES'], ['⏎ / RMB', 'SAVE'], ['ESC', 'CANCEL']],
   'tangent-circle': [['CLICK', 'FIRST · SECOND CURVE · SIZE OR THIRD CURVE'], ['F', 'FREEZE'], ['TAB', 'RADIUS'], ['ESC', 'CANCEL']],
   extend: [['CLICK', 'NEAR AN END'], ['S', 'SHAPE NATURAL / LINEAR'], ['TYPE', 'LENGTH IN PANEL'], ['ESC / ⏎', 'DONE']],
-  bridge: [['T / D', 'TENSION'], ['TAB', 'CONTINUITY G0 G1 G2 G3'], ['Q', 'TRIM'], ['⏎ / RMB', 'OK']],
-  'bridge-edge': [['D', 'TENSION'], ['TAB', 'CONTINUITY G0 G1 G2 G3'], ['⏎ / RMB', 'OK']],
+  bridge: [['T / D', 'TENSION'], ['TAB', 'CONTINUITY G0 G1 G2 G3'], ['X Y Z', 'AXIS'], ['Q', 'TRIM'], ['⏎ / RMB', 'OK']],
+  'bridge-edge': [['D', 'TENSION'], ['TAB', 'CONTINUITY G0 G1 G2 G3'], ['X Y Z', 'AXIS'], ['⏎ / RMB', 'OK']],
   'align-surface': [['TAB', 'CONTINUITY G0 G1 G2'], ['D', 'TENSION'], ['⏎ / RMB', 'OK']],
   'project-align': [['TAB', 'CONTINUITY G0 G1 G2 PERP'], ['N X Y Z S', 'PROJECTION'], ['D', 'TENSION'], ['⏎ / RMB', 'OK']],
   square: [['⇧ CLICK', 'SIDES: CURVES OR EDGES'], ['TAB', 'CONTINUITY G0 G1 G2'], ['T', 'TENSION'], ['D', 'DEGREE'], ['⏎ / RMB', 'OK']],
@@ -662,6 +662,8 @@ const SHELL = `
       <div class="field two" title="Moves only the third control point; G3 is kept"><label for="w3d-br-t3a">G3 TENSION</label><input id="w3d-br-t3a" data-id="br-t3a" type="number" step="0.1" min="0.05" value="1" aria-label="G3 TENSION at the start"><input data-id="br-t3b" type="number" step="0.1" min="0.05" value="1" aria-label="G3 TENSION at the end"></div>
       <span class="label">CONTINUITY</span>
       <div class="chips"><button data-id="br-start" title="Continuity at the start (click to cycle)">START G1</button><button data-id="br-end" title="Continuity at the end (click to cycle)">END G1</button></div>
+      <span class="label">AXIS</span>
+      <div class="seg" role="group" aria-label="Constrain the bridge to an axis"><button data-braxis="" aria-pressed="true" title="The bridge leaves along the curves themselves">NONE</button><button data-braxis="x" aria-pressed="false" title="The bridge leaves both ends along X"><kbd>X</kbd>X</button><button data-braxis="y" aria-pressed="false" title="The bridge leaves both ends along Y"><kbd>Y</kbd>Y</button><button data-braxis="z" aria-pressed="false" title="The bridge leaves both ends along Z"><kbd>Z</kbd>Z</button></div>
       <div class="chips"><button data-id="br-trim" aria-pressed="false" title="Trim the curves where they run on past the bridge"><kbd>Q</kbd>TRIM</button><button data-id="br-comb" aria-pressed="false" title="Show the curvature of the bridge and the curves it joins">CURVATURE</button></div>
     </div>
     <div class="sec" data-panel="bridge-edge" hidden>
@@ -673,6 +675,8 @@ const SHELL = `
       <div class="field two" title="Moves only the third control point; G3 is kept"><label for="w3d-be-t3a">G3 TENSION</label><input id="w3d-be-t3a" data-id="be-t3a" type="number" step="0.1" min="0.05" value="1" aria-label="G3 TENSION at the start"><input data-id="be-t3b" type="number" step="0.1" min="0.05" value="1" aria-label="G3 TENSION at the end"></div>
       <span class="label">CONTINUITY</span>
       <div class="chips"><button data-id="be-start" title="Continuity with the first edge (click to cycle)">START G1</button><button data-id="be-end" title="Continuity with the second edge (click to cycle)">END G1</button></div>
+      <span class="label">AXIS</span>
+      <div class="seg" role="group" aria-label="Constrain the bridge to an axis"><button data-beaxis="" aria-pressed="true" title="The bridge leaves along the edges themselves">NONE</button><button data-beaxis="x" aria-pressed="false" title="The bridge leaves both ends along X"><kbd>X</kbd>X</button><button data-beaxis="y" aria-pressed="false" title="The bridge leaves both ends along Y"><kbd>Y</kbd>Y</button><button data-beaxis="z" aria-pressed="false" title="The bridge leaves both ends along Z"><kbd>Z</kbd>Z</button></div>
     </div>
     <div class="sec" data-panel="align-surface" hidden>
       <span class="hint" data-id="as-hint">—</span>
@@ -7890,7 +7894,7 @@ export async function mount(root, backend) {
         if (!pick || d < pick.d) pick = { d, ea, eb };
       }
     }
-    const c = cmd = { id: 'bridge', out: null, continuity: ['G1', 'G1'], trim: false, comb: false };
+    const c = cmd = { id: 'bridge', out: null, continuity: ['G1', 'G1'], axis: '', trim: false, comb: false };
     $('br-p1').value = pick.ea;
     $('br-p2').value = pick.eb;
     const cycle = g => BRIDGE_CONTINUITY[(BRIDGE_CONTINUITY.indexOf(g) + 1) % BRIDGE_CONTINUITY.length];
@@ -7907,13 +7911,14 @@ export async function mount(root, backend) {
         $('br-trim').setAttribute('aria-pressed', String(c.trim));
         $('br-comb').setAttribute('aria-pressed', String(c.comb));
         const at = [num('br-p1'), num('br-p2')];
-        c.out = bridgeContinuous(a, pick.ea, b, pick.eb, { ...bridgeTensions('br'), continuity: c.continuity, at });
+        for (const b2 of $$('[data-braxis]')) b2.setAttribute('aria-pressed', String(b2.dataset.braxis === c.axis));
+        c.out = bridgeContinuous(a, pick.ea, b, pick.eb, { ...bridgeTensions('br'), continuity: c.continuity, at, axis: c.axis ? toWorld(AXES[c.axis]) : null });
         // Trim: each curve keeps the part up to its bridge point (see bridgeEnd).
         c.trims = [[a, pick.ea, at[0]], [b, pick.eb, at[1]]].map(([cv, e, t]) => ({ id: cv.id, ...bridgeEnd(cv, e, t) })).filter(t => t.beyond);
         showCurvePreview([c.out]);
         if (c.comb) showCombPreview([c.out, ...[[a, pick.ea, at[0]], [b, pick.eb, at[1]]].map(([cv, e, t]) => c.trim ? bridgeEnd(cv, e, t).kept : cv)]);
         $('br-hint').textContent = `${curveLabel(a.id)} TO ${curveLabel(b.id)}${c.trim && c.trims.length ? ' · TRIMMED' : ''}`;
-        setHud(`BRIDGE · ${c.continuity.join(' / ')} · TENSION ${num('br-t1a')} / ${num('br-t1b')}${c.trim ? ' · TRIM' : ''}`);
+        setHud(`BRIDGE · ${c.continuity.join(' / ')} · TENSION ${num('br-t1a')} / ${num('br-t1b')}${c.axis ? ` · ${c.axis.toUpperCase()} AXIS` : ''}${c.trim ? ' · TRIM' : ''}`);
         setState('updated');
       } catch (e) { c.out = null; $('br-hint').textContent = say(e); setHud('BRIDGE FAILED'); setState('failed'); }
     };
@@ -7927,6 +7932,8 @@ export async function mount(root, backend) {
       }
       if (action === 'trim') { c.trim = !c.trim; c.preview(); return true; }
       if (action === 'comb') { c.comb = !c.comb; c.preview(); return true; }
+      // X, Y and Z constrain the bridge to that axis; the same key again lets it go.
+      if (action?.startsWith('axis-')) { c.setAxis(action.slice(5)); return true; }
       if (action !== 'tension') return false;
       c.entry = { label: 'TENSION', text: '', apply: v => { if (v > 0) { $('br-t1a').value = $('br-t1b').value = v; c.preview(); } else toast('THE TENSION MUST BE ABOVE ZERO'); } };
       setHud('TENSION _');
@@ -7944,6 +7951,7 @@ export async function mount(root, backend) {
         await curvesChanged([bridge]);
       } catch (e) { setState('failed'); toast(say(e)); }
     };
+    c.setAxis = a => { c.axis = c.axis === a ? '' : a; c.preview(); };
     c.abort = () => endCmd('cancelled');
     c.cleanup = () => clearPreview();
     c.preview();
@@ -7962,7 +7970,7 @@ export async function mount(root, backend) {
     let teeth;
     try { teeth = await Promise.all(edges.map(e => backend.edgeCurvature({ body: e.body, edge: e.n, n: 1000 }))); }
     catch (e) { return toast(say(e)); }
-    const c = cmd = { id: 'bridge-edge', out: null, continuity: ['G1', 'G1'] };
+    const c = cmd = { id: 'bridge-edge', out: null, continuity: ['G1', 'G1'], axis: '' };
     const cycle = g => EDGE_CONTINUITY[(EDGE_CONTINUITY.indexOf(g) + 1) % EDGE_CONTINUITY.length];
     c.cycleEnd = i => { c.continuity[i] = cycle(c.continuity[i]); c.preview(); };
     lastTool = 'bridge-edge';
@@ -7975,10 +7983,11 @@ export async function mount(root, backend) {
         $('be-start').textContent = `START ${c.continuity[0]}`;
         $('be-end').textContent = `END ${c.continuity[1]}`;
         const A = edgePoint(teeth[0], num('be-p1')), B = edgePoint(teeth[1], num('be-p2'));
-        c.out = bridgeCurve(bridgePoles(A, B, { ...bridgeTensions('be'), continuity: c.continuity }));
+        for (const b of $$('[data-beaxis]')) b.setAttribute('aria-pressed', String(b.dataset.beaxis === c.axis));
+        c.out = bridgeCurve(bridgePoles(A, B, { ...bridgeTensions('be'), continuity: c.continuity, axis: c.axis ? toWorld(AXES[c.axis]) : null }));
         showCurvePreview([c.out]);
         $('be-hint').textContent = `${c.continuity.join(' / ')} WITH THE EDGES`;
-        setHud(`BRIDGE EDGE · ${c.continuity.join(' / ')} · TENSION ${num('be-t1a')} / ${num('be-t1b')}`);
+        setHud(`BRIDGE EDGE · ${c.continuity.join(' / ')} · TENSION ${num('be-t1a')} / ${num('be-t1b')}${c.axis ? ` · ${c.axis.toUpperCase()} AXIS` : ''}`);
         setState('updated');
       } catch (e) { c.out = null; $('be-hint').textContent = say(e); setHud('BRIDGE EDGE FAILED'); setState('failed'); }
     };
@@ -7989,6 +7998,7 @@ export async function mount(root, backend) {
         c.preview();
         return true;
       }
+      if (action?.startsWith('axis-')) { c.axis = c.axis === action.slice(5) ? '' : action.slice(5); c.preview(); return true; }
       if (action !== 'tension') return false;
       c.entry = { label: 'TENSION', text: '', apply: v => { if (v > 0) { $('be-t1a').value = $('be-t1b').value = v; c.preview(); } else toast('THE TENSION MUST BE ABOVE ZERO'); } };
       setHud('TENSION _');
@@ -10346,6 +10356,8 @@ export async function mount(root, backend) {
   for (const id of ['br-p1', 'br-p2']) $(id).addEventListener('input', () => cmd?.id === 'bridge' && cmd.preview());
   $('br-trim').onclick = () => cmd?.id === 'bridge' && cmd.key('trim');
   $('br-comb').onclick = () => cmd?.id === 'bridge' && cmd.key('comb');
+  for (const b of $$('[data-braxis]')) b.onclick = () => cmd?.id === 'bridge' && cmd.setAxis(b.dataset.braxis);
+  for (const b of $$('[data-beaxis]')) b.onclick = () => cmd?.id === 'bridge-edge' && cmd.key(`axis-${b.dataset.beaxis}`);
   for (const id of ['be-p1', 'be-p2', 'be-t1a', 'be-t1b', 'be-t2a', 'be-t2b', 'be-t3a', 'be-t3b']) $(id).addEventListener('input', () => cmd?.id === 'bridge-edge' && cmd.preview());
   $('be-start').onclick = () => cmd?.id === 'bridge-edge' && cmd.cycleEnd(0);
   for (const b of $$('[data-sqcont]')) b.onclick = () => cmd?.id === 'square' && cmd.setContinuity(b.dataset.sqcont);
