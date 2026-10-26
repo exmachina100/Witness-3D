@@ -9663,6 +9663,12 @@ export async function mount(root, backend) {
         return true;
       case 'file': {
         if (arg === 'recent') { openPMenu(); return true; }
+        // A second window with a document of its own (the desktop starts another copy of the app).
+        if (arg === 'new-window') {
+          if (backend.newWindow) await backend.newWindow().catch(e => toast(say(e)));
+          else window.open(location.href.split('#')[0], '_blank');
+          return true;
+        }
         if (arg === 'export') { openPalette(false, 'EXPORT'); return true; }
         if (arg === 'save-startup' || arg === 'reset-startup') {
           const fn = backend[arg === 'save-startup' ? 'saveStartupScene' : 'resetStartupScene'];

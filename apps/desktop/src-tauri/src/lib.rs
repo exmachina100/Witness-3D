@@ -805,6 +805,14 @@ fn reset_startup_scene(app: tauri::AppHandle) -> Result<bool, String> {
     Ok(true)
 }
 
+/// P-Menu › New Window: another copy of the app, starting a document of its own.
+#[tauri::command]
+fn new_window() -> Result<(), String> {
+    let exe = std::env::current_exe().map_err(|e| e.to_string())?;
+    std::process::Command::new(exe).spawn().map_err(|e| e.to_string())?;
+    Ok(())
+}
+
 #[tauri::command]
 async fn app_state(model: State<'_, Model>) -> Result<Option<serde_json::Value>, String> {
     on_model(&model, api::app_state).await?
@@ -1171,6 +1179,7 @@ pub fn run() {
             system_fonts,
             read_font,
             reset_startup_scene,
+            new_window,
             import_step,
             export_step,
             bridge_changed,
