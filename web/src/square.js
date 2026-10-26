@@ -384,7 +384,7 @@ function crossFlow(poles, mode, held) {
 }
 
 /** Whether points lie within 1% of their extent of one plane (Newell's normal through their middle). */
-function nearlyFlat(pts) {
+export function nearlyFlat(pts) {
     const c = [0, 1, 2].map(k => pts.reduce((a, p) => a + p[k], 0) / pts.length);
     const n = [0, 0, 0];
     pts.forEach((p, i) => {

@@ -163,3 +163,30 @@ test('Analysis passes each continuity up to the one aligned, and fails the next'
     // Symmetric has nothing to check against.
     await assert.rejects(alignAnalysis(be, await alignRequest(be, { target, reference, continuity: 'G1', symmetric: true })), /Symmetric/);
 });
+
+test('Boundary turns how the sheet leaves the aligned side at its ends', async () => {
+    const { sideOf, alignPoints, alignMoves } = await import('../src/alignSurface.js');
+    // A sheared sheet: its rows run off the side at a slant, (3, 1, 0) per row.
+    const spline = { du: 3, dv: 3, uk: [0, 0, 0, 0, 1, 1, 1, 1], vk: [0, 0, 0, 0, 0.5, 1, 1, 1, 1], rational: false,
+        poles: Array.from({ length: 4 }, (_, i) => Array.from({ length: 5 }, (_, j) => [21 + 3 * i, 20 * j / 4 + i, 8])) };
+    const side = sideOf(spline, [[21, 0, 8], [21, 10, 8], [21, 20, 8]]);
+    const plan = alignPoints(side, Array.from({ length: 41 }, (_, k) => [20, 20 * k / 40, 0]));
+    const flat = { at: [0, 0, 0], su: [1, 0, 0], sv: [0, 1, 0], suu: [0, 0, 0], suv: [0, 0, 0], svv: [0, 0, 0], sign: 1 };
+    const frames = plan.points.map(() => flat);
+    // Where the end pole of the second row lands, from the side's end pole, for each boundary.
+    const leave = boundary => {
+        const moved = new Map(alignMoves(side, plan, frames, { continuity: 'G1', boundary }));
+        const at = (i, j) => { const n = side.ids[i][j], p = side.rows[i][j], by = moved.get(n) ?? [0, 0, 0]; return p.map((v, k) => v + by[k]); };
+        return [0, 4].map(j => at(1, j).map((v, k) => v - at(0, j)[k]));
+    };
+    const natural = leave('natural'), normal = leave('normal'), adjacent = leave('adjacent');
+    for (const e of [0, 1]) {
+        assert.ok(Math.abs(natural[e][1] - 1) < 1e-9, `natural keeps the slant: ${natural[e]}`);
+        assert.ok(Math.abs(normal[e][1]) < 1e-9 && Math.abs(normal[e][2]) < 1e-9, `normal leaves square: ${normal[e]}`);
+        assert.ok(Math.abs(Math.hypot(...normal[e]) - Math.hypot(...natural[e])) < 1e-9, 'with the same reach');
+        assert.ok(Math.abs(adjacent[e][1] / adjacent[e][0] - 1 / 3) < 1e-9, `adjacent runs along the old side: ${adjacent[e]}`);
+    }
+    // The sheet's neighbouring sides are straight, so Next acts as Normal.
+    assert.deepEqual(leave('next'), normal);
+    assert.throws(() => alignMoves(side, plan, frames, { boundary: 'sideways' }), /Natural, Normal, Next or Adjacent/);
+});

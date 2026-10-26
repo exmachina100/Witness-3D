@@ -8,6 +8,8 @@
 // keeps how fast the sheet leaves its side but lays that direction into the reference's tangent
 // plane (times the tension); G2 also gives the sheet the reference's normal curvature that way.
 
+import { BOUNDARY, nearlyFlat } from './square.js';
+
 const sub = (a, b) => a.map((v, i) => v - b[i]);
 const add = (a, b) => a.map((v, i) => v + b[i]);
 const mul = (a, s) => a.map(v => v * s);
@@ -205,7 +207,7 @@ export function normalCurvature(f, n, e) {
  * alignPoints, `frames` the reference face's frames at those points. Returns [[pole, [dx, dy, dz]]]
  * with poles in the face's own numbering.
  */
-export function alignMoves(side, { greville, points }, frames, { continuity = 'G1', tension = 1, blend = 0, influence = 0, partial = [0, 1] } = {}) {
+export function alignMoves(side, { greville, points }, frames, { continuity = 'G1', tension = 1, blend = 0, influence = 0, partial = [0, 1], boundary = 'natural' } = {}) {
     // Perpendicular (Project Align): the sheet leaves its side square to the reference, as fast as now.
     const perpendicular = continuity === 'PERP';
     const order = perpendicular ? 1 : ALIGN_CONTINUITY.indexOf(continuity);
@@ -215,6 +217,7 @@ export function alignMoves(side, { greville, points }, frames, { continuity = 'G
     if (!(influence >= 0 && influence <= 1)) throw new Error('the input shape influence runs from 0 to 1');
     const [p0, p1] = partial;
     if (!(p0 >= 0 && p1 <= 1 && p0 < p1)) throw new Error('the partial start and end run from 0 to 1, start before end');
+    if (!BOUNDARY.includes(boundary)) throw new Error('the boundary is Natural, Normal, Next or Adjacent');
     const { rows, ids, along, q, across: A, p } = side;
     if (rows.length < order + 1) throw new Error(`${continuity} needs ${order + 1} rows of control points across the side; raise the degree or rebuild the face first`);
     if (order === 2 && p < 2) throw new Error('G2 needs a surface of degree 2 or more across the side; raise the degree first');
@@ -252,6 +255,27 @@ export function alignMoves(side, { greville, points }, frames, { continuity = 'G
             const X = solve(B, S);
             out[2] = out[1].map((v, k) => add(v, mul(add(mul(sub(v, out[0][k]), a), mul(X[k], c1)), c2)));
         }
+    }
+    // Boundary: how the sheet leaves the aligned side at its two ends, where the neighbouring sides
+    // run off it. Natural keeps the fit's direction; Normal turns it square to the side; Next does
+    // so only where the neighbouring side is nearly flat; Adjacent turns it along the sheet's own
+    // neighbouring side, as it ran before. Each keeps its reach, and its tangent plane for G1 and G2.
+    if (order >= 1 && boundary !== 'natural') for (const e of [0, out[0].length - 1]) {
+        if (boundary === 'next' && !nearlyFlat(rows.map(r => r[e]))) continue;
+        const D = sub(out[1][e], out[0][e]), reach = len(D);
+        if (reach < 1e-12) continue;
+        const t = e === 0 ? sub(out[0][1], out[0][0]) : sub(out[0][e], out[0][e - 1]);
+        let dir;
+        if (boundary === 'adjacent') {
+            dir = sub(rows[1][e], rows[0][e]);
+            const f = frames[e];
+            if (f && !perpendicular) { const n = unit(cross(f.su, f.sv)); dir = sub(dir, mul(n, dot(dir, n))); }
+            if (dot(dir, D) < 0) dir = mul(dir, -1);
+        } else dir = dot(t, t) > 1e-18 ? sub(D, mul(t, dot(D, t) / dot(t, t))) : D;
+        if (len(dir) < 1e-12) continue;
+        const moved = add(out[0][e], mul(unit(dir), reach)), shift = sub(moved, out[1][e]);
+        out[1][e] = moved;
+        if (order >= 2) out[2][e] = add(out[2][e], shift);
     }
     // Blend extra rows: the next rows follow the last aligned row's move, less and less (none past
     // `blend` rows), and less again as the input shape's influence grows.
@@ -314,9 +338,9 @@ function meanFrame(f, g) {
  * { body, edge }. Returns { body, moves } for previewMoveFacePoles / commitMoveFacePoles, moves as
  * [[face, pole, [dx, dy, dz]]].
  */
-export async function alignRequest(backend, { target, reference, continuity = 'G1', tension = 1, blend = 0, influence = 0, partial = [0, 1], symmetric = false }) {
+export async function alignRequest(backend, { target, reference, continuity = 'G1', tension = 1, blend = 0, influence = 0, partial = [0, 1], symmetric = false, boundary = 'natural' }) {
     if (target.body === reference.body && target.edge === reference.edge) throw new Error('pick two different edges: the one to move, then the one to meet');
-    if (symmetric) return symmetricRequest(backend, { target, reference, continuity, tension, blend, influence, partial });
+    if (symmetric) return symmetricRequest(backend, { target, reference, continuity, tension, blend, influence, partial, boundary });
     const [tTeeth, rTeeth] = await Promise.all([target, reference].map(e => backend.edgeCurvature({ body: e.body, edge: e.edge, n: 400 })));
     const tAlong = tTeeth.map(t => t.at), rAlong = rTeeth.map(t => t.at);
     const middle = pts => pts[Math.floor(pts.length / 2)];
@@ -325,7 +349,7 @@ export async function alignRequest(backend, { target, reference, continuity = 'G
     const plan = alignPoints(side, rAlong);
     const rFaces = readEdgeFaces(await backend.edgeFaces({ body: reference.body, edge: reference.edge, points: plan.points }), plan.points.length);
     const rFace = pickFace(rFaces, middle(tAlong), false);
-    const moves = alignMoves(side, plan, rFace.frames, { continuity, tension, blend, influence, partial });
+    const moves = alignMoves(side, plan, rFace.frames, { continuity, tension, blend, influence, partial, boundary });
     // What Analysis needs to check the result: the side, and the reference edge and face.
     const check = { side, reference, face: rFace.face, moves };
     return { body: target.body, moves: moves.map(([pole, by]) => [tFace.face, pole, by]), check };
