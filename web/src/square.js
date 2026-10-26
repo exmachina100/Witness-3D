@@ -255,6 +255,44 @@ export function surfaceAt({ degree, uKnots, vKnots, poles }, u, v) {
 }
 
 /**
+ * `sides` (polylines) split into four sides for a quad-sided fill (Plasticity's Patch option): the
+ * loop is chained, then cut at its four sharpest corners, each side keeping its corner points. With
+ * four sides already, they are only put in order. Each turn is measured over a window of points, so
+ * sampled curves do not read as corners.
+ */
+export function quadSides(sides, gap) {
+    const loop = orderLoop(sides, gap);
+    if (loop.length === 4) return loop;
+    const pts = [];
+    for (const s of loop) for (const p of s) if (!pts.length || dist(pts[pts.length - 1], p) > 1e-9) pts.push(p);
+    if (pts.length > 1 && dist(pts[0], pts[pts.length - 1]) <= Math.max(gap, 1e-9)) pts.pop();
+    const n = pts.length;
+    if (n < 12) throw new Error('that loop has too few points to split into four sides');
+    const w = Math.max(2, Math.round(n / 48)), at = i => pts[((i % n) + n) % n];
+    const turn = i => {
+        const a = sub(at(i), at(i - w)), b = sub(at(i + w), at(i));
+        const la = Math.hypot(...a), lb = Math.hypot(...b);
+        if (!(la > 1e-12 && lb > 1e-12)) return 0;
+        return Math.acos(Math.min(1, Math.max(-1, dot(a, b) / (la * lb))));
+    };
+    // The four sharpest corners, each well away from the ones already taken.
+    const order = Array.from({ length: n }, (_, i) => i).sort((i, j) => turn(j) - turn(i));
+    const apart = Math.max(w + 1, Math.floor(n / 8)), corners = [];
+    for (const i of order) {
+        if (corners.length === 4) break;
+        if (corners.every(j => { const d = Math.abs(i - j); return Math.min(d, n - d) >= apart })) corners.push(i);
+    }
+    if (corners.length < 4) throw new Error('that loop has no four corners to fill between; turn the quad-sided option off');
+    corners.sort((a, b) => a - b);
+    return corners.map((start, k) => {
+        const end = corners[(k + 1) % 4];
+        const out = [];
+        for (let i = start; ; i++) { out.push(at(i)); if (((i % n) + n) % n === ((end % n) + n) % n) break; }
+        return out;
+    });
+}
+
+/**
  * Plasticity's Square on `sides` (polylines, [x, y, z] points): { degree, uKnots, vKnots, poles,
  * spans, gap (largest miss along the sides, mm) }. `degree` 1 to 7; `spans` [u, v], or 0 for auto;
  * `tolerance` the side gap auto spans aim for and the gap the sides' ends may have. `continuity`
