@@ -3147,6 +3147,9 @@ export async function mount(root, backend) {
         c.bad = v;
         return setHud(`${v < 0 ? 'CHAMFER' : 'R'} ${Math.abs(c.good).toFixed(2)} MAX`);
       }
+      // A size typed (or first dragged) too large: look for the largest that works and stop there.
+      if (await largestFillet(c, v)) return;
+      if (cmd !== c || n !== c.sent) return;
       // When the kernel can't say which edges failed, mark the whole selection.
       failedEdges = e.edges?.length ? e.edges : [...c.edges];
       clearPreview();
@@ -3167,6 +3170,23 @@ export async function mount(root, backend) {
     const at = c.vars.includes(c.dragVar) ? ` · POINT ${c.vars.indexOf(c.dragVar) + 1} R ${(Math.abs(v) * c.dragVar.scale).toFixed(2)}` : '';
     setHud(v > 0 && c.shape === 'full' ? 'FULL ROUND' : `${v < 0 ? 'CHAMFER' : 'R'} ${Math.abs(v).toFixed(2)}${at}`);
     if (n === c.sent) setState('updated');
+  }
+
+  /**
+   * A size that fails with nothing smaller tried yet: halve it until one works, then close in on
+   * the largest that does. True when one was found (the fillet then stops there).
+   */
+  async function largestFillet(c, v) {
+    const s = Math.sign(v);
+    let lo = 0, hi = Math.abs(v), mid = hi / 2;
+    for (let i = 0; i < 8 && !lo; i++, mid /= 2) {
+      try { if (await backend.previewBlend(filletRequest(c, s * mid))) lo = mid; else hi = mid; } catch { hi = mid; }
+      if (cmd !== c || c.value !== v) return true;
+    }
+    if (!lo) return false;
+    c.good = s * lo; c.bad = v;
+    await refineFillet();
+    return true;
   }
 
   /** After a drag that went past what works, find the largest size that does and stop there (0.6.30). */

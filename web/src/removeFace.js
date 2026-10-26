@@ -61,7 +61,11 @@ export function removeFaces(shape, faces) {
         const pieces = numbered(run_(inside ? new o.BRepAlgoAPI_Cut(cell, shape, new o.Message_ProgressRange()) : new o.BRepAlgoAPI_Common(cell, shape, new o.Message_ProgressRange())), 'TopAbs_SOLID');
         const marks = samples.map(p => new o.BRepBuilderAPI_MakeVertex(new o.gp_Pnt(...p)).Shape());
         const near = pieces.filter(p => marks.some(m => { const d = new o.BRepExtrema_DistShapeShape(m, p); return d.IsDone() && d.Value() < 1e-4 * size; }));
-        if (!near.length) throw new Error('the neighbours of those faces do not close round them');
+        // A piece running out to the cell's outer box is not closed by the neighbours (a box with its
+        // top removed would grow up to it), so there is nothing sound to fill.
+        const lo = box.min.toArray().map(x => x - size + 1e-3 * size), hi = box.max.toArray().map(x => x + size - 1e-3 * size);
+        const open = near.some(p => { const b = bounds(p); return [0, 1, 2].some(k => b.min.getComponent(k) < lo[k] || b.max.getComponent(k) > hi[k]); });
+        if (!near.length || open) throw new Error('the neighbours of those faces do not close round them');
         (inside ? fills : cuts).push(...near);
     }
     let result = shape;

@@ -399,8 +399,10 @@ export function blendEdges(shape, edgeIds, size, chamfer = false, withHistory = 
                 const k = edges.findIndex(e => e.IsSame(mk.Edge(ic, j)));
                 if (k >= 0) failed.push(k);
             }
-            const status = mk.StripeStatus(ic);
-            reason ??= Object.entries(STRIPE_REASONS).find(([name]) => o.ChFiDS_ErrorStatus?.[name] === status)?.[1];
+            // Some opencascade.js builds leave ChFiDS_ErrorStatus unbound, so the reason may not be readable.
+            let status = null;
+            try { status = mk.StripeStatus(ic); } catch { /* no reason then */ }
+            if (status !== null) reason ??= Object.entries(STRIPE_REASONS).find(([name]) => o.ChFiDS_ErrorStatus?.[name] === status)?.[1];
         }
         if (!reason && mk.NbFaultyVertices() > 0) reason = 'the round could not be finished where it meets a corner; try a smaller radius';
         throw new BlendError(reason ?? 'the kernel could not build the round', failed);
