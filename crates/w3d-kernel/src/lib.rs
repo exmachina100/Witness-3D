@@ -462,6 +462,13 @@ pub trait Kernel {
     fn bridge_surface(&self, _a: (&Self::Solid, u32), _b: (&Self::Solid, u32), _same: bool, _tension: f64) -> Result<Self::Solid, KernelError> {
         Err(KernelError::Invalid("this kernel cannot bridge surfaces"))
     }
+    /// Plasticity's Bridge Surface between two crossing sheets of one face each: a round (G2) or
+    /// chamfer `width` across where they cross, one piece of each kept (`sense` takes the other).
+    /// `trim` (0 both, 1 short, 2 long, 3 none) says what comes back: the new first sheet, second
+    /// sheet and bridge body, `None` where there is none.
+    fn sheet_fillet(&self, _a: &Self::Solid, _b: &Self::Solid, _width: f64, _chamfer: bool, _sense: [bool; 2], _trim: u8) -> Result<[Option<Self::Solid>; 3], KernelError> {
+        Err(KernelError::Invalid("this kernel cannot bridge crossing sheets"))
+    }
     /// Plasticity's Patch: a sheet filling one closed loop of `curves` and edges of bodies, each
     /// edge with whether the sheet leaves it tangent to the body. Flat loops give the exact plane.
     fn patch(&self, curves: &[Path], edges: &[(&Self::Solid, Vec<(u32, u32)>)]) -> Result<Self::Solid, KernelError> {

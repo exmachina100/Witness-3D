@@ -626,6 +626,24 @@ async fn preview_bridge_surface(
 }
 
 #[tauri::command]
+async fn preview_sheet_bridge(
+    model: State<'_, Model>,
+    req: api::SheetBridgeRequest,
+) -> Result<Option<api::Body>, api::ApiError> {
+    on_model(&model, move |m| api::preview_sheet_bridge(m, req))
+        .await?
+        .transpose()
+}
+
+#[tauri::command]
+async fn commit_sheet_bridge(
+    model: State<'_, Model>,
+    req: api::SheetBridgeRequest,
+) -> Result<api::Committed, api::ApiError> {
+    on_model(&model, move |m| api::commit_sheet_bridge(m, req)).await?
+}
+
+#[tauri::command]
 async fn commit_bridge_surface(
     model: State<'_, Model>,
     req: api::BridgeSurfaceRequest,
@@ -1124,6 +1142,8 @@ pub fn run() {
             commit_pipe,
             preview_bridge_surface,
             commit_bridge_surface,
+            preview_sheet_bridge,
+            commit_sheet_bridge,
             preview_project,
             preview_draft,
             commit_draft,

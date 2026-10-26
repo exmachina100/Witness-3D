@@ -1279,6 +1279,40 @@ pub fn commit_bridge_surface(m: &Model, req: BridgeSurfaceRequest) -> Result<Com
     })
 }
 
+/// Plasticity's Bridge Surface between two crossing sheets: Width, Shape ('g2' or 'chamfer'),
+/// Trim walls ('both', 'short', 'long', 'none') and Sense 1 and 2.
+#[derive(Deserialize, Debug, Clone)]
+pub struct SheetBridgeRequest {
+    pub a: BodyId,
+    pub b: BodyId,
+    pub width: f64,
+    #[serde(default)]
+    pub shape: String,
+    #[serde(default)]
+    pub trim: String,
+    #[serde(default)]
+    pub sense: [bool; 2],
+}
+
+impl SheetBridgeRequest {
+    fn trim(&self) -> u8 { match self.trim.as_str() { "short" => 1, "long" => 2, "none" => 3, _ => 0 } }
+}
+
+pub fn preview_sheet_bridge(m: &Model, req: SheetBridgeRequest) -> Option<Result<Body, ApiError>> {
+    m.preview(move |doc| {
+        let (out, shown) = doc.preview_sheet_bridge(req.a, req.b, req.width, req.shape == "chamfer", req.sense, req.trim())?;
+        let s = out[shown].as_ref().ok_or(KernelError::NoOp)?;
+        Ok(body(&doc.kernel, 0, s)?)
+    })
+}
+
+pub fn commit_sheet_bridge(m: &Model, req: SheetBridgeRequest) -> Result<Committed, ApiError> {
+    m.call(move |doc| {
+        let id = doc.commit_sheet_bridge(req.a, req.b, req.width, req.shape == "chamfer", req.sense, req.trim())?;
+        Ok(Committed { id, scene: bodies(doc)? })
+    })
+}
+
 /// Plasticity's Patch: a sheet filling one closed loop of curves and body edges, each edge with
 /// whether the sheet leaves it tangent to the body's face.
 #[derive(Deserialize, Debug, Clone)]

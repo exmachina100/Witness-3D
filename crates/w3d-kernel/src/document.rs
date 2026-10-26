@@ -1088,6 +1088,40 @@ impl<K: Kernel> Document<K> {
         Ok(self.add(sheet))
     }
 
+    /// Plasticity's Bridge Surface between crossing sheets `a` and `b`, without changing the
+    /// document: what becomes of each sheet and the new bridge body (see [`Kernel::sheet_fillet`]),
+    /// and which of the three to show.
+    pub fn preview_sheet_bridge(&self, a: BodyId, b: BodyId, width: f64, chamfer: bool, sense: [bool; 2], trim: u8) -> Result<([Option<K::Solid>; 3], usize), KernelError> {
+        if a == b { return Err(KernelError::Invalid("select two different sheets")) }
+        let sa = self.get(a).ok_or(KernelError::Invalid("that body no longer exists"))?;
+        let sb = self.get(b).ok_or(KernelError::Invalid("that body no longer exists"))?;
+        let out = self.kernel.sheet_fillet(sa, sb, width, chamfer, sense, trim)?;
+        // Shown: the joined sheet, the bridge alone, or the wall trimmed and sewn to it (the one
+        // with more than its own face).
+        let shown = match trim {
+            0 => 0,
+            3 => 2,
+            _ => (0..2).find(|&i| out[i].as_ref().map_or(false, |s| self.kernel.face_count(s) > 1)).unwrap_or(0),
+        };
+        Ok((out, shown))
+    }
+
+    /// Bridge Surface between crossing sheets as one undoable step: each sheet replaced by what it
+    /// became (or gone), and the bridge a body of its own where it stands alone. Returns the body
+    /// holding the bridge.
+    pub fn commit_sheet_bridge(&mut self, a: BodyId, b: BodyId, width: f64, chamfer: bool, sense: [bool; 2], trim: u8) -> Result<BodyId, KernelError> {
+        let ([na, nb, bridge], shown) = self.preview_sheet_bridge(a, b, width, chamfer, sense, trim)?;
+        self.checkpoint();
+        for (id, new) in [(a, na), (b, nb)] {
+            match new {
+                Some(s) => self.replace_traced(id, Traced { solid: s, history: History::default() }),
+                None => { self.state.bodies.remove(&id); }
+            }
+        }
+        let added = bridge.map(|s| self.add_unrecorded(s));
+        Ok(match shown { 2 => added.unwrap_or(a), 1 => b, _ => a })
+    }
+
     /// Plasticity's Thicken, without changing the document: sheet `body` made solid.
     pub fn preview_thicken(&self, body: BodyId, front: f64, back: f64) -> Result<K::Solid, KernelError> {
         let sheet = self.get(body).ok_or(KernelError::Invalid("that body no longer exists"))?;
