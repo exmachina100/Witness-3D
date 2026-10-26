@@ -119,3 +119,13 @@ test('a parameter moves the bridge point along each curve, and trim keeps the cu
     assert.throws(() => bridgeEnd(arc, 1, 0), /other end/);
     assert.throws(() => bridgeEnd(arc, 1, 1.5), /0 to 1/);
 });
+
+test("X, Y or Z constrains the bridge's ends to that axis, in the curve's plane", () => {
+    // The curves lie in the model's xz plane, so model x runs along the plane's own x.
+    const b = bridgeContinuous(arc, 1, line, 0, { continuity: ['G1', 'G1'], axis: [1, 0, 0] });
+    const P = b.poles;
+    close(P[1][1], 10); close(P[4][1], 0);
+    assert.ok(P[1][0] < 0 && P[4][0] > -20, `${P[1]} ${P[4]}`);
+    // Model y is square to that plane, so no bridge can leave along it.
+    assert.throws(() => bridgeContinuous(arc, 1, line, 0, { axis: [0, 1, 0] }), /square to the curve's plane/);
+});

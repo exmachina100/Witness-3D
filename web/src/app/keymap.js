@@ -143,7 +143,7 @@ export const COMMAND = {
     // Cut Curve (manual: Tab extends the cutters, S cuts along the view)
     'cut-curve': { tab: 'extend', s: 'screen' },
     // Bridge Edge (manual: Tab continuity, D tension)
-    'bridge-edge': { d: 'tension', tab: 'continuity' },
+    'bridge-edge': { d: 'tension', tab: 'continuity', x: 'axis-x', y: 'axis-y', z: 'axis-z' },
     'align-surface': { d: 'tension', tab: 'continuity' },
     'project-align': { d: 'tension', tab: 'continuity', n: 'normal', x: 'axis-x', y: 'axis-y', z: 'axis-z', s: 'screen' },
     // Instance (manual: Create Solid and Sheet Instance; moved, turned and scaled like a body)
@@ -151,7 +151,7 @@ export const COMMAND = {
     'rebuild-face': { m: 'method', t: 'tolerance', d: 'degree', s: 'spans', e: 'extend', h: 'shrink' },
     'fillet-curve': { d: 'radius' },
     // Bridge Curve / Bridge Vertex (manual: Tab continuity, D tension)
-    bridge: { t: 'tension', d: 'tension', tab: 'continuity', q: 'trim' },
+    bridge: { t: 'tension', d: 'tension', tab: 'continuity', q: 'trim', x: 'axis-x', y: 'axis-y', z: 'axis-z' },
     hole: { t: 'through' },
     // Cut: P cuts with the construction plane as well.
     cut: { p: 'plane' },

@@ -6,7 +6,7 @@
 // LocalBackend.checkCurve). Lengths are millimetres.
 
 import { arcPoints, circleThrough, cvDegree, cvPoints, ellipsePoints, loops, nurbsLoop, nurbsPoints } from './curves.js';
-import { bridgeSide, endTensions } from './bridgeEdge.js';
+import { BRIDGE_AXES, bridgeSide, endTensions, onAxis } from './bridgeEdge.js';
 
 const EPS = 1e-9, TAU = 2 * Math.PI;
 const sub = (a, b) => [a[0] - b[0], a[1] - b[1]], add = (a, b) => [a[0] + b[0], a[1] + b[1]];
@@ -1511,10 +1511,11 @@ export const BRIDGE_CONTINUITY = ['G0', 'G1', 'G2', 'G3'];
  * Plasticity's Bridge Vertex / Bridge Curve with continuity: a Bézier from an end of `a` to an end
  * of `b` that meets each in position (G0), direction too (G1), curvature too (G2) or the change of
  * curvature too (G3), per end; degree 5, or 7 with a G3 end. The tensions (G1, G2, G3, each for
- * both ends or per end; see endTensions) say how far the bridge holds each end. In `a`'s plane,
+ * both ends or per end; see endTensions) say how far the bridge holds each end, and `axis` ('x',
+ * 'y' or 'z') makes the bridge leave both ends along that axis (Plasticity's X / Y / Z). In `a`'s plane,
  * as an exact NURBS curve.
  */
-export function bridgeContinuous(a, endA, b, endB, { continuity = ['G1', 'G1'], at = [endA, endB], ...options } = {}) {
+export function bridgeContinuous(a, endA, b, endB, { continuity = ['G1', 'G1'], at = [endA, endB], axis = null, ...options } = {}) {
     const ts = endTensions(options);
     if (ends2(a) === null || ends2(b) === null) throw new Error('bridge the open ends of two curves');
     // From the parameter points: what stays of each curve ends at its bridge point.
@@ -1527,10 +1528,25 @@ export function bridgeContinuous(a, endA, b, endB, { continuity = ['G1', 'G1'], 
     // Each side's poles match its end's derivatives in arc length, scaled to the gap.
     const n = continuity.includes('G3') ? 7 : 5, z = v => [v[0], v[1], 0];
     const flat = E => ({ at: z(E.at), out: z(E.out), K: z(E.K), dK: z(E.dK) });
-    const poles = [...bridgeSide(flat(A), continuity[0], z(B.at), n, gap, ts[0]), ...bridgeSide(flat(B), continuity[1], z(A.at), n, gap, ts[1]).reverse()];
+    // An axis is read in the curve's plane: its part along the plane, which must not be nothing.
+    const inPlane = axis && axisInPlane(a, axis);
+    const side = (E, F, i) => bridgeSide(onAxis(flat(E), z(F.at), inPlane), continuity[i], z(F.at), n, gap, ts[i]);
+    const poles = [...side(A, B, 0), ...side(B, A, 1).reverse()];
     const knots = [...poles.map(() => 0), ...poles.map(() => 1)];
     return withShape(a, { kind: 'nurbs', degree: n, poles, weights: poles.map(() => 1), knots });
 }
+/**
+ * A model axis ('x', 'y', 'z' or a vector) in curve `c`'s plane coordinates: its part along the
+ * plane, as a flat vector. An axis square to the plane has none, so no bridge can leave along it.
+ */
+function axisInPlane(c, axis) {
+    const a = Array.isArray(axis) ? axis : BRIDGE_AXES[axis];
+    if (!a || Math.hypot(...a) < 1e-12) throw new Error('constrain the bridge to the X, Y or Z axis');
+    const { X, Y } = planeAxes(c), flat = [v3.dot(a, X), v3.dot(a, Y), 0];
+    if (Math.hypot(...flat) < 1e-6) throw new Error("that axis is square to the curve's plane; the bridge cannot leave along it");
+    return flat;
+}
+
 /**
  * Plasticity's Bridge Curve Parameter: the bridge leaves curve `c` (open) from the point at relative
  * position `at` along it (0 its start, 1 its end, by length), on the side of end `end` (0 or 1). The

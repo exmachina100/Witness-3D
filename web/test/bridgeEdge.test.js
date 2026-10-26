@@ -114,3 +114,19 @@ test('bad requests are refused', () => {
     assert.throws(() => bridgePoles(A, edgePoint(comb(t => [t, 9, 0]), 0), { tension: 0 }), /tension/);
     assert.throws(() => edgePoint(comb(t => [t, 0, 0]), 2), /0 to 1/);
 });
+
+test('X, Y or Z makes the bridge leave both ends along that axis', () => {
+    const a = edgePoint(comb(arc([0, 0], 10, 0, Math.PI / 2)), 1);
+    const b = edgePoint(comb(arc([30, 0], 10, Math.PI, Math.PI / 2)), 1);
+    const poles = bridgePoles(a, b, { continuity: ['G1', 'G1'], axis: 'x' });
+    // Each end's first step is along +x from the first point, −x from the last.
+    const step = (p, q) => q.map((v, i) => v - p[i]);
+    assert.ok(angle(step(poles[0], poles[1]), [1, 0, 0]) < 0.01);
+    assert.ok(angle(step(poles.at(-1), poles.at(-2)), [1, 0, 0]) < 0.01);
+    // Along the axis the bridge is flat in x; off the axis it follows the edges' own directions.
+    const across = edgePoint(comb(arc([0, 0], 10, Math.PI / 4, Math.PI / 2)), 0.5);
+    assert.ok(angle(step(bridgePoles(across, b, { axis: 'x' })[0], bridgePoles(across, b, { axis: 'x' })[1]), [1, 0, 0]) < 0.01);
+    assert.ok(angle(step(bridgePoles(across, b)[0], bridgePoles(across, b)[1]), [1, 0, 0]) > 10);
+    // An axis across the gap cannot be left along.
+    assert.throws(() => bridgePoles(a, b, { axis: 'z' }), /cannot leave along it/);
+});

@@ -13,6 +13,24 @@ const cross = (a, b) => [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a
 const len = a => Math.hypot(...a);
 const unit = a => mul(a, 1 / len(a));
 
+/** The axes a bridge's ends can be constrained to (Plasticity's X, Y and Z keys), and none. */
+export const BRIDGE_AXES = { x: [1, 0, 0], y: [0, 1, 0], z: [0, 0, 1] };
+
+/**
+ * An end with its outgoing direction turned onto `axis` ('x', 'y', 'z' or a vector), the way that
+ * heads for `toward`: Plasticity's X / Y / Z, which constrain the bridge to an axis. The end's
+ * curvature is kept, so the bridge still carries it where the continuity asks for it. With no axis
+ * the end is unchanged.
+ */
+export function onAxis(E, toward, axis) {
+    if (!axis) return E;
+    const a = Array.isArray(axis) ? axis : BRIDGE_AXES[axis];
+    if (!a || len(a) < 1e-12) throw new Error('constrain the bridge to the X, Y or Z axis');
+    const d = sub(toward, E.at), s = dot(a, d) >= 0 ? 1 : -1;
+    if (Math.abs(dot(unit(a), unit(d))) < 1e-9) throw new Error('that axis points across the gap; the bridge cannot leave along it');
+    return { ...E, out: mul(unit(a), s) };
+}
+
 /** Continuity names in the order Tab cycles them. */
 export const EDGE_CONTINUITY = ['G0', 'G1', 'G2', 'G3'];
 
@@ -75,9 +93,10 @@ export function endTensions({ tension = 1, tension2 = 1, tension3 = 1 } = {}) {
 
 /**
  * The bridge from edge point `A` to edge point `B` (from edgePoint) as a Bézier, model-space poles:
- * degree 5, or 7 when an end is G3. The tensions (see endTensions) say how far it holds each end.
+ * degree 5, or 7 when an end is G3. The tensions (see endTensions) say how far it holds each end,
+ * and `axis` ('x', 'y' or 'z') makes both ends leave along that axis (see onAxis).
  */
-export function bridgePoles(A, B, { continuity = ['G1', 'G1'], ...options } = {}) {
+export function bridgePoles(A, B, { continuity = ['G1', 'G1'], axis = null, ...options } = {}) {
     const ts = endTensions(options);
     for (const g of continuity) if (!EDGE_CONTINUITY.includes(g)) throw new Error(`continuity is ${EDGE_CONTINUITY.join(', ')}`);
     const gap = len(sub(B.at, A.at));
@@ -89,8 +108,8 @@ export function bridgePoles(A, B, { continuity = ['G1', 'G1'], ...options } = {}
         const fwd = E.end === 1 || (E.end === null && dot(E.along, sub(toward, E.at)) >= 0);
         return { at: E.at, out: fwd ? E.along : mul(E.along, -1), K: E.K, dK: fwd ? E.dK : mul(E.dK, -1) };
     };
-    const a = bridgeSide(end(A, B.at), continuity[0], B.at, n, gap, ts[0]);
-    const b = bridgeSide(end(B, A.at), continuity[1], A.at, n, gap, ts[1]);
+    const a = bridgeSide(onAxis(end(A, B.at), B.at, axis), continuity[0], B.at, n, gap, ts[0]);
+    const b = bridgeSide(onAxis(end(B, A.at), A.at, axis), continuity[1], A.at, n, gap, ts[1]);
     return [...a, ...b.reverse()];
 }
 
