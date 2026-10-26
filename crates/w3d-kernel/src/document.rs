@@ -1400,6 +1400,26 @@ impl<K: Kernel> Document<K> {
         Ok(self.add(sheet))
     }
 
+    /// Patch › Method, without changing the document: the `target` sheet trimmed by edges of one
+    /// base sheet, to the hole they close round (`hole`) or where the base sheet ends.
+    pub fn preview_patch_trim(&self, target: BodyId, edges: &[(BodyId, u32, u32)], hole: bool) -> Result<K::Solid, KernelError> {
+        let base = edges.first().map(|e| e.0).ok_or(KernelError::Invalid("select the edges of the base sheet to trim to"))?;
+        if edges.iter().any(|e| e.0 != base) { return Err(KernelError::Invalid("the edges to trim to must be on one sheet")) }
+        if base == target { return Err(KernelError::Invalid("the target sheet must be another body than the edges'")) }
+        let t = self.get(target).ok_or(KernelError::Invalid("that body no longer exists"))?;
+        let b = self.get(base).ok_or(KernelError::Invalid("that body no longer exists"))?;
+        let list: Vec<u32> = edges.iter().map(|e| e.1).collect();
+        self.kernel.patch_trim(t, b, &list, hole)
+    }
+
+    /// Patch › Method as one undoable step: the target sheet replaced by its trimmed self.
+    pub fn commit_patch_trim(&mut self, target: BodyId, edges: &[(BodyId, u32, u32)], hole: bool) -> Result<BodyId, KernelError> {
+        let s = self.preview_patch_trim(target, edges, hole)?;
+        self.checkpoint();
+        self.replace_traced(target, Traced { solid: s, history: History::default() });
+        Ok(target)
+    }
+
     /// Plasticity's Draft Face, without changing the document.
     /// `grow` is the manual's Grow, for an inner face drafted out past the body's outer wall beyond
     /// it: Moving takes the wall's own flat faces out as far, Fixed stops the face at the wall, None

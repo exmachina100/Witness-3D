@@ -453,6 +453,10 @@ impl Kernel for Occt {
         Shape::patch(&cutter_numbers(&curves)?, &edges, tol).map_err(shim)
     }
 
+    fn patch_trim(&self, target: &Shape, base: &Shape, edges: &[u32], hole: bool) -> Result<Shape, KernelError> {
+        base.patch_trim(target, &edges.iter().map(|&e| e as usize).collect::<Vec<_>>(), hole).map_err(shim)
+    }
+
     fn thicken(&self, s: &Shape, front: f64, back: f64) -> Result<Shape, KernelError> {
         s.thicken(front, back).map_err(shim)
     }

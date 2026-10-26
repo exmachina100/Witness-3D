@@ -5862,3 +5862,139 @@ inline std::unique_ptr<TopoDS_Shape> w3d_sheet_fillet(const TopoDS_Shape &all, d
     throw w3d_kernel_error(f);
   }
 }
+
+// Plasticity's Patch › Method (Trim to hole / Trim to sheet), mirroring web/src/patchTrim.js: the
+// `target` sheet is cut by a fence standing on `edges` of the `base` sheet, square to the target
+// near the edges' middle. `hole` keeps the target's pieces inside the loop the edges make (seen
+// along the fence); otherwise the pieces that do not lie over the base sheet. The kept pieces come
+// back sewn.
+inline std::unique_ptr<TopoDS_Shape> w3d_patch_trim(const TopoDS_Shape &target, const TopoDS_Shape &base, rust::Slice<const int32_t> edges, bool hole) {
+  TopTools_IndexedMapOfShape map;
+  TopExp::MapShapes(base, TopAbs_EDGE, map);
+  if (edges.empty()) throw std::runtime_error("select the edges of the base sheet to trim to");
+  for (int32_t e : edges)
+    if (e < 0 || e >= map.Extent()) throw std::out_of_range("no such edge");
+  try {
+    // Each edge sampled in order; the runs chained round the loop.
+    std::vector<std::vector<gp_Pnt>> runs;
+    std::vector<gp_Pnt> pts;
+    for (int32_t e : edges) {
+      BRepAdaptor_Curve c(TopoDS::Edge(map(e + 1)));
+      const double a = c.FirstParameter(), b = c.LastParameter();
+      std::vector<gp_Pnt> run;
+      for (int i = 0; i <= 16; i++) run.push_back(c.Value(a + (b - a) * i / 16));
+      pts.insert(pts.end(), run.begin(), run.end());
+      runs.push_back(run);
+    }
+    gp_XYZ m(0, 0, 0);
+    for (const gp_Pnt &p : pts) m += p.XYZ() / double(pts.size());
+    const gp_Pnt mid(m);
+    // The target's normal at its point nearest the middle: the fence's direction.
+    BRepExtrema_DistShapeShape near(BRepBuilderAPI_MakeVertex(mid).Vertex(), target);
+    if (!near.IsDone() || near.NbSolution() < 1) throw std::runtime_error("the target sheet could not be reached");
+    const TopoDS_Face nf = TopoDS::Face(near.SupportOnShape2(1));
+    GeomAPI_ProjectPointOnSurf pr(near.PointOnShape2(1), BRep_Tool::Surface(nf));
+    double u = 0, v = 0;
+    if (pr.NbPoints()) pr.LowerDistanceParameters(u, v);
+    BRepAdaptor_Surface ns(nf, true);
+    gp_Pnt P; gp_Vec du, dv;
+    ns.D1(u, v, P, du, dv);
+    gp_Vec n = du.Crossed(dv);
+    if (n.Magnitude() < 1e-12) throw std::runtime_error("the target sheet is degenerate there");
+    const gp_Dir d(n);
+    Bnd_Box box;
+    BRepBndLib::Add(target, box);
+    double reach = 0;
+    for (const gp_Pnt &p : pts) reach = std::max(reach, p.Distance(mid));
+    const double size = 2 * (std::sqrt(box.SquareExtent()) + reach) + 1;
+    BRep_Builder bb;
+    TopoDS_Compound fence;
+    bb.MakeCompound(fence);
+    for (int32_t e : edges) {
+      gp_Trsf back;
+      back.SetTranslation(gp_Vec(d) * -size);
+      const TopoDS_Shape moved = BRepBuilderAPI_Transform(map(e + 1), back, true).Shape();
+      bb.Add(fence, BRepPrimAPI_MakePrism(moved, gp_Vec(d) * (2 * size), false, true).Shape());
+    }
+    TopTools_ListOfShape args, tools;
+    args.Append(target);
+    tools.Append(fence);
+    BRepAlgoAPI_Splitter mk;
+    mk.SetArguments(args);
+    mk.SetTools(tools);
+    mk.Build();
+    if (!mk.IsDone() || mk.HasErrors()) throw std::runtime_error("the target sheet could not be cut there");
+    TopTools_IndexedMapOfShape pieces, before;
+    TopExp::MapShapes(mk.Shape(), TopAbs_FACE, pieces);
+    TopExp::MapShapes(target, TopAbs_FACE, before);
+    if (pieces.Extent() <= before.Extent()) throw std::runtime_error("the picked edges do not reach across the target sheet");
+    // Seen along the fence: the loop as a polygon.
+    const gp_Dir x = std::abs(d.X()) < 0.9 ? d.Crossed(gp::DX()) : d.Crossed(gp::DY());
+    const gp_Dir y = d.Crossed(x);
+    auto flat = [&](const gp_Pnt &p) { gp_Vec w(mid, p); return std::make_pair(w.Dot(gp_Vec(x)), w.Dot(gp_Vec(y))); };
+    const double close = 1e-4 * (1 + reach);
+    std::vector<gp_Pnt> loop = runs[0];
+    std::vector<bool> used(runs.size(), false);
+    used[0] = true;
+    for (size_t k = 1; k < runs.size(); k++) {
+      size_t pick = runs.size();
+      bool flip = false;
+      for (size_t i = 0; i < runs.size() && pick == runs.size(); i++) {
+        if (used[i]) continue;
+        if (runs[i].front().Distance(loop.back()) < close) pick = i;
+        else if (runs[i].back().Distance(loop.back()) < close) { pick = i; flip = true; }
+      }
+      if (pick == runs.size()) for (size_t i = 0; i < runs.size(); i++) if (!used[i]) { pick = i; break; }
+      used[pick] = true;
+      std::vector<gp_Pnt> r = runs[pick];
+      if (flip) std::reverse(r.begin(), r.end());
+      loop.insert(loop.end(), r.begin(), r.end());
+    }
+    std::vector<std::pair<double, double>> ring;
+    for (const gp_Pnt &p : loop) ring.push_back(flat(p));
+    auto inside = [&](const gp_Pnt &p) {
+      const auto q = flat(p);
+      bool in = false;
+      for (size_t i = 0, j = ring.size() - 1; i < ring.size(); j = i++) {
+        const auto &a = ring[i], &b = ring[j];
+        if ((a.second > q.second) != (b.second > q.second) && q.first < (b.first - a.first) * (q.second - a.second) / (b.second - a.second) + a.first) in = !in;
+      }
+      return in;
+    };
+    auto overBase = [&](const gp_Pnt &p) {
+      const TopoDS_Edge line = BRepBuilderAPI_MakeEdge(p.Translated(gp_Vec(d) * -size), p.Translated(gp_Vec(d) * size)).Edge();
+      BRepExtrema_DistShapeShape dist(line, base);
+      return dist.IsDone() && dist.Value() < 1e-6 * size;
+    };
+    // A point on each piece: its centre of mass pulled onto it, else a UV grid point on it (a
+    // ring's centre is in its hole).
+    auto onFace = [](const TopoDS_Face &f) {
+      GProp_GProps props;
+      BRepGProp::SurfaceProperties(f, props);
+      auto lies = [&](const gp_Pnt &p) { BRepExtrema_DistShapeShape dd(BRepBuilderAPI_MakeVertex(p).Vertex(), f); return dd.IsDone() && dd.Value() < 1e-7; };
+      GeomAPI_ProjectPointOnSurf pp(props.CentreOfMass(), BRep_Tool::Surface(f));
+      if (pp.NbPoints() && lies(pp.NearestPoint())) return pp.NearestPoint();
+      BRepAdaptor_Surface s(f, true);
+      double u0, u1, v0, v1;
+      BRepTools::UVBounds(f, u0, u1, v0, v1);
+      for (int i = 1; i < 16; i++)
+        for (int j = 1; j < 16; j++) {
+          const gp_Pnt p = s.Value(u0 + (u1 - u0) * i / 16, v0 + (v1 - v0) * j / 16);
+          if (lies(p)) return p;
+        }
+      return s.Value((u0 + u1) / 2, (v0 + v1) / 2);
+    };
+    BRepBuilderAPI_Sewing sew(1e-6, true, true, true, false);
+    int kept = 0;
+    for (int i = 1; i <= pieces.Extent(); i++) {
+      const TopoDS_Face &f = TopoDS::Face(pieces(i));
+      const gp_Pnt c = onFace(f);
+      if (hole ? inside(c) : !overBase(c)) { sew.Add(f); kept++; }
+    }
+    if (kept == 0 || kept == pieces.Extent()) throw std::runtime_error(hole ? "the target sheet does not cover the hole" : "the target sheet does not run past the base sheet");
+    sew.Perform();
+    return std::unique_ptr<TopoDS_Shape>(new TopoDS_Shape(sew.SewedShape()));
+  } catch (const Standard_Failure &f) {
+    throw w3d_kernel_error(f);
+  }
+}

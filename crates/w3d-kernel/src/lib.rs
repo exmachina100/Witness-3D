@@ -479,6 +479,11 @@ pub trait Kernel {
     fn patch_within(&self, _curves: &[Path], _edges: &[(&Self::Solid, Vec<(u32, u32)>)], _tolerance: f64) -> Result<Self::Solid, KernelError> {
         Err(KernelError::Invalid("this kernel cannot patch"))
     }
+    /// Plasticity's Patch › Method: the `target` sheet trimmed by `edges` of the `base` sheet, to the
+    /// hole they close round (`hole`) or where the base sheet ends.
+    fn patch_trim(&self, _target: &Self::Solid, _base: &Self::Solid, _edges: &[u32], _hole: bool) -> Result<Self::Solid, KernelError> {
+        Err(KernelError::Invalid("this kernel cannot trim a patch"))
+    }
     /// Plasticity's Thicken: a sheet made solid, `front` along its faces' normals and `back` behind them.
     fn thicken(&self, _s: &Self::Solid, _front: f64, _back: f64) -> Result<Self::Solid, KernelError> {
         Err(KernelError::Invalid("this kernel cannot thicken"))
