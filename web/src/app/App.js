@@ -6092,6 +6092,7 @@ export async function mount(root, backend) {
       const i = c.values.findIndex((v, k) => Math.abs(v - dims[k].value) > 1e-9);
       const edit = i >= 0 && c.values[i] > 0 ? dims[i].edit(c.values[i]) : null;
       if (edit?.op === 'offset' && backend.previewOffset) livePreview(c, () => backend.previewOffset({ ...editRequest(edit) }), b => showPreviewBody(b), 'dm-hint');
+      if (edit?.op === 'turn' && backend.previewMoveFaces) livePreview(c, () => backend.previewMoveFaces(edit), b => showPreviewBody(b), 'dm-hint');
       if (edit?.op === 'refillet' && backend.previewRefillet) livePreview(c, () => backend.previewRefillet({ body: edit.body, faces: edit.faces, radius: edit.radius }), b => showPreviewBody(b), 'dm-hint');
     };
     const editRequest = edit => ({ body: edit.body, faces: edit.faces, distance: edit.distance, angle: 0, grow: 'moving', chamfer: edit.chamfer });
@@ -6120,6 +6121,7 @@ export async function mount(root, backend) {
           if (!now) throw new Error(`the ${name.toLowerCase()} is no longer there to set`);
           const edit = now.edit(v);
           if (edit.op === 'offset') ({ scene: made } = await backend.commitOffset(editRequest(edit)));
+          else if (edit.op === 'turn') ({ scene: made } = await backend.commitMoveFaces(edit));
           else if (edit.op === 'refillet') ({ scene: made } = await backend.commitRefillet({ body: edit.body, faces: edit.faces, radius: edit.radius }));
           else if (edit.op === 'scale') ({ scene: made } = await backend.commitMotion({ bodies: [edit.body], pivot: edit.pivot, scale: edit.scale }));
           else {

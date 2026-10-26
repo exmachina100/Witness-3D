@@ -144,3 +144,25 @@ fn a_face_turned_about_a_line_on_it_matches_the_draft_through_that_line() {
     assert!((vd - vt).abs() < 1e-6, "draft {vd} turn {vt}");
     assert!((vd - 8000.0).abs() > 1.0);
 }
+
+#[test]
+fn a_chamfer_turned_about_one_edge_sets_the_other_side_back_further() {
+    // Dimension's DISTANCE 1 or 2 on the desktop: the chamfer face turned about its edge on the
+    // other side, the faces beside it following.
+    let mut doc = Document::new(Occt);
+    let b = doc.add(doc.kernel.box_from_corners(DVec3::ZERO, DVec3::splat(20.0)));
+    let t = doc.kernel.tessellate(doc.get(b).unwrap(), 0.1).unwrap();
+    let edge = t.edges.iter().position(|e| e.iter().all(|p| (p[0] - 20.0).abs() < 1e-9 && (p[1] - 20.0).abs() < 1e-9)).unwrap() as u32;
+    let p = BlendParams { edges: vec![edge], size: 3.0, kind: Blend::Chamfer, angle: std::f64::consts::FRAC_PI_4, variable: vec![], shape: Default::default(), tension: 0.5, limits: vec![] };
+    doc.commit_blend(b, &p).unwrap();
+    assert!((volume(&doc.kernel, doc.get(b).unwrap()) - (8000.0 - 0.5 * 9.0 * 20.0)).abs() < 1e-3);
+    let face = facing(&doc.kernel, doc.get(b).unwrap(), DVec3::new(1.0, 1.0, 0.0).normalize());
+    // About its edge on the +X face (at y = 17), until it meets the +Y face 6 back from the corner.
+    let pivot = DVec3::new(20.0, 17.0, 0.0);
+    let (v0, v1) = (DVec3::new(17.0, 20.0, 0.0) - pivot, DVec3::new(14.0, 20.0, 0.0) - pivot);
+    let angle = v0.cross(v1).z.atan2(v0.dot(v1));
+    doc.commit_move_faces(b, &[face], &Motion::rotation(pivot, DVec3::Z, angle)).unwrap();
+    let s = doc.get(b).unwrap();
+    assert!((volume(&doc.kernel, s) - (8000.0 - 0.5 * 18.0 * 20.0)).abs() < 1e-3, "{}", volume(&doc.kernel, s));
+    assert_eq!(doc.kernel.face_count(s), 7);
+}
