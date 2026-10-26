@@ -9,6 +9,7 @@ import { cutSheets, loft, loftGuided, offsetFlatFaces, pipe, regionFace, revolve
 import { curveFromNurbs, ends, join, loops, MEET, nurbsLoop } from '../curves.js';
 import { isoparam, meetCurves, projectCurveCurve, projectCurves, projectedEdges, sectionCurves } from '../Project.js';
 import { isSheet, patch } from '../Patch.js';
+import { patchTrim } from '../patchTrim.js';
 import { offsetEdges } from '../edgeTube.js';
 import { faceSurfaces } from '../faceSurfaces.js';
 import { facePoles } from '../facePoles.js';
@@ -881,7 +882,8 @@ export class LocalBackend {
     }
 
     /** Plasticity's Patch: a sheet filling one closed loop of curves and body edges. */
-    patchResult({ curves = [], edges = [], tolerance }) {
+    patchResult({ curves = [], edges = [], tolerance, target, method }) {
+        if (target !== undefined && target !== null) return this.patchTrimResult(target, edges, method);
         const cs = curves.map(id => { const c = this.curveMap.get(id); if (!c) throw new Error('that curve no longer exists'); return c; });
         const es = edges.map(({ body, edge, tangent, continuity }) => {
             const shape = this.shapes.get(body);
@@ -892,12 +894,28 @@ export class LocalBackend {
         return patch(cs, es, tolerance);
     }
 
+    /** Patch › Method: the `target` sheet trimmed by edges of one base sheet (Trim to hole / sheet). */
+    patchTrimResult(target, edges, method = 'hole') {
+        if (!edges.length) throw new Error('select the edges of the base sheet to trim to');
+        const base = edges[0].body;
+        if (edges.some(e => e.body !== base)) throw new Error('the edges to trim to must be on one sheet');
+        if (base === target) throw new Error("the target sheet must be another body than the edges'");
+        const t = this.shapes.get(target), b = this.shapes.get(base);
+        if (!t || !b) throw new Error('that body no longer exists');
+        const all = numberedEdges(b);
+        return patchTrim(t, b, edges.map(e => { if (!all[e.edge]) throw new Error('no such edge'); return all[e.edge]; }), method === 'sheet' ? 'sheet' : 'hole');
+    }
+
     previewPatch(req) { return this.latest(async () => this.body(0, this.patchResult(req))) }
 
     /** Patch as one undo step: the sheet becomes a body of its own, and the loop stays. */
     async commitPatch(req) {
         const sheet = this.patchResult(req);
         this.checkpoint();
+        if (req.target !== undefined && req.target !== null) {
+            this.put(req.target, sheet);
+            return { id: req.target, scene: this.bodies() };
+        }
         const id = this.nextId++;
         this.put(id, sheet);
         return { id, scene: this.bodies() };

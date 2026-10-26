@@ -629,8 +629,11 @@ const SHELL = `
       <div class="chips"><button data-id="patch-tangent" aria-pressed="false"><kbd>T</kbd>TANGENT TO FACES</button><button data-id="patch-individual" aria-pressed="false" title="A sheet in each closed loop of the selection, rather than one loop only (I)"><kbd>I</kbd>INDIVIDUAL</button><button data-id="patch-quad" aria-pressed="false" title="Fill the loop as a four-sided B-spline sheet, split at its four corners"><kbd>Q</kbd>QUAD-SIDED</button></div>
       <span class="label">CONTINUITY</span>
       <div class="seg" role="group" aria-label="Continuity (T cycles)"><button data-pcont="planar" aria-pressed="false" title="Fill flat; a loop that is not flat is refused">PLANAR</button><button data-pcont="G0" aria-pressed="true" title="Meet the loop only">G0</button><button data-pcont="G1" aria-pressed="false" title="Leave the faces along the picked edges tangent">G1</button><button data-pcont="G2" aria-pressed="false" title="Match the faces' curvature along the picked edges">G2</button></div>
+      <span class="label">METHOD</span>
+      <div class="seg" role="group" aria-label="Method"><button data-pmethod="fill" aria-pressed="true" title="Fill the loop with a new sheet">FILL</button><button data-pmethod="hole" aria-pressed="false" title="Trim to hole: trim the selected target sheet to the hole the base sheet's edges make">HOLE</button><button data-pmethod="sheet" aria-pressed="false" title="Trim to sheet: trim the selected target sheet where the base sheet ends">SHEET</button></div>
       <div class="field"><label>CURVES</label><output data-id="patch-curves">0</output></div>
       <div class="field"><label>EDGES</label><output data-id="patch-edges">0</output></div>
+      <div class="field" title="The sheet the Trim methods cut: select it in body mode with the base sheet's edges"><label>TARGET</label><output data-id="patch-target">—</output></div>
       <div class="field" title="How far the sheet may stray from its loop, and how far apart the loop's pieces may be and still join (mm)"><label for="w3d-patch-tol">TOLERANCE</label><input id="w3d-patch-tol" data-id="patch-tol" type="number" step="0.001" min="0.0001" value="0.001"></div>
     </div>
     <div class="sec" data-panel="bridge-surface" hidden>
@@ -993,10 +996,10 @@ const VIEWS = {
 export async function mount(root, backend) {
   root.innerHTML = SHELL;
   // Panel options carry their icon ahead of the key and name.
-  for (const b of root.querySelectorAll('[data-proj],[data-imp],[data-impcomp],[data-draw],[data-bop],[data-xop],[data-fop],[data-spiral],[data-toggle],[data-gmethod],[data-galign],[data-gcorner],[data-grow],[data-mfgrow],[data-drgrow],[data-eslimit],[data-flshape],[data-drtaper],[data-avaxis],[data-extshape],[data-esshape],[data-isodir],[data-id="oe-both"],[data-id="oe-individual"],[data-id="blend-tangent"],[data-id="ex-lock"],[data-id="bool-keep"],[data-id="prim-keep"],[data-id="ex-free"],[data-id="ex-pivot"],[data-id="ex-individual"],[data-id="patch-individual"],[data-id="patch-quad"],[data-id="as-symmetric"],[data-id="as-analysis"],[data-id="sq-analysis"],[data-id="dr-hidden"],[data-id="dr-curves"],[data-id="oc-lock"],[data-id="oc-free"],[data-id="oc-slot"],[data-id="oc-combine"],[data-id="es-unlimit"],[data-rbmethod],[data-oecorner],[data-saplane],[data-plaxis],[data-plop],[data-id="pl-flip"],[data-id="pl-instance"],[data-id="mirror-instance"],[data-id="ra-instance"],[data-id="rr-instance"],[data-id="ca-instance"],[data-id="br-trim"],[data-id="br-comb"],[data-id="ac-comb"],[data-id="dc-reblend"],[data-id="section-btn"],[data-id="sa-flip"],[data-id="rf-shrink"],[data-id="ut-keep"],[data-txfont],[data-id="tx-load"],[data-id="tx-system"],[data-txalign],[data-sldir],[data-dcflip],[data-id="dc-keep"],[data-imdepth],[data-imcull],[data-id="im-delete"],[data-id="cc-extend"],[data-id="cc-screen"],[data-inmode],[data-pfmode],[data-pfmirror],[data-sqbound],[data-asbound],[data-bsshape],[data-bstrim],[data-id="bs-s1"],[data-id="bs-s2"],[data-id="in-realize"],[data-id="in-dup"],[data-id="in-delete"],[data-id="matcap-load"],[data-id="matcap-custom"],[data-id="hdr-load"],[data-id="hdr-custom"]')) {
+  for (const b of root.querySelectorAll('[data-proj],[data-imp],[data-impcomp],[data-draw],[data-bop],[data-xop],[data-fop],[data-spiral],[data-toggle],[data-gmethod],[data-galign],[data-gcorner],[data-grow],[data-mfgrow],[data-drgrow],[data-eslimit],[data-flshape],[data-drtaper],[data-avaxis],[data-extshape],[data-esshape],[data-isodir],[data-id="oe-both"],[data-id="oe-individual"],[data-id="blend-tangent"],[data-id="ex-lock"],[data-id="bool-keep"],[data-id="prim-keep"],[data-id="ex-free"],[data-id="ex-pivot"],[data-id="ex-individual"],[data-id="patch-individual"],[data-id="patch-quad"],[data-id="as-symmetric"],[data-id="as-analysis"],[data-id="sq-analysis"],[data-id="dr-hidden"],[data-id="dr-curves"],[data-id="oc-lock"],[data-id="oc-free"],[data-id="oc-slot"],[data-id="oc-combine"],[data-id="es-unlimit"],[data-rbmethod],[data-oecorner],[data-saplane],[data-plaxis],[data-plop],[data-id="pl-flip"],[data-id="pl-instance"],[data-id="mirror-instance"],[data-id="ra-instance"],[data-id="rr-instance"],[data-id="ca-instance"],[data-id="br-trim"],[data-id="br-comb"],[data-id="ac-comb"],[data-id="dc-reblend"],[data-id="section-btn"],[data-id="sa-flip"],[data-id="rf-shrink"],[data-id="ut-keep"],[data-txfont],[data-id="tx-load"],[data-id="tx-system"],[data-txalign],[data-sldir],[data-dcflip],[data-id="dc-keep"],[data-imdepth],[data-imcull],[data-id="im-delete"],[data-id="cc-extend"],[data-id="cc-screen"],[data-inmode],[data-pfmode],[data-pfmirror],[data-pmethod],[data-sqbound],[data-asbound],[data-bsshape],[data-bstrim],[data-id="bs-s1"],[data-id="bs-s2"],[data-id="in-realize"],[data-id="in-dup"],[data-id="in-delete"],[data-id="matcap-load"],[data-id="matcap-custom"],[data-id="hdr-load"],[data-id="hdr-custom"]')) {
     const name = (b.dataset.proj && (b.dataset.proj === 'screen' ? 'view-screen' : `proj-${b.dataset.proj}`)) ?? (b.dataset.imp && (b.dataset.imp === 'screen' ? 'view-screen' : `proj-${b.dataset.imp}`)) ?? (b.dataset.impcomp && `completion-${b.dataset.impcomp}`) ?? b.dataset.draw ?? b.dataset.bop ?? b.dataset.xop ?? b.dataset.fop ?? b.dataset.spiral ?? (b.dataset.toggle && `view-${b.dataset.toggle}`)
       ?? (b.dataset.gmethod && `guide-${b.dataset.gmethod}`) ?? (b.dataset.galign && `align-${b.dataset.galign}`) ?? (b.dataset.gcorner && (b.dataset.gcorner === 'round' ? 'corner-round' : 'corner-linear')) ?? (b.dataset.grow && `grow-${b.dataset.grow}`) ?? (b.dataset.mfgrow && `grow-${b.dataset.mfgrow}`) ?? (b.dataset.drgrow && `grow-${b.dataset.drgrow}`) ?? (b.dataset.eslimit && `limit-${b.dataset.eslimit}`) ?? (b.dataset.flshape && `fillet-${b.dataset.flshape}`) ?? (b.dataset.drtaper && `taper-${b.dataset.drtaper}`) ?? (b.dataset.avaxis && `axis-${b.dataset.avaxis}`) ?? (b.dataset.extshape && `extend-${b.dataset.extshape}`) ?? (b.dataset.esshape && `extend-${b.dataset.esshape}`) ?? (b.dataset.isodir && `iso-${b.dataset.isodir}`) ?? (b.dataset.rbmethod && `rebuild-${b.dataset.rbmethod}`) ?? (b.dataset.oecorner && `corner-${b.dataset.oecorner}`) ?? (b.dataset.saplane && `section-${b.dataset.saplane}`) ?? (b.dataset.plaxis && (b.dataset.plaxis === 'normal' ? 'place-normal' : `axis-${b.dataset.plaxis}`)) ?? b.dataset.plop
-      ?? (b.dataset.txfont && `font-${b.dataset.txfont}`) ?? (b.dataset.txalign && `txalign-${b.dataset.txalign}`) ?? (b.dataset.sldir && { u: 'slide-u', '-u': 'slide-back', v: 'slide-v', '-v': 'slide-vback', n: 'slide-n' }[b.dataset.sldir]) ?? (b.dataset.dcflip && { mirror: 'mirror', swap: 'swap-uv', normal: 'reverse-sheet' }[b.dataset.dcflip]) ?? (b.dataset.imdepth && `depth-${b.dataset.imdepth}`) ?? (b.dataset.imcull && `cull-${b.dataset.imcull}`) ?? b.dataset.inmode ?? (b.dataset.bsshape && `bridge-${b.dataset.bsshape}`) ?? (b.dataset.bstrim && `trimwall-${b.dataset.bstrim}`) ?? (b.dataset.pfmode && `falloff-${b.dataset.pfmode}`) ?? ((b.dataset.sqbound ?? b.dataset.asbound) && `bound-${b.dataset.sqbound ?? b.dataset.asbound}`) ?? (b.dataset.pfmirror && `mirror-${b.dataset.pfmirror}`)
+      ?? (b.dataset.txfont && `font-${b.dataset.txfont}`) ?? (b.dataset.txalign && `txalign-${b.dataset.txalign}`) ?? (b.dataset.sldir && { u: 'slide-u', '-u': 'slide-back', v: 'slide-v', '-v': 'slide-vback', n: 'slide-n' }[b.dataset.sldir]) ?? (b.dataset.dcflip && { mirror: 'mirror', swap: 'swap-uv', normal: 'reverse-sheet' }[b.dataset.dcflip]) ?? (b.dataset.imdepth && `depth-${b.dataset.imdepth}`) ?? (b.dataset.imcull && `cull-${b.dataset.imcull}`) ?? b.dataset.inmode ?? (b.dataset.bsshape && `bridge-${b.dataset.bsshape}`) ?? (b.dataset.bstrim && `trimwall-${b.dataset.bstrim}`) ?? (b.dataset.pmethod && (b.dataset.pmethod === 'fill' ? 'patch-fill' : `trim-${b.dataset.pmethod}`)) ?? (b.dataset.pfmode && `falloff-${b.dataset.pfmode}`) ?? ((b.dataset.sqbound ?? b.dataset.asbound) && `bound-${b.dataset.sqbound ?? b.dataset.asbound}`) ?? (b.dataset.pfmirror && `mirror-${b.dataset.pfmirror}`)
       ?? { 'matcap-load': 'matcap-load', 'matcap-custom': 'matcap', 'tx-load': 'font-load', 'tx-system': 'font-system', 'hdr-load': 'hdr-load', 'hdr-custom': 'hdr', 'ex-lock': 'lock', 'bool-keep': 'keep', 'prim-keep': 'keep', 'ex-free': 'freestyle', 'ex-pivot': 'pivot', 'ex-individual': 'individual', 'patch-individual': 'individual', 'patch-quad': 'square', 'as-symmetric': 'symmetric', 'as-analysis': 'analysis', 'sq-analysis': 'analysis', 'bs-s1': 'flip', 'bs-s2': 'flip', 'dr-hidden': 'hidden-lines', 'dr-curves': 'drawing-curves', 'oc-lock': 'lock', 'oc-free': 'freestyle', 'oc-slot': 'slot', 'oc-combine': 'combine', 'oe-both': 'both-sides', 'oe-individual': 'individual', 'blend-tangent': 'tangent-chain', 'es-unlimit': 'unlimit', 'rf-shrink': 'shrink', 'ut-keep': 'keep-edges', 'section-btn': 'view-section', 'sa-flip': 'flip', 'pl-flip': 'flip', 'pl-instance': 'instance', 'mirror-instance': 'instance', 'ra-instance': 'instance', 'rr-instance': 'instance', 'ca-instance': 'instance', 'br-trim': 'trim', 'br-comb': 'view-curvature', 'ac-comb': 'view-curvature', 'dc-reblend': 'reblend', 'dc-keep': 'keep', 'im-delete': 'delete', 'in-realize': 'realize-instance', 'cc-extend': 'extend', 'cc-screen': 'view-screen', 'in-dup': 'duplicate', 'in-delete': 'delete' }[b.dataset.id];
     b.insertAdjacentHTML('afterbegin', icon(name));
   }
@@ -7367,7 +7370,7 @@ export async function mount(root, backend) {
     if (!backend.previewPatch) return toast('PATCH IS NOT IN THIS BUILD YET');
     // Continuity (manual: Planar, G0, G1, G2): Planar fills flat and refuses a loop that is not,
     // G0 meets the loop only, G1 leaves the faces tangent and G2 matches their curvature too.
-    const c = cmd = { id: 'patch', tangent: false, cont: 'G0', individual: false, quad: false, curves: [], edges: [], sent: 0, shown: 0 };
+    const c = cmd = { id: 'patch', tangent: false, cont: 'G0', individual: false, quad: false, method: 'fill', methodSet: false, target: null, curves: [], edges: [], sent: 0, shown: 0 };
     const LEVEL = { planar: 0, G0: 0, G1: 1, G2: 2 };
     lastTool = 'patch';
     showTool('patch');
@@ -7376,6 +7379,12 @@ export async function mount(root, backend) {
     const request = (curves, edges) => ({ curves, edges: edges.map(e => ({ body: e.body, edge: e.n, tangent: LEVEL[c.cont] > 0, continuity: LEVEL[c.cont] })), tolerance: tolerance() });
     // Individual: one request per closed loop the pieces make; otherwise all of them as one loop.
     c.requests = () => {
+      // Trim to hole / Trim to sheet: the target sheet cut by the base sheet's edges.
+      if (c.method !== 'fill') {
+        if (c.target === null) throw new Error('select the target sheet too, in body mode');
+        if (c.curves.length) throw new Error('the trim methods take edges of the base sheet only');
+        return [{ ...request([], c.edges), target: c.target, method: c.method }];
+      }
       const groups = patchLoops(c.curves, c.edges);
       if (!c.individual) {
         if (groups.length > 1 && groups.every(g => g.closed)) throw new Error(`those make ${groups.length} loops; press I for a sheet in each`);
@@ -7391,7 +7400,7 @@ export async function mount(root, backend) {
       return square(quadSides(sides, Math.max(0.01, 1e-3 * size)), { degree: 3, continuity: 'G0' });
     };
     c.preview = () => livePreview(c, async () => {
-      if (c.quad) {
+      if (c.quad && c.method === 'fill') {
         const fit = await c.quadFit();
         if (cmd !== c) return null;
         c.data = splineSheetData(fit);
@@ -7416,6 +7425,10 @@ export async function mount(root, backend) {
         return setState('failed');
       }
       c.notFlat = false;
+      if (c.method !== 'fill') {
+        $('patch-hint').textContent = c.method === 'hole' ? 'THE TARGET SHEET TRIMMED TO THE HOLE' : 'THE TARGET SHEET TRIMMED WHERE THE BASE SHEET ENDS';
+        return setHud(`PATCH · TRIM TO ${c.method.toUpperCase()}`);
+      }
       $('patch-hint').textContent = c.quad ? c.quadText : (smooth ?? (list.length > 1 ? `A ${c.cont === 'planar' ? 'FLAT ' : ''}SHEET THROUGH EACH LOOP` : `${c.cont === 'planar' ? 'A FLAT' : ''} SHEET THROUGH THE LOOP`.trim())) + (list.length > 1 ? ` · ${list.length} SHEETS` : '');
       setHud(c.quad ? 'PATCH · QUAD-SIDED' : list.length > 1 ? `PATCH ×${list.length}` : 'PATCH');
     }, 'patch-hint');
@@ -7423,6 +7436,12 @@ export async function mount(root, backend) {
       drawOverlays();
       c.curves = sel.curves.filter(curveById);
       c.edges = sel.list('edge');
+      // The target: a sheet body selected along with the edges, other than the one they are on.
+      const bases = new Set(c.edges.map(e => e.body));
+      c.target = sel.solids.find(id => !bases.has(id) && bodyOf(id)?.sheet) ?? null;
+      if (c.target !== null && !c.methodSet && c.method === 'fill') c.method = 'hole';
+      $('patch-target').textContent = c.target === null ? '—' : `SHEET ${c.target}`;
+      for (const b of $$('[data-pmethod]')) b.setAttribute('aria-pressed', String(b.dataset.pmethod === c.method));
       $('patch-curves').textContent = c.curves.length;
       $('patch-edges').textContent = c.edges.length;
       for (const b of $$('[data-pcont]')) b.setAttribute('aria-pressed', String(b.dataset.pcont === c.cont));
@@ -7443,6 +7462,7 @@ export async function mount(root, backend) {
       c.preview();
     };
     c.setCont = g => { c.cont = g; c.tangent = LEVEL[g] > 0; c.onSelection(); };
+    c.setMethod = m => { c.method = m; c.methodSet = true; c.onSelection(); };
     c.key = action => {
       // T cycles the continuity, as the manual lists it: Planar, G0, G1, G2.
       if (action === 'tangent') c.setCont({ planar: 'G0', G0: 'G1', G1: 'G2', G2: 'planar' }[c.cont]);
@@ -7468,7 +7488,7 @@ export async function mount(root, backend) {
       if (c.notFlat) { setState('failed'); return toast($('patch-hint').textContent); }
       let list = null;
       const made = [];
-      if (c.quad) {
+      if (c.quad && c.method === 'fill') {
         if (!c.data) { setState('failed'); return toast($('patch-hint').textContent); }
         try {
           const { ids, scene } = await backend.commitSplineSheet({ data: c.data });
@@ -7488,7 +7508,7 @@ export async function mount(root, backend) {
           const { id, scene } = await backend.commitPatch(r);
           made.push(id);
           list = scene;
-          record(`PATCH${c.cont === 'planar' ? ' PLANAR' : LEVEL[c.cont] && c.edges.length ? ` ${c.cont}` : ''}`, id);
+          record(c.method !== 'fill' ? `PATCH TRIM TO ${c.method.toUpperCase()}` : `PATCH${c.cont === 'planar' ? ' PLANAR' : LEVEL[c.cont] && c.edges.length ? ` ${c.cont}` : ''}`, id);
         }
         endCmd('committed');
       } catch (e) { setState('failed'); toast(say(e)); }
@@ -10609,6 +10629,7 @@ export async function mount(root, backend) {
   $('patch-tangent').onclick = () => cmd?.id === 'patch' && cmd.key('tangent');
   $('patch-quad').onclick = () => cmd?.id === 'patch' && cmd.key('quad');
   for (const b of $$('[data-pcont]')) b.onclick = () => cmd?.id === 'patch' && cmd.setCont(b.dataset.pcont);
+  for (const b of $$('[data-pmethod]')) b.onclick = () => cmd?.id === 'patch' && cmd.setMethod(b.dataset.pmethod);
   $('patch-individual').onclick = () => cmd?.id === 'patch' && cmd.key('individual');
   $('ex-free').onclick = () => cmd?.id === 'extrude' && cmd.key('freestyle');
   $('ex-pivot').onclick = () => cmd?.id === 'extrude' && cmd.key('pivot');

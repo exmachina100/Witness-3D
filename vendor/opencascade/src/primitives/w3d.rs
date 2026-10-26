@@ -527,6 +527,14 @@ impl Shape {
         Ok([piece(0)?, piece(1)?, piece(2)?])
     }
 
+    /// Plasticity's Patch › Method: `target` trimmed to the hole edges of `self` make (`hole`), or
+    /// where this sheet ends (see `w3d_patch_trim`).
+    pub fn patch_trim(&self, target: &Shape, edges: &[usize], hole: bool) -> Result<Shape, String> {
+        let edges: Vec<i32> = edges.iter().map(|&e| e as i32).collect();
+        let out = ffi::w3d::w3d_patch_trim(&target.inner, &self.inner, &edges, hole).map_err(reason)?;
+        Ok(Shape::from_shape(&out))
+    }
+
     /// Plasticity's Unjoin: each face as a sheet (`faces`), or each separate shell or solid (see `w3d_unjoin`).
     pub fn unjoin(&self, faces: bool) -> Result<Vec<Shape>, String> {
         let all = ffi::w3d::w3d_unjoin(&self.inner, faces).map_err(reason)?;

@@ -1324,6 +1324,12 @@ pub struct PatchRequest {
     /// How far the sheet may stray from the loop (mm, Plasticity's Tolerance); 0 keeps the default.
     #[serde(default)]
     pub tolerance: f64,
+    /// Patch › Method: a sheet body to trim by the edges instead of filling them.
+    #[serde(default)]
+    pub target: Option<BodyId>,
+    /// "hole" (Trim to hole) or "sheet" (Trim to sheet), with `target`.
+    #[serde(default)]
+    pub method: String,
 }
 
 #[derive(Deserialize, Debug, Clone)]
@@ -1346,14 +1352,20 @@ impl PatchRequest {
 
 pub fn preview_patch(m: &Model, req: PatchRequest) -> Option<Result<Body, ApiError>> {
     m.preview(move |doc| {
-        let sheet = doc.preview_patch(&req.curves, &req.edges(), req.tolerance)?;
+        let sheet = match req.target {
+            Some(t) => doc.preview_patch_trim(t, &req.edges(), req.method != "sheet")?,
+            None => doc.preview_patch(&req.curves, &req.edges(), req.tolerance)?,
+        };
         Ok(body(&doc.kernel, 0, &sheet)?)
     })
 }
 
 pub fn commit_patch(m: &Model, req: PatchRequest) -> Result<Committed, ApiError> {
     m.call(move |doc| {
-        let id = doc.commit_patch(&req.curves, &req.edges(), req.tolerance)?;
+        let id = match req.target {
+            Some(t) => doc.commit_patch_trim(t, &req.edges(), req.method != "sheet")?,
+            None => doc.commit_patch(&req.curves, &req.edges(), req.tolerance)?,
+        };
         Ok(Committed { id, scene: bodies(doc)? })
     })
 }
