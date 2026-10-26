@@ -154,6 +154,28 @@ test('a tangent circle touches both lines, sized by the cursor or by a radius', 
     close(Math.hypot(...inside.center), 15, 1e-9);
 });
 
+test('a tangent circle touches three curves: lines, a circle and a spline', async () => {
+    const { tangentCircle3 } = await import('../src/curveEdit.js');
+    const floor = line([0, 0], [100, 0]), wall = line([0, 0], [0, 100]), roof = line([0, 40], [100, 40]);
+    // In the corner channel: radius 20, centre (20, 20).
+    const c = tangentCircle3(floor, wall, roof, [25, 15]);
+    close(c.radius, 20, 1e-7);
+    close(c.center[0], 20, 1e-7);
+    close(c.center[1], 20, 1e-7);
+    // Floor, wall and a circle out in the corner: the incircle of the gap.
+    const round = { ...plane, kind: 'circle', center: [40, 40], radius: 10 };
+    const t = tangentCircle3(floor, wall, round, [8, 8]);
+    close(t.center[0], t.radius, 1e-7);
+    close(t.center[1], t.radius, 1e-7);
+    close(Math.hypot(t.center[0] - 40, t.center[1] - 40), 10 + t.radius, 1e-6);
+    // A sampled spline as the third: the circle sits on it within its samples.
+    const wave = { ...plane, kind: 'spline', closed: false, points: [[0, 30], [30, 34], [60, 30], [90, 34]] };
+    const w = tangentCircle3(floor, wall, wave, [12, 12]);
+    assert.ok(w.radius > 10 && w.radius < 20, `${w.radius}`);
+    close(w.center[0], w.radius, 1e-7);
+    assert.throws(() => tangentCircle3(floor, wall, { ...roof, origin: [0, 5, 0] }, [1, 1]), /one plane/);
+});
+
 test('split cuts lines and arcs exactly where clicked', async () => {
     const { splitCurve } = await import('../src/curveEdit.js');
     const [a, b] = splitCurve({ ...plane, kind: 'polyline', closed: false, points: [[0, 0], [10, 0], [10, 10]] }, [10, 4]);
