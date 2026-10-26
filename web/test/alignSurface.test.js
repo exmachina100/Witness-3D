@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 import { before, test } from 'node:test';
 import { LocalBackend } from '../src/app/LocalBackend.js';
 import { loadKernel, numberedEdges, oc } from '../src/Kernel.js';
-import { alignAnalysis, alignRequest, basis, normalCurvature, readEdgeFaces } from '../src/alignSurface.js';
+import { alignAnalysis, alignRequest, basis, normalCurvature, readEdgeFaces, targetFace } from '../src/alignSurface.js';
 
 before(async () => { await loadKernel() });
 
@@ -189,4 +189,26 @@ test('Boundary turns how the sheet leaves the aligned side at its ends', async (
     // The sheet's neighbouring sides are straight, so Next acts as Normal.
     assert.deepEqual(leave('next'), normal);
     assert.throws(() => alignMoves(side, plan, frames, { boundary: 'sideways' }), /Natural, Normal, Next or Adjacent/);
+});
+
+test('Degree/Spans: the target rebuilt first, then aligned', async () => {
+    const be = new LocalBackend();
+    const ref = sheet((i, j) => [20 * i / 3, 20 * j / 3, [0, 0, 2, 6][i]]);
+    const tgt = sheet((i, j) => [21 + 14 * i / 3, 20 * j / 3, 8]);
+    be.put(901, ref);
+    be.put(902, tgt);
+    const reference = { body: 901, edge: edgeNear(ref, [20, 10, 6]) }, target = { body: 902, edge: edgeNear(tgt, [21, 10, 8]) };
+    const face = await targetFace(be, target, reference);
+    const { rebuilt } = await be.commitRebuildFaces({ body: 902, faces: [face], explicit: true, tolerance: 0.01, degree: [3, 3], spans: [4, 4], extend: [0, 0], shrink: false });
+    assert.deepEqual(rebuilt[0].poles, [7, 7]);
+    // The edges are found again by where they lie.
+    target.edge = edgeNear(be.shapes.get(902), [21, 10, 8]);
+    assert.ok(target.edge >= 0);
+    const req = await alignRequest(be, { target, reference, continuity: 'G1' });
+    const r = await alignAnalysis(be, req);
+    assert.ok(r.gap < 1e-6 && r.angle < 1e-3, `${r.gap} mm, ${r.angle}°`);
+    await be.commitMoveFacePoles(req);
+    // Two steps back is the sheet as it was.
+    be.undo(); be.undo();
+    assert.ok(edgeNear(be.shapes.get(902), [21, 10, 8]) >= 0);
 });
