@@ -1367,14 +1367,63 @@ impl<K: Kernel> Document<K> {
     }
 
     /// Plasticity's Draft Face, without changing the document.
-    pub fn preview_draft(&self, body: BodyId, faces: &[u32], pull: DVec3, origin: DVec3, angle: f64) -> Result<Traced<K::Solid>, KernelError> {
+    /// `grow` is the manual's Grow, for an inner face drafted out past the body's outer wall beyond
+    /// it: Moving takes the wall's own flat faces out as far, Fixed stops the face at the wall, None
+    /// lets it carry on by itself.
+    pub fn preview_draft(&self, body: BodyId, faces: &[u32], pull: DVec3, origin: DVec3, angle: f64, grow: Grow) -> Result<Traced<K::Solid>, KernelError> {
+        const TOL: f64 = 1e-6;
         let s = self.get(body).ok_or(KernelError::Invalid("that body no longer exists"))?;
-        self.kernel.draft_faces(s, faces, pull, origin, angle)
+        let mut out = self.kernel.draft_faces(s, faces, pull, origin, angle)?;
+        if grow == Grow::None { return Ok(out) }
+        let mesh = self.kernel.tessellate(s, 0.1)?;
+        let reach = |positions: &[[f64; 3]], p: &crate::Plane| {
+            positions.iter().map(|q| (DVec3::from(*q) - p.origin).dot(p.normal)).fold(0.0, f64::max)
+        };
+        let size = mesh.positions.iter().fold(0.0f64, |m, q| m.max(DVec3::from(*q).length())) * 4.0 + 1.0;
+        for &f in faces {
+            let Some(p) = mesh.face_planes.get(f as usize).copied().flatten() else { continue };
+            // An outside face has nothing beyond it; an inner one has the body's outer wall there.
+            let wall = reach(&mesh.positions, &p);
+            if wall <= TOL { continue }
+            let past = reach(&self.kernel.tessellate(&out.solid, 0.1)?.positions, &p) - wall;
+            if past <= TOL { continue }
+            let tool = match grow {
+                Grow::Fixed => {
+                    // Everything beyond the wall's plane goes: the drafted face stops at the wall.
+                    let n = p.normal;
+                    let x = if n.x.abs() < 0.9 { DVec3::X } else { DVec3::Y };
+                    let x = (x - n * x.dot(n)).normalize();
+                    let y = n.cross(x);
+                    let at = p.origin + n * wall - x * size - y * size;
+                    let beyond = crate::solids::primitive(&self.kernel, &Primitive::Box { frame: Frame::new(at, x, n), width: 2.0 * size, depth: 2.0 * size, height: size })?;
+                    (beyond, BooleanOp::Difference)
+                }
+                _ => {
+                    // The wall's flat faces facing the same way, pushed out as far as the face got.
+                    let mut tool: Option<K::Solid> = None;
+                    for (g, q) in mesh.face_planes.iter().enumerate() {
+                        let Some(q) = q else { continue };
+                        if q.normal.dot(p.normal) > 1.0 - 1e-9 && ((q.origin - p.origin).dot(p.normal) - wall).abs() < TOL * 10.0 {
+                            let slab = self.kernel.extrude_face(s, g as u32, &crate::Extent::to(past))?;
+                            tool = Some(match tool.take() { Some(t) => self.kernel.boolean(&t, &slab, BooleanOp::Union)?.solid, None => slab });
+                        }
+                    }
+                    let Some(tool) = tool else { continue };
+                    (tool, BooleanOp::Union)
+                }
+            };
+            let next = self.kernel.boolean(&out.solid, &tool.0, tool.1)?;
+            out = Traced { history: chain(&out.history, &next.history), solid: next.solid };
+        }
+        if !self.kernel.is_valid(&out.solid) || self.kernel.solid_count(&out.solid) != self.kernel.solid_count(s) {
+            return Err(KernelError::Invalid("drafting that far breaks the body; try a smaller angle or Grow None"));
+        }
+        Ok(out)
     }
 
     /// Draft Face as one undoable step.
-    pub fn commit_draft(&mut self, body: BodyId, faces: &[u32], pull: DVec3, origin: DVec3, angle: f64) -> Result<BodyId, KernelError> {
-        let traced = self.preview_draft(body, faces, pull, origin, angle)?;
+    pub fn commit_draft(&mut self, body: BodyId, faces: &[u32], pull: DVec3, origin: DVec3, angle: f64, grow: Grow) -> Result<BodyId, KernelError> {
+        let traced = self.preview_draft(body, faces, pull, origin, angle, grow)?;
         self.checkpoint();
         self.replace_traced(body, traced);
         Ok(body)

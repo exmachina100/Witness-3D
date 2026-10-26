@@ -238,6 +238,25 @@ test('draft face closes the sides of a block in along the pull, as one undo step
     await assert.rejects(async () => be.commitDraft({ body: id, faces: sides, pull: [0, 1, 0], origin: [0, 0, 0], angle: 0 }), /not be zero/);
 });
 
+test("Draft Face's Grow: an inner face drafted past the outer wall pushes it, stops at it or carries on", async () => {
+    // A 13 x 20 x 10 step, its far 3 mm cut down to 5: the riser at x = 10 faces the outer wall at
+    // x = 13 (as crates/w3d-kernel/tests/draft_grow.rs). Drafted 45 degrees about its foot it leans
+    // out 5 mm at the top, 2 mm past the wall.
+    const { boolean } = await import('../src/Kernel.js');
+    const be = new LocalBackend();
+    const step = boolean(box({ x: 0, y: 0, z: 0 }, { x: 13, y: 20, z: 10 }), box({ x: 10, y: -1, z: 5 }, { x: 14, y: 21, z: 11 }), 'difference');
+    be.put(950, step);
+    const riser = be.scene().find(b => b.id === 950).facePlanes.findIndex(p => p && p.normal[0] > 0.999 && Math.abs(p.origin[0] - 10) < 1e-9);
+    assert.ok(riser >= 0);
+    const req = (angle, grow) => ({ body: 950, faces: [riser], pull: [0, 0, 1], origin: [10, 0, 5], angle, grow });
+    const vol = r => volume(be.draftResult(r).shape);
+    const angle = [Math.PI / 4, -Math.PI / 4].find(a => { try { return vol(req(a, 'none')) > 2300 } catch { return false } });
+    assert.ok(angle !== undefined, 'one way adds material');
+    close(vol(req(angle, 'none')), 2550, 1e-3);
+    close(vol(req(angle, 'fixed')), 2510, 1e-3);
+    close(vol(req(angle, 'moving')), 2750, 1e-3);
+});
+
 test('Find Boundary Edges: a sheet\'s open sides, none on a solid or at a seam', () => {
     const sheet = planeSheet([0, 0, 0], [0, 1, 0], 20);
     assert.deepEqual(boundaryEdges(sheet), [0, 1, 2, 3]);
