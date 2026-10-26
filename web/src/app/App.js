@@ -72,7 +72,7 @@ import { EDGE_CONTINUITY, bridgeCurve, bridgePoles, edgePoint } from '../bridgeE
 import { ALIGN_CONTINUITY, alignAnalysis, alignRequest, readEdgeFaces, targetFace } from '../alignSurface.js';
 import { PROJECT_CONTINUITY, projectAlignRequest } from '../projectAlign.js';
 import { constrainedSurface, splineSheetData } from '../constrainedSurface.js';
-import { square } from '../square.js';
+import { square, quadSides } from '../square.js';
 import { combTeeth, isoLines, onFace } from '../isoCombs.js';
 import { liftPiece, meshSilhouette, nearestOver } from '../createOutline.js';
 import { FONTS, parseFont, textShapes } from '../text.js';
@@ -157,7 +157,7 @@ const KEYS = {
   'extend-sheet': [['CLICK', "A SHEET'S EDGE"], ['D', 'DISTANCE'], ['CTRL+CLICK', 'A BODY TO REACH'], ['TAB', 'NATURAL · LINEAR · SOFT · REFLECTIVE'], ['⏎ / RMB', 'OK']],
   thicken: [['CLICK', 'A SHEET'], ['ALT CLICK', 'FACES (THICKEN FACE)'], ['D', 'FRONT'], ['B', 'BACK'], ['⏎ / RMB', 'OK']],
   pipe: [['⇧ CLICK', 'CURVES'], ['R', 'RADIUS'], ['T', 'THICKNESS'], ['V', 'SIDES'], ['⏎ / RMB', 'OK']],
-  patch: [['⇧ CLICK', 'CURVES · EDGES'], ['T', 'TANGENT TO FACES'], ['⏎ / RMB', 'OK']],
+  patch: [['⇧ CLICK', 'CURVES · EDGES'], ['T', 'TANGENT TO FACES'], ['Q', 'QUAD-SIDED'], ['⏎ / RMB', 'OK']],
   hole: [['CLICK', 'A FLAT FACE'], ['T', 'THROUGH ALL'], ['TYPE', 'SIZE IN PANEL'], ['⏎ / RMB', 'OK']],
   split: [['CLICK', 'WHERE TO SPLIT'], ['ESC / ⏎', 'DONE']],
   'measure-distance': [['CLICK', 'TWO POINTS'], ['CLICK', 'AGAIN TO RESTART'], ['ESC', 'DONE']],
@@ -610,7 +610,7 @@ const SHELL = `
     </div>
     <div class="sec" data-panel="patch" hidden>
       <span class="hint" data-id="patch-hint">—</span>
-      <div class="chips"><button data-id="patch-tangent" aria-pressed="false"><kbd>T</kbd>TANGENT TO FACES</button><button data-id="patch-individual" aria-pressed="false" title="A sheet in each closed loop of the selection, rather than one loop only (I)"><kbd>I</kbd>INDIVIDUAL</button></div>
+      <div class="chips"><button data-id="patch-tangent" aria-pressed="false"><kbd>T</kbd>TANGENT TO FACES</button><button data-id="patch-individual" aria-pressed="false" title="A sheet in each closed loop of the selection, rather than one loop only (I)"><kbd>I</kbd>INDIVIDUAL</button><button data-id="patch-quad" aria-pressed="false" title="Fill the loop as a four-sided B-spline sheet, split at its four corners"><kbd>Q</kbd>QUAD-SIDED</button></div>
       <div class="field"><label>CURVES</label><output data-id="patch-curves">0</output></div>
       <div class="field"><label>EDGES</label><output data-id="patch-edges">0</output></div>
     </div>
@@ -966,11 +966,11 @@ const VIEWS = {
 export async function mount(root, backend) {
   root.innerHTML = SHELL;
   // Panel options carry their icon ahead of the key and name.
-  for (const b of root.querySelectorAll('[data-proj],[data-imp],[data-impcomp],[data-draw],[data-bop],[data-xop],[data-fop],[data-spiral],[data-toggle],[data-gmethod],[data-galign],[data-gcorner],[data-grow],[data-mfgrow],[data-eslimit],[data-flshape],[data-drtaper],[data-avaxis],[data-extshape],[data-esshape],[data-isodir],[data-id="oe-both"],[data-id="oe-individual"],[data-id="blend-tangent"],[data-id="ex-lock"],[data-id="bool-keep"],[data-id="prim-keep"],[data-id="ex-free"],[data-id="ex-pivot"],[data-id="ex-individual"],[data-id="patch-individual"],[data-id="as-symmetric"],[data-id="as-analysis"],[data-id="dr-hidden"],[data-id="dr-curves"],[data-id="oc-lock"],[data-id="oc-free"],[data-id="oc-slot"],[data-id="oc-combine"],[data-id="es-unlimit"],[data-rbmethod],[data-oecorner],[data-saplane],[data-plaxis],[data-plop],[data-id="pl-flip"],[data-id="pl-instance"],[data-id="mirror-instance"],[data-id="ra-instance"],[data-id="rr-instance"],[data-id="ca-instance"],[data-id="br-trim"],[data-id="br-comb"],[data-id="ac-comb"],[data-id="dc-reblend"],[data-id="section-btn"],[data-id="sa-flip"],[data-id="rf-shrink"],[data-id="ut-keep"],[data-txfont],[data-id="tx-load"],[data-id="tx-system"],[data-txalign],[data-sldir],[data-dcflip],[data-id="dc-keep"],[data-imdepth],[data-imcull],[data-id="im-delete"],[data-id="cc-extend"],[data-id="cc-screen"],[data-inmode],[data-pfmode],[data-pfmirror],[data-sqbound],[data-asbound],[data-id="in-realize"],[data-id="in-dup"],[data-id="in-delete"],[data-id="matcap-load"],[data-id="matcap-custom"],[data-id="hdr-load"],[data-id="hdr-custom"]')) {
+  for (const b of root.querySelectorAll('[data-proj],[data-imp],[data-impcomp],[data-draw],[data-bop],[data-xop],[data-fop],[data-spiral],[data-toggle],[data-gmethod],[data-galign],[data-gcorner],[data-grow],[data-mfgrow],[data-eslimit],[data-flshape],[data-drtaper],[data-avaxis],[data-extshape],[data-esshape],[data-isodir],[data-id="oe-both"],[data-id="oe-individual"],[data-id="blend-tangent"],[data-id="ex-lock"],[data-id="bool-keep"],[data-id="prim-keep"],[data-id="ex-free"],[data-id="ex-pivot"],[data-id="ex-individual"],[data-id="patch-individual"],[data-id="patch-quad"],[data-id="as-symmetric"],[data-id="as-analysis"],[data-id="dr-hidden"],[data-id="dr-curves"],[data-id="oc-lock"],[data-id="oc-free"],[data-id="oc-slot"],[data-id="oc-combine"],[data-id="es-unlimit"],[data-rbmethod],[data-oecorner],[data-saplane],[data-plaxis],[data-plop],[data-id="pl-flip"],[data-id="pl-instance"],[data-id="mirror-instance"],[data-id="ra-instance"],[data-id="rr-instance"],[data-id="ca-instance"],[data-id="br-trim"],[data-id="br-comb"],[data-id="ac-comb"],[data-id="dc-reblend"],[data-id="section-btn"],[data-id="sa-flip"],[data-id="rf-shrink"],[data-id="ut-keep"],[data-txfont],[data-id="tx-load"],[data-id="tx-system"],[data-txalign],[data-sldir],[data-dcflip],[data-id="dc-keep"],[data-imdepth],[data-imcull],[data-id="im-delete"],[data-id="cc-extend"],[data-id="cc-screen"],[data-inmode],[data-pfmode],[data-pfmirror],[data-sqbound],[data-asbound],[data-id="in-realize"],[data-id="in-dup"],[data-id="in-delete"],[data-id="matcap-load"],[data-id="matcap-custom"],[data-id="hdr-load"],[data-id="hdr-custom"]')) {
     const name = (b.dataset.proj && (b.dataset.proj === 'screen' ? 'view-screen' : `proj-${b.dataset.proj}`)) ?? (b.dataset.imp && (b.dataset.imp === 'screen' ? 'view-screen' : `proj-${b.dataset.imp}`)) ?? (b.dataset.impcomp && `completion-${b.dataset.impcomp}`) ?? b.dataset.draw ?? b.dataset.bop ?? b.dataset.xop ?? b.dataset.fop ?? b.dataset.spiral ?? (b.dataset.toggle && `view-${b.dataset.toggle}`)
       ?? (b.dataset.gmethod && `guide-${b.dataset.gmethod}`) ?? (b.dataset.galign && `align-${b.dataset.galign}`) ?? (b.dataset.gcorner && (b.dataset.gcorner === 'round' ? 'corner-round' : 'corner-linear')) ?? (b.dataset.grow && `grow-${b.dataset.grow}`) ?? (b.dataset.mfgrow && `grow-${b.dataset.mfgrow}`) ?? (b.dataset.eslimit && `limit-${b.dataset.eslimit}`) ?? (b.dataset.flshape && `fillet-${b.dataset.flshape}`) ?? (b.dataset.drtaper && `taper-${b.dataset.drtaper}`) ?? (b.dataset.avaxis && `axis-${b.dataset.avaxis}`) ?? (b.dataset.extshape && `extend-${b.dataset.extshape}`) ?? (b.dataset.esshape && `extend-${b.dataset.esshape}`) ?? (b.dataset.isodir && `iso-${b.dataset.isodir}`) ?? (b.dataset.rbmethod && `rebuild-${b.dataset.rbmethod}`) ?? (b.dataset.oecorner && `corner-${b.dataset.oecorner}`) ?? (b.dataset.saplane && `section-${b.dataset.saplane}`) ?? (b.dataset.plaxis && (b.dataset.plaxis === 'normal' ? 'place-normal' : `axis-${b.dataset.plaxis}`)) ?? b.dataset.plop
       ?? (b.dataset.txfont && `font-${b.dataset.txfont}`) ?? (b.dataset.txalign && `txalign-${b.dataset.txalign}`) ?? (b.dataset.sldir && { u: 'slide-u', '-u': 'slide-back', v: 'slide-v', '-v': 'slide-vback', n: 'slide-n' }[b.dataset.sldir]) ?? (b.dataset.dcflip && { mirror: 'mirror', swap: 'swap-uv', normal: 'reverse-sheet' }[b.dataset.dcflip]) ?? (b.dataset.imdepth && `depth-${b.dataset.imdepth}`) ?? (b.dataset.imcull && `cull-${b.dataset.imcull}`) ?? b.dataset.inmode ?? (b.dataset.pfmode && `falloff-${b.dataset.pfmode}`) ?? ((b.dataset.sqbound ?? b.dataset.asbound) && `bound-${b.dataset.sqbound ?? b.dataset.asbound}`) ?? (b.dataset.pfmirror && `mirror-${b.dataset.pfmirror}`)
-      ?? { 'matcap-load': 'matcap-load', 'matcap-custom': 'matcap', 'tx-load': 'font-load', 'tx-system': 'font-system', 'hdr-load': 'hdr-load', 'hdr-custom': 'hdr', 'ex-lock': 'lock', 'bool-keep': 'keep', 'prim-keep': 'keep', 'ex-free': 'freestyle', 'ex-pivot': 'pivot', 'ex-individual': 'individual', 'patch-individual': 'individual', 'as-symmetric': 'symmetric', 'as-analysis': 'analysis', 'dr-hidden': 'hidden-lines', 'dr-curves': 'drawing-curves', 'oc-lock': 'lock', 'oc-free': 'freestyle', 'oc-slot': 'slot', 'oc-combine': 'combine', 'oe-both': 'both-sides', 'oe-individual': 'individual', 'blend-tangent': 'tangent-chain', 'es-unlimit': 'unlimit', 'rf-shrink': 'shrink', 'ut-keep': 'keep-edges', 'section-btn': 'view-section', 'sa-flip': 'flip', 'pl-flip': 'flip', 'pl-instance': 'instance', 'mirror-instance': 'instance', 'ra-instance': 'instance', 'rr-instance': 'instance', 'ca-instance': 'instance', 'br-trim': 'trim', 'br-comb': 'view-curvature', 'ac-comb': 'view-curvature', 'dc-reblend': 'reblend', 'dc-keep': 'keep', 'im-delete': 'delete', 'in-realize': 'realize-instance', 'cc-extend': 'extend', 'cc-screen': 'view-screen', 'in-dup': 'duplicate', 'in-delete': 'delete' }[b.dataset.id];
+      ?? { 'matcap-load': 'matcap-load', 'matcap-custom': 'matcap', 'tx-load': 'font-load', 'tx-system': 'font-system', 'hdr-load': 'hdr-load', 'hdr-custom': 'hdr', 'ex-lock': 'lock', 'bool-keep': 'keep', 'prim-keep': 'keep', 'ex-free': 'freestyle', 'ex-pivot': 'pivot', 'ex-individual': 'individual', 'patch-individual': 'individual', 'patch-quad': 'square', 'as-symmetric': 'symmetric', 'as-analysis': 'analysis', 'dr-hidden': 'hidden-lines', 'dr-curves': 'drawing-curves', 'oc-lock': 'lock', 'oc-free': 'freestyle', 'oc-slot': 'slot', 'oc-combine': 'combine', 'oe-both': 'both-sides', 'oe-individual': 'individual', 'blend-tangent': 'tangent-chain', 'es-unlimit': 'unlimit', 'rf-shrink': 'shrink', 'ut-keep': 'keep-edges', 'section-btn': 'view-section', 'sa-flip': 'flip', 'pl-flip': 'flip', 'pl-instance': 'instance', 'mirror-instance': 'instance', 'ra-instance': 'instance', 'rr-instance': 'instance', 'ca-instance': 'instance', 'br-trim': 'trim', 'br-comb': 'view-curvature', 'ac-comb': 'view-curvature', 'dc-reblend': 'reblend', 'dc-keep': 'keep', 'im-delete': 'delete', 'in-realize': 'realize-instance', 'cc-extend': 'extend', 'cc-screen': 'view-screen', 'in-dup': 'duplicate', 'in-delete': 'delete' }[b.dataset.id];
     b.insertAdjacentHTML('afterbegin', icon(name));
   }
   const $ = id => root.querySelector(`[data-id="${id}"]`);
@@ -7265,9 +7265,22 @@ export async function mount(root, backend) {
     }
     return groupLoops(pieces).map(g => ({ curves: g.filter(p => p.curve !== undefined).map(p => p.curve), edges: g.filter(p => p.edge).map(p => p.edge), closed: closesUp(g) }));
   }
+  /** A curve or edge of a loop as a polyline in model space, kept in `cache.sides` while picked. */
+  async function loopSide(it, cache) {
+    const key = it.kind === 'curve' ? `c:${it.id}` : `${it.body}:${it.n}`;
+    cache.sides ??= new Map();
+    if (!cache.sides.has(key)) {
+      if (it.kind === 'curve') {
+        const src = curveById(it.id), f = curveFrame(src), { points } = curveSamples(src, 200);
+        cache.sides.set(key, points.map(p => lift(f, { x: p[0], y: p[1], z: p[2] ?? 0 }).toArray()));
+      } else cache.sides.set(key, (await backend.edgeCurvature({ body: it.body, edge: it.n, n: 200 })).map(t => t.at));
+    }
+    return cache.sides.get(key);
+  }
+
   function startPatch() {
     if (!backend.previewPatch) return toast('PATCH IS NOT IN THIS BUILD YET');
-    const c = cmd = { id: 'patch', tangent: false, individual: false, curves: [], edges: [], sent: 0, shown: 0 };
+    const c = cmd = { id: 'patch', tangent: false, individual: false, quad: false, curves: [], edges: [], sent: 0, shown: 0 };
     lastTool = 'patch';
     showTool('patch');
     setState('none');
@@ -7282,14 +7295,29 @@ export async function mount(root, backend) {
       if (groups.some(g => !g.closed)) throw new Error('some of the selection does not close into a loop');
       return groups.map(g => request(g.curves, g.edges));
     };
+    // Quad-sided: the loop becomes a four-sided B-spline sheet, fitted as Square does (quadSides).
+    c.quadFit = async () => {
+      const sides = await Promise.all([...c.curves.map(id => ({ kind: 'curve', id })), ...c.edges].map(it => loopSide(it, c)));
+      const size = Math.max(...sides.flat().map(p => Math.hypot(...p.map((x, k) => x - sides[0][0][k])))) || 1;
+      return square(quadSides(sides, Math.max(0.01, 1e-3 * size)), { degree: 3, continuity: 'G0' });
+    };
     c.preview = () => livePreview(c, async () => {
+      if (c.quad) {
+        const fit = await c.quadFit();
+        if (cmd !== c) return null;
+        c.data = splineSheetData(fit);
+        c.quadText = `QUAD-SIDED · ${fit.spans.join(' × ')} SPANS · SIDES WITHIN ${fit.gap < 1e-4 ? '< 0.0001' : fit.gap.toFixed(4)} MM`;
+        const b = await backend.previewSplineSheet({ data: c.data });
+        return b ? [b] : null;
+      }
+      c.data = null;
       const out = [];
       for (const r of c.requests()) out.push(await backend.previewPatch(r));
       return out.some(b => !b) ? null : out;
     }, list => {
       for (const b of list) showPreviewBody(b, phantom.add.face, phantom.add.edge).renderOrder = 5;
-      $('patch-hint').textContent = (c.tangent && c.edges.length ? 'SMOOTH SHEET, TANGENT TO THE FACES' : (list.length > 1 ? 'A SHEET THROUGH EACH LOOP' : 'SHEET THROUGH THE LOOP')) + (list.length > 1 ? ` · ${list.length} SHEETS` : '');
-      setHud(list.length > 1 ? `PATCH ×${list.length}` : 'PATCH');
+      $('patch-hint').textContent = c.quad ? c.quadText : (c.tangent && c.edges.length ? 'SMOOTH SHEET, TANGENT TO THE FACES' : (list.length > 1 ? 'A SHEET THROUGH EACH LOOP' : 'SHEET THROUGH THE LOOP')) + (list.length > 1 ? ` · ${list.length} SHEETS` : '');
+      setHud(c.quad ? 'PATCH · QUAD-SIDED' : list.length > 1 ? `PATCH ×${list.length}` : 'PATCH');
     }, 'patch-hint');
     c.onSelection = () => {
       drawOverlays();
@@ -7300,6 +7328,9 @@ export async function mount(root, backend) {
       $('patch-tangent').setAttribute('aria-pressed', String(c.tangent));
       $('patch-tangent').disabled = !c.edges.length;
       $('patch-individual').setAttribute('aria-pressed', String(c.individual));
+      $('patch-individual').disabled = c.quad;
+      $('patch-quad').setAttribute('aria-pressed', String(c.quad));
+      $('patch-quad').disabled = !backend.previewSplineSheet;
       setTarget(c.curves.length + c.edges.length ? `${c.curves.length + c.edges.length} PIECES` : '—');
       if (!c.curves.length && !c.edges.length) {
         const missing = 'SELECT CURVES OR EDGES THAT MAKE ONE CLOSED LOOP';
@@ -7312,7 +7343,10 @@ export async function mount(root, backend) {
     c.key = action => {
       if (action === 'tangent') c.tangent = !c.tangent;
       else if (action === 'individual') c.individual = !c.individual;
-      else return false;
+      else if (action === 'quad') {
+        if (!backend.previewSplineSheet) return toast('QUAD-SIDED IS NOT IN THIS BUILD YET'), true;
+        c.quad = !c.quad;
+      } else return false;
       c.onSelection();
       return true;
     };
@@ -7329,6 +7363,20 @@ export async function mount(root, backend) {
       if (!c.curves.length && !c.edges.length) { setState('failed'); return toast($('patch-hint').textContent); }
       let list = null;
       const made = [];
+      if (c.quad) {
+        if (!c.data) { setState('failed'); return toast($('patch-hint').textContent); }
+        try {
+          const { ids, scene } = await backend.commitSplineSheet({ data: c.data });
+          made.push(ids[0]);
+          list = scene;
+          record('PATCH QUAD-SIDED', ids[0], c.quadText);
+          endCmd('committed');
+        } catch (e) { setState('failed'); return toast(say(e)); }
+        await showScene(list);
+        sel.clear();
+        sel.add({ kind: 'solid', body: made[0] });
+        return selectionChanged({ quiet: true });
+      }
       try {
         // One undo step per sheet, as Plasticity's Individual makes separate patches.
         for (const r of c.requests()) {
@@ -10421,6 +10469,7 @@ export async function mount(root, backend) {
   for (const f of ['th-f', 'th-b']) $(f).addEventListener('input', () => cmd?.id === 'thicken' && cmd.preview());
   for (const f of ['pipe-r', 'pipe-t', 'pipe-v']) $(f).addEventListener('input', () => cmd?.id === 'pipe' && cmd.preview());
   $('patch-tangent').onclick = () => cmd?.id === 'patch' && cmd.key('tangent');
+  $('patch-quad').onclick = () => cmd?.id === 'patch' && cmd.key('quad');
   $('patch-individual').onclick = () => cmd?.id === 'patch' && cmd.key('individual');
   $('ex-free').onclick = () => cmd?.id === 'extrude' && cmd.key('freestyle');
   $('ex-pivot').onclick = () => cmd?.id === 'extrude' && cmd.key('pivot');
@@ -10884,9 +10933,11 @@ export async function mount(root, backend) {
     get command() {
       const c = cmd;
       if (!c) return null;
-      const out = { id: c.id, auto: !!c.auto, dot: c.gizmo ? { at: c.gizmo.position.toArray(), dir: c.gizmo.direction.toArray(), state: c.gizmo.state } : null };
+      // Not every command's handle is a dot with a direction (Place carries the move gizmo).
+      const out = { id: c.id, auto: !!c.auto, dot: c.gizmo?.direction ? { at: c.gizmo.position.toArray(), dir: c.gizmo.direction.toArray(), state: c.gizmo.state } : null };
       if (c.id === 'fillet') Object.assign(out, { body: c.body, edges: c.edges, value: c.value, angle: c.angle, max: c.bad !== null ? c.good : null });
-      if (c.tc) Object.assign(out, { bodies: c.ids, offset: toUser(c.offset.toArray()), angle: angleAbout(c.quat, c.axis), axis: c.axis, scale: c.scale, follow: c.follow?.name ?? null });
+      // Place carries the move gizmo without a transform of its own, so its offset may be unset.
+      if (c.tc) Object.assign(out, { bodies: c.ids, offset: c.offset ? toUser(c.offset.toArray()) : null, angle: c.quat ? angleAbout(c.quat, c.axis) : 0, axis: c.axis, scale: c.scale, follow: c.follow?.name ?? null });
       if (c.id === 'pushpull') Object.assign(out, { placed: !!c.at, distance: c.distance });
       if (c.dots) out.dots = Object.fromEntries(Object.entries(c.dots).map(([k, g]) => [k, { at: g.position.toArray(), dir: g.direction.toArray(), value: g.value, state: g.state }]));
       if (c.id === 'extrude') Object.assign(out, { region: c.src.region ?? null, face: c.src.face ?? null, target: c.src.target, distance: c.distance, op: c.op, outcome: c.outcome, angle: c.angle, thickness: c.thickness, lock: c.lock });
