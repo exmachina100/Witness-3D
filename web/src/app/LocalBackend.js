@@ -14,7 +14,7 @@ import { faceSurfaces } from '../faceSurfaces.js';
 import { facePoles } from '../facePoles.js';
 import { faceUvn } from '../faceUvn.js';
 import { deformBodies, deformReblend } from '../deformBody.js';
-import { filletFaces, rechamfer, refilletFaces, removeFaces } from '../removeFace.js';
+import { filletFaces, rechamfer, refilletFaces, removeFaces, turnFlatFace } from '../removeFace.js';
 import { moveFacePoles, subdivideFaces } from '../movePoles.js';
 import { chordal, fullRound, limitRound, reshapeRounds } from '../filletShape.js';
 import { bridgeSurface } from '../BridgeSurface.js';
@@ -335,14 +335,18 @@ export class LocalBackend {
      * counts: the faces are offset that far (they must all be flat and moved the same distance
      * across). Turning faces, and moving round ones, is the desktop's (document.rs preview_move_faces).
      */
-    moveFacesResult({ body, faces, edges, offset = [0, 0, 0], angle = 0, chamfer }) {
+    moveFacesResult(req) {
+        const { body, faces, edges, offset = [0, 0, 0], angle = 0, chamfer } = req;
         const shape = this.shapes.get(body);
         if (!shape) throw new Error('that body no longer exists');
         // A chamfer turned to a new setback on one side (Dimension).
         if (chamfer) return { shape: rechamfer(shape, chamfer) };
         if (!faces?.length && edges?.length) throw new Error('the browser demo moves faces; the desktop app moves edges too');
         if (!faces?.length) throw new Error('select the faces to move');
-        if (Math.abs(angle) > 1e-12) throw new Error('the browser demo moves faces; the desktop app turns them too');
+        if (Math.abs(angle) > 1e-12) {
+            if (faces.length !== 1) throw new Error('the browser demo turns one face at a time; the desktop app turns several');
+            return { shape: turnFlatFace(shape, faces[0], { pivot: req.pivot, axis: req.axis, angle, offset }) };
+        }
         const planes = faces.map(f => facePlane(shape, f));
         if (planes.some(p => !p)) throw new Error('the browser demo moves flat faces only; the desktop app moves any face');
         const across = planes.map(p => offset[0] * p.normal.x + offset[1] * p.normal.y + offset[2] * p.normal.z);

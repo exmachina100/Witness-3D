@@ -266,3 +266,64 @@ export function rechamfer(shape, { corner, axis, sides, span, size, to }) {
     if (numbered(merged, 'TopAbs_SOLID').length !== numbered(shape, 'TopAbs_SOLID').length) throw new Error('a chamfer that size cuts the body apart');
     return merged;
 }
+
+/** Rodrigues: `p` turned by `angle` about the unit `axis` through the origin. */
+function turned(p, axis, angle) {
+    const c = Math.cos(angle), s = Math.sin(angle), d = dot(p, axis);
+    const x = [axis[1] * p[2] - axis[2] * p[1], axis[2] * p[0] - axis[0] * p[2], axis[0] * p[1] - axis[1] * p[0]];
+    return p.map((q, k) => q * c + x[k] * s + axis[k] * d * (1 - c));
+}
+
+/**
+ * Move Face in the browser build for one flat face: turned by `angle` about `axis` through
+ * `pivot`, then moved by `offset`, its neighbours carried on to meet it. The neighbours' surfaces
+ * bound a cell round the face (as Remove Face's do); the wedge of it between the face's old plane
+ * and its new one is added where the face moved out and taken away where it moved in.
+ */
+export function turnFlatFace(shape, faceNo, { pivot = [0, 0, 0], axis = [0, 0, 1], angle = 0, offset = [0, 0, 0] }) {
+    const o = oc();
+    const all = numbered(shape, 'TopAbs_FACE').map(f => o.TopoDS.Face(f));
+    const face = all[faceNo];
+    if (!face) throw new Error('that face is not on this body; select it again');
+    const s = new o.BRepAdaptor_Surface(face, true);
+    if (s.GetType() !== o.GeomAbs_SurfaceType.GeomAbs_Plane) throw new Error('the browser demo turns flat faces only; the desktop app turns any face');
+    const pln = s.Plane(), flip = face.Orientation() === o.TopAbs_Orientation.TopAbs_REVERSED ? -1 : 1;
+    const n0 = v(pln.Axis().Direction()).map(x => x * flip), p0 = mid(face);
+    const l = Math.hypot(...axis), u = axis.map(x => x / l);
+    const n1 = turned(n0, u, angle), p1 = turned(sub(p0, pivot), u, angle).map((x, k) => x + pivot[k] + offset[k]);
+    const box = bounds(shape), size = box.getSize(new (box.min.constructor)()).length() || 1;
+    const centre = box.getCenter(new (box.min.constructor)()).toArray(), reach = 4 * size, tol = 1e-6 * size;
+    const lo = box.min.toArray().map(x => x - size), hi = box.max.toArray().map(x => x + size);
+    const edges = numberedEdges(face);
+    const touch = g => numberedEdges(g).some(e => edges.some(x => x.IsSame(e)));
+    let cell = new o.BRepPrimAPI_MakeBox(new o.gp_Pnt(...lo), new o.gp_Pnt(...hi)).Shape();
+    for (const g of all) {
+        if (g === face || !touch(g)) continue;
+        const gs = new o.BRepAdaptor_Surface(g, true), side = sideOfFace(g, gs, p0);
+        if (Math.abs(side) <= tol) continue;
+        cell = run_(side > 0 ? new o.BRepAlgoAPI_Cut(cell, behind(gs, g, centre, reach), new o.Message_ProgressRange())
+            : new o.BRepAlgoAPI_Common(cell, behind(gs, g, centre, reach), new o.Message_ProgressRange()));
+    }
+    // The half space behind a plane (against its normal), carried well past the body.
+    const half = (p, n) => {
+        const foot = sub(centre, n.map(x => x * dot(sub(centre, p), n)));
+        return new o.BRepPrimAPI_MakePrism(planeSheet(foot, n, reach), new o.gp_Vec(...n.map(x => -x * reach)), false, true).Shape();
+    };
+    const common = (a, b) => run_(new o.BRepAlgoAPI_Common(a, b, new o.Message_ProgressRange()));
+    const neg = n => n.map(x => -x);
+    const grow = common(common(cell, half(p1, n1)), half(p0, neg(n0)));
+    const shrink = common(common(cell, half(p1, neg(n1))), half(p0, n0));
+    // A piece reaching the cell's outer box is not closed by the neighbours.
+    const inner = [lo.map(x => x + 1e-3 * size), hi.map(x => x - 1e-3 * size)];
+    for (const piece of [grow, shrink]) {
+        if (!numbered(piece, 'TopAbs_SOLID').length) continue;
+        const b = bounds(piece);
+        if ([0, 1, 2].some(k => b.min.getComponent(k) < inner[0][k] || b.max.getComponent(k) > inner[1][k])) throw new Error('the faces beside it do not close round it there; turn it less, or use the desktop app');
+    }
+    let result = shape;
+    if (numbered(grow, 'TopAbs_SOLID').length) result = run_(new o.BRepAlgoAPI_Fuse(result, grow, new o.Message_ProgressRange()));
+    if (numbered(shrink, 'TopAbs_SOLID').length) result = run_(new o.BRepAlgoAPI_Cut(result, shrink, new o.Message_ProgressRange()));
+    const { shape: merged } = unifyWithHistory(result);
+    if (numbered(merged, 'TopAbs_SOLID').length !== numbered(shape, 'TopAbs_SOLID').length) throw new Error('that move splits the body');
+    return merged;
+}
