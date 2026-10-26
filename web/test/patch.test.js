@@ -81,3 +81,16 @@ test('an edge asks for curvature as well as tangency through continuity', async 
         await assert.rejects(async () => be.previewPatch({ edges: top.map(edge => ({ body: seed.id, edge, continuity })) }), /off tangent|cannot match the curvature/, `continuity ${continuity}`);
     }
 });
+
+test("Tolerance says how far apart the loop's pieces may be and still close", async () => {
+    const be = new LocalBackend();
+    // A twisted square whose last side stops 0.05 mm short of the first corner.
+    const c = [[0, 60, 0], [10, 58, 0], [10, 60, 10], [0, 58, 10]];
+    const sides = c.map((p, i) => line(p, i === 3 ? [0, 60, 0.05] : c[(i + 1) % 4]));
+    const { ids } = await be.addCurves(sides);
+    await assert.rejects(async () => be.previewPatch({ curves: ids }), /open|one loop/);
+    const loose = await be.previewPatch({ curves: ids, tolerance: 0.1 });
+    const { ids: closed } = await be.addCurves(c.map((p, i) => line(p, c[(i + 1) % 4])));
+    const whole = await be.previewPatch({ curves: closed });
+    close(area(loose), area(whole), 0.01 * area(whole));
+});

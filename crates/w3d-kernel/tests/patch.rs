@@ -149,7 +149,7 @@ fn the_document_keeps_a_patch_as_a_sheet_body_in_one_undo_step() {
     let ring = Curve { origin: [0.0, 0.0, 0.0], x: [1.0, 0.0, 0.0], normal: [0.0, 0.0, 1.0], shape: CurveShape::Circle { center: [0.0, 0.0], radius: 3.0 } };
     let id = doc.commit_curves(vec![ring]).unwrap()[0];
     doc.clear_history();
-    let sheet = doc.commit_patch(&[id], &[]).unwrap();
+    let sheet = doc.commit_patch(&[id], &[], 0.0).unwrap();
     assert_eq!(doc.curve_ids(), vec![id], "the loop stays");
     let t = doc.kernel.tessellate(doc.get(sheet).unwrap(), 0.0001).unwrap();
     assert!((area(&t) - std::f64::consts::PI * 9.0).abs() < 0.01);
@@ -213,4 +213,18 @@ fn an_edge_can_ask_for_curvature_as_well_as_tangency() {
             assert!(why.contains("curvature") || why.contains("tangent"), "{why}");
         }
     }
+}
+
+#[test]
+fn tolerance_says_how_far_apart_the_loop_may_be_and_still_close() {
+    let k = Occt;
+    // A twisted square whose last side stops 0.05 mm short of the first corner.
+    let mut sides = saddle(2.0);
+    sides[3] = line(DVec3::new(0.0, 10.0, -2.0), DVec3::new(0.0, 0.05, 2.0));
+    let err = k.patch(&sides, &[]).err().expect("refused at the default").to_string();
+    assert!(err.contains("open") || err.contains("one loop"), "{err}");
+    // Within 0.1 mm the gap is bridged, and the sheet is the closed loop's within a hair.
+    let loose = area(&k.tessellate(&k.patch_within(&sides, &[], 0.1).unwrap(), 0.01).unwrap());
+    let closed = area(&k.tessellate(&k.patch(&saddle(2.0), &[]).unwrap(), 0.01).unwrap());
+    assert!((loose - closed).abs() < 0.01 * closed, "{loose} against {closed}");
 }

@@ -95,7 +95,7 @@ fn the_document_turns_the_sheet_body_solid_in_one_undo_step() {
     let mut doc = Document::new(Occt);
     let ring = Curve { origin: [0.0, 0.0, 0.0], x: [1.0, 0.0, 0.0], normal: [0.0, 0.0, 1.0], shape: CurveShape::Circle { center: [0.0, 0.0], radius: 3.0 } };
     let id = doc.commit_curves(vec![ring]).unwrap()[0];
-    let sheet = doc.commit_patch(&[id], &[]).unwrap();
+    let sheet = doc.commit_patch(&[id], &[], 0.0).unwrap();
     doc.clear_history();
     assert_eq!(doc.commit_thicken(sheet, 2.0, 0.0).unwrap(), sheet, "the body keeps its id");
     let body = doc.get(sheet).unwrap();

@@ -1287,6 +1287,9 @@ pub struct PatchRequest {
     pub curves: Vec<CurveId>,
     #[serde(default)]
     pub edges: Vec<PatchEdge>,
+    /// How far the sheet may stray from the loop (mm, Plasticity's Tolerance); 0 keeps the default.
+    #[serde(default)]
+    pub tolerance: f64,
 }
 
 #[derive(Deserialize, Debug, Clone)]
@@ -1309,14 +1312,14 @@ impl PatchRequest {
 
 pub fn preview_patch(m: &Model, req: PatchRequest) -> Option<Result<Body, ApiError>> {
     m.preview(move |doc| {
-        let sheet = doc.preview_patch(&req.curves, &req.edges())?;
+        let sheet = doc.preview_patch(&req.curves, &req.edges(), req.tolerance)?;
         Ok(body(&doc.kernel, 0, &sheet)?)
     })
 }
 
 pub fn commit_patch(m: &Model, req: PatchRequest) -> Result<Committed, ApiError> {
     m.call(move |doc| {
-        let id = doc.commit_patch(&req.curves, &req.edges())?;
+        let id = doc.commit_patch(&req.curves, &req.edges(), req.tolerance)?;
         Ok(Committed { id, scene: bodies(doc)? })
     })
 }

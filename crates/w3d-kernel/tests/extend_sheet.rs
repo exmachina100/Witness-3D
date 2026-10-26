@@ -166,7 +166,7 @@ fn the_document_extends_the_sheet_in_its_body_in_one_undo_step() {
     let mut doc = Document::new(Occt);
     let rect = Curve { origin: [0.0, 0.0, 0.0], x: [1.0, 0.0, 0.0], normal: [0.0, 0.0, 1.0], shape: CurveShape::Polyline { points: vec![[0.0, 0.0], [10.0, 0.0], [10.0, 10.0], [0.0, 10.0]], closed: true } };
     let id = doc.commit_curves(vec![rect]).unwrap()[0];
-    let sheet = doc.commit_patch(&[id], &[]).unwrap();
+    let sheet = doc.commit_patch(&[id], &[], 0.0).unwrap();
     doc.clear_history();
     let e = edge_where(&doc.kernel, doc.get(sheet).unwrap(), |p| (p[1] - 10.0).abs() < 1e-9);
     assert_eq!(doc.commit_extend_sheet(sheet, e, 4.0, SheetExtension::Linear, None, false).unwrap(), sheet);

@@ -617,6 +617,7 @@ const SHELL = `
       <div class="seg" role="group" aria-label="Continuity (T cycles)"><button data-pcont="planar" aria-pressed="false" title="Fill flat; a loop that is not flat is refused">PLANAR</button><button data-pcont="G0" aria-pressed="true" title="Meet the loop only">G0</button><button data-pcont="G1" aria-pressed="false" title="Leave the faces along the picked edges tangent">G1</button><button data-pcont="G2" aria-pressed="false" title="Match the faces' curvature along the picked edges">G2</button></div>
       <div class="field"><label>CURVES</label><output data-id="patch-curves">0</output></div>
       <div class="field"><label>EDGES</label><output data-id="patch-edges">0</output></div>
+      <div class="field" title="How far the sheet may stray from its loop, and how far apart the loop's pieces may be and still join (mm)"><label for="w3d-patch-tol">TOLERANCE</label><input id="w3d-patch-tol" data-id="patch-tol" type="number" step="0.001" min="0.0001" value="0.001"></div>
     </div>
     <div class="sec" data-panel="bridge-surface" hidden>
       <span class="hint" data-id="bs-hint">—</span>
@@ -7302,7 +7303,8 @@ export async function mount(root, backend) {
     lastTool = 'patch';
     showTool('patch');
     setState('none');
-    const request = (curves, edges) => ({ curves, edges: edges.map(e => ({ body: e.body, edge: e.n, tangent: LEVEL[c.cont] > 0, continuity: LEVEL[c.cont] })) });
+    const tolerance = () => Math.max(1e-4, num('patch-tol') || 0.001);
+    const request = (curves, edges) => ({ curves, edges: edges.map(e => ({ body: e.body, edge: e.n, tangent: LEVEL[c.cont] > 0, continuity: LEVEL[c.cont] })), tolerance: tolerance() });
     // Individual: one request per closed loop the pieces make; otherwise all of them as one loop.
     c.requests = () => {
       const groups = patchLoops(c.curves, c.edges);
@@ -10392,6 +10394,7 @@ export async function mount(root, backend) {
   $('dr-hidden').onclick = () => cmd?.id === 'export-drawing' && cmd.key('hidden');
   $('dr-curves').onclick = () => cmd?.id === 'export-drawing' && cmd.key('curves');
   $('av-v').addEventListener('input', () => cmd?.id === 'align-vertex' && cmd.preview());
+  $('patch-tol').addEventListener('input', () => cmd?.id === 'patch' && cmd.preview());
   for (const id of ['rb-n', 'rb-p']) $(id).addEventListener('input', () => cmd?.id === 'rebuild' && cmd.preview());
   for (const id of ['dc-su', 'dc-sv', 'dc-sn', 'dc-ou', 'dc-ov', 'dc-on']) $(id).addEventListener('input', () => cmd?.id === 'deform-curve' && cmd.preview());
   for (const id of ['im-w', 'im-o']) $(id).addEventListener('input', () => cmd?.id === 'image' && cmd.input());

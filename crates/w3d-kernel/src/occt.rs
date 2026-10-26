@@ -442,10 +442,11 @@ impl Kernel for Occt {
         Shape::bridge_surface(a.0, a.1 as usize, b.0, b.1 as usize, same, tension).map_err(shim)
     }
 
-    fn patch(&self, curves: &[Path], edges: &[(&Shape, Vec<(u32, u32)>)]) -> Result<Shape, KernelError> {
+    fn patch_within(&self, curves: &[Path], edges: &[(&Shape, Vec<(u32, u32)>)], tolerance: f64) -> Result<Shape, KernelError> {
         let curves: Vec<(Path, DVec3)> = curves.iter().map(|c| (c.clone(), DVec3::Z)).collect();
         let edges: Vec<(&Shape, Vec<(usize, u32)>)> = edges.iter().map(|(s, e)| (*s, e.iter().map(|&(i, t)| (i as usize, t)).collect())).collect();
-        Shape::patch(&cutter_numbers(&curves)?, &edges, PATCH_TOLERANCE).map_err(shim)
+        let tol = if tolerance > 0.0 { tolerance } else { PATCH_TOLERANCE };
+        Shape::patch(&cutter_numbers(&curves)?, &edges, tol).map_err(shim)
     }
 
     fn thicken(&self, s: &Shape, front: f64, back: f64) -> Result<Shape, KernelError> {
