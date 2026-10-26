@@ -1293,12 +1293,18 @@ pub struct PatchRequest {
 pub struct PatchEdge {
     pub body: BodyId,
     pub edge: u32,
+    /// Tangent to the body's face along this edge (G1); `continuity` sets the level on its own.
     #[serde(default)]
     pub tangent: bool,
+    /// 0 none, 1 tangent (G1), 2 its curvature too (G2); unset follows `tangent`.
+    #[serde(default)]
+    pub continuity: Option<u32>,
 }
 
 impl PatchRequest {
-    fn edges(&self) -> Vec<(BodyId, u32, bool)> { self.edges.iter().map(|e| (e.body, e.edge, e.tangent)).collect() }
+    fn edges(&self) -> Vec<(BodyId, u32, u32)> {
+        self.edges.iter().map(|e| (e.body, e.edge, e.continuity.unwrap_or(u32::from(e.tangent)).min(2))).collect()
+    }
 }
 
 pub fn preview_patch(m: &Model, req: PatchRequest) -> Option<Result<Body, ApiError>> {

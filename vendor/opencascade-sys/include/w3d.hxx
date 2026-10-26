@@ -3657,8 +3657,8 @@ inline rust::Vec<double> w3d_project_curve_curve(rust::Slice<const double> data,
 
 
 // Plasticity's Patch: a sheet filling one closed loop of drawn curves (`data`, as w3d_curtains
-// reads them, their directions unused) and edges of `shape`. Where `tangent[i]` is set, the sheet
-// leaves edge `edges[i]` tangent to the body's face along it. A flat loop with no tangency gives
+// reads them, their directions unused) and edges of `shape`. `tangent[i]` is edge `edges[i]`'s
+// continuity with the body's face along it: 0 none, 1 tangent (G1), 2 its curvature too (G2). A flat loop with no tangency gives
 // the exact plane; anything else is filled with an energy-minimising plate (GeomPlate), within
 // `tol` of the boundary. Returns the face, or says why the loop does not close.
 inline std::unique_ptr<TopoDS_Shape> w3d_patch(rust::Slice<const double> data, const TopoDS_Shape &shape,
@@ -3666,14 +3666,16 @@ inline std::unique_ptr<TopoDS_Shape> w3d_patch(rust::Slice<const double> data, c
                                               double tol) {
   if (edges.size() != tangent.size()) throw std::runtime_error("each edge needs its continuity");
   try {
-    std::vector<std::pair<TopoDS_Edge, TopoDS_Face>> bounds;
+    // C++11: no default member initialiser, so this stays an aggregate for brace initialisation.
+    struct Bound { TopoDS_Edge first; TopoDS_Face second; int level; };
+    std::vector<Bound> bounds;
     const double *p = data.data(), *end = p + data.size();
     int m = p < end ? int(*p++) : 0;
     for (int i = 0; i < m; i++) {
       if (p + 3 > end) throw std::runtime_error("a curve is cut short");
       p += 3;
       TopoDS_Wire w = w3d_section(p, end);
-      for (TopExp_Explorer ex(w, TopAbs_EDGE); ex.More(); ex.Next()) bounds.push_back({TopoDS::Edge(ex.Current()), TopoDS_Face()});
+      for (TopExp_Explorer ex(w, TopAbs_EDGE); ex.More(); ex.Next()) bounds.push_back({TopoDS::Edge(ex.Current()), TopoDS_Face(), 0});
     }
     TopTools_IndexedMapOfShape map;
     TopExp::MapShapes(shape, TopAbs_EDGE, map);
@@ -3683,12 +3685,12 @@ inline std::unique_ptr<TopoDS_Shape> w3d_patch(rust::Slice<const double> data, c
       if (edges[i] < 0 || edges[i] >= map.Extent()) throw std::out_of_range("that edge no longer exists");
       TopoDS_Edge e = TopoDS::Edge(map(edges[i] + 1));
       TopoDS_Face f;
-      if (tangent[i]) {
+      if (tangent[i] > 0) {
         const TopTools_ListOfShape &around = faces.FindFromKey(e);
         if (around.IsEmpty()) throw std::runtime_error("a tangent edge needs a face beside it");
         f = TopoDS::Face(around.First());
       }
-      bounds.push_back({e, f});
+      bounds.push_back({e, f, tangent[i]});
     }
     if (bounds.empty()) throw std::runtime_error("select a closed loop of curves or edges to patch");
 
@@ -3715,11 +3717,20 @@ inline std::unique_ptr<TopoDS_Shape> w3d_patch(rust::Slice<const double> data, c
       }
     }
     BRepOffsetAPI_MakeFilling fill(3, 15, 2, Standard_False, 1e-5, tol, 0.01, 0.1, 8, 9);
-    for (auto &b : bounds) {
-      if (b.second.IsNull()) fill.Add(b.first, GeomAbs_C0, Standard_True);
-      else fill.Add(b.first, b.second, GeomAbs_G1, Standard_True);
+    int asked = 0;
+    for (auto &b : bounds) asked = std::max(asked, b.level);
+    // This OpenCascade's plate takes G0 and G1 along a face; where it will not take G2, say so
+    // rather than pass the kernel's own words on.
+    try {
+      for (auto &b : bounds) {
+        if (b.second.IsNull()) fill.Add(b.first, GeomAbs_C0, Standard_True);
+        else fill.Add(b.first, b.second, b.level >= 2 ? GeomAbs_G2 : GeomAbs_G1, Standard_True);
+      }
+      fill.Build();
+    } catch (const Standard_Failure &) {
+      if (asked < 2) throw;
+      throw std::runtime_error("the patch cannot match the curvature of those faces; try G1 or G0");
     }
-    fill.Build();
     if (!fill.IsDone()) throw std::runtime_error("no surface could be filled inside that loop");
     if (fill.G0Error() > 10 * tol) {
       std::ostringstream why;

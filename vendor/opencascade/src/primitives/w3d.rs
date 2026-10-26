@@ -357,10 +357,10 @@ impl Shape {
         ffi::w3d::w3d_project_curve_curve(data, length).map_err(reason)
     }
 
-    /// A sheet filling one closed loop of drawn curves and edges of `bodies`, each edge with
-    /// whether the sheet leaves it tangent to the body (see `w3d_patch`). Edges are numbered within
-    /// their own body.
-    pub fn patch(data: &[f64], bodies: &[(&Shape, Vec<(usize, bool)>)], tol: f64) -> Result<Shape, String> {
+    /// A sheet filling one closed loop of drawn curves and edges of `bodies`, each edge with its
+    /// continuity with the body along it (0 none, 1 tangent, 2 curvature; see `w3d_patch`). Edges
+    /// are numbered within their own body.
+    pub fn patch(data: &[f64], bodies: &[(&Shape, Vec<(usize, u32)>)], tol: f64) -> Result<Shape, String> {
         let all = Shape::from(crate::primitives::Compound::from_shapes(bodies.iter().map(|(s, _)| *s)));
         let (mut edges, mut tangent, mut offset) = (vec![], vec![], 0);
         for (s, picked) in bodies {

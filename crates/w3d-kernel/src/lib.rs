@@ -464,7 +464,7 @@ pub trait Kernel {
     }
     /// Plasticity's Patch: a sheet filling one closed loop of `curves` and edges of bodies, each
     /// edge with whether the sheet leaves it tangent to the body. Flat loops give the exact plane.
-    fn patch(&self, _curves: &[Path], _edges: &[(&Self::Solid, Vec<(u32, bool)>)]) -> Result<Self::Solid, KernelError> {
+    fn patch(&self, _curves: &[Path], _edges: &[(&Self::Solid, Vec<(u32, u32)>)]) -> Result<Self::Solid, KernelError> {
         Err(KernelError::Invalid("this kernel cannot patch"))
     }
     /// Plasticity's Thicken: a sheet made solid, `front` along its faces' normals and `back` behind them.

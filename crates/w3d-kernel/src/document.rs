@@ -1340,11 +1340,12 @@ impl<K: Kernel> Document<K> {
     }
 
     /// Plasticity's Patch, without changing the document: a sheet filling one closed loop of
-    /// `curves` and body `edges`, each edge with whether the sheet leaves it tangent to its body.
-    pub fn preview_patch(&self, curves: &[CurveId], edges: &[(BodyId, u32, bool)]) -> Result<K::Solid, KernelError> {
+    /// `curves` and body `edges`, each edge with its continuity with its body (0 none, 1 tangent,
+    /// 2 curvature too).
+    pub fn preview_patch(&self, curves: &[CurveId], edges: &[(BodyId, u32, u32)]) -> Result<K::Solid, KernelError> {
         if curves.is_empty() && edges.is_empty() { return Err(KernelError::Invalid("select a closed loop of curves or edges to patch")) }
         let paths: Vec<Path> = self.cutters(curves)?.into_iter().map(|(p, _)| p).collect();
-        let mut bodies: Vec<(BodyId, Vec<(u32, bool)>)> = vec![];
+        let mut bodies: Vec<(BodyId, Vec<(u32, u32)>)> = vec![];
         for &(b, e, t) in edges {
             match bodies.iter_mut().find(|(id, _)| *id == b) {
                 Some((_, list)) => list.push((e, t)),
@@ -1359,7 +1360,7 @@ impl<K: Kernel> Document<K> {
     }
 
     /// Patch as one undoable step: the sheet becomes a body of its own, and the loop stays.
-    pub fn commit_patch(&mut self, curves: &[CurveId], edges: &[(BodyId, u32, bool)]) -> Result<BodyId, KernelError> {
+    pub fn commit_patch(&mut self, curves: &[CurveId], edges: &[(BodyId, u32, u32)]) -> Result<BodyId, KernelError> {
         let sheet = self.preview_patch(curves, edges)?;
         Ok(self.add(sheet))
     }
