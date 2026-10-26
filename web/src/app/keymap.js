@@ -170,7 +170,7 @@ export const COMMAND = {
     // Export drawing: H leaves hidden lines out (or back in), C the curves.
     'export-drawing': { h: 'hidden', c: 'curves' },
     // Draft Face: A types the angle.
-    draft: { a: 'angle', d: 'offset' },
+    draft: { a: 'angle', d: 'offset', tab: 'grow' },
     // Tangent Circle (manual): F freezes the circle, Tab types its radius.
     'tangent-circle': { f: 'freeze', tab: 'typed' },
     // Round 6: Shell's D types the thickness; Mirror and Radial Array take X/Y/Z for the axis and J to join.

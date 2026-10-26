@@ -136,7 +136,7 @@ fn a_face_turned_about_a_line_on_it_matches_the_draft_through_that_line() {
     let side = facing(&doc.kernel, doc.get(b).unwrap(), DVec3::X);
     let a = 5f64.to_radians();
     let p = DVec3::new(20.0, 5.0, 0.0);
-    let drafted = doc.preview_draft(b, &[side], DVec3::Y, p, a).unwrap().solid;
+    let drafted = doc.preview_draft(b, &[side], DVec3::Y, p, a, Grow::None).unwrap().solid;
     let (d, n) = (DVec3::Z, DVec3::X);
     let axis = if d.cross(n).dot(DVec3::Y) > 0.0 { d } else { -d };
     let turned = doc.preview_move_faces(b, &[side], &Motion::rotation(p, axis, a)).unwrap().solid;

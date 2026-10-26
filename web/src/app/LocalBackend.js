@@ -4,7 +4,7 @@
 import * as THREE from 'three';
 import { ExtrudeFactory } from '../ExtrudeFactory.js';
 import { NoOpError } from '../GeometryFactory.js';
-import { arrayMotions, blendEdges, booleanWithHistory, bounds, box, count, draftFaces, faceSheet, imprintEdgesWithHistory, imprintWithHistory, planeSheet, unifyWithHistory, boundaryEdges, splitWithHistory, draftWithHistory, exportSTEP, facePlane, mirror, mirror as mirrorShape, numberedEdges, oc, primitive, shellFaces, tessellate, transform, volume } from '../Kernel.js';
+import { arrayMotions, blendEdges, booleanWithHistory, extrudeFace, bounds, box, count, draftFaces, faceSheet, imprintEdgesWithHistory, imprintWithHistory, planeSheet, unifyWithHistory, boundaryEdges, splitWithHistory, draftWithHistory, exportSTEP, facePlane, mirror, mirror as mirrorShape, numberedEdges, oc, primitive, shellFaces, tessellate, transform, volume } from '../Kernel.js';
 import { cutSheets, loft, loftGuided, offsetFlatFaces, pipe, regionFace, revolve, splineSamples, sweep, sweepGuided } from '../Forms.js';
 import { curveFromNurbs, ends, join, loops, MEET, nurbsLoop } from '../curves.js';
 import { isoparam, meetCurves, projectCurveCurve, projectCurves, projectedEdges, sectionCurves } from '../Project.js';
@@ -1130,10 +1130,50 @@ export class LocalBackend {
     }
 
     /** Plasticity's Draft Face: `faces` of `body` tilted by `angle` about the neutral plane through `origin` square to `pull`. */
-    draftResult({ body, faces = [], pull, origin, angle }) {
+    draftResult({ body, faces = [], pull, origin, angle, grow = 'moving' }) {
         const s = this.shapes.get(body);
         if (!s) throw new Error('that body no longer exists');
-        return draftFaces(s, faces, pull, origin, angle);
+        let { shape, history } = draftFaces(s, faces, pull, origin, angle);
+        if (grow === 'none') return { shape, history };
+        // The manual's Grow, for an inner face drafted out past the body's outer wall beyond it (as
+        // document.rs): Moving takes the wall's flat faces out as far, Fixed stops the face at the wall.
+        const o = oc(), tol = 1e-6;
+        const corners = sh => {
+            const out = [];
+            for (const ex = new o.TopExp_Explorer(sh, o.TopAbs_ShapeEnum.TopAbs_VERTEX, o.TopAbs_ShapeEnum.TopAbs_SHAPE); ex.More(); ex.Next()) {
+                const p = o.BRep_Tool.Pnt(o.TopoDS.Vertex(ex.Current()));
+                out.push(new THREE.Vector3(p.X(), p.Y(), p.Z()));
+            }
+            return out;
+        };
+        const before = corners(s), planes = Array.from({ length: count(s, 'TopAbs_FACE') }, (_, j) => facePlane(s, j));
+        const reach = (pts, p) => Math.max(0, ...pts.map(q => q.clone().sub(p.origin).dot(p.normal)));
+        const size = 4 * Math.max(1, ...before.map(q => q.length()));
+        for (const f of faces) {
+            const p = planes[f];
+            if (!p) continue;
+            const wall = reach(before, p);
+            if (wall <= tol) continue;
+            const past = reach(corners(shape), p) - wall;
+            if (past <= tol) continue;
+            let tool = null, op = 'union';
+            if (grow === 'fixed') {
+                const at = p.origin.clone().addScaledVector(p.normal, wall), n = p.normal;
+                tool = new o.BRepPrimAPI_MakePrism(planeSheet(at.toArray(), n.toArray(), size), new o.gp_Vec(n.x * size, n.y * size, n.z * size), false, true).Shape();
+                op = 'difference';
+            } else {
+                planes.forEach((q, g) => {
+                    if (!q || q.normal.dot(p.normal) < 1 - 1e-9 || Math.abs(q.origin.clone().sub(p.origin).dot(p.normal) - wall) > 10 * tol) return;
+                    const slab = extrudeFace(s, g, past);
+                    tool = tool ? booleanWithHistory(tool, slab, 'union').shape : slab;
+                });
+                if (!tool) continue;
+            }
+            const r = booleanWithHistory(shape, tool, op);
+            history = chain(history, r.history);
+            shape = r.shape;
+        }
+        return { shape, history };
     }
 
     previewDraft(req) { return this.latest(async () => this.body(req.body, this.draftResult(req).shape)) }

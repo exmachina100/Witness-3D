@@ -1374,18 +1374,21 @@ pub struct DraftRequest {
     pub pull: [f64; 3],
     pub origin: [f64; 3],
     pub angle: f64,
+    /// The manual's Grow (Tab): "moving" (the default), "fixed" or "none".
+    #[serde(default)]
+    pub grow: String,
 }
 
 pub fn preview_draft(m: &Model, req: DraftRequest) -> Option<Result<Body, ApiError>> {
     m.preview(move |doc| {
-        let t = doc.preview_draft(req.body, &req.faces, DVec3::from(req.pull), DVec3::from(req.origin), req.angle)?;
+        let t = doc.preview_draft(req.body, &req.faces, DVec3::from(req.pull), DVec3::from(req.origin), req.angle, grow_of(&req.grow))?;
         Ok(body(&doc.kernel, req.body, &t.solid)?)
     })
 }
 
 pub fn commit_draft(m: &Model, req: DraftRequest) -> Result<Committed, ApiError> {
     m.call(move |doc| {
-        let id = doc.commit_draft(req.body, &req.faces, DVec3::from(req.pull), DVec3::from(req.origin), req.angle)?;
+        let id = doc.commit_draft(req.body, &req.faces, DVec3::from(req.pull), DVec3::from(req.origin), req.angle, grow_of(&req.grow))?;
         Ok(Committed { id, scene: bodies(doc)? })
     })
 }

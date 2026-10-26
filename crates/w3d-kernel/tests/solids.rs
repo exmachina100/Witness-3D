@@ -334,15 +334,15 @@ fn draft_closes_the_sides_of_a_block_in_along_the_pull() {
     let block = doc.add(doc.kernel.box_from_corners(DVec3::new(-10.0, 0.0, -10.0), DVec3::new(10.0, 20.0, 10.0)));
     doc.clear_history();
     // The four sides: the faces the pull (up) can draft; the top and bottom are refused one by one.
-    let sides: Vec<u32> = (0..6).filter(|&f| doc.preview_draft(block, &[f], DVec3::Y, DVec3::ZERO, 0.05).is_ok()).collect();
+    let sides: Vec<u32> = (0..6).filter(|&f| doc.preview_draft(block, &[f], DVec3::Y, DVec3::ZERO, 0.05, Grow::Moving).is_ok()).collect();
     assert_eq!(sides.len(), 4);
     let angle = 5f64.to_radians();
-    doc.commit_draft(block, &sides, DVec3::Y, DVec3::ZERO, angle).unwrap();
+    doc.commit_draft(block, &sides, DVec3::Y, DVec3::ZERO, angle, Grow::Moving).unwrap();
     // A frustum: 20 × 20 at the base, closing in by 20·tan 5° on each side over its 20 height.
     let t = 20.0 - 2.0 * 20.0 * angle.tan();
     close(volume(&doc.kernel, doc.get(block).unwrap()), 20.0 / 3.0 * (400.0 + t * t + 20.0 * t), 1e-6);
     assert!(doc.undo());
-    assert!(doc.commit_draft(block, &sides, DVec3::Y, DVec3::ZERO, 0.0).is_err());
+    assert!(doc.commit_draft(block, &sides, DVec3::Y, DVec3::ZERO, 0.0, Grow::Moving).is_err());
 }
 
 #[test]
