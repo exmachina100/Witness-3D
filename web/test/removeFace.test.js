@@ -67,11 +67,26 @@ test('a face of a plain box is refused: its neighbours do not close round it', (
     assert.throws(() => removeFaces(b, [0]), /do not close round them/);
 });
 
-test('curved neighbours are refused in the browser, and the whole body cannot go', () => {
+test("a cylinder's lid is refused, as its side does not close over it, and the whole body cannot go", () => {
     const c = primitive({ kind: 'cylinder', frame: { origin: [0, 0, 0], x: [1, 0, 0], normal: [0, 0, 1] }, radius: 5, height: 10 });
     const top = faces(c).findIndex(f => new (oc().BRepAdaptor_Surface)(f, true).GetType() === oc().GeomAbs_SurfaceType.GeomAbs_Plane);
-    assert.throws(() => removeFaces(c, [top]), /flat faces only/);
+    assert.throws(() => removeFaces(c, [top]), /do not close round them/);
     assert.throws(() => removeFaces(c, faces(c).map((_, n) => n)), /whole body/);
+});
+
+test('a round where a boss meets a plate goes, closed by the plate and the round wall', async () => {
+    const { filletFaces } = await import('../src/removeFace.js');
+    const o = oc();
+    // A boss standing on a plate: the round at its foot runs between a flat face and a cylinder.
+    const plate = box({ x: -20, y: -20, z: 0 }, { x: 20, y: 20, z: 10 });
+    const boss = primitive({ kind: 'cylinder', frame: { origin: [0, 0, 10], x: [1, 0, 0], normal: [0, 0, 1] }, radius: 6, height: 20 });
+    const body = boolean(plate, boss, 'union');
+    const foot = numberedEdges(body).findIndex(e => { const c = new o.BRepAdaptor_Curve(e); return c.GetType() === o.GeomAbs_CurveType.GeomAbs_Circle && Math.abs(c.Circle().Location().Z() - 10) < 1e-6 });
+    const r = blendEdges(body, [foot], 2);
+    assert.ok(volume(r) > volume(body));
+    const round = filletFaces(r);
+    assert.equal(round.length, 1);
+    close(volume(removeFaces(r, round)), volume(body), 1e-3);
 });
 
 test('fillet faces are found on a body and along a chain, and removed', async () => {

@@ -40,22 +40,19 @@ export function removeFaces(shape, faces) {
         let inside = true;
         let cell = new o.BRepPrimAPI_MakeBox(new o.gp_Pnt(...box.min.toArray().map(x => x - size)), new o.gp_Pnt(...box.max.toArray().map(x => x + size))).Shape();
         for (const n of neighbours) {
-            const s = new o.BRepAdaptor_Surface(all[n], true);
-            if (s.GetType() !== o.GeomAbs_SurfaceType.GeomAbs_Plane) throw new Error('in the browser, Remove Face closes gaps between flat faces only; the desktop app does the rest');
-            const pln = s.Plane(), ax = pln.Axis().Direction();
-            const at = v(pln.Location());
-            let normal = v(ax);
-            if (all[n].Orientation() === o.TopAbs_Orientation.TopAbs_REVERSED) normal = normal.map(x => -x);
-            const side = samples.map(p => dot(sub(p, at), normal));
+            const face = all[n], s = new o.BRepAdaptor_Surface(face, true);
+            // Which side of the neighbour's own surface the run lies on, read at the nearest point.
+            const side = samples.map(p => sideOfFace(face, s, p));
             const out = side.filter(d => d > tol).length, inn = side.filter(d => d < -tol).length;
             if (out && inn) throw new Error('the removed faces lie on both sides of a neighbour; remove fewer at once');
             if (!out && !inn) continue;
             if (out) inside = false;
-            // Away with the half the run is not on: the plane swept off that way.
-            const away = out ? normal.map(x => -x) : normal;
-            const foot = sub(centre, normal.map(x => x * dot(sub(centre, at), normal)));
-            const slab = new o.BRepPrimAPI_MakePrism(planeSheet(foot, normal, reach), new o.gp_Vec(...away.map(x => x * reach)), false, true).Shape();
-            cell = run_(new o.BRepAlgoAPI_Cut(cell, slab, new o.Message_ProgressRange()));
+            // Away with the part of the cell the run is not in: the neighbour's surface carried on
+            // past the body (a plane as a half space, a cylinder, cone or ball as its own solid).
+            const solid = behind(s, face, centre, reach);
+            cell = run_(out
+                ? new o.BRepAlgoAPI_Cut(cell, solid, new o.Message_ProgressRange())
+                : new o.BRepAlgoAPI_Common(cell, solid, new o.Message_ProgressRange()));
         }
         // The part of the cell beside the run: air to fill, or body to take away.
         const pieces = numbered(run_(inside ? new o.BRepAlgoAPI_Cut(cell, shape, new o.Message_ProgressRange()) : new o.BRepAlgoAPI_Common(cell, shape, new o.Message_ProgressRange())), 'TopAbs_SOLID');
@@ -74,6 +71,60 @@ export function removeFaces(shape, faces) {
     const { shape: merged } = unifyWithHistory(result);
     if (numbered(merged, 'TopAbs_SOLID').length !== numbered(shape, 'TopAbs_SOLID').length) throw new Error('removing those faces splits the body');
     return merged;
+}
+
+/**
+ * How far point `p` lies on the outward side of `face`'s own surface: positive outside the body,
+ * negative inside. Read from the surface itself rather than its parameters, which the browser
+ * kernel will not hand back: the distance to a plane, or past the wall of a cylinder or a ball.
+ */
+function sideOfFace(face, s, p) {
+    const o = oc();
+    const T = o.GeomAbs_SurfaceType, t = s.GetType();
+    const flip = face.Orientation() === o.TopAbs_Orientation.TopAbs_REVERSED ? -1 : 1;
+    if (t === T.GeomAbs_Plane) {
+        const pln = s.Plane();
+        return flip * dot(sub(p, v(pln.Location())), v(pln.Axis().Direction()));
+    }
+    if (t === T.GeomAbs_Cylinder) {
+        const c = s.Cylinder(), ax = c.Position();
+        const at = v(ax.Location()), dir = v(ax.Direction()), d = sub(p, at);
+        const along = dot(d, dir);
+        const across = sub(d, dir.map(x => x * along));
+        return flip * (Math.sqrt(dot(across, across)) - c.Radius());
+    }
+    if (t === T.GeomAbs_Sphere) {
+        const b = s.Sphere(), d = sub(p, v(b.Location()));
+        return flip * (Math.sqrt(dot(d, d)) - b.Radius());
+    }
+    throw new Error('in the browser, Remove Face closes gaps between flat, round and ball faces; the desktop app does the rest');
+}
+
+/**
+ * The solid the neighbour's surface bounds on its inward side, carried on past the body: a plane as
+ * a half space `reach` deep, a cylinder, cone or ball as its own solid, big enough to hold `centre`.
+ */
+function behind(s, face, centre, reach) {
+    const o = oc();
+    const T = o.GeomAbs_SurfaceType, t = s.GetType();
+    if (t === T.GeomAbs_Plane) {
+        const pln = s.Plane();
+        let normal = v(pln.Axis().Direction());
+        if (face.Orientation() === o.TopAbs_Orientation.TopAbs_REVERSED) normal = normal.map(x => -x);
+        const at = v(pln.Location());
+        const foot = sub(centre, normal.map(x => x * dot(sub(centre, at), normal)));
+        return new o.BRepPrimAPI_MakePrism(planeSheet(foot, normal, reach), new o.gp_Vec(...normal.map(x => -x * reach)), false, true).Shape();
+    }
+    if (t === T.GeomAbs_Cylinder) {
+        const c = s.Cylinder(), ax = c.Position();
+        const base = new o.gp_Ax2(new o.gp_Pnt(ax.Location().X() - ax.Direction().X() * reach, ax.Location().Y() - ax.Direction().Y() * reach, ax.Location().Z() - ax.Direction().Z() * reach), ax.Direction(), ax.XDirection());
+        return new o.BRepPrimAPI_MakeCylinder(base, c.Radius(), 2 * reach).Shape();
+    }
+    if (t === T.GeomAbs_Sphere) {
+        const b = s.Sphere();
+        return new o.BRepPrimAPI_MakeSphere(b.Location(), b.Radius()).Shape();
+    }
+    throw new Error('in the browser, Remove Face closes gaps between flat, round and ball faces; the desktop app does the rest');
 }
 
 function run_(algo) {
@@ -109,9 +160,12 @@ export function filletFaces(shape, seeds = []) {
     const ads = all.map(f => new o.BRepAdaptor_Surface(f, true));
     const T = o.GeomAbs_SurfaceType;
     const curved = ads.map(s => s.GetType() !== T.GeomAbs_Plane);
+    // Some opencascade.js builds leave gp_Torus unbound, so a torus face's radius may not be readable.
     const radius = i => {
         const s = ads[i], t = s.GetType();
-        return t === T.GeomAbs_Cylinder ? s.Cylinder().Radius() : t === T.GeomAbs_Sphere ? s.Sphere().Radius() : t === T.GeomAbs_Torus ? s.Torus().MinorRadius() : -1;
+        try {
+            return t === T.GeomAbs_Cylinder ? s.Cylinder().Radius() : t === T.GeomAbs_Sphere ? s.Sphere().Radius() : t === T.GeomAbs_Torus ? s.Torus().MinorRadius() : -1;
+        } catch { return -1 }
     };
     const smooth = all.map(() => new Set());
     const edges = all.map(f => numberedEdges(f));
