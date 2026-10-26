@@ -90,13 +90,13 @@ fn edges_of_a_body_close_a_hole_flat_or_tangent() {
     assert_eq!(rim.len(), 1);
     let r = 5.0 - 5.0 * lean.tan();
 
-    let flat = k.patch(&[], &[(&can, vec![(rim[0], false)])]).unwrap();
+    let flat = k.patch(&[], &[(&can, vec![(rim[0], 0)])]).unwrap();
     let t = k.tessellate(&flat, 0.0001).unwrap();
     assert!(t.positions.iter().all(|p| (p[2] - 5.0).abs() < 1e-9), "a lid in the top's plane");
     assert!((area(&t) - std::f64::consts::PI * r * r).abs() < 0.01);
 
     // Tangent to the wall, the lid carries on its lean and rounds over: a dome.
-    let dome = k.patch(&[], &[(&can, vec![(rim[0], true)])]).unwrap();
+    let dome = k.patch(&[], &[(&can, vec![(rim[0], 1)])]).unwrap();
     assert!(k.is_valid(&dome));
     let t = k.tessellate(&dome, 0.0005).unwrap();
     let top = t.positions.iter().map(|p| p[2]).fold(f64::MIN, f64::max);
@@ -113,7 +113,7 @@ fn edges_of_a_body_close_a_hole_flat_or_tangent() {
     // A wall standing square to the rim is too steep for a plate: refused with the reason.
     let upright = primitive(&k, &Primitive::Cylinder { frame, radius: 5.0, height: 10.0 }).unwrap();
     let rim = edges_at(&k, &upright, 10.0);
-    let err = k.patch(&[], &[(&upright, vec![(rim[0], true)])]).err().expect("refused").to_string();
+    let err = k.patch(&[], &[(&upright, vec![(rim[0], 1)])]).err().expect("refused").to_string();
     assert!(err.contains("off tangent"), "{err}");
 }
 
@@ -127,7 +127,7 @@ fn curves_and_edges_mix_in_one_loop() {
     let a = DVec3::new(0.0, 0.0, 10.0);
     let b = DVec3::new(10.0, 0.0, 10.0);
     let curves = [line(b, DVec3::new(10.0, -5.0, 15.0)), line(DVec3::new(10.0, -5.0, 15.0), DVec3::new(0.0, -5.0, 15.0)), line(DVec3::new(0.0, -5.0, 15.0), a)];
-    let sheet = k.patch(&curves, &[(&block, vec![(front, false)])]).unwrap();
+    let sheet = k.patch(&curves, &[(&block, vec![(front, 0)])]).unwrap();
     let t = k.tessellate(&sheet, 0.001).unwrap();
     assert!((area(&t) - 10.0 * 50f64.sqrt()).abs() < 1e-6, "a flat ramp, area {}", area(&t));
 }
@@ -189,4 +189,28 @@ fn reverse_sheet_turns_a_sheet_over_and_keeps_its_refs() {
     assert!(doc.commit_reverse_sheets(&[block]).is_err(), "a solid is not a sheet");
     assert!(doc.undo());
     assert!((normal(&doc) - before).length() < 1e-9);
+}
+
+/// Continuity 2 asks for the faces' curvature as well as their tangent; where the kernel cannot
+/// give it, the patch says so rather than handing back a sheet that misses its faces.
+#[test]
+fn an_edge_can_ask_for_curvature_as_well_as_tangency() {
+    let k = Occt;
+    let frame = Frame::new(DVec3::ZERO, DVec3::X, DVec3::Z);
+    let ring = Profile::Circle { center: (0.0, 0.0), radius: 5.0 };
+    let lean = 30f64.to_radians();
+    let can = k.extrude(&ring, &frame, &Extent { distance: 5.0, back: 0.0, angle: lean, thickness: 0.0 }).unwrap();
+    let rim = edges_at(&k, &can, 5.0);
+    match k.patch(&[], &[(&can, vec![(rim[0], 2)])]) {
+        Ok(sheet) => {
+            assert!(k.is_valid(&sheet));
+            let t = k.tessellate(&sheet, 0.0005).unwrap();
+            let top = t.positions.iter().map(|p| p[2]).fold(f64::MIN, f64::max);
+            assert!(top > 5.5, "a G2 lid still domes, to {top}");
+        }
+        Err(e) => {
+            let why = e.to_string();
+            assert!(why.contains("curvature") || why.contains("tangent"), "{why}");
+        }
+    }
 }

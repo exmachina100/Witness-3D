@@ -847,10 +847,11 @@ export class LocalBackend {
     /** Plasticity's Patch: a sheet filling one closed loop of curves and body edges. */
     patchResult({ curves = [], edges = [] }) {
         const cs = curves.map(id => { const c = this.curveMap.get(id); if (!c) throw new Error('that curve no longer exists'); return c; });
-        const es = edges.map(({ body, edge, tangent }) => {
+        const es = edges.map(({ body, edge, tangent, continuity }) => {
             const shape = this.shapes.get(body);
             if (!shape) throw new Error('that body no longer exists');
-            return { shape, n: edge, tangent: !!tangent };
+            // Continuity with the face along the edge: 0 none, 1 tangent (G1), 2 its curvature too.
+            return { shape, n: edge, continuity: Math.min(2, continuity ?? (tangent ? 1 : 0)) };
         });
         return patch(cs, es);
     }

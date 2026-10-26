@@ -611,6 +611,8 @@ const SHELL = `
     <div class="sec" data-panel="patch" hidden>
       <span class="hint" data-id="patch-hint">—</span>
       <div class="chips"><button data-id="patch-tangent" aria-pressed="false"><kbd>T</kbd>TANGENT TO FACES</button><button data-id="patch-individual" aria-pressed="false" title="A sheet in each closed loop of the selection, rather than one loop only (I)"><kbd>I</kbd>INDIVIDUAL</button><button data-id="patch-quad" aria-pressed="false" title="Fill the loop as a four-sided B-spline sheet, split at its four corners"><kbd>Q</kbd>QUAD-SIDED</button></div>
+      <span class="label">CONTINUITY</span>
+      <div class="seg" role="group" aria-label="Continuity (T cycles)"><button data-pcont="planar" aria-pressed="false" title="Fill flat; a loop that is not flat is refused">PLANAR</button><button data-pcont="G0" aria-pressed="true" title="Meet the loop only">G0</button><button data-pcont="G1" aria-pressed="false" title="Leave the faces along the picked edges tangent">G1</button><button data-pcont="G2" aria-pressed="false" title="Match the faces' curvature along the picked edges">G2</button></div>
       <div class="field"><label>CURVES</label><output data-id="patch-curves">0</output></div>
       <div class="field"><label>EDGES</label><output data-id="patch-edges">0</output></div>
     </div>
@@ -7280,11 +7282,14 @@ export async function mount(root, backend) {
 
   function startPatch() {
     if (!backend.previewPatch) return toast('PATCH IS NOT IN THIS BUILD YET');
-    const c = cmd = { id: 'patch', tangent: false, individual: false, quad: false, curves: [], edges: [], sent: 0, shown: 0 };
+    // Continuity (manual: Planar, G0, G1, G2): Planar fills flat and refuses a loop that is not,
+    // G0 meets the loop only, G1 leaves the faces tangent and G2 matches their curvature too.
+    const c = cmd = { id: 'patch', tangent: false, cont: 'G0', individual: false, quad: false, curves: [], edges: [], sent: 0, shown: 0 };
+    const LEVEL = { planar: 0, G0: 0, G1: 1, G2: 2 };
     lastTool = 'patch';
     showTool('patch');
     setState('none');
-    const request = (curves, edges) => ({ curves, edges: edges.map(e => ({ body: e.body, edge: e.n, tangent: c.tangent })) });
+    const request = (curves, edges) => ({ curves, edges: edges.map(e => ({ body: e.body, edge: e.n, tangent: LEVEL[c.cont] > 0, continuity: LEVEL[c.cont] })) });
     // Individual: one request per closed loop the pieces make; otherwise all of them as one loop.
     c.requests = () => {
       const groups = patchLoops(c.curves, c.edges);
@@ -7316,7 +7321,18 @@ export async function mount(root, backend) {
       return out.some(b => !b) ? null : out;
     }, list => {
       for (const b of list) showPreviewBody(b, phantom.add.face, phantom.add.edge).renderOrder = 5;
-      $('patch-hint').textContent = c.quad ? c.quadText : (c.tangent && c.edges.length ? 'SMOOTH SHEET, TANGENT TO THE FACES' : (list.length > 1 ? 'A SHEET THROUGH EACH LOOP' : 'SHEET THROUGH THE LOOP')) + (list.length > 1 ? ` · ${list.length} SHEETS` : '');
+      const smooth = LEVEL[c.cont] && c.edges.length ? `SMOOTH SHEET, ${c.cont === 'G2' ? 'MATCHING THE CURVATURE OF' : 'TANGENT TO'} THE FACES` : null;
+      // Planar: both builds fill a flat loop with its own plane, so a curved sheet means the loop is not flat.
+      if (c.cont === 'planar' && list.some(b => !b.facePlanes?.[0])) {
+        c.data = null;
+        c.notFlat = true;
+        clearPreview();
+        $('patch-hint').textContent = 'THAT LOOP IS NOT FLAT; PRESS T FOR G0';
+        setHud('PATCH · PLANAR');
+        return setState('failed');
+      }
+      c.notFlat = false;
+      $('patch-hint').textContent = c.quad ? c.quadText : (smooth ?? (list.length > 1 ? `A ${c.cont === 'planar' ? 'FLAT ' : ''}SHEET THROUGH EACH LOOP` : `${c.cont === 'planar' ? 'A FLAT' : ''} SHEET THROUGH THE LOOP`.trim())) + (list.length > 1 ? ` · ${list.length} SHEETS` : '');
       setHud(c.quad ? 'PATCH · QUAD-SIDED' : list.length > 1 ? `PATCH ×${list.length}` : 'PATCH');
     }, 'patch-hint');
     c.onSelection = () => {
@@ -7325,8 +7341,10 @@ export async function mount(root, backend) {
       c.edges = sel.list('edge');
       $('patch-curves').textContent = c.curves.length;
       $('patch-edges').textContent = c.edges.length;
-      $('patch-tangent').setAttribute('aria-pressed', String(c.tangent));
+      for (const b of $$('[data-pcont]')) b.setAttribute('aria-pressed', String(b.dataset.pcont === c.cont));
+      $('patch-tangent').setAttribute('aria-pressed', String(LEVEL[c.cont] > 0));
       $('patch-tangent').disabled = !c.edges.length;
+      $('patch-tangent').lastChild.textContent = c.cont === 'G2' ? 'CURVATURE TO FACES' : 'TANGENT TO FACES';
       $('patch-individual').setAttribute('aria-pressed', String(c.individual));
       $('patch-individual').disabled = c.quad;
       $('patch-quad').setAttribute('aria-pressed', String(c.quad));
@@ -7340,8 +7358,10 @@ export async function mount(root, backend) {
       }
       c.preview();
     };
+    c.setCont = g => { c.cont = g; c.tangent = LEVEL[g] > 0; c.onSelection(); };
     c.key = action => {
-      if (action === 'tangent') c.tangent = !c.tangent;
+      // T cycles the continuity, as the manual lists it: Planar, G0, G1, G2.
+      if (action === 'tangent') c.setCont({ planar: 'G0', G0: 'G1', G1: 'G2', G2: 'planar' }[c.cont]);
       else if (action === 'individual') c.individual = !c.individual;
       else if (action === 'quad') {
         if (!backend.previewSplineSheet) return toast('QUAD-SIDED IS NOT IN THIS BUILD YET'), true;
@@ -7361,6 +7381,7 @@ export async function mount(root, backend) {
     };
     c.finish = async () => {
       if (!c.curves.length && !c.edges.length) { setState('failed'); return toast($('patch-hint').textContent); }
+      if (c.notFlat) { setState('failed'); return toast($('patch-hint').textContent); }
       let list = null;
       const made = [];
       if (c.quad) {
@@ -7383,7 +7404,7 @@ export async function mount(root, backend) {
           const { id, scene } = await backend.commitPatch(r);
           made.push(id);
           list = scene;
-          record(`PATCH${c.tangent && c.edges.length ? ' TANGENT' : ''}`, id);
+          record(`PATCH${c.cont === 'planar' ? ' PLANAR' : LEVEL[c.cont] && c.edges.length ? ` ${c.cont}` : ''}`, id);
         }
         endCmd('committed');
       } catch (e) { setState('failed'); toast(say(e)); }
@@ -10470,6 +10491,7 @@ export async function mount(root, backend) {
   for (const f of ['pipe-r', 'pipe-t', 'pipe-v']) $(f).addEventListener('input', () => cmd?.id === 'pipe' && cmd.preview());
   $('patch-tangent').onclick = () => cmd?.id === 'patch' && cmd.key('tangent');
   $('patch-quad').onclick = () => cmd?.id === 'patch' && cmd.key('quad');
+  for (const b of $$('[data-pcont]')) b.onclick = () => cmd?.id === 'patch' && cmd.setCont(b.dataset.pcont);
   $('patch-individual').onclick = () => cmd?.id === 'patch' && cmd.key('individual');
   $('ex-free').onclick = () => cmd?.id === 'extrude' && cmd.key('freestyle');
   $('ex-pivot').onclick = () => cmd?.id === 'extrude' && cmd.key('pivot');

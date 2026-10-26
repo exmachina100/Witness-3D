@@ -68,3 +68,16 @@ test("a body's rim closes flat; tangent to upright walls is refused", async () =
     // Tangent to the block's upright sides, a plate cannot turn that steeply: refused with the reason.
     await assert.rejects(async () => be.previewPatch({ edges: top.map(edge => ({ body: seed.id, edge, tangent: true })) }), /off tangent/);
 });
+
+test('an edge asks for curvature as well as tangency through continuity', async () => {
+    const be = new LocalBackend();
+    const seed = be.scene()[0];
+    const top = seed.edges.map((e, n) => ({ e, n })).filter(({ e }) => { for (let i = 1; i < e.length; i += 3) if (Math.abs(e[i] - 30) > 1e-9) return false; return true; }).map(({ n }) => n);
+    // Continuity 0 is the flat lid, as no continuity is; 1 and 2 ask the upright walls for tangency
+    // and curvature, which a plate cannot give, so both are refused with the reason.
+    const lid = await be.previewPatch({ edges: top.map(edge => ({ body: seed.id, edge, continuity: 0 })) });
+    close(area(lid), 80 * 50, 1e-6);
+    for (const continuity of [1, 2]) {
+        await assert.rejects(async () => be.previewPatch({ edges: top.map(edge => ({ body: seed.id, edge, continuity })) }), /off tangent|cannot match the curvature/, `continuity ${continuity}`);
+    }
+});

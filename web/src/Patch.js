@@ -60,17 +60,19 @@ export function faceBeside(shape, edge, why = 'a tangent edge needs a face besid
 }
 
 /**
- * The sheet filling one closed loop of drawn `curves` and body `edges` ({ shape, n, tangent }, `n`
- * numbered within the body). Throws when the loop does not close or the sheet cannot meet it.
+ * The sheet filling one closed loop of drawn `curves` and body `edges` ({ shape, n, tangent,
+ * continuity: 0 none, 1 tangent (G1), 2 its curvature too (G2) }, `n` numbered within the body).
+ * Throws when the loop does not close or the sheet cannot meet it.
  */
 export function patch(curves, edges) {
     const o = oc();
     const pieces = [];
     for (const c of curves) for (const e of numberedEdges(curveWire(c))) pieces.push({ edge: e, face: null });
-    for (const { shape, n, tangent } of edges) {
+    for (const { shape, n, tangent, continuity } of edges) {
         const e = numberedEdges(shape)[n];
         if (!e) throw new Error('that edge no longer exists');
-        pieces.push({ edge: e, face: tangent ? faceBeside(shape, e) : null });
+        const level = Math.min(2, continuity ?? (tangent ? 1 : 0));
+        pieces.push({ edge: e, face: level > 0 ? faceBeside(shape, e) : null, level });
     }
     if (!pieces.length) throw new Error('select a closed loop of curves or edges to patch');
     for (const p of pieces) { const pts = along(p.edge); p.points = pts; p.ends = [pts[0], pts.at(-1)]; }
@@ -86,11 +88,20 @@ export function patch(curves, edges) {
         }
     }
     const fill = new o.BRepOffsetAPI_MakeFilling(3, 15, 2, false, 1e-5, TOL, 0.01, 0.1, 8, 9);
-    for (const p of pieces) {
-        if (p.face) fill.Add(p.edge, p.face, o.GeomAbs_Shape.GeomAbs_G1, true);
-        else fill.Add(p.edge, o.GeomAbs_Shape.GeomAbs_C0, true);
+    // A plate asked for G2 along an edge can fail inside the kernel, which throws past JS, so the
+    // reason is given here instead of a bare WebAssembly exception.
+    const asked = Math.max(0, ...pieces.map(p => p.level ?? 0));
+    try {
+        for (const p of pieces) {
+            if (p.face) fill.Add(p.edge, p.face, p.level >= 2 ? o.GeomAbs_Shape.GeomAbs_G2 : o.GeomAbs_Shape.GeomAbs_G1, true);
+            else fill.Add(p.edge, o.GeomAbs_Shape.GeomAbs_C0, true);
+        }
+        fill.Build(new o.Message_ProgressRange());
+    } catch {
+        throw new Error(asked >= 2
+            ? 'the patch cannot match the curvature of those faces; try G1 or G0'
+            : 'no surface could be filled inside that loop');
     }
-    fill.Build(new o.Message_ProgressRange());
     if (!fill.IsDone()) throw new Error('no surface could be filled inside that loop');
     if (fill.G0Error() > 10 * TOL) throw new Error(`the patch misses its boundary by ${fill.G0Error()} mm`);
     const off = fill.G1Error() * 180 / Math.PI;
