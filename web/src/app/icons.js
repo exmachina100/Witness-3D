@@ -303,6 +303,7 @@ const ICONS = {
     'mirror-none': `<path d="M12 3v18" stroke-dasharray="2 2"/><path ${A} d="M6 15V8M6 8h0"/>`,
     'mirror-u': `<path d="M3 12h18" stroke-dasharray="2 2"/><path ${A} d="M8 9V4M8 4h0M8 15v5M8 20h0"/>`,
     'mirror-v': `<path d="M12 3v18" stroke-dasharray="2 2"/><path ${A} d="M9 16H4M4 16h0M15 16h5M20 16h0"/>`,
+    analysis: `<path d="M3 17c4 0 5-8 9-8"/><path d="M12 9c4 0 5 4 9 4" stroke-dasharray="2 2"/><path ${A} d="M12 4v16"/>`,
     'slide-u': `<path d="M4 16L20 8" stroke-dasharray="2 2"/><path ${A} d="M8 14l8-4M13 9l3 1-1 3"/>`,
     'slide-back': `<path d="M4 16L20 8" stroke-dasharray="2 2"/><path ${A} d="M16 10l-8 4M11 15l-3-1 1-3"/>`,
     'slide-v': `<path d="M8 4L16 20" stroke-dasharray="2 2"/><path ${A} d="M10 8l4 8M11 14l3 2 1-3"/>`,

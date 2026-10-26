@@ -326,7 +326,9 @@ export async function alignRequest(backend, { target, reference, continuity = 'G
     const rFaces = readEdgeFaces(await backend.edgeFaces({ body: reference.body, edge: reference.edge, points: plan.points }), plan.points.length);
     const rFace = pickFace(rFaces, middle(tAlong), false);
     const moves = alignMoves(side, plan, rFace.frames, { continuity, tension, blend, influence, partial });
-    return { body: target.body, moves: moves.map(([pole, by]) => [tFace.face, pole, by]) };
+    // What Analysis needs to check the result: the side, and the reference edge and face.
+    const check = { side, reference, face: rFace.face, moves };
+    return { body: target.body, moves: moves.map(([pole, by]) => [tFace.face, pole, by]), check };
 }
 
 /**
@@ -359,4 +361,73 @@ async function symmetricRequest(backend, { target, reference, continuity, ...opt
     }));
     if (target.body === reference.body) return { body: target.body, moves: [...out[0].moves, ...out[1].moves] };
     return { body: target.body, moves: out[0].moves, more: [out[1]] };
+}
+
+/** Analysis's default tolerances: gap in mm, angle in degrees, curvature difference in percent. */
+export const ANALYSIS_TOLERANCES = { g0: 0.01, g1: 0.5, g2: 5 };
+
+/**
+ * `n` samples along `side` (from sideOf) with its poles moved by `moves` ([[pole, by]] in the face's
+ * numbering): each the point on the side, the derivative along it, the derivative across it and,
+ * with three rows and degree 2 or more across, the second derivative across.
+ */
+export function sideSamples(side, moves, n = 32) {
+    const { rows, ids, along, q, across: A, p } = side;
+    const by = new Map(moves.map(([pole, d]) => [pole, d]));
+    const R = rows.map((r, i) => r.map((v, j) => by.has(ids[i][j]) ? add(v, by.get(ids[i][j])) : v));
+    const a = p / (A[p + 1] - A[1]);
+    const curved = R.length >= 3 && p >= 2;
+    const c1 = curved ? (A[p + 1] - A[2]) / (p - 1) : 0, c2 = curved ? (A[p + 2] - A[2]) / p : 0;
+    const x0 = along[q], x1 = along.at(-1 - q);
+    return Array.from({ length: n }, (_, k) => {
+        const x = x0 + (x1 - x0) * (k + 0.5) / n, { N, dN } = basis(along, q, x);
+        const row = (r, w) => w.reduce((s, v, j) => v ? add(s, mul(r[j], v)) : s, [0, 0, 0]);
+        const r0 = row(R[0], N), r1 = row(R[1], N);
+        const across = mul(sub(r1, r0), a);
+        let second = null;
+        if (curved) {
+            const Q0 = across, Q1 = mul(sub(row(R[2], N), r1), 1 / c2);
+            second = mul(sub(Q1, Q0), 1 / c1);
+        }
+        return { at: r0, along: row(R[0], dN), across, second };
+    });
+}
+
+/**
+ * Align Surface's Analysis: how well the side (sideSamples) meets the reference face (its frames at
+ * the same points, from readEdgeFaces). Returns the worst gap (mm), the worst angle between the
+ * faces (degrees), the worst curvature difference across the edge (percent of the larger, or null
+ * when the side can't say) and whether each is within `tol`.
+ */
+export function analyse(samples, frames, tol = ANALYSIS_TOLERANCES) {
+    let gap = 0, angle = 0, bend = null;
+    samples.forEach((s, k) => {
+        const f = frames[k];
+        gap = Math.max(gap, dist(s.at, f.at));
+        const nt = unit(cross(s.along, s.across));
+        let nr = unit(cross(f.su, f.sv));
+        if (dot(nt, nr) < 0) nr = mul(nr, -1);
+        angle = Math.max(angle, Math.acos(Math.min(1, Math.max(-1, dot(nt, nr)))) * 180 / Math.PI);
+        if (!s.second) return;
+        // The normal curvature of each face across the edge, at the same point and the same way round.
+        const kt = dot(s.second, nt) / dot(s.across, s.across);
+        let e = sub(s.across, mul(nr, dot(s.across, nr)));
+        if (len(e) < 1e-12) return;
+        const kr = normalCurvature(f, nr, unit(e));
+        const big = Math.max(Math.abs(kt), Math.abs(kr));
+        // Both flat, or nearly: they agree.
+        const diff = big < 1e-6 ? 0 : Math.abs(kt - kr) / big * 100;
+        bend = Math.max(bend ?? 0, diff);
+    });
+    return { gap, angle, bend, ok: { g0: gap <= tol.g0, g1: angle <= tol.g1, g2: bend === null ? null : bend <= tol.g2 } };
+}
+
+/** Analysis of an alignRequest's result against a backend: the reference face's frames along the moved side. */
+export async function alignAnalysis(backend, req, tol = ANALYSIS_TOLERANCES) {
+    if (!req.check) throw new Error('Analysis checks one sheet aligned to another; turn Symmetric off');
+    const { side, reference, face, moves } = req.check;
+    const samples = sideSamples(side, moves);
+    const faces = readEdgeFaces(await backend.edgeFaces({ body: reference.body, edge: reference.edge, points: samples.map(s => s.at) }), samples.length);
+    const ref = faces.find(f => f.face === face) ?? faces[0];
+    return analyse(samples, ref.frames, tol);
 }
