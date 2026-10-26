@@ -48,3 +48,17 @@ test('solids and no thickness are refused', async () => {
     assert.throws(() => thicken(be.shapes.get(sheet), 0, 0), /needs a thickness/);
     assert.throws(() => thicken(be.shapes.get(sheet), -1, 0), /below zero/);
 });
+
+test('a bent sheet thickens with its corner joined, as the desktop does', async () => {
+    const { box, count, facePlane, numbered } = await import('../src/Kernel.js');
+    const { joinSheets } = await import('../src/Join.js');
+    const THREE = await import('three');
+    const cube = box(new THREE.Vector3(0, 0, 0), new THREE.Vector3(10, 10, 10));
+    const facing = n => [...Array(count(cube, 'TopAbs_FACE')).keys()].find(i => facePlane(cube, i)?.normal.dot(n) > 0.999);
+    const faces = numbered(cube, 'TopAbs_FACE');
+    const bent = joinSheets([facing(new THREE.Vector3(0, 0, 1)), facing(new THREE.Vector3(1, 0, 0))].map(i => faces[i]));
+    // Two 10 × 10 × 1 plates and the 1 × 1 × 10 corner where they meet.
+    close(volume(thicken(bent, 1)), 210, 1e-6);
+    // Behind, the plates overlap in the inside corner instead.
+    close(volume(thicken(bent, 1, 1)), 210 + 190, 1e-6);
+});
