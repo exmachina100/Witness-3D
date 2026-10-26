@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { BOUNDARY, byLength, orderLoop, square, surfaceAt } from '../src/square.js';
+import { BOUNDARY, byLength, orderLoop, square, squareAnalysis, surfaceAt } from '../src/square.js';
 
 const arc = (f, n = 40) => Array.from({ length: n + 1 }, (_, i) => f(i / n));
 const dist = (a, b) => Math.hypot(a[0] - b[0], a[1] - b[1], a[2] - b[2]);
@@ -168,4 +168,26 @@ test('Weight below 1 loosens the sides for a fairer sheet', () => {
     assert.ok(loose.gap > full.gap, `${loose.gap} ${full.gap}`);
     for (const [u, v] of [[0, 0], [1, 0], [1, 1], [0, 1]]) assert.ok(dist(surfaceAt(loose, u, v), surfaceAt(full, u, v)) < 1e-9);
     assert.throws(() => square(wavy, { weight: 0 }), /weight/);
+});
+
+test("Analysis checks a sheet's G0, G1 and G2 along its sides, whatever it was fitted for", () => {
+    const n = 40;
+    const ones = v => Array.from({ length: n + 1 }, () => v);
+    const shelf = (y, z, out, k) => Object.assign(arc(t => [20 * t, y, z], n), { out: ones(out), normal: ones([0, 1, 0]), kappa: ones([k, 0, 0]) });
+    const sides = () => [shelf(10, 10, [0, 0, 1], 0.05), shelf(-5, 25, [0, 0, -1], 0)];
+    // Fitted G2: every check passes.
+    const g2 = square(sides(), { continuity: 'G2' });
+    const a = squareAnalysis(g2, sides());
+    assert.deepEqual(a.ok, { g0: true, g1: true, g2: true });
+    // Fitted G0 to the bare sides: it meets them, but neither face's tangent plane nor curvature.
+    const g0 = square(sides().map(s => [...s]));
+    const b = squareAnalysis(g0, sides());
+    assert.equal(b.ok.g0, true);
+    assert.equal(b.ok.g1, false, `turn ${b.turn}`);
+    assert.equal(b.ok.g2, false, `bend ${b.bend}`);
+    // Curves for sides, no faces: only G0 can be judged.
+    const c = squareAnalysis(square([bottom, right, top, left]), [bottom, right, top, left]);
+    assert.equal(c.ok.g0, true);
+    assert.equal(c.turn, null);
+    assert.equal(c.bend, null);
 });

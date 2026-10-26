@@ -72,7 +72,7 @@ import { EDGE_CONTINUITY, bridgeCurve, bridgePoles, edgePoint } from '../bridgeE
 import { ALIGN_CONTINUITY, alignAnalysis, alignRequest, readEdgeFaces, targetFace } from '../alignSurface.js';
 import { PROJECT_CONTINUITY, projectAlignRequest } from '../projectAlign.js';
 import { constrainedSurface, splineSheetData } from '../constrainedSurface.js';
-import { square, quadSides } from '../square.js';
+import { square, squareAnalysis, quadSides } from '../square.js';
 import { combTeeth, isoLines, onFace } from '../isoCombs.js';
 import { liftPiece, meshSilhouette, nearestOver } from '../createOutline.js';
 import { FONTS, parseFont, textShapes } from '../text.js';
@@ -438,6 +438,14 @@ const SHELL = `
       <div class="seg" data-id="sq-qrow" role="group" aria-label="Quality: how closely the fit follows the sides" hidden><button data-sqquality="auto" aria-pressed="true" title="Auto: within 0.01 mm of the sides">AUTO</button><button data-sqquality="high" aria-pressed="false" title="High: within 0.001 mm">HIGH</button><button data-sqquality="max" aria-pressed="false" title="Max: within 0.0001 mm">MAX</button></div>
       <span class="label">BOUNDARY</span>
       <div class="seg" role="group" aria-label="How the isocurves leave the free sides"><button data-sqbound="natural" aria-pressed="true" title="Natural: the isocurves leave the sides as the fit has them">NATURAL</button><button data-sqbound="normal" aria-pressed="false" title="Normal: the isocurves leave the sides square to them">NORMAL</button><button data-sqbound="next" aria-pressed="false" title="Next: square to the sides that are nearly flat">NEXT</button><button data-sqbound="adjacent" aria-pressed="false" title="Adjacent: the isocurves lean from one neighbouring side's direction to the other's">ADJ.</button></div>
+      <div class="chips"><button data-id="sq-analysis" aria-pressed="false" title="Analysis: check how the sheet meets its sides (G0 gap) and the faces along edge sides (G1 angle, G2 curvature) against the tolerances">ANALYSIS</button></div>
+      <div data-id="sq-analysis-row" hidden>
+        <div class="field two" title="Analysis tolerances: the largest gap (mm) and angle out of a face (°) that still pass"><label for="w3d-sq-tg0">G0 MM · G1 °</label><input id="w3d-sq-tg0" data-id="sq-tg0" type="number" step="0.01" min="0" value="0.01" aria-label="G0 tolerance"><input data-id="sq-tg1" type="number" step="0.1" min="0" value="0.5" aria-label="G1 tolerance"></div>
+        <div class="field" title="Analysis tolerance: the largest difference in curvature across an edge side that still passes, per mm"><label for="w3d-sq-tg2">G2 /MM</label><input id="w3d-sq-tg2" data-id="sq-tg2" type="number" step="0.0005" min="0" value="0.001"></div>
+        <div class="field"><label>G0</label><output data-id="sq-r0">—</output></div>
+        <div class="field"><label>G1</label><output data-id="sq-r1">—</output></div>
+        <div class="field"><label>G2</label><output data-id="sq-r2">—</output></div>
+      </div>
     </div>
     <div class="sec" data-panel="constrained-surface" hidden>
       <span class="hint" data-id="cs-hint">—</span>
@@ -973,11 +981,11 @@ const VIEWS = {
 export async function mount(root, backend) {
   root.innerHTML = SHELL;
   // Panel options carry their icon ahead of the key and name.
-  for (const b of root.querySelectorAll('[data-proj],[data-imp],[data-impcomp],[data-draw],[data-bop],[data-xop],[data-fop],[data-spiral],[data-toggle],[data-gmethod],[data-galign],[data-gcorner],[data-grow],[data-mfgrow],[data-drgrow],[data-eslimit],[data-flshape],[data-drtaper],[data-avaxis],[data-extshape],[data-esshape],[data-isodir],[data-id="oe-both"],[data-id="oe-individual"],[data-id="blend-tangent"],[data-id="ex-lock"],[data-id="bool-keep"],[data-id="prim-keep"],[data-id="ex-free"],[data-id="ex-pivot"],[data-id="ex-individual"],[data-id="patch-individual"],[data-id="patch-quad"],[data-id="as-symmetric"],[data-id="as-analysis"],[data-id="dr-hidden"],[data-id="dr-curves"],[data-id="oc-lock"],[data-id="oc-free"],[data-id="oc-slot"],[data-id="oc-combine"],[data-id="es-unlimit"],[data-rbmethod],[data-oecorner],[data-saplane],[data-plaxis],[data-plop],[data-id="pl-flip"],[data-id="pl-instance"],[data-id="mirror-instance"],[data-id="ra-instance"],[data-id="rr-instance"],[data-id="ca-instance"],[data-id="br-trim"],[data-id="br-comb"],[data-id="ac-comb"],[data-id="dc-reblend"],[data-id="section-btn"],[data-id="sa-flip"],[data-id="rf-shrink"],[data-id="ut-keep"],[data-txfont],[data-id="tx-load"],[data-id="tx-system"],[data-txalign],[data-sldir],[data-dcflip],[data-id="dc-keep"],[data-imdepth],[data-imcull],[data-id="im-delete"],[data-id="cc-extend"],[data-id="cc-screen"],[data-inmode],[data-pfmode],[data-pfmirror],[data-sqbound],[data-asbound],[data-id="in-realize"],[data-id="in-dup"],[data-id="in-delete"],[data-id="matcap-load"],[data-id="matcap-custom"],[data-id="hdr-load"],[data-id="hdr-custom"]')) {
+  for (const b of root.querySelectorAll('[data-proj],[data-imp],[data-impcomp],[data-draw],[data-bop],[data-xop],[data-fop],[data-spiral],[data-toggle],[data-gmethod],[data-galign],[data-gcorner],[data-grow],[data-mfgrow],[data-drgrow],[data-eslimit],[data-flshape],[data-drtaper],[data-avaxis],[data-extshape],[data-esshape],[data-isodir],[data-id="oe-both"],[data-id="oe-individual"],[data-id="blend-tangent"],[data-id="ex-lock"],[data-id="bool-keep"],[data-id="prim-keep"],[data-id="ex-free"],[data-id="ex-pivot"],[data-id="ex-individual"],[data-id="patch-individual"],[data-id="patch-quad"],[data-id="as-symmetric"],[data-id="as-analysis"],[data-id="sq-analysis"],[data-id="dr-hidden"],[data-id="dr-curves"],[data-id="oc-lock"],[data-id="oc-free"],[data-id="oc-slot"],[data-id="oc-combine"],[data-id="es-unlimit"],[data-rbmethod],[data-oecorner],[data-saplane],[data-plaxis],[data-plop],[data-id="pl-flip"],[data-id="pl-instance"],[data-id="mirror-instance"],[data-id="ra-instance"],[data-id="rr-instance"],[data-id="ca-instance"],[data-id="br-trim"],[data-id="br-comb"],[data-id="ac-comb"],[data-id="dc-reblend"],[data-id="section-btn"],[data-id="sa-flip"],[data-id="rf-shrink"],[data-id="ut-keep"],[data-txfont],[data-id="tx-load"],[data-id="tx-system"],[data-txalign],[data-sldir],[data-dcflip],[data-id="dc-keep"],[data-imdepth],[data-imcull],[data-id="im-delete"],[data-id="cc-extend"],[data-id="cc-screen"],[data-inmode],[data-pfmode],[data-pfmirror],[data-sqbound],[data-asbound],[data-id="in-realize"],[data-id="in-dup"],[data-id="in-delete"],[data-id="matcap-load"],[data-id="matcap-custom"],[data-id="hdr-load"],[data-id="hdr-custom"]')) {
     const name = (b.dataset.proj && (b.dataset.proj === 'screen' ? 'view-screen' : `proj-${b.dataset.proj}`)) ?? (b.dataset.imp && (b.dataset.imp === 'screen' ? 'view-screen' : `proj-${b.dataset.imp}`)) ?? (b.dataset.impcomp && `completion-${b.dataset.impcomp}`) ?? b.dataset.draw ?? b.dataset.bop ?? b.dataset.xop ?? b.dataset.fop ?? b.dataset.spiral ?? (b.dataset.toggle && `view-${b.dataset.toggle}`)
       ?? (b.dataset.gmethod && `guide-${b.dataset.gmethod}`) ?? (b.dataset.galign && `align-${b.dataset.galign}`) ?? (b.dataset.gcorner && (b.dataset.gcorner === 'round' ? 'corner-round' : 'corner-linear')) ?? (b.dataset.grow && `grow-${b.dataset.grow}`) ?? (b.dataset.mfgrow && `grow-${b.dataset.mfgrow}`) ?? (b.dataset.drgrow && `grow-${b.dataset.drgrow}`) ?? (b.dataset.eslimit && `limit-${b.dataset.eslimit}`) ?? (b.dataset.flshape && `fillet-${b.dataset.flshape}`) ?? (b.dataset.drtaper && `taper-${b.dataset.drtaper}`) ?? (b.dataset.avaxis && `axis-${b.dataset.avaxis}`) ?? (b.dataset.extshape && `extend-${b.dataset.extshape}`) ?? (b.dataset.esshape && `extend-${b.dataset.esshape}`) ?? (b.dataset.isodir && `iso-${b.dataset.isodir}`) ?? (b.dataset.rbmethod && `rebuild-${b.dataset.rbmethod}`) ?? (b.dataset.oecorner && `corner-${b.dataset.oecorner}`) ?? (b.dataset.saplane && `section-${b.dataset.saplane}`) ?? (b.dataset.plaxis && (b.dataset.plaxis === 'normal' ? 'place-normal' : `axis-${b.dataset.plaxis}`)) ?? b.dataset.plop
       ?? (b.dataset.txfont && `font-${b.dataset.txfont}`) ?? (b.dataset.txalign && `txalign-${b.dataset.txalign}`) ?? (b.dataset.sldir && { u: 'slide-u', '-u': 'slide-back', v: 'slide-v', '-v': 'slide-vback', n: 'slide-n' }[b.dataset.sldir]) ?? (b.dataset.dcflip && { mirror: 'mirror', swap: 'swap-uv', normal: 'reverse-sheet' }[b.dataset.dcflip]) ?? (b.dataset.imdepth && `depth-${b.dataset.imdepth}`) ?? (b.dataset.imcull && `cull-${b.dataset.imcull}`) ?? b.dataset.inmode ?? (b.dataset.pfmode && `falloff-${b.dataset.pfmode}`) ?? ((b.dataset.sqbound ?? b.dataset.asbound) && `bound-${b.dataset.sqbound ?? b.dataset.asbound}`) ?? (b.dataset.pfmirror && `mirror-${b.dataset.pfmirror}`)
-      ?? { 'matcap-load': 'matcap-load', 'matcap-custom': 'matcap', 'tx-load': 'font-load', 'tx-system': 'font-system', 'hdr-load': 'hdr-load', 'hdr-custom': 'hdr', 'ex-lock': 'lock', 'bool-keep': 'keep', 'prim-keep': 'keep', 'ex-free': 'freestyle', 'ex-pivot': 'pivot', 'ex-individual': 'individual', 'patch-individual': 'individual', 'patch-quad': 'square', 'as-symmetric': 'symmetric', 'as-analysis': 'analysis', 'dr-hidden': 'hidden-lines', 'dr-curves': 'drawing-curves', 'oc-lock': 'lock', 'oc-free': 'freestyle', 'oc-slot': 'slot', 'oc-combine': 'combine', 'oe-both': 'both-sides', 'oe-individual': 'individual', 'blend-tangent': 'tangent-chain', 'es-unlimit': 'unlimit', 'rf-shrink': 'shrink', 'ut-keep': 'keep-edges', 'section-btn': 'view-section', 'sa-flip': 'flip', 'pl-flip': 'flip', 'pl-instance': 'instance', 'mirror-instance': 'instance', 'ra-instance': 'instance', 'rr-instance': 'instance', 'ca-instance': 'instance', 'br-trim': 'trim', 'br-comb': 'view-curvature', 'ac-comb': 'view-curvature', 'dc-reblend': 'reblend', 'dc-keep': 'keep', 'im-delete': 'delete', 'in-realize': 'realize-instance', 'cc-extend': 'extend', 'cc-screen': 'view-screen', 'in-dup': 'duplicate', 'in-delete': 'delete' }[b.dataset.id];
+      ?? { 'matcap-load': 'matcap-load', 'matcap-custom': 'matcap', 'tx-load': 'font-load', 'tx-system': 'font-system', 'hdr-load': 'hdr-load', 'hdr-custom': 'hdr', 'ex-lock': 'lock', 'bool-keep': 'keep', 'prim-keep': 'keep', 'ex-free': 'freestyle', 'ex-pivot': 'pivot', 'ex-individual': 'individual', 'patch-individual': 'individual', 'patch-quad': 'square', 'as-symmetric': 'symmetric', 'as-analysis': 'analysis', 'sq-analysis': 'analysis', 'dr-hidden': 'hidden-lines', 'dr-curves': 'drawing-curves', 'oc-lock': 'lock', 'oc-free': 'freestyle', 'oc-slot': 'slot', 'oc-combine': 'combine', 'oe-both': 'both-sides', 'oe-individual': 'individual', 'blend-tangent': 'tangent-chain', 'es-unlimit': 'unlimit', 'rf-shrink': 'shrink', 'ut-keep': 'keep-edges', 'section-btn': 'view-section', 'sa-flip': 'flip', 'pl-flip': 'flip', 'pl-instance': 'instance', 'mirror-instance': 'instance', 'ra-instance': 'instance', 'rr-instance': 'instance', 'ca-instance': 'instance', 'br-trim': 'trim', 'br-comb': 'view-curvature', 'ac-comb': 'view-curvature', 'dc-reblend': 'reblend', 'dc-keep': 'keep', 'im-delete': 'delete', 'in-realize': 'realize-instance', 'cc-extend': 'extend', 'cc-screen': 'view-screen', 'in-dup': 'duplicate', 'in-delete': 'delete' }[b.dataset.id];
     b.insertAdjacentHTML('afterbegin', icon(name));
   }
   const $ = id => root.querySelector(`[data-id="${id}"]`);
@@ -5272,16 +5280,21 @@ export async function mount(root, backend) {
       let fit;
       try {
         let sides = await Promise.all(items.map(sideOf));
-        if (c.continuity !== 'G0') {
+        // The faces along edge sides: for any continuity but G0, and for Analysis whatever the fit.
+        let faced = null;
+        if (c.continuity !== 'G0' || c.analysis) {
           const all = sides.flat(), centre = [0, 1, 2].map(k => all.reduce((t, p) => t + p[k], 0) / all.length);
-          sides = await Promise.all(sides.map((pts, i) => items[i].kind === 'edge' ? withOut(items[i], pts, centre) : pts));
+          faced = await Promise.all(sides.map((pts, i) => items[i].kind === 'edge' ? withOut(items[i], pts, centre) : pts));
+          if (c.continuity !== 'G0') sides = faced;
         }
         if (cmd !== c) return;
         // Quad sided: the whole loop is chained and cut at its four corners (xNURBS' option).
         if (c.quad) {
           const size = Math.max(...sides.flat().map(p => Math.hypot(...p.map((x, k) => x - sides[0][0][k])))) || 1;
           sides = quadSides(sides, Math.max(0.01, 1e-3 * size));
+          faced = null;
         }
+        c.checkSides = faced ?? sides;
         for (const b of $$('[data-sqquality]')) b.setAttribute('aria-pressed', String(b.dataset.sqquality === c.quality));
         $('sq-quad').setAttribute('aria-pressed', String(!!c.quad));
         const su = Math.round(num('sq-u')) || 0, sv = Math.round(num('sq-v')) || su;
@@ -5291,10 +5304,29 @@ export async function mount(root, backend) {
         for (const b of $$('[data-sqbound]')) b.setAttribute('aria-pressed', String(b.dataset.sqbound === (c.boundary ?? 'natural')));
       } catch (e) { c.data = null; clearPreview(); $('sq-hint').textContent = say(e); return setState('failed'); }
       c.data = splineSheetData(fit);
+      c.fit = fit;
+      c.analyse();
       $('sq-hint').textContent = `${c.xnurbs ? 'XNURBS · ' : ''}${c.continuity === 'FREE' ? 'FREE · ' : ''}${c.quad ? 'QUAD SIDED' : items.length === 2 ? 'LOFT' : items.length === 3 ? 'THREE SIDES' : 'FOUR SIDES'} · DEGREE ${fit.degree[0]} · ${fit.spans.join(' × ')} SPANS · SIDES WITHIN ${fit.gap < 1e-4 ? '< 0.0001' : fit.gap.toFixed(4)} MM${c.continuity === 'G1' || c.continuity === 'G2' ? ` · TANGENT WITHIN ${fit.turn.toFixed(2)}°` : ''}${c.continuity === 'G2' ? ` · CURVATURE WITHIN ${fit.bend.toFixed(5)} /MM` : ''}${num('sq-flat') > 0 ? ` · FLATNESS ${Math.min(1, num('sq-flat'))}` : ''}${num('sq-w') < 1 ? ` · WEIGHT ${Math.max(0.05, num('sq-w'))}` : ''}${c.boundary && c.boundary !== 'natural' ? ` · ${c.boundary.toUpperCase()} BOUNDARY` : ''}`;
       setHud(`${c.xnurbs ? 'XNURBS' : 'SQUARE'} · ${fit.spans.join(' × ')} SPANS`);
       livePreview(c, () => backend.previewSplineSheet({ data: c.data }), b => showPreviewBody(b), 'sq-hint');
     };
+    // Analysis: the gap to the sides and, along edge sides, the angle and curvature difference to
+    // their faces, each against its tolerance, whatever continuity the sheet was fitted for.
+    c.analysis = false;
+    c.analyse = () => {
+      $('sq-analysis').setAttribute('aria-pressed', String(c.analysis));
+      $('sq-analysis-row').hidden = !c.analysis;
+      for (const k of [0, 1, 2]) $(`sq-r${k}`).textContent = '—';
+      if (!c.analysis || !c.fit || !c.checkSides) return;
+      try {
+        const r = squareAnalysis(c.fit, c.checkSides, { g0: num('sq-tg0'), g1: num('sq-tg1'), g2: num('sq-tg2') });
+        const mark = ok => ok ? ' ✓' : ' ✗';
+        $('sq-r0').textContent = `${r.gap < 1e-4 ? '< 0.0001' : r.gap.toFixed(4)} MM${mark(r.ok.g0)}`;
+        $('sq-r1').textContent = r.turn === null ? 'NO EDGE SIDES' : `${r.turn.toFixed(3)}°${mark(r.ok.g1)}`;
+        $('sq-r2').textContent = r.bend === null ? 'NO EDGE SIDES' : `${r.bend.toFixed(5)} /MM${mark(r.ok.g2)}`;
+      } catch (e) { $('sq-r0').textContent = say(e); }
+    };
+    c.setAnalysis = on => { c.analysis = on; c.analyse(); if (on) c.preview(); };
     c.onSelection = () => { drawOverlays(); c.preview(); };
     c.click = e => {
       const hit = pickAt(e);
@@ -10460,6 +10492,8 @@ export async function mount(root, backend) {
   for (const b of $$('[data-sqcont]')) b.onclick = () => cmd?.id === 'square' && cmd.setContinuity(b.dataset.sqcont);
   for (const id of ['sq-d', 'sq-u', 'sq-v', 'sq-t', 'sq-flat', 'sq-w']) $(id).addEventListener('input', () => cmd?.id === 'square' && cmd.preview());
   $('sq-quad').onclick = () => cmd?.id === 'square' && cmd.key('quad');
+  $('sq-analysis').onclick = () => cmd?.id === 'square' && cmd.setAnalysis(!cmd.analysis);
+  for (const id of ['sq-tg0', 'sq-tg1', 'sq-tg2']) $(id).addEventListener('input', () => cmd?.id === 'square' && cmd.analyse());
   for (const b of $$('[data-sqquality]')) b.onclick = () => { if (cmd?.id === 'square') { cmd.quality = b.dataset.sqquality; cmd.preview(); } };
   for (const b of $$('[data-sqbound]')) b.onclick = () => { if (cmd?.id === 'square') { cmd.boundary = b.dataset.sqbound; cmd.preview(); } };
   for (const b of $$('[data-csopt]')) b.onclick = () => { if (cmd?.id === 'constrained-surface') { cmd.optimize = b.dataset.csopt; cmd.preview(); } };

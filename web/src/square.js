@@ -571,6 +571,26 @@ function sideBend(surface, bends, n = 32) {
     return most;
 }
 
+/** Square's Analysis tolerances, as Align Surface's: gap (mm), angle (degrees), curvature difference (1/mm). */
+export const SQUARE_TOLERANCES = { g0: 0.01, g1: 0.5, g2: 0.001 };
+
+/**
+ * Square's Analysis: how the fitted `surface` meets its `sides` (as square() takes them, edge sides
+ * carrying their faces' directions and curvature), whatever continuity it was fitted for. The worst
+ * gap to the sides, the worst angle out of an edge side's face (null with no edge sides) and the
+ * worst normal-curvature difference across one (null when no side knows its face's curvature), each
+ * against `tol`.
+ */
+export function squareAnalysis(surface, sides, tol = SQUARE_TOLERANCES) {
+    const size = Math.max(...sides.flat().map(p => dist(p, sides[0][0])));
+    const shape = boundarySurface(sides, Math.max(1e-3, 1e-3 * size));
+    const gap = sideGap(surface, shape.sides);
+    const turn = shape.outs.some(Boolean) ? sideTurn(surface, shape.outs) : null;
+    const bend = shape.bends.some(Boolean) ? sideBend(surface, shape.bends) : null;
+    const ok = (v, t) => v === null ? null : v <= t;
+    return { gap, turn, bend, ok: { g0: gap <= tol.g0, g1: ok(turn, tol.g1), g2: ok(bend, tol.g2) } };
+}
+
 /** The largest angle in degrees by which the sheet leaves an edge side out of the face's tangent plane. */
 function sideTurn(surface, outs, n = 48) {
     const e = 1e-4;
