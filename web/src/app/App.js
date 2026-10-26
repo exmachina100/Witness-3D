@@ -92,7 +92,7 @@ import { limitEdges, to3mf, toGlb, toObj, toStl } from '../meshExport.js';
 import { flatten, toDxf, toSvg } from '../drawingExport.js';
 import { readDxf } from '../dxf.js';
 import { distanceToFace } from '../dependentOffset.js';
-import { ALIGN_CURVE_CONTINUITY, alignCurveEnd, BRIDGE_CONTINUITY, bridgeContinuous, bridgeEnd, continuity, curvatureComb, curveVertices, explode, EXTEND_SHAPES, extendCurve, filletCurve, nearestEnd, OFFSET_CORNERS, offsetCurve, offsetSlot, offsetThrough, unionLoops, moveVertices, alignedInPlane, offsetVertex, rebuildCurve, subdivideCurve, completeCurve, convertVertices, insertKnotAt, raiseDegree, reverseCurve, transformCurve, moveVerticesTo, slideCurveCVs, splitCurve, tangentCircle, trim, cutCurve, cuttersFor, samples as curveSamples } from '../curveEdit.js';
+import { ALIGN_CURVE_CONTINUITY, alignCurveEnd, BRIDGE_CONTINUITY, bridgeContinuous, bridgeEnd, continuity, curvatureComb, curveVertices, explode, EXTEND_SHAPES, extendCurve, filletCurve, nearestEnd, OFFSET_CORNERS, offsetCurve, offsetSlot, offsetThrough, unionLoops, moveVertices, alignedInPlane, offsetVertex, rebuildCurve, subdivideCurve, completeCurve, convertVertices, insertKnotAt, raiseDegree, reverseCurve, transformCurve, moveVerticesTo, slideCurveCVs, splitCurve, tangentCircle, tangentCircle3, trim, cutCurve, cuttersFor, samples as curveSamples } from '../curveEdit.js';
 import { ViewGizmo } from './ViewGizmo.js';
 import { Toolbar } from './Toolbar.js';
 import { arcballAbout, dragAngles, orbitAbout } from './orbit.js';
@@ -165,7 +165,7 @@ const KEYS = {
   'measure-continuity': [['CLICK', 'NEAR TWO CURVE ENDS'], ['ESC', 'DONE']],
   'export-mesh': [['TYPE', 'OPTIONS IN PANEL'], ['⏎ / RMB', 'SAVE'], ['ESC', 'CANCEL']],
   'export-drawing': [['VIEW', 'AS THE CAMERA SEES IT'], ['H', 'HIDDEN LINES'], ['C', 'CURVES'], ['⏎ / RMB', 'SAVE'], ['ESC', 'CANCEL']],
-  'tangent-circle': [['CLICK', 'FIRST · SECOND CURVE · SIZE'], ['F', 'FREEZE'], ['TAB', 'RADIUS'], ['ESC', 'CANCEL']],
+  'tangent-circle': [['CLICK', 'FIRST · SECOND CURVE · SIZE OR THIRD CURVE'], ['F', 'FREEZE'], ['TAB', 'RADIUS'], ['ESC', 'CANCEL']],
   extend: [['CLICK', 'NEAR AN END'], ['S', 'SHAPE NATURAL / LINEAR'], ['TYPE', 'LENGTH IN PANEL'], ['ESC / ⏎', 'DONE']],
   bridge: [['T / D', 'TENSION'], ['TAB', 'CONTINUITY G0 G1 G2 G3'], ['Q', 'TRIM'], ['⏎ / RMB', 'OK']],
   'bridge-edge': [['D', 'TENSION'], ['TAB', 'CONTINUITY G0 G1 G2 G3'], ['⏎ / RMB', 'OK']],
@@ -7393,7 +7393,8 @@ export async function mount(root, backend) {
 
   /**
    * Plasticity's Tangent Circle: click two curves, then move the cursor to size a circle touching both
-   * (F freezes it while the cursor moves on; Tab types its radius); click to place it.
+   * (F freezes it while the cursor moves on; Tab types its radius); click to place it. Clicking a third
+   * curve instead makes the circle touch all three, the one nearest the cursor.
    */
   function startTangentCircle() {
     if (!backend.addCurves) return toast('DRAWING IS NOT IN THIS BUILD YET');
@@ -7414,9 +7415,9 @@ export async function mount(root, backend) {
       clearPreview();
       if (!c.at) return;
       try {
-        c.out = tangentCircle(c.picks[0], c.picks[1], c.at, c.radius);
+        c.out = c.picks[2] ? tangentCircle3(c.picks[0], c.picks[1], c.picks[2], c.at) : tangentCircle(c.picks[0], c.picks[1], c.at, c.radius);
         showCurvePreview([c.out]);
-        setHud(`TANGENT CIRCLE R ${c.out.radius.toFixed(2)}${c.frozen ? ' · FROZEN' : ''}`);
+        setHud(`TANGENT CIRCLE R ${c.out.radius.toFixed(2)}${c.picks[2] ? ' · THREE CURVES' : ''}${c.frozen ? ' · FROZEN' : ''}`);
         setState('updated');
       } catch (err) { c.out = null; setHud(say(err)); setState('failed'); }
     };
@@ -7433,8 +7434,20 @@ export async function mount(root, backend) {
         if (c.picks.includes(src)) return true;
         c.picks.push(src);
         setTarget(c.picks.map(k => curveLabel(k.id)).join(' · '));
-        setHud(c.picks.length === 1 ? 'CLICK THE SECOND CURVE' : 'MOVE TO SIZE THE CIRCLE, THEN CLICK');
+        setHud(c.picks.length === 1 ? 'CLICK THE SECOND CURVE' : 'MOVE TO SIZE THE CIRCLE, THEN CLICK; OR CLICK A THIRD CURVE');
         return true;
+      }
+      // A third curve: the circle touches all three, the one nearest the cursor.
+      if (c.picks.length === 2) {
+        const hit = pickAt(e), src = (hit?.kind === 'curve' || hit?.kind === 'region') && curveById(hit.id);
+        if (src && !c.picks.includes(src)) {
+          c.picks.push(src);
+          c.radius = null;
+          setTarget(c.picks.map(k => curveLabel(k.id)).join(' · '));
+          c.at = planeHit(e) ?? c.at;
+          update();
+          return true;
+        }
       }
       await c.finish();
       return true;
@@ -7442,6 +7455,7 @@ export async function mount(root, backend) {
     c.key = action => {
       if (action === 'freeze') { c.frozen = !c.frozen; update(); return true; }
       if (action === 'typed') {
+        if (c.picks[2]) { toast('THREE CURVES SET THE RADIUS'); return true; }
         c.entry = { label: 'RADIUS', text: '', apply: v => { c.radius = Math.abs(v); update(); } };
         setHud('RADIUS _');
         return true;

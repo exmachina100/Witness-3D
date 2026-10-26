@@ -1662,6 +1662,46 @@ export function tangentCircle(a, b, at, radius = null) {
     return withShape(a, { kind: 'circle', center: c, radius: r });
 }
 
+/**
+ * Tangent Circle with a third curve: the circle touching `a`, `b` and `c` whose centre is nearest
+ * `at` (plane coordinates of `a`). Newton's method on the differences of the distances to the three
+ * curves, from `at` and from points round it; lines, circles and arcs are measured exactly.
+ */
+export function tangentCircle3(a, b, c, at) {
+    const shapes = [exactIn(a, a), exactIn(a, b), exactIn(a, c)];
+    if (!shapes[1] || !shapes[2]) throw new Error('the three curves must lie in one plane');
+    const [A, B, C] = shapes;
+    const solve = start => {
+        let q = [...start];
+        for (let i = 0; i < 60; i++) {
+            const da = distTo(A, q), db = distTo(B, q), dc = distTo(C, q);
+            const f = [da.d - db.d, da.d - dc.d];
+            if (Math.abs(f[0]) < 1e-11 && Math.abs(f[1]) < 1e-11) return q;
+            const J = [sub(da.dir, db.dir), sub(da.dir, dc.dir)], det = J[0][0] * J[1][1] - J[0][1] * J[1][0];
+            if (Math.abs(det) < 1e-14) return null;
+            let step = [(f[0] * J[1][1] - f[1] * J[0][1]) / det, (J[0][0] * f[1] - J[1][0] * f[0]) / det];
+            // Damped: never more than the current distance at once.
+            const cap = Math.max(da.d, 1e-6), l = len(step);
+            if (l > cap) step = mul(step, cap / l);
+            q = sub(q, step);
+        }
+        return null;
+    };
+    const size = Math.max(1, ...shapes.map(s => distTo(s, at).d));
+    const seeds = [at];
+    for (const k of [0.5, 1, 2]) for (let i = 0; i < 8; i++) seeds.push(add(at, mul([Math.cos(i * TAU / 8), Math.sin(i * TAU / 8)], k * size)));
+    let best = null;
+    for (const s of seeds) {
+        const q = solve(s);
+        if (!q) continue;
+        const r = distTo(A, q).d;
+        if (!(r > 1e-6) || shapes.some(x => Math.abs(distTo(x, q).d - r) > 1e-7 * Math.max(1, r))) continue;
+        if (!best || dist(q, at) < dist(best.q, at)) best = { q, r };
+    }
+    if (!best) throw new Error('no circle touches all three curves near there');
+    return withShape(a, { kind: 'circle', center: best.q, radius: best.r });
+}
+
 // --- Split Curve At Point -------------------------------------------------------------------------
 
 /**

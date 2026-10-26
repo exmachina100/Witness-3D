@@ -33,7 +33,7 @@ a flat face imprints that face and is used up (round 10).
 | Center Circle | centre, size; Tab, K, V, X/Y | Done |
 | Two Point Circle | | Done |
 | Three Point Circle | | Done |
-| Tangent Circle | pick two curves (optional third edge), size; F freeze, Tab radius | Partial: third edge (exact for lines, circles, arcs) |
+| Tangent Circle | pick two curves (optional third edge), size; F freeze, Tab radius | Done in both builds: two curves sized by the cursor or a radius, or a third curve clicked for the circle touching all three nearest the cursor (lines, circles and arcs exact, other curves through their samples) |
 | Ellipse (centre, three point) | | Done |
 | Center Point Arc · Three Point Arc · Tangent Arc | | Done |
 | Regular Polygon | | Done |
