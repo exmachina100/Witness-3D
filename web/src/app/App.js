@@ -363,6 +363,7 @@ const SHELL = `
       <span class="hint" data-id="mx-hint">—</span>
       <span class="label">FORMAT</span>
       <div class="seg" role="group" aria-label="Mesh format"><button data-mxf="obj" aria-pressed="true">OBJ</button><button data-mxf="stl" aria-pressed="false" title="Binary STL, millimetres">STL</button><button data-mxf="glb" aria-pressed="false" title="Binary glTF in metres, with each body's material">GLB</button><button data-mxf="3mf" aria-pressed="false" title="3MF for printing, millimetres, with each body's colour">3MF</button></div>
+      <div class="field" title="Overall density: sets Tolerance and Angle together, coarse to fine"><label for="w3d-mx-density">DENSITY</label><input id="w3d-mx-density" data-id="mx-density" type="range" min="0" max="1" step="0.01" value="0.33"></div>
       <div class="field"><label for="w3d-mx-tol">TOLERANCE</label><input id="w3d-mx-tol" data-id="mx-tol" type="number" step="0.01" min="0.001" value="0.05"></div>
       <div class="field"><label for="w3d-mx-angle">ANGLE °</label><input id="w3d-mx-angle" data-id="mx-angle" type="number" step="1" min="0.5" value="15"></div>
       <div class="field"><label for="w3d-mx-width">MAX WIDTH</label><input id="w3d-mx-width" data-id="mx-width" type="number" step="1" min="0" value="0"></div>
@@ -7873,6 +7874,12 @@ export async function mount(root, backend) {
     for (const b of $$('[data-mxup]')) b.onclick = () => { c.up = b.dataset.mxup; sync(); };
     for (const b of $$('[data-mxtopo]')) b.onclick = () => { c.topology = b.dataset.mxtopo; sync(); };
     $('mx-convex').onclick = () => { c.convex = !c.convex; sync(); };
+    // Density (Plasticity's one setting that moves the others): 0 is 0.5 mm and 30°, 1 is 0.0005 mm and 3°.
+    $('mx-density').oninput = () => {
+      const d = Math.min(1, Math.max(0, +$('mx-density').value || 0));
+      $('mx-tol').value = +(0.5 * 1000 ** -d).toPrecision(2);
+      $('mx-angle').value = +(30 * 10 ** -d).toFixed(1);
+    };
     c.key = action => { if (['obj', 'stl', 'glb', '3mf'].includes(action)) { c.format = action; sync(); return true; } return false; };
     c.finish = async () => {
       const tolerance = num('mx-tol'), angle = num('mx-angle') * DEG, maxWidth = num('mx-width'), minWidth = num('mx-min');
