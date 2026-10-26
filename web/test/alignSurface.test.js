@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 import { before, test } from 'node:test';
 import { LocalBackend } from '../src/app/LocalBackend.js';
 import { loadKernel, numberedEdges, oc } from '../src/Kernel.js';
-import { alignRequest, basis, normalCurvature, readEdgeFaces } from '../src/alignSurface.js';
+import { alignAnalysis, alignRequest, basis, normalCurvature, readEdgeFaces } from '../src/alignSurface.js';
 
 before(async () => { await loadKernel() });
 
@@ -144,4 +144,22 @@ test('Symmetric refuses G2', async () => {
     be.shapes.set(902, sheet((i, j) => [21 + 14 * i / 3, 20 * j / 3, 1]));
     const target = { body: 902, edge: edgeNear(be.shapes.get(902), [21, 10, 1]) }, reference = { body: 901, edge: edgeNear(be.shapes.get(901), [20, 10, 0]) };
     await assert.rejects(alignRequest(be, { target, reference, continuity: 'G2', symmetric: true }), /G0 or G1/);
+});
+
+test('Analysis passes each continuity up to the one aligned, and fails the next', async () => {
+    const be = new LocalBackend();
+    const ref = sheet((i, j) => [20 * i / 3, 20 * j / 3, [0, 0, 2, 6][i]]);
+    const tgt = sheet((i, j) => [21 + 14 * i / 3, 20 * j / 3, 8]);
+    be.shapes.set(901, ref);
+    be.shapes.set(902, tgt);
+    const reference = { body: 901, edge: edgeNear(ref, [20, 10, 6]) }, target = { body: 902, edge: edgeNear(tgt, [21, 10, 8]) };
+    const result = {};
+    for (const continuity of ['G0', 'G1', 'G2']) result[continuity] = await alignAnalysis(be, await alignRequest(be, { target, reference, continuity }));
+    for (const g of ['G0', 'G1', 'G2']) assert.ok(result[g].gap < 1e-6, `${g} gap ${result[g].gap}`);
+    assert.equal(result.G0.ok.g1, false, `G0 leaves a crease: ${result.G0.angle}°`);
+    assert.ok(result.G1.angle < 1e-4 && result.G2.angle < 1e-4);
+    assert.equal(result.G1.ok.g2, false, `G1 bends differently: ${result.G1.bend}%`);
+    assert.ok(result.G2.bend < 1e-3, `G2: ${result.G2.bend}%`);
+    // Symmetric has nothing to check against.
+    await assert.rejects(alignAnalysis(be, await alignRequest(be, { target, reference, continuity: 'G1', symmetric: true })), /Symmetric/);
 });
