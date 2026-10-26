@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { before, test } from 'node:test';
 import { LocalBackend } from '../src/app/LocalBackend.js';
 import { loadKernel } from '../src/Kernel.js';
-import { limitEdges, toObj, toStl } from '../src/meshExport.js';
+import { limitEdges, mergeShortEdges, toObj, toStl } from '../src/meshExport.js';
 
 before(async () => { await loadKernel() });
 
@@ -47,4 +47,20 @@ test('the backend meshes finer at a smaller tolerance', async () => {
     const [fine] = await be.meshBodies([id], { tolerance: 0.01, angle: 0.1 });
     assert.ok(fine.indices.length > 4 * coarse.indices.length, `${fine.indices.length} vs ${coarse.indices.length}`);
     await assert.rejects(async () => be.meshBodies([999], { tolerance: 0.1 }), /no longer exists/);
+});
+
+test('OBJ Scale and Up Axis', () => {
+    const lines = toObj([tri], undefined, { scale: 0.1, up: 'y' }).trim().split('\n');
+    // Y up: the viewport's own axes, every coordinate a tenth.
+    assert.ok(lines.includes('v 0 0 -1') && lines.includes('v 1 0 0'), lines.join('|'));
+    assert.ok(toObj([tri], undefined, { scale: 2 }).includes('v 0 20 0'));
+});
+
+test('min width merges short edges and drops the triangles that collapse', () => {
+    // A strip of two triangles whose right side is 0.05 long: merged, one triangle goes.
+    const m = mergeShortEdges([0, 0, 0, 10, 0, 0, 10, 0.05, 0, 0, 10, 0], [0, 1, 2, 0, 2, 3], 0.1);
+    assert.equal(m.indices.length, 3);
+    assert.equal(m.positions.length, 9);
+    const same = mergeShortEdges([0, 0, 0, 10, 0, 0, 10, 0.05, 0, 0, 10, 0], [0, 1, 2, 0, 2, 3], 0);
+    assert.equal(same.indices.length, 6);
 });
