@@ -10,8 +10,8 @@ import * as THREE from 'three';
 import { numbered, numberedEdges, oc } from './Kernel.js';
 import { curveWire } from './Forms.js';
 
-/** How far apart the loop's pieces may be and still join; a tenth of how far the sheet may stray. */
-const TOL = 1e-3;
+/** How far apart the loop's pieces may be and still join, and how far the sheet may stray (mm), unless Tolerance says otherwise. */
+const TOL_DEFAULT = 1e-3;
 /** The most a tangent edge may be off tangent, in degrees: the quality bar. */
 const TANGENT = 0.5;
 
@@ -25,7 +25,7 @@ function along(edge, n = 16) {
 }
 
 /** The pieces in loop order (each `{ edge, face, ends }`), or throws saying why they do not make one closed loop. */
-function loop(pieces) {
+function loop(pieces, TOL) {
     const left = [...pieces], run = [left.shift()];
     let tail = run[0].ends[1];
     while (left.length) {
@@ -40,7 +40,7 @@ function loop(pieces) {
 }
 
 /** Whether `pts` all lie in one plane, within TOL. */
-function flat(pts) {
+function flat(pts, TOL) {
     const a = pts[0];
     let n = null;
     for (let i = 1; i < pts.length && !n; i++) for (let j = i + 1; j < pts.length && !n; j++) {
@@ -62,10 +62,12 @@ export function faceBeside(shape, edge, why = 'a tangent edge needs a face besid
 /**
  * The sheet filling one closed loop of drawn `curves` and body `edges` ({ shape, n, tangent,
  * continuity: 0 none, 1 tangent (G1), 2 its curvature too (G2) }, `n` numbered within the body).
- * Throws when the loop does not close or the sheet cannot meet it.
+ * `tolerance` (Plasticity's Tolerance, mm) is how far apart the pieces may be and still join and
+ * how far the sheet may stray from them. Throws when the loop does not close or the sheet cannot meet it.
  */
-export function patch(curves, edges) {
+export function patch(curves, edges, tolerance = TOL_DEFAULT) {
     const o = oc();
+    const TOL = tolerance > 0 ? tolerance : TOL_DEFAULT;
     const pieces = [];
     for (const c of curves) for (const e of numberedEdges(curveWire(c))) pieces.push({ edge: e, face: null });
     for (const { shape, n, tangent, continuity } of edges) {
@@ -76,10 +78,10 @@ export function patch(curves, edges) {
     }
     if (!pieces.length) throw new Error('select a closed loop of curves or edges to patch');
     for (const p of pieces) { const pts = along(p.edge); p.points = pts; p.ends = [pts[0], pts.at(-1)]; }
-    const ordered = loop(pieces);
+    const ordered = loop(pieces, TOL);
 
     const smooth = pieces.some(p => p.face);
-    if (!smooth && flat(pieces.flatMap(p => p.points))) {
+    if (!smooth && flat(pieces.flatMap(p => p.points), TOL)) {
         const mk = new o.BRepBuilderAPI_MakeWire();
         for (const p of ordered) mk.Add(p.edge);
         if (mk.IsDone()) {
