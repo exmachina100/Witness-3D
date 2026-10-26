@@ -6,6 +6,7 @@
 export const P_MENU = [
     { action: 'file:recent', label: 'RECENT FILES' },
     { action: 'file:new', label: 'NEW FILE' },
+    { action: 'file:new-window', label: 'NEW WINDOW' },
     { action: 'file:open', label: 'OPEN' },
     { action: 'import:step', label: 'IMPORT' },
     { action: 'file:save', label: 'SAVE' },

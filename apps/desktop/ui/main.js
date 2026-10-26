@@ -157,6 +157,8 @@ const rust = {
   // File › Save As Startup Scene: the scene New File and launch start from, in the app's config folder.
   saveStartupScene: () => tauri.core.invoke('save_startup_scene'),
   resetStartupScene: () => tauri.core.invoke('reset_startup_scene'),
+  // P-Menu › New Window: another copy of the app, with a document of its own.
+  newWindow: () => tauri.core.invoke('new_window'),
   // The Text command's SYSTEM FONT list: the installed TrueType fonts, each read when picked.
   async systemFonts() {
     const fonts = await tauri.core.invoke('system_fonts');
