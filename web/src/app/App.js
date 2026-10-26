@@ -88,7 +88,7 @@ import { P_MENU, RADIALS, mergeKeys, parseRadial, shortLabel, showKey, sliceAt, 
 import { ADVANCED_MATERIAL, ENVIRONMENTS, MATERIAL_LIBRARY, SHADERS, SHADER_OPTIONS, checkMaterial, formatMass, isColorKey, massOf, newMaterial, shader } from './shading.js';
 import { claude, describe, MODEL, reply, request } from './ai.js';
 import { icon } from './icons.js';
-import { limitEdges, to3mf, toGlb, toObj, toStl } from '../meshExport.js';
+import { limitEdges, mergeShortEdges, to3mf, toGlb, toObj, toStl } from '../meshExport.js';
 import { flatten, toDxf, toSvg } from '../drawingExport.js';
 import { readDxf } from '../dxf.js';
 import { distanceToFace } from '../dependentOffset.js';
@@ -366,6 +366,10 @@ const SHELL = `
       <div class="field"><label for="w3d-mx-tol">TOLERANCE</label><input id="w3d-mx-tol" data-id="mx-tol" type="number" step="0.01" min="0.001" value="0.05"></div>
       <div class="field"><label for="w3d-mx-angle">ANGLE °</label><input id="w3d-mx-angle" data-id="mx-angle" type="number" step="1" min="0.5" value="15"></div>
       <div class="field"><label for="w3d-mx-width">MAX WIDTH</label><input id="w3d-mx-width" data-id="mx-width" type="number" step="1" min="0" value="0"></div>
+      <div class="field"><label for="w3d-mx-min">MIN WIDTH</label><input id="w3d-mx-min" data-id="mx-min" type="number" step="0.1" min="0" value="0" title="Edges shorter than this are merged away (0 keeps them all)"></div>
+      <div class="field" data-id="mx-obj-scale"><label for="w3d-mx-scale">SCALE</label><input id="w3d-mx-scale" data-id="mx-scale" type="number" step="0.1" min="0.000001" value="1" title="OBJ: every coordinate multiplied by this, for the other program's units"></div>
+      <span class="label" data-id="mx-up-label">UP AXIS</span>
+      <div class="seg" role="group" aria-label="Up axis" data-id="mx-up"><button data-mxup="z" aria-pressed="true" title="Z up, as this app shows it">Z</button><button data-mxup="y" aria-pressed="false" title="Y up, as most mesh programs have it">Y</button></div>
     </div>
     <div class="sec" data-panel="export-drawing" hidden>
       <span class="hint" data-id="dr-hint">—</span>
@@ -7798,34 +7802,41 @@ export async function mount(root, backend) {
     // With nothing selected, the shown instances of solids go too, each as its master's mesh where it stands.
     const placed = sel.bodies.length ? [] : instances.filter(n => !n.curve && !n.hidden && current.some(b => b.id === n.master));
     if (!ids.length && !placed.length) return toast('NOTHING TO EXPORT');
-    const c = cmd = { id: 'export-mesh', format: 'obj' };
+    const c = cmd = { id: 'export-mesh', format: 'obj', up: 'z' };
     lastTool = 'export-mesh';
     showTool('export-mesh');
     setState('none');
     $('mx-hint').textContent = [ids.length && `${ids.length} SOLID${ids.length > 1 ? 'S' : ''}`, placed.length && `${placed.length} INSTANCE${placed.length > 1 ? 'S' : ''}`].filter(Boolean).join(' · ');
     setHud('EXPORT MESH · ⏎ TO SAVE');
-    const sync = () => { for (const b of $$('[data-mxf]')) b.setAttribute('aria-pressed', b.dataset.mxf === c.format); };
+    const sync = () => {
+      for (const b of $$('[data-mxf]')) b.setAttribute('aria-pressed', b.dataset.mxf === c.format);
+      for (const b of $$('[data-mxup]')) b.setAttribute('aria-pressed', b.dataset.mxup === c.up);
+      // Scale and Up Axis are the OBJ options, as in Plasticity.
+      for (const id of ['mx-obj-scale', 'mx-up-label', 'mx-up']) $(id).hidden = c.format !== 'obj';
+    };
+    for (const b of $$('[data-mxup]')) b.onclick = () => { c.up = b.dataset.mxup; sync(); };
     c.key = action => { if (['obj', 'stl', 'glb', '3mf'].includes(action)) { c.format = action; sync(); return true; } return false; };
     c.finish = async () => {
-      const tolerance = num('mx-tol'), angle = num('mx-angle') * DEG, maxWidth = num('mx-width');
+      const tolerance = num('mx-tol'), angle = num('mx-angle') * DEG, maxWidth = num('mx-width'), minWidth = num('mx-min');
+      const sized = (positions, indices) => { const m = mergeShortEdges(positions, indices, minWidth); return limitEdges(m.positions, m.indices, maxWidth); };
       try {
         const masters = placed.map(n => n.master).filter((id, i, all) => all.indexOf(id) === i);
         const made = await backend.meshBodies([...new Set([...ids, ...masters])], { tolerance, angle });
         // Each body's material, for the formats that carry one (glTF and 3MF).
         const look = id => { const m = materials.get(materialOf.get(id)); return m ? { color: m.color, roughness: m.roughness, metalness: m.metalness, opacity: m.opacity } : {}; };
         const sheet = id => !!current.find(b => b.id === id)?.sheet;
-        const meshes = made.filter(m => ids.includes(m.id)).map(m => ({ name: label(m.id), ...look(m.id), sheet: sheet(m.id), ...limitEdges(m.positions, m.indices, maxWidth) }));
+        const meshes = made.filter(m => ids.includes(m.id)).map(m => ({ name: label(m.id), ...look(m.id), sheet: sheet(m.id), ...sized(m.positions, m.indices) }));
         for (const n of placed) {
           const m = made.find(x => x.id === n.master), at = matrixOf(n), v = new THREE.Vector3(), pos = [];
           for (let i = 0; i < m.positions.length; i += 3) pos.push(...v.fromArray(m.positions, i).applyMatrix4(at).toArray());
           // A mirrored instance turns its triangles inside out; wind them back.
           const ix = at.determinant() < 0 ? m.indices.map((_, i) => m.indices[i - (i % 3) + [0, 2, 1][i % 3]]) : m.indices;
-          meshes.push({ name: instanceLabel(n.id), ...look(n.master), sheet: sheet(n.master), ...limitEdges(pos, ix, maxWidth) });
+          meshes.push({ name: instanceLabel(n.id), ...look(n.master), sheet: sheet(n.master), ...sized(pos, ix) });
         }
         const triangles = meshes.reduce((n, m) => n + m.indices.length / 3, 0);
         const name = `witness3d-${ids.length === 1 ? label(ids[0]).toLowerCase() : 'model'}.${c.format}`;
         const write = { obj: toObj, stl: toStl, glb: toGlb, '3mf': to3mf }[c.format];
-        const msg = await backend.saveExport(name, write(meshes));
+        const msg = await backend.saveExport(name, c.format === 'obj' ? toObj(meshes, undefined, { scale: num('mx-scale') || 1, up: c.up }) : write(meshes));
         endCmd(msg ? 'committed' : 'cancelled');
         if (msg) toast(`${msg} · ${triangles} TRIANGLES`);
       } catch (e) { setState('failed'); toast(say(e)); }

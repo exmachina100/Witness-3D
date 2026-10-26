@@ -37,14 +37,51 @@ export function limitEdges(positions, indices, maxEdge) {
     return { positions: pos, indices: out };
 }
 
-/** OBJ text: one object per mesh, vertices and faces (1-based, counter-clockwise outward). */
-export function toObj(meshes, comment = 'Witness 3D') {
-    const lines = [`# ${comment}`, '# units: millimetres'];
+/**
+ * Merge the ends of edges shorter than `minEdge` (Plasticity's export-mesh min width), shortest
+ * first, each vertex at most once a pass, so tiny fillets and slivers stop crowding the mesh.
+ * Triangles that collapse are dropped. Returns new arrays.
+ */
+export function mergeShortEdges(positions, indices, minEdge) {
+    if (!(minEdge > 0) || !Number.isFinite(minEdge)) return { positions: [...positions], indices: [...indices] };
+    const pos = [...positions];
+    let tris = [];
+    for (let i = 0; i < indices.length; i += 3) tris.push([indices[i], indices[i + 1], indices[i + 2]]);
+    const len = (a, b) => Math.hypot(pos[3 * a] - pos[3 * b], pos[3 * a + 1] - pos[3 * b + 1], pos[3 * a + 2] - pos[3 * b + 2]);
+    for (let pass = 0; pass < 20; pass++) {
+        const short = new Map();
+        for (const t of tris) for (let k = 0; k < 3; k++) {
+            const a = t[k], b = t[(k + 1) % 3], key = a < b ? `${a},${b}` : `${b},${a}`, l = len(a, b);
+            if (l < minEdge && !short.has(key)) short.set(key, [l, Math.min(a, b), Math.max(a, b)]);
+        }
+        if (!short.size) break;
+        const to = new Map(), used = new Set();
+        for (const [, a, b] of [...short.values()].sort((x, y) => x[0] - y[0])) {
+            if (used.has(a) || used.has(b)) continue;
+            used.add(a); used.add(b);
+            for (let k = 0; k < 3; k++) pos[3 * a + k] = (pos[3 * a + k] + pos[3 * b + k]) / 2;
+            to.set(b, a);
+        }
+        tris = tris.map(t => t.map(v => to.get(v) ?? v)).filter(([a, b, c]) => a !== b && b !== c && c !== a);
+    }
+    // Only the vertices still used, renumbered.
+    const keep = new Map(), out = [];
+    const indicesOut = tris.flat().map(v => { if (!keep.has(v)) { keep.set(v, keep.size); out.push(pos[3 * v], pos[3 * v + 1], pos[3 * v + 2]); } return keep.get(v); });
+    return { positions: out, indices: indicesOut };
+}
+
+/**
+ * OBJ text: one object per mesh, vertices and faces (1-based, counter-clockwise outward). `scale`
+ * multiplies every coordinate (Plasticity's Scale, for other programs' units) and `up` is 'z' (the
+ * user's axes) or 'y' (y up, as most mesh programs have it).
+ */
+export function toObj(meshes, comment = 'Witness 3D', { scale = 1, up = 'z' } = {}) {
+    const lines = [`# ${comment}`, scale === 1 ? '# units: millimetres' : `# units: millimetres × ${scale}`, `# up: ${up}`];
     let base = 0;
     for (const m of meshes) {
         lines.push(`o ${m.name}`);
         for (let i = 0; i < m.positions.length; i += 3) {
-            const [x, y, z] = toUser(m.positions[i], m.positions[i + 1], m.positions[i + 2]);
+            const [x, y, z] = (up === 'y' ? [m.positions[i], m.positions[i + 1], m.positions[i + 2]] : toUser(m.positions[i], m.positions[i + 1], m.positions[i + 2])).map(c => c * scale);
             lines.push(`v ${+x.toFixed(6)} ${+y.toFixed(6)} ${+z.toFixed(6)}`);
         }
         for (let i = 0; i < m.indices.length; i += 3) lines.push(`f ${m.indices[i] + 1 + base} ${m.indices[i + 1] + 1 + base} ${m.indices[i + 2] + 1 + base}`);
