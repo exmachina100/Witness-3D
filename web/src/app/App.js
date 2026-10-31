@@ -104,7 +104,7 @@ import { poleMoves } from '../poleFalloff.js';
 import { planeFrom } from '../cplaneFrom.js';
 import { stepSources } from './sources.js';
 import { parallelCylinders, parallelFlatFaces, relatedFaces, samePlane } from './faceGroups.js';
-import { circleTangents, closestOnScreen, curvePointSnaps, intersections, perpendicularFeet, tangentPoints } from '../curveSnaps.js';
+import { circleTangents, closestOnScreen, commonTangents, curvePointSnaps, intersections, perpendicularFeet, tangentPoints } from '../curveSnaps.js';
 import { PREF_FIELDS, changedPrefs, controlSettings, readPrefs, setPref, viewColors, wheelSpeed } from './prefs.js';
 import { arcPoints, circleThrough, curveFromNurbs, cvPoints, ellipsePoints, endTangent, helixPoints, loops, nurbsLoop, nurbsPoints, polygonCorners, spiralAngle, tangentArc } from '../curves.js';
 
@@ -4260,7 +4260,7 @@ export async function mount(root, backend) {
       if (c.id === 'tangent-arc' && !c.plane) { tangentStart(e); return true; }
       const p = drawPoint(e);
       if (p?.curved) toast('DRAW ON A FLAT FACE OR THE CONSTRUCTION PLANE');
-      else if (p) addPoint(p, e);
+      else if (p) { addPoint(p, e); c.tanOrig = null; }
       return true;
     };
     c.key = action => {
@@ -4347,7 +4347,18 @@ export async function mount(root, backend) {
     const at = raycaster.ray.intersectPlane(plane, new THREE.Vector3());
     if (!at) return null;
     const from = c.pts?.length && c.pts.at(-1)?.isVector2 ? o.clone().addScaledVector(x, c.pts.at(-1).x).addScaledVector(y, c.pts.at(-1).y) : null;
-    const s = e.altKey ? null : snapNear(e, shownMeshes(), plane, from);
+    let s = e.altKey ? null : snapNear(e, shownMeshes(), plane, from);
+    // Tan/Tan: a line begun on a circle or arc may end touching another one, its start sliding
+    // round the first so the line touches both.
+    if (c.id === 'line' && c.pts.length === 1) {
+      const t = e.altKey ? null : tanTanSnap(e, (c.tanOrig ?? c.pts[0]), c.plane);
+      if (t) {
+        c.tanOrig ??= c.pts[0].clone();
+        const ds = new THREE.Vector3(...t.start).sub(o);
+        c.pts[0] = new THREE.Vector2(ds.dot(x), ds.dot(y));
+        s = t;
+      } else if (c.tanOrig) { c.pts[0] = c.tanOrig; c.tanOrig = null; }
+    }
     const d = (s ? s.point : at).clone().sub(o);
     const uv = new THREE.Vector2(d.dot(x), d.dot(y));
     if (!s && snapping(e)) uv.set(Math.round(uv.x / gridStep()) * gridStep(), Math.round(uv.y / gridStep()) * gridStep());
@@ -4359,6 +4370,31 @@ export async function mount(root, backend) {
       }
     }
     return { uv, snap: s };
+  }
+
+  /** The Tan/Tan snap under the pointer for a line starting at `start` (plane coordinates), or null. */
+  function tanTanSnap(e, start, pl) {
+    if (!snapSettings.on || !snapAllowed('TAN/TAN', snapSettings, cmd?.snapSkip)) return null;
+    const p0 = pl.o.clone().addScaledVector(pl.x, start.x).addScaledVector(pl.y, start.y).toArray();
+    const n = pl.n.toArray(), dist = (a, b) => Math.hypot(a[0] - b[0], a[1] - b[1], a[2] - b[2]);
+    const flat = q => q.radius && Math.abs(Math.abs(q.normal[0] * n[0] + q.normal[1] * n[1] + q.normal[2] * n[2]) - 1) < 1e-6;
+    // On the circle, and for an arc on the part drawn (near its samples).
+    const on = (q, p) => Math.abs(dist(p, q.center) - q.radius) < 1e-3 * Math.max(1, q.radius) && (!q.arc || q.pts.some(r => dist(r, p) < q.radius * 0.1 + 1e-3));
+    const polys = curvePolys().polys.filter(flat), first = polys.find(q => on(q, p0));
+    if (!first) return null;
+    const c = local(e);
+    let best = null, bestD = SNAP_PX;
+    for (const q of polys) {
+      if (q === first) continue;
+      for (const { a, b } of commonTangents(first.center, first.radius, q.center, q.radius, n)) {
+        if (!on(first, a) || !on(q, b)) continue;
+        const sp = screenOf(new THREE.Vector3(...b));
+        if (sp.behind) continue;
+        const d = Math.hypot(sp.x - c.x, sp.y - c.y);
+        if (d < bestD) { bestD = d; best = { point: new THREE.Vector3(...b), kind: 'TAN/TAN', start: a }; }
+      }
+    }
+    return best;
   }
 
   /** Tangent Arc's first click: the end of an open curve, which it leaves along. */

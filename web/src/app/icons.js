@@ -330,6 +330,7 @@ const ICONS = {
     'snap-closest': `<path d="M3 16c4-8 14-8 18 0"/><path ${A} d="M12 10v8M9 21h6"/>`,
     'snap-perpendicular': `<path d="M3 18h18M12 18V5"/><path ${A} d="M12 14h4v4"/>`,
     'snap-tangent': `<circle cx="10" cy="13" r="6"/><path d="M3 7h18"/><circle ${A} cx="10" cy="7" r="1.5"/>`,
+    'snap-tantan': `<circle cx="7" cy="14" r="4"/><circle cx="18" cy="15" r="3"/><path d="M3 10l18 2"/><circle ${A} cx="6.5" cy="10" r="1.5"/><circle ${A} cx="18" cy="12" r="1.5"/>`,
     'snap-planes': `<path d="M4 8l8-4 8 4-8 4z" stroke-dasharray="2 2"/><path d="M4 8v8l8 4 8-4V8"/><circle ${A} cx="12" cy="12" r="1.5"/>`,
     'snap-section': `<path d="M3 12h18" stroke-dasharray="2 2"/><rect x="6" y="5" width="12" height="14"/><circle ${A} cx="6" cy="12" r="1.5"/><circle ${A} cx="18" cy="12" r="1.5"/>`,
     'mirror-cut': `<path d="M12 2v20" stroke-dasharray="2 2"/><path d="M4 7h8v10H4z"/><path ${A} d="M12 7h6l2 2v6l-2 2h-6"/>`,
