@@ -1095,7 +1095,7 @@ export async function mount(root, backend) {
   root.style.setProperty('--accent', prefs.appearance.accent);
   const scene = new THREE.Scene();
   scene.background = new THREE.Color(COLORS.ground);
-  const persp = new THREE.PerspectiveCamera(36, 1, 1, 4000);
+  const persp = new THREE.PerspectiveCamera(35, 1, 1, 4000);
   const ortho = new THREE.OrthographicCamera(-1, 1, 1, -1, -4000, 4000);
   let camera = persp;
   const controls = new OrbitControls(camera, canvas);
@@ -2032,7 +2032,7 @@ export async function mount(root, backend) {
   const history = [];   // committed steps, oldest first; `undone` counts how many from the end were undone
   let undone = 0;
   // What was selected when the command now finishing began: its sources, for Ctrl+T.
-  let opSources = null, sourceAt = null, sourceSel = null;
+  let opSources = null, sourceAt = null, sourceSel = null, overlaysOff = false;
   const keepSources = () => { opSources = sel.list().map(it => ({ ...it })); };
   function record(text, id, tag = label(id)) {
     history.splice(history.length - undone, undone, { text, id, tag, sources: opSources ?? [] });
@@ -10362,9 +10362,22 @@ export async function mount(root, backend) {
   /** Run a named action (keymap.js); returns false for names it doesn't know. */
   async function doAction(a) {
     const [kind, arg] = a.split(':');
-    if (!['select', 'view', 'plane', 'sources', 'sidebar', 'undo', 'redo', 'app', 'radial'].includes(kind)) keepSources();
+    if (!['select', 'view', 'plane', 'sources', 'sidebar', 'grid', 'overlays', 'undo', 'redo', 'app', 'radial'].includes(kind)) keepSources();
     switch (kind) {
       case 'sources': selectSources(arg === 'forward' ? 1 : -1); return true;
+      case 'grid':
+        // Plasticity's palette commands: Grid: increase / decrease grid size, toggle grid snapping.
+        if (arg === 'snap') { view.snap = !view.snap; applyView(); snapsFor(view.snap); toast(view.snap ? 'GRID SNAPPING ON' : 'GRID SNAPPING OFF (CTRL SNAPS)'); }
+        else { setGrid(arg === 'inc' ? 1 : -1); toast(`GRID ${gridStep()} MM`); }
+        return true;
+      case 'overlays': {
+        // Alt+Shift+Z: the grid, navigation cube and key hints off or on, to look at the model alone.
+        const off = !overlaysOff;
+        overlaysOff = off;
+        grid.visible = !off;
+        for (const id of ['nav', 'keys']) $(id).style.visibility = off ? 'hidden' : '';
+        return true;
+      }
       case 'sidebar': {
         // Plasticity: Ctrl+B shows or hides the left sidebar, Ctrl+Shift+B the right one.
         const shell = root.querySelector('.w3d'), cls = arg === 'right' ? 'no-right' : 'no-left';
@@ -10586,6 +10599,8 @@ export async function mount(root, backend) {
     Object.assign(controls, controlSettings(prefs.navigation));
     const perf = prefs.performance;
     renderer.setPixelRatio(Math.min(devicePixelRatio, perf.renderQuality));
+    // Plasticity's camera FOV (Preferences › Navigation, 35° by default).
+    if (persp.fov !== prefs.navigation.fov) { persp.fov = prefs.navigation.fov; persp.updateProjectionMatrix(); }
     resize(true);
     if (perf.aoShader !== aoShader) { aoShader = perf.aoShader; view.ao = aoShader; applyView(); }
     if (perf.facetQuality !== facetQuality && backend.setMeshQuality) {

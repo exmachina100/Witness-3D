@@ -27,7 +27,7 @@ export const VIEWPORT = {
     // Viewport (manual: Operating the 3D Viewport; 0.6.30 for focus and x-ray)
     numpad1: 'view:front', numpad3: 'view:right', numpad7: 'view:top',
     'ctrl-numpad1': 'view:back', 'ctrl-numpad3': 'view:left', 'ctrl-numpad7': 'view:bottom',
-    numpad5: 'view:ortho', '/': 'view:focus', 'alt-z': 'view:xray',
+    numpad5: 'view:ortho', '/': 'view:focus', 'alt-z': 'view:xray', 'alt-shift-z': 'overlays:toggle',
     // Selection (manual: Selection Mode, Selecting Objects; 5 is "all" since 26.1)
     1: 'mode:point', 2: 'mode:edge', 3: 'mode:face', 4: 'mode:solid', 5: 'mode:all',
     'shift-1': 'mode-toggle:point', 'shift-2': 'mode-toggle:edge', 'shift-3': 'mode-toggle:face', 'shift-4': 'mode-toggle:solid',
@@ -199,7 +199,7 @@ export const ACTIONS = {
     'mode:point': 'Selection mode: points', 'mode:edge': 'Selection mode: edges', 'mode:face': 'Selection mode: faces',
     'mode:solid': 'Selection mode: solids', 'mode:all': 'Selection mode: all',
     'convert:edge': 'Convert selection to edges', 'convert:face': 'Convert selection to faces', 'convert:solid': 'Convert selection to solids',
-    'select:all': 'Select all', 'select:none': 'Deselect all', 'select:invert': 'Invert selection', 'select:solids': 'Select all solids', 'select:sheets': 'Select all sheets', 'select:curves': 'Select all curves', 'select:measurements': 'Select all measurements', 'select:adjacent': 'Select adjacent', 'sources:back': 'Select sources of last operation', 'sidebar:left': 'Toggle left sidebar', 'sidebar:right': 'Toggle right sidebar', 'sources:forward': 'Select sources of next operation',
+    'select:all': 'Select all', 'select:none': 'Deselect all', 'select:invert': 'Invert selection', 'select:solids': 'Select all solids', 'select:sheets': 'Select all sheets', 'select:curves': 'Select all curves', 'select:measurements': 'Select all measurements', 'select:adjacent': 'Select adjacent', 'sources:back': 'Select sources of last operation', 'sidebar:left': 'Toggle left sidebar', 'grid:inc': 'Grid: increase grid size', 'grid:dec': 'Grid: decrease grid size', 'grid:snap': 'Grid: toggle grid snapping', 'overlays:toggle': 'Toggle overlays', 'sidebar:right': 'Toggle right sidebar', 'sources:forward': 'Select sources of next operation',
     'repeat': 'Repeat last command', 'ask': 'Ask for a command in words', 'delete': 'Delete', 'duplicate': 'Duplicate', 'alt-duplicate': 'Alternative duplicate onto the plane', 'create-outline': 'Create outline', 'toggle-points': 'Toggle points',
     'hide': 'Hide selected', 'hide-others': 'Hide unselected', 'unhide-all': 'Unhide all', 'invert-hidden': 'Invert hidden',
     'isolate': 'Isolate selected', 'unisolate': 'Unisolate', 'group': 'Group selected', 'ungroup': 'Ungroup',
