@@ -1418,6 +1418,28 @@ pub fn commit_patch(m: &Model, req: PatchRequest) -> Result<Committed, ApiError>
     })
 }
 
+/// Plasticity's Loft of curves: a sheet through `curves` in order, closed back on the first with `looped`.
+#[derive(Deserialize, Debug, Clone)]
+pub struct LoftSheetRequest {
+    pub curves: Vec<CurveId>,
+    #[serde(default, rename = "loop")]
+    pub looped: bool,
+}
+
+pub fn preview_loft_sheet(m: &Model, req: LoftSheetRequest) -> Option<Result<Body, ApiError>> {
+    m.preview(move |doc| {
+        let sheet = doc.preview_loft_sheet(&req.curves, req.looped)?;
+        Ok(body(&doc.kernel, 0, &sheet)?)
+    })
+}
+
+pub fn commit_loft_sheet(m: &Model, req: LoftSheetRequest) -> Result<Committed, ApiError> {
+    m.call(move |doc| {
+        let id = doc.commit_loft_sheet(&req.curves, req.looped)?;
+        Ok(Committed { id, scene: bodies(doc)? })
+    })
+}
+
 /// Plasticity's Project, by what is selected: curves onto a body (`body`, with `dir`, `both` and
 /// `hide`), two bodies against each other (`bodies`), or two curves against each other.
 #[derive(Deserialize, Debug, Clone)]

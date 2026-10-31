@@ -36,6 +36,7 @@ const ICONS = {
     delete: `<path d="M4 7h16M9 7V4h6v3M6 7l1 14h10l1-14"/><path ${A} d="M10 11v6M14 11v6"/>`,
     offset: `<path d="M3 15l7-3 11 3-7 4z"/><path d="M3 15v4l11 4 7-4v-4" stroke-dasharray="2 2"/><path ${A} d="M12 13V3M9 6l3-3 3 3"/>`,
     revolve: `<path d="M12 2v20" stroke-dasharray="2 2"/><path d="M12 6h5v8h-5"/><path ${A} d="M7 9a6 3 0 1 0 2-1.5M9 5v2.5H6.5"/>`,
+    'loft-loop': `<path d="M5 6h14M5 12h14M5 18h14"/><path ${A} d="M19 6c3 0 3 12 0 12M5 6c-3 0-3 12 0 12"/>`,
     loft: `<ellipse cx="12" cy="5" rx="5" ry="2"/><rect x="4" y="16" width="16" height="5"/><path ${A} d="M7 5l-3 11M17 5l3 11"/>`,
     sweep: `<circle cx="5" cy="17" r="3"/><path ${A} d="M5 14c3-9 9-11 15-8"/>`,
     // Round 6 solids and patterns: the accent is the base point, the opening, or the copies made.

@@ -369,6 +369,11 @@ pub trait Kernel {
     fn loft(&self, _sections: &[(Profile, Frame)]) -> Result<Self::Solid, KernelError> {
         Err(KernelError::Invalid("this kernel cannot loft"))
     }
+    /// Plasticity's Loft of curves: a sheet through `curves` in order, running on from the last back
+    /// to the first when `looped`.
+    fn loft_sheet(&self, _curves: &[Path], _looped: bool) -> Result<Self::Solid, KernelError> {
+        Err(KernelError::Invalid("this kernel cannot loft curves"))
+    }
     /// `profile` swept along `path`; the far end turned by `twist` radians and scaled by `scale`.
     fn sweep(&self, _profile: &Profile, _frame: &Frame, _path: &Path, _twist: f64, _scale: f64) -> Result<Self::Solid, KernelError> {
         Err(KernelError::Invalid("this kernel cannot sweep"))

@@ -189,6 +189,24 @@ export function loft(cs) {
     return mk.Shape();
 }
 
+/**
+ * Plasticity's Loft of curves: a sheet through the drawn curves (open or closed) in order; with
+ * `loop` (three curves or more) it runs on from the last back to the first. As w3d_loft_sheet: the
+ * first wire given again last is what closes the sheet.
+ */
+export function loftSheet(cs, loop = false) {
+    const o = oc();
+    if (cs.length < 2) throw new Error('select two curves or more, in order, to loft');
+    if (loop && cs.length < 3) throw new Error('a loop needs three curves or more');
+    const ws = cs.map(c => wireOf(geometry(c)).Wire());
+    const mk = new o.BRepOffsetAPI_ThruSections(false, false, 1e-6);
+    for (const w of ws) mk.AddWire(w);
+    if (loop) mk.AddWire(ws[0]);
+    mk.Build(new o.Message_ProgressRange());
+    if (!mk.IsDone()) throw new Error('no surface could be lofted through those curves');
+    return mk.Shape();
+}
+
 /** Point and tangent a fraction `f` along the path. */
 function along(g, f) {
     if (g.circle) {

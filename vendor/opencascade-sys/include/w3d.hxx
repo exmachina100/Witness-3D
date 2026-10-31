@@ -713,6 +713,27 @@ inline std::unique_ptr<TopoDS_Shape> w3d_loft(rust::Slice<const double> sections
   }
 }
 
+// Plasticity's Loft of curves: a sheet through the curves (open or closed), in order. With `loop`
+// (three curves or more) the sheet runs on from the last curve back to the first, so it closes on
+// itself; the same wire given first and last is what tells ThruSections to close the sheet.
+inline std::unique_ptr<TopoDS_Shape> w3d_loft_sheet(rust::Slice<const double> sections, bool loop) {
+  try {
+    const double *p = sections.data(), *end = sections.data() + sections.size();
+    std::vector<TopoDS_Wire> ws;
+    while (p < end) ws.push_back(w3d_section(p, end));
+    if (ws.size() < 2) throw std::runtime_error("a loft needs two curves or more");
+    if (loop && ws.size() < 3) throw std::runtime_error("a loop needs three curves or more");
+    BRepOffsetAPI_ThruSections mk(Standard_False, Standard_False);
+    for (auto &w : ws) mk.AddWire(w);
+    if (loop) mk.AddWire(ws.front());
+    mk.Build();
+    if (!mk.IsDone()) throw std::runtime_error("no surface could be lofted through those curves");
+    return std::unique_ptr<TopoDS_Shape>(new TopoDS_Shape(mk.Shape()));
+  } catch (const Standard_Failure &f) {
+    throw w3d_kernel_error(f);
+  }
+}
+
 // The profile swept along the path. The far end is turned by `twist` radians about the profile's
 // centre and scaled by `scale`; the section changes evenly in between.
 //
