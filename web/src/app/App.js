@@ -63,6 +63,7 @@ import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 import { MagnitudeGizmo, typed } from '../MagnitudeGizmo.js';
 import { TOOLS, check, tool as toolInfo, withDefaults } from './tools.js';
 import { ACTIONS, COMMAND, VIEWPORT, keyFor, keyOf } from './keymap.js';
+import { adjacent, edgeLoop, edgeRing, topology } from './edgeLoops.js';
 import { Selection, faceBoundEdges, faceEdges, faceNeighbours } from './Selection.js';
 import { edgeOffsetsBothSides, edgeOffsetsOnFace, facesLoopOffsets } from '../edgeOffset.js';
 import { curveArrayMotions } from '../curveArray.js';
@@ -2492,6 +2493,9 @@ export async function mount(root, backend) {
     }
     return { kind: hit.kind, body: hit.body, n: hit.n };
   }
+  // Edge topology per body, kept while the body is unchanged (its edges array is replaced on change).
+  const topologies = new WeakMap();
+  const topologyOf = b => { if (!topologies.has(b.edges)) topologies.set(b.edges, topology(b)); return topologies.get(b.edges); };
   function applySelect(it, mod) {
     if (!it) { if (mod === 'replace') sel.clear(); return; }
     const drop = () => { if (it.body === undefined) return; if (it.kind !== 'solid') sel.remove({ kind: 'solid', body: it.body }); else for (const c of sel.list()) if (c.body === it.body && c.kind !== 'solid') sel.remove(c); };
@@ -9771,8 +9775,15 @@ export async function mount(root, backend) {
           for (const c of surfaceCombs) if (!c.hidden && org.shows(c.body)) sel.add(c.face === undefined ? { kind: 'edge', body: c.body, n: c.n } : { kind: 'face', body: c.body, n: c.face });
           if (!sel.size) toast('NO MEASUREMENTS TO SELECT');
         }
+        else if (arg === 'adjacent') {
+          // Faces gain the faces beside them, edges the edges at their corners, on each body.
+          for (const kind of ['face', 'edge']) for (const [body, ns] of kind === 'face' ? sel.facesByBody() : sel.edgesByBody()) {
+            const b = bodyOf(body);
+            if (b) for (const n of adjacent(b, kind, ns, topologyOf(b))) sel.add({ kind, body, n });
+          }
+        }
         else sel.invert(current.filter(b => org.picks(b.id)));
-        selectionChanged({ quiet: !['all', 'invert', 'solids', 'sheets', 'measurements'].includes(arg) });
+        selectionChanged({ quiet: !['all', 'invert', 'solids', 'sheets', 'measurements', 'adjacent'].includes(arg) });
         return true;
       case 'tool': case 'draw': await startTool(arg); return true;
       case 'plane':
@@ -10415,6 +10426,18 @@ export async function mount(root, backend) {
       return boxSelect(local({ clientX: d.x, clientY: d.y }), local(e), modOf(e));
     }
     if (moved) return;
+    // Alt+click an edge: its loop; Ctrl+Alt+click: its ring (Shift adds either to the selection).
+    // Also while Fillet picks its edges, or a command came up by itself on the selection.
+    if (e.altKey && (!cmd || cmd.auto || cmd.id === 'fillet')) {
+      const picked = pickAt(e), b = picked?.kind === 'edge' && bodyOf(picked.body);
+      if (b) {
+        const topo = topologyOf(b), run = (e.ctrlKey || e.metaKey) ? edgeRing(b, picked.n, topo) : edgeLoop(b, picked.n, topo);
+        if (!e.shiftKey) sel.clear();
+        for (const n of run) applySelect({ kind: 'edge', body: picked.body, n }, 'add');
+        hover = null;
+        return selectionChanged();
+      }
+    }
     if (cmd?.click && await cmd.click(e)) return;
     if (cmd && !cmd.auto) return;
     const picked = pickAt(e), inst = instanceAt(e, picked);
