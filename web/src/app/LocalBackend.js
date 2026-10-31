@@ -18,6 +18,7 @@ import { deformBodies, deformReblend } from '../deformBody.js';
 import { filletFaces, rechamfer, refilletFaces, removeFaces, turnFlatFace } from '../removeFace.js';
 import { moveFacePoles, subdivideFaces } from '../movePoles.js';
 import { isoparamSplit } from '../isoparamSplit.js';
+import { endless, withMaterial } from '../material.js';
 import { chordal, fullRound, limitRound, reshapeRounds } from '../filletShape.js';
 import { bridgeSurface } from '../BridgeSurface.js';
 import { sheetFillet, trimWalls } from '../sheetFillet.js';
@@ -197,15 +198,19 @@ export class LocalBackend {
     }
 
     /** The target after a boolean with each tool in turn, and the chained history. */
-    booleanResult({ target, tools, op }) {
+    booleanResult({ target, tools, op, targetMaterial = 'default', toolMaterial = 'default' }) {
         const kind = { union: 'union', auto: 'union', difference: 'difference', intersect: 'intersection' }[op];
         if (!kind) throw new Error('a boolean needs union, difference or intersect');
         if (!tools?.length) throw new Error('select a tool body as well as the target');
         if (tools.includes(target)) throw new Error("the target can't also be a tool");
         if (![target, ...tools].every(id => this.shapes.has(id))) throw new Error('that body no longer exists');
-        let shape = this.shapes.get(target), history = null;
+        const t0 = withMaterial(this.shapes.get(target), targetMaterial);
+        let shape = t0.shape, history = null, open = t0.unbounded;
         for (const t of tools) {
-            const r = booleanWithHistory(shape, this.shapes.get(t), kind);
+            const tool = withMaterial(this.shapes.get(t), toolMaterial);
+            open = endless(kind, open, tool.unbounded);
+            if (open) throw new Error('that leaves a solid without end; change the target or tool material');
+            const r = booleanWithHistory(shape, tool.shape, kind);
             history = history ? chain(history, r.history) : r.history;
             shape = r.shape;
         }
@@ -215,9 +220,9 @@ export class LocalBackend {
 
     /** Shift+Q: the target with the tools cut away, and for each tool the piece of the target inside it. */
     sliceResult(req) {
-        const rest = this.booleanResult({ ...req, op: 'difference' }), body = this.shapes.get(req.target);
+        const rest = this.booleanResult({ ...req, op: 'difference' }), body = withMaterial(this.shapes.get(req.target), req.targetMaterial).shape;
         const pieces = req.tools.map(t => {
-            const piece = booleanWithHistory(body, this.shapes.get(t), 'intersection').shape;
+            const piece = booleanWithHistory(body, withMaterial(this.shapes.get(t), req.toolMaterial).shape, 'intersection').shape;
             if (count(piece, 'TopAbs_FACE') === 0) throw new Error('a tool does not meet the body');
             return piece;
         });

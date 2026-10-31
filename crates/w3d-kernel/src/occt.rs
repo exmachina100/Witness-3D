@@ -6,7 +6,7 @@ use std::path::Path as FilePath;
 use glam::DVec3;
 use opencascade::primitives::{BooleanKind, Edge, Face, Shape, ShapeHistory, ShapeType, Wire};
 
-use crate::{Blend, BooleanOp, CombTooth, DeformOptions, DrawnLine, Extent, FaceRebuild, FaceSurface, Frame, History, Kernel, KernelError, Motion, Path, Plane, Profile, RebuiltFace, Segment, SheetExtension, Tessellation, Traced};
+use crate::{Blend, BooleanOp, Material, CombTooth, DeformOptions, DrawnLine, Extent, FaceRebuild, FaceSurface, Frame, History, Kernel, KernelError, Motion, Path, Plane, Profile, RebuiltFace, Segment, SheetExtension, Tessellation, Traced};
 
 pub struct Occt;
 
@@ -400,6 +400,11 @@ impl Kernel for Occt {
             return Err(KernelError::Invalid("the face gave the wrong number of points"));
         }
         Ok(([raw[0], raw[1]], raw[2..].chunks(3).map(|c| DVec3::new(c[0], c[1], c[2])).collect()))
+    }
+
+    fn with_material(&self, s: &Shape, m: Material) -> Result<(Shape, bool), KernelError> {
+        let kind = match m { Material::Default => 0, Material::Empty => 1, Material::Inside => 2, Material::Outside => 3 };
+        s.material(kind).map_err(shim)
     }
 
     fn regions(&self, bodies: &[&Shape]) -> Result<Vec<Shape>, KernelError> {

@@ -18,7 +18,7 @@ use crate::blend::{blend, BlendParams};
 use crate::extrude::{extrude, ExtrudeParams, ExtrudeResult, Operation};
 use crate::form::{form, match_faces_grow, offset_faces_grow, FormKind, FormParams, Grow};
 use crate::solids::{ArraySpec, Primitive};
-use crate::{BooleanOp, FaceRebuild, Frame, History, Kernel, KernelError, Motion, Path, Profile, RebuiltFace, Segment, SheetExtension, Traced};
+use crate::{BooleanOp, Material, Materials, FaceRebuild, Frame, History, Kernel, KernelError, Motion, Path, Profile, RebuiltFace, Segment, SheetExtension, Traced};
 
 /// Length unit of every coordinate in a document. Fixed for now; stored in files so a later
 /// version can convert.
@@ -497,12 +497,33 @@ impl<K: Kernel> Document<K> {
 
     /// The target as it would be after a boolean with each tool in turn.
     pub fn preview_boolean(&self, target: BodyId, tools: &[BodyId], op: BooleanOp) -> Result<Traced<K::Solid>, KernelError> {
+        self.preview_boolean_as(target, tools, op, Materials::default())
+    }
+
+    /// A body taken as `m`; `None` when it takes part as it is.
+    fn material(&self, id: BodyId, m: Material) -> Result<(Option<K::Solid>, bool), KernelError> {
+        let s = self.get(id).ok_or(KernelError::Invalid("that body no longer exists"))?;
+        if m == Material::Default { return Ok((None, false)) }
+        let (s, open) = self.kernel.with_material(s, m)?;
+        Ok((Some(s), open))
+    }
+
+    /// A boolean with the target and tools taken as `mats` say (Boolean's Target and Tool Material).
+    pub fn preview_boolean_as(&self, target: BodyId, tools: &[BodyId], op: BooleanOp, mats: Materials) -> Result<Traced<K::Solid>, KernelError> {
         if tools.is_empty() { return Err(KernelError::Invalid("select a tool body as well as the target")) }
         if tools.contains(&target) { return Err(KernelError::Invalid("the target can't also be a tool")) }
+        let (taken, mut open) = self.material(target, mats.target)?;
         let mut cur: Option<Traced<K::Solid>> = None;
         for t in tools {
-            let tool = self.get(*t).ok_or(KernelError::Invalid("that body no longer exists"))?;
-            let base = match &cur { Some(c) => &c.solid, None => self.get(target).ok_or(KernelError::Invalid("that body no longer exists"))? };
+            let (tool_taken, tool_open) = self.material(*t, mats.tool)?;
+            open = match op { BooleanOp::Union => open || tool_open, BooleanOp::Intersection => open && tool_open, BooleanOp::Difference => open };
+            if open { return Err(KernelError::Invalid("that leaves a solid without end; change the target or tool material")) }
+            let tool = match &tool_taken { Some(s) => s, None => self.get(*t).ok_or(KernelError::Invalid("that body no longer exists"))? };
+            let base = match (&cur, &taken) {
+                (Some(c), _) => &c.solid,
+                (None, Some(s)) => s,
+                (None, None) => self.get(target).ok_or(KernelError::Invalid("that body no longer exists"))?,
+            };
             let next = self.kernel.boolean(base, tool, op)?;
             cur = Some(match cur {
                 // Chain the histories so the result's faces and edges trace back to the target.
@@ -518,7 +539,12 @@ impl<K: Kernel> Document<K> {
     /// Plasticity's Boolean: change the target by the tools and remove the tools unless kept, as
     /// one undoable step.
     pub fn commit_boolean(&mut self, target: BodyId, tools: &[BodyId], op: BooleanOp, keep_tools: bool) -> Result<BodyId, KernelError> {
-        let t = self.preview_boolean(target, tools, op)?;
+        self.commit_boolean_as(target, tools, op, keep_tools, Materials::default())
+    }
+
+    /// Boolean with materials as one undoable step.
+    pub fn commit_boolean_as(&mut self, target: BodyId, tools: &[BodyId], op: BooleanOp, keep_tools: bool, mats: Materials) -> Result<BodyId, KernelError> {
+        let t = self.preview_boolean_as(target, tools, op, mats)?;
         self.checkpoint();
         self.replace_traced(target, t);
         if !keep_tools { for id in tools { self.state.bodies.remove(id); } }
@@ -528,10 +554,17 @@ impl<K: Kernel> Document<K> {
     /// Boolean's Shift+Q slice: the target with the tools cut away, and for each tool the piece of
     /// the target inside it.
     pub fn preview_boolean_slice(&self, target: BodyId, tools: &[BodyId]) -> Result<(Traced<K::Solid>, Vec<K::Solid>), KernelError> {
-        let rest = self.preview_boolean(target, tools, BooleanOp::Difference)?;
-        let body = self.get(target).ok_or(KernelError::Invalid("that body no longer exists"))?;
+        self.preview_boolean_slice_as(target, tools, Materials::default())
+    }
+
+    /// Slice with materials.
+    pub fn preview_boolean_slice_as(&self, target: BodyId, tools: &[BodyId], mats: Materials) -> Result<(Traced<K::Solid>, Vec<K::Solid>), KernelError> {
+        let rest = self.preview_boolean_as(target, tools, BooleanOp::Difference, mats)?;
+        let (taken, _) = self.material(target, mats.target)?;
+        let body = match &taken { Some(s) => s, None => self.get(target).ok_or(KernelError::Invalid("that body no longer exists"))? };
         let pieces = tools.iter().map(|t| {
-            let tool = self.get(*t).ok_or(KernelError::Invalid("that body no longer exists"))?;
+            let (tool_taken, _) = self.material(*t, mats.tool)?;
+            let tool = match &tool_taken { Some(s) => s, None => self.get(*t).ok_or(KernelError::Invalid("that body no longer exists"))? };
             let piece = self.kernel.boolean(body, tool, BooleanOp::Intersection)?.solid;
             if self.kernel.face_count(&piece) == 0 { return Err(KernelError::Invalid("a tool does not meet the body")) }
             Ok(piece)
@@ -542,7 +575,12 @@ impl<K: Kernel> Document<K> {
     /// Run a slice as one undoable step: the target keeps its id and the pieces become new bodies,
     /// returned in tool order. The tools go unless kept.
     pub fn commit_boolean_slice(&mut self, target: BodyId, tools: &[BodyId], keep_tools: bool) -> Result<Vec<BodyId>, KernelError> {
-        let (rest, pieces) = self.preview_boolean_slice(target, tools)?;
+        self.commit_boolean_slice_as(target, tools, keep_tools, Materials::default())
+    }
+
+    /// Slice with materials as one undoable step.
+    pub fn commit_boolean_slice_as(&mut self, target: BodyId, tools: &[BodyId], keep_tools: bool, mats: Materials) -> Result<Vec<BodyId>, KernelError> {
+        let (rest, pieces) = self.preview_boolean_slice_as(target, tools, mats)?;
         self.checkpoint();
         self.replace_traced(target, rest);
         if !keep_tools { for id in tools { self.state.bodies.remove(id); } }
