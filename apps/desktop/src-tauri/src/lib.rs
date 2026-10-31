@@ -688,6 +688,24 @@ async fn commit_patch(
 }
 
 #[tauri::command]
+async fn preview_loft_sheet(
+    model: State<'_, Model>,
+    req: api::LoftSheetRequest,
+) -> Result<Option<api::Body>, api::ApiError> {
+    on_model(&model, move |m| api::preview_loft_sheet(m, req))
+        .await?
+        .transpose()
+}
+
+#[tauri::command]
+async fn commit_loft_sheet(
+    model: State<'_, Model>,
+    req: api::LoftSheetRequest,
+) -> Result<api::Committed, api::ApiError> {
+    on_model(&model, move |m| api::commit_loft_sheet(m, req)).await?
+}
+
+#[tauri::command]
 async fn preview_project(
     model: State<'_, Model>,
     req: api::ProjectRequest,
@@ -1134,6 +1152,8 @@ pub fn run() {
             commit_offset_edges,
             preview_patch,
             commit_patch,
+            preview_loft_sheet,
+            commit_loft_sheet,
             preview_join_sheets,
             commit_join_sheets,
             commit_unjoin,

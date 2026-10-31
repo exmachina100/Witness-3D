@@ -147,6 +147,12 @@ impl Shape {
         Ok(Shape::from_shape(&s))
     }
 
+    /// A sheet through the curves (path numbers one after another), closing back on the first when `looped`.
+    pub fn loft_sheet(sections: &[f64], looped: bool) -> Result<Shape, String> {
+        let s = ffi::w3d::w3d_loft_sheet(sections, looped).map_err(reason)?;
+        Ok(Shape::from_shape(&s))
+    }
+
     /// The profile swept along `path`, its far end turned by `twist` radians and scaled by `scale`.
     pub fn sweep_section(section: &[f64], path: &[f64], twist: f64, scale: f64) -> Result<Shape, String> {
         let s = ffi::w3d::w3d_sweep(section, path, twist, scale).map_err(reason)?;

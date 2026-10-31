@@ -5,7 +5,7 @@ import * as THREE from 'three';
 import { ExtrudeFactory } from '../ExtrudeFactory.js';
 import { NoOpError } from '../GeometryFactory.js';
 import { arrayMotions, blendEdges, booleanWithHistory, extrudeFace, bounds, box, count, draftFaces, faceSheet, imprintEdgesWithHistory, imprintWithHistory, planeSheet, regions, unifyWithHistory, boundaryEdges, splitWithHistory, draftWithHistory, exportSTEP, facePlane, mirror, mirror as mirrorShape, numberedEdges, oc, primitive, shellFaces, tessellate, transform, volume } from '../Kernel.js';
-import { cutSheets, loft, loftGuided, offsetFlatFaces, pipe, regionFace, revolve, splineSamples, sweep, sweepGuided } from '../Forms.js';
+import { cutSheets, loft, loftGuided, loftSheet, offsetFlatFaces, pipe, regionFace, revolve, splineSamples, sweep, sweepGuided } from '../Forms.js';
 import { curveFromNurbs, ends, join, loops, MEET, nurbsLoop } from '../curves.js';
 import { isoparam, meetCurves, projectCurveCurve, projectCurves, projectedEdges, sectionCurves } from '../Project.js';
 import { isSheet, patch } from '../Patch.js';
@@ -940,6 +940,22 @@ export class LocalBackend {
         if (!t || !b) throw new Error('that body no longer exists');
         const all = numberedEdges(b);
         return patchTrim(t, b, edges.map(e => { if (!all[e.edge]) throw new Error('no such edge'); return all[e.edge]; }), method === 'sheet' ? 'sheet' : 'hole');
+    }
+
+    /** Loft of curves: a sheet through `req.curves` in order, closed back on the first with `req.loop`. */
+    loftSheetResult(req) {
+        const c = id => { const x = this.curveMap.get(id); if (!x) throw new Error('that curve no longer exists'); return x; };
+        return loftSheet((req.curves ?? []).map(c), !!req.loop);
+    }
+
+    previewLoftSheet(req) { return this.latest(async () => this.body(0, this.loftSheetResult(req))) }
+
+    async commitLoftSheet(req) {
+        const sheet = this.loftSheetResult(req);
+        this.checkpoint();
+        const id = this.nextId++;
+        this.put(id, sheet);
+        return { id, scene: this.bodies() };
     }
 
     previewPatch(req) { return this.latest(async () => this.body(0, this.patchResult(req))) }

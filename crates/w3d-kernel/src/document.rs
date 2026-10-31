@@ -1477,6 +1477,21 @@ impl<K: Kernel> Document<K> {
         Ok(self.add(sheet))
     }
 
+    /// Plasticity's Loft of curves, without changing the document: a sheet through the drawn
+    /// `curves` in the order given, closing back on the first when `looped` (three curves or more).
+    pub fn preview_loft_sheet(&self, curves: &[CurveId], looped: bool) -> Result<K::Solid, KernelError> {
+        if curves.len() < 2 { return Err(KernelError::Invalid("select two curves or more, in order, to loft")) }
+        if looped && curves.len() < 3 { return Err(KernelError::Invalid("a loop needs three curves or more")) }
+        let paths: Vec<Path> = curves.iter().map(|&id| self.curve(id).map(|c| c.path()).ok_or(KernelError::Invalid("that curve no longer exists"))).collect::<Result<_, _>>()?;
+        self.kernel.loft_sheet(&paths, looped)
+    }
+
+    /// Loft of curves as one undoable step: the sheet as a new body.
+    pub fn commit_loft_sheet(&mut self, curves: &[CurveId], looped: bool) -> Result<BodyId, KernelError> {
+        let sheet = self.preview_loft_sheet(curves, looped)?;
+        Ok(self.add(sheet))
+    }
+
     /// Patch › Method, without changing the document: the `target` sheet trimmed by edges of one
     /// base sheet, to the hole they close round (`hole`) or where the base sheet ends.
     pub fn preview_patch_trim(&self, target: BodyId, edges: &[(BodyId, u32, u32)], hole: bool) -> Result<K::Solid, KernelError> {
