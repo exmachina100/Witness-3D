@@ -549,6 +549,30 @@ impl<K: Kernel> Document<K> {
         Ok(pieces.into_iter().map(|solid| self.add_unrecorded(solid)).collect())
     }
 
+    /// Boolean Region, without changing the document: a solid for each part of space the target
+    /// and tools close off, largest first.
+    pub fn preview_boolean_region(&self, target: BodyId, tools: &[BodyId]) -> Result<Vec<K::Solid>, KernelError> {
+        if tools.contains(&target) { return Err(KernelError::Invalid("the target can't also be a tool")) }
+        let bodies = std::iter::once(&target).chain(tools).map(|id| self.get(*id).ok_or(KernelError::Invalid("that body no longer exists"))).collect::<Result<Vec<_>, _>>()?;
+        let mut out = self.kernel.regions(&bodies)?;
+        let size = |s: &K::Solid| self.kernel.tessellate(s, 0.1).map(|t| t.volume()).unwrap_or(0.0);
+        let mut sized: Vec<(f64, K::Solid)> = out.drain(..).map(|s| (size(&s), s)).collect();
+        sized.sort_by(|a, b| b.0.total_cmp(&a.0));
+        Ok(sized.into_iter().map(|(_, s)| s).collect())
+    }
+
+    /// Boolean Region as one undoable step: the target becomes the largest region, the others new
+    /// bodies (returned), and the tools go unless kept.
+    pub fn commit_boolean_region(&mut self, target: BodyId, tools: &[BodyId], keep_tools: bool) -> Result<Vec<BodyId>, KernelError> {
+        let mut regions = self.preview_boolean_region(target, tools)?;
+        let first = regions.remove(0);
+        self.checkpoint();
+        let refs = self.new_refs(&first);
+        self.state.bodies.insert(target, Rc::new(Body { solid: first, refs }));
+        if !keep_tools { for id in tools { self.state.bodies.remove(id); } }
+        Ok(regions.into_iter().map(|solid| self.add_unrecorded(solid)).collect())
+    }
+
     fn add_unrecorded(&mut self, solid: K::Solid) -> BodyId {
         let id = self.state.next_id;
         self.state.next_id += 1;

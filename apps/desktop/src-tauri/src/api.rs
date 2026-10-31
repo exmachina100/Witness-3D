@@ -554,6 +554,9 @@ pub struct BooleanRequest {
     pub op: OpChoice,
     #[serde(default)]
     pub keep_tools: bool,
+    /// Region: a solid for each part of space the target and tools close off, in place of `op`.
+    #[serde(default)]
+    pub region: bool,
 }
 
 impl BooleanRequest {
@@ -581,6 +584,11 @@ pub struct BooleanPreview {
 /// The target as it would be after the boolean. `None` means a newer request superseded it.
 pub fn preview_boolean(m: &Model, req: BooleanRequest) -> Option<Result<BooleanPreview, ApiError>> {
     m.preview(move |doc| {
+        if req.region {
+            let regions = doc.preview_boolean_region(req.target, &req.tools)?;
+            let pieces = regions[1..].iter().map(|p| body(&doc.kernel, 0, p)).collect::<Result<_, _>>()?;
+            return Ok(BooleanPreview { body: body(&doc.kernel, req.target, &regions[0])?, pieces });
+        }
         match req.op()? {
             Some(op) => {
                 let t = doc.preview_boolean(req.target, &req.tools, op)?;
@@ -599,6 +607,10 @@ pub fn preview_boolean(m: &Model, req: BooleanRequest) -> Option<Result<BooleanP
 /// slice also adds the pieces as new bodies.
 pub fn commit_boolean(m: &Model, req: BooleanRequest) -> Result<Committed, ApiError> {
     m.call(move |doc| {
+        if req.region {
+            doc.commit_boolean_region(req.target, &req.tools, req.keep_tools)?;
+            return Ok(Committed { id: req.target, scene: bodies(doc)? });
+        }
         match req.op()? {
             Some(op) => { doc.commit_boolean(req.target, &req.tools, op, req.keep_tools)?; }
             None => { doc.commit_boolean_slice(req.target, &req.tools, req.keep_tools)?; }
