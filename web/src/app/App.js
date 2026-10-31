@@ -349,6 +349,7 @@ const SHELL = `
         <button data-bop="difference" aria-pressed="false"><kbd>W</kbd>DIFF</button>
         <button data-bop="intersect" aria-pressed="false"><kbd>⇧E</kbd>INTER</button>
         <button data-bop="slice" aria-pressed="false"><kbd>⇧Q</kbd>SLICE</button>
+        <button data-bop="region" aria-pressed="false" title="Region: a solid for each part of space the bodies (solids and sheets) close off">REGION</button>
       </div>
       <div class="chips"><button data-id="bool-keep" aria-pressed="false"><kbd>T</kbd>KEEP TOOLS</button></div>
     </div>
@@ -4543,7 +4544,8 @@ export async function mount(root, backend) {
   // --- boolean (Q) ------------------------------------------------------------
   // Plasticity's Boolean: select the target, then the tools, and press Q. Q union, W difference,
   // Shift+E intersect, Shift+Q slice (the target splits where each tool cuts it); T keeps the tools.
-  // The target changes and the tools go.
+  // Region makes a solid of each part of space the bodies (solids and sheets) close off. The target
+  // changes and the tools go.
   function startBoolean() {
     const ids = sel.solids.filter(id => org.shows(id));
     if (ids.length < 2) return toast('SELECT THE TARGET, THEN THE TOOLS');
@@ -4575,7 +4577,7 @@ export async function mount(root, backend) {
     setState('updating');
     const t0 = performance.now();
     let body;
-    try { body = await backend.previewBoolean({ target: c.target, tools: c.tools, op: c.op }); }
+    try { body = await backend.previewBoolean({ target: c.target, tools: c.tools, op: c.op === 'region' ? 'union' : c.op, region: c.op === 'region' }); }
     catch (e) {
       if (cmd !== c || n !== c.sent) return;
       clearPreview();
@@ -4595,13 +4597,13 @@ export async function mount(root, backend) {
       if (b) { const ph = meshOf(b, look.face, look.edge); ph.renderOrder = 5; previewGroup.add(ph); }
     }
     for (const piece of body.pieces ?? []) { const m = meshOf(piece, phantom.add.face, phantom.add.edge); m.renderOrder = 6; previewGroup.add(m); }
-    setHud(`${c.op.toUpperCase()}${c.keep ? ' · KEEP TOOLS' : ''}`);
+    setHud(`${c.op.toUpperCase()}${c.op === 'region' ? ` · ${1 + (body.pieces?.length ?? 0)} SOLIDS` : ''}${c.keep ? ' · KEEP TOOLS' : ''}`);
     if (n === c.sent) setState('updated');
   }
   async function commitBooleanCmd() {
     const c = cmd;
     try {
-      const { id, scene: list } = await backend.commitBoolean({ target: c.target, tools: c.tools, op: c.op, keepTools: c.keep });
+      const { id, scene: list } = await backend.commitBoolean({ target: c.target, tools: c.tools, op: c.op === 'region' ? 'union' : c.op, region: c.op === 'region', keepTools: c.keep });
       endCmd('committed');
       record(`BOOLEAN ${c.op.toUpperCase()} ${c.tools.map(label).join(' ')}`, id);
       sel.clear();

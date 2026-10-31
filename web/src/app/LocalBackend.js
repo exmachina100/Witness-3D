@@ -4,7 +4,7 @@
 import * as THREE from 'three';
 import { ExtrudeFactory } from '../ExtrudeFactory.js';
 import { NoOpError } from '../GeometryFactory.js';
-import { arrayMotions, blendEdges, booleanWithHistory, extrudeFace, bounds, box, count, draftFaces, faceSheet, imprintEdgesWithHistory, imprintWithHistory, planeSheet, unifyWithHistory, boundaryEdges, splitWithHistory, draftWithHistory, exportSTEP, facePlane, mirror, mirror as mirrorShape, numberedEdges, oc, primitive, shellFaces, tessellate, transform, volume } from '../Kernel.js';
+import { arrayMotions, blendEdges, booleanWithHistory, extrudeFace, bounds, box, count, draftFaces, faceSheet, imprintEdgesWithHistory, imprintWithHistory, planeSheet, regions, unifyWithHistory, boundaryEdges, splitWithHistory, draftWithHistory, exportSTEP, facePlane, mirror, mirror as mirrorShape, numberedEdges, oc, primitive, shellFaces, tessellate, transform, volume } from '../Kernel.js';
 import { cutSheets, loft, loftGuided, offsetFlatFaces, pipe, regionFace, revolve, splineSamples, sweep, sweepGuided } from '../Forms.js';
 import { curveFromNurbs, ends, join, loops, MEET, nurbsLoop } from '../curves.js';
 import { isoparam, meetCurves, projectCurveCurve, projectCurves, projectedEdges, sectionCurves } from '../Project.js';
@@ -224,8 +224,20 @@ export class LocalBackend {
         return { ...rest, pieces };
     }
 
+    /** Region: a solid for each part of space the target and tools close off, the largest first. */
+    regionResult({ target, tools = [] }) {
+        if (tools.includes(target)) throw new Error("the target can't also be a tool");
+        if (![target, ...tools].every(id => this.shapes.has(id))) throw new Error('that body no longer exists');
+        const [first, ...pieces] = regions([target, ...tools].map(id => this.shapes.get(id)));
+        return { shape: first, history: undefined, pieces };
+    }
+
     previewBoolean(req) {
         return this.latest(async () => {
+            if (req.region) {
+                const r = this.regionResult(req);
+                return { ...this.body(req.target, r.shape), pieces: r.pieces.map(p => this.body(0, p)) };
+            }
             if (req.op !== 'slice') return this.body(req.target, this.booleanResult(req).shape);
             const r = this.sliceResult(req);
             return { ...this.body(req.target, r.shape), pieces: r.pieces.map(p => this.body(0, p)) };
@@ -234,8 +246,9 @@ export class LocalBackend {
 
     /** Plasticity's Boolean: the target changes and the tools go unless kept, as one undo step; a slice adds its pieces. */
     async commitBoolean(req) {
-        const { shape, history, pieces = [] } = req.op === 'slice' ? this.sliceResult(req) : this.booleanResult(req);
+        const { shape, history, pieces = [] } = req.region ? this.regionResult(req) : req.op === 'slice' ? this.sliceResult(req) : this.booleanResult(req);
         this.checkpoint();
+        if (req.region) this.refs.delete(req.target);
         this.put(req.target, shape, history);
         if (!req.keepTools) for (const id of req.tools) { this.shapes.delete(id); this.refs.delete(id); }
         for (const p of pieces) this.put(this.nextId++, p);

@@ -143,6 +143,7 @@ const ICONS = {
     union: `<path ${A} d="M3 3h11v7h7v11H10v-7H3z"/>`,
     difference: `<path d="M10 10h11v11H10z" stroke-dasharray="2 2"/><path ${A} d="M3 3h11v7h-4v4H3z"/>`,
     intersect: `<path d="M3 3h11v11H3zM10 10h11v11H10z" stroke-dasharray="2 2"/><path ${A} d="M10 10h4v4h-4z"/>`,
+    region: `<path d="M3 3h11v11H3zM10 10h11v11H10z"/><path ${A} d="M5 5h3M16 16h3M11 11h2v2h-2z"/>`,
     slice: `<path d="M3 3h11v11H3z"/><path ${A} d="M10 10h11v11H10z"/><path d="M10 14h4v-4"/>`,
     new: `<rect x="5" y="5" width="14" height="14"/><path ${A} d="M12 9v6M9 12h6"/>`,
     keep: `<rect x="3" y="3" width="11" height="11"/><rect x="10" y="10" width="11" height="11" stroke-dasharray="2 2"/><path ${A} d="M13 17l2 2 4-4"/>`,

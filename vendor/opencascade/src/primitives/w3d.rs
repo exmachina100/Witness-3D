@@ -347,6 +347,15 @@ impl Shape {
             .collect()
     }
 
+    /// Boolean Region: the solids of the space `bodies` close off (see `w3d_regions`).
+    pub fn regions(bodies: &[&Shape]) -> Result<Vec<Shape>, String> {
+        let all = Shape::from(crate::primitives::Compound::from_shapes(bodies.iter().copied()));
+        let out = ffi::w3d::w3d_regions(&all.inner).map_err(reason)?;
+        (0..ffi::w3d::w3d_child_count(&out))
+            .map(|i| ffi::w3d::w3d_child_at(&out, i).map(|s| Shape::from_shape(&s)).map_err(reason))
+            .collect()
+    }
+
     /// The isoparametric curve of a face through a point (see `w3d_isoparam`).
     pub fn isoparam(&self, face: usize, point: [f64; 3], along_u: bool) -> Result<Vec<f64>, String> {
         ffi::w3d::w3d_isoparam(&self.inner, face as i32, &point, along_u).map_err(reason)

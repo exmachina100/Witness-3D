@@ -435,6 +435,10 @@ pub trait Kernel {
     fn face_uvn(&self, _s: &Self::Solid, _face: u32, _map: bool, _points: &[DVec3]) -> Result<([f64; 2], Vec<DVec3>), KernelError> {
         Err(KernelError::Invalid("this kernel cannot deform curves"))
     }
+    /// Plasticity's Boolean Region: a solid for each part of space the bodies (solids and sheets) close off.
+    fn regions(&self, _bodies: &[&Self::Solid]) -> Result<Vec<Self::Solid>, KernelError> {
+        Err(KernelError::Invalid("this kernel cannot make regions"))
+    }
     /// Plasticity's Isoparam: `face` split by edges along u (`along_u`) or v, at `params` from 0 to 1
     /// across it, or through `point` when there are none; `subdivide` gives each piece its own part
     /// of the face's B-spline surface.

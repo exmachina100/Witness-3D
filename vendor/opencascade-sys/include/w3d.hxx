@@ -116,6 +116,7 @@
 #include <Geom_CylindricalSurface.hxx>
 #include <Geom2d_Line.hxx>
 #include <BRepBndLib.hxx>
+#include <BRepPrimAPI_MakeBox.hxx>
 #include <Bnd_Box.hxx>
 #include <gp_Pln.hxx>
 #include <BRep_Builder.hxx>
@@ -3243,6 +3244,48 @@ inline rust::Vec<double> w3d_isoparam(const TopoDS_Shape &shape, int32_t face, r
     return w3d_curves_out(kept);
   } catch (const Standard_Failure &e) {
     throw w3d_kernel_error(e);
+  }
+}
+
+// Plasticity's Boolean Region: the solids of the space the bodies in `all` (a compound of solids
+// and sheets) close off. A box round everything is split by all their faces; the pieces that
+// don't reach the box's sides are the enclosed regions, returned as a compound of solids.
+inline std::unique_ptr<TopoDS_Shape> w3d_regions(const TopoDS_Shape &all) {
+  try {
+    Bnd_Box bb;
+    BRepBndLib::Add(all, bb);
+    if (bb.IsVoid()) throw std::runtime_error("select the bodies to make regions from");
+    double x0, y0, z0, x1, y1, z1;
+    bb.Get(x0, y0, z0, x1, y1, z1);
+    const double m = 0.1 * std::max({x1 - x0, y1 - y0, z1 - z0, 1.0});
+    TopoDS_Shape box = BRepPrimAPI_MakeBox(gp_Pnt(x0 - m, y0 - m, z0 - m), gp_Pnt(x1 + m, y1 + m, z1 + m)).Shape();
+    TopTools_ListOfShape args, tools;
+    args.Append(box);
+    for (TopoDS_Iterator it(all); it.More(); it.Next()) tools.Append(it.Value());
+    BRepAlgoAPI_Splitter mk;
+    mk.SetArguments(args);
+    mk.SetTools(tools);
+    mk.Build();
+    if (!mk.IsDone() || mk.HasErrors()) throw std::runtime_error("the bodies could not be split into regions");
+    BRep_Builder B;
+    TopoDS_Compound out;
+    B.MakeCompound(out);
+    int n = 0;
+    const double tol = 0.5 * m;
+    for (TopExp_Explorer ex(mk.Shape(), TopAbs_SOLID); ex.More(); ex.Next()) {
+      Bnd_Box pb;
+      BRepBndLib::Add(ex.Current(), pb);
+      double a0, b0, c0, a1, b1, c1;
+      pb.Get(a0, b0, c0, a1, b1, c1);
+      // A piece reaching out to the box's sides is the open space round the bodies.
+      if (a0 < x0 - tol || b0 < y0 - tol || c0 < z0 - tol || a1 > x1 + tol || b1 > y1 + tol || c1 > z1 + tol) continue;
+      B.Add(out, ex.Current());
+      n++;
+    }
+    if (!n) throw std::runtime_error("the bodies close off no region");
+    return std::unique_ptr<TopoDS_Shape>(new TopoDS_Shape(out));
+  } catch (const Standard_Failure &f) {
+    throw w3d_kernel_error(f);
   }
 }
 

@@ -787,3 +787,36 @@ export function draftFaces(shape, faces, pull, origin, angle) {
     const image = s => { try { return [draft.ModifiedShape(s)]; } catch { return [s]; } };
     return { shape: result, history: trace([shape], result, image) };
 }
+
+/**
+ * Plasticity's Boolean Region, as w3d_regions on the desktop: a solid for each part of space the
+ * `shapes` (solids and sheets) close off, largest first. A box round them all is split by their
+ * faces; the pieces that don't reach out to the box's sides are the enclosed regions.
+ */
+export function regions(shapes) {
+    const o = oc();
+    if (!shapes.length) throw new Error('select the bodies to make regions from');
+    const all = new THREE.Box3();
+    for (const s of shapes) all.union(bounds(s));
+    const size = all.getSize(new THREE.Vector3());
+    const m = 0.1 * Math.max(size.x, size.y, size.z, 1);
+    const lo = all.min.clone().subScalar(m), hi = all.max.clone().addScalar(m);
+    const cage = box({ x: lo.x, y: lo.y, z: lo.z }, { x: hi.x, y: hi.y, z: hi.z });
+    const args = new o.NCollection_List_TopoDS_Shape(), tools = new o.NCollection_List_TopoDS_Shape();
+    args.Append(cage);
+    for (const s of shapes) tools.Append(s);
+    const mk = new o.BRepAlgoAPI_Splitter();
+    mk.SetArguments(args);
+    mk.SetTools(tools);
+    mk.Build(new o.Message_ProgressRange());
+    if (!mk.IsDone() || mk.HasErrors()) throw new Error('the bodies could not be split into regions');
+    const tol = 0.5 * m;
+    const out = numbered(mk.Shape(), 'TopAbs_SOLID').map(s => o.TopoDS.Solid(s)).filter(s => {
+        const b = bounds(s);
+        // A piece reaching out to the box's sides is the open space round the bodies.
+        return b.min.x >= all.min.x - tol && b.min.y >= all.min.y - tol && b.min.z >= all.min.z - tol
+            && b.max.x <= all.max.x + tol && b.max.y <= all.max.y + tol && b.max.z <= all.max.z + tol;
+    });
+    if (!out.length) throw new Error('the bodies close off no region');
+    return out.map(s => [volume(s), s]).sort((a, b) => b[0] - a[0]).map(([, s]) => s);
+}
