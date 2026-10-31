@@ -113,7 +113,7 @@ const KEYS = {
   offset: [['DRAG DOT', 'DISTANCE'], ['D', 'DISTANCE'], ['A', 'ANGLE ADJACENT'], ['TAB', 'GROW MODE'], ['⇧ CLICK', 'FACES'], ['ALT+CLICK', 'A FACE TO MATCH'], ['⏎ / RMB', 'OK']],
   revolve: [['CLICK', 'AXIS START · END'], ['A', 'ANGLE'], ['⇧T', 'THICKNESS'], ['Q', 'UNION'], ['W', 'DIFFERENCE'], ['⇧E', 'INTERSECT'], ['B', 'NEW BODY'], ['⏎ / RMB', 'OK']],
   loft: [['CLICK', 'GUIDES (OPTIONAL)'], ['⏎ / RMB', 'OK'], ['ESC', 'CANCEL']],
-  'loft-sheet': [['CLICK', 'ADD / REMOVE A CURVE'], ['O', 'LOOP'], ['⏎ / RMB', 'OK'], ['ESC', 'CANCEL']],
+  'loft-sheet': [['CLICK', 'ADD / REMOVE A CURVE OR EDGE'], ['O', 'LOOP'], ['⏎ / RMB', 'OK'], ['ESC', 'CANCEL']],
   sweep: [['CLICK', 'PATH · THEN A GUIDE'], ['M', 'GUIDE METHOD'], ['N', 'ALIGNMENT'], ['D', 'TWIST'], ['Q', 'UNION'], ['W', 'DIFFERENCE'], ['⇧E', 'INTERSECT'], ['B', 'NEW BODY'], ['⏎ / RMB', 'OK']],
   rect: [['CLICK', 'CORNERS'], ['S', 'SQUARE'], ['C', 'FROM CENTRE'], ['TAB', 'TYPE SIZE'], ['ALT', 'NO SNAP'], ['ESC', 'CANCEL']],
   circle: [['CLICK', 'CENTRE · RADIUS'], ['V', 'VERTICAL'], ['TAB', 'TYPE DIAMETER'], ['ALT', 'NO SNAP'], ['ESC', 'CANCEL']],
@@ -9460,10 +9460,20 @@ export async function mount(root, backend) {
     $('keys').innerHTML = keysHtml('loft-sheet');
     setState('none');
     setTarget('NEW SHEET');
-    const request = () => ({ curves: c.curves, loop: c.loop });
-    const text = () => `${c.curves.map(id => curveLabel(id)).join(' → ')}${c.loop ? ' → BACK TO THE FIRST' : ''}`;
+    // Profiles: drawn curves by id, body edges as { key, body, n, curve } once their curve is read
+    // (a smooth curve through points along the edge, closed when the edge is).
+    const edgeCurve = it => {
+      if (!c.read.has(it.key)) c.read.set(it.key, backend.edgeCurvature({ body: it.body, edge: it.n, n: 64 }).then(teeth => {
+        const pts = teeth.map(t => t.at), closed = pts.length > 3 && Math.hypot(...pts[0].map((x, k) => x - pts.at(-1)[k])) < 1e-6;
+        return curveFromNurbs(smoothThrough(closed ? pts.slice(0, -1) : pts, closed), [0, -1, 0]);
+      }));
+      return c.read.get(it.key);
+    };
+    c.read = new Map();
+    const request = async () => ({ curves: await Promise.all(c.curves.map(p => typeof p === 'object' ? edgeCurve(p) : p)), loop: c.loop });
+    const text = () => `${c.curves.map(p => typeof p === 'object' ? `${label(p.body)} EDGE ${p.n + 1}` : curveLabel(p)).join(' → ')}${c.loop ? ' → BACK TO THE FIRST' : ''}`;
     c.preview = () => livePreview(c, async () => {
-      const b = await backend.previewLoftSheet(request());
+      const b = await backend.previewLoftSheet(await request());
       return b ? [b] : null;
     }, list => {
       for (const b of list) showPreviewBody(b, phantom.add.face, phantom.add.edge).renderOrder = 5;
@@ -9479,9 +9489,10 @@ export async function mount(root, backend) {
     };
     c.onSelection = () => {
       drawOverlays();
-      const now = sel.curves.filter(curveById);
-      // Keep the order the curves were picked in; new ones go on the end.
-      c.curves = [...c.curves.filter(id => now.includes(id)), ...now.filter(id => !c.curves.includes(id))];
+      const now = [...sel.curves.filter(curveById), ...sel.list('edge').map(e => ({ key: `${e.body}:${e.n}`, body: e.body, n: e.n }))];
+      const same = (a, b) => typeof a === 'object' ? typeof b === 'object' && a.key === b.key : a === b;
+      // Keep the order the profiles were picked in; new ones go on the end.
+      c.curves = [...c.curves.filter(p => now.some(q => same(p, q))), ...now.filter(q => !c.curves.some(p => same(p, q)))];
       if (c.curves.length < 3) c.loop = false;
       refresh();
     };
@@ -9494,15 +9505,16 @@ export async function mount(root, backend) {
     };
     c.click = e => {
       const hit = pickAt(e);
-      if (hit?.kind !== 'curve') return true;
-      sel.toggle({ kind: 'curve', id: hit.id });
+      if (hit?.kind === 'curve') sel.toggle({ kind: 'curve', id: hit.id });
+      else if (hit?.kind === 'edge') sel.toggle({ kind: 'edge', body: hit.body, n: hit.n });
+      else return true;
       selectionChanged();
       return true;
     };
     c.finish = async () => {
       if (c.curves.length < 2) { setState('failed'); return toast('SELECT TWO CURVES OR MORE, IN ORDER, TO LOFT'); }
       try {
-        const { id, scene } = await backend.commitLoftSheet(request());
+        const { id, scene } = await backend.commitLoftSheet(await request());
         record(`LOFT ×${c.curves.length}${c.loop ? ' LOOP' : ''}`, id);
         endCmd('committed');
         await showScene(scene);
@@ -9517,8 +9529,11 @@ export async function mount(root, backend) {
   }
 
   function startForm(id) {
-    // Curves (not regions) selected: Loft makes a sheet through them.
-    if (id === 'loft' && sel.list('curve').length) return startLoftSheet(sel.curves.filter(curveById));
+    // Curves or edges (not regions) selected: Loft makes a sheet through them.
+    if (id === 'loft' && (sel.list('curve').length || sel.list('edge').length)) {
+      startLoftSheet([]);
+      return cmd?.onSelection?.();
+    }
     const regions = sel.list('region').map(it => it.id).filter(rid => curveList.some(c => c.id === rid && isClosed(c)));
     if (!backend.previewForm) return toast(`${toolInfo(id).label} IS NOT IN THIS BUILD YET`);
     if (!regions.length || (id === 'loft' && regions.length < 2)) return toast(id === 'loft' ? 'SELECT TWO REGIONS OR MORE, IN ORDER, TO LOFT' : `SELECT A REGION TO ${toolInfo(id).label}`);

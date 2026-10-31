@@ -1421,7 +1421,8 @@ pub fn commit_patch(m: &Model, req: PatchRequest) -> Result<Committed, ApiError>
 /// Plasticity's Loft of curves: a sheet through `curves` in order, closed back on the first with `looped`.
 #[derive(Deserialize, Debug, Clone)]
 pub struct LoftSheetRequest {
-    pub curves: Vec<CurveId>,
+    /// Drawn curves by id, and body edges as their curves.
+    pub curves: Vec<GuideRef>,
     #[serde(default, rename = "loop")]
     pub looped: bool,
 }

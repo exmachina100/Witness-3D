@@ -33,3 +33,11 @@ test('Loop runs the sheet back to the first curve, and needs three', async () =>
     assert.ok(boundaryEdges(looped).length < boundaryEdges(open).length);
     assert.throws(() => be.loftSheetResult({ curves: ids.slice(0, 2), loop: true }), /three curves/);
 });
+
+test('a profile can be a curve given whole, as a body edge is sent', async () => {
+    const be = new LocalBackend();
+    const { ids: [a] } = await be.addCurves([line(0, 0)]);
+    const s = be.loftSheetResult({ curves: [a, line(5, 3)] });
+    assert.equal(count(s, 'TopAbs_FACE'), 1);
+    assert.equal(boundaryEdges(s).length, 4);
+});
