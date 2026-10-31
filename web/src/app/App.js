@@ -692,6 +692,15 @@ const SHELL = `
       <div class="field"><label for="w3d-pipe-r">RADIUS</label><input id="w3d-pipe-r" data-id="pipe-r" type="number" step="0.5" min="0.01" value="1"></div>
       <div class="field"><label for="w3d-pipe-t">THICKNESS</label><input id="w3d-pipe-t" data-id="pipe-t" type="number" step="0.1" min="0" value="0"></div>
       <div class="field"><label for="w3d-pipe-v">SIDES</label><input id="w3d-pipe-v" data-id="pipe-v" type="number" step="1" min="0" max="256" value="0" title="0 for a round pipe, or 3 to 256 for a polygon"></div>
+      <div class="field"><label for="w3d-pipe-a">ANGLE</label><input id="w3d-pipe-a" data-id="pipe-a" type="number" step="15" value="0" title="Turns a polygon section about the path, in degrees (A)"></div>
+      <div class="field"><label for="w3d-pipe-s">SCALE</label><input id="w3d-pipe-s" data-id="pipe-s" type="number" step="0.1" min="0.01" value="1" title="The section's size at the far end; 1 keeps it the same (S)"></div>
+      <div class="chips">
+        <button data-pipeop="new" aria-pressed="true" title="Each pipe a body of its own"><kbd>B</kbd>NEW</button>
+        <button data-pipeop="union" aria-pressed="false" title="Join the pipes to the target body"><kbd>Q</kbd>UNION</button>
+        <button data-pipeop="difference" aria-pressed="false" title="Cut the pipes out of the target body"><kbd>W</kbd>DIFF</button>
+        <button data-pipeop="intersect" aria-pressed="false" title="Keep only where the pipes and the target overlap"><kbd>⇧E</kbd>INTER</button>
+        <button data-id="pipe-keep" aria-pressed="false" title="Keep the pipes as bodies too after a union, difference or intersect"><kbd>⇧T</kbd>KEEP TOOLS</button>
+      </div>
     </div>
     <div class="sec" data-panel="hole" hidden>
       <span class="hint" data-id="hole-hint">CLICK A FLAT FACE</span>
@@ -1060,11 +1069,11 @@ const VIEWS = {
 export async function mount(root, backend) {
   root.innerHTML = SHELL;
   // Panel options carry their icon ahead of the key and name.
-  for (const b of root.querySelectorAll('[data-proj],[data-imp],[data-impcomp],[data-draw],[data-bop],[data-btmat],[data-bumat],[data-xop],[data-fop],[data-spiral],[data-toggle],[data-gmethod],[data-galign],[data-gcorner],[data-grow],[data-mfgrow],[data-drgrow],[data-eslimit],[data-flshape],[data-drtaper],[data-avaxis],[data-extshape],[data-esshape],[data-isodir],[data-id="oe-both"],[data-id="iso-subdivide"],[data-id="oe-individual"],[data-id="blend-tangent"],[data-id="ex-lock"],[data-id="bool-keep"],[data-id="prim-keep"],[data-id="ex-free"],[data-id="ex-pivot"],[data-id="ex-individual"],[data-id="patch-individual"],[data-id="patch-quad"],[data-id="as-symmetric"],[data-id="as-analysis"],[data-id="sq-analysis"],[data-id="dr-hidden"],[data-id="dr-curves"],[data-id="oc-lock"],[data-id="oc-free"],[data-id="oc-slot"],[data-id="oc-combine"],[data-id="es-unlimit"],[data-rbmethod],[data-oecorner],[data-saplane],[data-plaxis],[data-plop],[data-id="pl-flip"],[data-id="pl-instance"],[data-id="mirror-instance"],[data-id="mirror-neg"],[data-id="mirror-free"],[data-id="mirror-cut"],[data-id="ra-instance"],[data-id="ra-spacing"],[data-id="ra-extent"],[data-id="rr-total"],[data-id="rr-spacing"],[data-id="rr-instance"],[data-id="ca-instance"],[data-id="br-trim"],[data-id="br-comb"],[data-id="br-constrain"],[data-id="ac-constrain"],[data-id="ac-comb"],[data-id="dc-reblend"],[data-id="section-btn"],[data-id="sa-flip"],[data-id="rf-shrink"],[data-id="ut-keep"],[data-txfont],[data-id="tx-load"],[data-id="tx-system"],[data-txalign],[data-sldir],[data-dcflip],[data-id="dc-keep"],[data-imdepth],[data-imcull],[data-id="im-delete"],[data-id="cc-extend"],[data-id="cc-screen"],[data-inmode],[data-pfmode],[data-pfmirror],[data-xforient],[data-xfpivot],[data-id="xf-pick"],[data-id="xf-unpivot"],[data-id="xf-free"],[data-id="ls-loop"],[data-id="ls-limit"],[data-id="ls-simplify"],[data-pmethod],[data-mxtopo],[data-id="mx-convex"],[data-sqbound],[data-asbound],[data-bsshape],[data-bstrim],[data-id="bs-add"],[data-id="bs-s1"],[data-id="bs-s2"],[data-id="in-realize"],[data-id="in-dup"],[data-id="in-delete"],[data-id="matcap-load"],[data-id="matcap-custom"],[data-id="hdr-load"],[data-id="hdr-custom"]')) {
+  for (const b of root.querySelectorAll('[data-proj],[data-imp],[data-impcomp],[data-draw],[data-bop],[data-btmat],[data-bumat],[data-xop],[data-fop],[data-spiral],[data-toggle],[data-gmethod],[data-galign],[data-gcorner],[data-grow],[data-mfgrow],[data-drgrow],[data-eslimit],[data-flshape],[data-drtaper],[data-avaxis],[data-extshape],[data-esshape],[data-isodir],[data-id="oe-both"],[data-id="iso-subdivide"],[data-id="oe-individual"],[data-id="blend-tangent"],[data-id="ex-lock"],[data-id="bool-keep"],[data-id="prim-keep"],[data-pipeop],[data-id="pipe-keep"],[data-id="ex-free"],[data-id="ex-pivot"],[data-id="ex-individual"],[data-id="patch-individual"],[data-id="patch-quad"],[data-id="as-symmetric"],[data-id="as-analysis"],[data-id="sq-analysis"],[data-id="dr-hidden"],[data-id="dr-curves"],[data-id="oc-lock"],[data-id="oc-free"],[data-id="oc-slot"],[data-id="oc-combine"],[data-id="es-unlimit"],[data-rbmethod],[data-oecorner],[data-saplane],[data-plaxis],[data-plop],[data-id="pl-flip"],[data-id="pl-instance"],[data-id="mirror-instance"],[data-id="mirror-neg"],[data-id="mirror-free"],[data-id="mirror-cut"],[data-id="ra-instance"],[data-id="ra-spacing"],[data-id="ra-extent"],[data-id="rr-total"],[data-id="rr-spacing"],[data-id="rr-instance"],[data-id="ca-instance"],[data-id="br-trim"],[data-id="br-comb"],[data-id="br-constrain"],[data-id="ac-constrain"],[data-id="ac-comb"],[data-id="dc-reblend"],[data-id="section-btn"],[data-id="sa-flip"],[data-id="rf-shrink"],[data-id="ut-keep"],[data-txfont],[data-id="tx-load"],[data-id="tx-system"],[data-txalign],[data-sldir],[data-dcflip],[data-id="dc-keep"],[data-imdepth],[data-imcull],[data-id="im-delete"],[data-id="cc-extend"],[data-id="cc-screen"],[data-inmode],[data-pfmode],[data-pfmirror],[data-xforient],[data-xfpivot],[data-id="xf-pick"],[data-id="xf-unpivot"],[data-id="xf-free"],[data-id="ls-loop"],[data-id="ls-limit"],[data-id="ls-simplify"],[data-pmethod],[data-mxtopo],[data-id="mx-convex"],[data-sqbound],[data-asbound],[data-bsshape],[data-bstrim],[data-id="bs-add"],[data-id="bs-s1"],[data-id="bs-s2"],[data-id="in-realize"],[data-id="in-dup"],[data-id="in-delete"],[data-id="matcap-load"],[data-id="matcap-custom"],[data-id="hdr-load"],[data-id="hdr-custom"]')) {
     const name = (b.dataset.proj && (b.dataset.proj === 'screen' ? 'view-screen' : `proj-${b.dataset.proj}`)) ?? (b.dataset.imp && (b.dataset.imp === 'screen' ? 'view-screen' : `proj-${b.dataset.imp}`)) ?? (b.dataset.impcomp && `completion-${b.dataset.impcomp}`) ?? b.dataset.draw ?? b.dataset.bop ?? (b.dataset.xforient && `orient-${b.dataset.xforient}`) ?? (b.dataset.xfpivot && `pivot-${b.dataset.xfpivot}`) ?? (b.dataset.btmat && `mat-${b.dataset.btmat}`) ?? (b.dataset.bumat && `mat-${b.dataset.bumat}`) ?? b.dataset.xop ?? b.dataset.fop ?? b.dataset.spiral ?? (b.dataset.toggle && `view-${b.dataset.toggle}`)
-      ?? (b.dataset.gmethod && `guide-${b.dataset.gmethod}`) ?? (b.dataset.galign && `align-${b.dataset.galign}`) ?? (b.dataset.gcorner && (b.dataset.gcorner === 'round' ? 'corner-round' : 'corner-linear')) ?? (b.dataset.grow && `grow-${b.dataset.grow}`) ?? (b.dataset.mfgrow && `grow-${b.dataset.mfgrow}`) ?? (b.dataset.drgrow && `grow-${b.dataset.drgrow}`) ?? (b.dataset.eslimit && `limit-${b.dataset.eslimit}`) ?? (b.dataset.flshape && `fillet-${b.dataset.flshape}`) ?? (b.dataset.drtaper && `taper-${b.dataset.drtaper}`) ?? (b.dataset.avaxis && `axis-${b.dataset.avaxis}`) ?? (b.dataset.extshape && `extend-${b.dataset.extshape}`) ?? (b.dataset.esshape && `extend-${b.dataset.esshape}`) ?? (b.dataset.isodir && `iso-${b.dataset.isodir}`) ?? (b.dataset.rbmethod && `rebuild-${b.dataset.rbmethod}`) ?? (b.dataset.oecorner && `corner-${b.dataset.oecorner}`) ?? (b.dataset.saplane && `section-${b.dataset.saplane}`) ?? (b.dataset.plaxis && (b.dataset.plaxis === 'normal' ? 'place-normal' : `axis-${b.dataset.plaxis}`)) ?? b.dataset.plop
+      ?? (b.dataset.gmethod && `guide-${b.dataset.gmethod}`) ?? (b.dataset.galign && `align-${b.dataset.galign}`) ?? (b.dataset.gcorner && (b.dataset.gcorner === 'round' ? 'corner-round' : 'corner-linear')) ?? (b.dataset.grow && `grow-${b.dataset.grow}`) ?? (b.dataset.mfgrow && `grow-${b.dataset.mfgrow}`) ?? (b.dataset.drgrow && `grow-${b.dataset.drgrow}`) ?? (b.dataset.eslimit && `limit-${b.dataset.eslimit}`) ?? (b.dataset.flshape && `fillet-${b.dataset.flshape}`) ?? (b.dataset.drtaper && `taper-${b.dataset.drtaper}`) ?? (b.dataset.avaxis && `axis-${b.dataset.avaxis}`) ?? (b.dataset.extshape && `extend-${b.dataset.extshape}`) ?? (b.dataset.esshape && `extend-${b.dataset.esshape}`) ?? (b.dataset.isodir && `iso-${b.dataset.isodir}`) ?? (b.dataset.rbmethod && `rebuild-${b.dataset.rbmethod}`) ?? (b.dataset.oecorner && `corner-${b.dataset.oecorner}`) ?? (b.dataset.saplane && `section-${b.dataset.saplane}`) ?? (b.dataset.plaxis && (b.dataset.plaxis === 'normal' ? 'place-normal' : `axis-${b.dataset.plaxis}`)) ?? b.dataset.plop ?? b.dataset.pipeop
       ?? (b.dataset.txfont && `font-${b.dataset.txfont}`) ?? (b.dataset.txalign && `txalign-${b.dataset.txalign}`) ?? (b.dataset.sldir && { u: 'slide-u', '-u': 'slide-back', v: 'slide-v', '-v': 'slide-vback', n: 'slide-n' }[b.dataset.sldir]) ?? (b.dataset.dcflip && { mirror: 'mirror', swap: 'swap-uv', normal: 'reverse-sheet' }[b.dataset.dcflip]) ?? (b.dataset.imdepth && `depth-${b.dataset.imdepth}`) ?? (b.dataset.imcull && `cull-${b.dataset.imcull}`) ?? b.dataset.inmode ?? (b.dataset.bsshape && `bridge-${b.dataset.bsshape}`) ?? (b.dataset.bstrim && `trimwall-${b.dataset.bstrim}`) ?? (b.dataset.mxtopo && `topo-${b.dataset.mxtopo}`) ?? (b.dataset.pmethod && (b.dataset.pmethod === 'fill' ? 'patch-fill' : `trim-${b.dataset.pmethod}`)) ?? (b.dataset.pfmode && `falloff-${b.dataset.pfmode}`) ?? ((b.dataset.sqbound ?? b.dataset.asbound) && `bound-${b.dataset.sqbound ?? b.dataset.asbound}`) ?? (b.dataset.pfmirror && `mirror-${b.dataset.pfmirror}`)
-      ?? { 'matcap-load': 'matcap-load', 'matcap-custom': 'matcap', 'tx-load': 'font-load', 'tx-system': 'font-system', 'hdr-load': 'hdr-load', 'hdr-custom': 'hdr', 'ex-lock': 'lock', 'bool-keep': 'keep', 'prim-keep': 'keep', 'ex-free': 'freestyle', 'ex-pivot': 'pivot', 'ex-individual': 'individual', 'patch-individual': 'individual', 'mx-convex': 'convex', 'patch-quad': 'square', 'as-symmetric': 'symmetric', 'as-analysis': 'analysis', 'sq-analysis': 'analysis', 'bs-add': 'wall-pair', 'bs-s1': 'flip', 'bs-s2': 'flip', 'dr-hidden': 'hidden-lines', 'dr-curves': 'drawing-curves', 'oc-lock': 'lock', 'oc-free': 'freestyle', 'oc-slot': 'slot', 'oc-combine': 'combine', 'oe-both': 'both-sides', 'xf-pick': 'pivot', 'xf-unpivot': 'pivot-remove', 'xf-free': 'freestyle', 'ls-loop': 'loft-loop', 'ls-limit': 'limit-point', 'ls-simplify': 'simplify', 'iso-subdivide': 'subdivide', 'oe-individual': 'individual', 'blend-tangent': 'tangent-chain', 'es-unlimit': 'unlimit', 'rf-shrink': 'shrink', 'ut-keep': 'keep-edges', 'section-btn': 'view-section', 'sa-flip': 'flip', 'pl-flip': 'flip', 'pl-instance': 'instance', 'mirror-instance': 'instance', 'mirror-neg': 'mirror-neg', 'mirror-free': 'freestyle', 'mirror-cut': 'mirror-cut', 'ra-instance': 'instance', 'ra-spacing': 'array-spacing', 'ra-extent': 'array-extent', 'rr-total': 'array-total', 'rr-spacing': 'array-angle-step', 'rr-instance': 'instance', 'ca-instance': 'instance', 'br-trim': 'trim', 'br-comb': 'view-curvature', 'br-constrain': 'constrain', 'ac-constrain': 'constrain', 'ac-comb': 'view-curvature', 'dc-reblend': 'reblend', 'dc-keep': 'keep', 'im-delete': 'delete', 'in-realize': 'realize-instance', 'cc-extend': 'extend', 'cc-screen': 'view-screen', 'in-dup': 'duplicate', 'in-delete': 'delete' }[b.dataset.id];
+      ?? { 'matcap-load': 'matcap-load', 'matcap-custom': 'matcap', 'tx-load': 'font-load', 'tx-system': 'font-system', 'hdr-load': 'hdr-load', 'hdr-custom': 'hdr', 'ex-lock': 'lock', 'bool-keep': 'keep', 'prim-keep': 'keep', 'pipe-keep': 'keep', 'ex-free': 'freestyle', 'ex-pivot': 'pivot', 'ex-individual': 'individual', 'patch-individual': 'individual', 'mx-convex': 'convex', 'patch-quad': 'square', 'as-symmetric': 'symmetric', 'as-analysis': 'analysis', 'sq-analysis': 'analysis', 'bs-add': 'wall-pair', 'bs-s1': 'flip', 'bs-s2': 'flip', 'dr-hidden': 'hidden-lines', 'dr-curves': 'drawing-curves', 'oc-lock': 'lock', 'oc-free': 'freestyle', 'oc-slot': 'slot', 'oc-combine': 'combine', 'oe-both': 'both-sides', 'xf-pick': 'pivot', 'xf-unpivot': 'pivot-remove', 'xf-free': 'freestyle', 'ls-loop': 'loft-loop', 'ls-limit': 'limit-point', 'ls-simplify': 'simplify', 'iso-subdivide': 'subdivide', 'oe-individual': 'individual', 'blend-tangent': 'tangent-chain', 'es-unlimit': 'unlimit', 'rf-shrink': 'shrink', 'ut-keep': 'keep-edges', 'section-btn': 'view-section', 'sa-flip': 'flip', 'pl-flip': 'flip', 'pl-instance': 'instance', 'mirror-instance': 'instance', 'mirror-neg': 'mirror-neg', 'mirror-free': 'freestyle', 'mirror-cut': 'mirror-cut', 'ra-instance': 'instance', 'ra-spacing': 'array-spacing', 'ra-extent': 'array-extent', 'rr-total': 'array-total', 'rr-spacing': 'array-angle-step', 'rr-instance': 'instance', 'ca-instance': 'instance', 'br-trim': 'trim', 'br-comb': 'view-curvature', 'br-constrain': 'constrain', 'ac-constrain': 'constrain', 'ac-comb': 'view-curvature', 'dc-reblend': 'reblend', 'dc-keep': 'keep', 'im-delete': 'delete', 'in-realize': 'realize-instance', 'cc-extend': 'extend', 'cc-screen': 'view-screen', 'in-dup': 'duplicate', 'in-delete': 'delete' }[b.dataset.id];
     b.insertAdjacentHTML('afterbegin', icon(name));
   }
   const $ = id => root.querySelector(`[data-id="${id}"]`);
@@ -7794,18 +7803,47 @@ export async function mount(root, backend) {
    */
   function startPipe() {
     if (!backend.previewPipe) return toast('PIPE IS NOT IN THIS BUILD YET');
-    const c = cmd = { id: 'pipe', curves: [], sent: 0, shown: 0 };
+    // Plasticity's Pipe options: Angle (A) turns a polygon section, Scale (S) sizes the far end, and
+    // B / Q / W / Shift+E make new bodies or union, cut or intersect the target (Shift+T keeps the tubes).
+    const c = cmd = { id: 'pipe', curves: [], op: 'new', keep: false, target: null, sent: 0, shown: 0 };
     lastTool = 'pipe';
     showTool('pipe');
     setState('none');
     const sides = () => Math.round(num('pipe-v'));
-    const describe = () => `PIPE R${num('pipe-r')}${num('pipe-t') ? ` · WALL ${num('pipe-t')}` : ''}${sides() ? ` · ${sides()} SIDES` : ''}`;
-    c.request = () => ({ curves: c.curves, radius: num('pipe-r'), thickness: num('pipe-t'), sides: sides() });
-    c.preview = () => livePreview(c, () => backend.previewPipe(c.request()), b => {
-      showPreviewBody(b);
-      $('pipe-hint').textContent = `${c.curves.length} ${c.curves.length === 1 ? 'PIPE' : 'PIPES'} · ${num('pipe-t') ? 'HOLLOW' : 'SOLID'}`;
-      setHud(describe());
-    }, 'pipe-hint');
+    const scale = () => num('pipe-s') || 1;
+    const OPS = { new: 'NEW', union: 'UNION', difference: 'DIFFERENCE', intersect: 'INTERSECT' };
+    const describe = () => `PIPE R${num('pipe-r')}${num('pipe-t') ? ` · WALL ${num('pipe-t')}` : ''}${sides() ? ` · ${sides()} SIDES` : ''}${num('pipe-a') && sides() ? ` · ${num('pipe-a')}°` : ''}${scale() !== 1 ? ` · ×${scale()}` : ''}${c.op !== 'new' && c.target !== null ? ` · ${OPS[c.op]} ${label(c.target)}` : ''}${c.keep && c.op !== 'new' ? ' · KEEP TOOLS' : ''}`;
+    c.request = () => ({ curves: c.curves, radius: num('pipe-r'), thickness: num('pipe-t'), sides: sides(), angle: num('pipe-a') * DEG, scale: scale(),
+      ...(c.op !== 'new' && c.target !== null && { op: c.op, target: c.target, keepTools: c.keep }) });
+    // The target: a solid selected with the curves, else the first shown solid the curves run through.
+    const findTarget = () => {
+      const picked = sel.solids.find(id => org.shows(id) && !bodyOf(id)?.sheet);
+      if (picked !== undefined) return picked;
+      const reach = new THREE.Box3();
+      for (const id of c.curves) { const src = curveById(id), f = curveFrame(src); for (const q of curve2d(src)) reach.expandByPoint(lift(f, q)); }
+      if (reach.isEmpty()) return null;
+      reach.expandByScalar(num('pipe-r'));
+      return shownMeshes().map(m => m.userData.id).find(id => !bodyOf(id)?.sheet && new THREE.Box3().setFromObject(bodyMesh(id)).intersectsBox(reach)) ?? null;
+    };
+    const syncOps = () => {
+      for (const b of $$('[data-pipeop]')) b.setAttribute('aria-pressed', String(b.dataset.pipeop === c.op));
+      $('pipe-keep').setAttribute('aria-pressed', String(c.keep));
+    };
+    c.preview = () => {
+      if (!c.curves.length) return;
+      c.target = c.op === 'new' ? null : findTarget();
+      if (c.op !== 'new' && c.target === null) {
+        const missing = `NO SOLID FOR THE ${OPS[c.op]}; SELECT ONE WITH THE CURVES`;
+        $('pipe-hint').textContent = missing;
+        clearPreview();
+        return setHud(missing);
+      }
+      livePreview(c, () => backend.previewPipe(c.request()), b => {
+        showPreviewBody(b);
+        $('pipe-hint').textContent = `${c.curves.length} ${c.curves.length === 1 ? 'PIPE' : 'PIPES'} · ${num('pipe-t') ? 'HOLLOW' : 'SOLID'}${c.target !== null ? ` · ${OPS[c.op]} ${label(c.target)}` : ''}`;
+        setHud(describe());
+      }, 'pipe-hint');
+    };
     c.onSelection = () => {
       drawOverlays();
       c.curves = sel.curves.filter(curveById);
@@ -7819,14 +7857,17 @@ export async function mount(root, backend) {
       c.preview();
     };
     c.key = action => {
-      const field = { radius: ['pipe-r', 'RADIUS', v => v > 0, 'THE RADIUS MUST BE ABOVE ZERO'], thickness: ['pipe-t', 'THICKNESS', v => v >= 0, "THE THICKNESS CAN'T BE BELOW ZERO"], sides: ['pipe-v', 'SIDES', v => v === 0 || (v >= 3 && v <= 256), 'SIDES ARE 0 (ROUND) OR 3 TO 256'] }[action];
+      if (OPS[action]) { c.op = action; syncOps(); c.preview(); return true; }
+      if (action === 'keep') { c.keep = !c.keep; syncOps(); c.preview(); return true; }
+      const field = { radius: ['pipe-r', 'RADIUS', v => v > 0, 'THE RADIUS MUST BE ABOVE ZERO'], thickness: ['pipe-t', 'THICKNESS', v => v >= 0, "THE THICKNESS CAN'T BE BELOW ZERO"], sides: ['pipe-v', 'SIDES', v => v === 0 || (v >= 3 && v <= 256), 'SIDES ARE 0 (ROUND) OR 3 TO 256'],
+        angle: ['pipe-a', 'ANGLE', v => Number.isFinite(v), 'THE ANGLE MUST BE A NUMBER'], scale: ['pipe-s', 'SCALE', v => v > 0, 'THE SCALE MUST BE ABOVE ZERO'] }[action];
       if (!field) return false;
       c.entry = { label: field[1], text: '', apply: v => { if (field[2](v)) { $(field[0]).value = v; c.preview(); } else toast(field[3]); } };
       setHud(`${field[1]} _`);
       return true;
     };
     c.finish = async () => {
-      if (!c.curves.length) { setState('failed'); return toast($('pipe-hint').textContent); }
+      if (!c.curves.length || (c.op !== 'new' && c.target === null)) { setState('failed'); return toast($('pipe-hint').textContent); }
       try {
         const { ids, scene: list } = await backend.commitPipe(c.request());
         endCmd('committed');
@@ -7838,6 +7879,7 @@ export async function mount(root, backend) {
     };
     c.abort = () => endCmd('cancelled');
     c.cleanup = () => clearPreview();
+    syncOps();
     c.onSelection();
   }
 
@@ -11595,6 +11637,8 @@ export async function mount(root, backend) {
   for (const id of ['pl-scale', 'pl-angle', 'pl-d']) $(id).oninput = () => cmd?.id === 'place' && cmd.preview();
   for (const b of $$('[data-plaxis]')) b.onclick = () => cmd?.id === 'place' && cmd.key(b.dataset.plaxis === 'normal' ? 'axis-normal' : `axis-${b.dataset.plaxis}`);
   for (const b of $$('[data-plop]')) b.onclick = () => cmd?.id === 'place' && cmd.key(b.dataset.plop);
+  for (const b of $$('[data-pipeop]')) b.onclick = () => cmd?.id === 'pipe' && cmd.key(b.dataset.pipeop);
+  $('pipe-keep').onclick = () => cmd?.id === 'pipe' && cmd.key('keep');
   $('sa-flip').onclick = () => cmd?.id === 'section' && cmd.key('flip');
   $('sa-d').oninput = () => cmd?.id === 'section' && cmd.preview();
   for (const b of $$('[data-txfont]')) b.onclick = () => cmd?.id === 'text' && cmd.setFont(+b.dataset.txfont);
@@ -11696,7 +11740,7 @@ export async function mount(root, backend) {
   for (const b of $$('[data-eslimit]')) b.onclick = () => cmd?.id === 'extend-sheet' && cmd.setOutside(b.dataset.eslimit === 'outside');
   $('es-unlimit').onclick = () => cmd?.id === 'extend-sheet' && cmd.setLimit(null);
   for (const f of ['th-f', 'th-b']) $(f).addEventListener('input', () => cmd?.id === 'thicken' && cmd.preview());
-  for (const f of ['pipe-r', 'pipe-t', 'pipe-v']) $(f).addEventListener('input', () => cmd?.id === 'pipe' && cmd.preview());
+  for (const f of ['pipe-r', 'pipe-t', 'pipe-v', 'pipe-a', 'pipe-s']) $(f).addEventListener('input', () => cmd?.id === 'pipe' && cmd.preview());
   $('patch-tangent').onclick = () => cmd?.id === 'patch' && cmd.key('tangent');
   $('patch-quad').onclick = () => cmd?.id === 'patch' && cmd.key('quad');
   for (const b of $$('[data-pcont]')) b.onclick = () => cmd?.id === 'patch' && cmd.setCont(b.dataset.pcont);
@@ -12066,6 +12110,8 @@ export async function mount(root, backend) {
         $('pipe-r').value = p.radius;
         $('pipe-t').value = p.thickness;
         $('pipe-v').value = p.sides;
+        $('pipe-a').value = p.angle ?? 0;
+        $('pipe-s').value = p.scale ?? 1;
         await startTool('pipe');
         if (cmd?.id !== 'pipe') throw new Error('give the curves to run pipes along');
       } else if (id === 'patch') {

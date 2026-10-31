@@ -247,6 +247,8 @@ export const TOOLS = [
             radius: { type: 'number', unit: 'mm', above: 0, default: 1, describe: "the tube's radius (to the corners for a polygon)" },
             thickness: { type: 'number', unit: 'mm', min: 0, default: 0, describe: 'wall thickness; 0 leaves the tube solid' },
             sides: { type: 'number', min: 0, default: 0, describe: '0 for a round tube, or 3 to 256 for a polygon' },
+            angle: { type: 'number', unit: '°', default: 0, describe: "a polygon section's turn about the path" },
+            scale: { type: 'number', above: 0, default: 1, describe: "the section's size at the far end relative to the start" },
         },
     },
     // Plasticity's Patch (and the fill its Xnurbs tool makes): a sheet in a closed loop.

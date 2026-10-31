@@ -73,3 +73,45 @@ fn the_document_runs_a_pipe_along_each_curve_in_one_undo_step() {
     assert!(doc.undo());
     assert!(tubes.iter().all(|t| doc.get(*t).is_none()));
 }
+
+#[test]
+fn angle_turns_the_section_and_scale_tapers_it() {
+    use w3d_kernel::form::pipe_with;
+    let k = Occt;
+    let path = line(DVec3::ZERO, DVec3::new(10.0, 0.0, 0.0));
+    // A square turned 45°: still area 8.
+    let bar = pipe_with(&k, &path, 2.0, 0.0, 4, PI / 4.0, 1.0).unwrap();
+    let m = k.tessellate(&bar, 0.001).unwrap();
+    assert!((m.volume() - 80.0).abs() < 1e-6);
+    let ys: Vec<f64> = m.positions.iter().map(|p| p[1]).collect();
+    let span = ys.iter().cloned().fold(f64::MIN, f64::max) - ys.iter().cloned().fold(f64::MAX, f64::min);
+    // Turned 45° from corners-on-the-axes, its sides face the axes: √8 across instead of 4.
+    assert!((span - 8f64.sqrt()).abs() < 1e-3, "span {span}");
+    // Round, halving its radius by the end: a frustum of radii 2 and 1.
+    let cone = pipe_with(&k, &path, 2.0, 0.0, 0, 0.0, 0.5).unwrap();
+    let v = k.tessellate(&cone, 0.0001).unwrap().volume();
+    let exact = PI * 10.0 / 3.0 * (4.0 + 2.0 + 1.0);
+    assert!((v - exact).abs() / exact < 2e-3, "volume {v} vs {exact}");
+    assert!(pipe_with(&k, &path, 2.0, 0.0, 0, 0.0, 0.0).is_err());
+}
+
+#[test]
+fn a_pipe_cuts_or_joins_a_target_in_one_undo_step() {
+    use w3d_kernel::document::{Curve, CurveShape, Document};
+    let mut doc = Document::new(Occt);
+    let block = doc.add(Occt.box_from_corners(DVec3::new(-5.0, -5.0, -5.0), DVec3::new(5.0, 5.0, 5.0)));
+    let c = Curve { origin: [0.0, 0.0, 0.0], x: [1.0, 0.0, 0.0], normal: [0.0, 0.0, 1.0], shape: CurveShape::Polyline { points: vec![[-10.0, 0.0], [10.0, 0.0]], closed: false } };
+    let ids = doc.commit_curves(vec![c]).unwrap();
+    doc.clear_history();
+    let out = doc.commit_pipe_with(&ids, 1.0, 0.0, 0, 0.0, 1.0, Some((block, BooleanOp::Difference)), false).unwrap();
+    assert_eq!(out, vec![block]);
+    let v = doc.kernel.tessellate(doc.get(block).unwrap(), 0.0001).unwrap().volume();
+    let exact = 1000.0 - PI * 10.0;
+    assert!((v - exact).abs() / exact < 1e-3, "volume {v} vs {exact}");
+    assert!(doc.undo());
+    let out = doc.commit_pipe_with(&ids, 1.0, 0.0, 0, 0.0, 1.0, Some((block, BooleanOp::Union)), true).unwrap();
+    assert_eq!(out.len(), 2, "the target and the kept tube");
+    let v = doc.kernel.tessellate(doc.get(block).unwrap(), 0.0001).unwrap().volume();
+    let exact = 1000.0 + PI * 10.0;
+    assert!((v - exact).abs() / exact < 1e-3, "volume {v} vs {exact}");
+}
