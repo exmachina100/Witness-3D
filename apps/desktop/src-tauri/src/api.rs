@@ -1555,11 +1555,36 @@ pub struct PipeRequest {
     pub thickness: f64,
     #[serde(default)]
     pub sides: u32,
+    /// The polygon section's turn about the path, radians.
+    #[serde(default)]
+    pub angle: f64,
+    /// The section's size at the far end (1 when left out).
+    #[serde(default = "one")]
+    pub scale: f64,
+    /// "new" (or left out), "union", "difference" or "intersect" with `target`.
+    #[serde(default)]
+    pub op: Option<String>,
+    #[serde(default)]
+    pub target: Option<BodyId>,
+    #[serde(default, rename = "keepTools")]
+    pub keep_tools: bool,
+}
+
+impl PipeRequest {
+    fn into_target(&self) -> Option<(BodyId, BooleanOp)> {
+        let op = match self.op.as_deref() { Some("union") => BooleanOp::Union, Some("difference") => BooleanOp::Difference, Some("intersect") => BooleanOp::Intersection, _ => return None };
+        self.target.map(|t| (t, op))
+    }
 }
 
 pub fn preview_pipe(m: &Model, req: PipeRequest) -> Option<Result<Body, ApiError>> {
     m.preview(move |doc| {
-        let mut tubes = doc.preview_pipe(&req.curves, req.radius, req.thickness, req.sides)?.into_iter();
+        let tubes = doc.preview_pipe_with(&req.curves, req.radius, req.thickness, req.sides, req.angle, req.scale)?;
+        if let Some((target, op)) = req.into_target() {
+            let t = doc.pipe_into(target, &tubes, op)?;
+            return Ok(body(&doc.kernel, target, &t.solid)?);
+        }
+        let mut tubes = tubes.into_iter();
         let first = tubes.next().ok_or(KernelError::Invalid("select the curves to run pipes along"))?;
         // Several tubes show as one preview body.
         let all = tubes.try_fold(first, |a, t| doc.kernel.boolean(&a, &t, BooleanOp::Union).map(|r| r.solid))?;
@@ -1569,7 +1594,7 @@ pub fn preview_pipe(m: &Model, req: PipeRequest) -> Option<Result<Body, ApiError
 
 pub fn commit_pipe(m: &Model, req: PipeRequest) -> Result<Duplicated, ApiError> {
     m.call(move |doc| {
-        let ids = doc.commit_pipe(&req.curves, req.radius, req.thickness, req.sides)?;
+        let ids = doc.commit_pipe_with(&req.curves, req.radius, req.thickness, req.sides, req.angle, req.scale, req.into_target(), req.keep_tools)?;
         Ok(Duplicated { ids, scene: bodies(doc)? })
     })
 }

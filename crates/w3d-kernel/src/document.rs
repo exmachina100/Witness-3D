@@ -1433,9 +1433,14 @@ impl<K: Kernel> Document<K> {
 
     /// Plasticity's Pipe, without changing the document: a tube along each curve.
     pub fn preview_pipe(&self, curves: &[CurveId], radius: f64, thickness: f64, sides: u32) -> Result<Vec<K::Solid>, KernelError> {
+        self.preview_pipe_with(curves, radius, thickness, sides, 0.0, 1.0)
+    }
+
+    /// Pipe with an Angle (radians) for a polygon section and an end Scale.
+    pub fn preview_pipe_with(&self, curves: &[CurveId], radius: f64, thickness: f64, sides: u32, angle: f64, scale: f64) -> Result<Vec<K::Solid>, KernelError> {
         if curves.is_empty() { return Err(KernelError::Invalid("select the curves to run pipes along")) }
         self.cutters(curves)?.iter().map(|(path, _)| {
-            let tube = crate::form::pipe(&self.kernel, path, radius, thickness, sides)?;
+            let tube = crate::form::pipe_with(&self.kernel, path, radius, thickness, sides, angle, scale)?;
             if !self.kernel.is_valid(&tube) || self.kernel.solid_count(&tube) == 0 {
                 return Err(KernelError::Invalid("the pipe crosses itself; use a smaller radius"));
             }
@@ -1448,6 +1453,36 @@ impl<K: Kernel> Document<K> {
         let tubes = self.preview_pipe(curves, radius, thickness, sides)?;
         self.checkpoint();
         Ok(tubes.into_iter().map(|t| self.add_unrecorded(t)).collect())
+    }
+
+    /// Pipe's booleans (Q union, W difference, Shift+E intersect): `target` with each tube in turn.
+    pub fn pipe_into(&self, target: BodyId, tubes: &[K::Solid], op: BooleanOp) -> Result<Traced<K::Solid>, KernelError> {
+        let mut cur: Option<Traced<K::Solid>> = None;
+        for t in tubes {
+            let base = match &cur { Some(c) => &c.solid, None => self.get(target).ok_or(KernelError::Invalid("that body no longer exists"))? };
+            let next = self.kernel.boolean(base, t, op)?;
+            cur = Some(match cur { Some(prev) => Traced { solid: next.solid, history: chain(&prev.history, &next.history) }, None => next });
+        }
+        let t = cur.ok_or(KernelError::Invalid("select the curves to run pipes along"))?;
+        if self.kernel.face_count(&t.solid) == 0 { return Err(KernelError::Invalid("the boolean leaves nothing")) }
+        Ok(t)
+    }
+
+    /// Pipe with its options as one undoable step: new bodies, or `target` changed by the tubes
+    /// (`keep_tools` also keeps each tube as a body). Returns the target first, then any new bodies.
+    #[allow(clippy::too_many_arguments)]
+    pub fn commit_pipe_with(&mut self, curves: &[CurveId], radius: f64, thickness: f64, sides: u32, angle: f64, scale: f64, into: Option<(BodyId, BooleanOp)>, keep_tools: bool) -> Result<Vec<BodyId>, KernelError> {
+        let tubes = self.preview_pipe_with(curves, radius, thickness, sides, angle, scale)?;
+        let Some((target, op)) = into else {
+            self.checkpoint();
+            return Ok(tubes.into_iter().map(|t| self.add_unrecorded(t)).collect());
+        };
+        let t = self.pipe_into(target, &tubes, op)?;
+        self.checkpoint();
+        self.replace_traced(target, t);
+        let mut ids = vec![target];
+        if keep_tools { ids.extend(tubes.into_iter().map(|t| self.add_unrecorded(t))); }
+        Ok(ids)
     }
 
     /// Plasticity's Patch, without changing the document: a sheet filling one closed loop of

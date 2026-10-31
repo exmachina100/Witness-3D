@@ -301,6 +301,14 @@ pub fn match_faces_grow<K: Kernel>(
 /// regular polygon with corners on the radius; with a `thickness` its walls are that thick and
 /// the middle is hollow. The section starts square to the path and is swept along it.
 pub fn pipe<K: Kernel>(k: &K, path: &Path, radius: f64, thickness: f64, sides: u32) -> Result<K::Solid, KernelError> {
+    pipe_with(k, path, radius, thickness, sides, 0.0, 1.0)
+}
+
+/// Pipe with Plasticity's Angle (the polygon section turned about the path, radians) and Scale
+/// (the section's size at the far end, the start's being 1; it changes evenly along the path).
+pub fn pipe_with<K: Kernel>(k: &K, path: &Path, radius: f64, thickness: f64, sides: u32, angle: f64, scale: f64) -> Result<K::Solid, KernelError> {
+    if !angle.is_finite() { return Err(KernelError::Invalid("the angle must be a number")) }
+    if !scale.is_finite() || scale <= 1e-6 { return Err(KernelError::Invalid("the end scale must be greater than zero")) }
     if !radius.is_finite() || radius <= 1e-6 { return Err(KernelError::Invalid("the radius must be greater than zero")) }
     if !thickness.is_finite() || thickness < 0.0 { return Err(KernelError::Invalid("the thickness can't be negative")) }
     if thickness >= radius - 1e-6 { return Err(KernelError::Invalid("the wall is as thick as the pipe; use a thinner wall or leave it solid")) }
@@ -314,10 +322,10 @@ pub fn pipe<K: Kernel>(k: &K, path: &Path, radius: f64, thickness: f64, sides: u
     let section = |r: f64| if sides == 0 {
         Profile::Circle { center: (0.0, 0.0), radius: r }
     } else {
-        Profile::Polygon((0..sides).map(|i| { let a = std::f64::consts::TAU * i as f64 / sides as f64; (r * a.cos(), r * a.sin()) }).collect())
+        Profile::Polygon((0..sides).map(|i| { let a = std::f64::consts::TAU * i as f64 / sides as f64 + angle; (r * a.cos(), r * a.sin()) }).collect())
     };
-    let outer = k.sweep(&section(radius), &frame, path, 0.0, 1.0)?;
+    let outer = k.sweep(&section(radius), &frame, path, 0.0, scale)?;
     if thickness <= 1e-9 { return Ok(outer) }
-    let inner = k.sweep(&section(radius - thickness), &frame, path, 0.0, 1.0)?;
+    let inner = k.sweep(&section(radius - thickness), &frame, path, 0.0, scale)?;
     Ok(k.boolean(&outer, &inner, BooleanOp::Difference)?.solid)
 }

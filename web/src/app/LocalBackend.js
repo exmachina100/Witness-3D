@@ -1005,22 +1005,38 @@ export class LocalBackend {
     }
 
     /** Plasticity's Pipe: a tube along each of `curves`, round (`sides` 0) or polygonal, hollow with a `thickness`. */
-    pipeResult({ curves = [], radius, thickness = 0, sides = 0 }) {
+    pipeResult({ curves = [], radius, thickness = 0, sides = 0, angle = 0, scale = 1 }) {
         if (!curves.length) throw new Error('select the curves to run pipes along');
         const o = oc();
         return curves.map(id => {
             const c = this.curveMap.get(id);
             if (!c) throw new Error('that curve no longer exists');
-            const tube = pipe(c, radius, thickness, sides);
+            const tube = pipe(c, radius, thickness, sides, angle, scale);
             if (!new o.BRepCheck_Analyzer(tube, true, false, false).IsValid() || count(tube, 'TopAbs_SOLID') === 0) throw new Error('the pipe crosses itself; use a smaller radius');
             return tube;
         });
     }
 
+    /** Pipe's booleans (Q union, W difference, Shift+E intersect): the target with each tube in turn, or null for new bodies. */
+    pipeInto(req, tubes) {
+        const op = { union: 'union', difference: 'difference', intersect: 'intersection' }[req.op];
+        if (!op || req.target === null || req.target === undefined) return null;
+        let s = this.shapes.get(req.target), history = null;
+        if (!s) throw new Error('that body no longer exists');
+        for (const t of tubes) {
+            const r = booleanWithHistory(s, t, op);
+            history = history ? chain(history, r.history) : r.history;
+            s = r.shape;
+        }
+        if (count(s, 'TopAbs_FACE') === 0) throw new Error('the boolean leaves nothing');
+        return { shape: s, history };
+    }
+
     /** The tubes as one preview shape. */
     previewPipe(req) {
         return this.latest(async () => {
-            const o = oc(), tubes = this.pipeResult(req);
+            const o = oc(), tubes = this.pipeResult(req), into = this.pipeInto(req, tubes);
+            if (into) return this.body(req.target, into.shape);
             if (tubes.length === 1) return this.body(0, tubes[0]);
             const all = new o.TopoDS_Compound(), b = new o.BRep_Builder();
             b.MakeCompound(all);
@@ -1031,7 +1047,14 @@ export class LocalBackend {
 
     /** Pipe as one undo step: each tube is a body of its own and the curves stay. */
     async commitPipe(req) {
-        const tubes = this.pipeResult(req);
+        const tubes = this.pipeResult(req), into = this.pipeInto(req, tubes);
+        if (into) {
+            this.checkpoint();
+            this.put(req.target, into.shape, into.history);
+            const ids = [req.target];
+            if (req.keepTools) for (const t of tubes) { const id = this.nextId++; this.put(id, t); ids.push(id); }
+            return { ids, scene: this.bodies() };
+        }
         this.checkpoint();
         const ids = tubes.map(t => { const id = this.nextId++; this.put(id, t); return id; });
         return { ids, scene: this.bodies() };

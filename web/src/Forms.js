@@ -266,36 +266,41 @@ function along(g, f) {
     }
 }
 
+/**
+ * The profile a fraction `f` along path geometry `g`: turned (`twist` × f) and scaled about its
+ * centre, then carried by the path's own turn (parallel transport) and position, as on the desktop.
+ */
+function carried(prof, g, f, steps, twist = 0, scale = 1) {
+    const o = oc();
+    const t = new o.gp_Trsf();
+    t.SetRotation(new o.gp_Ax1(pnt(prof.centre), dir(prof.normal)), twist * f);
+    const grow = new o.gp_Trsf();
+    grow.SetScale(pnt(prof.centre), 1 + (scale - 1) * f);
+    const carry = new THREE.Quaternion();
+    const start = along(g, 0);
+    let prev = start.tangent;
+    for (let i = 1; i <= steps; i++) {
+        const tan = along(g, f * i / steps).tangent;
+        carry.premultiply(new THREE.Quaternion().setFromUnitVectors(prev.clone().normalize(), tan.clone().normalize()));
+        prev = tan;
+    }
+    const r = new o.gp_Trsf();
+    const ax = new THREE.Vector3(carry.x, carry.y, carry.z);
+    if (ax.length() > 1e-12) r.SetRotation(new o.gp_Ax1(pnt(start.point), dir(ax.normalize())), 2 * Math.acos(Math.min(1, Math.max(-1, carry.w))));
+    const end = along(g, f).point;
+    const move = new o.gp_Trsf();
+    move.SetTranslation(pnt(start.point), pnt(end));
+    const all = move.Multiplied(r).Multiplied(grow).Multiplied(t);
+    return o.TopoDS.Wire(new o.BRepBuilderAPI_Transform(prof.wire, all, true, false).Shape());
+}
+
 export function sweep(c, path, twist = 0, scale = 1) {
     const o = oc();
     if (!Number.isFinite(twist) || !(scale > 0)) throw new Error('the end scale must be greater than zero');
     const prof = section(c), g = geometry(path);
     const plain = Math.abs(twist) < 1e-12 && Math.abs(scale - 1) < 1e-12;
     if (!plain && (g.circle || g.closed)) throw new Error('twist and scale need a path with two ends');
-    // The profile a fraction `f` along: turned and scaled about its centre, then carried by the
-    // path's own turn (parallel transport) and position, as on the desktop.
-    const sectionAt = (f, steps) => {
-        const t = new o.gp_Trsf();
-        t.SetRotation(new o.gp_Ax1(pnt(prof.centre), dir(prof.normal)), twist * f);
-        const grow = new o.gp_Trsf();
-        grow.SetScale(pnt(prof.centre), 1 + (scale - 1) * f);
-        const carry = new THREE.Quaternion();
-        const start = along(g, 0);
-        let prev = start.tangent;
-        for (let i = 1; i <= steps; i++) {
-            const tan = along(g, f * i / steps).tangent;
-            carry.premultiply(new THREE.Quaternion().setFromUnitVectors(prev.clone().normalize(), tan.clone().normalize()));
-            prev = tan;
-        }
-        const r = new o.gp_Trsf();
-        const ax = new THREE.Vector3(carry.x, carry.y, carry.z);
-        if (ax.length() > 1e-12) r.SetRotation(new o.gp_Ax1(pnt(start.point), dir(ax.normalize())), 2 * Math.acos(Math.min(1, Math.max(-1, carry.w))));
-        const end = along(g, f).point;
-        const move = new o.gp_Trsf();
-        move.SetTranslation(pnt(start.point), pnt(end));
-        const all = move.Multiplied(r).Multiplied(grow).Multiplied(t);
-        return o.TopoDS.Wire(new o.BRepBuilderAPI_Transform(prof.wire, all, true, false).Shape());
-    };
+    const sectionAt = (f, steps) => carried(prof, g, f, steps, twist, scale);
     if (Math.abs(twist) > 1e-12) {
         const n = Math.max(8, Math.ceil(Math.abs(twist) / (Math.PI / 12)));
         const mk = new o.BRepOffsetAPI_ThruSections(true, false, 1e-6);
@@ -610,8 +615,10 @@ export function loftGuided(cs, guides) {
  * Plasticity's Pipe: a tube of `radius` along `path`, its section a circle (`sides` 0) or a regular
  * polygon with corners on the radius; with a `thickness` the middle is hollow. As form.rs's pipe.
  */
-export function pipe(path, radius, thickness = 0, sides = 0) {
+export function pipe(path, radius, thickness = 0, sides = 0, angle = 0, scale = 1) {
     const o = oc();
+    if (!Number.isFinite(angle)) throw new Error('the angle must be a number');
+    if (!(scale > 1e-6) || !Number.isFinite(scale)) throw new Error('the end scale must be greater than zero');
     if (!Number.isFinite(radius) || radius <= 1e-6) throw new Error('the radius must be greater than zero');
     if (!Number.isFinite(thickness) || thickness < 0) throw new Error("the thickness can't be negative");
     if (thickness >= radius - 1e-6) throw new Error('the wall is as thick as the pipe; use a thinner wall or leave it solid');
@@ -625,16 +632,22 @@ export function pipe(path, radius, thickness = 0, sides = 0) {
         const mk = new o.BRepBuilderAPI_MakeWire();
         if (sides === 0) mk.Add(new o.BRepBuilderAPI_MakeEdge(new o.gp_Circ(new o.gp_Ax2(pnt(start.point), dir(n), dir(x)), r)).Edge());
         else {
-            const at = i => { const a = 2 * Math.PI * (i % sides) / sides; return start.point.clone().addScaledVector(x, r * Math.cos(a)).addScaledVector(y, r * Math.sin(a)); };
+            const at = i => { const a = 2 * Math.PI * (i % sides) / sides + angle; return start.point.clone().addScaledVector(x, r * Math.cos(a)).addScaledVector(y, r * Math.sin(a)); };
             for (let i = 0; i < sides; i++) mk.Add(new o.BRepBuilderAPI_MakeEdge(pnt(at(i)), pnt(at(i + 1))).Edge());
         }
         return mk.Wire();
     };
+    const tapered = Math.abs(scale - 1) > 1e-12;
+    if (tapered && (g.circle || g.closed)) throw new Error('scale needs a path with two ends');
     const tube = r => {
-        const mk = new o.BRepOffsetAPI_MakePipeShell(wireOf(g).Wire());
+        const spine = wireOf(g);
+        const mk = new o.BRepOffsetAPI_MakePipeShell(spine.Wire());
         mk.SetMode(!!g.spiral);
         mk.SetTransitionMode(o.BRepBuilderAPI_TransitionMode.BRepBuilderAPI_RightCorner);
-        mk.Add(section(r), false, false);
+        const w = section(r);
+        mk.Add(w, false, false);
+        // Scale: the section at the far end is `scale` times the size, carried along the path as Sweep's is.
+        if (tapered) mk.Add(carried({ wire: w, centre: start.point, normal: n }, g, 1, 64, 0, scale), spine.Vertex(), false, false);
         mk.Build(new o.Message_ProgressRange());
         if (!mk.IsDone()) throw new Error('the pipe could not follow that curve; use a smaller radius');
         if (!mk.MakeSolid()) throw new Error('the pipe did not close into a solid');
