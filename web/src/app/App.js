@@ -100,6 +100,7 @@ import { Toolbar } from './Toolbar.js';
 import { arcballAbout, dragAngles, orbitAbout } from './orbit.js';
 import { poleMoves } from '../poleFalloff.js';
 import { planeFrom } from '../cplaneFrom.js';
+import { circleTangents, closestOnScreen, curvePointSnaps, intersections, perpendicularFeet, tangentPoints } from '../curveSnaps.js';
 import { PREF_FIELDS, changedPrefs, controlSettings, readPrefs, setPref, viewColors, wheelSpeed } from './prefs.js';
 import { arcPoints, circleThrough, curveFromNurbs, cvPoints, ellipsePoints, endTangent, helixPoints, loops, nurbsLoop, nurbsPoints, polygonCorners, spiralAngle, tangentArc } from '../curves.js';
 
@@ -2915,7 +2916,8 @@ export async function mount(root, backend) {
   const targetBodies = () => sel.solids.length ? sel.solids : sel.bodies;
 
   // --- point snapping -------------------------------------------------------
-  // Plasticity: Ctrl snaps to the ends and middles of edges and the centres of faces, shown as a dot
+  // Plasticity: Ctrl snaps to the ends and middles of edges and the centres of faces (curves: see
+  // curvePolys below), shown as a dot
   // with a tip; it is on by itself while placing a sketch. Alt turns it off for that.
   const SNAP_PX = 10;
   const snapDot = new THREE.Group();
@@ -2979,17 +2981,67 @@ export async function mount(root, backend) {
     if (m.userData.sectionKey !== key) { m.userData.sectionKey = key; m.userData.sectionSnaps = crossings(m.userData.edges, p, 'SECTION'); }
     return m.userData.sectionSnaps;
   }
-  function snapNear(e, meshes, plane = null) {
+  // Curve snaps (curveSnaps.js): ends, middle, 1/4, 3/4, centre and crossings of the shown curves,
+  // worked out once per set of curves; Perpendicular and Tangent from the point a drawing is at;
+  // Closest, any point along a curve, when nothing else is near.
+  let curveSnapCache = { list: null, shown: '', snaps: [], polys: [] };
+  function curvePolys() {
+    const shown = curveGroup.visible ? curveGroup.children.filter(o => o.visible && o.userData.curve !== undefined).map(o => o.userData.curve) : [];
+    const key = shown.join(',');
+    if (curveSnapCache.list === curveList && curveSnapCache.shown === key) return curveSnapCache;
+    const polys = [];
+    for (const id of shown) {
+      const c = curveById(id);
+      if (!c) continue;
+      const f = curveFrame(c);
+      const pts = curve2d(c).map(p => lift(f, p).toArray());
+      let center = null, radius = null;
+      if (c.kind === 'circle' || c.kind === 'ellipse') { center = lift(f, { x: c.center[0], y: c.center[1] }).toArray(); radius = c.kind === 'circle' ? c.radius : null; }
+      else if (c.kind === 'arc') { const k = circleThrough(c.start, c.mid, c.end); if (k) { center = lift(f, { x: k.center[0], y: k.center[1] }).toArray(); radius = k.radius; } }
+      polys.push({ id, pts, closed: isClosed(c), center, radius, normal: f.n.toArray(), arc: c.kind === 'arc' });
+    }
+    const v = a => new THREE.Vector3(...a);
+    const snaps = [...polys.flatMap(q => curvePointSnaps(q.pts, q)), ...intersections(polys, 1e-3)].map(x => ({ point: v(x.point), kind: x.kind }));
+    return curveSnapCache = { list: curveList, shown: key, snaps, polys };
+  }
+  /** Perpendicular and Tangent snaps on the shown curves from the point `from` (in the drawing plane, `normal`). */
+  function fromSnaps(from, normal) {
+    const out = [], f = from.toArray(), n = normal?.toArray();
+    for (const q of curvePolys().polys) {
+      out.push(...perpendicularFeet(q.pts, f, q.closed));
+      if (!n) continue;
+      // A circle or arc gets the exact tangent points (an arc's only where they lie on it).
+      if (q.radius && Math.abs(Math.abs(q.normal[0] * n[0] + q.normal[1] * n[1] + q.normal[2] * n[2]) - 1) < 1e-6) {
+        const ts = circleTangents(q.center, q.radius, q.normal, f);
+        out.push(...(q.arc ? ts.filter(t => q.pts.some((p, i) => i && Math.hypot(...[0, 1, 2].map(k => (p[k] + q.pts[i - 1][k]) / 2 - t.point[k])) < Math.hypot(...[0, 1, 2].map(k => p[k] - q.pts[i - 1][k])))) : ts));
+      } else out.push(...tangentPoints(q.pts, f, n, q.closed));
+    }
+    return out.map(x => ({ point: new THREE.Vector3(...x.point), kind: x.kind }));
+  }
+  function snapNear(e, meshes, plane = null, from = null) {
     const c = local(e);
     let best = null, bestD = SNAP_PX;
     // 2026.2: instances snap as their masters do, where they stand.
     const placed = instanceGroup.children.filter(o => o.isMesh && o.visible).flatMap(o => instanceSnaps(o));
-    for (const s of [...meshes.flatMap(m => [...snapCandidates(m), ...sectionSnaps(m)]), ...placed]) {
+    const curves = curvePolys();
+    const all = [...meshes.flatMap(m => [...snapCandidates(m), ...sectionSnaps(m)]), ...placed, ...curves.snaps, ...(from ? fromSnaps(from, plane?.normal) : [])];
+    for (const s of all) {
       if (plane && Math.abs(plane.distanceToPoint(s.point)) > 1e-3) continue;
       const p = screenOf(s.point);
       if (p.behind) continue;
       const d = Math.hypot(p.x - c.x, p.y - c.y);
-      if (d < bestD) { bestD = d; best = s; }
+      // Points along a curve give way to the named points of the same place.
+      if (d < bestD - 1e-6) { bestD = d; best = s; }
+    }
+    if (!best) {
+      // Closest: the nearest point along a curve under the pointer.
+      let near = null;
+      for (const q of curves.polys) {
+        if (plane && q.pts.some(p => Math.abs(plane.distanceToPoint(new THREE.Vector3(...p))) > 1e-3)) continue;
+        const hit = closestOnScreen(q.pts, q.pts.map(p => screenOf(new THREE.Vector3(...p))), c, q.closed);
+        if (hit && hit.d < SNAP_PX * 0.7 && (!near || hit.d < near.d)) near = hit;
+      }
+      if (near) return { point: new THREE.Vector3(...near.point), kind: 'ON CURVE' };
     }
     return best && { point: best.point.clone(), kind: best.kind };
   }
@@ -4232,7 +4284,8 @@ export async function mount(root, backend) {
     const plane = new THREE.Plane().setFromNormalAndCoplanarPoint(n, o);
     const at = raycaster.ray.intersectPlane(plane, new THREE.Vector3());
     if (!at) return null;
-    const s = e.altKey ? null : snapNear(e, shownMeshes(), plane);
+    const from = c.pts?.length && c.pts.at(-1)?.isVector2 ? o.clone().addScaledVector(x, c.pts.at(-1).x).addScaledVector(y, c.pts.at(-1).y) : null;
+    const s = e.altKey ? null : snapNear(e, shownMeshes(), plane, from);
     const d = (s ? s.point : at).clone().sub(o);
     const uv = new THREE.Vector2(d.dot(x), d.dot(y));
     if (!s && snapping(e)) uv.set(Math.round(uv.x / gridStep()) * gridStep(), Math.round(uv.y / gridStep()) * gridStep());
