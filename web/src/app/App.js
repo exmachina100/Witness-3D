@@ -878,6 +878,22 @@ const SHELL = `
       <div class="field"><label for="w3d-dy">ΔY</label><input id="w3d-dy" data-move="1" type="number" step="2.5" value="0"></div>
       <div class="field"><label for="w3d-dz">ΔZ</label><input id="w3d-dz" data-move="2" type="number" step="2.5" value="0"></div>
     </div>
+    <div class="sec" data-panel="xf-opts" hidden>
+      <span class="label">ORIENTATION</span>
+      <div class="seg wrap2" role="group" aria-label="Gizmo orientation">
+        <button data-xforient="normal" aria-pressed="false" title="Normal: the gizmo's axes stand on the selected face (or the curve's plane)"><kbd>W</kbd>NORMAL</button>
+        <button data-xforient="pivot" aria-pressed="false" title="Pivot: the axes stand on the face where the pivot was clicked">PIVOT</button>
+        <button data-xforient="plane" aria-pressed="false" title="Construction plane: the axes follow the construction plane">CPLANE</button>
+        <button data-xforient="world" aria-pressed="true" title="World: the axes follow the world's">WORLD</button>
+      </div>
+      <span class="label">PIVOT</span>
+      <div class="seg" role="group" aria-label="Pivot">
+        <button data-xfpivot="bbox" aria-pressed="true" title="The middle of the box round everything selected">BBOX</button>
+        <button data-xfpivot="median" aria-pressed="false" title="The mean of the selected items' middles">MEDIAN</button>
+        <button data-xfpivot="active" aria-pressed="false" title="The middle of the item selected last">ACTIVE</button>
+      </div>
+      <div class="chips"><button data-id="xf-pick" aria-pressed="false" title="Click where the gizmo goes"><kbd>V</kbd>SET PIVOT</button><button data-id="xf-unpivot" aria-pressed="false" title="Remove the pivot you set"><kbd>⌥V</kbd>REMOVE PIVOT</button></div>
+    </div>
     <div class="sec" data-panel="pole-opts" hidden>
       <span class="label">PROPORTIONAL</span>
       <div class="seg" role="group" aria-label="Proportional">
@@ -1011,11 +1027,11 @@ const VIEWS = {
 export async function mount(root, backend) {
   root.innerHTML = SHELL;
   // Panel options carry their icon ahead of the key and name.
-  for (const b of root.querySelectorAll('[data-proj],[data-imp],[data-impcomp],[data-draw],[data-bop],[data-btmat],[data-bumat],[data-xop],[data-fop],[data-spiral],[data-toggle],[data-gmethod],[data-galign],[data-gcorner],[data-grow],[data-mfgrow],[data-drgrow],[data-eslimit],[data-flshape],[data-drtaper],[data-avaxis],[data-extshape],[data-esshape],[data-isodir],[data-id="oe-both"],[data-id="iso-subdivide"],[data-id="oe-individual"],[data-id="blend-tangent"],[data-id="ex-lock"],[data-id="bool-keep"],[data-id="prim-keep"],[data-id="ex-free"],[data-id="ex-pivot"],[data-id="ex-individual"],[data-id="patch-individual"],[data-id="patch-quad"],[data-id="as-symmetric"],[data-id="as-analysis"],[data-id="sq-analysis"],[data-id="dr-hidden"],[data-id="dr-curves"],[data-id="oc-lock"],[data-id="oc-free"],[data-id="oc-slot"],[data-id="oc-combine"],[data-id="es-unlimit"],[data-rbmethod],[data-oecorner],[data-saplane],[data-plaxis],[data-plop],[data-id="pl-flip"],[data-id="pl-instance"],[data-id="mirror-instance"],[data-id="ra-instance"],[data-id="rr-instance"],[data-id="ca-instance"],[data-id="br-trim"],[data-id="br-comb"],[data-id="ac-comb"],[data-id="dc-reblend"],[data-id="section-btn"],[data-id="sa-flip"],[data-id="rf-shrink"],[data-id="ut-keep"],[data-txfont],[data-id="tx-load"],[data-id="tx-system"],[data-txalign],[data-sldir],[data-dcflip],[data-id="dc-keep"],[data-imdepth],[data-imcull],[data-id="im-delete"],[data-id="cc-extend"],[data-id="cc-screen"],[data-inmode],[data-pfmode],[data-pfmirror],[data-pmethod],[data-mxtopo],[data-id="mx-convex"],[data-sqbound],[data-asbound],[data-bsshape],[data-bstrim],[data-id="bs-add"],[data-id="bs-s1"],[data-id="bs-s2"],[data-id="in-realize"],[data-id="in-dup"],[data-id="in-delete"],[data-id="matcap-load"],[data-id="matcap-custom"],[data-id="hdr-load"],[data-id="hdr-custom"]')) {
-    const name = (b.dataset.proj && (b.dataset.proj === 'screen' ? 'view-screen' : `proj-${b.dataset.proj}`)) ?? (b.dataset.imp && (b.dataset.imp === 'screen' ? 'view-screen' : `proj-${b.dataset.imp}`)) ?? (b.dataset.impcomp && `completion-${b.dataset.impcomp}`) ?? b.dataset.draw ?? b.dataset.bop ?? (b.dataset.btmat && `mat-${b.dataset.btmat}`) ?? (b.dataset.bumat && `mat-${b.dataset.bumat}`) ?? b.dataset.xop ?? b.dataset.fop ?? b.dataset.spiral ?? (b.dataset.toggle && `view-${b.dataset.toggle}`)
+  for (const b of root.querySelectorAll('[data-proj],[data-imp],[data-impcomp],[data-draw],[data-bop],[data-btmat],[data-bumat],[data-xop],[data-fop],[data-spiral],[data-toggle],[data-gmethod],[data-galign],[data-gcorner],[data-grow],[data-mfgrow],[data-drgrow],[data-eslimit],[data-flshape],[data-drtaper],[data-avaxis],[data-extshape],[data-esshape],[data-isodir],[data-id="oe-both"],[data-id="iso-subdivide"],[data-id="oe-individual"],[data-id="blend-tangent"],[data-id="ex-lock"],[data-id="bool-keep"],[data-id="prim-keep"],[data-id="ex-free"],[data-id="ex-pivot"],[data-id="ex-individual"],[data-id="patch-individual"],[data-id="patch-quad"],[data-id="as-symmetric"],[data-id="as-analysis"],[data-id="sq-analysis"],[data-id="dr-hidden"],[data-id="dr-curves"],[data-id="oc-lock"],[data-id="oc-free"],[data-id="oc-slot"],[data-id="oc-combine"],[data-id="es-unlimit"],[data-rbmethod],[data-oecorner],[data-saplane],[data-plaxis],[data-plop],[data-id="pl-flip"],[data-id="pl-instance"],[data-id="mirror-instance"],[data-id="ra-instance"],[data-id="rr-instance"],[data-id="ca-instance"],[data-id="br-trim"],[data-id="br-comb"],[data-id="ac-comb"],[data-id="dc-reblend"],[data-id="section-btn"],[data-id="sa-flip"],[data-id="rf-shrink"],[data-id="ut-keep"],[data-txfont],[data-id="tx-load"],[data-id="tx-system"],[data-txalign],[data-sldir],[data-dcflip],[data-id="dc-keep"],[data-imdepth],[data-imcull],[data-id="im-delete"],[data-id="cc-extend"],[data-id="cc-screen"],[data-inmode],[data-pfmode],[data-pfmirror],[data-xforient],[data-xfpivot],[data-id="xf-pick"],[data-id="xf-unpivot"],[data-pmethod],[data-mxtopo],[data-id="mx-convex"],[data-sqbound],[data-asbound],[data-bsshape],[data-bstrim],[data-id="bs-add"],[data-id="bs-s1"],[data-id="bs-s2"],[data-id="in-realize"],[data-id="in-dup"],[data-id="in-delete"],[data-id="matcap-load"],[data-id="matcap-custom"],[data-id="hdr-load"],[data-id="hdr-custom"]')) {
+    const name = (b.dataset.proj && (b.dataset.proj === 'screen' ? 'view-screen' : `proj-${b.dataset.proj}`)) ?? (b.dataset.imp && (b.dataset.imp === 'screen' ? 'view-screen' : `proj-${b.dataset.imp}`)) ?? (b.dataset.impcomp && `completion-${b.dataset.impcomp}`) ?? b.dataset.draw ?? b.dataset.bop ?? (b.dataset.xforient && `orient-${b.dataset.xforient}`) ?? (b.dataset.xfpivot && `pivot-${b.dataset.xfpivot}`) ?? (b.dataset.btmat && `mat-${b.dataset.btmat}`) ?? (b.dataset.bumat && `mat-${b.dataset.bumat}`) ?? b.dataset.xop ?? b.dataset.fop ?? b.dataset.spiral ?? (b.dataset.toggle && `view-${b.dataset.toggle}`)
       ?? (b.dataset.gmethod && `guide-${b.dataset.gmethod}`) ?? (b.dataset.galign && `align-${b.dataset.galign}`) ?? (b.dataset.gcorner && (b.dataset.gcorner === 'round' ? 'corner-round' : 'corner-linear')) ?? (b.dataset.grow && `grow-${b.dataset.grow}`) ?? (b.dataset.mfgrow && `grow-${b.dataset.mfgrow}`) ?? (b.dataset.drgrow && `grow-${b.dataset.drgrow}`) ?? (b.dataset.eslimit && `limit-${b.dataset.eslimit}`) ?? (b.dataset.flshape && `fillet-${b.dataset.flshape}`) ?? (b.dataset.drtaper && `taper-${b.dataset.drtaper}`) ?? (b.dataset.avaxis && `axis-${b.dataset.avaxis}`) ?? (b.dataset.extshape && `extend-${b.dataset.extshape}`) ?? (b.dataset.esshape && `extend-${b.dataset.esshape}`) ?? (b.dataset.isodir && `iso-${b.dataset.isodir}`) ?? (b.dataset.rbmethod && `rebuild-${b.dataset.rbmethod}`) ?? (b.dataset.oecorner && `corner-${b.dataset.oecorner}`) ?? (b.dataset.saplane && `section-${b.dataset.saplane}`) ?? (b.dataset.plaxis && (b.dataset.plaxis === 'normal' ? 'place-normal' : `axis-${b.dataset.plaxis}`)) ?? b.dataset.plop
       ?? (b.dataset.txfont && `font-${b.dataset.txfont}`) ?? (b.dataset.txalign && `txalign-${b.dataset.txalign}`) ?? (b.dataset.sldir && { u: 'slide-u', '-u': 'slide-back', v: 'slide-v', '-v': 'slide-vback', n: 'slide-n' }[b.dataset.sldir]) ?? (b.dataset.dcflip && { mirror: 'mirror', swap: 'swap-uv', normal: 'reverse-sheet' }[b.dataset.dcflip]) ?? (b.dataset.imdepth && `depth-${b.dataset.imdepth}`) ?? (b.dataset.imcull && `cull-${b.dataset.imcull}`) ?? b.dataset.inmode ?? (b.dataset.bsshape && `bridge-${b.dataset.bsshape}`) ?? (b.dataset.bstrim && `trimwall-${b.dataset.bstrim}`) ?? (b.dataset.mxtopo && `topo-${b.dataset.mxtopo}`) ?? (b.dataset.pmethod && (b.dataset.pmethod === 'fill' ? 'patch-fill' : `trim-${b.dataset.pmethod}`)) ?? (b.dataset.pfmode && `falloff-${b.dataset.pfmode}`) ?? ((b.dataset.sqbound ?? b.dataset.asbound) && `bound-${b.dataset.sqbound ?? b.dataset.asbound}`) ?? (b.dataset.pfmirror && `mirror-${b.dataset.pfmirror}`)
-      ?? { 'matcap-load': 'matcap-load', 'matcap-custom': 'matcap', 'tx-load': 'font-load', 'tx-system': 'font-system', 'hdr-load': 'hdr-load', 'hdr-custom': 'hdr', 'ex-lock': 'lock', 'bool-keep': 'keep', 'prim-keep': 'keep', 'ex-free': 'freestyle', 'ex-pivot': 'pivot', 'ex-individual': 'individual', 'patch-individual': 'individual', 'mx-convex': 'convex', 'patch-quad': 'square', 'as-symmetric': 'symmetric', 'as-analysis': 'analysis', 'sq-analysis': 'analysis', 'bs-add': 'wall-pair', 'bs-s1': 'flip', 'bs-s2': 'flip', 'dr-hidden': 'hidden-lines', 'dr-curves': 'drawing-curves', 'oc-lock': 'lock', 'oc-free': 'freestyle', 'oc-slot': 'slot', 'oc-combine': 'combine', 'oe-both': 'both-sides', 'iso-subdivide': 'subdivide', 'oe-individual': 'individual', 'blend-tangent': 'tangent-chain', 'es-unlimit': 'unlimit', 'rf-shrink': 'shrink', 'ut-keep': 'keep-edges', 'section-btn': 'view-section', 'sa-flip': 'flip', 'pl-flip': 'flip', 'pl-instance': 'instance', 'mirror-instance': 'instance', 'ra-instance': 'instance', 'rr-instance': 'instance', 'ca-instance': 'instance', 'br-trim': 'trim', 'br-comb': 'view-curvature', 'ac-comb': 'view-curvature', 'dc-reblend': 'reblend', 'dc-keep': 'keep', 'im-delete': 'delete', 'in-realize': 'realize-instance', 'cc-extend': 'extend', 'cc-screen': 'view-screen', 'in-dup': 'duplicate', 'in-delete': 'delete' }[b.dataset.id];
+      ?? { 'matcap-load': 'matcap-load', 'matcap-custom': 'matcap', 'tx-load': 'font-load', 'tx-system': 'font-system', 'hdr-load': 'hdr-load', 'hdr-custom': 'hdr', 'ex-lock': 'lock', 'bool-keep': 'keep', 'prim-keep': 'keep', 'ex-free': 'freestyle', 'ex-pivot': 'pivot', 'ex-individual': 'individual', 'patch-individual': 'individual', 'mx-convex': 'convex', 'patch-quad': 'square', 'as-symmetric': 'symmetric', 'as-analysis': 'analysis', 'sq-analysis': 'analysis', 'bs-add': 'wall-pair', 'bs-s1': 'flip', 'bs-s2': 'flip', 'dr-hidden': 'hidden-lines', 'dr-curves': 'drawing-curves', 'oc-lock': 'lock', 'oc-free': 'freestyle', 'oc-slot': 'slot', 'oc-combine': 'combine', 'oe-both': 'both-sides', 'xf-pick': 'pivot', 'xf-unpivot': 'pivot-remove', 'iso-subdivide': 'subdivide', 'oe-individual': 'individual', 'blend-tangent': 'tangent-chain', 'es-unlimit': 'unlimit', 'rf-shrink': 'shrink', 'ut-keep': 'keep-edges', 'section-btn': 'view-section', 'sa-flip': 'flip', 'pl-flip': 'flip', 'pl-instance': 'instance', 'mirror-instance': 'instance', 'ra-instance': 'instance', 'rr-instance': 'instance', 'ca-instance': 'instance', 'br-trim': 'trim', 'br-comb': 'view-curvature', 'ac-comb': 'view-curvature', 'dc-reblend': 'reblend', 'dc-keep': 'keep', 'im-delete': 'delete', 'in-realize': 'realize-instance', 'cc-extend': 'extend', 'cc-screen': 'view-screen', 'in-dup': 'duplicate', 'in-delete': 'delete' }[b.dataset.id];
     b.insertAdjacentHTML('afterbegin', icon(name));
   }
   const $ = id => root.querySelector(`[data-id="${id}"]`);
@@ -2105,6 +2121,8 @@ export async function mount(root, backend) {
   // makes one facing the view through the origin, and Num7/1/3 bring XY, XZ and YZ with their views.
   const UP = new THREE.Vector3(0, 1, 0);
   const cplane = { origin: new THREE.Vector3(), normal: UP.clone(), name: 'XY' };
+  // Move, Rotate and Scale keep their orientation and pivot choices from one use to the next.
+  const xfPrefs = { orient: 'world', pivot: 'bbox' };
   const grid = new THREE.GridHelper(400, 40, COLORS.gridMajor, COLORS.grid);
   scene.add(grid);
   const planeOf = () => new THREE.Plane().setFromNormalAndCoplanarPoint(cplane.normal, cplane.origin);
@@ -3323,12 +3341,61 @@ export async function mount(root, backend) {
     scene.add(handle);
     const tc = new TransformControls(camera, canvas);
     tc.setMode({ move: 'translate', rotate: 'rotate', scale: 'scale' }[kind]);
-    tc.setSpace('world');
+    tc.setSpace('local');
     tc.attach(handle);
     tc.addEventListener('dragging-changed', e => { controls.enabled = !e.value; if (e.value) { c.follow = null; c.auto = false; } });
     tc.addEventListener('objectChange', () => fromHandle());
     scene.add(tc.getHelper());
-    const c = cmd = { id: kind, auto, ids, curves, verts, poles, faceMove, vertexAt, curveOut: null, poleMoves: null, poleRows: null, sent: 0, shown: 0, pivot, handle, tc, offset: new THREE.Vector3(), quat: new THREE.Quaternion(), scale: 1, axis: 'z', follow: null };
+    const c = cmd = { id: kind, auto, ids, curves, verts, poles, faceMove, vertexAt, curveOut: null, poleMoves: null, poleRows: null, sent: 0, shown: 0, pivot, handle, tc, offset: new THREE.Vector3(), quat: new THREE.Quaternion(), scale: 1, axis: 'z', follow: null,
+      frame: new THREE.Quaternion(), orient: xfPrefs.orient, pivotMode: xfPrefs.pivot, pivotAt: null, picking: false };
+    // Plasticity's pivots: the box round the selection (Bbox), the mean of the items' middles
+    // (Median) or the item selected last (Active); V clicks a pivot of your own, Alt+V removes it.
+    const items = [...ids.map(id => new THREE.Box3().setFromObject(bodyMesh(id)).getCenter(new THREE.Vector3())),
+      ...curves.map(id => { const src = curveById(id), f = curveFrame(src), b = new THREE.Box3(); for (const q of curve2d(src)) b.expandByPoint(lift(f, q)); return b.getCenter(new THREE.Vector3()); }),
+      ...verts.map(vertexAt), ...poles.map(poleOf),
+      ...(faceMove?.faces ?? []).map(n => faceCentre(bodyOf(faceMove.body), n)).filter(Boolean)];
+    const pivotFor = mode => mode === 'median' && items.length ? items.reduce((a, b) => a.add(b), new THREE.Vector3()).divideScalar(items.length)
+      : mode === 'active' && items.length ? items[items.length - 1].clone() : box.getCenter(new THREE.Vector3());
+    /** Move the pivot to `p`, keeping what the transform does so far. */
+    c.setPivot = p => {
+      const d = p.clone().sub(c.pivot);
+      c.offset.add(d.clone().multiplyScalar(c.scale).applyQuaternion(c.quat)).sub(d);
+      c.pivot.copy(p);
+      apply();
+    };
+    // Plasticity's orientations (W cycles them): Normal stands the gizmo on the selected face (or a
+    // curve's plane), Pivot on the face where the pivot was clicked, Construction Plane on the plane.
+    const normalOf = () => {
+      if (faceMove?.faces?.length) { const f = faceFrame(bodyOf(faceMove.body), faceMove.faces[0]); if (f) return f.normal; }
+      if (curves.length) return curveFrame(curveById(curves[0])).n;
+      if (verts.length) return curveFrame(curveById(verts[0].id)).n;
+      return null;
+    };
+    c.setOrient = o => {
+      c.orient = xfPrefs.orient = o;
+      const n = o === 'normal' ? normalOf() ?? cplane.normal : o === 'pivot' ? c.pivotAt?.normal ?? null : o === 'plane' ? cplane.normal : null;
+      c.frame = n ? new THREE.Quaternion().setFromUnitVectors(UP, n.clone().normalize()) : new THREE.Quaternion();
+      for (const b of $$('[data-xforient]')) b.setAttribute('aria-pressed', String(b.dataset.xforient === o));
+      setAxis(c.axis);
+      apply();
+    };
+    c.setPivotMode = m => {
+      c.pivotMode = xfPrefs.pivot = m;
+      for (const b of $$('[data-xfpivot]')) b.setAttribute('aria-pressed', String(b.dataset.xfpivot === m));
+      if (!c.pivotAt) c.setPivot(pivotFor(m));
+    };
+    c.pickPivot = on => {
+      c.picking = on;
+      $('xf-pick').setAttribute('aria-pressed', String(on));
+      if (on) setHud('CLICK WHERE THE PIVOT GOES');
+      else apply();
+    };
+    c.removePivot = () => {
+      c.pivotAt = null;
+      c.pickPivot(false);
+      if (c.orient === 'pivot') c.setOrient('pivot');
+      c.setPivot(pivotFor(c.pivotMode));
+    };
     lastTool = kind;
     showTool(kind);
     const moving = faceMove?.edges ?? faceMove?.faces ?? [];
@@ -3337,10 +3404,11 @@ export async function mount(root, backend) {
     setAxis('z');
     snapsFor(false);
     $$('[data-panel="pole-opts"]')[0].hidden = !poles.length;
+    $$('[data-panel="xf-opts"]')[0].hidden = false;
 
     function fromHandle() {
-      c.offset.copy(handle.position).sub(pivot);
-      c.quat.copy(handle.quaternion);
+      c.offset.copy(handle.position).sub(c.pivot);
+      c.quat.copy(handle.quaternion).multiply(c.frame.clone().invert());
       if (kind === 'scale') {
         // Uniform only: take whichever component the drag changed.
         const s = handle.scale.toArray().reduce((a, b) => Math.abs(b - c.scale) > Math.abs(a - c.scale) ? b : a, c.scale);
@@ -3350,13 +3418,16 @@ export async function mount(root, backend) {
     }
     c.key = (action, e) => {
       const p = lastPointer ?? centreEvent();
+      if (action === 'orient') { const o = ['normal', 'pivot', 'plane', 'world']; c.setOrient(o[(o.indexOf(c.orient) + 1) % o.length]); return true; }
+      if (action === 'pivot') { c.pickPivot(!c.picking); return true; }
+      if (action === 'unpivot') { c.removePivot(); return true; }
       if (kind === 'move') {
-        if ('xyz'.includes(action)) beginFollow({ type: 'axis', dir: worldAxis(action), name: action.toUpperCase() }, p);
-        else if (['yz', 'xz', 'xy'].includes(action)) beginFollow({ type: 'plane', normal: worldAxis('xyz'.replace(action[0], '').replace(action[1], '')), name: action.toUpperCase() }, p);
+        if ('xyz'.includes(action)) beginFollow({ type: 'axis', dir: frameAxis(c, action), name: action.toUpperCase() }, p);
+        else if (['yz', 'xz', 'xy'].includes(action)) beginFollow({ type: 'plane', normal: frameAxis(c, 'xyz'.replace(action[0], '').replace(action[1], '')), name: action.toUpperCase() }, p);
         else if (action === 'screen') beginFollow({ type: 'plane', normal: null, name: 'SCREEN' }, p);
         else return false;
       } else if (kind === 'rotate') {
-        if ('xyz'.includes(action)) { setAxis(action); beginFollow({ type: 'rotate', dir: worldAxis(action), name: action.toUpperCase() }, p); }
+        if ('xyz'.includes(action)) { setAxis(action); beginFollow({ type: 'rotate', dir: frameAxis(c, action), name: action.toUpperCase() }, p); }
         else if (action === 'screen') beginFollow({ type: 'rotate', dir: null, name: 'SCREEN' }, p);
         else return false;
       } else if (action === 'uniform') beginFollow({ type: 'scale', name: 'UNIFORM' }, p);
@@ -3366,7 +3437,21 @@ export async function mount(root, backend) {
     // Clicks don't change the selection while transforming, unless Move only came up by itself:
     // then a click selects as usual and Move follows the new selection.
     const untouched = () => c.offset.lengthSq() < 1e-18 && Math.abs(c.quat.w) > 1 - 1e-12 && Math.abs(c.scale - 1) < 1e-12;
-    c.click = () => !(c.auto && untouched());
+    c.click = e => {
+      if (c.picking) {
+        const p = axisPointAt(e);
+        if (!p) return true;
+        ray(e);
+        const hit = raycaster.intersectObjects(shownMeshes().filter(m => !c.ids.includes(m.userData.id)), false)[0];
+        const n = hit?.face ? hit.face.normal.clone().transformDirection(hit.object.matrixWorld) : null;
+        c.pivotAt = { point: p, normal: n };
+        c.pickPivot(false);
+        c.setPivot(p);
+        if (c.orient === 'pivot') c.setOrient('pivot');
+        return true;
+      }
+      return !(c.auto && untouched());
+    };
     c.onSelection = () => { if (!c.auto || !untouched()) return; endCmd(null); defaultCommand(); };
     c.finish = () => commitTransform();
     c.abort = () => endCmd('cancelled');
@@ -3380,9 +3465,15 @@ export async function mount(root, backend) {
       controls.enabled = true;
       if (poles.length) paintShownPoints();
     };
-    apply();
+    for (const b of $$('[data-xfpivot]')) b.setAttribute('aria-pressed', String(b.dataset.xfpivot === c.pivotMode));
+    $('xf-pick').setAttribute('aria-pressed', 'false');
+    if (c.pivotMode !== 'bbox') c.pivot.copy(pivotFor(c.pivotMode));
+    c.setOrient(c.orient);
     if (follow) c.key(follow);
   }
+
+  /** User axis `a` of transform `c`'s gizmo, turned to its orientation. */
+  const frameAxis = (c, a) => worldAxis(a).applyQuaternion(c?.frame ?? new THREE.Quaternion());
 
   function setAxis(a) {
     for (const b of $$('[data-axis]')) b.setAttribute('aria-pressed', b.dataset.axis === a);
@@ -3393,13 +3484,13 @@ export async function mount(root, backend) {
   }
   /** The turn of `q` about a user axis, in degrees. */
   function angleAbout(q, a) {
-    const ax = worldAxis(a);
+    const ax = frameAxis(cmd, a);
     return Math.round(2 * Math.atan2(new THREE.Vector3(q.x, q.y, q.z).dot(ax), q.w) / DEG * 1e6) / 1e6;
   }
   function setAngle(deg) {
     const c = cmd;
     if (c?.id !== 'rotate') return;
-    c.quat.setFromAxisAngle(worldAxis(c.axis), deg * DEG);
+    c.quat.setFromAxisAngle(frameAxis(c, c.axis), deg * DEG);
     apply();
   }
   function setOffset(user) {
@@ -3475,7 +3566,7 @@ export async function mount(root, backend) {
     const c = cmd;
     const { pivot, offset, quat, scale } = c;
     c.handle.position.copy(pivot).add(offset);
-    c.handle.quaternion.copy(quat);
+    c.handle.quaternion.copy(quat).multiply(c.frame ?? new THREE.Quaternion());
     c.handle.scale.setScalar(scale);
     for (const id of c.ids) {
       const m = bodyMesh(id);
@@ -10538,6 +10629,10 @@ export async function mount(root, backend) {
   $('ex-angle').addEventListener('input', e => { const v = parseFloat(e.target.value); if (!isNaN(v)) setExtrudeShape({ angle: v }); });
   $('ex-thickness').addEventListener('input', e => { const v = parseFloat(e.target.value); if (!isNaN(v) && v >= 0) setExtrudeShape({ thickness: v }); });
   for (const b of $$('[data-bop]')) b.onclick = () => cmd?.id === 'boolean' && cmd.key(b.dataset.bop);
+  for (const b of $$('[data-xforient]')) b.onclick = () => cmd?.setOrient?.(b.dataset.xforient);
+  for (const b of $$('[data-xfpivot]')) b.onclick = () => cmd?.setPivotMode?.(b.dataset.xfpivot);
+  $('xf-pick').onclick = () => cmd?.pickPivot?.(!cmd.picking);
+  $('xf-unpivot').onclick = () => cmd?.removePivot?.();
   for (const b of $$('[data-btmat]')) b.onclick = () => { if (cmd?.id === 'boolean') { cmd.targetMaterial = b.dataset.btmat; previewBooleanCmd(); } };
   for (const b of $$('[data-bumat]')) b.onclick = () => { if (cmd?.id === 'boolean') { cmd.toolMaterial = b.dataset.bumat; previewBooleanCmd(); } };
   for (const id of ['hole-d', 'hole-depth']) $(id).addEventListener('input', () => cmd?.id === 'hole' && cmd.preview());
