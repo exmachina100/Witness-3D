@@ -132,7 +132,7 @@ export const TOOLS = [
     },
     {
         id: 'shell', label: 'SHELL', key: '', group: 'shape', selects: 'faces', toolbar: false,
-        summary: 'Hollow a solid to walls of one thickness, leaving the selected faces open.',
+        summary: 'Hollow a solid to walls of one thickness, leaving the selected faces open; with a whole solid selected and no faces, hollow it round a closed void.',
         params: {
             thickness: { type: 'number', unit: 'mm', above: 0, default: 2, describe: 'wall thickness, measured inward from the outside' },
         },

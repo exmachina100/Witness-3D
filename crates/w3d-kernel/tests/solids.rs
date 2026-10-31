@@ -62,10 +62,19 @@ fn shell_hollows_a_cube_and_traces_the_outer_faces() {
 }
 
 #[test]
+fn shell_with_no_face_open_hollows_the_whole_solid() {
+    let k = Occt;
+    let t = shell(&k, &cube(&k), &[], 1.0).unwrap();
+    close(volume(&k, &t.solid), 1000.0 - 512.0, 1e-6);
+    assert_eq!(k.face_count(&t.solid), 12, "the outer skin and the void's");
+    assert!(k.is_valid(&t.solid));
+}
+
+#[test]
 fn shell_refuses_impossible_requests() {
     let k = Occt;
     let c = cube(&k);
-    assert!(matches!(shell(&k, &c, &[], 1.0), Err(KernelError::Invalid(_))));
+    assert!(shell(&k, &c, &[], 6.0).is_err(), "no void left that thick");
     assert!(matches!(shell(&k, &c, &[0], 0.0), Err(KernelError::Invalid(_))));
     assert!(matches!(shell(&k, &c, &[9], 1.0), Err(KernelError::Invalid(_))));
     assert!(matches!(shell(&k, &c, &[0, 1, 2, 3, 4, 5], 1.0), Err(KernelError::Invalid(_))));
@@ -422,3 +431,5 @@ fn a_cleared_mesh_can_be_made_coarser() {
     let coarse = tris(0.2);
     assert!(coarse < fine, "{coarse} !< {fine}");
 }
+
+
