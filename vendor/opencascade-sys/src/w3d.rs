@@ -83,6 +83,7 @@ mod inner {
         pub fn w3d_project(shape: &TopoDS_Shape, faces: &[i32], data: &[f64], length: f64, both: bool, hide: bool) -> Result<Vec<f64>>;
         pub fn w3d_meet_curves(a: &TopoDS_Shape, b: &TopoDS_Shape) -> Result<Vec<f64>>;
         pub fn w3d_isoparam(shape: &TopoDS_Shape, face: i32, point: &[f64], along_u: bool) -> Result<Vec<f64>>;
+        pub fn w3d_isoparam_split(shape: &TopoDS_Shape, face: i32, along_u: bool, point: &[f64], params: &[f64], subdivide: bool) -> Result<UniquePtr<W3dResult>>;
         pub fn w3d_face_uvn(shape: &TopoDS_Shape, face: i32, map: bool, data: &[f64]) -> Result<Vec<f64>>;
         pub fn w3d_edge_faces(shape: &TopoDS_Shape, index: i32, data: &[f64]) -> Result<Vec<f64>>;
         pub fn w3d_deform(bodies: &TopoDS_Shape, reference: &TopoDS_Shape, rface: i32, target: &TopoDS_Shape, tface: i32, opts: &[f64]) -> Result<UniquePtr<TopoDS_Shape>>;

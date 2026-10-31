@@ -177,7 +177,7 @@ const KEYS = {
   trim: [['CLICK', 'PIECE TO CUT AWAY'], ['CTRL Z', 'UNDO ONE'], ['ESC / ⏎', 'DONE']],
   'cut-curve': [['CLICK', 'CUTTER CURVES · FACES'], ['TAB', 'EXTEND'], ['S', 'SCREEN SPACE'], ['⏎ / RMB', 'OK'], ['ESC', 'CANCEL']],
   'insert-knot': [['CLICK', 'ADD A CONTROL POINT'], ['ESC / ⏎', 'DONE']],
-  'isoparam': [['HOVER', 'FACE'], ['CLICK', 'KEEP'], ['TAB', 'U / V'], ['⏎ / RMB', 'DONE']],
+  'isoparam': [['HOVER', 'FACE'], ['CLICK', 'SPLIT'], ['TAB', 'U / V'], ['⇧ WHEEL', 'COUNT'], ['S', 'SUBDIVIDE'], ['⏎ / RMB', 'DONE']],
   'offset-edge': [['D', 'DISTANCE'], ['−', 'OTHER FACE'], ['S', 'BOTH SIDES'], ['I', 'INDIVIDUAL'], ['V', 'GAP FILL'], ['⏎ / RMB', 'OK']],
   box: [['CLICK', 'CORNER · CORNER · HEIGHT'], ['C', 'FROM CENTRE'], ['S', 'SQUARE'], ['TAB', 'TYPE'], ['H', 'HEIGHT'], ['Q W ⇧E ⇧Q', 'BOOLEAN'], ['B', 'NEW BODY'], ['⏎ / RMB', 'OK']],
   'center-box': [['CLICK', 'CENTRE · CORNER · HEIGHT'], ['C', 'FROM CORNER'], ['S', 'SQUARE'], ['TAB', 'TYPE'], ['H', 'HEIGHT'], ['Q W ⇧E ⇧Q', 'BOOLEAN'], ['B', 'NEW BODY'], ['⏎ / RMB', 'OK']],
@@ -405,6 +405,9 @@ const SHELL = `
         <button data-isodir="u" aria-pressed="true" title="The curve that runs along the face's u, v held"><kbd>U</kbd>ALONG U</button>
         <button data-isodir="v" aria-pressed="false" title="The curve that runs along the face's v, u held"><kbd>V</kbd>ALONG V</button>
       </div>
+      <div class="field"><label for="w3d-iso-count">COUNT</label><input id="w3d-iso-count" data-id="iso-count" type="number" step="1" min="1" max="64" value="1" title="How many edges, spread evenly across the face (Shift + wheel); one follows the pointer"></div>
+      <div class="field"><label for="w3d-iso-param">PARAM</label><input id="w3d-iso-param" data-id="iso-param" type="number" step="0.05" min="0" max="1" placeholder="cursor" title="Where one edge lies, from 0 to 1 across the face; empty follows the pointer"></div>
+      <div class="chips"><button data-id="iso-subdivide" aria-pressed="false" title="Subdivide: split the face's control surface too, each piece its own, its control points meeting along the new edges"><kbd>S</kbd>SUBDIVIDE</button></div>
     </div>
     <div class="sec" data-panel="offset-vertex" hidden>
       <span class="hint" data-id="ov-hint">—</span>
@@ -1003,11 +1006,11 @@ const VIEWS = {
 export async function mount(root, backend) {
   root.innerHTML = SHELL;
   // Panel options carry their icon ahead of the key and name.
-  for (const b of root.querySelectorAll('[data-proj],[data-imp],[data-impcomp],[data-draw],[data-bop],[data-xop],[data-fop],[data-spiral],[data-toggle],[data-gmethod],[data-galign],[data-gcorner],[data-grow],[data-mfgrow],[data-drgrow],[data-eslimit],[data-flshape],[data-drtaper],[data-avaxis],[data-extshape],[data-esshape],[data-isodir],[data-id="oe-both"],[data-id="oe-individual"],[data-id="blend-tangent"],[data-id="ex-lock"],[data-id="bool-keep"],[data-id="prim-keep"],[data-id="ex-free"],[data-id="ex-pivot"],[data-id="ex-individual"],[data-id="patch-individual"],[data-id="patch-quad"],[data-id="as-symmetric"],[data-id="as-analysis"],[data-id="sq-analysis"],[data-id="dr-hidden"],[data-id="dr-curves"],[data-id="oc-lock"],[data-id="oc-free"],[data-id="oc-slot"],[data-id="oc-combine"],[data-id="es-unlimit"],[data-rbmethod],[data-oecorner],[data-saplane],[data-plaxis],[data-plop],[data-id="pl-flip"],[data-id="pl-instance"],[data-id="mirror-instance"],[data-id="ra-instance"],[data-id="rr-instance"],[data-id="ca-instance"],[data-id="br-trim"],[data-id="br-comb"],[data-id="ac-comb"],[data-id="dc-reblend"],[data-id="section-btn"],[data-id="sa-flip"],[data-id="rf-shrink"],[data-id="ut-keep"],[data-txfont],[data-id="tx-load"],[data-id="tx-system"],[data-txalign],[data-sldir],[data-dcflip],[data-id="dc-keep"],[data-imdepth],[data-imcull],[data-id="im-delete"],[data-id="cc-extend"],[data-id="cc-screen"],[data-inmode],[data-pfmode],[data-pfmirror],[data-pmethod],[data-mxtopo],[data-id="mx-convex"],[data-sqbound],[data-asbound],[data-bsshape],[data-bstrim],[data-id="bs-add"],[data-id="bs-s1"],[data-id="bs-s2"],[data-id="in-realize"],[data-id="in-dup"],[data-id="in-delete"],[data-id="matcap-load"],[data-id="matcap-custom"],[data-id="hdr-load"],[data-id="hdr-custom"]')) {
+  for (const b of root.querySelectorAll('[data-proj],[data-imp],[data-impcomp],[data-draw],[data-bop],[data-xop],[data-fop],[data-spiral],[data-toggle],[data-gmethod],[data-galign],[data-gcorner],[data-grow],[data-mfgrow],[data-drgrow],[data-eslimit],[data-flshape],[data-drtaper],[data-avaxis],[data-extshape],[data-esshape],[data-isodir],[data-id="oe-both"],[data-id="iso-subdivide"],[data-id="oe-individual"],[data-id="blend-tangent"],[data-id="ex-lock"],[data-id="bool-keep"],[data-id="prim-keep"],[data-id="ex-free"],[data-id="ex-pivot"],[data-id="ex-individual"],[data-id="patch-individual"],[data-id="patch-quad"],[data-id="as-symmetric"],[data-id="as-analysis"],[data-id="sq-analysis"],[data-id="dr-hidden"],[data-id="dr-curves"],[data-id="oc-lock"],[data-id="oc-free"],[data-id="oc-slot"],[data-id="oc-combine"],[data-id="es-unlimit"],[data-rbmethod],[data-oecorner],[data-saplane],[data-plaxis],[data-plop],[data-id="pl-flip"],[data-id="pl-instance"],[data-id="mirror-instance"],[data-id="ra-instance"],[data-id="rr-instance"],[data-id="ca-instance"],[data-id="br-trim"],[data-id="br-comb"],[data-id="ac-comb"],[data-id="dc-reblend"],[data-id="section-btn"],[data-id="sa-flip"],[data-id="rf-shrink"],[data-id="ut-keep"],[data-txfont],[data-id="tx-load"],[data-id="tx-system"],[data-txalign],[data-sldir],[data-dcflip],[data-id="dc-keep"],[data-imdepth],[data-imcull],[data-id="im-delete"],[data-id="cc-extend"],[data-id="cc-screen"],[data-inmode],[data-pfmode],[data-pfmirror],[data-pmethod],[data-mxtopo],[data-id="mx-convex"],[data-sqbound],[data-asbound],[data-bsshape],[data-bstrim],[data-id="bs-add"],[data-id="bs-s1"],[data-id="bs-s2"],[data-id="in-realize"],[data-id="in-dup"],[data-id="in-delete"],[data-id="matcap-load"],[data-id="matcap-custom"],[data-id="hdr-load"],[data-id="hdr-custom"]')) {
     const name = (b.dataset.proj && (b.dataset.proj === 'screen' ? 'view-screen' : `proj-${b.dataset.proj}`)) ?? (b.dataset.imp && (b.dataset.imp === 'screen' ? 'view-screen' : `proj-${b.dataset.imp}`)) ?? (b.dataset.impcomp && `completion-${b.dataset.impcomp}`) ?? b.dataset.draw ?? b.dataset.bop ?? b.dataset.xop ?? b.dataset.fop ?? b.dataset.spiral ?? (b.dataset.toggle && `view-${b.dataset.toggle}`)
       ?? (b.dataset.gmethod && `guide-${b.dataset.gmethod}`) ?? (b.dataset.galign && `align-${b.dataset.galign}`) ?? (b.dataset.gcorner && (b.dataset.gcorner === 'round' ? 'corner-round' : 'corner-linear')) ?? (b.dataset.grow && `grow-${b.dataset.grow}`) ?? (b.dataset.mfgrow && `grow-${b.dataset.mfgrow}`) ?? (b.dataset.drgrow && `grow-${b.dataset.drgrow}`) ?? (b.dataset.eslimit && `limit-${b.dataset.eslimit}`) ?? (b.dataset.flshape && `fillet-${b.dataset.flshape}`) ?? (b.dataset.drtaper && `taper-${b.dataset.drtaper}`) ?? (b.dataset.avaxis && `axis-${b.dataset.avaxis}`) ?? (b.dataset.extshape && `extend-${b.dataset.extshape}`) ?? (b.dataset.esshape && `extend-${b.dataset.esshape}`) ?? (b.dataset.isodir && `iso-${b.dataset.isodir}`) ?? (b.dataset.rbmethod && `rebuild-${b.dataset.rbmethod}`) ?? (b.dataset.oecorner && `corner-${b.dataset.oecorner}`) ?? (b.dataset.saplane && `section-${b.dataset.saplane}`) ?? (b.dataset.plaxis && (b.dataset.plaxis === 'normal' ? 'place-normal' : `axis-${b.dataset.plaxis}`)) ?? b.dataset.plop
       ?? (b.dataset.txfont && `font-${b.dataset.txfont}`) ?? (b.dataset.txalign && `txalign-${b.dataset.txalign}`) ?? (b.dataset.sldir && { u: 'slide-u', '-u': 'slide-back', v: 'slide-v', '-v': 'slide-vback', n: 'slide-n' }[b.dataset.sldir]) ?? (b.dataset.dcflip && { mirror: 'mirror', swap: 'swap-uv', normal: 'reverse-sheet' }[b.dataset.dcflip]) ?? (b.dataset.imdepth && `depth-${b.dataset.imdepth}`) ?? (b.dataset.imcull && `cull-${b.dataset.imcull}`) ?? b.dataset.inmode ?? (b.dataset.bsshape && `bridge-${b.dataset.bsshape}`) ?? (b.dataset.bstrim && `trimwall-${b.dataset.bstrim}`) ?? (b.dataset.mxtopo && `topo-${b.dataset.mxtopo}`) ?? (b.dataset.pmethod && (b.dataset.pmethod === 'fill' ? 'patch-fill' : `trim-${b.dataset.pmethod}`)) ?? (b.dataset.pfmode && `falloff-${b.dataset.pfmode}`) ?? ((b.dataset.sqbound ?? b.dataset.asbound) && `bound-${b.dataset.sqbound ?? b.dataset.asbound}`) ?? (b.dataset.pfmirror && `mirror-${b.dataset.pfmirror}`)
-      ?? { 'matcap-load': 'matcap-load', 'matcap-custom': 'matcap', 'tx-load': 'font-load', 'tx-system': 'font-system', 'hdr-load': 'hdr-load', 'hdr-custom': 'hdr', 'ex-lock': 'lock', 'bool-keep': 'keep', 'prim-keep': 'keep', 'ex-free': 'freestyle', 'ex-pivot': 'pivot', 'ex-individual': 'individual', 'patch-individual': 'individual', 'mx-convex': 'convex', 'patch-quad': 'square', 'as-symmetric': 'symmetric', 'as-analysis': 'analysis', 'sq-analysis': 'analysis', 'bs-add': 'wall-pair', 'bs-s1': 'flip', 'bs-s2': 'flip', 'dr-hidden': 'hidden-lines', 'dr-curves': 'drawing-curves', 'oc-lock': 'lock', 'oc-free': 'freestyle', 'oc-slot': 'slot', 'oc-combine': 'combine', 'oe-both': 'both-sides', 'oe-individual': 'individual', 'blend-tangent': 'tangent-chain', 'es-unlimit': 'unlimit', 'rf-shrink': 'shrink', 'ut-keep': 'keep-edges', 'section-btn': 'view-section', 'sa-flip': 'flip', 'pl-flip': 'flip', 'pl-instance': 'instance', 'mirror-instance': 'instance', 'ra-instance': 'instance', 'rr-instance': 'instance', 'ca-instance': 'instance', 'br-trim': 'trim', 'br-comb': 'view-curvature', 'ac-comb': 'view-curvature', 'dc-reblend': 'reblend', 'dc-keep': 'keep', 'im-delete': 'delete', 'in-realize': 'realize-instance', 'cc-extend': 'extend', 'cc-screen': 'view-screen', 'in-dup': 'duplicate', 'in-delete': 'delete' }[b.dataset.id];
+      ?? { 'matcap-load': 'matcap-load', 'matcap-custom': 'matcap', 'tx-load': 'font-load', 'tx-system': 'font-system', 'hdr-load': 'hdr-load', 'hdr-custom': 'hdr', 'ex-lock': 'lock', 'bool-keep': 'keep', 'prim-keep': 'keep', 'ex-free': 'freestyle', 'ex-pivot': 'pivot', 'ex-individual': 'individual', 'patch-individual': 'individual', 'mx-convex': 'convex', 'patch-quad': 'square', 'as-symmetric': 'symmetric', 'as-analysis': 'analysis', 'sq-analysis': 'analysis', 'bs-add': 'wall-pair', 'bs-s1': 'flip', 'bs-s2': 'flip', 'dr-hidden': 'hidden-lines', 'dr-curves': 'drawing-curves', 'oc-lock': 'lock', 'oc-free': 'freestyle', 'oc-slot': 'slot', 'oc-combine': 'combine', 'oe-both': 'both-sides', 'iso-subdivide': 'subdivide', 'oe-individual': 'individual', 'blend-tangent': 'tangent-chain', 'es-unlimit': 'unlimit', 'rf-shrink': 'shrink', 'ut-keep': 'keep-edges', 'section-btn': 'view-section', 'sa-flip': 'flip', 'pl-flip': 'flip', 'pl-instance': 'instance', 'mirror-instance': 'instance', 'ra-instance': 'instance', 'rr-instance': 'instance', 'ca-instance': 'instance', 'br-trim': 'trim', 'br-comb': 'view-curvature', 'ac-comb': 'view-curvature', 'dc-reblend': 'reblend', 'dc-keep': 'keep', 'im-delete': 'delete', 'in-realize': 'realize-instance', 'cc-extend': 'extend', 'cc-screen': 'view-screen', 'in-dup': 'duplicate', 'in-delete': 'delete' }[b.dataset.id];
     b.insertAdjacentHTML('afterbegin', icon(name));
   }
   const $ = id => root.querySelector(`[data-id="${id}"]`);
@@ -1100,10 +1103,12 @@ export async function mount(root, backend) {
   viewEl.addEventListener('wheel', () => { controls.zoomSpeed = wheelSpeed(prefs.navigation); }, { capture: true, passive: true });
   // Regular Polygon: Shift+wheel adds or takes away a side instead of zooming.
   viewEl.addEventListener('wheel', e => {
-    if (cmd?.id !== 'polygon' || !e.shiftKey) return;
+    if (!e.shiftKey || (cmd?.id !== 'polygon' && !cmd?.wheel)) return;
     e.preventDefault();
     e.stopImmediatePropagation();
-    setSides(cmd.sides + (e.deltaY < 0 || e.deltaX < 0 ? 1 : -1));
+    const up = e.deltaY < 0 || e.deltaX < 0;
+    if (cmd.id === 'polygon') setSides(cmd.sides + (up ? 1 : -1));
+    else cmd.wheel(up ? 1 : -1);
   }, { capture: true, passive: false });
   scene.add(new THREE.HemisphereLight(0xffffff, 0x202024, 1.4));
   const keyLight = new THREE.DirectionalLight(0xffffff, 1.6);
@@ -5649,17 +5654,23 @@ export async function mount(root, backend) {
   }
 
   /**
-   * Plasticity's Isoparam: hover a face to see its u or v curve through the pointer, cut to the face;
-   * each click keeps one as a curve. Tab (or U, V) switches direction; Enter finishes.
+   * Plasticity's Isoparam (Ctrl+R): edges on a face along its u or v, the face split there. Hover a
+   * face to see the edge through the pointer; Count (Shift+wheel) spreads that many evenly across the
+   * face instead, and Param fixes one at a place from 0 to 1. Subdivide (S) splits the face's control
+   * surface too. A click splits the face and carries on; Enter or right-click splits the face last
+   * shown and finishes.
    */
   function startIsoparam() {
-    if (!backend.previewProject) return toast('ISOPARAM IS NOT IN THIS BUILD YET');
-    const c = cmd = { id: 'isoparam', u: true, at: null, out: null, made: [], sent: 0, shown: 0 };
+    if (!backend.previewIsoparamSplit) return toast('ISOPARAM IS NOT IN THIS BUILD YET');
+    const c = cmd = { id: 'isoparam', u: true, at: null, subdivide: false, made: 0, sent: 0, shown: 0 };
     lastTool = 'isoparam';
     showTool('isoparam');
     setState('none');
     setTarget('—');
     setHud('HOVER A FACE');
+    $('iso-count').value = '1';
+    $('iso-param').value = '';
+    $('iso-subdivide').setAttribute('aria-pressed', 'false');
     const faceAt = e => {
       ray(e);
       const hit = raycaster.intersectObjects(shownMeshes().filter(m => !org.locked.has(m.userData.id)), false)[0];
@@ -5667,62 +5678,74 @@ export async function mount(root, backend) {
       const { id, faceIds } = hit.object.userData;
       return { body: id, face: faceIds[hit.faceIndex], point: hit.point.toArray() };
     };
-    const kept = () => `${c.made.length} KEPT · TAB FOR ${c.u ? 'V' : 'U'}`;
+    const count = () => Math.max(1, Math.min(64, Math.round(Number($('iso-count').value) || 1)));
+    const params = () => {
+      const n = count();
+      if (n > 1) return Array.from({ length: n }, (_, i) => (i + 1) / (n + 1));
+      const t = $('iso-param').value.trim();
+      return t === '' ? [] : [Number(t)];
+    };
+    const request = at => ({ body: at.body, face: at.face, point: at.point, u: c.u, params: params(), subdivide: c.subdivide });
+    const what = () => `${count()} EDGE${count() > 1 ? 'S' : ''} ALONG ${c.u ? 'U' : 'V'}${c.subdivide ? ' · SUBDIVIDE' : ''}`;
+    const hint = () => { $('iso-hint').textContent = `${what()}${c.made ? ` · ${c.made} SPLIT` : ''} · TAB FOR ${c.u ? 'V' : 'U'}`; };
     c.setDir = u => {
       c.u = u;
       for (const b of $$('[data-isodir]')) b.setAttribute('aria-pressed', String((b.dataset.isodir === 'u') === u));
-      $('iso-hint').textContent = kept();
       c.preview();
     };
+    c.setSubdivide = on => {
+      c.subdivide = on;
+      $('iso-subdivide').setAttribute('aria-pressed', String(on));
+      c.preview();
+    };
+    c.wheel = d => { $('iso-count').value = String(Math.max(1, Math.min(64, count() + d))); c.preview(); };
     c.preview = () => {
+      hint();
       if (!c.at) return;
-      const req = { mode: 'isoparam', body: c.at.body, face: c.at.face, point: c.at.point, u: c.u };
-      livePreview(c, () => backend.previewProject(req), out => {
-        c.out = out;
-        showCurvePreview(out);
+      const req = request(c.at);
+      livePreview(c, () => backend.previewIsoparamSplit(req), b => {
+        showPreviewBody(b);
         setTarget(`${label(req.body)} · FACE ${req.face}`);
-        setHud(`ISOPARAM ${c.u ? 'U' : 'V'} · CLICK TO KEEP`);
-        $('iso-hint').textContent = kept();
+        setHud(`ISOPARAM · ${what()} · CLICK TO SPLIT`);
+        hint();
       }, 'iso-hint');
     };
     c.move = e => {
       const at = faceAt(e);
+      // Off the bodies the last face stays, so Enter or right-click still splits it.
+      if (!at) return;
       c.at = at;
-      c.out = null;
-      if (!at) { clearPreview(); return setHud('HOVER A FACE'); }
       c.preview();
+    };
+    const split = async at => {
+      const { id, scene: list } = await backend.commitIsoparamSplit(request(at));
+      c.made++;
+      record(`ISOPARAM ${what()}`, id);
+      await showScene(list);
+      c.at = null;
+      clearPreview();
+      hint();
     };
     c.click = e => {
       const at = faceAt(e);
       if (!at) return true;
-      const shown = c.out && c.at && c.at.body === at.body && c.at.face === at.face ? c.out : null;
-      (async () => {
-        try {
-          // What the hover showed, or (before it arrives) the same curve asked for now.
-          const out = shown ?? await backend.previewProject({ mode: 'isoparam', body: at.body, face: at.face, point: at.point, u: c.u });
-          if (!out?.length) return;
-          const { ids } = await backend.addCurves(out);
-          c.made.push(...ids);
-          record(`ISOPARAM ${c.u ? 'U' : 'V'}`, ids[0], curveLabel(ids[0]));
-          await loadCurves();
-          $('iso-hint').textContent = kept();
-        } catch (err) { setState('failed'); toast(say(err)); }
-      })();
+      split(at).catch(err => { setState('failed'); toast(say(err)); });
       return true;
     };
     c.key = action => {
       if (action === 'direction') c.setDir(!c.u);
       else if (action === 'u' || action === 'v') c.setDir(action === 'u');
+      else if (action === 'subdivide') c.setSubdivide(!c.subdivide);
       else return false;
       return true;
     };
     c.finish = async () => {
-      const made = c.made;
-      endCmd(made.length ? 'committed' : 'cancelled');
-      if (made.length) await curvesChanged(made);
+      try { if (c.at) await split(c.at); } catch (err) { setState('failed'); return toast(say(err)); }
+      endCmd(c.made ? 'committed' : 'cancelled');
     };
-    c.abort = () => c.finish();
+    c.abort = () => endCmd(c.made ? 'committed' : 'cancelled');
     c.cleanup = () => clearPreview();
+    hint();
   }
 
   /**
@@ -10632,6 +10655,8 @@ export async function mount(root, backend) {
   $('oe-both').onclick = () => cmd?.id === 'offset-edge' && cmd.setBoth(!cmd.both);
   $('oe-individual').onclick = () => cmd?.id === 'offset-edge' && cmd.setIndividual(!cmd.individual);
   for (const b of $$('[data-isodir]')) b.onclick = () => cmd?.id === 'isoparam' && cmd.setDir(b.dataset.isodir === 'u');
+  $('iso-subdivide').onclick = () => cmd?.id === 'isoparam' && cmd.setSubdivide(!cmd.subdivide);
+  for (const k of ['iso-count', 'iso-param']) $(k).oninput = () => cmd?.id === 'isoparam' && cmd.preview();
   for (const b of $$('[data-accont]')) b.onclick = () => cmd?.id === 'align-curve' && cmd.setContinuity(b.dataset.accont);
   for (const id of ['ac-p', 'ac-t']) $(id).addEventListener('input', () => cmd?.id === 'align-curve' && cmd.preview());
   $('ac-comb').onclick = () => cmd?.id === 'align-curve' && cmd.key('view-curvature');

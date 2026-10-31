@@ -368,6 +368,24 @@ async fn commit_imprint(
 }
 
 #[tauri::command]
+async fn preview_isoparam_split(
+    model: State<'_, Model>,
+    req: api::IsoparamSplitRequest,
+) -> Result<Option<api::Body>, api::ApiError> {
+    on_model(&model, move |m| api::preview_isoparam_split(m, req))
+        .await?
+        .transpose()
+}
+
+#[tauri::command]
+async fn commit_isoparam_split(
+    model: State<'_, Model>,
+    req: api::IsoparamSplitRequest,
+) -> Result<api::Committed, api::ApiError> {
+    on_model(&model, move |m| api::commit_isoparam_split(m, req)).await?
+}
+
+#[tauri::command]
 async fn preview_offset_edges(
     model: State<'_, Model>,
     req: api::OffsetEdgesRequest,
@@ -1111,6 +1129,8 @@ pub fn run() {
             preview_imprint,
             commit_imprint,
             preview_offset_edges,
+            preview_isoparam_split,
+            commit_isoparam_split,
             commit_offset_edges,
             preview_patch,
             commit_patch,

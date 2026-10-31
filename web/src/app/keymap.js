@@ -61,7 +61,7 @@ export const VIEWPORT = {
     'ctrl-k': 'ask',
     h: 'hide', 'shift-h': 'hide-others', 'alt-h': 'unhide-all', 'ctrl-h': 'invert-hidden',
     // Organising (manual: Outliner; Focus and Isolate). Lock Selected and Unlock All have no key there either.
-    '.': 'isolate', 'alt-.': 'unisolate', 'ctrl-g': 'group', 'alt-g': 'ungroup',
+    '.': 'isolate', 'alt-.': 'unisolate', 'ctrl-g': 'group', 'ctrl-r': 'isoparam', 'alt-g': 'ungroup',
     // Materials (manual: Set Material is M)
     m: 'material:set',
     // Construction planes (manual: Construction Plane)
@@ -124,7 +124,7 @@ export const COMMAND = {
     slide: { d: 'distance', u: 'u', 'shift-u': '-u', v: 'v', 'shift-v': '-v', n: 'n' },
     // Offset Edge / Offset Face Loop (manual: D distance, V gap fill)
     'offset-edge': { d: 'distance', v: 'corner', s: 'both', i: 'individual' },
-    isoparam: { tab: 'direction', u: 'u', v: 'v' },
+    isoparam: { tab: 'direction', u: 'u', v: 'v', s: 'subdivide' },
     'fillet-vertex': { d: 'distance', c: 'chamfer' },
     'align-vertex': { x: 'x', y: 'y', z: 'z', v: 'value' },
     'align-curve': { tab: 'continuity', d: 'tension' },

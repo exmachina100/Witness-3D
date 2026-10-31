@@ -1256,6 +1256,35 @@ pub fn commit_offset_edges(m: &Model, req: OffsetEdgesRequest) -> Result<Committ
     })
 }
 
+/// Plasticity's Isoparam: `face` of `body` split along u (`u`) or v at `params` (0 to 1 across the
+/// face), or through `point` when there are none; `subdivide` splits its control surface too.
+#[derive(Deserialize, Debug, Clone)]
+pub struct IsoparamSplitRequest {
+    pub body: BodyId,
+    pub face: u32,
+    pub u: bool,
+    #[serde(default)]
+    pub point: [f64; 3],
+    #[serde(default)]
+    pub params: Vec<f64>,
+    #[serde(default)]
+    pub subdivide: bool,
+}
+
+pub fn preview_isoparam_split(m: &Model, req: IsoparamSplitRequest) -> Option<Result<Body, ApiError>> {
+    m.preview(move |doc| {
+        let t = doc.preview_isoparam_split(req.body, req.face, req.u, DVec3::from(req.point), &req.params, req.subdivide)?;
+        Ok(body(&doc.kernel, req.body, &t.solid)?)
+    })
+}
+
+pub fn commit_isoparam_split(m: &Model, req: IsoparamSplitRequest) -> Result<Committed, ApiError> {
+    m.call(move |doc| {
+        let id = doc.commit_isoparam_split(req.body, req.face, req.u, DVec3::from(req.point), &req.params, req.subdivide)?;
+        Ok(Committed { id, scene: bodies(doc)? })
+    })
+}
+
 /// Plasticity's Bridge Surface: a sheet from one body edge to another, tangent to their faces.
 #[derive(Deserialize, Debug, Clone)]
 pub struct BridgeSurfaceRequest {

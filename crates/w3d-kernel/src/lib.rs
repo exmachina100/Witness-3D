@@ -435,6 +435,12 @@ pub trait Kernel {
     fn face_uvn(&self, _s: &Self::Solid, _face: u32, _map: bool, _points: &[DVec3]) -> Result<([f64; 2], Vec<DVec3>), KernelError> {
         Err(KernelError::Invalid("this kernel cannot deform curves"))
     }
+    /// Plasticity's Isoparam: `face` split by edges along u (`along_u`) or v, at `params` from 0 to 1
+    /// across it, or through `point` when there are none; `subdivide` gives each piece its own part
+    /// of the face's B-spline surface.
+    fn isoparam_split(&self, _s: &Self::Solid, _face: u32, _along_u: bool, _point: DVec3, _params: &[f64], _subdivide: bool) -> Result<Traced<Self::Solid>, KernelError> {
+        Err(KernelError::Invalid("this kernel cannot split faces along isoparams"))
+    }
     fn isoparam(&self, _s: &Self::Solid, _face: u32, _point: DVec3, _along_u: bool) -> Result<Vec<Path>, KernelError> {
         Err(KernelError::Invalid("this kernel cannot draw isoparams"))
     }

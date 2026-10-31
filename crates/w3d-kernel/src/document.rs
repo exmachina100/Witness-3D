@@ -1018,6 +1018,21 @@ impl<K: Kernel> Document<K> {
         Curve::from_nurbs(paths.first().ok_or(KernelError::Invalid("the isoparam could not be found there"))?, DVec3::NEG_Y)
     }
 
+    /// Plasticity's Isoparam, without changing the document: `face` of `body` split along u or v
+    /// at `params` (0 to 1 across it), or through `point` when there are none.
+    pub fn preview_isoparam_split(&self, body: BodyId, face: u32, along_u: bool, point: DVec3, params: &[f64], subdivide: bool) -> Result<Traced<K::Solid>, KernelError> {
+        let s = self.get(body).ok_or(KernelError::Invalid("that body no longer exists"))?;
+        self.kernel.isoparam_split(s, face, along_u, point, params, subdivide)
+    }
+
+    /// Isoparam's edges as one undoable step.
+    pub fn commit_isoparam_split(&mut self, body: BodyId, face: u32, along_u: bool, point: DVec3, params: &[f64], subdivide: bool) -> Result<BodyId, KernelError> {
+        let traced = self.preview_isoparam_split(body, face, along_u, point, params, subdivide)?;
+        self.checkpoint();
+        self.replace_traced(body, traced);
+        Ok(body)
+    }
+
     /// Plasticity's Project Body Body, without changing the document: the curves where two bodies meet.
     pub fn preview_meet(&self, a: BodyId, b: BodyId) -> Result<Vec<Curve>, KernelError> {
         if a == b { return Err(KernelError::Invalid("select two different bodies")) }
