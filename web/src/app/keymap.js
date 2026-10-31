@@ -199,7 +199,7 @@ export const ACTIONS = {
     'mode:point': 'Selection mode: points', 'mode:edge': 'Selection mode: edges', 'mode:face': 'Selection mode: faces',
     'mode:solid': 'Selection mode: solids', 'mode:all': 'Selection mode: all',
     'convert:edge': 'Convert selection to edges', 'convert:face': 'Convert selection to faces', 'convert:solid': 'Convert selection to solids',
-    'select:all': 'Select all', 'select:none': 'Deselect all', 'select:invert': 'Invert selection', 'select:solids': 'Select all solids', 'select:sheets': 'Select all sheets', 'select:measurements': 'Select all measurements', 'select:adjacent': 'Select adjacent', 'sources:back': 'Select sources of last operation', 'sources:forward': 'Select sources of next operation',
+    'select:all': 'Select all', 'select:none': 'Deselect all', 'select:invert': 'Invert selection', 'select:solids': 'Select all solids', 'select:sheets': 'Select all sheets', 'select:curves': 'Select all curves', 'select:measurements': 'Select all measurements', 'select:adjacent': 'Select adjacent', 'sources:back': 'Select sources of last operation', 'sources:forward': 'Select sources of next operation',
     'repeat': 'Repeat last command', 'ask': 'Ask for a command in words', 'delete': 'Delete', 'duplicate': 'Duplicate', 'alt-duplicate': 'Alternative duplicate onto the plane', 'create-outline': 'Create outline', 'toggle-points': 'Toggle points',
     'hide': 'Hide selected', 'hide-others': 'Hide unselected', 'unhide-all': 'Unhide all', 'invert-hidden': 'Invert hidden',
     'isolate': 'Isolate selected', 'unisolate': 'Unisolate', 'group': 'Group selected', 'ungroup': 'Ungroup',

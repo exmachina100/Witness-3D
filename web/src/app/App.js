@@ -101,6 +101,7 @@ import { arcballAbout, dragAngles, orbitAbout } from './orbit.js';
 import { poleMoves } from '../poleFalloff.js';
 import { planeFrom } from '../cplaneFrom.js';
 import { stepSources } from './sources.js';
+import { parallelCylinders, parallelFlatFaces, relatedFaces, samePlane } from './faceGroups.js';
 import { circleTangents, closestOnScreen, curvePointSnaps, intersections, perpendicularFeet, tangentPoints } from '../curveSnaps.js';
 import { PREF_FIELDS, changedPrefs, controlSettings, readPrefs, setPref, viewColors, wheelSpeed } from './prefs.js';
 import { arcPoints, circleThrough, curveFromNurbs, cvPoints, ellipsePoints, endTangent, helixPoints, loops, nurbsLoop, nurbsPoints, polygonCorners, spiralAngle, tangentArc } from '../curves.js';
@@ -10372,6 +10373,11 @@ export async function mount(root, backend) {
           sel.clear();
           for (const b of current) if (org.picks(b.id) && !!b.sheet === (arg === 'sheets')) sel.add({ kind: 'solid', body: b.id });
           if (!sel.size) toast(`NO ${arg.toUpperCase()} TO SELECT`);
+        } else if (arg === 'curves') {
+          // Plasticity's Select All Curves: every curve in the viewport.
+          sel.clear();
+          if (curveGroup.visible) for (const o of curveGroup.children) if (o.visible && o.userData.curve !== undefined) sel.add({ kind: 'curve', id: o.userData.curve });
+          if (!sel.size) toast('NO CURVES TO SELECT');
         } else if (arg === 'measurements') {
           sel.clear();
           for (const c of surfaceCombs) if (!c.hidden && org.shows(c.body)) sel.add(c.face === undefined ? { kind: 'edge', body: c.body, n: c.n } : { kind: 'face', body: c.body, n: c.face });
@@ -11060,6 +11066,15 @@ export async function mount(root, backend) {
         return selectionChanged();
       }
     }
+    if (e.altKey && (!cmd || cmd.auto)) {
+      const run = await smartPick(e);
+      if (run) {
+        if (!e.shiftKey) sel.clear();
+        for (const it of run) sel.add(it);
+        hover = null;
+        return selectionChanged();
+      }
+    }
     if (cmd?.click && await cmd.click(e)) return;
     if (cmd && !cmd.auto) return;
     const picked = pickAt(e), inst = instanceAt(e, picked);
@@ -11068,6 +11083,41 @@ export async function mount(root, backend) {
     hover = null;
     selectionChanged();
   });
+  /**
+   * Plasticity's smart clicks (faceGroups.js): Alt+click a face for its related faces, Ctrl+Alt+click
+   * for the faces parallel to it (cylinders: parallel axes); Alt+click a curve or region for all
+   * those on its plane; Alt+click a solid or sheet for all of its kind in its group. Null: nothing to add.
+   */
+  async function smartPick(e) {
+    const t = clickTarget(pickAt(e), 'replace');
+    if (!t) return null;
+    const ctrl = e.ctrlKey || e.metaKey;
+    if (t.kind === 'face') {
+      const b = bodyOf(t.body);
+      if (!b) return null;
+      let faces;
+      if (!ctrl) faces = relatedFaces(b, t.n, topologyOf(b));
+      else if (b.facePlanes[t.n]) faces = parallelFlatFaces(b.facePlanes, t.n);
+      else if (backend.faceSurfaces) faces = parallelCylinders(await backend.faceSurfaces({ body: t.body }), t.n);
+      else faces = [t.n];
+      return faces.map(n => ({ kind: 'face', body: t.body, n }));
+    }
+    if ((t.kind === 'curve' || t.kind === 'region') && !ctrl) {
+      const c = curveById(t.id);
+      if (!c) return null;
+      const plane = c2 => { const f = curveFrame(c2); return { origin: f.o.toArray(), normal: f.n.toArray() }; };
+      const flat = c2 => c2.kind !== 'spiral' && !(c2.kind === 'nurbs' && c2.poles.some(q => Math.abs(q[2] ?? 0) > 1e-9));
+      if (!flat(c)) return null;
+      const here = plane(c);
+      const shown = new Set(curveGroup.children.filter(o => o.visible && o.userData.curve !== undefined).map(o => o.userData.curve));
+      return curveList.filter(k => shown.has(k.id) && flat(k) && (t.kind === 'curve' || isClosed(k)) && samePlane(here, plane(k))).map(k => ({ kind: t.kind, id: k.id }));
+    }
+    if (t.kind === 'solid' && !ctrl) {
+      const group = org.groupOf.get(t.body) ?? null, sheet = !!bodyOf(t.body)?.sheet;
+      return current.filter(b => org.picks(b.id) && (org.groupOf.get(b.id) ?? null) === group && !!b.sheet === sheet).map(b => ({ kind: 'solid', body: b.id }));
+    }
+    return null;
+  }
   canvas.addEventListener('dblclick', e => {
     if (cmd && !cmd.auto) return;
     const hit = pickAt(e);
