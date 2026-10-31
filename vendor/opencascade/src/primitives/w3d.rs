@@ -347,6 +347,13 @@ impl Shape {
             .collect()
     }
 
+    /// Boolean's material: this body taken as `kind` (0 Default, 1 Empty, 2 Inside, 3 Outside), and
+    /// whether that runs on without end (see `w3d_material`).
+    pub fn material(&self, kind: i32) -> Result<(Shape, bool), String> {
+        let s = ffi::w3d::w3d_material(&self.inner, kind).map_err(reason)?;
+        Ok((Shape::from_shape(&s), ffi::w3d::w3d_material_unbounded(&self.inner, kind)))
+    }
+
     /// Boolean Region: the solids of the space `bodies` close off (see `w3d_regions`).
     pub fn regions(bodies: &[&Shape]) -> Result<Vec<Shape>, String> {
         let all = Shape::from(crate::primitives::Compound::from_shapes(bodies.iter().copied()));

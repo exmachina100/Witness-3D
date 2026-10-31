@@ -344,13 +344,17 @@ const SHELL = `
       <span class="hint" data-id="bool-hint">THE FIRST SOLID SELECTED IS THE TARGET</span>
       <div class="field"><label>TOOLS</label><output data-id="bool-tools">—</output></div>
       <span class="label">OPERATION</span>
-      <div class="seg" role="group" aria-label="Boolean operation">
+      <div class="seg wrap2" role="group" aria-label="Boolean operation">
         <button data-bop="union" aria-pressed="true"><kbd>Q</kbd>UNION</button>
         <button data-bop="difference" aria-pressed="false"><kbd>W</kbd>DIFF</button>
         <button data-bop="intersect" aria-pressed="false"><kbd>⇧E</kbd>INTER</button>
         <button data-bop="slice" aria-pressed="false"><kbd>⇧Q</kbd>SLICE</button>
         <button data-bop="region" aria-pressed="false" title="Region: a solid for each part of space the bodies (solids and sheets) close off">REGION</button>
       </div>
+      <span class="label">TARGET MATERIAL</span>
+      <div class="seg wrap2" role="group" aria-label="Target material"><button data-btmat="default" aria-pressed="true" title="The target as it is">DEFAULT</button><button data-btmat="empty" aria-pressed="false" title="Only the target's skin: a solid's faces taken as a sheet">EMPTY</button><button data-btmat="inside" aria-pressed="false" title="A sheet target as solid behind its faces (against their normals); a closed sheet as the solid it bounds">INSIDE</button><button data-btmat="outside" aria-pressed="false" title="The space in front of a sheet target's faces, or all the space outside a solid">OUTSIDE</button></div>
+      <span class="label">TOOL MATERIAL</span>
+      <div class="seg wrap2" role="group" aria-label="Tool material"><button data-bumat="default" aria-pressed="true" title="The tool as it is">DEFAULT</button><button data-bumat="empty" aria-pressed="false" title="Only the tool's skin: a solid's faces taken as a sheet">EMPTY</button><button data-bumat="inside" aria-pressed="false" title="A sheet tool as solid behind its faces (against their normals); a closed sheet as the solid it bounds">INSIDE</button><button data-bumat="outside" aria-pressed="false" title="The space in front of a sheet tool's faces, or all the space outside a solid">OUTSIDE</button></div>
       <div class="chips"><button data-id="bool-keep" aria-pressed="false"><kbd>T</kbd>KEEP TOOLS</button></div>
     </div>
     <div class="sec" data-panel="offset" hidden>
@@ -1007,8 +1011,8 @@ const VIEWS = {
 export async function mount(root, backend) {
   root.innerHTML = SHELL;
   // Panel options carry their icon ahead of the key and name.
-  for (const b of root.querySelectorAll('[data-proj],[data-imp],[data-impcomp],[data-draw],[data-bop],[data-xop],[data-fop],[data-spiral],[data-toggle],[data-gmethod],[data-galign],[data-gcorner],[data-grow],[data-mfgrow],[data-drgrow],[data-eslimit],[data-flshape],[data-drtaper],[data-avaxis],[data-extshape],[data-esshape],[data-isodir],[data-id="oe-both"],[data-id="iso-subdivide"],[data-id="oe-individual"],[data-id="blend-tangent"],[data-id="ex-lock"],[data-id="bool-keep"],[data-id="prim-keep"],[data-id="ex-free"],[data-id="ex-pivot"],[data-id="ex-individual"],[data-id="patch-individual"],[data-id="patch-quad"],[data-id="as-symmetric"],[data-id="as-analysis"],[data-id="sq-analysis"],[data-id="dr-hidden"],[data-id="dr-curves"],[data-id="oc-lock"],[data-id="oc-free"],[data-id="oc-slot"],[data-id="oc-combine"],[data-id="es-unlimit"],[data-rbmethod],[data-oecorner],[data-saplane],[data-plaxis],[data-plop],[data-id="pl-flip"],[data-id="pl-instance"],[data-id="mirror-instance"],[data-id="ra-instance"],[data-id="rr-instance"],[data-id="ca-instance"],[data-id="br-trim"],[data-id="br-comb"],[data-id="ac-comb"],[data-id="dc-reblend"],[data-id="section-btn"],[data-id="sa-flip"],[data-id="rf-shrink"],[data-id="ut-keep"],[data-txfont],[data-id="tx-load"],[data-id="tx-system"],[data-txalign],[data-sldir],[data-dcflip],[data-id="dc-keep"],[data-imdepth],[data-imcull],[data-id="im-delete"],[data-id="cc-extend"],[data-id="cc-screen"],[data-inmode],[data-pfmode],[data-pfmirror],[data-pmethod],[data-mxtopo],[data-id="mx-convex"],[data-sqbound],[data-asbound],[data-bsshape],[data-bstrim],[data-id="bs-add"],[data-id="bs-s1"],[data-id="bs-s2"],[data-id="in-realize"],[data-id="in-dup"],[data-id="in-delete"],[data-id="matcap-load"],[data-id="matcap-custom"],[data-id="hdr-load"],[data-id="hdr-custom"]')) {
-    const name = (b.dataset.proj && (b.dataset.proj === 'screen' ? 'view-screen' : `proj-${b.dataset.proj}`)) ?? (b.dataset.imp && (b.dataset.imp === 'screen' ? 'view-screen' : `proj-${b.dataset.imp}`)) ?? (b.dataset.impcomp && `completion-${b.dataset.impcomp}`) ?? b.dataset.draw ?? b.dataset.bop ?? b.dataset.xop ?? b.dataset.fop ?? b.dataset.spiral ?? (b.dataset.toggle && `view-${b.dataset.toggle}`)
+  for (const b of root.querySelectorAll('[data-proj],[data-imp],[data-impcomp],[data-draw],[data-bop],[data-btmat],[data-bumat],[data-xop],[data-fop],[data-spiral],[data-toggle],[data-gmethod],[data-galign],[data-gcorner],[data-grow],[data-mfgrow],[data-drgrow],[data-eslimit],[data-flshape],[data-drtaper],[data-avaxis],[data-extshape],[data-esshape],[data-isodir],[data-id="oe-both"],[data-id="iso-subdivide"],[data-id="oe-individual"],[data-id="blend-tangent"],[data-id="ex-lock"],[data-id="bool-keep"],[data-id="prim-keep"],[data-id="ex-free"],[data-id="ex-pivot"],[data-id="ex-individual"],[data-id="patch-individual"],[data-id="patch-quad"],[data-id="as-symmetric"],[data-id="as-analysis"],[data-id="sq-analysis"],[data-id="dr-hidden"],[data-id="dr-curves"],[data-id="oc-lock"],[data-id="oc-free"],[data-id="oc-slot"],[data-id="oc-combine"],[data-id="es-unlimit"],[data-rbmethod],[data-oecorner],[data-saplane],[data-plaxis],[data-plop],[data-id="pl-flip"],[data-id="pl-instance"],[data-id="mirror-instance"],[data-id="ra-instance"],[data-id="rr-instance"],[data-id="ca-instance"],[data-id="br-trim"],[data-id="br-comb"],[data-id="ac-comb"],[data-id="dc-reblend"],[data-id="section-btn"],[data-id="sa-flip"],[data-id="rf-shrink"],[data-id="ut-keep"],[data-txfont],[data-id="tx-load"],[data-id="tx-system"],[data-txalign],[data-sldir],[data-dcflip],[data-id="dc-keep"],[data-imdepth],[data-imcull],[data-id="im-delete"],[data-id="cc-extend"],[data-id="cc-screen"],[data-inmode],[data-pfmode],[data-pfmirror],[data-pmethod],[data-mxtopo],[data-id="mx-convex"],[data-sqbound],[data-asbound],[data-bsshape],[data-bstrim],[data-id="bs-add"],[data-id="bs-s1"],[data-id="bs-s2"],[data-id="in-realize"],[data-id="in-dup"],[data-id="in-delete"],[data-id="matcap-load"],[data-id="matcap-custom"],[data-id="hdr-load"],[data-id="hdr-custom"]')) {
+    const name = (b.dataset.proj && (b.dataset.proj === 'screen' ? 'view-screen' : `proj-${b.dataset.proj}`)) ?? (b.dataset.imp && (b.dataset.imp === 'screen' ? 'view-screen' : `proj-${b.dataset.imp}`)) ?? (b.dataset.impcomp && `completion-${b.dataset.impcomp}`) ?? b.dataset.draw ?? b.dataset.bop ?? (b.dataset.btmat && `mat-${b.dataset.btmat}`) ?? (b.dataset.bumat && `mat-${b.dataset.bumat}`) ?? b.dataset.xop ?? b.dataset.fop ?? b.dataset.spiral ?? (b.dataset.toggle && `view-${b.dataset.toggle}`)
       ?? (b.dataset.gmethod && `guide-${b.dataset.gmethod}`) ?? (b.dataset.galign && `align-${b.dataset.galign}`) ?? (b.dataset.gcorner && (b.dataset.gcorner === 'round' ? 'corner-round' : 'corner-linear')) ?? (b.dataset.grow && `grow-${b.dataset.grow}`) ?? (b.dataset.mfgrow && `grow-${b.dataset.mfgrow}`) ?? (b.dataset.drgrow && `grow-${b.dataset.drgrow}`) ?? (b.dataset.eslimit && `limit-${b.dataset.eslimit}`) ?? (b.dataset.flshape && `fillet-${b.dataset.flshape}`) ?? (b.dataset.drtaper && `taper-${b.dataset.drtaper}`) ?? (b.dataset.avaxis && `axis-${b.dataset.avaxis}`) ?? (b.dataset.extshape && `extend-${b.dataset.extshape}`) ?? (b.dataset.esshape && `extend-${b.dataset.esshape}`) ?? (b.dataset.isodir && `iso-${b.dataset.isodir}`) ?? (b.dataset.rbmethod && `rebuild-${b.dataset.rbmethod}`) ?? (b.dataset.oecorner && `corner-${b.dataset.oecorner}`) ?? (b.dataset.saplane && `section-${b.dataset.saplane}`) ?? (b.dataset.plaxis && (b.dataset.plaxis === 'normal' ? 'place-normal' : `axis-${b.dataset.plaxis}`)) ?? b.dataset.plop
       ?? (b.dataset.txfont && `font-${b.dataset.txfont}`) ?? (b.dataset.txalign && `txalign-${b.dataset.txalign}`) ?? (b.dataset.sldir && { u: 'slide-u', '-u': 'slide-back', v: 'slide-v', '-v': 'slide-vback', n: 'slide-n' }[b.dataset.sldir]) ?? (b.dataset.dcflip && { mirror: 'mirror', swap: 'swap-uv', normal: 'reverse-sheet' }[b.dataset.dcflip]) ?? (b.dataset.imdepth && `depth-${b.dataset.imdepth}`) ?? (b.dataset.imcull && `cull-${b.dataset.imcull}`) ?? b.dataset.inmode ?? (b.dataset.bsshape && `bridge-${b.dataset.bsshape}`) ?? (b.dataset.bstrim && `trimwall-${b.dataset.bstrim}`) ?? (b.dataset.mxtopo && `topo-${b.dataset.mxtopo}`) ?? (b.dataset.pmethod && (b.dataset.pmethod === 'fill' ? 'patch-fill' : `trim-${b.dataset.pmethod}`)) ?? (b.dataset.pfmode && `falloff-${b.dataset.pfmode}`) ?? ((b.dataset.sqbound ?? b.dataset.asbound) && `bound-${b.dataset.sqbound ?? b.dataset.asbound}`) ?? (b.dataset.pfmirror && `mirror-${b.dataset.pfmirror}`)
       ?? { 'matcap-load': 'matcap-load', 'matcap-custom': 'matcap', 'tx-load': 'font-load', 'tx-system': 'font-system', 'hdr-load': 'hdr-load', 'hdr-custom': 'hdr', 'ex-lock': 'lock', 'bool-keep': 'keep', 'prim-keep': 'keep', 'ex-free': 'freestyle', 'ex-pivot': 'pivot', 'ex-individual': 'individual', 'patch-individual': 'individual', 'mx-convex': 'convex', 'patch-quad': 'square', 'as-symmetric': 'symmetric', 'as-analysis': 'analysis', 'sq-analysis': 'analysis', 'bs-add': 'wall-pair', 'bs-s1': 'flip', 'bs-s2': 'flip', 'dr-hidden': 'hidden-lines', 'dr-curves': 'drawing-curves', 'oc-lock': 'lock', 'oc-free': 'freestyle', 'oc-slot': 'slot', 'oc-combine': 'combine', 'oe-both': 'both-sides', 'iso-subdivide': 'subdivide', 'oe-individual': 'individual', 'blend-tangent': 'tangent-chain', 'es-unlimit': 'unlimit', 'rf-shrink': 'shrink', 'ut-keep': 'keep-edges', 'section-btn': 'view-section', 'sa-flip': 'flip', 'pl-flip': 'flip', 'pl-instance': 'instance', 'mirror-instance': 'instance', 'ra-instance': 'instance', 'rr-instance': 'instance', 'ca-instance': 'instance', 'br-trim': 'trim', 'br-comb': 'view-curvature', 'ac-comb': 'view-curvature', 'dc-reblend': 'reblend', 'dc-keep': 'keep', 'im-delete': 'delete', 'in-realize': 'realize-instance', 'cc-extend': 'extend', 'cc-screen': 'view-screen', 'in-dup': 'duplicate', 'in-delete': 'delete' }[b.dataset.id];
@@ -4550,7 +4554,7 @@ export async function mount(root, backend) {
     const ids = sel.solids.filter(id => org.shows(id));
     if (ids.length < 2) return toast('SELECT THE TARGET, THEN THE TOOLS');
     if (!backend.previewBoolean) return toast('BOOLEAN IS NOT IN THIS BUILD YET');
-    const c = cmd = { id: 'boolean', target: ids[0], tools: ids.slice(1), op: 'union', keep: false, sent: 0, shown: 0 };
+    const c = cmd = { id: 'boolean', target: ids[0], tools: ids.slice(1), op: 'union', keep: false, targetMaterial: 'default', toolMaterial: 'default', sent: 0, shown: 0 };
     lastTool = 'boolean';
     showTool('boolean');
     setState('none');
@@ -4572,12 +4576,14 @@ export async function mount(root, backend) {
   async function previewBooleanCmd() {
     const c = cmd;
     for (const b of $$('[data-bop]')) b.setAttribute('aria-pressed', b.dataset.bop === c.op);
+    for (const b of $$('[data-btmat]')) b.setAttribute('aria-pressed', b.dataset.btmat === c.targetMaterial);
+    for (const b of $$('[data-bumat]')) b.setAttribute('aria-pressed', b.dataset.bumat === c.toolMaterial);
     $('bool-keep').setAttribute('aria-pressed', c.keep);
     const n = ++c.sent;
     setState('updating');
     const t0 = performance.now();
     let body;
-    try { body = await backend.previewBoolean({ target: c.target, tools: c.tools, op: c.op === 'region' ? 'union' : c.op, region: c.op === 'region' }); }
+    try { body = await backend.previewBoolean({ target: c.target, tools: c.tools, op: c.op === 'region' ? 'union' : c.op, region: c.op === 'region', targetMaterial: c.targetMaterial, toolMaterial: c.toolMaterial }); }
     catch (e) {
       if (cmd !== c || n !== c.sent) return;
       clearPreview();
@@ -4597,13 +4603,14 @@ export async function mount(root, backend) {
       if (b) { const ph = meshOf(b, look.face, look.edge); ph.renderOrder = 5; previewGroup.add(ph); }
     }
     for (const piece of body.pieces ?? []) { const m = meshOf(piece, phantom.add.face, phantom.add.edge); m.renderOrder = 6; previewGroup.add(m); }
-    setHud(`${c.op.toUpperCase()}${c.op === 'region' ? ` · ${1 + (body.pieces?.length ?? 0)} SOLIDS` : ''}${c.keep ? ' · KEEP TOOLS' : ''}`);
+    const mats = [c.targetMaterial !== 'default' && `TARGET ${c.targetMaterial.toUpperCase()}`, c.toolMaterial !== 'default' && `TOOL ${c.toolMaterial.toUpperCase()}`].filter(Boolean).map(t => ` · ${t}`).join('');
+    setHud(`${c.op.toUpperCase()}${c.op === 'region' ? ` · ${1 + (body.pieces?.length ?? 0)} SOLIDS` : ''}${mats}${c.keep ? ' · KEEP TOOLS' : ''}`);
     if (n === c.sent) setState('updated');
   }
   async function commitBooleanCmd() {
     const c = cmd;
     try {
-      const { id, scene: list } = await backend.commitBoolean({ target: c.target, tools: c.tools, op: c.op === 'region' ? 'union' : c.op, region: c.op === 'region', keepTools: c.keep });
+      const { id, scene: list } = await backend.commitBoolean({ target: c.target, tools: c.tools, op: c.op === 'region' ? 'union' : c.op, region: c.op === 'region', targetMaterial: c.targetMaterial, toolMaterial: c.toolMaterial, keepTools: c.keep });
       endCmd('committed');
       record(`BOOLEAN ${c.op.toUpperCase()} ${c.tools.map(label).join(' ')}`, id);
       sel.clear();
@@ -10531,6 +10538,8 @@ export async function mount(root, backend) {
   $('ex-angle').addEventListener('input', e => { const v = parseFloat(e.target.value); if (!isNaN(v)) setExtrudeShape({ angle: v }); });
   $('ex-thickness').addEventListener('input', e => { const v = parseFloat(e.target.value); if (!isNaN(v) && v >= 0) setExtrudeShape({ thickness: v }); });
   for (const b of $$('[data-bop]')) b.onclick = () => cmd?.id === 'boolean' && cmd.key(b.dataset.bop);
+  for (const b of $$('[data-btmat]')) b.onclick = () => { if (cmd?.id === 'boolean') { cmd.targetMaterial = b.dataset.btmat; previewBooleanCmd(); } };
+  for (const b of $$('[data-bumat]')) b.onclick = () => { if (cmd?.id === 'boolean') { cmd.toolMaterial = b.dataset.bumat; previewBooleanCmd(); } };
   for (const id of ['hole-d', 'hole-depth']) $(id).addEventListener('input', () => cmd?.id === 'hole' && cmd.preview());
   $('hole-through').onclick = () => cmd?.id === 'hole' && cmd.key('through');
   for (const n of ['1', '2', '3']) for (const e of 'ab') $(`br-t${n}${e}`).addEventListener('input', () => cmd?.id === 'bridge' && cmd.preview());

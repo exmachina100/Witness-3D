@@ -9,7 +9,7 @@ use w3d_kernel::document::{BodyId, Document, FormRequest as FormKindRequest, Pro
 use w3d_kernel::engine::Engine;
 use w3d_kernel::occt::Occt;
 use w3d_kernel::blend::FilletShape;
-use w3d_kernel::{extrude, file, form, ArraySpec, Primitive, FormParams, Blend, BlendParams, BooleanOp, Curve, CurveId, CurveShape, GuideRef, ExtrudeParams, ExtrudeResult, Frame, Kernel, KernelError, Motion, Operation, Profile, Ref, Refs, FaceRebuild, RebuiltFace, SheetExtension, Tessellation};
+use w3d_kernel::{extrude, file, form, ArraySpec, Primitive, FormParams, Blend, BlendParams, BooleanOp, Material, Materials, Curve, CurveId, CurveShape, GuideRef, ExtrudeParams, ExtrudeResult, Frame, Kernel, KernelError, Motion, Operation, Profile, Ref, Refs, FaceRebuild, RebuiltFace, SheetExtension, Tessellation};
 
 /// Chord tolerance for display meshes, in millimetres.
 const MESH_TOLERANCE: f64 = 0.05;
@@ -557,9 +557,16 @@ pub struct BooleanRequest {
     /// Region: a solid for each part of space the target and tools close off, in place of `op`.
     #[serde(default)]
     pub region: bool,
+    /// Target Material and Tool Material.
+    #[serde(default)]
+    pub target_material: Material,
+    #[serde(default)]
+    pub tool_material: Material,
 }
 
 impl BooleanRequest {
+    fn materials(&self) -> Materials { Materials { target: self.target_material, tool: self.tool_material } }
+
     /// The boolean to run, or `None` for Shift+Q's slice.
     fn op(&self) -> Result<Option<BooleanOp>, ApiError> {
         match self.op {
@@ -591,11 +598,11 @@ pub fn preview_boolean(m: &Model, req: BooleanRequest) -> Option<Result<BooleanP
         }
         match req.op()? {
             Some(op) => {
-                let t = doc.preview_boolean(req.target, &req.tools, op)?;
+                let t = doc.preview_boolean_as(req.target, &req.tools, op, req.materials())?;
                 Ok(BooleanPreview { body: body(&doc.kernel, req.target, &t.solid)?, pieces: vec![] })
             }
             None => {
-                let (rest, pieces) = doc.preview_boolean_slice(req.target, &req.tools)?;
+                let (rest, pieces) = doc.preview_boolean_slice_as(req.target, &req.tools, req.materials())?;
                 let pieces = pieces.iter().map(|p| body(&doc.kernel, 0, p)).collect::<Result<_, _>>()?;
                 Ok(BooleanPreview { body: body(&doc.kernel, req.target, &rest.solid)?, pieces })
             }
@@ -612,8 +619,8 @@ pub fn commit_boolean(m: &Model, req: BooleanRequest) -> Result<Committed, ApiEr
             return Ok(Committed { id: req.target, scene: bodies(doc)? });
         }
         match req.op()? {
-            Some(op) => { doc.commit_boolean(req.target, &req.tools, op, req.keep_tools)?; }
-            None => { doc.commit_boolean_slice(req.target, &req.tools, req.keep_tools)?; }
+            Some(op) => { doc.commit_boolean_as(req.target, &req.tools, op, req.keep_tools, req.materials())?; }
+            None => { doc.commit_boolean_slice_as(req.target, &req.tools, req.keep_tools, req.materials())?; }
         }
         Ok(Committed { id: req.target, scene: bodies(doc)? })
     })

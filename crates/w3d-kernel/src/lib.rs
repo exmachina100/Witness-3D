@@ -222,6 +222,17 @@ pub enum KernelError {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum BooleanOp { Union, Difference, Intersection }
 
+/// Plasticity's Boolean Target Material and Tool Material: how a body takes part. Empty is a
+/// solid's skin alone; Inside a sheet as solid behind its faces; Outside the space in front of a
+/// sheet's faces, or outside a solid.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Material { #[default] Default, Empty, Inside, Outside }
+
+/// The target's and the tools' materials for a boolean.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
+pub struct Materials { pub target: Material, pub tool: Material }
+
 /// Where an operation's result faces and edges came from, by number (see [`Tessellation`]).
 /// `faces[k]` and `edges[k]` hold (number in input k, number in the result) pairs: input 0 is the
 /// body being changed, input 1 the tool of a boolean. A split source appears once per piece.
@@ -434,6 +445,10 @@ pub trait Kernel {
     }
     fn face_uvn(&self, _s: &Self::Solid, _face: u32, _map: bool, _points: &[DVec3]) -> Result<([f64; 2], Vec<DVec3>), KernelError> {
         Err(KernelError::Invalid("this kernel cannot deform curves"))
+    }
+    /// A body taken as `m` (not Default) for a boolean, and whether that runs on without end.
+    fn with_material(&self, _s: &Self::Solid, _m: Material) -> Result<(Self::Solid, bool), KernelError> {
+        Err(KernelError::Invalid("this kernel takes bodies only as they are"))
     }
     /// Plasticity's Boolean Region: a solid for each part of space the bodies (solids and sheets) close off.
     fn regions(&self, _bodies: &[&Self::Solid]) -> Result<Vec<Self::Solid>, KernelError> {

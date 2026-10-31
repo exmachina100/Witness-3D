@@ -3247,6 +3247,56 @@ inline rust::Vec<double> w3d_isoparam(const TopoDS_Shape &shape, int32_t face, r
   }
 }
 
+// Boolean's Target Material and Tool Material (`kind` 0 Default, 1 Empty, 2 Inside, 3 Outside):
+// Empty is a solid's skin alone, Inside a sheet as solid behind its faces (a closed sheet the solid
+// it bounds), Outside the space in front of a sheet's faces or outside a solid. Default, and
+// Inside on a solid, leave the body as it is.
+inline std::unique_ptr<TopoDS_Shape> w3d_material(const TopoDS_Shape &shape, int32_t kind) {
+  try {
+    const bool solid = TopExp_Explorer(shape, TopAbs_SOLID).More();
+    if (kind == 0 || (kind == 2 && solid) || (kind == 1 && !solid)) return std::unique_ptr<TopoDS_Shape>(new TopoDS_Shape(shape));
+    std::vector<TopoDS_Shell> shells;
+    for (TopExp_Explorer ex(shape, TopAbs_SHELL); ex.More(); ex.Next()) shells.push_back(TopoDS::Shell(ex.Current()));
+    if (kind == 1) {
+      if (shells.size() == 1) return std::unique_ptr<TopoDS_Shape>(new TopoDS_Shape(shells[0]));
+      BRep_Builder B;
+      TopoDS_Compound c;
+      B.MakeCompound(c);
+      for (const auto &s : shells) B.Add(c, s);
+      return std::unique_ptr<TopoDS_Shape>(new TopoDS_Shape(c));
+    }
+    if (kind != 2 && kind != 3) throw std::runtime_error("no such material");
+    if (shells.size() > 1) throw std::runtime_error("that body has more than one skin; take it as Default or Empty");
+    TopExp_Explorer fx(shape, TopAbs_FACE);
+    if (!fx.More()) throw std::runtime_error("that body has no faces");
+    const TopoDS_Face f = TopoDS::Face(fx.Current());
+    double u0, u1, v0, v1;
+    BRepTools::UVBounds(f, u0, u1, v0, v1);
+    BRepGProp_Face gp(f);
+    gp_Pnt p;
+    gp_Vec n;
+    gp.Normal((u0 + u1) / 2, (v0 + v1) / 2, p, n);
+    if (n.Magnitude() < 1e-12) throw std::runtime_error("that body's face has no normal to tell its sides by");
+    n.Normalize();
+    Bnd_Box bb;
+    BRepBndLib::Add(shape, bb);
+    const double eps = 1e-4 * (1 + std::sqrt(bb.SquareExtent()));
+    const gp_Pnt ref = p.Translated(n * (kind == 3 ? eps : -eps));
+    TopoDS_Solid half = shells.empty() ? BRepPrimAPI_MakeHalfSpace(f, ref).Solid() : BRepPrimAPI_MakeHalfSpace(shells[0], ref).Solid();
+    return std::unique_ptr<TopoDS_Shape>(new TopoDS_Shape(half));
+  } catch (const Standard_Failure &e) {
+    throw w3d_kernel_error(e);
+  }
+}
+
+// Whether `w3d_material` of `kind` runs on without end: Outside always, Inside on an open sheet.
+inline bool w3d_material_unbounded(const TopoDS_Shape &shape, int32_t kind) {
+  if (kind == 3) return true;
+  if (kind != 2 || TopExp_Explorer(shape, TopAbs_SOLID).More()) return false;
+  TopExp_Explorer sx(shape, TopAbs_SHELL);
+  return !(sx.More() && BRep_Tool::IsClosed(sx.Current()));
+}
+
 // Plasticity's Boolean Region: the solids of the space the bodies in `all` (a compound of solids
 // and sheets) close off. A box round everything is split by all their faces; the pieces that
 // don't reach the box's sides are the enclosed regions, returned as a compound of solids.
