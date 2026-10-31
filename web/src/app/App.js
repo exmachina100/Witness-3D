@@ -1841,6 +1841,41 @@ export async function mount(root, backend) {
     }
     return out;
   }
+  /**
+   * Plasticity's CV hull loops (Alt+click a hull): the shown control net line within a few pixels
+   * of a canvas point (off its points), as the points of the whole row or column it runs along. A
+   * face's net is rows of points; a line between two rows belongs to a column. A control-point
+   * curve's hull gives all its points. Null when no hull line is near.
+   */
+  function hullLoopAt(p, px = 6) {
+    let best = null, bestD = px;
+    const seg = (a, b) => {
+      const s = screenOf(a), t = screenOf(b);
+      if (s.behind || t.behind) return Infinity;
+      const dx = t.x - s.x, dy = t.y - s.y, L = dx * dx + dy * dy;
+      const k = L ? Math.max(0, Math.min(1, ((p.x - s.x) * dx + (p.y - s.y) * dy) / L)) : 0;
+      return Math.hypot(s.x + dx * k - p.x, s.y + dy * k - p.y);
+    };
+    for (const [body, which] of shownPoints.faces) {
+      const all = facePoleCache.get(body);
+      if (!all || !org.shows(body)) continue;
+      for (const face of which === 'all' ? all.keys() : which) {
+        const P = (all[face] ?? []).map(r => r.map(q => new THREE.Vector3(...q)));
+        if (!P.length) continue;
+        const cols = P[0].length;
+        P.forEach((r, i) => { for (let j = 1; j < r.length; j++) { const d = seg(r[j - 1], r[j]); if (d < bestD) { bestD = d; best = r.map((_, k) => ({ kind: 'pole', body, face, n: i * cols + k })); } } });
+        for (let j = 0; j < cols; j++) for (let i = 1; i < P.length; i++) { const d = seg(P[i - 1][j], P[i][j]); if (d < bestD) { bestD = d; best = P.map((_, k) => ({ kind: 'pole', body, face, n: k * cols + j })); } }
+      }
+    }
+    for (const id of shownPoints.curves) {
+      const c = curveById(id);
+      if (!c || (c.kind !== 'cv' && c.kind !== 'nurbs')) continue;
+      const f = curveFrame(c), net = c.kind === 'cv' ? c.points.map(([x, y]) => lift(f, { x, y })) : c.poles.map(([x, y, z]) => lift(f, { x, y, z }));
+      const run = c.kind === 'cv' && c.closed ? [...net, net[0]] : net;
+      for (let i = 1; i < run.length; i++) { const d = seg(run[i - 1], run[i]); if (d < bestD) { bestD = d; best = net.map((_, n) => ({ kind: 'vertex', id, n })); } }
+    }
+    return best;
+  }
   /** A face's control point (as poleList gives them) by face and number. */
   const poleOf = it => { const q = facePoleCache.get(it.body)?.[it.face]?.flat()[it.n]; return q && new THREE.Vector3(...q); };
   /** The shown face control point within a few pixels of a canvas point, nearest first. */
@@ -10847,6 +10882,16 @@ export async function mount(root, backend) {
     if ((e.ctrlKey || e.metaKey) && e.shiftKey && (!cmd || cmd.auto)) return openPickMenu(e);
     // Alt+click an edge: its loop; Ctrl+Alt+click: its ring (Shift adds either to the selection).
     // Also while Fillet picks its edges, or a command came up by itself on the selection.
+    // Alt+click a control net line (shown with Toggle Points, in point mode): its row or column.
+    if (e.altKey && (!cmd || cmd.auto) && sel.allows('point') && !(vertexAt(local(e)) ?? poleAt(local(e)))) {
+      const run = hullLoopAt(local(e));
+      if (run) {
+        if (!e.shiftKey) sel.clear();
+        for (const it of run) sel.add(it);
+        hover = null;
+        return selectionChanged();
+      }
+    }
     if (e.altKey && (!cmd || cmd.auto || cmd.id === 'fillet')) {
       const picked = pickAt(e), b = picked?.kind === 'edge' && bodyOf(picked.body);
       if (b) {
