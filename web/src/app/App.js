@@ -85,6 +85,7 @@ import { limitCurve } from '../loftLimits.js';
 import { CULLING, DEPTHS, checkImage, imageLook, newImage } from './images.js';
 import { newInstance, checkInstance, matrixOf, motionOf, instanceFromMotion, mirroredInstance } from './instances.js';
 import { arrayMotions, radialSpec, rectangularSpec } from '../arrayMotions.js';
+import { SNAP_KINDS, allowed as snapAllowed, kindOf as snapKindOf, parseSnaps } from './snapKinds.js';
 import { Organise } from './Organise.js';
 import { P_MENU, RADIALS, mergeKeys, parseRadial, shortLabel, showKey, sliceAt, slicePosition } from './menus.js';
 import { ADVANCED_MATERIAL, ENVIRONMENTS, MATERIAL_LIBRARY, SHADERS, SHADER_OPTIONS, checkMaterial, formatMass, isColorKey, massOf, newMaterial, shader } from './shading.js';
@@ -990,6 +991,10 @@ const SHELL = `
         <div class="field"><label for="w3d-env-int">INTENSITY</label><input id="w3d-env-int" data-id="env-int" type="range" min="0" max="10" step="0.1" value="1"></div>
       </div>
       <div class="stepper"><span>GRID</span><button data-id="grid-dec" aria-label="Smaller grid step">−</button><output data-id="grid">2.5</output><button data-id="grid-inc" aria-label="Larger grid step">+</button></div>
+    </div>
+    <div class="sec" data-id="snapping">
+      <span class="label">SNAPPING</span>
+      <div class="chips"><button data-id="snap-object" aria-pressed="true" aria-label="Object snapping" title="Object snapping: points on solids, sheets and curves (Ctrl or drawing). Shift+X while a snap shows skips that kind until the command ends">${icon('snap-object')}</button>${SNAP_KINDS.map(k => `<button data-snapkind="${k.id}" aria-pressed="true" aria-label="${k.label} snaps" title="${k.label} snaps">${icon(`snap-${k.id}`)}</button>`).join('')}</div>
     </div>
     <div class="sec">
       <span class="label">CONSTRUCTION PLANE <output data-id="plane">XY</output></span>
@@ -3048,6 +3053,8 @@ export async function mount(root, backend) {
     return out.map(x => ({ point: new THREE.Vector3(...x.point), kind: x.kind }));
   }
   function snapNear(e, meshes, plane = null, from = null) {
+    if (!snapSettings.on) return null;
+    const ok = s => snapAllowed(s.kind, snapSettings, cmd?.snapSkip);
     const c = local(e);
     let best = null, bestD = SNAP_PX;
     // 2026.2: instances snap as their masters do, where they stand.
@@ -3055,14 +3062,14 @@ export async function mount(root, backend) {
     const curves = curvePolys();
     const all = [...meshes.flatMap(m => [...snapCandidates(m), ...sectionSnaps(m)]), ...placed, ...curves.snaps, ...(from ? fromSnaps(from, plane?.normal) : [])];
     for (const s of all) {
-      if (plane && Math.abs(plane.distanceToPoint(s.point)) > 1e-3) continue;
+      if (!ok(s) || (plane && Math.abs(plane.distanceToPoint(s.point)) > 1e-3)) continue;
       const p = screenOf(s.point);
       if (p.behind) continue;
       const d = Math.hypot(p.x - c.x, p.y - c.y);
       // Points along a curve give way to the named points of the same place.
       if (d < bestD - 1e-6) { bestD = d; best = s; }
     }
-    if (!best) {
+    if (!best && ok({ kind: 'ON CURVE' })) {
       // Closest: the nearest point along a curve under the pointer.
       let near = null;
       for (const q of curves.polys) {
@@ -3074,7 +3081,17 @@ export async function mount(root, backend) {
     }
     return best && { point: best.point.clone(), kind: best.kind };
   }
+  // The Snapping window's settings (snapKinds.js), kept for the next session.
+  let snapSettings = (() => { try { return parseSnaps(localStorage.getItem('w3d-snaps')); } catch { return parseSnaps(null); } })();
+  let shownSnap = null;
+  function setSnaps(next) {
+    snapSettings = next;
+    try { localStorage.setItem('w3d-snaps', JSON.stringify(next)); } catch { /* private window: this session only */ }
+    $('snap-object').setAttribute('aria-pressed', next.on);
+    for (const b of $$('[data-snapkind]')) { b.setAttribute('aria-pressed', !next.off.includes(b.dataset.snapkind)); b.disabled = !next.on; }
+  }
   function showSnap(s, e) {
+    shownSnap = s?.kind ?? null;
     snapDot.visible = !!s;
     if (s) snapDot.position.copy(s.point);
     const tag = $('snap-tag');
@@ -10441,9 +10458,14 @@ export async function mount(root, backend) {
   /** Run a named action (keymap.js); returns false for names it doesn't know. */
   async function doAction(a) {
     const [kind, arg] = a.split(':');
-    if (!['select', 'view', 'plane', 'sources', 'sidebar', 'grid', 'overlays', 'undo', 'redo', 'app', 'radial'].includes(kind)) keepSources();
+    if (!['select', 'view', 'plane', 'sources', 'sidebar', 'grid', 'snap', 'overlays', 'undo', 'redo', 'app', 'radial'].includes(kind)) keepSources();
     switch (kind) {
       case 'sources': selectSources(arg === 'forward' ? 1 : -1); return true;
+      case 'snap':
+        // Plasticity's palette command Toggle object snapping (no key by default).
+        setSnaps({ ...snapSettings, on: !snapSettings.on });
+        toast(snapSettings.on ? 'OBJECT SNAPPING ON' : 'OBJECT SNAPPING OFF');
+        return true;
       case 'grid':
         // Plasticity's palette commands: Grid: increase / decrease grid size, toggle grid snapping.
         if (arg === 'snap') { view.snap = !view.snap; applyView(); snapsFor(view.snap); toast(view.snap ? 'GRID SNAPPING ON' : 'GRID SNAPPING OFF (CTRL SNAPS)'); }
@@ -11280,6 +11302,12 @@ export async function mount(root, backend) {
   }
   $('grid-dec').onclick = () => setGrid(-1);
   $('grid-inc').onclick = () => setGrid(1);
+  $('snap-object').onclick = () => doAction('snap:object');
+  for (const b of $$('[data-snapkind]')) b.onclick = () => {
+    const id = b.dataset.snapkind, off = snapSettings.off.includes(id) ? snapSettings.off.filter(x => x !== id) : [...snapSettings.off, id];
+    setSnaps({ ...snapSettings, off });
+  };
+  setSnaps(snapSettings);
   $('size').addEventListener('input', e => {
     const v = parseFloat(e.target.value);
     if (!(v > 0)) return;
@@ -11583,6 +11611,15 @@ export async function mount(root, backend) {
       if (/^[0-9.\-]$/.test(e.key)) entry.text += e.key;
       else if (e.key === 'Backspace') entry.text = entry.text.slice(0, -1);
       return setHud(`${entry.label} ${entry.text}_`);
+    }
+    // Shift+X with a snap showing: skip that kind of snap for the rest of the command, so the
+    // next one under the pointer comes up (Plasticity: switches off snap types, cycling).
+    if (cmd && k === 'shift-x' && shownSnap && snapDot.visible) {
+      e.preventDefault();
+      cmd.snapSkip = [...(cmd.snapSkip ?? []), snapKindOf(shownSnap)];
+      setHud(`${shownSnap} SNAPS SKIPPED`);
+      if (lastPointer) canvas.dispatchEvent(new PointerEvent('pointermove', { clientX: lastPointer.clientX, clientY: lastPointer.clientY, ctrlKey: lastPointer.ctrlKey, altKey: lastPointer.altKey, shiftKey: false, bubbles: true }));
+      return;
     }
     if (cmd) {
       const action = COMMAND[cmd.id]?.[k];
