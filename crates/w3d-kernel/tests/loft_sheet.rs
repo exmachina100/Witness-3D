@@ -19,7 +19,7 @@ fn area(t: &Tessellation) -> f64 {
 #[test]
 fn two_lines_make_a_flat_sheet() {
     let k = Occt;
-    let s = k.loft_sheet(&[line(DVec3::ZERO, DVec3::X * 10.0), line(DVec3::Y * 5.0, DVec3::new(10.0, 5.0, 0.0))], false).unwrap();
+    let s = k.loft_sheet(&[line(DVec3::ZERO, DVec3::X * 10.0), line(DVec3::Y * 5.0, DVec3::new(10.0, 5.0, 0.0))], false, true).unwrap();
     assert!(k.is_sheet(&s));
     assert!((area(&k.tessellate(&s, 0.01).unwrap()) - 50.0).abs() < 1e-6);
     assert_eq!(k.boundary_edges(&s).len(), 4);
@@ -29,7 +29,7 @@ fn two_lines_make_a_flat_sheet() {
 fn two_circles_make_an_open_tube() {
     let k = Occt;
     let c = |z: f64| Path::Circle { center: DVec3::new(0.0, 0.0, z), normal: DVec3::Z, radius: 5.0 };
-    let s = k.loft_sheet(&[c(0.0), c(20.0)], false).unwrap();
+    let s = k.loft_sheet(&[c(0.0), c(20.0)], false, true).unwrap();
     assert!(k.is_sheet(&s));
     let a = area(&k.tessellate(&s, 0.001).unwrap());
     assert!((a - 2.0 * std::f64::consts::PI * 5.0 * 20.0).abs() < 0.5, "area {a}");
@@ -40,12 +40,25 @@ fn a_loop_closes_back_on_the_first_curve() {
     let k = Occt;
     let at = |y: f64, z: f64| line(DVec3::new(0.0, y, z), DVec3::new(10.0, y, z));
     let curves = [at(0.0, 0.0), at(10.0, 0.0), at(5.0, 8.0)];
-    let open = k.loft_sheet(&curves, false).unwrap();
-    let looped = k.loft_sheet(&curves, true).unwrap();
+    let open = k.loft_sheet(&curves, false, true).unwrap();
+    let looped = k.loft_sheet(&curves, true, true).unwrap();
     assert!(k.is_sheet(&looped));
     // The open sheet has its two side lines free as well as its ends; the loop only its ends.
     assert!(k.boundary_edges(&looped).len() < k.boundary_edges(&open).len());
     let ends = |s: &<Occt as Kernel>::Solid| k.tessellate(s, 0.01).unwrap().positions.iter().all(|p| p[0] > -1e-6 && p[0] < 10.0 + 1e-6);
     assert!(ends(&looped));
-    assert!(k.loft_sheet(&curves[..2], true).is_err());
+    assert!(k.loft_sheet(&curves[..2], true, true).is_err());
+}
+
+#[test]
+fn simplify_makes_a_flat_loft_a_trimmed_plane() {
+    let k = Occt;
+    // An arc and a line side by side in the plane z = 0: flat, but lofted as a B-spline surface.
+    let arc = Path::Spline { points: vec![DVec3::ZERO, DVec3::new(5.0, 2.0, 0.0), DVec3::new(10.0, 0.0, 0.0)], closed: false };
+    let below = line(DVec3::new(0.0, -8.0, 0.0), DVec3::new(10.0, -8.0, 0.0));
+    let on = k.loft_sheet(&[arc.clone(), below.clone()], false, true).unwrap();
+    let off = k.loft_sheet(&[arc, below], false, false).unwrap();
+    assert!(matches!(k.face_surfaces(&on)[0], FaceSurface::Plane { .. }));
+    assert!(matches!(k.face_surfaces(&off)[0], FaceSurface::Other));
+    assert!((area(&k.tessellate(&on, 0.001).unwrap()) - area(&k.tessellate(&off, 0.001).unwrap())).abs() < 0.05);
 }

@@ -147,9 +147,10 @@ impl Shape {
         Ok(Shape::from_shape(&s))
     }
 
-    /// A sheet through the curves (path numbers one after another), closing back on the first when `looped`.
-    pub fn loft_sheet(sections: &[f64], looped: bool) -> Result<Shape, String> {
-        let s = ffi::w3d::w3d_loft_sheet(sections, looped).map_err(reason)?;
+    /// A sheet through the curves (path numbers one after another), closing back on the first when
+    /// `looped`; with `simplify`, faces lying flat become trimmed planes.
+    pub fn loft_sheet(sections: &[f64], looped: bool, simplify: bool) -> Result<Shape, String> {
+        let s = ffi::w3d::w3d_loft_sheet(sections, looped, simplify).map_err(reason)?;
         Ok(Shape::from_shape(&s))
     }
 

@@ -716,7 +716,50 @@ inline std::unique_ptr<TopoDS_Shape> w3d_loft(rust::Slice<const double> sections
 // Plasticity's Loft of curves: a sheet through the curves (open or closed), in order. With `loop`
 // (three curves or more) the sheet runs on from the last curve back to the first, so it closes on
 // itself; the same wire given first and last is what tells ThruSections to close the sheet.
-inline std::unique_ptr<TopoDS_Shape> w3d_loft_sheet(rust::Slice<const double> sections, bool loop) {
+// Loft's Simplify: a face lying flat (to 1e-7 of its size) as a trimmed plane on the same edges,
+// or a null face when it is curved, already a plane, or has holes.
+inline TopoDS_Face w3d_flat_face(const TopoDS_Face &f) {
+  BRepAdaptor_Surface s(f, Standard_True);
+  if (s.GetType() == GeomAbs_Plane) return TopoDS_Face();
+  int wires = 0;
+  for (TopExp_Explorer ex(f, TopAbs_WIRE); ex.More(); ex.Next()) wires++;
+  if (wires != 1) return TopoDS_Face();
+  BRepBuilderAPI_MakeFace mk(BRepTools::OuterWire(f), Standard_True);
+  if (!mk.IsDone()) return TopoDS_Face();
+  BRepAdaptor_Surface plane(mk.Face(), Standard_True);
+  if (plane.GetType() != GeomAbs_Plane) return TopoDS_Face();
+  gp_Pln pln = plane.Plane();
+  std::vector<gp_Pnt> pts;
+  for (int i = 0; i <= 8; i++)
+    for (int j = 0; j <= 8; j++)
+      pts.push_back(s.Value(s.FirstUParameter() + (s.LastUParameter() - s.FirstUParameter()) * i / 8,
+                            s.FirstVParameter() + (s.LastVParameter() - s.FirstVParameter()) * j / 8));
+  double size = 1e-9;
+  for (auto &p : pts) size = std::max(size, p.Distance(pts[0]));
+  for (auto &p : pts) if (pln.Distance(p) > 1e-7 * size) return TopoDS_Face();
+  TopoDS_Face out = mk.Face();
+  if (f.Orientation() == TopAbs_REVERSED) out.Reverse();
+  return out;
+}
+
+// Every flat face of the shape made a trimmed plane (w3d_flat_face), sewn back when there are several.
+inline TopoDS_Shape w3d_flat_faces(const TopoDS_Shape &shape) {
+  std::vector<TopoDS_Face> faces;
+  bool changed = false;
+  for (TopExp_Explorer ex(shape, TopAbs_FACE); ex.More(); ex.Next()) {
+    TopoDS_Face f = TopoDS::Face(ex.Current()), flat = w3d_flat_face(f);
+    changed = changed || !flat.IsNull();
+    faces.push_back(flat.IsNull() ? f : flat);
+  }
+  if (!changed) return shape;
+  if (faces.size() == 1) return faces[0];
+  BRepBuilderAPI_Sewing sew(1e-6);
+  for (auto &f : faces) sew.Add(f);
+  sew.Perform();
+  return sew.SewedShape();
+}
+
+inline std::unique_ptr<TopoDS_Shape> w3d_loft_sheet(rust::Slice<const double> sections, bool loop, bool simplify) {
   try {
     const double *p = sections.data(), *end = sections.data() + sections.size();
     std::vector<TopoDS_Wire> ws;
@@ -728,7 +771,7 @@ inline std::unique_ptr<TopoDS_Shape> w3d_loft_sheet(rust::Slice<const double> se
     if (loop) mk.AddWire(ws.front());
     mk.Build();
     if (!mk.IsDone()) throw std::runtime_error("no surface could be lofted through those curves");
-    return std::unique_ptr<TopoDS_Shape>(new TopoDS_Shape(mk.Shape()));
+    return std::unique_ptr<TopoDS_Shape>(new TopoDS_Shape(simplify ? w3d_flat_faces(mk.Shape()) : mk.Shape()));
   } catch (const Standard_Failure &f) {
     throw w3d_kernel_error(f);
   }
