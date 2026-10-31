@@ -47,3 +47,22 @@ export function arrayMotions(spec) {
     }
     throw new Error('an array is rectangular, radial or along a curve');
 }
+
+/**
+ * Plasticity's array Mode. Rectangular Spacing (the default) takes each direction's step as given;
+ * Extent takes the whole distance from the first copy to the last, so a count of n spreads over it
+ * evenly. Radial Total spreads the copies over the angle (a full turn not repeating the first);
+ * Spacing takes the angle between neighbouring copies, which may run past a full turn.
+ */
+export function rectangularSpec(steps, counts, mode = 'spacing') {
+    return { kind: 'rectangular', counts, steps: mode === 'extent' ? steps.map((s, i) => s.map(v => counts[i] > 1 ? v / (counts[i] - 1) : v)) : steps };
+}
+export function radialSpec(pivot, axis, angle, count, mode = 'total') {
+    if (mode !== 'spacing') return { kind: 'radial', pivot, axis, angle, count };
+    if (![pivot, axis].every(v => Array.isArray(v) && v.length === 3 && finite(v)) || !Number.isFinite(angle)) throw new Error("the array's axis or angle is not a number");
+    const len = Math.hypot(...axis);
+    if (len < 1e-9) throw new Error("the array's axis has no direction");
+    if (!Number.isInteger(count) || count < 1) throw new Error('the array count must be at least 1');
+    const unit = axis.map(c => c / len);
+    return { kind: 'motions', motions: Array.from({ length: Math.abs(angle) < 1e-9 ? 0 : count - 1 }, (_, i) => ({ offset: [0, 0, 0], pivot, axis: unit, angle: angle * (i + 1) })) };
+}
