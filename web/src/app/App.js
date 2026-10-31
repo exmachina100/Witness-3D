@@ -85,6 +85,7 @@ import { limitCurve } from '../loftLimits.js';
 import { CULLING, DEPTHS, checkImage, imageLook, newImage } from './images.js';
 import { newInstance, checkInstance, matrixOf, motionOf, instanceFromMotion, mirroredInstance } from './instances.js';
 import { arrayMotions, radialSpec, rectangularSpec } from '../arrayMotions.js';
+import { FREE_STEPS, freeMove as freeMove3, freeRotate, freeScale } from '../freestyle.js';
 import { Constraints } from './constraints.js';
 import { SNAP_KINDS, allowed as snapAllowed, kindOf as snapKindOf, parseSnaps } from './snapKinds.js';
 import { Organise } from './Organise.js';
@@ -917,7 +918,7 @@ const SHELL = `
         <button data-xfpivot="median" aria-pressed="false" title="The mean of the selected items' middles">MEDIAN</button>
         <button data-xfpivot="active" aria-pressed="false" title="The middle of the item selected last">ACTIVE</button>
       </div>
-      <div class="chips"><button data-id="xf-pick" aria-pressed="false" title="Click where the gizmo goes"><kbd>V</kbd>SET PIVOT</button><button data-id="xf-unpivot" aria-pressed="false" title="Remove the pivot you set"><kbd>⌥V</kbd>REMOVE PIVOT</button></div>
+      <div class="chips"><button data-id="xf-pick" aria-pressed="false" title="Click where the gizmo goes"><kbd>V</kbd>SET PIVOT</button><button data-id="xf-unpivot" aria-pressed="false" title="Remove the pivot you set"><kbd>⌥V</kbd>REMOVE PIVOT</button><button data-id="xf-free" aria-pressed="false" title="Freestyle: set the move, turn or scale by clicking points"><kbd>F</kbd>FREESTYLE</button></div>
     </div>
     <div class="sec" data-panel="pole-opts" hidden>
       <span class="label">PROPORTIONAL</span>
@@ -1059,11 +1060,11 @@ const VIEWS = {
 export async function mount(root, backend) {
   root.innerHTML = SHELL;
   // Panel options carry their icon ahead of the key and name.
-  for (const b of root.querySelectorAll('[data-proj],[data-imp],[data-impcomp],[data-draw],[data-bop],[data-btmat],[data-bumat],[data-xop],[data-fop],[data-spiral],[data-toggle],[data-gmethod],[data-galign],[data-gcorner],[data-grow],[data-mfgrow],[data-drgrow],[data-eslimit],[data-flshape],[data-drtaper],[data-avaxis],[data-extshape],[data-esshape],[data-isodir],[data-id="oe-both"],[data-id="iso-subdivide"],[data-id="oe-individual"],[data-id="blend-tangent"],[data-id="ex-lock"],[data-id="bool-keep"],[data-id="prim-keep"],[data-id="ex-free"],[data-id="ex-pivot"],[data-id="ex-individual"],[data-id="patch-individual"],[data-id="patch-quad"],[data-id="as-symmetric"],[data-id="as-analysis"],[data-id="sq-analysis"],[data-id="dr-hidden"],[data-id="dr-curves"],[data-id="oc-lock"],[data-id="oc-free"],[data-id="oc-slot"],[data-id="oc-combine"],[data-id="es-unlimit"],[data-rbmethod],[data-oecorner],[data-saplane],[data-plaxis],[data-plop],[data-id="pl-flip"],[data-id="pl-instance"],[data-id="mirror-instance"],[data-id="mirror-neg"],[data-id="mirror-free"],[data-id="mirror-cut"],[data-id="ra-instance"],[data-id="ra-spacing"],[data-id="ra-extent"],[data-id="rr-total"],[data-id="rr-spacing"],[data-id="rr-instance"],[data-id="ca-instance"],[data-id="br-trim"],[data-id="br-comb"],[data-id="br-constrain"],[data-id="ac-constrain"],[data-id="ac-comb"],[data-id="dc-reblend"],[data-id="section-btn"],[data-id="sa-flip"],[data-id="rf-shrink"],[data-id="ut-keep"],[data-txfont],[data-id="tx-load"],[data-id="tx-system"],[data-txalign],[data-sldir],[data-dcflip],[data-id="dc-keep"],[data-imdepth],[data-imcull],[data-id="im-delete"],[data-id="cc-extend"],[data-id="cc-screen"],[data-inmode],[data-pfmode],[data-pfmirror],[data-xforient],[data-xfpivot],[data-id="xf-pick"],[data-id="xf-unpivot"],[data-id="ls-loop"],[data-id="ls-limit"],[data-id="ls-simplify"],[data-pmethod],[data-mxtopo],[data-id="mx-convex"],[data-sqbound],[data-asbound],[data-bsshape],[data-bstrim],[data-id="bs-add"],[data-id="bs-s1"],[data-id="bs-s2"],[data-id="in-realize"],[data-id="in-dup"],[data-id="in-delete"],[data-id="matcap-load"],[data-id="matcap-custom"],[data-id="hdr-load"],[data-id="hdr-custom"]')) {
+  for (const b of root.querySelectorAll('[data-proj],[data-imp],[data-impcomp],[data-draw],[data-bop],[data-btmat],[data-bumat],[data-xop],[data-fop],[data-spiral],[data-toggle],[data-gmethod],[data-galign],[data-gcorner],[data-grow],[data-mfgrow],[data-drgrow],[data-eslimit],[data-flshape],[data-drtaper],[data-avaxis],[data-extshape],[data-esshape],[data-isodir],[data-id="oe-both"],[data-id="iso-subdivide"],[data-id="oe-individual"],[data-id="blend-tangent"],[data-id="ex-lock"],[data-id="bool-keep"],[data-id="prim-keep"],[data-id="ex-free"],[data-id="ex-pivot"],[data-id="ex-individual"],[data-id="patch-individual"],[data-id="patch-quad"],[data-id="as-symmetric"],[data-id="as-analysis"],[data-id="sq-analysis"],[data-id="dr-hidden"],[data-id="dr-curves"],[data-id="oc-lock"],[data-id="oc-free"],[data-id="oc-slot"],[data-id="oc-combine"],[data-id="es-unlimit"],[data-rbmethod],[data-oecorner],[data-saplane],[data-plaxis],[data-plop],[data-id="pl-flip"],[data-id="pl-instance"],[data-id="mirror-instance"],[data-id="mirror-neg"],[data-id="mirror-free"],[data-id="mirror-cut"],[data-id="ra-instance"],[data-id="ra-spacing"],[data-id="ra-extent"],[data-id="rr-total"],[data-id="rr-spacing"],[data-id="rr-instance"],[data-id="ca-instance"],[data-id="br-trim"],[data-id="br-comb"],[data-id="br-constrain"],[data-id="ac-constrain"],[data-id="ac-comb"],[data-id="dc-reblend"],[data-id="section-btn"],[data-id="sa-flip"],[data-id="rf-shrink"],[data-id="ut-keep"],[data-txfont],[data-id="tx-load"],[data-id="tx-system"],[data-txalign],[data-sldir],[data-dcflip],[data-id="dc-keep"],[data-imdepth],[data-imcull],[data-id="im-delete"],[data-id="cc-extend"],[data-id="cc-screen"],[data-inmode],[data-pfmode],[data-pfmirror],[data-xforient],[data-xfpivot],[data-id="xf-pick"],[data-id="xf-unpivot"],[data-id="xf-free"],[data-id="ls-loop"],[data-id="ls-limit"],[data-id="ls-simplify"],[data-pmethod],[data-mxtopo],[data-id="mx-convex"],[data-sqbound],[data-asbound],[data-bsshape],[data-bstrim],[data-id="bs-add"],[data-id="bs-s1"],[data-id="bs-s2"],[data-id="in-realize"],[data-id="in-dup"],[data-id="in-delete"],[data-id="matcap-load"],[data-id="matcap-custom"],[data-id="hdr-load"],[data-id="hdr-custom"]')) {
     const name = (b.dataset.proj && (b.dataset.proj === 'screen' ? 'view-screen' : `proj-${b.dataset.proj}`)) ?? (b.dataset.imp && (b.dataset.imp === 'screen' ? 'view-screen' : `proj-${b.dataset.imp}`)) ?? (b.dataset.impcomp && `completion-${b.dataset.impcomp}`) ?? b.dataset.draw ?? b.dataset.bop ?? (b.dataset.xforient && `orient-${b.dataset.xforient}`) ?? (b.dataset.xfpivot && `pivot-${b.dataset.xfpivot}`) ?? (b.dataset.btmat && `mat-${b.dataset.btmat}`) ?? (b.dataset.bumat && `mat-${b.dataset.bumat}`) ?? b.dataset.xop ?? b.dataset.fop ?? b.dataset.spiral ?? (b.dataset.toggle && `view-${b.dataset.toggle}`)
       ?? (b.dataset.gmethod && `guide-${b.dataset.gmethod}`) ?? (b.dataset.galign && `align-${b.dataset.galign}`) ?? (b.dataset.gcorner && (b.dataset.gcorner === 'round' ? 'corner-round' : 'corner-linear')) ?? (b.dataset.grow && `grow-${b.dataset.grow}`) ?? (b.dataset.mfgrow && `grow-${b.dataset.mfgrow}`) ?? (b.dataset.drgrow && `grow-${b.dataset.drgrow}`) ?? (b.dataset.eslimit && `limit-${b.dataset.eslimit}`) ?? (b.dataset.flshape && `fillet-${b.dataset.flshape}`) ?? (b.dataset.drtaper && `taper-${b.dataset.drtaper}`) ?? (b.dataset.avaxis && `axis-${b.dataset.avaxis}`) ?? (b.dataset.extshape && `extend-${b.dataset.extshape}`) ?? (b.dataset.esshape && `extend-${b.dataset.esshape}`) ?? (b.dataset.isodir && `iso-${b.dataset.isodir}`) ?? (b.dataset.rbmethod && `rebuild-${b.dataset.rbmethod}`) ?? (b.dataset.oecorner && `corner-${b.dataset.oecorner}`) ?? (b.dataset.saplane && `section-${b.dataset.saplane}`) ?? (b.dataset.plaxis && (b.dataset.plaxis === 'normal' ? 'place-normal' : `axis-${b.dataset.plaxis}`)) ?? b.dataset.plop
       ?? (b.dataset.txfont && `font-${b.dataset.txfont}`) ?? (b.dataset.txalign && `txalign-${b.dataset.txalign}`) ?? (b.dataset.sldir && { u: 'slide-u', '-u': 'slide-back', v: 'slide-v', '-v': 'slide-vback', n: 'slide-n' }[b.dataset.sldir]) ?? (b.dataset.dcflip && { mirror: 'mirror', swap: 'swap-uv', normal: 'reverse-sheet' }[b.dataset.dcflip]) ?? (b.dataset.imdepth && `depth-${b.dataset.imdepth}`) ?? (b.dataset.imcull && `cull-${b.dataset.imcull}`) ?? b.dataset.inmode ?? (b.dataset.bsshape && `bridge-${b.dataset.bsshape}`) ?? (b.dataset.bstrim && `trimwall-${b.dataset.bstrim}`) ?? (b.dataset.mxtopo && `topo-${b.dataset.mxtopo}`) ?? (b.dataset.pmethod && (b.dataset.pmethod === 'fill' ? 'patch-fill' : `trim-${b.dataset.pmethod}`)) ?? (b.dataset.pfmode && `falloff-${b.dataset.pfmode}`) ?? ((b.dataset.sqbound ?? b.dataset.asbound) && `bound-${b.dataset.sqbound ?? b.dataset.asbound}`) ?? (b.dataset.pfmirror && `mirror-${b.dataset.pfmirror}`)
-      ?? { 'matcap-load': 'matcap-load', 'matcap-custom': 'matcap', 'tx-load': 'font-load', 'tx-system': 'font-system', 'hdr-load': 'hdr-load', 'hdr-custom': 'hdr', 'ex-lock': 'lock', 'bool-keep': 'keep', 'prim-keep': 'keep', 'ex-free': 'freestyle', 'ex-pivot': 'pivot', 'ex-individual': 'individual', 'patch-individual': 'individual', 'mx-convex': 'convex', 'patch-quad': 'square', 'as-symmetric': 'symmetric', 'as-analysis': 'analysis', 'sq-analysis': 'analysis', 'bs-add': 'wall-pair', 'bs-s1': 'flip', 'bs-s2': 'flip', 'dr-hidden': 'hidden-lines', 'dr-curves': 'drawing-curves', 'oc-lock': 'lock', 'oc-free': 'freestyle', 'oc-slot': 'slot', 'oc-combine': 'combine', 'oe-both': 'both-sides', 'xf-pick': 'pivot', 'xf-unpivot': 'pivot-remove', 'ls-loop': 'loft-loop', 'ls-limit': 'limit-point', 'ls-simplify': 'simplify', 'iso-subdivide': 'subdivide', 'oe-individual': 'individual', 'blend-tangent': 'tangent-chain', 'es-unlimit': 'unlimit', 'rf-shrink': 'shrink', 'ut-keep': 'keep-edges', 'section-btn': 'view-section', 'sa-flip': 'flip', 'pl-flip': 'flip', 'pl-instance': 'instance', 'mirror-instance': 'instance', 'mirror-neg': 'mirror-neg', 'mirror-free': 'freestyle', 'mirror-cut': 'mirror-cut', 'ra-instance': 'instance', 'ra-spacing': 'array-spacing', 'ra-extent': 'array-extent', 'rr-total': 'array-total', 'rr-spacing': 'array-angle-step', 'rr-instance': 'instance', 'ca-instance': 'instance', 'br-trim': 'trim', 'br-comb': 'view-curvature', 'br-constrain': 'constrain', 'ac-constrain': 'constrain', 'ac-comb': 'view-curvature', 'dc-reblend': 'reblend', 'dc-keep': 'keep', 'im-delete': 'delete', 'in-realize': 'realize-instance', 'cc-extend': 'extend', 'cc-screen': 'view-screen', 'in-dup': 'duplicate', 'in-delete': 'delete' }[b.dataset.id];
+      ?? { 'matcap-load': 'matcap-load', 'matcap-custom': 'matcap', 'tx-load': 'font-load', 'tx-system': 'font-system', 'hdr-load': 'hdr-load', 'hdr-custom': 'hdr', 'ex-lock': 'lock', 'bool-keep': 'keep', 'prim-keep': 'keep', 'ex-free': 'freestyle', 'ex-pivot': 'pivot', 'ex-individual': 'individual', 'patch-individual': 'individual', 'mx-convex': 'convex', 'patch-quad': 'square', 'as-symmetric': 'symmetric', 'as-analysis': 'analysis', 'sq-analysis': 'analysis', 'bs-add': 'wall-pair', 'bs-s1': 'flip', 'bs-s2': 'flip', 'dr-hidden': 'hidden-lines', 'dr-curves': 'drawing-curves', 'oc-lock': 'lock', 'oc-free': 'freestyle', 'oc-slot': 'slot', 'oc-combine': 'combine', 'oe-both': 'both-sides', 'xf-pick': 'pivot', 'xf-unpivot': 'pivot-remove', 'xf-free': 'freestyle', 'ls-loop': 'loft-loop', 'ls-limit': 'limit-point', 'ls-simplify': 'simplify', 'iso-subdivide': 'subdivide', 'oe-individual': 'individual', 'blend-tangent': 'tangent-chain', 'es-unlimit': 'unlimit', 'rf-shrink': 'shrink', 'ut-keep': 'keep-edges', 'section-btn': 'view-section', 'sa-flip': 'flip', 'pl-flip': 'flip', 'pl-instance': 'instance', 'mirror-instance': 'instance', 'mirror-neg': 'mirror-neg', 'mirror-free': 'freestyle', 'mirror-cut': 'mirror-cut', 'ra-instance': 'instance', 'ra-spacing': 'array-spacing', 'ra-extent': 'array-extent', 'rr-total': 'array-total', 'rr-spacing': 'array-angle-step', 'rr-instance': 'instance', 'ca-instance': 'instance', 'br-trim': 'trim', 'br-comb': 'view-curvature', 'br-constrain': 'constrain', 'ac-constrain': 'constrain', 'ac-comb': 'view-curvature', 'dc-reblend': 'reblend', 'dc-keep': 'keep', 'im-delete': 'delete', 'in-realize': 'realize-instance', 'cc-extend': 'extend', 'cc-screen': 'view-screen', 'in-dup': 'duplicate', 'in-delete': 'delete' }[b.dataset.id];
     b.insertAdjacentHTML('afterbegin', icon(name));
   }
   const $ = id => root.querySelector(`[data-id="${id}"]`);
@@ -3754,6 +3755,7 @@ export async function mount(root, backend) {
       if (action === 'orient') { const o = ['normal', 'pivot', 'plane', 'world']; c.setOrient(o[(o.indexOf(c.orient) + 1) % o.length]); return true; }
       if (action === 'pivot') { c.pickPivot(!c.picking); return true; }
       if (action === 'unpivot') { c.removePivot(); return true; }
+      if (action === 'freestyle') { c.freestyle(!c.free); return true; }
       if (kind === 'move') {
         if ('xyz'.includes(action)) beginFollow({ type: 'axis', dir: frameAxis(c, action), name: action.toUpperCase() }, p);
         else if (['yz', 'xz', 'xy'].includes(action)) beginFollow({ type: 'plane', normal: frameAxis(c, 'xyz'.replace(action[0], '').replace(action[1], '')), name: action.toUpperCase() }, p);
@@ -3770,7 +3772,81 @@ export async function mount(root, backend) {
     // Clicks don't change the selection while transforming, unless Move only came up by itself:
     // then a click selects as usual and Move follows the new selection.
     const untouched = () => c.offset.lengthSq() < 1e-18 && Math.abs(c.quat.w) > 1 - 1e-12 && Math.abs(c.scale - 1) < 1e-12;
+    // Freestyle (F): clicked points set the move, the turn or the scale (FREE_STEPS lists them).
+    c.freestyle = on => {
+      if (c.free) { c.free.line.removeFromParent(); c.free.line.geometry.dispose(); showSnap(null); }
+      if (!on && c.free?.base) { c.offset.copy(c.free.base.offset); c.quat.copy(c.free.base.quat); c.scale = c.free.base.scale; }
+      c.free = on ? { pts: [], base: null, line: axisLine0() } : null;
+      if (on) c.move = freeMove; else delete c.move;
+      // The gizmo stays put while the clicks set the transform.
+      tc.enabled = !on;
+      tc.axis = null;
+      $('xf-free').setAttribute('aria-pressed', String(!!on));
+      apply();
+      if (on) setHud(FREE_STEPS[kind][0]);
+    };
+    const axisLine0 = () => {
+      const l = new THREE.Line(new THREE.BufferGeometry(), new THREE.LineBasicMaterial({ color: COLORS.accent, depthTest: false }));
+      l.renderOrder = 20;
+      scene.add(l);
+      return l;
+    };
+    // Where the pointer is: a snapped or picked point, else on the plane through the last click facing the view.
+    const freePoint = e => {
+      // Once the bodies move, they must not catch the pointer themselves.
+      const still = shownMeshes().filter(m => !c.ids.includes(m.userData.id));
+      const s = snapNear(e, still);
+      showSnap(s, e);
+      if (s) return s.point.clone();
+      const hit = !c.free.pts.length ? axisPointAt(e) : (ray(e), raycaster.intersectObjects(still, false)[0]?.point?.clone());
+      if (hit) return hit;
+      const last = c.free.pts[c.free.pts.length - 1];
+      // Off the model, points lie in the construction plane through the last click (the view's plane when seen edge-on).
+      const view = camera.getWorldDirection(new THREE.Vector3()), n = Math.abs(view.dot(cplane.normal)) > 0.1 ? cplane.normal : view;
+      const pl = last ? new THREE.Plane().setFromNormalAndCoplanarPoint(n, last) : planeOf();
+      return ray(e).intersectPlane(pl, new THREE.Vector3());
+    };
+    /** Freestyle's transform with the pointer at `p`, on top of where it stood before the clicks. */
+    const freeAt = p => {
+      const f = c.free, b = f.base, pts = f.pts.map(q => q.toArray());
+      if (!b) return;
+      if (kind === 'move') c.offset.copy(b.offset).add(new THREE.Vector3(...freeMove3(pts[0], p.toArray())));
+      else if (kind === 'rotate') {
+        const r = freeRotate(pts[0], pts[1], pts[2], p.toArray());
+        if (!r) return;
+        const q = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(...r.axis), r.angle);
+        c.quat.copy(q).multiply(b.quat);
+        c.offset.copy(b.offset).applyQuaternion(q);
+      } else {
+        const s = freeScale(pts[0], pts[1], p.toArray());
+        if (!s) return;
+        c.scale = Math.max(0.001, b.scale * s);
+        c.offset.copy(b.offset).multiplyScalar(s);
+      }
+      apply();
+    };
+    // The clicks that only place things before the pointer drives the transform.
+    const freeLead = { move: 1, rotate: 3, scale: 2 }[kind];
+    function freeMove(e) {
+      const f = c.free, p = freePoint(e);
+      if (!p || !f.pts.length) return;
+      const last = f.pts[f.pts.length - 1];
+      f.line.geometry.setFromPoints(kind === 'rotate' && f.pts.length >= 2 ? [f.pts[0], f.pts[1], f.pts[1], last, p] : [last, p]);
+      if (f.pts.length >= freeLead) freeAt(p);
+      setHud(FREE_STEPS[kind][f.pts.length]);
+    }
+    c.freeClick = e => {
+      const f = c.free, p = freePoint(e);
+      if (!p) return;
+      f.pts.push(p.clone());
+      // Rotate and Scale turn about the first click: the pivot moves there, keeping the transform so far.
+      if (kind !== 'move' && f.pts.length === 1) c.setPivot(p.clone());
+      if (f.pts.length === freeLead) f.base = { offset: c.offset.clone(), quat: c.quat.clone(), scale: c.scale };
+      if (f.pts.length > freeLead) { freeAt(p); c.free.base = null; c.freestyle(false); return commitTransform(); }
+      setHud(FREE_STEPS[kind][f.pts.length]);
+    };
     c.click = e => {
+      if (c.free) { c.freeClick(e); return true; }
       if (c.picking) {
         const p = axisPointAt(e);
         if (!p) return true;
@@ -3786,9 +3862,10 @@ export async function mount(root, backend) {
       return !(c.auto && untouched());
     };
     c.onSelection = () => { if (!c.auto || !untouched()) return; endCmd(null); defaultCommand(); };
-    c.finish = () => commitTransform();
-    c.abort = () => endCmd('cancelled');
+    c.finish = () => { if (c.free) { c.free.base = null; c.freestyle(false); } return commitTransform(); };
+    c.abort = () => c.free ? c.freestyle(false) : endCmd('cancelled');
     c.cleanup = () => {
+      if (c.free) { c.free.line.removeFromParent(); c.free = null; }
       for (const id of ids) { const m = bodyMesh(id); if (m) { m.position.set(0, 0, 0); m.quaternion.identity(); m.scale.set(1, 1, 1); } }
       clearPreview();
       tc.detach();
@@ -11193,7 +11270,7 @@ export async function mount(root, backend) {
   canvas.addEventListener('pointerdown', e => {
     lastPointer = e;
     const g = liveGizmo();
-    const grabbed = g?.busy || g?.state === 'hover' || (cmd?.tc && cmd.tc.axis !== null);
+    const grabbed = g?.busy || g?.state === 'hover' || (cmd?.tc?.enabled && cmd.tc.axis !== null);
     down = { x: e.clientX, y: e.clientY, button: e.button, consumed: grabbed, box: null };
     if (e.button === 0 && cmd?.follow) { endFollow(true); down.consumed = true; }
   });
