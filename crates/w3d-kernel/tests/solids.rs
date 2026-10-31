@@ -137,6 +137,21 @@ fn document_runs_each_as_one_undo_step() {
     close(vol(&doc, seed), 2.0 * before, 1e-3);
     assert!(doc.undo());
 
+    // Cut down mirror plane: the seed (x -40..40) cut at x = 20, its half mirrored across.
+    let cut = doc.commit_mirror_cut(&[seed], DVec3::new(20.0, 0.0, 0.0), DVec3::X, false).unwrap();
+    assert_eq!(cut.len(), 2);
+    close(vol(&doc, seed), 0.75 * before, 1e-3);
+    close(vol(&doc, cut[1]), 0.75 * before, 1e-3);
+    assert!(doc.undo());
+    let cut = doc.commit_mirror_cut(&[seed], DVec3::new(20.0, 0.0, 0.0), DVec3::X, true).unwrap();
+    assert_eq!(cut, vec![seed]);
+    close(vol(&doc, seed), 1.5 * before, 1e-3);
+    assert!(doc.undo());
+    // The other way: the half on the +x side kept, mirrored back past it.
+    doc.commit_mirror_cut(&[seed], DVec3::new(20.0, 0.0, 0.0), -DVec3::X, false).unwrap();
+    close(vol(&doc, seed), 0.25 * before, 1e-3);
+    assert!(doc.undo());
+
     let spec = ArraySpec::Rectangular { steps: [DVec3::X * 100.0, DVec3::ZERO, DVec3::ZERO], counts: [3, 1, 1] };
     assert_eq!(doc.commit_array(&[seed], &spec, false).unwrap().len(), 2);
     assert_eq!(doc.ids().len(), 3);

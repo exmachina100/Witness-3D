@@ -191,7 +191,7 @@ const KEYS = {
   cylinder: [['CLICK', 'CENTRE · RADIUS · HEIGHT'], ['V', 'VERTICAL'], ['TAB', 'TYPE'], ['F', 'RADIUS'], ['D', 'HEIGHT'], ['Q W ⇧E ⇧Q', 'BOOLEAN'], ['B', 'NEW BODY'], ['⏎ / RMB', 'OK']],
   sphere: [['CLICK', 'CENTRE · SIZE'], ['TAB', 'TYPE'], ['D', 'DIAMETER'], ['Q W ⇧E ⇧Q', 'BOOLEAN'], ['B', 'NEW BODY'], ['⏎ / RMB', 'OK']],
   shell: [['D', 'THICKNESS'], ['⇧ CLICK', 'FACES'], ['⏎ / RMB', 'OK']],
-  mirror: [['X Y Z', 'PLANE'], ['J', 'JOIN'], ['I', 'INSTANCES'], ['⏎ / RMB', 'OK']],
+  mirror: [['X Y Z', 'PLANE'], ['⇧ X Y Z', 'NEGATIVE'], ['CLICK', 'FACE PLANE'], ['F', 'FREESTYLE'], ['Q', 'UNION'], ['I', 'INSTANCES'], ['⏎ / RMB', 'OK']],
   'rect-array': [['TYPE', 'COUNTS · SPACING'], ['J', 'JOIN'], ['I', 'INSTANCES'], ['⏎ / RMB', 'OK']],
   'radial-array': [['X Y Z', 'AXIS'], ['J', 'JOIN'], ['I', 'INSTANCES'], ['⏎ / RMB', 'OK']],
   'curve-array': [['CLICK', 'CURVE'], ['A', 'ALIGN'], ['J', 'JOIN'], ['I', 'INSTANCES'], ['⏎ / RMB', 'OK']],
@@ -816,9 +816,10 @@ const SHELL = `
     <div class="sec" data-panel="mirror" hidden>
       <span class="hint" data-id="mirror-hint">—</span>
       <span class="label">PLANE SQUARE TO</span>
-      <div class="seg" role="group" aria-label="Mirror axis"><button data-mx="x" aria-pressed="true"><kbd>X</kbd>X</button><button data-mx="y" aria-pressed="false"><kbd>Y</kbd>Y</button><button data-mx="z" aria-pressed="false"><kbd>Z</kbd>Z</button></div>
+      <div class="seg" role="group" aria-label="Mirror axis"><button data-mx="x" aria-pressed="true" title="Positive X (X; Shift+X negative)"><kbd>X</kbd>X</button><button data-mx="y" aria-pressed="false" title="Positive Y (Y; Shift+Y negative)"><kbd>Y</kbd>Y</button><button data-mx="z" aria-pressed="false" title="Positive Z (Z; Shift+Z negative)"><kbd>Z</kbd>Z</button></div>
       <div class="field"><label for="w3d-mirror-at">AT</label><input id="w3d-mirror-at" data-id="mirror-at" type="number" step="1" value="0"></div>
-      <div class="chips"><button data-id="mirror-join" aria-pressed="false"><kbd>J</kbd>JOIN</button><button data-id="mirror-instance" aria-pressed="false" title="Make mirrored instances of the solids, sharing their geometry, rather than copies (I)"><kbd>I</kbd>INSTANCE</button></div>
+      <div class="chips"><button data-id="mirror-neg" aria-pressed="false" aria-label="Negative direction" title="Negative direction (Shift+X/Y/Z): the copy goes to the axis's negative side"></button><button data-id="mirror-free" aria-pressed="false" aria-label="Freestyle" title="Freestyle (F): click two points on the construction plane; the mirror plane runs through them, square to the construction plane"><kbd>F</kbd></button><button data-id="mirror-cut" aria-pressed="false" aria-label="Cut down mirror plane" title="Cut down mirror plane: each solid is cut by the plane first, keeping the side the copy faces away from"></button></div>
+      <div class="chips"><button data-id="mirror-join" aria-pressed="false" title="Union halves (Q): fuse each reflection into its original"><kbd>Q</kbd>UNION</button><button data-id="mirror-instance" aria-pressed="false" title="Make mirrored instances of the solids, sharing their geometry, rather than copies (I)"><kbd>I</kbd>INSTANCE</button></div>
     </div>
     <div class="sec" data-panel="rect-array" hidden>
       <span class="hint" data-id="ra-hint">—</span>
@@ -1048,11 +1049,11 @@ const VIEWS = {
 export async function mount(root, backend) {
   root.innerHTML = SHELL;
   // Panel options carry their icon ahead of the key and name.
-  for (const b of root.querySelectorAll('[data-proj],[data-imp],[data-impcomp],[data-draw],[data-bop],[data-btmat],[data-bumat],[data-xop],[data-fop],[data-spiral],[data-toggle],[data-gmethod],[data-galign],[data-gcorner],[data-grow],[data-mfgrow],[data-drgrow],[data-eslimit],[data-flshape],[data-drtaper],[data-avaxis],[data-extshape],[data-esshape],[data-isodir],[data-id="oe-both"],[data-id="iso-subdivide"],[data-id="oe-individual"],[data-id="blend-tangent"],[data-id="ex-lock"],[data-id="bool-keep"],[data-id="prim-keep"],[data-id="ex-free"],[data-id="ex-pivot"],[data-id="ex-individual"],[data-id="patch-individual"],[data-id="patch-quad"],[data-id="as-symmetric"],[data-id="as-analysis"],[data-id="sq-analysis"],[data-id="dr-hidden"],[data-id="dr-curves"],[data-id="oc-lock"],[data-id="oc-free"],[data-id="oc-slot"],[data-id="oc-combine"],[data-id="es-unlimit"],[data-rbmethod],[data-oecorner],[data-saplane],[data-plaxis],[data-plop],[data-id="pl-flip"],[data-id="pl-instance"],[data-id="mirror-instance"],[data-id="ra-instance"],[data-id="rr-instance"],[data-id="ca-instance"],[data-id="br-trim"],[data-id="br-comb"],[data-id="ac-comb"],[data-id="dc-reblend"],[data-id="section-btn"],[data-id="sa-flip"],[data-id="rf-shrink"],[data-id="ut-keep"],[data-txfont],[data-id="tx-load"],[data-id="tx-system"],[data-txalign],[data-sldir],[data-dcflip],[data-id="dc-keep"],[data-imdepth],[data-imcull],[data-id="im-delete"],[data-id="cc-extend"],[data-id="cc-screen"],[data-inmode],[data-pfmode],[data-pfmirror],[data-xforient],[data-xfpivot],[data-id="xf-pick"],[data-id="xf-unpivot"],[data-id="ls-loop"],[data-id="ls-limit"],[data-id="ls-simplify"],[data-pmethod],[data-mxtopo],[data-id="mx-convex"],[data-sqbound],[data-asbound],[data-bsshape],[data-bstrim],[data-id="bs-add"],[data-id="bs-s1"],[data-id="bs-s2"],[data-id="in-realize"],[data-id="in-dup"],[data-id="in-delete"],[data-id="matcap-load"],[data-id="matcap-custom"],[data-id="hdr-load"],[data-id="hdr-custom"]')) {
+  for (const b of root.querySelectorAll('[data-proj],[data-imp],[data-impcomp],[data-draw],[data-bop],[data-btmat],[data-bumat],[data-xop],[data-fop],[data-spiral],[data-toggle],[data-gmethod],[data-galign],[data-gcorner],[data-grow],[data-mfgrow],[data-drgrow],[data-eslimit],[data-flshape],[data-drtaper],[data-avaxis],[data-extshape],[data-esshape],[data-isodir],[data-id="oe-both"],[data-id="iso-subdivide"],[data-id="oe-individual"],[data-id="blend-tangent"],[data-id="ex-lock"],[data-id="bool-keep"],[data-id="prim-keep"],[data-id="ex-free"],[data-id="ex-pivot"],[data-id="ex-individual"],[data-id="patch-individual"],[data-id="patch-quad"],[data-id="as-symmetric"],[data-id="as-analysis"],[data-id="sq-analysis"],[data-id="dr-hidden"],[data-id="dr-curves"],[data-id="oc-lock"],[data-id="oc-free"],[data-id="oc-slot"],[data-id="oc-combine"],[data-id="es-unlimit"],[data-rbmethod],[data-oecorner],[data-saplane],[data-plaxis],[data-plop],[data-id="pl-flip"],[data-id="pl-instance"],[data-id="mirror-instance"],[data-id="mirror-neg"],[data-id="mirror-free"],[data-id="mirror-cut"],[data-id="ra-instance"],[data-id="rr-instance"],[data-id="ca-instance"],[data-id="br-trim"],[data-id="br-comb"],[data-id="ac-comb"],[data-id="dc-reblend"],[data-id="section-btn"],[data-id="sa-flip"],[data-id="rf-shrink"],[data-id="ut-keep"],[data-txfont],[data-id="tx-load"],[data-id="tx-system"],[data-txalign],[data-sldir],[data-dcflip],[data-id="dc-keep"],[data-imdepth],[data-imcull],[data-id="im-delete"],[data-id="cc-extend"],[data-id="cc-screen"],[data-inmode],[data-pfmode],[data-pfmirror],[data-xforient],[data-xfpivot],[data-id="xf-pick"],[data-id="xf-unpivot"],[data-id="ls-loop"],[data-id="ls-limit"],[data-id="ls-simplify"],[data-pmethod],[data-mxtopo],[data-id="mx-convex"],[data-sqbound],[data-asbound],[data-bsshape],[data-bstrim],[data-id="bs-add"],[data-id="bs-s1"],[data-id="bs-s2"],[data-id="in-realize"],[data-id="in-dup"],[data-id="in-delete"],[data-id="matcap-load"],[data-id="matcap-custom"],[data-id="hdr-load"],[data-id="hdr-custom"]')) {
     const name = (b.dataset.proj && (b.dataset.proj === 'screen' ? 'view-screen' : `proj-${b.dataset.proj}`)) ?? (b.dataset.imp && (b.dataset.imp === 'screen' ? 'view-screen' : `proj-${b.dataset.imp}`)) ?? (b.dataset.impcomp && `completion-${b.dataset.impcomp}`) ?? b.dataset.draw ?? b.dataset.bop ?? (b.dataset.xforient && `orient-${b.dataset.xforient}`) ?? (b.dataset.xfpivot && `pivot-${b.dataset.xfpivot}`) ?? (b.dataset.btmat && `mat-${b.dataset.btmat}`) ?? (b.dataset.bumat && `mat-${b.dataset.bumat}`) ?? b.dataset.xop ?? b.dataset.fop ?? b.dataset.spiral ?? (b.dataset.toggle && `view-${b.dataset.toggle}`)
       ?? (b.dataset.gmethod && `guide-${b.dataset.gmethod}`) ?? (b.dataset.galign && `align-${b.dataset.galign}`) ?? (b.dataset.gcorner && (b.dataset.gcorner === 'round' ? 'corner-round' : 'corner-linear')) ?? (b.dataset.grow && `grow-${b.dataset.grow}`) ?? (b.dataset.mfgrow && `grow-${b.dataset.mfgrow}`) ?? (b.dataset.drgrow && `grow-${b.dataset.drgrow}`) ?? (b.dataset.eslimit && `limit-${b.dataset.eslimit}`) ?? (b.dataset.flshape && `fillet-${b.dataset.flshape}`) ?? (b.dataset.drtaper && `taper-${b.dataset.drtaper}`) ?? (b.dataset.avaxis && `axis-${b.dataset.avaxis}`) ?? (b.dataset.extshape && `extend-${b.dataset.extshape}`) ?? (b.dataset.esshape && `extend-${b.dataset.esshape}`) ?? (b.dataset.isodir && `iso-${b.dataset.isodir}`) ?? (b.dataset.rbmethod && `rebuild-${b.dataset.rbmethod}`) ?? (b.dataset.oecorner && `corner-${b.dataset.oecorner}`) ?? (b.dataset.saplane && `section-${b.dataset.saplane}`) ?? (b.dataset.plaxis && (b.dataset.plaxis === 'normal' ? 'place-normal' : `axis-${b.dataset.plaxis}`)) ?? b.dataset.plop
       ?? (b.dataset.txfont && `font-${b.dataset.txfont}`) ?? (b.dataset.txalign && `txalign-${b.dataset.txalign}`) ?? (b.dataset.sldir && { u: 'slide-u', '-u': 'slide-back', v: 'slide-v', '-v': 'slide-vback', n: 'slide-n' }[b.dataset.sldir]) ?? (b.dataset.dcflip && { mirror: 'mirror', swap: 'swap-uv', normal: 'reverse-sheet' }[b.dataset.dcflip]) ?? (b.dataset.imdepth && `depth-${b.dataset.imdepth}`) ?? (b.dataset.imcull && `cull-${b.dataset.imcull}`) ?? b.dataset.inmode ?? (b.dataset.bsshape && `bridge-${b.dataset.bsshape}`) ?? (b.dataset.bstrim && `trimwall-${b.dataset.bstrim}`) ?? (b.dataset.mxtopo && `topo-${b.dataset.mxtopo}`) ?? (b.dataset.pmethod && (b.dataset.pmethod === 'fill' ? 'patch-fill' : `trim-${b.dataset.pmethod}`)) ?? (b.dataset.pfmode && `falloff-${b.dataset.pfmode}`) ?? ((b.dataset.sqbound ?? b.dataset.asbound) && `bound-${b.dataset.sqbound ?? b.dataset.asbound}`) ?? (b.dataset.pfmirror && `mirror-${b.dataset.pfmirror}`)
-      ?? { 'matcap-load': 'matcap-load', 'matcap-custom': 'matcap', 'tx-load': 'font-load', 'tx-system': 'font-system', 'hdr-load': 'hdr-load', 'hdr-custom': 'hdr', 'ex-lock': 'lock', 'bool-keep': 'keep', 'prim-keep': 'keep', 'ex-free': 'freestyle', 'ex-pivot': 'pivot', 'ex-individual': 'individual', 'patch-individual': 'individual', 'mx-convex': 'convex', 'patch-quad': 'square', 'as-symmetric': 'symmetric', 'as-analysis': 'analysis', 'sq-analysis': 'analysis', 'bs-add': 'wall-pair', 'bs-s1': 'flip', 'bs-s2': 'flip', 'dr-hidden': 'hidden-lines', 'dr-curves': 'drawing-curves', 'oc-lock': 'lock', 'oc-free': 'freestyle', 'oc-slot': 'slot', 'oc-combine': 'combine', 'oe-both': 'both-sides', 'xf-pick': 'pivot', 'xf-unpivot': 'pivot-remove', 'ls-loop': 'loft-loop', 'ls-limit': 'limit-point', 'ls-simplify': 'simplify', 'iso-subdivide': 'subdivide', 'oe-individual': 'individual', 'blend-tangent': 'tangent-chain', 'es-unlimit': 'unlimit', 'rf-shrink': 'shrink', 'ut-keep': 'keep-edges', 'section-btn': 'view-section', 'sa-flip': 'flip', 'pl-flip': 'flip', 'pl-instance': 'instance', 'mirror-instance': 'instance', 'ra-instance': 'instance', 'rr-instance': 'instance', 'ca-instance': 'instance', 'br-trim': 'trim', 'br-comb': 'view-curvature', 'ac-comb': 'view-curvature', 'dc-reblend': 'reblend', 'dc-keep': 'keep', 'im-delete': 'delete', 'in-realize': 'realize-instance', 'cc-extend': 'extend', 'cc-screen': 'view-screen', 'in-dup': 'duplicate', 'in-delete': 'delete' }[b.dataset.id];
+      ?? { 'matcap-load': 'matcap-load', 'matcap-custom': 'matcap', 'tx-load': 'font-load', 'tx-system': 'font-system', 'hdr-load': 'hdr-load', 'hdr-custom': 'hdr', 'ex-lock': 'lock', 'bool-keep': 'keep', 'prim-keep': 'keep', 'ex-free': 'freestyle', 'ex-pivot': 'pivot', 'ex-individual': 'individual', 'patch-individual': 'individual', 'mx-convex': 'convex', 'patch-quad': 'square', 'as-symmetric': 'symmetric', 'as-analysis': 'analysis', 'sq-analysis': 'analysis', 'bs-add': 'wall-pair', 'bs-s1': 'flip', 'bs-s2': 'flip', 'dr-hidden': 'hidden-lines', 'dr-curves': 'drawing-curves', 'oc-lock': 'lock', 'oc-free': 'freestyle', 'oc-slot': 'slot', 'oc-combine': 'combine', 'oe-both': 'both-sides', 'xf-pick': 'pivot', 'xf-unpivot': 'pivot-remove', 'ls-loop': 'loft-loop', 'ls-limit': 'limit-point', 'ls-simplify': 'simplify', 'iso-subdivide': 'subdivide', 'oe-individual': 'individual', 'blend-tangent': 'tangent-chain', 'es-unlimit': 'unlimit', 'rf-shrink': 'shrink', 'ut-keep': 'keep-edges', 'section-btn': 'view-section', 'sa-flip': 'flip', 'pl-flip': 'flip', 'pl-instance': 'instance', 'mirror-instance': 'instance', 'mirror-neg': 'mirror-neg', 'mirror-free': 'freestyle', 'mirror-cut': 'mirror-cut', 'ra-instance': 'instance', 'rr-instance': 'instance', 'ca-instance': 'instance', 'br-trim': 'trim', 'br-comb': 'view-curvature', 'ac-comb': 'view-curvature', 'dc-reblend': 'reblend', 'dc-keep': 'keep', 'im-delete': 'delete', 'in-realize': 'realize-instance', 'cc-extend': 'extend', 'cc-screen': 'view-screen', 'in-dup': 'duplicate', 'in-delete': 'delete' }[b.dataset.id];
     b.insertAdjacentHTML('afterbegin', icon(name));
   }
   const $ = id => root.querySelector(`[data-id="${id}"]`);
@@ -9685,14 +9686,66 @@ export async function mount(root, backend) {
     for (const b of $$(`[data-${attr}]`)) b.setAttribute('aria-pressed', b.dataset[attr] === c.axis);
   }
 
+  /**
+   * Plasticity's Mirror (Alt+X): X/Y/Z mirror across that axis's plane (Shift for the negative way,
+   * which only matters with Cut), AT where the plane crosses it; click a face for a plane on it
+   * (a curved face: the plane touching it where clicked); F Freestyle, two clicks on the
+   * construction plane; Cut down mirror plane cuts each solid by the plane first; Q unions halves.
+   */
   function startMirror() {
     const c = startCopies('mirror', c => {
+      const sign = c.neg ? -1 : 1;
+      if (c.plane) return { origin: c.plane.origin.toArray(), normal: c.plane.normal.clone().multiplyScalar(sign).toArray(), cut: c.cut };
       const n = userAxis(c.axis), at = num('mirror-at');
-      return { origin: toWorld(n.map(v => v * at)), normal: toWorld(n) };
-    }, c => `MIRROR ACROSS ${c.axis.toUpperCase()} = ${num('mirror-at')}`);
+      return { origin: toWorld(n.map(v => v * at)), normal: toWorld(n.map(v => v * sign)), cut: c.cut };
+    }, c => `MIRROR ACROSS ${c.plane ? c.plane.name : `${c.neg ? '−' : ''}${c.axis.toUpperCase()} = ${num('mirror-at')}`}${c.cut ? ' · CUT' : ''}`);
     if (!c) return;
-    c.axis = 'x';
-    syncAxis(c);
+    c.axis = 'x'; c.neg = false; c.cut = false; c.plane = null; c.free = null;
+    const sync = () => {
+      syncAxis(c);
+      if (c.plane) for (const b of $$('[data-mx]')) b.setAttribute('aria-pressed', 'false');
+      $('mirror-neg').setAttribute('aria-pressed', c.neg);
+      $('mirror-cut').setAttribute('aria-pressed', c.cut);
+      $('mirror-free').setAttribute('aria-pressed', !!c.free);
+    };
+    const key = c.key;
+    c.key = action => {
+      if (['x', 'y', 'z', '-x', '-y', '-z'].includes(action)) {
+        c.neg = action.startsWith('-'); c.axis = action.replace('-', ''); c.plane = null; c.free = null;
+        sync(); c.preview(); return true;
+      }
+      if (action === 'negative') { c.neg = !c.neg; sync(); c.preview(); return true; }
+      if (action === 'cut') { c.cut = !c.cut; sync(); c.preview(); return true; }
+      if (action === 'freestyle') { c.free = c.free ? null : { pts: [] }; sync(); setHud(c.free ? 'FREESTYLE: CLICK THE MIRROR LINE’S START' : ''); return true; }
+      return key(action);
+    };
+    c.click = e => {
+      if (c.free) {
+        const h = placeAt(e);
+        if (!h || h.curved) return true;
+        const p = h.origin.clone().addScaledVector(cplane.normal, -planeOf().distanceToPoint(h.origin));
+        c.free.pts.push(p);
+        if (c.free.pts.length === 1) { setHud('FREESTYLE: CLICK THE MIRROR LINE’S END'); return true; }
+        const [a, b] = c.free.pts, d = b.clone().sub(a);
+        const n = d.clone().cross(cplane.normal);
+        c.free = null;
+        if (n.lengthSq() < 1e-12) { toast('CLICK TWO DIFFERENT POINTS'); sync(); return true; }
+        c.plane = { origin: a, normal: n.normalize(), name: 'FREESTYLE LINE' };
+        sync(); c.preview(); return true;
+      }
+      // A face clicked: the plane on it (flat), or touching it where clicked (curved).
+      const hit = pickAt(e);
+      if (hit?.kind !== 'face' && hit?.kind !== 'solid') return true;
+      ray(e);
+      const meshHit = raycaster.intersectObjects(shownMeshes(), false)[0];
+      if (!meshHit) return true;
+      const { faceIds, facePlanes, id } = meshHit.object.userData, f = faceIds[meshHit.faceIndex], fp = facePlanes[f];
+      const normal = fp ? new THREE.Vector3(...fp.normal) : meshHit.face.normal.clone().transformDirection(meshHit.object.matrixWorld);
+      const origin = fp ? new THREE.Vector3(...fp.origin) : meshHit.point.clone();
+      c.plane = { origin, normal: normal.normalize(), name: `${label(id)} FACE ${f + 1}${fp ? '' : ' (TOUCHING)'}` };
+      sync(); c.preview(); return true;
+    };
+    sync();
     c.preview();
   }
 
@@ -11415,6 +11468,9 @@ export async function mount(root, backend) {
   $('draft-d').addEventListener('input', () => cmd?.id === 'draft' && cmd.preview());
   for (const id of ['mirror-at', 'ra-cx', 'ra-cy', 'ra-cz', 'ra-sx', 'ra-sy', 'ra-sz', 'rr-count', 'rr-angle', 'ca-count']) $(id).addEventListener('input', () => cmd?.preview?.());
   for (const b of $$('[data-mx], [data-rx]')) b.onclick = () => cmd?.key?.(b.dataset.mx ?? b.dataset.rx);
+  $('mirror-neg').onclick = () => cmd?.id === 'mirror' && cmd.key('negative');
+  $('mirror-cut').onclick = () => cmd?.id === 'mirror' && cmd.key('cut');
+  $('mirror-free').onclick = () => cmd?.id === 'mirror' && cmd.key('freestyle');
   for (const id of ['mirror-join', 'ra-join', 'rr-join', 'ca-join']) $(id).onclick = () => cmd?.key?.('join');
   $('ca-align').onclick = () => cmd?.id === 'curve-array' && cmd.key('align');
   for (const id of ['mirror-instance', 'ra-instance', 'rr-instance', 'ca-instance']) $(id).onclick = () => cmd?.key?.('instance');
