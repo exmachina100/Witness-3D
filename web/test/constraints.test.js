@@ -8,7 +8,7 @@ const store = () => {
     const replace = (ids, list) => { for (const id of ids) m.delete(id); return list.map(c => { const id = next++; m.set(id, c); return id; }); };
     return { m, get: id => m.get(id), replace };
 };
-const rebuild = (a, b) => ({ bridge: true, from: a.x, to: b.x });
+const rebuild = ([a, b]) => ({ bridge: true, from: a.x, to: b.x });
 
 test('moving a bridged curve remakes the bridge in the same replacement', () => {
     const s = store(), k = new Constraints();
@@ -40,11 +40,19 @@ test('undo brings the older ids back and the chain still finds them', () => {
     p.done(s.replace([1, 3], [{ x: 5 }, p.list[0]]));
     // Undo: the new curves go, the old come back.
     s.m.clear(); s.m.set(1, { x: 0 }); s.m.set(2, { x: 10 }); s.m.set(3, { bridge: true });
-    assert.deepEqual(k.live(id => s.m.has(id)).map(r => [r.a, r.b, r.bridge]), [[1, 2, 3]]);
+    assert.deepEqual(k.live(id => s.m.has(id)).map(r => [...r.ins, r.out]), [[1, 2, 3]]);
     // Moving again from there still follows.
     const q = k.plan([2], [{ x: 30 }], s.get, rebuild);
     assert.deepEqual(q.list, [{ bridge: true, from: 0, to: 30 }]);
     const made = s.replace([2, 3], [{ x: 30 }, q.list[0]]);
     q.done(made);
-    assert.deepEqual(k.live(id => s.m.has(id)).map(r => [r.a, r.b, r.bridge]), [[1, made[0], made[1]]]);
+    assert.deepEqual(k.live(id => s.m.has(id)).map(r => [...r.ins, r.out]), [[1, made[0], made[1]]]);
+});
+
+test('an aligned curve follows its reference', () => {
+    const s = store(), k = new Constraints();
+    k.addAlign(1, 1, 2, 0, { continuity: 'G1' });
+    const p = k.plan([2], [{ x: 7 }], s.get, ([ref], kk, out) => ({ x: out.x, meets: ref.x, g: kk.options.continuity }));
+    assert.deepEqual(p.ids, [1]);
+    assert.deepEqual(p.list, [{ x: 0, meets: 7, g: 'G1' }]);
 });
