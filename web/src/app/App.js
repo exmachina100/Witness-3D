@@ -8873,17 +8873,17 @@ export async function mount(root, backend) {
   }
 
   /** Plasticity's Explode: split the selected lines and joined curves into their pieces, one undo step. */
-  async function explodeSelected() {
+  async function explodeSelected(verb = 'EXPLODE') {
     if (cmd) await finish();
     const ids = sel.curves.filter(curveById);
-    if (!ids.length) return toast('SELECT A CURVE TO EXPLODE');
+    if (!ids.length) return toast(`SELECT A CURVE TO ${verb}`);
     if (!backend.replaceCurves) return toast('EXPLODE IS NOT IN THIS BUILD YET');
     try {
       const list = ids.flatMap(id => explode(curveById(id)));
       const { ids: made } = await backend.replaceCurves(ids, list);
-      record(`EXPLODE ${ids.map(curveLabel).join(' ')}`, made[0], `${made.length} CURVES`);
+      record(`${verb} ${ids.map(curveLabel).join(' ')}`, made[0], `${made.length} CURVES`);
       await curvesChanged(made);
-    } catch (e) { toast(say(e)); }
+    } catch (e) { toast(verb === 'EXPLODE' ? say(e) : say(e).replace(/explode/gi, 'UNJOIN').replace(/UNJOIN LINES, RECTANGLES, POLYGONS AND JOINED CURVES/i, 'ONLY JOINED CURVES UNJOIN')); }
   }
 
   /** Plasticity's Reverse Curve: turn the selected curves round end for end, one undo step. */
@@ -10559,7 +10559,9 @@ export async function mount(root, backend) {
       }
       case 'export': if (arg === 'mesh' || arg === 'drawing') await startTool(`export-${arg}`); else exportSelected(); return true;
       case 'import': $('import').hidden ? toast('NOT IN THE BROWSER YET') : $('import').click(); return true;
-      case 'unjoin': await unjoinSelected(arg !== 'pieces'); return true;
+      // Unjoin Curve (Alt+J), and Unjoin with only curves selected: joined curves back into the
+      // curves they were joined from (as Explode does here: a contour's pieces, a polyline's lines).
+      case 'unjoin': await (arg === 'curves' || (!targetBodies().length && sel.curves.some(curveById)) ? explodeSelected('UNJOIN') : unjoinSelected(arg !== 'pieces')); return true;
       case 'material': if (arg === 'remove') removeMaterial(); else await startTool('material'); return true;
     }
     switch (a) {
@@ -10851,7 +10853,7 @@ export async function mount(root, backend) {
       if (sel.curves.length === 2) out.push('tool:bridge', 'align-curve');
       if ([2, 3, 4].includes(sel.curves.length + sel.list('edge').length)) out.push('square');
       if (sel.curves.length > 1) out.push('join');
-      out.push('explode', 'reverse', 'rebuild', 'insert-knot', 'raise-degree', 'subdivide', 'complete-edge', 'deform-curve', 'measure:continuity', 'delete');
+      out.push('explode', 'unjoin:curves', 'reverse', 'rebuild', 'insert-knot', 'raise-degree', 'subdivide', 'complete-edge', 'deform-curve', 'measure:continuity', 'delete');
     }
     // Curve vertices: Fillet Vertex (B), Offset Vertex and, with two ends, Bridge Vertex.
     if (kinds.has('pole')) out.push('slide', 'toggle-points');
