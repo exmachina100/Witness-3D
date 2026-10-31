@@ -316,6 +316,8 @@ const ICONS = {
     'falloff-none': `<path d="M3 19h18"/><path ${A} d="M12 19V7M12 7h0"/>`,
     'falloff-all': `<path d="M3 19h18"/><path ${A} d="M3 18c4 0 5-11 9-11s5 11 9 11"/>`,
     'falloff-selected': `<path d="M3 19h18M7 19v-6M17 19v-6" stroke-dasharray="2 2"/><path ${A} d="M7 13c2 0 3-6 5-6s3 6 5 6"/>`,
+    'mirror-cut': `<path d="M12 2v20" stroke-dasharray="2 2"/><path d="M4 7h8v10H4z"/><path ${A} d="M12 7h6l2 2v6l-2 2h-6"/>`,
+    'mirror-neg': `<path d="M12 3v18" stroke-dasharray="2 2"/><path d="M15 8h5v8h-5z"/><path ${A} d="M9 12H3M3 12l3-3M3 12l3 3"/>`,
     'mirror-none': `<path d="M12 3v18" stroke-dasharray="2 2"/><path ${A} d="M6 15V8M6 8h0"/>`,
     'mirror-u': `<path d="M3 12h18" stroke-dasharray="2 2"/><path ${A} d="M8 9V4M8 4h0M8 15v5M8 20h0"/>`,
     'mirror-v': `<path d="M12 3v18" stroke-dasharray="2 2"/><path ${A} d="M9 16H4M4 16h0M15 16h5M20 16h0"/>`,

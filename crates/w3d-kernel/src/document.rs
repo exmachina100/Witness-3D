@@ -1634,6 +1634,56 @@ impl<K: Kernel> Document<K> {
         self.place_copies(all, join)
     }
 
+    /// Mirror's "Cut down mirror plane": the body with everything on the `normal` side of the plane
+    /// cut away (a half-space box taken off), traced back to the body.
+    fn half_behind(&self, s: &K::Solid, origin: DVec3, normal: DVec3) -> Result<Traced<K::Solid>, KernelError> {
+        if normal.length() < 1e-9 { return Err(KernelError::Invalid("the mirror plane has no direction")) }
+        let (n, size) = (normal.normalize(), SHEET / 10.0);
+        let slab = self.kernel.box_from_corners(DVec3::new(-size, -size, 0.0), DVec3::new(size, size, size));
+        let z = DVec3::Z;
+        let (axis, angle) = if n.dot(z) < -1.0 + 1e-12 { (DVec3::X, std::f64::consts::PI) } else { let a = z.cross(n); if a.length() < 1e-12 { (DVec3::Y, 0.0) } else { (a.normalize(), z.dot(n).clamp(-1.0, 1.0).acos()) } };
+        let half = self.kernel.transform(&slab, &Motion { offset: origin, pivot: DVec3::ZERO, axis, angle, scale: 1.0 });
+        let t = self.kernel.boolean(s, &half, BooleanOp::Difference)?;
+        Ok(t)
+    }
+
+    /// Mirror with Cut: per body, its half behind the plane and that half mirrored.
+    fn mirror_cut_parts(&self, bodies: &[BodyId], origin: DVec3, normal: DVec3) -> Result<Vec<(BodyId, Traced<K::Solid>, K::Solid)>, KernelError> {
+        if bodies.is_empty() { return Err(KernelError::Invalid("select a solid first")) }
+        bodies.iter().map(|&id| {
+            let s = self.get(id).ok_or(KernelError::Invalid("that body no longer exists"))?;
+            let half = self.half_behind(s, origin, normal)?;
+            let copy = crate::solids::mirror(&self.kernel, &half.solid, origin, normal)?;
+            Ok((id, half, copy))
+        }).collect()
+    }
+
+    /// Mirror with Cut, for a preview: each body's half and its mirror image.
+    pub fn preview_mirror_cut(&self, bodies: &[BodyId], origin: DVec3, normal: DVec3) -> Result<Vec<K::Solid>, KernelError> {
+        Ok(self.mirror_cut_parts(bodies, origin, normal)?.into_iter().flat_map(|(_, h, c)| [h.solid, c]).collect())
+    }
+
+    /// Mirror with Cut as one undoable step: each body cut down to its half behind the plane, then
+    /// its mirror image added as a new body, or fused onto the half when `join`.
+    pub fn commit_mirror_cut(&mut self, bodies: &[BodyId], origin: DVec3, normal: DVec3, join: bool) -> Result<Vec<BodyId>, KernelError> {
+        let parts = self.mirror_cut_parts(bodies, origin, normal)?;
+        let mut done = Vec::new();
+        for (id, half, copy) in parts {
+            if join {
+                let fused = self.kernel.boolean(&half.solid, &copy, BooleanOp::Union)?;
+                done.push((id, Traced { solid: fused.solid, history: chain(&half.history, &fused.history) }, None));
+            } else { done.push((id, half, Some(copy))) }
+        }
+        self.checkpoint();
+        let mut ids = Vec::new();
+        for (id, t, copy) in done {
+            self.replace_traced(id, t);
+            ids.push(id);
+            if let Some(c) = copy { ids.push(self.add_unrecorded(c)) }
+        }
+        Ok(ids)
+    }
+
     /// An array's copies, for a preview.
     pub fn preview_array(&self, bodies: &[BodyId], spec: &ArraySpec) -> Result<Vec<K::Solid>, KernelError> {
         let motions = spec.motions()?;

@@ -483,8 +483,38 @@ export class LocalBackend {
     }
 
     mirrorCopies({ bodies, origin, normal }) { return this.copies(bodies, s => [mirror(s, origin, normal)]) }
-    previewMirror(req) { return this.latest(async () => this.mirrorCopies(req).flatMap(([, cs]) => cs.map(c => this.body(0, c)))) }
-    async commitMirror(req) { return this.placeCopies(this.mirrorCopies(req), !!req.join) }
+    /** Mirror's Cut down mirror plane: the body less everything on the normal's side of the plane. */
+    halfBehind(shape, origin, normal) {
+        const o = oc(), size = this.sheetSize(), l = Math.hypot(...normal), n = normal.map(x => x / l);
+        if (!(l > 1e-9)) throw new Error('the mirror plane has no direction');
+        const front = new o.BRepPrimAPI_MakePrism(planeSheet(origin, n, size), new o.gp_Vec(n[0] * size, n[1] * size, n[2] * size), false, true).Shape();
+        return booleanWithHistory(shape, front, 'difference');
+    }
+    /** Per body: its half behind the plane (with history) and that half mirrored. */
+    mirrorCut({ bodies, origin, normal }) {
+        if (!bodies?.length) throw new Error('select a solid first');
+        if (bodies.some(id => !this.shapes.has(id))) throw new Error('that body no longer exists');
+        return bodies.map(id => { const half = this.halfBehind(this.shapes.get(id), origin, normal); return [id, half, mirror(half.shape, origin, normal)]; });
+    }
+    previewMirror(req) {
+        return this.latest(async () => req.cut ? this.mirrorCut(req).flatMap(([, h, c]) => [this.body(0, h.shape), this.body(0, c)]) : this.mirrorCopies(req).flatMap(([, cs]) => cs.map(c => this.body(0, c))));
+    }
+    async commitMirror(req) {
+        if (!req.cut) return this.placeCopies(this.mirrorCopies(req), !!req.join);
+        const parts = this.mirrorCut(req).map(([id, half, copy]) => {
+            if (!req.join) return [id, half.shape, half.history, copy];
+            const r = booleanWithHistory(half.shape, copy, 'union');
+            return [id, r.shape, chain(half.history, r.history), null];
+        });
+        this.checkpoint();
+        const ids = [];
+        for (const [id, shape, history, copy] of parts) {
+            this.put(id, shape, history);
+            ids.push(id);
+            if (copy) { const n = this.nextId++; this.put(n, copy); ids.push(n); }
+        }
+        return { ids, scene: this.bodies() };
+    }
 
     arrayCopies({ bodies, spec }) {
         const motions = arrayMotions(spec);

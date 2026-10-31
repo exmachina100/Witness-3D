@@ -57,6 +57,8 @@ export const VIEWPORT = {
     'shift-s': 'raise-degree',
     // Untrim (manual: Alt+T)
     'alt-t': 'untrim',
+    // Mirror (manual: Alt+X)
+    'alt-x': 'tool:mirror',
     // Witness 3D's own: a command asked for in words (ai.js); Plasticity has no equivalent
     'ctrl-k': 'ask',
     h: 'hide', 'shift-h': 'hide-others', 'alt-h': 'unhide-all', 'ctrl-h': 'invert-hidden',
@@ -176,7 +178,7 @@ export const COMMAND = {
     'tangent-circle': { f: 'freeze', tab: 'typed' },
     // Round 6: Shell's D types the thickness; Mirror and Radial Array take X/Y/Z for the axis and J to join.
     shell: { d: 'thickness' },
-    mirror: { x: 'x', y: 'y', z: 'z', j: 'join', i: 'instance' },
+    mirror: { x: 'x', y: 'y', z: 'z', 'shift-x': '-x', 'shift-y': '-y', 'shift-z': '-z', q: 'join', j: 'join', i: 'instance', f: 'freestyle' },
     'rect-array': { j: 'join', i: 'instance' },
     'radial-array': { x: 'x', y: 'y', z: 'z', j: 'join', i: 'instance' },
     'curve-array': { a: 'align', j: 'join', i: 'instance' },

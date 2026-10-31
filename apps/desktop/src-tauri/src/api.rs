@@ -953,19 +953,24 @@ pub struct MirrorRequest {
     pub normal: [f64; 3],
     #[serde(default)]
     pub join: bool,
+    /// Cut down mirror plane: each body first cut to its half behind the plane.
+    #[serde(default)]
+    pub cut: bool,
 }
 
 /// The copies, drawn as phantoms; nothing changes.
 pub fn preview_mirror(m: &Model, req: MirrorRequest) -> Option<Result<Vec<Body>, ApiError>> {
     m.preview(move |doc| {
-        let copies = doc.preview_mirror(&req.bodies, DVec3::from_array(req.origin), DVec3::from_array(req.normal))?;
+        let (o, n) = (DVec3::from_array(req.origin), DVec3::from_array(req.normal));
+        let copies = if req.cut { doc.preview_mirror_cut(&req.bodies, o, n)? } else { doc.preview_mirror(&req.bodies, o, n)? };
         Ok(copies.iter().map(|s| body(&doc.kernel, 0, s)).collect::<Result<Vec<_>, _>>()?)
     })
 }
 
 pub fn commit_mirror(m: &Model, req: MirrorRequest) -> Result<Duplicated, ApiError> {
     m.call(move |doc| {
-        let ids = doc.commit_mirror(&req.bodies, DVec3::from_array(req.origin), DVec3::from_array(req.normal), req.join)?;
+        let (o, n) = (DVec3::from_array(req.origin), DVec3::from_array(req.normal));
+        let ids = if req.cut { doc.commit_mirror_cut(&req.bodies, o, n, req.join)? } else { doc.commit_mirror(&req.bodies, o, n, req.join)? };
         Ok(Duplicated { ids, scene: bodies(doc)? })
     })
 }
