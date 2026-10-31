@@ -306,6 +306,7 @@ const ICONS = {
     analysis: `<path d="M3 17c4 0 5-8 9-8"/><path d="M12 9c4 0 5 4 9 4" stroke-dasharray="2 2"/><path ${A} d="M12 4v16"/>`,
     'bridge-g2': `<path d="M5 3v8M13 19h8"/><path ${A} d="M5 11c0 5 3 8 8 8"/>`,
     'bridge-chamfer': `<path d="M5 3v8M13 19h8"/><path ${A} d="M5 11l8 8"/>`,
+    'wall-pair': `<path d="M4 4v9M10 4v9M14 11v9M20 11v9"/><path ${A} d="M17 3v6M14 6h6"/>`,
     'topo-tris': `<path d="M4 19L12 5l8 14z"/><path ${A} d="M12 5v14M8 12l8 7"/>`,
     'topo-quads': `<path d="M4 5h16v14H4z"/><path ${A} d="M12 5v14M4 12h16"/>`,
     'topo-ngons': `<path ${A} d="M12 3l8 6-3 10H7L4 9z"/>`,
