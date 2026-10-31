@@ -1480,16 +1480,16 @@ impl<K: Kernel> Document<K> {
     /// Plasticity's Loft of curves and edges, without changing the document: a sheet through the
     /// `curves` (drawn curves, or body edges given whole) in the order given, closing back on the
     /// first when `looped` (three curves or more).
-    pub fn preview_loft_sheet(&self, curves: &[GuideRef], looped: bool) -> Result<K::Solid, KernelError> {
+    pub fn preview_loft_sheet(&self, curves: &[GuideRef], looped: bool, simplify: bool) -> Result<K::Solid, KernelError> {
         if curves.len() < 2 { return Err(KernelError::Invalid("select two curves or more, in order, to loft")) }
         if looped && curves.len() < 3 { return Err(KernelError::Invalid("a loop needs three curves or more")) }
         let paths = self.guide_paths(curves).map_err(|_| KernelError::Invalid("that curve no longer exists"))?;
-        self.kernel.loft_sheet(&paths, looped)
+        self.kernel.loft_sheet(&paths, looped, simplify)
     }
 
     /// Loft of curves as one undoable step: the sheet as a new body.
-    pub fn commit_loft_sheet(&mut self, curves: &[GuideRef], looped: bool) -> Result<BodyId, KernelError> {
-        let sheet = self.preview_loft_sheet(curves, looped)?;
+    pub fn commit_loft_sheet(&mut self, curves: &[GuideRef], looped: bool, simplify: bool) -> Result<BodyId, KernelError> {
+        let sheet = self.preview_loft_sheet(curves, looped, simplify)?;
         Ok(self.add(sheet))
     }
 

@@ -41,3 +41,15 @@ test('a profile can be a curve given whole, as a body edge is sent', async () =>
     assert.equal(count(s, 'TopAbs_FACE'), 1);
     assert.equal(boundaryEdges(s).length, 4);
 });
+
+test('Simplify makes a flat loft a trimmed plane; off keeps the lofted surface', async () => {
+    const { facePlane } = await import('../src/Kernel.js');
+    const be = new LocalBackend();
+    // An arc and a line side by side in one plane: the loft lies flat, but as a B-spline surface.
+    const arc = { origin: [0, 0, 0], x: [1, 0, 0], normal: [0, 1, 0], kind: 'arc', start: [0, 0], mid: [5, 2], end: [10, 0] };
+    const { ids } = await be.addCurves([arc, line(0, -8)]);
+    assert.ok(facePlane(be.loftSheetResult({ curves: ids }), 0));
+    assert.equal(facePlane(be.loftSheetResult({ curves: ids, simplify: false }), 0), undefined);
+    const { ids: up } = await be.addCurves([line(0, 0), line(5, 3)]);
+    assert.equal(count(be.loftSheetResult({ curves: up }), 'TopAbs_FACE'), 1);
+});

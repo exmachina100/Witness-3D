@@ -1425,18 +1425,23 @@ pub struct LoftSheetRequest {
     pub curves: Vec<GuideRef>,
     #[serde(default, rename = "loop")]
     pub looped: bool,
+    /// Faces lying flat become trimmed planes (Plasticity's Simplify, on to begin with).
+    #[serde(default = "yes")]
+    pub simplify: bool,
 }
+
+fn yes() -> bool { true }
 
 pub fn preview_loft_sheet(m: &Model, req: LoftSheetRequest) -> Option<Result<Body, ApiError>> {
     m.preview(move |doc| {
-        let sheet = doc.preview_loft_sheet(&req.curves, req.looped)?;
+        let sheet = doc.preview_loft_sheet(&req.curves, req.looped, req.simplify)?;
         Ok(body(&doc.kernel, 0, &sheet)?)
     })
 }
 
 pub fn commit_loft_sheet(m: &Model, req: LoftSheetRequest) -> Result<Committed, ApiError> {
     m.call(move |doc| {
-        let id = doc.commit_loft_sheet(&req.curves, req.looped)?;
+        let id = doc.commit_loft_sheet(&req.curves, req.looped, req.simplify)?;
         Ok(Committed { id, scene: bodies(doc)? })
     })
 }

@@ -41,7 +41,7 @@ mod inner {
 
         pub fn w3d_revolve(section: &[f64], axis: &[f64], angle: f64, thickness: f64) -> Result<UniquePtr<TopoDS_Shape>>;
         pub fn w3d_loft(sections: &[f64]) -> Result<UniquePtr<TopoDS_Shape>>;
-        pub fn w3d_loft_sheet(sections: &[f64], looped: bool) -> Result<UniquePtr<TopoDS_Shape>>;
+        pub fn w3d_loft_sheet(sections: &[f64], looped: bool, simplify: bool) -> Result<UniquePtr<TopoDS_Shape>>;
         pub fn w3d_sweep(section: &[f64], path: &[f64], twist: f64, scale: f64) -> Result<UniquePtr<TopoDS_Shape>>;
         pub fn w3d_sweep_guided(section: &[f64], path: &[f64], guide: &[f64], method: i32, parallel: bool, round: bool) -> Result<UniquePtr<TopoDS_Shape>>;
         pub fn w3d_loft_guided(sections: &[f64], guides: &[f64]) -> Result<UniquePtr<TopoDS_Shape>>;

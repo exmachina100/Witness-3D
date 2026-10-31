@@ -194,7 +194,7 @@ export function loft(cs) {
  * `loop` (three curves or more) it runs on from the last back to the first. As w3d_loft_sheet: the
  * first wire given again last is what closes the sheet.
  */
-export function loftSheet(cs, loop = false) {
+export function loftSheet(cs, loop = false, simplify = true) {
     const o = oc();
     if (cs.length < 2) throw new Error('select two curves or more, in order, to loft');
     if (loop && cs.length < 3) throw new Error('a loop needs three curves or more');
@@ -204,7 +204,48 @@ export function loftSheet(cs, loop = false) {
     if (loop) mk.AddWire(ws[0]);
     mk.Build(new o.Message_ProgressRange());
     if (!mk.IsDone()) throw new Error('no surface could be lofted through those curves');
-    return mk.Shape();
+    return simplify ? flatFaces(mk.Shape()) : mk.Shape();
+}
+
+/**
+ * Loft's Simplify (on to begin with): faces of the loft that lie flat become trimmed planes on the
+ * same edges, rather than the loft's own B-spline surfaces; curved faces stay as they are. As
+ * w3d_flat_faces on the desktop.
+ */
+export function flatFaces(shape) {
+    const o = oc(), faces = [];
+    let changed = false;
+    for (const ex = new o.TopExp_Explorer(shape, o.TopAbs_ShapeEnum.TopAbs_FACE, o.TopAbs_ShapeEnum.TopAbs_SHAPE); ex.More(); ex.Next()) {
+        const f = o.TopoDS.Face(ex.Current()), flat = flatFace(f);
+        faces.push(flat ?? f);
+        changed ||= !!flat;
+    }
+    if (!changed) return shape;
+    if (faces.length === 1) return faces[0];
+    const sew = new o.BRepBuilderAPI_Sewing(1e-6, true, true, true, false);
+    for (const f of faces) sew.Add(f);
+    sew.Perform(new o.Message_ProgressRange());
+    return sew.SewedShape();
+}
+
+/** A trimmed plane on the face's edges when the face lies flat (to 1e-7 of its size), else null. */
+function flatFace(f) {
+    const o = oc(), s = new o.BRepAdaptor_Surface(f, true);
+    if (s.GetType() === o.GeomAbs_SurfaceType.GeomAbs_Plane) return null;
+    const mk = new o.BRepBuilderAPI_MakeFace(o.BRepTools.OuterWire(f), true);
+    if (!mk.IsDone()) return null;
+    const plane = new o.BRepAdaptor_Surface(mk.Face(), true);
+    if (plane.GetType() !== o.GeomAbs_SurfaceType.GeomAbs_Plane) return null;
+    const pln = plane.Plane(), l = pln.Location(), d = pln.Axis().Direction();
+    const [u0, u1, v0, v1] = [s.FirstUParameter(), s.LastUParameter(), s.FirstVParameter(), s.LastVParameter()];
+    const pts = [];
+    for (let i = 0; i <= 8; i++) for (let j = 0; j <= 8; j++) pts.push(s.Value(u0 + (u1 - u0) * i / 8, v0 + (v1 - v0) * j / 8));
+    const size = Math.max(1e-9, ...pts.map(p => Math.hypot(p.X() - pts[0].X(), p.Y() - pts[0].Y(), p.Z() - pts[0].Z())));
+    if (pts.some(p => Math.abs((p.X() - l.X()) * d.X() + (p.Y() - l.Y()) * d.Y() + (p.Z() - l.Z()) * d.Z()) > 1e-7 * size)) return null;
+    // A further hole in the face (none from a loft) would need adding; keep the loft's face then.
+    if (count(f, 'TopAbs_WIRE') > 1) return null;
+    const out = mk.Face();
+    return f.Orientation() === o.TopAbs_Orientation.TopAbs_REVERSED ? o.TopoDS.Face(out.Reversed()) : out;
 }
 
 /** Point and tangent a fraction `f` along the path. */

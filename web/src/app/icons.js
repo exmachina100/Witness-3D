@@ -238,6 +238,7 @@ const ICONS = {
     'corner-linear': `<path d="M4 20V8h12"/><path ${A} d="M8 20V12h8"/>`,
     'corner-round': `<path d="M4 20V8h12"/><path ${A} d="M8 20v-4a4 4 0 0 1 4-4h4"/><circle cx="4" cy="8" r="1.2"/>`,
     'corner-natural': `<path d="M4 20V8h12"/><path ${A} d="M8 20C8 15 9 12 16 12"/>`,
+    simplify: `<path d="M3 18c3-8 6-8 9-4s6 4 9-4" stroke-dasharray="2 2"/><path ${A} d="M3 20h18"/>`,
     'limit-point': `<path d="M3 17c4-8 10-12 18-12"/><circle ${A} cx="9" cy="10" r="2.2"/><path ${A} d="M9 14v6"/>`,
     'limit-minimal': `<path d="M15 3v18"/><path ${A} d="M3 12h12"/><path ${A} d="M11 8l4 4-4 4"/>`,
     'limit-outside': `<path d="M9 3v18M15 3v18"/><path ${A} d="M3 12h18"/><path ${A} d="M17 8l4 4-4 4"/>`,

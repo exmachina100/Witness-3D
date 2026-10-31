@@ -946,7 +946,7 @@ export class LocalBackend {
     loftSheetResult(req) {
         const c = id => { const x = this.curveMap.get(id); if (!x) throw new Error('that curve no longer exists'); return x; };
         // A drawn curve's id, or a curve given whole (a body edge picked as a profile).
-        return loftSheet((req.curves ?? []).map(g => typeof g === 'object' && g ? g : c(g)), !!req.loop);
+        return loftSheet((req.curves ?? []).map(g => typeof g === 'object' && g ? g : c(g)), !!req.loop, req.simplify ?? true);
     }
 
     previewLoftSheet(req) { return this.latest(async () => this.body(0, this.loftSheetResult(req))) }

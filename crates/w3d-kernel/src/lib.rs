@@ -370,8 +370,9 @@ pub trait Kernel {
         Err(KernelError::Invalid("this kernel cannot loft"))
     }
     /// Plasticity's Loft of curves: a sheet through `curves` in order, running on from the last back
-    /// to the first when `looped`.
-    fn loft_sheet(&self, _curves: &[Path], _looped: bool) -> Result<Self::Solid, KernelError> {
+    /// to the first when `looped`; with `simplify` (Plasticity's default) faces lying flat become
+    /// trimmed planes rather than lofted surfaces.
+    fn loft_sheet(&self, _curves: &[Path], _looped: bool, _simplify: bool) -> Result<Self::Solid, KernelError> {
         Err(KernelError::Invalid("this kernel cannot loft curves"))
     }
     /// `profile` swept along `path`; the far end turned by `twist` radians and scaled by `scale`.

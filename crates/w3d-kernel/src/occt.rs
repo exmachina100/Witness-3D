@@ -312,10 +312,10 @@ impl Kernel for Occt {
         Shape::loft_sections(&all).map_err(shim)
     }
 
-    fn loft_sheet(&self, curves: &[Path], looped: bool) -> Result<Shape, KernelError> {
+    fn loft_sheet(&self, curves: &[Path], looped: bool, simplify: bool) -> Result<Shape, KernelError> {
         let mut all = Vec::new();
         for c in curves { all.extend(path_numbers(c)?) }
-        Shape::loft_sheet(&all, looped).map_err(shim)
+        Shape::loft_sheet(&all, looped, simplify).map_err(shim)
     }
 
     fn sweep(&self, profile: &Profile, frame: &Frame, path: &Path, twist: f64, scale: f64) -> Result<Shape, KernelError> {
