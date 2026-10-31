@@ -85,6 +85,7 @@ import { limitCurve } from '../loftLimits.js';
 import { CULLING, DEPTHS, checkImage, imageLook, newImage } from './images.js';
 import { newInstance, checkInstance, matrixOf, motionOf, instanceFromMotion, mirroredInstance } from './instances.js';
 import { arrayMotions, radialSpec, rectangularSpec } from '../arrayMotions.js';
+import { Constraints } from './constraints.js';
 import { SNAP_KINDS, allowed as snapAllowed, kindOf as snapKindOf, parseSnaps } from './snapKinds.js';
 import { Organise } from './Organise.js';
 import { P_MENU, RADIALS, mergeKeys, parseRadial, shortLabel, showKey, sliceAt, slicePosition } from './menus.js';
@@ -175,7 +176,7 @@ const KEYS = {
   'export-drawing': [['VIEW', 'AS THE CAMERA SEES IT'], ['H', 'HIDDEN LINES'], ['C', 'CURVES'], ['⏎ / RMB', 'SAVE'], ['ESC', 'CANCEL']],
   'tangent-circle': [['CLICK', 'FIRST · SECOND CURVE · SIZE OR THIRD CURVE'], ['F', 'FREEZE'], ['TAB', 'RADIUS'], ['ESC', 'CANCEL']],
   extend: [['CLICK', 'NEAR AN END'], ['S', 'SHAPE NATURAL / LINEAR'], ['TYPE', 'LENGTH IN PANEL'], ['ESC / ⏎', 'DONE']],
-  bridge: [['T / D', 'TENSION'], ['TAB', 'CONTINUITY G0 G1 G2 G3'], ['X Y Z', 'AXIS'], ['Q', 'TRIM'], ['⏎ / RMB', 'OK']],
+  bridge: [['T / D', 'TENSION'], ['TAB', 'CONTINUITY G0 G1 G2 G3'], ['X Y Z', 'AXIS'], ['Q', 'TRIM'], ['CHIP', 'CONSTRAIN'], ['⏎ / RMB', 'OK']],
   'bridge-edge': [['D', 'TENSION'], ['TAB', 'CONTINUITY G0 G1 G2 G3'], ['X Y Z', 'AXIS'], ['⏎ / RMB', 'OK']],
   'align-surface': [['TAB', 'CONTINUITY G0 G1 G2'], ['D', 'TENSION'], ['⏎ / RMB', 'OK']],
   'project-align': [['TAB', 'CONTINUITY G0 G1 G2 PERP'], ['N X Y Z S', 'PROJECTION'], ['D', 'TENSION'], ['⏎ / RMB', 'OK']],
@@ -717,7 +718,7 @@ const SHELL = `
       <div class="chips"><button data-id="br-start" title="Continuity at the start (click to cycle)">START G1</button><button data-id="br-end" title="Continuity at the end (click to cycle)">END G1</button></div>
       <span class="label">AXIS</span>
       <div class="seg" role="group" aria-label="Constrain the bridge to an axis"><button data-braxis="" aria-pressed="true" title="The bridge leaves along the curves themselves">NONE</button><button data-braxis="x" aria-pressed="false" title="The bridge leaves both ends along X"><kbd>X</kbd>X</button><button data-braxis="y" aria-pressed="false" title="The bridge leaves both ends along Y"><kbd>Y</kbd>Y</button><button data-braxis="z" aria-pressed="false" title="The bridge leaves both ends along Z"><kbd>Z</kbd>Z</button></div>
-      <div class="chips"><button data-id="br-trim" aria-pressed="false" title="Trim the curves where they run on past the bridge"><kbd>Q</kbd>TRIM</button><button data-id="br-comb" aria-pressed="false" title="Show the curvature of the bridge and the curves it joins">CURVATURE</button></div>
+      <div class="chips"><button data-id="br-trim" aria-pressed="false" title="Trim the curves where they run on past the bridge"><kbd>Q</kbd>TRIM</button><button data-id="br-comb" aria-pressed="false" title="Show the curvature of the bridge and the curves it joins">CURVATURE</button><button data-id="br-constrain" aria-pressed="false" title="Create constraints: the bridge stays joined to the curves it bridges, remade with the same continuity when they are edited (for this session)">CONSTRAIN</button></div>
     </div>
     <div class="sec" data-panel="bridge-edge" hidden>
       <span class="hint" data-id="be-hint">—</span>
@@ -1058,11 +1059,11 @@ const VIEWS = {
 export async function mount(root, backend) {
   root.innerHTML = SHELL;
   // Panel options carry their icon ahead of the key and name.
-  for (const b of root.querySelectorAll('[data-proj],[data-imp],[data-impcomp],[data-draw],[data-bop],[data-btmat],[data-bumat],[data-xop],[data-fop],[data-spiral],[data-toggle],[data-gmethod],[data-galign],[data-gcorner],[data-grow],[data-mfgrow],[data-drgrow],[data-eslimit],[data-flshape],[data-drtaper],[data-avaxis],[data-extshape],[data-esshape],[data-isodir],[data-id="oe-both"],[data-id="iso-subdivide"],[data-id="oe-individual"],[data-id="blend-tangent"],[data-id="ex-lock"],[data-id="bool-keep"],[data-id="prim-keep"],[data-id="ex-free"],[data-id="ex-pivot"],[data-id="ex-individual"],[data-id="patch-individual"],[data-id="patch-quad"],[data-id="as-symmetric"],[data-id="as-analysis"],[data-id="sq-analysis"],[data-id="dr-hidden"],[data-id="dr-curves"],[data-id="oc-lock"],[data-id="oc-free"],[data-id="oc-slot"],[data-id="oc-combine"],[data-id="es-unlimit"],[data-rbmethod],[data-oecorner],[data-saplane],[data-plaxis],[data-plop],[data-id="pl-flip"],[data-id="pl-instance"],[data-id="mirror-instance"],[data-id="mirror-neg"],[data-id="mirror-free"],[data-id="mirror-cut"],[data-id="ra-instance"],[data-id="ra-spacing"],[data-id="ra-extent"],[data-id="rr-total"],[data-id="rr-spacing"],[data-id="rr-instance"],[data-id="ca-instance"],[data-id="br-trim"],[data-id="br-comb"],[data-id="ac-comb"],[data-id="dc-reblend"],[data-id="section-btn"],[data-id="sa-flip"],[data-id="rf-shrink"],[data-id="ut-keep"],[data-txfont],[data-id="tx-load"],[data-id="tx-system"],[data-txalign],[data-sldir],[data-dcflip],[data-id="dc-keep"],[data-imdepth],[data-imcull],[data-id="im-delete"],[data-id="cc-extend"],[data-id="cc-screen"],[data-inmode],[data-pfmode],[data-pfmirror],[data-xforient],[data-xfpivot],[data-id="xf-pick"],[data-id="xf-unpivot"],[data-id="ls-loop"],[data-id="ls-limit"],[data-id="ls-simplify"],[data-pmethod],[data-mxtopo],[data-id="mx-convex"],[data-sqbound],[data-asbound],[data-bsshape],[data-bstrim],[data-id="bs-add"],[data-id="bs-s1"],[data-id="bs-s2"],[data-id="in-realize"],[data-id="in-dup"],[data-id="in-delete"],[data-id="matcap-load"],[data-id="matcap-custom"],[data-id="hdr-load"],[data-id="hdr-custom"]')) {
+  for (const b of root.querySelectorAll('[data-proj],[data-imp],[data-impcomp],[data-draw],[data-bop],[data-btmat],[data-bumat],[data-xop],[data-fop],[data-spiral],[data-toggle],[data-gmethod],[data-galign],[data-gcorner],[data-grow],[data-mfgrow],[data-drgrow],[data-eslimit],[data-flshape],[data-drtaper],[data-avaxis],[data-extshape],[data-esshape],[data-isodir],[data-id="oe-both"],[data-id="iso-subdivide"],[data-id="oe-individual"],[data-id="blend-tangent"],[data-id="ex-lock"],[data-id="bool-keep"],[data-id="prim-keep"],[data-id="ex-free"],[data-id="ex-pivot"],[data-id="ex-individual"],[data-id="patch-individual"],[data-id="patch-quad"],[data-id="as-symmetric"],[data-id="as-analysis"],[data-id="sq-analysis"],[data-id="dr-hidden"],[data-id="dr-curves"],[data-id="oc-lock"],[data-id="oc-free"],[data-id="oc-slot"],[data-id="oc-combine"],[data-id="es-unlimit"],[data-rbmethod],[data-oecorner],[data-saplane],[data-plaxis],[data-plop],[data-id="pl-flip"],[data-id="pl-instance"],[data-id="mirror-instance"],[data-id="mirror-neg"],[data-id="mirror-free"],[data-id="mirror-cut"],[data-id="ra-instance"],[data-id="ra-spacing"],[data-id="ra-extent"],[data-id="rr-total"],[data-id="rr-spacing"],[data-id="rr-instance"],[data-id="ca-instance"],[data-id="br-trim"],[data-id="br-comb"],[data-id="br-constrain"],[data-id="ac-comb"],[data-id="dc-reblend"],[data-id="section-btn"],[data-id="sa-flip"],[data-id="rf-shrink"],[data-id="ut-keep"],[data-txfont],[data-id="tx-load"],[data-id="tx-system"],[data-txalign],[data-sldir],[data-dcflip],[data-id="dc-keep"],[data-imdepth],[data-imcull],[data-id="im-delete"],[data-id="cc-extend"],[data-id="cc-screen"],[data-inmode],[data-pfmode],[data-pfmirror],[data-xforient],[data-xfpivot],[data-id="xf-pick"],[data-id="xf-unpivot"],[data-id="ls-loop"],[data-id="ls-limit"],[data-id="ls-simplify"],[data-pmethod],[data-mxtopo],[data-id="mx-convex"],[data-sqbound],[data-asbound],[data-bsshape],[data-bstrim],[data-id="bs-add"],[data-id="bs-s1"],[data-id="bs-s2"],[data-id="in-realize"],[data-id="in-dup"],[data-id="in-delete"],[data-id="matcap-load"],[data-id="matcap-custom"],[data-id="hdr-load"],[data-id="hdr-custom"]')) {
     const name = (b.dataset.proj && (b.dataset.proj === 'screen' ? 'view-screen' : `proj-${b.dataset.proj}`)) ?? (b.dataset.imp && (b.dataset.imp === 'screen' ? 'view-screen' : `proj-${b.dataset.imp}`)) ?? (b.dataset.impcomp && `completion-${b.dataset.impcomp}`) ?? b.dataset.draw ?? b.dataset.bop ?? (b.dataset.xforient && `orient-${b.dataset.xforient}`) ?? (b.dataset.xfpivot && `pivot-${b.dataset.xfpivot}`) ?? (b.dataset.btmat && `mat-${b.dataset.btmat}`) ?? (b.dataset.bumat && `mat-${b.dataset.bumat}`) ?? b.dataset.xop ?? b.dataset.fop ?? b.dataset.spiral ?? (b.dataset.toggle && `view-${b.dataset.toggle}`)
       ?? (b.dataset.gmethod && `guide-${b.dataset.gmethod}`) ?? (b.dataset.galign && `align-${b.dataset.galign}`) ?? (b.dataset.gcorner && (b.dataset.gcorner === 'round' ? 'corner-round' : 'corner-linear')) ?? (b.dataset.grow && `grow-${b.dataset.grow}`) ?? (b.dataset.mfgrow && `grow-${b.dataset.mfgrow}`) ?? (b.dataset.drgrow && `grow-${b.dataset.drgrow}`) ?? (b.dataset.eslimit && `limit-${b.dataset.eslimit}`) ?? (b.dataset.flshape && `fillet-${b.dataset.flshape}`) ?? (b.dataset.drtaper && `taper-${b.dataset.drtaper}`) ?? (b.dataset.avaxis && `axis-${b.dataset.avaxis}`) ?? (b.dataset.extshape && `extend-${b.dataset.extshape}`) ?? (b.dataset.esshape && `extend-${b.dataset.esshape}`) ?? (b.dataset.isodir && `iso-${b.dataset.isodir}`) ?? (b.dataset.rbmethod && `rebuild-${b.dataset.rbmethod}`) ?? (b.dataset.oecorner && `corner-${b.dataset.oecorner}`) ?? (b.dataset.saplane && `section-${b.dataset.saplane}`) ?? (b.dataset.plaxis && (b.dataset.plaxis === 'normal' ? 'place-normal' : `axis-${b.dataset.plaxis}`)) ?? b.dataset.plop
       ?? (b.dataset.txfont && `font-${b.dataset.txfont}`) ?? (b.dataset.txalign && `txalign-${b.dataset.txalign}`) ?? (b.dataset.sldir && { u: 'slide-u', '-u': 'slide-back', v: 'slide-v', '-v': 'slide-vback', n: 'slide-n' }[b.dataset.sldir]) ?? (b.dataset.dcflip && { mirror: 'mirror', swap: 'swap-uv', normal: 'reverse-sheet' }[b.dataset.dcflip]) ?? (b.dataset.imdepth && `depth-${b.dataset.imdepth}`) ?? (b.dataset.imcull && `cull-${b.dataset.imcull}`) ?? b.dataset.inmode ?? (b.dataset.bsshape && `bridge-${b.dataset.bsshape}`) ?? (b.dataset.bstrim && `trimwall-${b.dataset.bstrim}`) ?? (b.dataset.mxtopo && `topo-${b.dataset.mxtopo}`) ?? (b.dataset.pmethod && (b.dataset.pmethod === 'fill' ? 'patch-fill' : `trim-${b.dataset.pmethod}`)) ?? (b.dataset.pfmode && `falloff-${b.dataset.pfmode}`) ?? ((b.dataset.sqbound ?? b.dataset.asbound) && `bound-${b.dataset.sqbound ?? b.dataset.asbound}`) ?? (b.dataset.pfmirror && `mirror-${b.dataset.pfmirror}`)
-      ?? { 'matcap-load': 'matcap-load', 'matcap-custom': 'matcap', 'tx-load': 'font-load', 'tx-system': 'font-system', 'hdr-load': 'hdr-load', 'hdr-custom': 'hdr', 'ex-lock': 'lock', 'bool-keep': 'keep', 'prim-keep': 'keep', 'ex-free': 'freestyle', 'ex-pivot': 'pivot', 'ex-individual': 'individual', 'patch-individual': 'individual', 'mx-convex': 'convex', 'patch-quad': 'square', 'as-symmetric': 'symmetric', 'as-analysis': 'analysis', 'sq-analysis': 'analysis', 'bs-add': 'wall-pair', 'bs-s1': 'flip', 'bs-s2': 'flip', 'dr-hidden': 'hidden-lines', 'dr-curves': 'drawing-curves', 'oc-lock': 'lock', 'oc-free': 'freestyle', 'oc-slot': 'slot', 'oc-combine': 'combine', 'oe-both': 'both-sides', 'xf-pick': 'pivot', 'xf-unpivot': 'pivot-remove', 'ls-loop': 'loft-loop', 'ls-limit': 'limit-point', 'ls-simplify': 'simplify', 'iso-subdivide': 'subdivide', 'oe-individual': 'individual', 'blend-tangent': 'tangent-chain', 'es-unlimit': 'unlimit', 'rf-shrink': 'shrink', 'ut-keep': 'keep-edges', 'section-btn': 'view-section', 'sa-flip': 'flip', 'pl-flip': 'flip', 'pl-instance': 'instance', 'mirror-instance': 'instance', 'mirror-neg': 'mirror-neg', 'mirror-free': 'freestyle', 'mirror-cut': 'mirror-cut', 'ra-instance': 'instance', 'ra-spacing': 'array-spacing', 'ra-extent': 'array-extent', 'rr-total': 'array-total', 'rr-spacing': 'array-angle-step', 'rr-instance': 'instance', 'ca-instance': 'instance', 'br-trim': 'trim', 'br-comb': 'view-curvature', 'ac-comb': 'view-curvature', 'dc-reblend': 'reblend', 'dc-keep': 'keep', 'im-delete': 'delete', 'in-realize': 'realize-instance', 'cc-extend': 'extend', 'cc-screen': 'view-screen', 'in-dup': 'duplicate', 'in-delete': 'delete' }[b.dataset.id];
+      ?? { 'matcap-load': 'matcap-load', 'matcap-custom': 'matcap', 'tx-load': 'font-load', 'tx-system': 'font-system', 'hdr-load': 'hdr-load', 'hdr-custom': 'hdr', 'ex-lock': 'lock', 'bool-keep': 'keep', 'prim-keep': 'keep', 'ex-free': 'freestyle', 'ex-pivot': 'pivot', 'ex-individual': 'individual', 'patch-individual': 'individual', 'mx-convex': 'convex', 'patch-quad': 'square', 'as-symmetric': 'symmetric', 'as-analysis': 'analysis', 'sq-analysis': 'analysis', 'bs-add': 'wall-pair', 'bs-s1': 'flip', 'bs-s2': 'flip', 'dr-hidden': 'hidden-lines', 'dr-curves': 'drawing-curves', 'oc-lock': 'lock', 'oc-free': 'freestyle', 'oc-slot': 'slot', 'oc-combine': 'combine', 'oe-both': 'both-sides', 'xf-pick': 'pivot', 'xf-unpivot': 'pivot-remove', 'ls-loop': 'loft-loop', 'ls-limit': 'limit-point', 'ls-simplify': 'simplify', 'iso-subdivide': 'subdivide', 'oe-individual': 'individual', 'blend-tangent': 'tangent-chain', 'es-unlimit': 'unlimit', 'rf-shrink': 'shrink', 'ut-keep': 'keep-edges', 'section-btn': 'view-section', 'sa-flip': 'flip', 'pl-flip': 'flip', 'pl-instance': 'instance', 'mirror-instance': 'instance', 'mirror-neg': 'mirror-neg', 'mirror-free': 'freestyle', 'mirror-cut': 'mirror-cut', 'ra-instance': 'instance', 'ra-spacing': 'array-spacing', 'ra-extent': 'array-extent', 'rr-total': 'array-total', 'rr-spacing': 'array-angle-step', 'rr-instance': 'instance', 'ca-instance': 'instance', 'br-trim': 'trim', 'br-comb': 'view-curvature', 'br-constrain': 'constrain', 'ac-comb': 'view-curvature', 'dc-reblend': 'reblend', 'dc-keep': 'keep', 'im-delete': 'delete', 'in-realize': 'realize-instance', 'cc-extend': 'extend', 'cc-screen': 'view-screen', 'in-dup': 'duplicate', 'in-delete': 'delete' }[b.dataset.id];
     b.insertAdjacentHTML('afterbegin', icon(name));
   }
   const $ = id => root.querySelector(`[data-id="${id}"]`);
@@ -1083,6 +1084,19 @@ export async function mount(root, backend) {
     clearTimeout(toast.timer); toast.timer = setTimeout(() => t.hidden = true, 2600);
   };
   $('kernel').textContent = `KERNEL: ${backend.info.kernel}`;
+  // Plasticity's Constraint System (constraints.js): every curve replacement also remakes the
+  // constrained bridges hanging on the replaced curves, in the same undo step.
+  const constraints = new Constraints();
+  let bridgeConstrain = false;   // Create Constraints, remembered between bridges as in Plasticity
+  if (backend.replaceCurves) {
+    const rawReplace = backend.replaceCurves.bind(backend);
+    backend.replaceCurves = async (ids, list) => {
+      const p = constraints.plan(ids, list, curveById, (a, b, k) => bridgeContinuous(a, k.ea, b, k.eb, k.options));
+      const r = await rawReplace([...ids, ...p.ids], [...list, ...p.list]);
+      p.done(r.ids);
+      return { ...r, ids: r.ids.slice(0, list.length) };
+    };
+  }
 
   // --- viewport and navigation ---------------------------------------------
   // Plasticity's mouse: middle-drag orbits, right-drag pans, the wheel zooms in steps and
@@ -8604,6 +8618,7 @@ export async function mount(root, backend) {
         $('br-end').textContent = `END ${c.continuity[1]}`;
         $('br-trim').setAttribute('aria-pressed', String(c.trim));
         $('br-comb').setAttribute('aria-pressed', String(c.comb));
+        $('br-constrain').setAttribute('aria-pressed', String(bridgeConstrain));
         const at = [num('br-p1'), num('br-p2')];
         for (const b2 of $$('[data-braxis]')) b2.setAttribute('aria-pressed', String(b2.dataset.braxis === c.axis));
         c.out = bridgeContinuous(a, pick.ea, b, pick.eb, { ...bridgeTensions('br'), continuity: c.continuity, at, axis: c.axis ? toWorld(AXES[c.axis]) : null });
@@ -8626,6 +8641,7 @@ export async function mount(root, backend) {
       }
       if (action === 'trim') { c.trim = !c.trim; c.preview(); return true; }
       if (action === 'comb') { c.comb = !c.comb; c.preview(); return true; }
+      if (action === 'constrain') { bridgeConstrain = !bridgeConstrain; c.preview(); return true; }
       // X, Y and Z constrain the bridge to that axis; the same key again lets it go.
       if (action?.startsWith('axis-')) { c.setAxis(action.slice(5)); return true; }
       if (action !== 'tension') return false;
@@ -8640,8 +8656,14 @@ export async function mount(root, backend) {
         const trims = c.trim ? c.trims : [];
         const { ids: made } = trims.length ? await backend.replaceCurves(trims.map(t => t.id), [...trims.map(t => t.kept), c.out]) : await backend.addCurves([c.out]);
         const bridge = made[made.length - 1];
+        if (bridgeConstrain) {
+          // A trimmed curve now ends at its bridge point, so the constraint bridges from its end.
+          const side = (cv, e, t) => { const i = trims.findIndex(x => x.id === cv.id); return i >= 0 ? [made[i], e] : [cv.id, t]; };
+          const at = [num('br-p1'), num('br-p2')], [ia, ta] = side(a, pick.ea, at[0]), [ib, tb] = side(b, pick.eb, at[1]);
+          constraints.addBridge(bridge, ia, pick.ea, ib, pick.eb, { ...bridgeTensions('br'), continuity: [...c.continuity], at: [ta, tb], axis: c.axis ? toWorld(AXES[c.axis]) : null });
+        }
         endCmd('committed');
-        record(trims.length ? 'BRIDGE CURVES · TRIM' : 'BRIDGE CURVES', bridge, curveLabel(bridge));
+        record(`${trims.length ? 'BRIDGE CURVES · TRIM' : 'BRIDGE CURVES'}${bridgeConstrain ? ' · CONSTRAINED' : ''}`, bridge, curveLabel(bridge));
         await curvesChanged([bridge]);
       } catch (e) { setState('failed'); toast(say(e)); }
     };
@@ -10458,9 +10480,14 @@ export async function mount(root, backend) {
   /** Run a named action (keymap.js); returns false for names it doesn't know. */
   async function doAction(a) {
     const [kind, arg] = a.split(':');
-    if (!['select', 'view', 'plane', 'sources', 'sidebar', 'grid', 'snap', 'overlays', 'undo', 'redo', 'app', 'radial'].includes(kind)) keepSources();
+    if (!['select', 'view', 'plane', 'sources', 'sidebar', 'grid', 'snap', 'constraints', 'overlays', 'undo', 'redo', 'app', 'radial'].includes(kind)) keepSources();
     switch (kind) {
       case 'sources': selectSources(arg === 'forward' ? 1 : -1); return true;
+      case 'constraints':
+        // Remove constraints: the bridges stay as they are and no longer follow their curves.
+        toast(constraints.list.length ? `${constraints.list.length} CONSTRAINT${constraints.list.length > 1 ? 'S' : ''} REMOVED` : 'NO CONSTRAINTS');
+        constraints.clear();
+        return true;
       case 'snap':
         // Plasticity's palette command Toggle object snapping (no key by default).
         setSnaps({ ...snapSettings, on: !snapSettings.on });
@@ -11472,6 +11499,7 @@ export async function mount(root, backend) {
   $('br-start').onclick = () => cmd?.id === 'bridge' && cmd.cycleEnd(0);
   for (const id of ['br-p1', 'br-p2']) $(id).addEventListener('input', () => cmd?.id === 'bridge' && cmd.preview());
   $('br-trim').onclick = () => cmd?.id === 'bridge' && cmd.key('trim');
+  $('br-constrain').onclick = () => cmd?.id === 'bridge' && cmd.key('constrain');
   $('br-comb').onclick = () => cmd?.id === 'bridge' && cmd.key('comb');
   for (const b of $$('[data-braxis]')) b.onclick = () => cmd?.id === 'bridge' && cmd.setAxis(b.dataset.braxis);
   for (const b of $$('[data-beaxis]')) b.onclick = () => cmd?.id === 'bridge-edge' && cmd.key(`axis-${b.dataset.beaxis}`);
