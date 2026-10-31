@@ -344,3 +344,8 @@ input[type="range"] { accent-color: var(--accent); }
 .pickmenu[hidden] { display: none; }
 .pickmenu button { padding: 5px 10px; text-align: left; color: var(--muted); white-space: nowrap; }
 .pickmenu button[aria-current="true"] { color: var(--ink); background: var(--hover); box-shadow: inset 2px 0 0 var(--accent); }
+.saved-planes { display: flex; flex-direction: column; gap: 4px; margin-top: 6px; }
+.saved-plane { display: flex; gap: 4px; }
+.saved-plane button { flex: 1; text-align: left; padding: 5px 6px; border: 1px solid var(--rule); color: var(--muted); }
+.saved-plane button.icon-btn { flex: none; padding: 3px; }
+.saved-plane .ico { width: 12px; height: 12px; }
