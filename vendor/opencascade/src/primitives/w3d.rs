@@ -352,6 +352,12 @@ impl Shape {
         ffi::w3d::w3d_isoparam(&self.inner, face as i32, &point, along_u).map_err(reason)
     }
 
+    /// Isoparam's edges: the face split along `params` (0 to 1 across it) or through `point` (see `w3d_isoparam_split`).
+    pub fn isoparam_split_with_history(&self, face: usize, along_u: bool, point: [f64; 3], params: &[f64], subdivide: bool) -> Result<(Shape, ShapeHistory), String> {
+        let r = ffi::w3d::w3d_isoparam_split(&self.inner, face as i32, along_u, &point, params, subdivide).map_err(reason)?;
+        Ok((Shape::from_shape(&ffi::w3d::w3d_result_shape(&r)), history(&r, 1)))
+    }
+
     /// The curves where the sheets of two curves meet (see `w3d_project_curve_curve`).
     pub fn project_curve_curve(data: &[f64], length: f64) -> Result<Vec<f64>, String> {
         ffi::w3d::w3d_project_curve_curve(data, length).map_err(reason)

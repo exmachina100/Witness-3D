@@ -402,6 +402,11 @@ impl Kernel for Occt {
         Ok(([raw[0], raw[1]], raw[2..].chunks(3).map(|c| DVec3::new(c[0], c[1], c[2])).collect()))
     }
 
+    fn isoparam_split(&self, s: &Shape, face: u32, along_u: bool, point: DVec3, params: &[f64], subdivide: bool) -> Result<Traced<Shape>, KernelError> {
+        let (solid, h) = s.isoparam_split_with_history(face as usize, along_u, point.to_array(), params, subdivide).map_err(shim)?;
+        Ok(Traced { solid, history: history(h) })
+    }
+
     fn isoparam(&self, s: &Shape, face: u32, point: DVec3, along_u: bool) -> Result<Vec<Path>, KernelError> {
         nurbs_paths(&s.isoparam(face as usize, point.to_array(), along_u).map_err(shim)?)
     }

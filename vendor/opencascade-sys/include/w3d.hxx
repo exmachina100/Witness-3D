@@ -3246,6 +3246,166 @@ inline rust::Vec<double> w3d_isoparam(const TopoDS_Shape &shape, int32_t face, r
   }
 }
 
+// Plasticity's Isoparam: face `face` of `shape` split by edges along which one surface parameter
+// stays put (v when `along_u`, so the edges run along u). `params` place them from 0 to 1 across the
+// face; with none, one edge runs through `point`. With `subdivide` the face is first given its
+// B-spline surface, then each piece its own part of it, cut where the edges are, so the pieces'
+// control points meet row for row along them.
+inline std::unique_ptr<W3dResult> w3d_isoparam_split(const TopoDS_Shape &shape, int32_t face, bool along_u, rust::Slice<const double> point,
+                                                     rust::Slice<const double> params, bool subdivide) {
+  try {
+    BRepBuilderAPI_Copy copy(shape);
+    TopoDS_Shape work = copy.Shape();
+    std::vector<W3dSuccessors> steps{w3d_step(copy)};
+    auto faceOf = [&](const TopoDS_Shape &s) {
+      TopTools_IndexedMapOfShape map;
+      TopExp::MapShapes(s, TopAbs_FACE, map);
+      if (face < 0 || face >= map.Extent()) throw std::out_of_range("that face no longer exists");
+      return TopoDS::Face(map(face + 1));
+    };
+    TopoDS_Face f = faceOf(work);
+    Handle(BRepTools_ReShape) convert = new BRepTools_ReShape();
+    if (subdivide) {
+      W3dSplineFace sf = w3d_spline_face(f);
+      if (!sf.face.IsSame(f)) {
+        TopTools_IndexedDataMapOfShapeListOfShape owners;
+        TopExp::MapShapesAndAncestors(work, TopAbs_EDGE, TopAbs_FACE, owners);
+        convert->Replace(f, w3d_face_on_spline(f, sf, Handle(Geom_BSplineSurface)::DownCast(sf.surface->Copy()), owners));
+        work = convert->Apply(work);
+        steps.push_back(w3d_step(convert->History()));
+        f = faceOf(work);
+      }
+    }
+    TopLoc_Location loc;
+    Handle(Geom_Surface) s = BRep_Tool::Surface(f, loc);
+    double u0, u1, v0, v1;
+    BRepTools::UVBounds(f, u0, u1, v0, v1);
+    const double c0 = along_u ? v0 : u0, c1 = along_u ? v1 : u1;
+    std::vector<double> at;
+    if (params.empty()) {
+      if (point.size() != 3) throw std::runtime_error("the point needs three numbers");
+      gp_Pnt p = gp_Pnt(point[0], point[1], point[2]).Transformed(loc.Transformation().Inverted());
+      GeomAPI_ProjectPointOnSurf proj(p, s);
+      if (!proj.NbPoints()) throw std::runtime_error("that point is not on the face");
+      double u, v;
+      proj.LowerDistanceParameters(u, v);
+      at.push_back(along_u ? v : u);
+    } else for (double t : params) {
+      if (!(t > 0 && t < 1)) throw std::runtime_error("each isoparam must lie inside the face, between 0 and 1");
+      at.push_back(c0 + t * (c1 - c0));
+    }
+    std::sort(at.begin(), at.end());
+    const double span = c1 - c0, near = 1e-6 * std::max(1.0, std::abs(span));
+    if (!(span > 1e-9)) throw std::runtime_error("the face is too thin that way for an isoparam");
+    for (double c : at) if (c <= c0 + near || c >= c1 - near) throw std::runtime_error("that isoparam runs along the face's edge; move it inside");
+    TopTools_ListOfShape args, tools;
+    args.Append(work);
+    const TopoDS_Face fwd = TopoDS::Face(f.Oriented(TopAbs_FORWARD));
+    for (double c : at) {
+      Handle(Geom_Curve) iso = along_u ? s->VIso(c) : s->UIso(c);
+      double a = along_u ? u0 : v0, b = along_u ? u1 : v1;
+      if (!iso->IsPeriodic()) { a = std::max(a, iso->FirstParameter()); b = std::min(b, iso->LastParameter()); }
+      if (b - a < 1e-9) throw std::runtime_error("the face is too thin there for an isoparam");
+      TopoDS_Edge whole = BRepBuilderAPI_MakeEdge(iso, a, b);
+      whole.Location(loc);
+      BRepAlgoAPI_Common common(whole, fwd);
+      int n = 0;
+      if (common.IsDone() && !common.HasErrors())
+        for (TopExp_Explorer ex(common.Shape(), TopAbs_EDGE); ex.More(); ex.Next(), n++) tools.Append(ex.Current());
+      if (!n) tools.Append(whole);
+    }
+    BRepAlgoAPI_Splitter mk;
+    mk.SetArguments(args);
+    mk.SetTools(tools);
+    mk.Build();
+    if (!mk.IsDone() || mk.HasErrors()) throw std::runtime_error("the isoparam could not be imprinted there");
+    steps.push_back(w3d_step(mk));
+    TopExp_Explorer solid(mk.Shape(), TopAbs_SOLID);
+    TopoDS_Shape result = solid.More() ? solid.Current() : TopoDS_Shape();
+    if (result.IsNull()) {
+      TopExp_Explorer shell(mk.Shape(), TopAbs_SHELL);
+      if (shell.More()) result = shell.Current();
+    }
+    if (result.IsNull()) throw std::runtime_error("the isoparam could not be imprinted there");
+    const TopTools_ListOfShape &pieces = mk.Modified(f);
+    if (pieces.Extent() < 2) throw std::runtime_error("the isoparam does not cross that face");
+    Handle(BRepTools_ReShape) split = new BRepTools_ReShape();
+    if (subdivide) {
+      Handle(Geom_BSplineSurface) base = Handle(Geom_BSplineSurface)::DownCast(s);
+      if (base.IsNull()) throw std::runtime_error("that face could not be converted to control points");
+      Handle(Geom_BSplineSurface) knotted = Handle(Geom_BSplineSurface)::DownCast(base->Copy());
+      // A knot as many times as the degree at each cut: the surface the same, a row of control points on the edge.
+      for (double c : at) {
+        if (along_u) knotted->InsertVKnot(c, knotted->VDegree(), Precision::PConfusion(), true);
+        else knotted->InsertUKnot(c, knotted->UDegree(), Precision::PConfusion(), true);
+      }
+      const bool closed = along_u ? knotted->IsVPeriodic() : knotted->IsUPeriodic();
+      double su0, su1, sv0, sv1;
+      knotted->Bounds(su0, su1, sv0, sv1);
+      const double lo0 = along_u ? sv0 : su0, hi0 = along_u ? sv1 : su1;
+      // Each piece's curves on the old surface, read before any piece moves onto its own.
+      struct Rep { TopoDS_Edge e; Handle(Geom2d_Curve) c1, c2; double a, b; };
+      std::vector<std::pair<TopoDS_Face, std::vector<Rep>>> laid;
+      for (TopTools_ListOfShape::Iterator it(pieces); it.More(); it.Next()) {
+        TopoDS_Face piece = TopoDS::Face(it.Value());
+        const TopoDS_Face pf = TopoDS::Face(piece.Oriented(TopAbs_FORWARD));
+        std::vector<Rep> reps;
+        TopTools_IndexedMapOfShape edges;
+        TopExp::MapShapes(piece, TopAbs_EDGE, edges);
+        for (int i = 1; i <= edges.Extent(); i++) {
+          Rep r;
+          r.e = TopoDS::Edge(edges(i));
+          if (BRep_Tool::IsClosed(r.e, pf)) {
+            r.c1 = BRep_Tool::CurveOnSurface(TopoDS::Edge(r.e.Oriented(TopAbs_FORWARD)), pf, r.a, r.b);
+            r.c2 = BRep_Tool::CurveOnSurface(TopoDS::Edge(r.e.Oriented(TopAbs_REVERSED)), pf, r.a, r.b);
+          } else r.c1 = BRep_Tool::CurveOnSurface(r.e, pf, r.a, r.b);
+          if (r.c1.IsNull()) throw std::runtime_error("an edge of the split face has no curve on it");
+          reps.push_back(r);
+        }
+        laid.push_back({piece, reps});
+      }
+      BRep_Builder B;
+      const double t = Precision::Confusion();
+      for (auto &[piece, reps] : laid) {
+        Handle(Geom_BSplineSurface) made = Handle(Geom_BSplineSurface)::DownCast(knotted->Copy());
+        if (!closed) {
+          // The piece's own stretch between the cuts either side of it (the surface's end past the outer ones).
+          double p0, p1, q0, q1;
+          BRepTools::UVBounds(piece, p0, p1, q0, q1);
+          const double mid = along_u ? (q0 + q1) / 2 : (p0 + p1) / 2;
+          double lo = lo0, hi = hi0;
+          for (double c : at) { if (c <= mid) lo = c; else if (c < hi) { hi = c; break; } }
+          if (along_u) made->Segment(su0, su1, lo, hi);
+          else made->Segment(lo, hi, sv0, sv1);
+        }
+        TopoDS_Face nf = TopoDS::Face(piece.Oriented(TopAbs_FORWARD).EmptyCopied());
+        B.UpdateFace(nf, made, loc, t);
+        for (TopoDS_Iterator it(piece, false, true); it.More(); it.Next()) B.Add(nf, it.Value());
+        nf.Orientation(piece.Orientation());
+        for (const Rep &r : reps) {
+          if (r.c2.IsNull()) B.UpdateEdge(r.e, r.c1, made, loc, BRep_Tool::Tolerance(r.e));
+          else B.UpdateEdge(TopoDS::Edge(r.e.Oriented(TopAbs_FORWARD)), r.c1, r.c2, made, loc, BRep_Tool::Tolerance(r.e));
+          B.Range(r.e, made, loc, r.a, r.b);
+        }
+        split->Replace(piece, nf);
+      }
+      // The old surface's curves go with it.
+      for (auto &[piece, reps] : laid)
+        for (const Rep &r : reps) B.UpdateEdge(r.e, Handle(Geom2d_Curve)(), s, loc, t);
+      result = split->Apply(result);
+      steps.push_back(w3d_step(split->History()));
+      BRepLib::UpdateTolerances(result, false);
+    }
+    if (!w3d_is_valid(result)) throw std::runtime_error("the split face is not valid");
+    std::unique_ptr<W3dResult> r(new W3dResult());
+    r->shape = result;
+    w3d_record(*r, 0, shape, steps);
+    return r;
+  } catch (const Standard_Failure &f) {
+    throw w3d_kernel_error(f);
+  }
+}
+
 // Deform's face coordinates on face `face` of `shape`: (s, t, n), s and t the face's u and v scaled
 // to 0..1 over its bounds, n the distance along its outward normal.
 struct W3dFaceMap {

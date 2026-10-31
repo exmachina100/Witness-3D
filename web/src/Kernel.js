@@ -148,7 +148,7 @@ function listOf(list) {
 }
 
 /** What `s` became through one builder: nothing if deleted, its pieces if modified, else itself. */
-function successors(mk, s) {
+export function successors(mk, s) {
     if (mk.IsDeleted(s)) return [];
     const m = listOf(mk.Modified(s));
     return m.length ? m : [s];
@@ -175,7 +175,7 @@ function innerPoint(s) {
  * history). The coplanar-face merge that follows a boolean has no history in this build, so a
  * piece it merged away is found by the result face or edge it lies on.
  */
-function trace(inputs, result, step) {
+export function trace(inputs, result, step) {
     const o = oc();
     const history = { faces: [[], []], edges: [[], []], generatedFaces: [] };
     for (const [key, kind] of Object.entries(KINDS)) {

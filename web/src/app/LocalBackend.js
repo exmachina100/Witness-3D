@@ -17,6 +17,7 @@ import { faceUvn } from '../faceUvn.js';
 import { deformBodies, deformReblend } from '../deformBody.js';
 import { filletFaces, rechamfer, refilletFaces, removeFaces, turnFlatFace } from '../removeFace.js';
 import { moveFacePoles, subdivideFaces } from '../movePoles.js';
+import { isoparamSplit } from '../isoparamSplit.js';
 import { chordal, fullRound, limitRound, reshapeRounds } from '../filletShape.js';
 import { bridgeSurface } from '../BridgeSurface.js';
 import { sheetFillet, trimWalls } from '../sheetFillet.js';
@@ -768,6 +769,23 @@ export class LocalBackend {
     }
 
     previewImprint(req) { return this.latest(async () => this.body(req.body, this.imprintResult(req).shape)) }
+
+    /** Plasticity's Isoparam: face `face` of `body` split along u (`u`) or v at `params` (0 to 1), or through `point`. */
+    isoparamSplitResult({ body, face, u, point = [0, 0, 0], params = [], subdivide = false }) {
+        const s = this.shapes.get(body);
+        if (!s) throw new Error('that body no longer exists');
+        return isoparamSplit(s, face, !!u, point, params, !!subdivide);
+    }
+
+    previewIsoparamSplit(req) { return this.latest(async () => this.body(req.body, this.isoparamSplitResult(req).shape)) }
+
+    /** Isoparam's edges as one undo step. */
+    async commitIsoparamSplit(req) {
+        const { shape, history } = this.isoparamSplitResult(req);
+        this.checkpoint();
+        this.put(req.body, shape, history);
+        return { id: req.body, scene: this.bodies() };
+    }
 
     /** Plasticity's Reverse Sheet: the sheets turned to face the other way, as one undo step; refs kept. */
     async commitReverseSheets({ bodies }) {
