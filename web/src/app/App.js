@@ -100,6 +100,7 @@ import { Toolbar } from './Toolbar.js';
 import { arcballAbout, dragAngles, orbitAbout } from './orbit.js';
 import { poleMoves } from '../poleFalloff.js';
 import { planeFrom } from '../cplaneFrom.js';
+import { stepSources } from './sources.js';
 import { circleTangents, closestOnScreen, curvePointSnaps, intersections, perpendicularFeet, tangentPoints } from '../curveSnaps.js';
 import { PREF_FIELDS, changedPrefs, controlSettings, readPrefs, setPref, viewColors, wheelSpeed } from './prefs.js';
 import { arcPoints, circleThrough, curveFromNurbs, cvPoints, ellipsePoints, endTangent, helixPoints, loops, nurbsLoop, nurbsPoints, polygonCorners, spiralAngle, tangentArc } from '../curves.js';
@@ -2029,10 +2030,32 @@ export async function mount(root, backend) {
   // --- outliner and history -----------------------------------------------
   const history = [];   // committed steps, oldest first; `undone` counts how many from the end were undone
   let undone = 0;
+  // What was selected when the command now finishing began: its sources, for Ctrl+T.
+  let opSources = null, sourceAt = null, sourceSel = null;
+  const keepSources = () => { opSources = sel.list().map(it => ({ ...it })); };
   function record(text, id, tag = label(id)) {
-    history.splice(history.length - undone, undone, { text, id, tag });
+    history.splice(history.length - undone, undone, { text, id, tag, sources: opSources ?? [] });
     undone = 0;
+    sourceAt = null;
     renderHistory();
+  }
+  /**
+   * Ctrl+T: select what the last operation was made from (the selection its command began with,
+   * whatever of it still exists); again steps to the operation before, Ctrl+Shift+T forward.
+   */
+  function selectSources(dir) {
+    const live = history.length - undone;
+    const now = JSON.stringify(sel.list());
+    const i = stepSources(history, live, now === sourceSel ? sourceAt : null, dir);
+    if (i === null) return toast(dir < 0 ? 'NO EARLIER OPERATION WITH SOURCES' : 'NO LATER OPERATION WITH SOURCES');
+    sourceAt = i;
+    const there = history[i].sources.filter(it => it.kind === 'vertex' || it.kind === 'curve' || it.kind === 'region' ? !!curveById(it.id) : !!bodyOf(it.body));
+    sel.clear();
+    for (const it of there) sel.add(it);
+    selectionChanged({ quiet: true });
+    sourceSel = JSON.stringify(sel.list());
+    const gone = history[i].sources.length - there.length;
+    toast(`SOURCES OF ${history[i].text}${there.length ? ` · ${there.length} SELECTED` : ''}${gone ? ` · ${gone} NO LONGER THERE` : ''}`);
   }
   function renderOutliner() {
     const out = $('outliner');
@@ -3091,6 +3114,7 @@ export async function mount(root, backend) {
   async function startTool(id, opts = {}) {
     if (cmd && cmd.id === id && !cmd.auto) return;
     if (cmd) await finish();
+    keepSources();
     lastTool = id;
     if (id === 'fillet' && sel.size && sel.list().every(it => it.kind === 'vertex')) return startFilletVertex();
     if (id === 'fillet') return startFillet(opts);
@@ -10321,7 +10345,9 @@ export async function mount(root, backend) {
   /** Run a named action (keymap.js); returns false for names it doesn't know. */
   async function doAction(a) {
     const [kind, arg] = a.split(':');
+    if (!['select', 'view', 'plane', 'sources', 'undo', 'redo', 'app', 'radial'].includes(kind)) keepSources();
     switch (kind) {
+      case 'sources': selectSources(arg === 'forward' ? 1 : -1); return true;
       case 'view':
         if (arg === 'radial') openRadial(a.split(':')[2]);
         else if (arg === 'ortho') setOrtho(!camera.isOrthographicCamera);

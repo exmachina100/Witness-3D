@@ -68,7 +68,7 @@ export const VIEWPORT = {
     space: 'plane:selection', 'shift-space': 'plane:selection-keep-view', 'ctrl-space': 'plane:view', 'ctrl-shift-space': 'plane:view-at',
     // Files and history
     // P-Menu (manual: Plasticity Interface › P-Menu)
-    'ctrl-z': 'undo', 'ctrl-shift-z': 'redo', 'ctrl-n': 'file:new', 'ctrl-o': 'file:open', 'ctrl-s': 'file:save',
+    'ctrl-z': 'undo', 'ctrl-shift-z': 'redo', 'ctrl-t': 'sources:back', 'ctrl-shift-t': 'sources:forward', 'ctrl-n': 'file:new', 'ctrl-o': 'file:open', 'ctrl-s': 'file:save',
     'ctrl-shift-o': 'import:step', 'ctrl-shift-s': 'file:save-as', 'ctrl-shift-e': 'file:export', 'ctrl-q': 'app:quit', 'ctrl-,': 'app:preferences',
 };
 
@@ -199,7 +199,7 @@ export const ACTIONS = {
     'mode:point': 'Selection mode: points', 'mode:edge': 'Selection mode: edges', 'mode:face': 'Selection mode: faces',
     'mode:solid': 'Selection mode: solids', 'mode:all': 'Selection mode: all',
     'convert:edge': 'Convert selection to edges', 'convert:face': 'Convert selection to faces', 'convert:solid': 'Convert selection to solids',
-    'select:all': 'Select all', 'select:none': 'Deselect all', 'select:invert': 'Invert selection', 'select:solids': 'Select all solids', 'select:sheets': 'Select all sheets', 'select:measurements': 'Select all measurements', 'select:adjacent': 'Select adjacent',
+    'select:all': 'Select all', 'select:none': 'Deselect all', 'select:invert': 'Invert selection', 'select:solids': 'Select all solids', 'select:sheets': 'Select all sheets', 'select:measurements': 'Select all measurements', 'select:adjacent': 'Select adjacent', 'sources:back': 'Select sources of last operation', 'sources:forward': 'Select sources of next operation',
     'repeat': 'Repeat last command', 'ask': 'Ask for a command in words', 'delete': 'Delete', 'duplicate': 'Duplicate', 'alt-duplicate': 'Alternative duplicate onto the plane', 'create-outline': 'Create outline', 'toggle-points': 'Toggle points',
     'hide': 'Hide selected', 'hide-others': 'Hide unselected', 'unhide-all': 'Unhide all', 'invert-hidden': 'Invert hidden',
     'isolate': 'Isolate selected', 'unisolate': 'Unisolate', 'group': 'Group selected', 'ungroup': 'Ungroup',
