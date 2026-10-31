@@ -133,3 +133,24 @@ export function circleTangents(center, r, normal, from) {
   const c = r / L, s = Math.sqrt(1 - c * c);
   return [1, -1].map(k => ({ point: [0, 1, 2].map(i => center[i] + r * (c * u[i] + k * s * w[i])), kind: 'TANGENT' }));
 }
+
+/**
+ * Tan/Tan: the lines touching both circles (centre, radius, in the plane with `normal`), as pairs
+ * { a, b } of the touching points on the first and second circle: up to two outer and two crossing.
+ */
+export function commonTangents(c1, r1, c2, r2, normal) {
+    const d = sub(c2, c1), h = dot(d, normal), p = sub(d, [normal[0] * h, normal[1] * h, normal[2] * h]);
+    const L = Math.hypot(...p);
+    if (L < 1e-9) return [];
+    const u = p.map(v => v / L), w = cross(normal, u), out = [];
+    const at = (c, r, m) => [0, 1, 2].map(i => c[i] + r * m[i]);
+    for (const [k, sign2] of [[(r1 - r2) / L, 1], [(r1 + r2) / L, -1]]) {
+        if (Math.abs(k) > 1 + 1e-12) continue;
+        const s = Math.sqrt(Math.max(0, 1 - k * k));
+        for (const side of s < 1e-12 ? [1] : [1, -1]) {
+            const m = [0, 1, 2].map(i => u[i] * k + side * w[i] * s);
+            out.push({ a: at(c1, r1, m), b: at(c2, sign2 * r2, m) });
+        }
+    }
+    return out;
+}

@@ -47,3 +47,18 @@ test('closest point uses the screen positions', () => {
   const c = closestOnScreen(pts, screen, { x: 30, y: 4 });
   near(c.point, [3, 0, 0]); assert.equal(c.d, 4);
 });
+
+test('Tan/Tan: the lines touching two circles touch both, square to the radius at each end', async () => {
+    const { commonTangents } = await import('../src/curveSnaps.js');
+    const n = [0, 0, 1], c1 = [0, 0, 0], c2 = [10, 0, 0];
+    const ts = commonTangents(c1, 2, c2, 1, n);
+    assert.equal(ts.length, 4);
+    for (const { a, b } of ts) {
+        const d = [b[0] - a[0], b[1] - a[1], b[2] - a[2]];
+        assert.ok(Math.abs(Math.hypot(a[0], a[1]) - 2) < 1e-9);
+        assert.ok(Math.abs(Math.hypot(b[0] - 10, b[1]) - 1) < 1e-9);
+        assert.ok(Math.abs(a[0] * d[0] + a[1] * d[1]) < 1e-9);
+        assert.ok(Math.abs((b[0] - 10) * d[0] + b[1] * d[1]) < 1e-9);
+    }
+    assert.equal(commonTangents(c1, 2, [1, 0, 0], 0.5, n).length, 0);   // one inside the other
+});

@@ -13,6 +13,7 @@ export const SNAP_KINDS = [
     { id: 'closest', label: 'CLOSEST', names: ['ON CURVE'] },
     { id: 'perpendicular', label: 'PERPENDICULAR', names: ['PERPENDICULAR'] },
     { id: 'tangent', label: 'TANGENT', names: ['TANGENT'] },
+    { id: 'tantan', label: 'TAN/TAN', names: ['TAN/TAN'] },
     { id: 'planes', label: 'YZ · XZ', names: ['YZ', 'XZ'] },
     { id: 'section', label: 'SECTION', names: ['SECTION'] },
 ];
