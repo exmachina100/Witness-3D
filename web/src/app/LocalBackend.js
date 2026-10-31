@@ -289,10 +289,15 @@ export class LocalBackend {
         if (!tool) return null;
         const o = oc();
         if (!new o.BRepCheck_Analyzer(tool, true, false, false).IsValid() || count(tool, 'TopAbs_SOLID') === 0) throw new Error('the shape crosses itself; change the axis, path or profiles');
-        const kind = { union: 'union', difference: 'difference', intersect: 'intersection' }[req.op];
+        const kind = { union: 'union', difference: 'difference', intersect: 'intersection', slice: 'difference' }[req.op];
         if (!kind || !this.shapes.has(req.target)) return { tool, outcome: 'new' };
         const body = this.shapes.get(req.target);
         const r = booleanWithHistory(body, tool, kind);
+        // Shift+Q: the body cut where the shape goes, and the piece inside it a body of its own.
+        if (req.op === 'slice') {
+            if (!(r.history.faces[1].length > 0 || count(r.shape, 'TopAbs_FACE') !== count(body, 'TopAbs_FACE'))) throw new Error('the shape does not meet the body');
+            return { tool, result: r, piece: booleanWithHistory(body, tool, 'intersection').shape, outcome: 'slice' };
+        }
         const met = kind === 'union' ? count(r.shape, 'TopAbs_SOLID') === count(body, 'TopAbs_SOLID')
             : kind === 'difference' ? r.history.faces[1].length > 0 || count(r.shape, 'TopAbs_FACE') !== count(body, 'TopAbs_FACE')
             : count(r.shape, 'TopAbs_FACE') > 0;
@@ -312,7 +317,13 @@ export class LocalBackend {
         const f = this.form(req);
         if (!f) throw new Error('nothing to do');
         this.checkpoint();
-        if (f.result) { this.put(req.target, f.result.shape, f.result.history); return { id: req.target, scene: this.bodies() }; }
+        if (f.result) {
+            this.put(req.target, f.result.shape, f.result.history);
+            if (f.piece) this.put(this.nextId++, f.piece);
+            // T: the new shape stays as a body of its own too.
+            if (req.keep) this.put(this.nextId++, f.tool);
+            return { id: req.target, scene: this.bodies() };
+        }
         const id = this.nextId++;
         this.put(id, f.tool);
         return { id, scene: this.bodies() };

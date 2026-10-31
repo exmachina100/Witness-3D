@@ -527,3 +527,21 @@ fn offset_face_on_a_chamfer_sets_its_distance() {
     assert_eq!(k.face_count(&deeper), 7);
     close(volume(&k, &deeper), 80.0 * 50.0 * 30.0 - 80.0 * 12.0 * 12.0 / 2.0, 0.5);
 }
+
+#[test]
+fn a_sweep_slices_the_body_and_keeps_its_shape_when_asked() {
+    let mut doc = Document::new(Occt);
+    let a = doc.add(enclosure(&doc.kernel));
+    // A 10 × 10 square 10 below the top, swept 20 up: the lower half lies inside the body.
+    let sq = Curve { origin: [0.0, 20.0, 0.0], x: [1.0, 0.0, 0.0], normal: [0.0, 1.0, 0.0], shape: CurveShape::Polyline { points: vec![[-5.0, -5.0], [5.0, -5.0], [5.0, 5.0], [-5.0, 5.0]], closed: true } };
+    let up = Curve { origin: [0.0, 20.0, 0.0], x: [1.0, 0.0, 0.0], normal: [0.0, 0.0, 1.0], shape: CurveShape::Polyline { points: vec![[0.0, 0.0], [0.0, 20.0]], closed: false } };
+    let ids = doc.commit_curves(vec![sq, up]).unwrap();
+    doc.clear_history();
+    let p = doc.form_params(&ids[..1], FormRequest::Sweep { path: ids[1], twist: 0.0, scale: 1.0 }, Operation::Slice).unwrap();
+    assert_eq!(doc.commit_form_keeping(Some(a), &p, true).unwrap(), a);
+    let mut vols: Vec<i64> = doc.ids().iter().map(|id| doc.kernel.tessellate(doc.get(*id).unwrap(), 0.001).unwrap().volume().round() as i64).collect();
+    vols.sort();
+    assert_eq!(vols, vec![1000, 2000, 119_000], "the piece inside, the kept sweep, the cut body");
+    assert!(doc.undo());
+    assert_eq!(doc.ids().len(), 1, "one undo step");
+}

@@ -324,9 +324,12 @@ pub struct FormRequest {
     pub twist: f64,
     #[serde(default = "one")]
     pub scale: f64,
-    /// New body unless Q, W or Shift+E asks for a boolean.
+    /// New body unless Q, W, Shift+E or Shift+Q asks for a boolean.
     #[serde(default = "new_op")]
     pub op: OpChoice,
+    /// T: after a boolean, keep the new shape as a body of its own too.
+    #[serde(default, alias = "keepTools")]
+    pub keep: bool,
     /// Loft and Sweep: guide curves the sides run along.
     #[serde(default)]
     pub guides: Vec<GuideRef>,
@@ -430,7 +433,7 @@ pub fn commit_form(m: &Model, req: FormRequest) -> Result<Committed, ApiError> {
     m.call(move |doc| {
         let p = req.params(doc)?;
         let target = req.target.filter(|_| p.operation != Operation::NewBody);
-        let id = doc.commit_form(target, &p)?;
+        let id = doc.commit_form_keeping(target, &p, req.keep)?;
         Ok(Committed { id, scene: bodies(doc)? })
     })
 }
