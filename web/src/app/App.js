@@ -9761,8 +9761,18 @@ export async function mount(root, backend) {
       case 'select':
         if (arg === 'none') { if (cmd) abort(); sel.clear(); }
         else if (arg === 'all') sel.selectAll(current.filter(b => org.picks(b.id)));
+        // Plasticity's Select All Solids / Sheets / Measurements: every visible one, in groups too.
+        else if (arg === 'solids' || arg === 'sheets') {
+          sel.clear();
+          for (const b of current) if (org.picks(b.id) && !!b.sheet === (arg === 'sheets')) sel.add({ kind: 'solid', body: b.id });
+          if (!sel.size) toast(`NO ${arg.toUpperCase()} TO SELECT`);
+        } else if (arg === 'measurements') {
+          sel.clear();
+          for (const c of surfaceCombs) if (!c.hidden && org.shows(c.body)) sel.add(c.face === undefined ? { kind: 'edge', body: c.body, n: c.n } : { kind: 'face', body: c.body, n: c.face });
+          if (!sel.size) toast('NO MEASUREMENTS TO SELECT');
+        }
         else sel.invert(current.filter(b => org.picks(b.id)));
-        selectionChanged({ quiet: arg !== 'all' && arg !== 'invert' });
+        selectionChanged({ quiet: !['all', 'invert', 'solids', 'sheets', 'measurements'].includes(arg) });
         return true;
       case 'tool': case 'draw': await startTool(arg); return true;
       case 'plane':
