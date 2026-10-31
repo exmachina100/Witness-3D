@@ -114,7 +114,7 @@ const KEYS = {
   offset: [['DRAG DOT', 'DISTANCE'], ['D', 'DISTANCE'], ['A', 'ANGLE ADJACENT'], ['TAB', 'GROW MODE'], ['⇧ CLICK', 'FACES'], ['ALT+CLICK', 'A FACE TO MATCH'], ['⏎ / RMB', 'OK']],
   revolve: [['CLICK', 'AXIS START · END'], ['A', 'ANGLE'], ['⇧T', 'THICKNESS'], ['Q', 'UNION'], ['W', 'DIFFERENCE'], ['⇧E', 'INTERSECT'], ['B', 'NEW BODY'], ['⏎ / RMB', 'OK']],
   loft: [['CLICK', 'GUIDES (OPTIONAL)'], ['⏎ / RMB', 'OK'], ['ESC', 'CANCEL']],
-  'loft-sheet': [['CLICK', 'ADD / REMOVE A CURVE OR EDGE'], ['O', 'LOOP'], ['L', 'LIMIT POINT'], ['⏎ / RMB', 'OK'], ['ESC', 'CANCEL']],
+  'loft-sheet': [['CLICK', 'ADD / REMOVE A CURVE OR EDGE'], ['O', 'LOOP'], ['L', 'LIMIT POINT'], ['TAB', 'CONTINUITY (TWO EDGES)'], ['D', 'TENSION'], ['⏎ / RMB', 'OK'], ['ESC', 'CANCEL']],
   sweep: [['CLICK', 'PATH · THEN A GUIDE'], ['M', 'GUIDE METHOD'], ['N', 'ALIGNMENT'], ['D', 'TWIST'], ['Q', 'UNION'], ['W', 'DIFFERENCE'], ['⇧E', 'INTERSECT'], ['B', 'NEW BODY'], ['⏎ / RMB', 'OK']],
   rect: [['CLICK', 'CORNERS'], ['S', 'SQUARE'], ['C', 'FROM CENTRE'], ['TAB', 'TYPE SIZE'], ['ALT', 'NO SNAP'], ['ESC', 'CANCEL']],
   circle: [['CLICK', 'CENTRE · RADIUS'], ['V', 'VERTICAL'], ['TAB', 'TYPE DIAMETER'], ['ALT', 'NO SNAP'], ['ESC', 'CANCEL']],
@@ -878,6 +878,11 @@ const SHELL = `
       <span class="hint" data-id="ls-hint">—</span>
       <div class="field"><label>CURVES</label><output data-id="ls-count">0</output></div>
       <div class="field"><label>LIMIT POINTS</label><output data-id="ls-limits">0</output></div>
+      <div data-id="ls-edges-row" hidden>
+        <span class="label">CONTINUITY · TWO EDGES</span>
+        <div class="seg" role="group" aria-label="Continuity (Tab cycles)"><button data-lscont="G0" aria-pressed="true" title="Meet the edges only">G0</button><button data-lscont="G1" aria-pressed="false" title="Leave both faces tangent">G1</button><button data-lscont="G2" aria-pressed="false" title="Match both faces' curvature too">G2</button></div>
+        <div class="field"><label for="w3d-ls-t">TENSION</label><input id="w3d-ls-t" data-id="ls-t" type="number" step="0.1" min="0.05" value="1" title="How far the sheet carries on from each face before it turns (D); 1 is a smooth cubic"></div>
+      </div>
       <div class="chips"><button data-id="ls-loop" aria-pressed="false" title="Run the sheet on from the last curve back to the first (three curves or more)"><kbd>O</kbd>LOOP</button><button data-id="ls-limit" aria-pressed="false" title="Click a profile curve to set where the loft stops (up to two on each); click a point again to reverse it"><kbd>L</kbd>LIMIT POINT</button><button data-id="ls-simplify" aria-pressed="true" title="Simplify: parts of the loft that lie flat become trimmed planes rather than lofted surfaces">SIMPLIFY</button></div>
     </div>
     <div class="sec" data-panel="move" hidden>
@@ -5335,19 +5340,13 @@ export async function mount(root, backend) {
   }
 
   /**
-   * Plasticity's Square: a four-sided B-spline sheet on the selected curves and body edges (four
-   * meeting end to end, or two to loft between), with its degree and spans set. Shift+click adds or
-   * takes off sides while it runs. The fill is square.js; OK or right-click makes the sheet.
+   * Square's sides as model-space polylines (curves sampled, body edges read through 200 points),
+   * and an edge side's way out of its face, normals and curvatures for G1 and G2 (withOut). `c`
+   * keeps what has been read in its `edges` and `faces` maps. Shared by Square and Loft's Two Edges.
    */
-  async function startSquare({ xnurbs = false } = {}) {
-    if (cmd) await finish();
-    if (!backend.previewSplineSheet || !backend.edgeCurvature) return toast(`${xnurbs ? 'XNURBS' : 'SQUARE'} IS NOT IN THIS BUILD YET`);
-    const c = cmd = { id: 'square', xnurbs, quad: xnurbs, quality: 'auto', data: null, sent: 0, shown: 0, edges: new Map(), faces: new Map(), continuity: 'G0' };
-    $('sq-xrow').hidden = $('sq-qrow').hidden = !xnurbs;
-    lastTool = 'square';
-    showTool('square');
-    if (xnurbs) { $('tool-name').textContent = 'XNURBS'; $('status-tool').textContent = 'XNURBS'; }
-    setState('none');
+  function edgeSideReader(c) {
+    c.edges ??= new Map();
+    c.faces ??= new Map();
     // Each side as a polyline in model space.
     const sideOf = async it => {
       if (it.kind === 'curve') {
@@ -5404,6 +5403,24 @@ export async function mount(root, backend) {
       side.kappa = spread(best.kappas);
       return side;
     };
+    return { sideOf, withOut };
+  }
+
+  /**
+   * Plasticity's Square: a four-sided B-spline sheet on the selected curves and body edges (four
+   * meeting end to end, or two to loft between), with its degree and spans set. Shift+click adds or
+   * takes off sides while it runs. The fill is square.js; OK or right-click makes the sheet.
+   */
+  async function startSquare({ xnurbs = false } = {}) {
+    if (cmd) await finish();
+    if (!backend.previewSplineSheet || !backend.edgeCurvature) return toast(`${xnurbs ? 'XNURBS' : 'SQUARE'} IS NOT IN THIS BUILD YET`);
+    const c = cmd = { id: 'square', xnurbs, quad: xnurbs, quality: 'auto', data: null, sent: 0, shown: 0, edges: new Map(), faces: new Map(), continuity: 'G0' };
+    $('sq-xrow').hidden = $('sq-qrow').hidden = !xnurbs;
+    lastTool = 'square';
+    showTool('square');
+    if (xnurbs) { $('tool-name').textContent = 'XNURBS'; $('status-tool').textContent = 'XNURBS'; }
+    setState('none');
+    const { sideOf, withOut } = edgeSideReader(c);
     const picked = () => [...sel.curves.map(id => ({ kind: 'curve', id })), ...sel.list('edge').map(e => ({ kind: 'edge', body: e.body, n: e.n }))];
     c.preview = async () => {
       const items = picked();
@@ -9454,7 +9471,8 @@ export async function mount(root, backend) {
    */
   function startLoftSheet(curves) {
     if (!backend.previewLoftSheet) return toast('LOFT OF CURVES IS NOT IN THIS BUILD YET');
-    const c = cmd = { id: 'loft', sheet: true, curves, loop: false, simplify: true, sent: 0, shown: 0 };
+    const c = cmd = { id: 'loft', sheet: true, curves, loop: false, simplify: true, cont: 'G0', data: null, sent: 0, shown: 0 };
+    $('ls-t').value = '1';
     lastTool = 'loft';
     showTool('loft');
     $$('[data-panel="form"]')[0].hidden = true;
@@ -9494,19 +9512,44 @@ export async function mount(root, backend) {
     };
     const request = async () => ({ curves: await Promise.all(c.curves.map(profile)), loop: c.loop, simplify: c.simplify });
     const text = () => `${c.curves.map(p => typeof p === 'object' ? `${label(p.body)} EDGE ${p.n + 1}` : curveLabel(p)).join(' → ')}${c.loop ? ' → BACK TO THE FIRST' : ''}`;
+    // Two Edges: two body edges alone (no loop, no limit points) take a continuity, G0 to G2, and a
+    // tension. G1 and G2 leave each face as Square's two-sided fill does (square.js with each edge's
+    // way out of its face, normals and curvatures); G0 is the plain loft.
+    const twoEdges = () => !c.loop && c.curves.length === 2 && c.curves.every(p => typeof p === 'object') && backend.previewSplineSheet && backend.edgeFaces;
+    const smooth = () => twoEdges() && c.cont !== 'G0';
+    const reader = edgeSideReader(c.sides = c.sides ?? {});
+    const fitEdges = async () => {
+      const items = c.curves.map(p => ({ kind: 'edge', body: p.body, n: p.n }));
+      const sides = await Promise.all(items.map(reader.sideOf));
+      const all = sides.flat(), centre = [0, 1, 2].map(k => all.reduce((t, p) => t + p[k], 0) / all.length);
+      const faced = await Promise.all(sides.map((pts, i) => reader.withOut(items[i], pts, centre)));
+      const tension = num('ls-t');
+      if (!(tension > 0)) throw new Error('the tension must be greater than zero');
+      return square(faced, { degree: 3, continuity: c.cont, tension });
+    };
     c.preview = () => livePreview(c, async () => {
+      if (smooth()) {
+        const fit = await fitEdges();
+        if (cmd !== c) return null;
+        c.data = splineSheetData(fit);
+        const b = await backend.previewSplineSheet({ data: c.data });
+        return b ? [b] : null;
+      }
+      c.data = null;
       const b = await backend.previewLoftSheet(await request());
       return b ? [b] : null;
     }, list => {
       for (const b of list) showPreviewBody(b, phantom.add.face, phantom.add.edge).renderOrder = 5;
-      $('ls-hint').textContent = text();
-      setHud(`LOFT · SHEET${c.loop ? ' · LOOP' : ''}`);
+      $('ls-hint').textContent = text() + (smooth() ? ` · ${c.cont} · TENSION ${num('ls-t')}` : '');
+      setHud(`LOFT · SHEET${c.loop ? ' · LOOP' : ''}${smooth() ? ` · ${c.cont}` : ''}`);
     }, 'ls-hint');
     const refresh = () => {
       $('ls-count').textContent = c.curves.length;
       $('ls-loop').setAttribute('aria-pressed', String(c.loop));
       $('ls-loop').disabled = c.curves.length < 3;
       $('ls-simplify').setAttribute('aria-pressed', String(c.simplify));
+      $('ls-edges-row').hidden = !twoEdges();
+      for (const b of $$('[data-lscont]')) b.setAttribute('aria-pressed', String(b.dataset.lscont === c.cont));
       if (c.curves.length < 2) { clearPreview(); $('ls-hint').textContent = 'SELECT TWO CURVES OR MORE, IN ORDER'; return setState('none'); }
       c.preview();
     };
@@ -9521,8 +9564,16 @@ export async function mount(root, backend) {
       showLimits();
       refresh();
     };
+    c.refresh = () => refresh();
+    c.setCont = g => { c.cont = g; refresh(); };
     c.key = action => {
       if (action === 'simplify') { c.simplify = !c.simplify; refresh(); return true; }
+      if (action === 'continuity') {
+        if (!twoEdges()) return toast('CONTINUITY IS FOR TWO EDGES'), true;
+        c.setCont({ G0: 'G1', G1: 'G2', G2: 'G0' }[c.cont]);
+        return true;
+      }
+      if (action === 'tension') { $('ls-t').focus(); $('ls-t').select(); return true; }
       if (action === 'limit') {
         c.picking = !c.picking;
         showLimits();
@@ -9560,7 +9611,9 @@ export async function mount(root, backend) {
     c.finish = async () => {
       if (c.curves.length < 2) { setState('failed'); return toast('SELECT TWO CURVES OR MORE, IN ORDER, TO LOFT'); }
       try {
-        const { id, scene } = await backend.commitLoftSheet(await request());
+        const { id, scene } = smooth()
+          ? await (async () => { const { ids, scene } = await backend.commitSplineSheet({ data: c.data ?? splineSheetData(await fitEdges()) }); return { id: ids[0], scene }; })()
+          : await backend.commitLoftSheet(await request());
         record(`LOFT ×${c.curves.length}${c.loop ? ' LOOP' : ''}`, id);
         endCmd('committed');
         await showScene(scene);
@@ -10777,6 +10830,8 @@ export async function mount(root, backend) {
   $('ls-loop').onclick = () => cmd?.key?.('loop');
   $('ls-limit').onclick = () => cmd?.key?.('limit');
   $('ls-simplify').onclick = () => cmd?.key?.('simplify');
+  for (const b of $$('[data-lscont]')) b.onclick = () => cmd?.id === 'loft' && cmd.sheet && cmd.setCont(b.dataset.lscont);
+  $('ls-t').oninput = () => cmd?.id === 'loft' && cmd.sheet && cmd.refresh();
   for (const b of $$('[data-btmat]')) b.onclick = () => { if (cmd?.id === 'boolean') { cmd.targetMaterial = b.dataset.btmat; previewBooleanCmd(); } };
   for (const b of $$('[data-bumat]')) b.onclick = () => { if (cmd?.id === 'boolean') { cmd.toolMaterial = b.dataset.bumat; previewBooleanCmd(); } };
   for (const id of ['hole-d', 'hole-depth']) $(id).addEventListener('input', () => cmd?.id === 'hole' && cmd.preview());
