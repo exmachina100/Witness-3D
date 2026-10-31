@@ -166,6 +166,10 @@ button:focus-visible, input:focus-visible { outline: 1px solid var(--accent); ou
 .status .spacer { flex: 1; }
 .status output { font-variant-numeric: tabular-nums; }
 
+.w3d.no-left { grid-template-columns: 0 minmax(0, 1fr) 264px; }
+.w3d.no-right { grid-template-columns: 220px minmax(0, 1fr) 0; }
+.w3d.no-left.no-right { grid-template-columns: 0 minmax(0, 1fr) 0; }
+.w3d.no-left .left, .w3d.no-right .right { display: none; }
 @media (max-width: 900px) {
   .w3d { grid-template-columns: 0 minmax(0, 1fr) 236px; }
   .left, .brand { display: none; }

@@ -2276,3 +2276,18 @@ export function alignCurveEnd(t, endT, r, endR, { continuity = 'G1', at = endR, 
     ids.forEach((i, k) => { poles[i] = [out[k][0], out[k][1], 0]; });
     return withShape(t, { kind: 'nurbs', degree: p, poles, weights: [...n.weights], knots: [...n.knots] });
 }
+
+/**
+ * Plasticity's Delete on control points: the curve without vertices `ns` (a polyline's corners, the
+ * points a spline or control-point curve was drawn through). Throws when too few would be left, or
+ * for curves whose points can't simply go (arcs, contours, NURBS curves, circles).
+ */
+export function deleteVertices(c, ns) {
+    if (!['polyline', 'spline', 'cv'].includes(c.kind)) throw new Error('DELETE POINTS WORKS ON POLYLINES, SPLINES AND CONTROL POINT CURVES');
+    const drop = new Set(ns);
+    const points = c.points.filter((_, n) => !drop.has(n)).map(p => [...p]);
+    const need = c.closed ? 3 : 2;
+    if (points.length < need) throw new Error(`A ${c.closed ? 'CLOSED ' : ''}CURVE NEEDS ${need} POINTS; DELETE THE CURVE INSTEAD`);
+    const { samples: _, ...rest } = c;
+    return { ...rest, points };
+}

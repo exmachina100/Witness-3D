@@ -217,3 +217,14 @@ test('curvature: a circle is 1/r everywhere, a line 0; continuity grades a joint
     // Straight on: G2 (both curvatures 0).
     assert.equal(continuity(line([0, 0], [10, 0]), 1, line([10, 0], [20, 0]), 0).continuity, 'G2');
 });
+
+test('deleteVertices drops points and keeps enough', async () => {
+    const { deleteVertices } = await import('../src/curveEdit.js');
+    const c = { kind: 'polyline', origin: [0, 0, 0], normal: [0, 0, 1], x: [1, 0, 0], points: [[0, 0], [1, 0], [2, 1], [3, 0]], closed: false };
+    assert.deepEqual(deleteVertices(c, [1]).points, [[0, 0], [2, 1], [3, 0]]);
+    assert.throws(() => deleteVertices(c, [0, 1, 2]), /NEEDS 2/);
+    assert.throws(() => deleteVertices({ ...c, closed: true }, [0, 1]), /NEEDS 3/);
+    const s = deleteVertices({ kind: 'spline', points: [[0, 0], [1, 1], [2, 0]], samples: [[0, 0]], closed: false }, [1]);
+    assert.equal(s.samples, undefined);
+    assert.throws(() => deleteVertices({ kind: 'arc' }, [0]), /POLYLINES/);
+});
