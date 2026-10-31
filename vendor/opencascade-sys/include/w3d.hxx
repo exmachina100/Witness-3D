@@ -1887,8 +1887,32 @@ inline std::unique_ptr<W3dResult> w3d_shell(const TopoDS_Shape &shape, rust::Sli
                                             double thickness) {
   TopTools_IndexedMapOfShape map;
   TopExp::MapShapes(shape, TopAbs_FACE, map);
-  if (faces.empty()) throw std::runtime_error("select the faces to open");
   if (!(thickness > 0.0) || !std::isfinite(thickness)) throw std::runtime_error("the wall thickness must be greater than zero");
+  if (faces.empty()) {
+    // No face open (a whole solid): hollow it round a closed void, the body offset inward and cut out.
+    TopTools_ListOfShape none;
+    BRepOffsetAPI_MakeThickSolid in;
+    try {
+      in.MakeThickSolidByJoin(shape, none, -thickness, 1e-6, BRepOffset_Skin, Standard_False, Standard_False,
+                              GeomAbs_Intersection, Standard_False);
+    } catch (const Standard_Failure &) {}
+    if (!in.IsDone() || in.Shape().IsNull()) throw std::runtime_error("the walls can't be that thick here; try a thinner shell");
+    GProp_GProps g0, g1;
+    BRepGProp::VolumeProperties(shape, g0);
+    BRepGProp::VolumeProperties(in.Shape(), g1);
+    // Too thick, the offset turns inside out: its faces then stand nearer the skin than the thickness.
+    auto skin = [](const TopoDS_Shape &s) { TopExp_Explorer e(s, TopAbs_SHELL); return e.More() ? e.Current() : s; };
+    BRepExtrema_DistShapeShape gap(skin(shape), skin(in.Shape()));
+    if (!(g1.Mass() > 1e-9 && g1.Mass() < g0.Mass() - 1e-9) || !gap.IsDone() || std::abs(gap.Value() - thickness) > 1e-4 * (1.0 + thickness))
+      throw std::runtime_error("the walls can't be that thick here; try a thinner shell");
+    BRepAlgoAPI_Cut cut(shape, in.Shape());
+    if (!cut.IsDone()) throw std::runtime_error("the walls can't be that thick here; try a thinner shell");
+    std::unique_ptr<W3dResult> r(new W3dResult());
+    r->shape = cut.Shape();
+    if (!w3d_is_valid(r->shape)) throw std::runtime_error("a shell that thick breaks the body; try a thinner one");
+    w3d_record(*r, 0, shape, {w3d_step(cut)});
+    return r;
+  }
   TopTools_ListOfShape closing;
   for (int32_t f : faces) {
     if (f < 0 || f >= map.Extent()) throw std::out_of_range("no such face");

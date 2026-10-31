@@ -597,9 +597,9 @@ export function primitive(p) {
  */
 export function shellFaces(shape, faces, thickness) {
     const o = oc();
-    if (!faces?.length) throw new Error('select the faces to open');
     if (!Number.isFinite(thickness)) throw new Error('the thickness is not a number');
     if (!(thickness > SMALL)) throw new Error('the wall thickness must be greater than zero');
+    if (!faces?.length) return hollow(shape, thickness);
     const all = numbered(shape, 'TopAbs_FACE');
     const ids = [...new Set(faces)];
     if (ids.some(i => !Number.isInteger(i) || !all[i])) throw new Error('a face in the selection is not on this body; select the faces again');
@@ -622,6 +622,29 @@ export function shellFaces(shape, faces, thickness) {
     const result = mk.Shape();
     if (!new o.BRepCheck_Analyzer(result, true, false, false).IsValid() || count(result, 'TopAbs_SOLID') !== count(shape, 'TopAbs_SOLID')) throw new Error('a shell that thick breaks the body; try a thinner one');
     return { shape: result, history: trace([shape], result, s => successors(mk, s)) };
+}
+
+/**
+ * Shell with no face open (a whole solid): hollow round a closed void, walls `thickness` thick all
+ * round; the body offset inward is cut out of it. Returns { shape, history }.
+ */
+function hollow(shape, thickness) {
+    const o = oc();
+    if (count(shape, 'TopAbs_SOLID') === 0) throw new Error('a sheet has no inside to hollow; thicken it first');
+    const thick = new Error("the walls can't be that thick here; try a thinner shell");
+    const m = new o.BRepOffsetAPI_MakeThickSolid();
+    try {
+        m.MakeThickSolidByJoin(shape, new o.NCollection_List_TopoDS_Shape(), -thickness, 1e-6, o.BRepOffset_Mode.BRepOffset_Skin, false, false, o.GeomAbs_JoinType.GeomAbs_Intersection, false, new o.Message_ProgressRange());
+    } catch { throw thick; }
+    if (!m.IsDone() || m.Shape().IsNull()) throw thick;
+    const inner = m.Shape(), v0 = volume(shape), v1 = volume(inner);
+    // Too thick, the offset turns inside out: its skin then stands nearer the body's than the thickness.
+    const skin = s => { const e = new o.TopExp_Explorer(s, o.TopAbs_ShapeEnum.TopAbs_SHELL, o.TopAbs_ShapeEnum.TopAbs_SHAPE); return e.More() ? e.Current() : s; };
+    const gap = new o.BRepExtrema_DistShapeShape(skin(shape), skin(inner));
+    if (!(v1 > SMALL && v1 < v0 - SMALL) || !gap.IsDone() || Math.abs(gap.Value() - thickness) > 1e-4 * (1 + thickness)) throw thick;
+    const r = booleanWithHistory(shape, inner, 'difference');
+    if (!new o.BRepCheck_Analyzer(r.shape, true, false, false).IsValid()) throw new Error('a shell that thick breaks the body; try a thinner one');
+    return r;
 }
 
 /** A copy of `shape` reflected in the plane through `origin` with normal `normal`. */

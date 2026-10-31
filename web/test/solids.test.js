@@ -45,8 +45,16 @@ test('shell hollows a cube to the right wall thickness and traces the outer face
     assert.ok(history.faces[0].length >= 5, 'the five closed outer faces keep where they came from');
 });
 
+test('shell with no face open hollows the whole solid round a closed void', () => {
+    const { shape } = shellFaces(cube(), [], 1);
+    close(volume(shape), 1000 - 512);
+    assert.equal(count(shape, 'TopAbs_SOLID'), 1);
+    assert.equal(count(shape, 'TopAbs_SHELL'), 2, 'the skin and the void');
+    assert.equal(count(shape, 'TopAbs_FACE'), 12);
+});
+
 test('shell refuses impossible requests', () => {
-    assert.throws(() => shellFaces(cube(), [], 1), /faces to open/);
+    assert.throws(() => shellFaces(cube(), [], 6), /thinner/);
     assert.throws(() => shellFaces(cube(), [0], 0), /greater than zero/);
     assert.throws(() => shellFaces(cube(), [0], 6), /thinner/);
     assert.throws(() => shellFaces(cube(), [9], 1), /not on this body/);

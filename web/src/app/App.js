@@ -9763,8 +9763,10 @@ export async function mount(root, backend) {
   }
 
   function startShell() {
-    const body = faceBody();
-    if (body === null) return toast(sel.list('face').length ? 'SHELL THE FACES OF ONE SOLID AT A TIME' : 'SELECT THE FACES TO LEAVE OPEN');
+    // Faces picked: those are left open. A whole solid picked, no faces: it is hollowed round a closed void.
+    const whole = () => sel.list('face').length ? null : sel.solids.filter(id => org.shows(id) && !bodyOf(id)?.sheet);
+    const body = faceBody() ?? (whole()?.length === 1 ? whole()[0] : null);
+    if (body === null) return toast(sel.list('face').length ? 'SHELL THE FACES OF ONE SOLID AT A TIME' : 'SELECT THE FACES TO LEAVE OPEN, OR ONE SOLID TO HOLLOW');
     if (!backend.previewShell) return toast('SHELL IS NOT IN THIS BUILD YET');
     const c = cmd = { id: 'shell', body, faces: [], sent: 0, shown: 0 };
     lastTool = 'shell';
@@ -9774,13 +9776,13 @@ export async function mount(root, backend) {
     c.preview = () => livePreview(c, () => backend.previewShell(c.request()), b => { showPreviewBody(b); setHud(`SHELL ${num('shell-t')} MM`); }, 'shell-hint');
     c.onSelection = () => {
       drawOverlays();
-      const b = faceBody();
-      if (b === null) return setHud('SELECT FACES TO OPEN');
+      const b = faceBody() ?? (whole()?.length === 1 ? whole()[0] : null);
+      if (b === null) return setHud('SELECT FACES TO OPEN, OR ONE SOLID TO HOLLOW');
       c.body = b;
       c.faces = sel.list('face').map(it => it.n).sort((x, y) => x - y);
       setTarget(label(b));
       $('shell-count').textContent = c.faces.length;
-      $('shell-hint').textContent = `${c.faces.length} FACE${c.faces.length > 1 ? 'S' : ''} OPEN ON ${label(b)}`;
+      $('shell-hint').textContent = c.faces.length ? `${c.faces.length} FACE${c.faces.length > 1 ? 'S' : ''} OPEN ON ${label(b)}` : `${label(b)} HOLLOW, CLOSED ALL ROUND`;
       c.preview();
     };
     c.key = action => {
@@ -9800,7 +9802,7 @@ export async function mount(root, backend) {
       try {
         const { id, scene: list } = await backend.commitShell(c.request());
         endCmd('committed');
-        record(`SHELL ${num('shell-t')} MM ×${c.faces.length}`, id);
+        record(c.faces.length ? `SHELL ${num('shell-t')} MM ×${c.faces.length}` : `SHELL ${num('shell-t')} MM · HOLLOW`, id);
         await showScene(list);
         sel.replace({ kind: 'solid', body: id });
         selectionChanged({ quiet: true });

@@ -49,9 +49,10 @@ pub fn primitive<K: Kernel>(k: &K, p: &Primitive) -> Result<K::Solid, KernelErro
 
 /// Shell: checked inputs, then a check that the result is still one valid solid.
 pub fn shell<K: Kernel>(k: &K, body: &K::Solid, faces: &[u32], thickness: f64) -> Result<Traced<K::Solid>, KernelError> {
-    if faces.is_empty() { return Err(KernelError::Invalid("select the faces to open")) }
     if !thickness.is_finite() { return Err(KernelError::Invalid("the thickness is not a number")) }
     if !(thickness > SMALL) { return Err(KernelError::Invalid("the wall thickness must be greater than zero")) }
+    // No faces: a whole solid hollowed round a closed void.
+    if faces.is_empty() && k.is_sheet(body) { return Err(KernelError::Invalid("a sheet has no inside to hollow; thicken it first")) }
     let count = k.face_count(body);
     if faces.iter().any(|&f| f as usize >= count) {
         return Err(KernelError::Invalid("a face in the selection is not on this body; select the faces again"));
@@ -61,7 +62,8 @@ pub fn shell<K: Kernel>(k: &K, body: &K::Solid, faces: &[u32], thickness: f64) -
     faces.dedup();
     if faces.len() == count { return Err(KernelError::Invalid("leave at least one face closed")) }
     let traced = k.shell(body, &faces, thickness)?;
-    if !k.is_valid(&traced.solid) || k.solid_count(&traced.solid) != k.solid_count(body) {
+    // A void counts as a group of faces of its own.
+    if !k.is_valid(&traced.solid) || k.solid_count(&traced.solid) != k.solid_count(body) + usize::from(faces.is_empty()) {
         return Err(KernelError::Invalid("a shell that thick breaks the body; try a thinner one"));
     }
     Ok(traced)
@@ -154,7 +156,8 @@ pub fn remove_faces<K: Kernel>(k: &K, body: &K::Solid, faces: &[u32]) -> Result<
     faces.dedup();
     if faces.len() == count { return Err(KernelError::Invalid("that would remove the whole body; delete it instead")) }
     let traced = k.remove_faces(body, &faces)?;
-    if !k.is_valid(&traced.solid) || k.solid_count(&traced.solid) != k.solid_count(body) {
+    // A void counts as a group of faces of its own.
+    if !k.is_valid(&traced.solid) || k.solid_count(&traced.solid) != k.solid_count(body) + usize::from(faces.is_empty()) {
         return Err(KernelError::Invalid("removing those faces breaks the body"));
     }
     Ok(traced)
@@ -168,7 +171,8 @@ pub fn refillet<K: Kernel>(k: &K, body: &K::Solid, faces: &[u32], radius: f64) -
         return Err(KernelError::Invalid("a face in the selection is not on this body; select the faces again"));
     }
     let traced = k.refillet(body, faces, radius)?;
-    if !k.is_valid(&traced.solid) || k.solid_count(&traced.solid) != k.solid_count(body) {
+    // A void counts as a group of faces of its own.
+    if !k.is_valid(&traced.solid) || k.solid_count(&traced.solid) != k.solid_count(body) + usize::from(faces.is_empty()) {
         return Err(KernelError::Invalid("a fillet that size breaks the body"));
     }
     Ok(traced)
