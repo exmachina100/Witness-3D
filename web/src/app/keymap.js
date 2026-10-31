@@ -76,9 +76,9 @@ export const VIEWPORT = {
 export const COMMAND = {
     // Fillet (manual: V adds a variable point)
     fillet: { d: 'distance', c: 'chamfer', a: 'angle', v: 'variable', l: 'limit', t: 'tangent' },
-    move: { x: 'x', y: 'y', z: 'z', 'shift-x': 'yz', 'shift-y': 'xz', 'shift-z': 'xy', g: 'screen' },
-    rotate: { x: 'x', y: 'y', z: 'z', r: 'screen' },
-    scale: { s: 'uniform' },
+    move: { x: 'x', y: 'y', z: 'z', 'shift-x': 'yz', 'shift-y': 'xz', 'shift-z': 'xy', g: 'screen', w: 'orient', v: 'pivot', 'alt-v': 'unpivot' },
+    rotate: { x: 'x', y: 'y', z: 'z', r: 'screen', w: 'orient', v: 'pivot', 'alt-v': 'unpivot' },
+    scale: { s: 'uniform', w: 'orient', v: 'pivot', 'alt-v': 'unpivot' },
     pushpull: { d: 'distance', q: 'join', w: 'cut', b: 'new', r: 'rect', c: 'circle' },
     // Extrude and Boolean (manual: Q union, W difference, Shift+E intersect, B new body, T keep tools)
     // (manual: A angle, Shift+T thickness, S lock both sides, Shift+Q slice)
