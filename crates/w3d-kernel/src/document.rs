@@ -720,6 +720,17 @@ impl<K: Kernel> Document<K> {
         Ok(self.commit_result(target, r))
     }
 
+    /// Commit a form; with `keep` a union, difference, intersect or slice also keeps the new shape
+    /// as a body of its own (Plasticity's T keep tools), in the same undo step.
+    pub fn commit_form_keeping(&mut self, target: Option<BodyId>, p: &FormParams, keep: bool) -> Result<BodyId, KernelError> {
+        let r = self.preview_form(target, p)?;
+        let made = keep && !matches!(r, ExtrudeResult::New(_));
+        let tool = if made { Some(crate::form::tool(&self.kernel, p)?) } else { None };
+        let id = self.commit_result(target, r);
+        if let Some(t) = tool { self.add_unrecorded(t); }
+        Ok(id)
+    }
+
     /// Compute an Offset Face without changing the document.
     pub fn preview_offset(&self, body: BodyId, faces: &[u32], distance: f64, angle: f64, grow: Grow) -> Result<K::Solid, KernelError> {
         let solid = self.get(body).ok_or(KernelError::Invalid("that body no longer exists"))?;

@@ -47,3 +47,15 @@ test('offset face pushes the flat top up and keeps its ref', async () => {
     const moved = scene[0].facePlanes.findIndex(p => p && p.normal[1] > 0.99 && Math.abs(p.origin[1] - 35) < 1e-6);
     assert.equal(scene[0].faceRefs[moved], ref);
 });
+
+test('Shift+Q slices the body with a sweep and T keeps the swept shape too', async () => {
+    const be = new LocalBackend();
+    const path = { ...up, origin: [0, 20, 0] };
+    const { ids: [sq, p] } = await be.addCurves([square(10, 20), path]);
+    const pre = await be.previewForm({ target: 1, regions: [sq], kind: 'sweep', path: p, op: 'slice' });
+    assert.equal(pre.outcome, 'slice');
+    const { scene } = await be.commitForm({ target: 1, regions: [sq], kind: 'sweep', path: p, op: 'slice', keep: true });
+    assert.deepEqual(scene.map(b => Math.round(b.volume)), [119000, 1000, 2000]);
+    await be.undo();
+    assert.equal(be.bodies().length, 1);
+});
