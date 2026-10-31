@@ -94,7 +94,7 @@ import { limitEdges, mergeShortEdges, polygonize, removeSmallParts, to3mf, toGlb
 import { flatten, toDxf, toSvg } from '../drawingExport.js';
 import { readDxf } from '../dxf.js';
 import { distanceToFace } from '../dependentOffset.js';
-import { ALIGN_CURVE_CONTINUITY, alignCurveEnd, BRIDGE_CONTINUITY, bridgeContinuous, bridgeEnd, continuity, curvatureComb, curveVertices, explode, EXTEND_SHAPES, extendCurve, filletCurve, nearestEnd, OFFSET_CORNERS, offsetCurve, offsetSlot, offsetThrough, unionLoops, moveVertices, alignedInPlane, offsetVertex, rebuildCurve, subdivideCurve, completeCurve, convertVertices, insertKnotAt, raiseDegree, reverseCurve, transformCurve, moveVerticesTo, slideCurveCVs, splitCurve, tangentCircle, tangentCircle3, trim, cutCurve, cuttersFor, samples as curveSamples } from '../curveEdit.js';
+import { ALIGN_CURVE_CONTINUITY, alignCurveEnd, BRIDGE_CONTINUITY, bridgeContinuous, bridgeEnd, continuity, curvatureComb, curveVertices, deleteVertices, explode, EXTEND_SHAPES, extendCurve, filletCurve, nearestEnd, OFFSET_CORNERS, offsetCurve, offsetSlot, offsetThrough, unionLoops, moveVertices, alignedInPlane, offsetVertex, rebuildCurve, subdivideCurve, completeCurve, convertVertices, insertKnotAt, raiseDegree, reverseCurve, transformCurve, moveVerticesTo, slideCurveCVs, splitCurve, tangentCircle, tangentCircle3, trim, cutCurve, cuttersFor, samples as curveSamples } from '../curveEdit.js';
 import { ViewGizmo } from './ViewGizmo.js';
 import { Toolbar } from './Toolbar.js';
 import { arcballAbout, dragAngles, orbitAbout } from './orbit.js';
@@ -10148,7 +10148,23 @@ export async function mount(root, backend) {
   async function deleteSelected() {
     if (cmd) await finish();
     const ids = sel.solids, curves = sel.curves;
-    if (!ids.length && !curves.length) return toast(sel.size ? 'DELETE WORKS ON SOLIDS AND CURVES FOR NOW' : 'SELECT SOMETHING TO DELETE');
+    // Delete Control Point: picked vertices go from their curves (curveEdit.js deleteVertices).
+    const verts = sel.list('vertex').filter(v => curveById(v.id));
+    if (!ids.length && !curves.length && verts.length) {
+      if (!backend.replaceCurves) return toast('DELETING POINTS IS NOT IN THIS BUILD YET');
+      const byCurve = new Map();
+      for (const v of verts) { if (!byCurve.has(v.id)) byCurve.set(v.id, []); byCurve.get(v.id).push(v.n); }
+      try {
+        const out = [...byCurve].map(([id, ns]) => deleteVertices(curveById(id), ns));
+        await backend.replaceCurves([...byCurve.keys()], out);
+        record(`DELETE ${verts.length} POINT${verts.length > 1 ? 'S' : ''}`, [...byCurve.keys()][0], curveLabel([...byCurve.keys()][0]));
+        sel.clear();
+        await loadCurves();
+        selectionChanged({ quiet: true });
+      } catch (e) { toast(say(e)); }
+      return;
+    }
+    if (!ids.length && !curves.length) return toast(sel.size ? 'DELETE WORKS ON SOLIDS, CURVES AND CURVE POINTS FOR NOW' : 'SELECT SOMETHING TO DELETE');
     try {
       const list = backend.deleteItems ? await backend.deleteItems(ids, curves) : await backend.deleteBodies(ids);
       const names = [...ids.map(label), ...curves.map(curveLabel)];
@@ -10346,9 +10362,15 @@ export async function mount(root, backend) {
   /** Run a named action (keymap.js); returns false for names it doesn't know. */
   async function doAction(a) {
     const [kind, arg] = a.split(':');
-    if (!['select', 'view', 'plane', 'sources', 'undo', 'redo', 'app', 'radial'].includes(kind)) keepSources();
+    if (!['select', 'view', 'plane', 'sources', 'sidebar', 'undo', 'redo', 'app', 'radial'].includes(kind)) keepSources();
     switch (kind) {
       case 'sources': selectSources(arg === 'forward' ? 1 : -1); return true;
+      case 'sidebar': {
+        // Plasticity: Ctrl+B shows or hides the left sidebar, Ctrl+Shift+B the right one.
+        const shell = root.querySelector('.w3d'), cls = arg === 'right' ? 'no-right' : 'no-left';
+        shell.classList.toggle(cls);
+        return true;
+      }
       case 'view':
         if (arg === 'radial') openRadial(a.split(':')[2]);
         else if (arg === 'ortho') setOrtho(!camera.isOrthographicCamera);
