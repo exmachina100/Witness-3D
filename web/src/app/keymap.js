@@ -32,7 +32,7 @@ export const VIEWPORT = {
     1: 'mode:point', 2: 'mode:edge', 3: 'mode:face', 4: 'mode:solid', 5: 'mode:all',
     'shift-1': 'mode-toggle:point', 'shift-2': 'mode-toggle:edge', 'shift-3': 'mode-toggle:face', 'shift-4': 'mode-toggle:solid',
     'ctrl-2': 'convert:edge', 'ctrl-3': 'convert:face', 'ctrl-4': 'convert:solid',
-    a: 'select:all', escape: 'select:none', 'alt-a': 'select:invert',
+    a: 'select:all', escape: 'select:none', 'alt-a': 'select:invert', 'ctrl-shift-=': 'select:adjacent',
     // Commands (manual: Command Bar, General Functions)
     f: 'palette', 'shift-f': 'suggest', 'shift-r': 'repeat',
     b: 'tool:fillet', g: 'tool:move', r: 'tool:rotate', s: 'tool:scale', p: 'tool:pushpull',
@@ -198,7 +198,7 @@ export const ACTIONS = {
     'mode:point': 'Selection mode: points', 'mode:edge': 'Selection mode: edges', 'mode:face': 'Selection mode: faces',
     'mode:solid': 'Selection mode: solids', 'mode:all': 'Selection mode: all',
     'convert:edge': 'Convert selection to edges', 'convert:face': 'Convert selection to faces', 'convert:solid': 'Convert selection to solids',
-    'select:all': 'Select all', 'select:none': 'Deselect all', 'select:invert': 'Invert selection', 'select:solids': 'Select all solids', 'select:sheets': 'Select all sheets', 'select:measurements': 'Select all measurements',
+    'select:all': 'Select all', 'select:none': 'Deselect all', 'select:invert': 'Invert selection', 'select:solids': 'Select all solids', 'select:sheets': 'Select all sheets', 'select:measurements': 'Select all measurements', 'select:adjacent': 'Select adjacent',
     'repeat': 'Repeat last command', 'ask': 'Ask for a command in words', 'delete': 'Delete', 'duplicate': 'Duplicate', 'alt-duplicate': 'Alternative duplicate onto the plane', 'create-outline': 'Create outline', 'toggle-points': 'Toggle points',
     'hide': 'Hide selected', 'hide-others': 'Hide unselected', 'unhide-all': 'Unhide all', 'invert-hidden': 'Invert hidden',
     'isolate': 'Isolate selected', 'unisolate': 'Unisolate', 'group': 'Group selected', 'ungroup': 'Ungroup',
