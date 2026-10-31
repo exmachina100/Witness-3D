@@ -65,7 +65,7 @@ export const VIEWPORT = {
     // Materials (manual: Set Material is M)
     m: 'material:set',
     // Construction planes (manual: Construction Plane)
-    space: 'plane:selection', 'shift-space': 'plane:selection-keep-view', 'ctrl-space': 'plane:view',
+    space: 'plane:selection', 'shift-space': 'plane:selection-keep-view', 'ctrl-space': 'plane:view', 'ctrl-shift-space': 'plane:view-at',
     // Files and history
     // P-Menu (manual: Plasticity Interface › P-Menu)
     'ctrl-z': 'undo', 'ctrl-shift-z': 'redo', 'ctrl-n': 'file:new', 'ctrl-o': 'file:open', 'ctrl-s': 'file:save',
@@ -207,7 +207,7 @@ export const ACTIONS = {
     'material:set': 'Set material', 'material:remove': 'Remove material', 'view:render': 'Toggle render mode',
     'view:edges': 'Viewport: toggle edges', 'view:faces': 'Viewport: toggle faces', 'view:curves': 'Viewport: toggle curves',
     'plane:selection': 'Construction plane from selection', 'plane:selection-keep-view': 'Construction plane from selection, keep view',
-    'plane:view': 'Construction plane from view', 'plane:world': 'Construction plane: world XY',
+    'plane:view': 'Construction plane from view', 'plane:view-at': 'Construction plane from view, at a point', 'plane:save': 'Save construction plane', 'plane:world': 'Construction plane: world XY',
     'draw:rect': 'Corner rectangle', 'draw:circle': 'Center circle', 'draw:line': 'Line',
     'draw:center-rect': 'Center rectangle', 'draw:rect3': 'Three point rectangle', 'draw:circle2': 'Two point circle',
     'draw:circle3': 'Three point circle', 'draw:arc3': 'Three point arc', 'draw:arc': 'Center point arc',

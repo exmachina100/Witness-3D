@@ -99,6 +99,7 @@ import { ViewGizmo } from './ViewGizmo.js';
 import { Toolbar } from './Toolbar.js';
 import { arcballAbout, dragAngles, orbitAbout } from './orbit.js';
 import { poleMoves } from '../poleFalloff.js';
+import { planeFrom } from '../cplaneFrom.js';
 import { PREF_FIELDS, changedPrefs, controlSettings, readPrefs, setPref, viewColors, wheelSpeed } from './prefs.js';
 import { arcPoints, circleThrough, curveFromNurbs, cvPoints, ellipsePoints, endTangent, helixPoints, loops, nurbsLoop, nurbsPoints, polygonCorners, spiralAngle, tangentArc } from '../curves.js';
 
@@ -985,10 +986,13 @@ const SHELL = `
     <div class="sec">
       <span class="label">CONSTRUCTION PLANE <output data-id="plane">XY</output></span>
       <div class="seg" role="group" aria-label="Construction plane">
-        <button data-action="plane:selection" title="Space: a plane on the selected face, view aligned"><kbd>␣</kbd>FROM FACE</button>
-        <button data-action="plane:view" title="Ctrl+Space: a plane facing the view"><kbd>^␣</kbd>VIEW</button>
-        <button data-action="plane:world" title="The world XY plane">XY</button>
+        <button data-action="plane:selection" aria-label="From selection" title="From selection (Space): a flat face, a face and an edge, two parallel faces, a planar curve or region, or points; the view turns to face it">${icon('plane-face')}</button>
+        <button data-action="plane:view" aria-label="Facing the view" title="Facing the view (Ctrl+Space), through the world origin">${icon('plane-view')}</button>
+        <button data-action="plane:view-at" aria-label="Facing the view at a point" title="Facing the view (Ctrl+Shift+Space), through the next point you click">${icon('plane-point')}</button>
+        <button data-action="plane:world" aria-label="World XY" title="The world XY plane">${icon('plane-world')}</button>
+        <button data-action="plane:save" aria-label="Save plane" title="Save the construction plane to the list below (Temporary construction plane); saved with the file">${icon('plane-save')}</button>
       </div>
+      <div class="saved-planes" data-id="saved-planes" hidden></div>
     </div>
     <div class="states">
       <span class="label">STATE</span>
@@ -2502,14 +2506,37 @@ export async function mount(root, backend) {
     if (fresh) setHud('DRAG THE HANDLE TO PLACE THE INSTANCE · ⏎ TO KEEP');
   }
 
+  /**
+   * Space: the construction plane from the selection (cplaneFrom.js gives the rules): a flat face,
+   * a face and an edge, two parallel faces, a planar curve or region, or points.
+   */
   function planeFromSelection(alignView) {
-    const faces = sel.list('face');
-    const f = faces[faces.length - 1];
-    const b = f && bodyOf(f.body), p = b?.facePlanes[f.n];
-    if (!p) return toast('SELECT A FLAT FACE FOR THE CONSTRUCTION PLANE');
-    const origin = faceCentre(b, f.n), normal = new THREE.Vector3(...p.normal);
-    setPlane({ origin, normal, name: `FACE · ${label(b.id)}` });
-    if (!alignView) return;
+    const view = camera.position.clone().sub(controls.target).normalize().toArray();
+    const faces = sel.list('face').map(f => {
+      const b = bodyOf(f.body), p = b?.facePlanes[f.n];
+      return p ? { origin: faceCentre(b, f.n).toArray(), normal: p.normal, body: b.id } : { curved: true };
+    });
+    const edges = sel.list('edge').map(e => { const pts = bodyOf(e.body)?.edges[e.n] ?? []; const out = []; for (let i = 0; i + 2 < pts.length; i += 3) out.push([pts[i], pts[i + 1], pts[i + 2]]); return out; });
+    const verts = vertexList();
+    const points = [
+      ...sel.list('vertex').map(v => verts.find(w => w.id === v.id && w.n === v.n)?.at.toArray()),
+      ...sel.list('pole').map(it => poleOf(it)?.toArray()),
+    ].filter(Boolean);
+    const curves = [];
+    for (const id of new Set([...sel.curves, ...sel.list('region').map(r => r.id)])) {
+      const c = curveById(id);
+      if (!c) continue;
+      const f = curveFrame(c);
+      if (c.kind === 'nurbs' && c.poles.some(q => Math.abs(q[2] ?? 0) > 1e-9)) { points.push(...c.poles.map(([x, y, z]) => lift(f, { x, y, z }).toArray())); continue; }
+      if (c.kind === 'spiral' || c.kind === 'helix') { toast('A SPIRAL HAS NO PLANE OF ITS OWN'); return; }
+      curves.push({ origin: (isClosed(c) ? regionCentre(c) : f.o).toArray(), normal: f.n.toArray() });
+    }
+    const got = planeFrom({ faces, edges, points, curves, view });
+    if (got.error) return toast(got.error);
+    const origin = new THREE.Vector3(...got.origin), normal = new THREE.Vector3(...got.normal);
+    const name = got.kind === 'FACE' ? `FACE · ${label(faces[0].body)}` : got.kind;
+    setPlane({ origin, normal, name });
+    if (!alignView) return toast(`CONSTRUCTION PLANE · ${name}`);
     const dist = camera.position.distanceTo(controls.target);
     controls.target.copy(origin);
     const dir = normal.clone();
@@ -2518,6 +2545,52 @@ export async function mount(root, backend) {
   }
   function planeFromView() {
     setPlane({ origin: new THREE.Vector3(), normal: camera.position.clone().sub(controls.target).normalize(), name: 'VIEW' });
+  }
+  // Ctrl+Shift+Space: a plane facing the view, through the next point clicked.
+  let planeOriginPending = false;
+  function planeFromViewAt() {
+    planeOriginPending = true;
+    setHud('CLICK THE CONSTRUCTION PLANE’S ORIGIN · ESC CANCELS');
+  }
+  function placeViewPlane(e) {
+    planeOriginPending = false;
+    setHud('');
+    const normal = camera.position.clone().sub(controls.target).normalize();
+    const hit = pickAt(e);
+    const at = hit?.point ?? ray(e).intersectPlane(new THREE.Plane().setFromNormalAndCoplanarPoint(normal, controls.target), new THREE.Vector3());
+    if (!at) return;
+    setPlane({ origin: at.clone(), normal, name: 'VIEW' });
+    toast('CONSTRUCTION PLANE FACING THE VIEW');
+  }
+  // Saved construction planes (Plasticity's Temporary construction plane, kept in a list).
+  let savedPlanes = [];
+  function savePlane() {
+    const name = cplane.name === 'XY' || /^PLANE \d+$/.test(cplane.name) ? `PLANE ${savedPlanes.length + 1}` : cplane.name;
+    if (savedPlanes.some(q => q.origin.every((v, i) => Math.abs(v - cplane.origin.getComponent(i)) < 1e-9) && q.normal.every((v, i) => Math.abs(v - cplane.normal.getComponent(i)) < 1e-9))) return toast('THAT PLANE IS SAVED ALREADY');
+    savedPlanes.push({ name, origin: cplane.origin.toArray(), normal: cplane.normal.toArray() });
+    drawSavedPlanes();
+    keepAppState();
+    toast(`SAVED ${name}`);
+  }
+  function drawSavedPlanes() {
+    const el = $('saved-planes');
+    el.replaceChildren(...savedPlanes.map((q, i) => {
+      const row = document.createElement('div');
+      row.className = 'saved-plane';
+      const use = document.createElement('button');
+      use.textContent = q.name;
+      use.title = `Use the saved construction plane ${q.name}`;
+      use.onclick = () => setPlane({ origin: new THREE.Vector3(...q.origin), normal: new THREE.Vector3(...q.normal), name: q.name });
+      const del = document.createElement('button');
+      del.className = 'icon-btn';
+      del.innerHTML = icon('close');
+      del.setAttribute('aria-label', `Forget ${q.name}`);
+      del.title = `Forget ${q.name}`;
+      del.onclick = () => { savedPlanes.splice(i, 1); drawSavedPlanes(); keepAppState(); };
+      row.append(use, del);
+      return row;
+    }));
+    el.hidden = !savedPlanes.length;
   }
 
   // --- picking ------------------------------------------------------------
@@ -10240,6 +10313,8 @@ export async function mount(root, backend) {
         if (arg === 'selection') planeFromSelection(true);
         else if (arg === 'selection-keep-view') planeFromSelection(false);
         else if (arg === 'view') planeFromView();
+        else if (arg === 'view-at') planeFromViewAt();
+        else if (arg === 'save') savePlane();
         else setPlane({ origin: new THREE.Vector3(), normal: UP, name: 'XY' });
         return true;
       case 'radial': openRadial(arg); return true;
@@ -10516,6 +10591,7 @@ export async function mount(root, backend) {
   addEventListener('pointerdown', e => { if (radial && !e.target.closest('.radial')) closeRadial(); }, true);
   addEventListener('keydown', e => { if (radial && e.key === 'Escape') { e.stopImmediatePropagation(); closeRadial(); } }, true);
   addEventListener('keydown', e => { if (!$('prefs').hidden && e.key === 'Escape') { e.stopImmediatePropagation(); closePrefs(); } }, true);
+  addEventListener('keydown', e => { if (planeOriginPending && e.key === 'Escape') { e.stopImmediatePropagation(); planeOriginPending = false; setHud(''); } }, true);
   addEventListener('keyup', e => {
     // Let go of the key that opened the menu: run what the pointer is on, or leave it open to click.
     if (radial?.key && e.code === radial.key) { radial.key = null; if (radial.hot >= 0) runRadial(radial.hot); }
@@ -10742,7 +10818,7 @@ export async function mount(root, backend) {
   /** Groups, hidden and locked bodies and materials go into the file with the geometry. */
   async function keepAppState() {
     if (!backend.setAppState) return;
-    await backend.setAppState({ organise: org.toJSON(), materials: [...materials.values()], materialOf: [...materialOf], nextMaterial, images, nextImage, instances: instances.filter(masterOf), nextInstance });
+    await backend.setAppState({ organise: org.toJSON(), materials: [...materials.values()], materialOf: [...materialOf], nextMaterial, images, nextImage, instances: instances.filter(masterOf), nextInstance, planes: savedPlanes });
   }
   async function restoreAppState() {
     const st = backend.appState ? await backend.appState() : null;
@@ -10756,6 +10832,8 @@ export async function mount(root, backend) {
     images = (Array.isArray(st?.images) ? st.images : []).filter(m => !checkImage(m).length);
     nextImage = Math.max(Number.isInteger(st?.nextImage) ? st.nextImage : 1, ...images.map(m => m.id + 1));
     drawImages();
+    savedPlanes = (Array.isArray(st?.planes) ? st.planes : []).filter(q => typeof q?.name === 'string' && [q.origin, q.normal].every(v => Array.isArray(v) && v.length === 3 && v.every(Number.isFinite)));
+    drawSavedPlanes();
     instances = (Array.isArray(st?.instances) ? st.instances : []).filter(m => !checkInstance(m).length);
     nextInstance = Math.max(Number.isInteger(st?.nextInstance) ? st.nextInstance : 1, ...instances.map(m => m.id + 1));
     drawInstances();
@@ -10868,6 +10946,7 @@ export async function mount(root, backend) {
     down = null;
     if (!d || d.button !== e.button) return;
     if (pickMenu?.held && e.button === 0) return choosePick(pickMenu.at, e.shiftKey);
+    if (planeOriginPending && e.button === 0 && Math.hypot(e.clientX - d.x, e.clientY - d.y) < 5) return placeViewPlane(e);
     const moved = Math.hypot(e.clientX - d.x, e.clientY - d.y) > 4;
     if (e.button === 2) { if (!moved && cmd) await finish(); return; } // Plasticity: right-click finishes
     if (e.button !== 0 || d.consumed) return;

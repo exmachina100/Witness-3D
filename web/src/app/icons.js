@@ -344,6 +344,11 @@ const ICONS = {
     'slide-vback': `<path d="M8 4L16 20" stroke-dasharray="2 2"/><path ${A} d="M14 16l-4-8M13 10l-3-2-1 3"/>`,
     'slide-n': `<path d="M4 16L20 8" stroke-dasharray="2 2"/><path ${A} d="M12 12l-3-6M7 8l2-2 2 1"/>`,
     isolate: `<rect x="3" y="5" width="18" height="14" stroke-dasharray="2 2"/><rect ${A} x="8" y="8" width="8" height="8"/>`,
+    'plane-face': `<path d="M3 15l7-4 11 4-7 4z"/><path ${A} d="M6 11l6-3 8 3-6 3z"/>`,
+    'plane-view': `<path d="M4 6h16v12H4z" stroke-dasharray="2 2"/><path ${A} d="M7 9h10v6H7z"/>`,
+    'plane-point': `<path d="M3 8h14l4 8H7z"/><path ${A} d="M12 12h0M12 12V3"/>`,
+    'plane-world': `<path d="M2 16l10-5 10 5-10 5z"/><path ${A} d="M12 16V4M12 16l8-4"/>`,
+    'plane-save': `<path d="M2 15l8-4 12 4-8 4z"/><path ${A} d="M16 3v7l2-1.5 2 1.5V3z"/>`,
 };
 
 /** The icon for `name` as an inline SVG, or '' when there is none. */
