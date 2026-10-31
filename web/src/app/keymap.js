@@ -88,7 +88,7 @@ export const COMMAND = {
     offset: { d: 'distance', a: 'angle', tab: 'grow' },
     // Revolve and Sweep (manual: A angle, Shift+T thickness, D twist, Q W Shift+E B as in Extrude)
     revolve: { a: 'angle', 'shift-t': 'thickness', q: 'union', w: 'difference', 'shift-e': 'intersect', b: 'new' },
-    loft: { o: 'loop' },
+    loft: { o: 'loop', l: 'limit' },
     sweep: { m: 'method', n: 'align', d: 'twist', q: 'union', w: 'difference', 'shift-e': 'intersect', b: 'new' },
     // Drawing (manual: Tab types dimensions, S square and C centre for rectangles, Ctrl+Z drops a line's last point)
     rect: { tab: 'typed', s: 'square', c: 'centre' },
