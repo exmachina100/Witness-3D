@@ -153,7 +153,7 @@ const KEYS = {
   draft: [['A', 'ANGLE'], ['D', 'OFFSET'], ['TAB', 'GROW'], ['⇧ CLICK', 'FACES'], ['CLICK LINE', 'CURVE TAPER'], ['⏎ / RMB', 'OK']],
   imprint: [['⇧ CLICK', 'FACES · CURVES'], ['⇧ ALT CLICK', 'BODY THAT IMPRINTS'], ['X Y Z', 'VECTOR'], ['S', 'SCREEN SPACE'], ['C', 'COMPLETION'], ['⏎ / RMB', 'OK']],
   project: [['⇧ CLICK', 'SOLID · CURVES'], ['X Y Z', 'VECTOR'], ['S', 'SCREEN SPACE'], ['⏎ / RMB', 'OK']],
-  'bridge-surface': [['⇧ CLICK', 'TWO EDGES, OR TWO CROSSING SHEETS'], ['T', 'TENSION'], ['⏎ / RMB', 'OK']],
+  'bridge-surface': [['⇧ CLICK', 'TWO EDGES, OR TWO CROSSING SHEETS'], ['T', 'TENSION'], ['A', 'ADD WALL PAIR'], ['⏎ / RMB', 'OK']],
   'extend-sheet': [['CLICK', "A SHEET'S EDGE"], ['D', 'DISTANCE'], ['CTRL+CLICK', 'A BODY TO REACH'], ['TAB', 'NATURAL · LINEAR · SOFT · REFLECTIVE'], ['⏎ / RMB', 'OK']],
   thicken: [['CLICK', 'A SHEET'], ['ALT CLICK', 'FACES (THICKEN FACE)'], ['D', 'FRONT'], ['B', 'BACK'], ['⏎ / RMB', 'OK']],
   pipe: [['⇧ CLICK', 'CURVES'], ['R', 'RADIUS'], ['T', 'THICKNESS'], ['V', 'SIDES'], ['⏎ / RMB', 'OK']],
@@ -650,6 +650,7 @@ const SHELL = `
         <div class="seg" role="group" aria-label="Bridge shape"><button data-bsshape="g2" aria-pressed="true" title="G2: the bridge leaves both sheets with their curvature">G2</button><button data-bsshape="chamfer" aria-pressed="false" title="Chamfer: a flat bridge across the corner">CHAMFER</button></div>
         <span class="label">TRIM WALLS</span>
         <div class="chips" role="group" aria-label="Trim walls"><button data-bstrim="both" aria-pressed="true" title="Both: both sheets trimmed back to the bridge and joined to it">BOTH</button><button data-bstrim="short" aria-pressed="false" title="Short: only the shorter side trimmed and joined to the bridge">SHORT</button><button data-bstrim="long" aria-pressed="false" title="Long: only the longer side trimmed and joined to the bridge">LONG</button><button data-bstrim="none" aria-pressed="false" title="None: the sheets stay as they are and the bridge is a sheet of its own">NONE</button></div>
+        <div class="chips"><button data-id="bs-add" aria-pressed="false" title="Add wall pair: click two more crossing sheets to bridge alike (A)"><kbd>A</kbd>ADD WALL PAIR</button></div>
         <div class="chips"><button data-id="bs-s1" aria-pressed="false" title="Sense 1: bridge to the other side of the first sheet">SENSE 1</button><button data-id="bs-s2" aria-pressed="false" title="Sense 2: bridge to the other side of the second sheet">SENSE 2</button></div>
       </div>
     </div>
@@ -1001,11 +1002,11 @@ const VIEWS = {
 export async function mount(root, backend) {
   root.innerHTML = SHELL;
   // Panel options carry their icon ahead of the key and name.
-  for (const b of root.querySelectorAll('[data-proj],[data-imp],[data-impcomp],[data-draw],[data-bop],[data-xop],[data-fop],[data-spiral],[data-toggle],[data-gmethod],[data-galign],[data-gcorner],[data-grow],[data-mfgrow],[data-drgrow],[data-eslimit],[data-flshape],[data-drtaper],[data-avaxis],[data-extshape],[data-esshape],[data-isodir],[data-id="oe-both"],[data-id="oe-individual"],[data-id="blend-tangent"],[data-id="ex-lock"],[data-id="bool-keep"],[data-id="prim-keep"],[data-id="ex-free"],[data-id="ex-pivot"],[data-id="ex-individual"],[data-id="patch-individual"],[data-id="patch-quad"],[data-id="as-symmetric"],[data-id="as-analysis"],[data-id="sq-analysis"],[data-id="dr-hidden"],[data-id="dr-curves"],[data-id="oc-lock"],[data-id="oc-free"],[data-id="oc-slot"],[data-id="oc-combine"],[data-id="es-unlimit"],[data-rbmethod],[data-oecorner],[data-saplane],[data-plaxis],[data-plop],[data-id="pl-flip"],[data-id="pl-instance"],[data-id="mirror-instance"],[data-id="ra-instance"],[data-id="rr-instance"],[data-id="ca-instance"],[data-id="br-trim"],[data-id="br-comb"],[data-id="ac-comb"],[data-id="dc-reblend"],[data-id="section-btn"],[data-id="sa-flip"],[data-id="rf-shrink"],[data-id="ut-keep"],[data-txfont],[data-id="tx-load"],[data-id="tx-system"],[data-txalign],[data-sldir],[data-dcflip],[data-id="dc-keep"],[data-imdepth],[data-imcull],[data-id="im-delete"],[data-id="cc-extend"],[data-id="cc-screen"],[data-inmode],[data-pfmode],[data-pfmirror],[data-pmethod],[data-mxtopo],[data-id="mx-convex"],[data-sqbound],[data-asbound],[data-bsshape],[data-bstrim],[data-id="bs-s1"],[data-id="bs-s2"],[data-id="in-realize"],[data-id="in-dup"],[data-id="in-delete"],[data-id="matcap-load"],[data-id="matcap-custom"],[data-id="hdr-load"],[data-id="hdr-custom"]')) {
+  for (const b of root.querySelectorAll('[data-proj],[data-imp],[data-impcomp],[data-draw],[data-bop],[data-xop],[data-fop],[data-spiral],[data-toggle],[data-gmethod],[data-galign],[data-gcorner],[data-grow],[data-mfgrow],[data-drgrow],[data-eslimit],[data-flshape],[data-drtaper],[data-avaxis],[data-extshape],[data-esshape],[data-isodir],[data-id="oe-both"],[data-id="oe-individual"],[data-id="blend-tangent"],[data-id="ex-lock"],[data-id="bool-keep"],[data-id="prim-keep"],[data-id="ex-free"],[data-id="ex-pivot"],[data-id="ex-individual"],[data-id="patch-individual"],[data-id="patch-quad"],[data-id="as-symmetric"],[data-id="as-analysis"],[data-id="sq-analysis"],[data-id="dr-hidden"],[data-id="dr-curves"],[data-id="oc-lock"],[data-id="oc-free"],[data-id="oc-slot"],[data-id="oc-combine"],[data-id="es-unlimit"],[data-rbmethod],[data-oecorner],[data-saplane],[data-plaxis],[data-plop],[data-id="pl-flip"],[data-id="pl-instance"],[data-id="mirror-instance"],[data-id="ra-instance"],[data-id="rr-instance"],[data-id="ca-instance"],[data-id="br-trim"],[data-id="br-comb"],[data-id="ac-comb"],[data-id="dc-reblend"],[data-id="section-btn"],[data-id="sa-flip"],[data-id="rf-shrink"],[data-id="ut-keep"],[data-txfont],[data-id="tx-load"],[data-id="tx-system"],[data-txalign],[data-sldir],[data-dcflip],[data-id="dc-keep"],[data-imdepth],[data-imcull],[data-id="im-delete"],[data-id="cc-extend"],[data-id="cc-screen"],[data-inmode],[data-pfmode],[data-pfmirror],[data-pmethod],[data-mxtopo],[data-id="mx-convex"],[data-sqbound],[data-asbound],[data-bsshape],[data-bstrim],[data-id="bs-add"],[data-id="bs-s1"],[data-id="bs-s2"],[data-id="in-realize"],[data-id="in-dup"],[data-id="in-delete"],[data-id="matcap-load"],[data-id="matcap-custom"],[data-id="hdr-load"],[data-id="hdr-custom"]')) {
     const name = (b.dataset.proj && (b.dataset.proj === 'screen' ? 'view-screen' : `proj-${b.dataset.proj}`)) ?? (b.dataset.imp && (b.dataset.imp === 'screen' ? 'view-screen' : `proj-${b.dataset.imp}`)) ?? (b.dataset.impcomp && `completion-${b.dataset.impcomp}`) ?? b.dataset.draw ?? b.dataset.bop ?? b.dataset.xop ?? b.dataset.fop ?? b.dataset.spiral ?? (b.dataset.toggle && `view-${b.dataset.toggle}`)
       ?? (b.dataset.gmethod && `guide-${b.dataset.gmethod}`) ?? (b.dataset.galign && `align-${b.dataset.galign}`) ?? (b.dataset.gcorner && (b.dataset.gcorner === 'round' ? 'corner-round' : 'corner-linear')) ?? (b.dataset.grow && `grow-${b.dataset.grow}`) ?? (b.dataset.mfgrow && `grow-${b.dataset.mfgrow}`) ?? (b.dataset.drgrow && `grow-${b.dataset.drgrow}`) ?? (b.dataset.eslimit && `limit-${b.dataset.eslimit}`) ?? (b.dataset.flshape && `fillet-${b.dataset.flshape}`) ?? (b.dataset.drtaper && `taper-${b.dataset.drtaper}`) ?? (b.dataset.avaxis && `axis-${b.dataset.avaxis}`) ?? (b.dataset.extshape && `extend-${b.dataset.extshape}`) ?? (b.dataset.esshape && `extend-${b.dataset.esshape}`) ?? (b.dataset.isodir && `iso-${b.dataset.isodir}`) ?? (b.dataset.rbmethod && `rebuild-${b.dataset.rbmethod}`) ?? (b.dataset.oecorner && `corner-${b.dataset.oecorner}`) ?? (b.dataset.saplane && `section-${b.dataset.saplane}`) ?? (b.dataset.plaxis && (b.dataset.plaxis === 'normal' ? 'place-normal' : `axis-${b.dataset.plaxis}`)) ?? b.dataset.plop
       ?? (b.dataset.txfont && `font-${b.dataset.txfont}`) ?? (b.dataset.txalign && `txalign-${b.dataset.txalign}`) ?? (b.dataset.sldir && { u: 'slide-u', '-u': 'slide-back', v: 'slide-v', '-v': 'slide-vback', n: 'slide-n' }[b.dataset.sldir]) ?? (b.dataset.dcflip && { mirror: 'mirror', swap: 'swap-uv', normal: 'reverse-sheet' }[b.dataset.dcflip]) ?? (b.dataset.imdepth && `depth-${b.dataset.imdepth}`) ?? (b.dataset.imcull && `cull-${b.dataset.imcull}`) ?? b.dataset.inmode ?? (b.dataset.bsshape && `bridge-${b.dataset.bsshape}`) ?? (b.dataset.bstrim && `trimwall-${b.dataset.bstrim}`) ?? (b.dataset.mxtopo && `topo-${b.dataset.mxtopo}`) ?? (b.dataset.pmethod && (b.dataset.pmethod === 'fill' ? 'patch-fill' : `trim-${b.dataset.pmethod}`)) ?? (b.dataset.pfmode && `falloff-${b.dataset.pfmode}`) ?? ((b.dataset.sqbound ?? b.dataset.asbound) && `bound-${b.dataset.sqbound ?? b.dataset.asbound}`) ?? (b.dataset.pfmirror && `mirror-${b.dataset.pfmirror}`)
-      ?? { 'matcap-load': 'matcap-load', 'matcap-custom': 'matcap', 'tx-load': 'font-load', 'tx-system': 'font-system', 'hdr-load': 'hdr-load', 'hdr-custom': 'hdr', 'ex-lock': 'lock', 'bool-keep': 'keep', 'prim-keep': 'keep', 'ex-free': 'freestyle', 'ex-pivot': 'pivot', 'ex-individual': 'individual', 'patch-individual': 'individual', 'mx-convex': 'convex', 'patch-quad': 'square', 'as-symmetric': 'symmetric', 'as-analysis': 'analysis', 'sq-analysis': 'analysis', 'bs-s1': 'flip', 'bs-s2': 'flip', 'dr-hidden': 'hidden-lines', 'dr-curves': 'drawing-curves', 'oc-lock': 'lock', 'oc-free': 'freestyle', 'oc-slot': 'slot', 'oc-combine': 'combine', 'oe-both': 'both-sides', 'oe-individual': 'individual', 'blend-tangent': 'tangent-chain', 'es-unlimit': 'unlimit', 'rf-shrink': 'shrink', 'ut-keep': 'keep-edges', 'section-btn': 'view-section', 'sa-flip': 'flip', 'pl-flip': 'flip', 'pl-instance': 'instance', 'mirror-instance': 'instance', 'ra-instance': 'instance', 'rr-instance': 'instance', 'ca-instance': 'instance', 'br-trim': 'trim', 'br-comb': 'view-curvature', 'ac-comb': 'view-curvature', 'dc-reblend': 'reblend', 'dc-keep': 'keep', 'im-delete': 'delete', 'in-realize': 'realize-instance', 'cc-extend': 'extend', 'cc-screen': 'view-screen', 'in-dup': 'duplicate', 'in-delete': 'delete' }[b.dataset.id];
+      ?? { 'matcap-load': 'matcap-load', 'matcap-custom': 'matcap', 'tx-load': 'font-load', 'tx-system': 'font-system', 'hdr-load': 'hdr-load', 'hdr-custom': 'hdr', 'ex-lock': 'lock', 'bool-keep': 'keep', 'prim-keep': 'keep', 'ex-free': 'freestyle', 'ex-pivot': 'pivot', 'ex-individual': 'individual', 'patch-individual': 'individual', 'mx-convex': 'convex', 'patch-quad': 'square', 'as-symmetric': 'symmetric', 'as-analysis': 'analysis', 'sq-analysis': 'analysis', 'bs-add': 'wall-pair', 'bs-s1': 'flip', 'bs-s2': 'flip', 'dr-hidden': 'hidden-lines', 'dr-curves': 'drawing-curves', 'oc-lock': 'lock', 'oc-free': 'freestyle', 'oc-slot': 'slot', 'oc-combine': 'combine', 'oe-both': 'both-sides', 'oe-individual': 'individual', 'blend-tangent': 'tangent-chain', 'es-unlimit': 'unlimit', 'rf-shrink': 'shrink', 'ut-keep': 'keep-edges', 'section-btn': 'view-section', 'sa-flip': 'flip', 'pl-flip': 'flip', 'pl-instance': 'instance', 'mirror-instance': 'instance', 'ra-instance': 'instance', 'rr-instance': 'instance', 'ca-instance': 'instance', 'br-trim': 'trim', 'br-comb': 'view-curvature', 'ac-comb': 'view-curvature', 'dc-reblend': 'reblend', 'dc-keep': 'keep', 'im-delete': 'delete', 'in-realize': 'realize-instance', 'cc-extend': 'extend', 'cc-screen': 'view-screen', 'in-dup': 'duplicate', 'in-delete': 'delete' }[b.dataset.id];
     b.insertAdjacentHTML('afterbegin', icon(name));
   }
   const $ = id => root.querySelector(`[data-id="${id}"]`);
@@ -7265,9 +7266,12 @@ export async function mount(root, backend) {
     showTool('bridge-surface');
     setState('none');
     const side = e => ({ body: e.body, edge: e.n });
-    const crossing = () => c.edges.length !== 2 && c.sheets.length === 2;
+    // A adds a wall pair: sheets pair up in the order they are picked, each pair bridged alike.
+    const crossing = () => c.edges.length !== 2 && c.sheets.length >= 2 && c.sheets.length % 2 === 0;
+    const pairs = () => Array.from({ length: c.sheets.length / 2 }, (_, i) => [c.sheets[2 * i], c.sheets[2 * i + 1]]);
+    const sheetRequest = ([a, b]) => ({ a, b, width: num('bs-w'), shape: c.shape, trim: c.trim, sense: c.sense });
     c.request = () => crossing()
-      ? { a: c.sheets[0], b: c.sheets[1], width: num('bs-w'), shape: c.shape, trim: c.trim, sense: c.sense }
+      ? sheetRequest(pairs()[0])
       : { a: side(c.edges[0]), b: side(c.edges[1]), tension: num('bs-t') };
     const text = () => crossing()
       ? `BRIDGE SURFACE · WIDTH ${num('bs-w')} · ${c.shape.toUpperCase()} · TRIM ${c.trim.toUpperCase()}${c.sense.some(Boolean) ? ` · SENSE ${c.sense.map((s, i) => s ? i + 1 : '').filter(Boolean).join(' ')}` : ''}`
@@ -7282,18 +7286,29 @@ export async function mount(root, backend) {
     };
     c.set = (key, v) => { c[key] = v; sync(); c.preview(); };
     c.flip = i => { c.sense = c.sense.map((s, k) => k === i ? !s : s); sync(); c.preview(); };
-    c.preview = () => livePreview(c, () => crossing() ? backend.previewSheetBridge(c.request()) : backend.previewBridgeSurface(c.request()), b => {
-      const m = showPreviewBody(b, phantom.add.face, phantom.add.edge);
-      m.renderOrder = 5;
-      $('bs-hint').textContent = crossing() ? 'WHERE THE SHEETS CROSS' : `TANGENT TO BOTH FACES · TENSION ${num('bs-t')}`;
-      setHud(text());
+    c.preview = () => livePreview(c, async () => {
+      if (!crossing()) { const b = await backend.previewBridgeSurface(c.request()); return b ? [b] : null; }
+      const out = [];
+      for (const pr of pairs()) out.push(await backend.previewSheetBridge(sheetRequest(pr)));
+      return out.some(b => !b) ? null : out;
+    }, list => {
+      for (const b of list) showPreviewBody(b, phantom.add.face, phantom.add.edge).renderOrder = 5;
+      $('bs-hint').textContent = crossing() ? (list.length > 1 ? `WHERE EACH PAIR CROSSES · ${list.length} PAIRS · A ADDS ANOTHER` : 'WHERE THE SHEETS CROSS · A ADDS A WALL PAIR') : `TANGENT TO BOTH FACES · TENSION ${num('bs-t')}`;
+      setHud(text() + (list.length > 1 ? ` ×${list.length}` : ''));
     }, 'bs-hint');
     c.onSelection = () => {
       drawOverlays();
       c.edges = sel.list('edge');
       c.sheets = sel.bodies.filter(id => current.find(b => b.id === id)?.sheet);
       sync();
-      if (crossing()) { setTarget(c.sheets.map(label).join(' · ')); return c.preview(); }
+      if (new Set(c.sheets).size !== c.sheets.length) c.sheets = [...new Set(c.sheets)];
+      if (crossing()) { c.adding = false; setTarget(pairs().map(p => p.map(label).join('×')).join(' · ')); return c.preview(); }
+      if (c.sheets.length >= 2 && c.edges.length !== 2) {
+        const missing = 'SELECT ONE MORE SHEET TO MAKE THE PAIR';
+        $('bs-hint').textContent = missing;
+        clearPreview();
+        return setHud(missing);
+      }
       setTarget(c.edges.length ? c.edges.map(e => label(e.body)).join(' · ') : '—');
       if (c.edges.length !== 2) {
         const missing = 'SELECT TWO EDGES OF SHEETS OR SOLIDS, OR TWO SHEETS THAT CROSS';
@@ -7304,14 +7319,26 @@ export async function mount(root, backend) {
       c.preview();
     };
     c.key = action => {
+      if (action === 'add-pair') {
+        if (!crossing()) return toast('SELECT TWO CROSSING SHEETS FIRST'), true;
+        c.adding = true;
+        $('bs-hint').textContent = 'SHIFT-CLICK TWO MORE SHEETS THAT CROSS';
+        setHud('BRIDGE SURFACE · ADD WALL PAIR');
+        return true;
+      }
       if (action !== 'tension') return false;
       c.entry = { label: 'TENSION', text: '', apply: v => { if (v > 0) { $('bs-t').value = v; c.preview(); } else toast('THE TENSION MUST BE ABOVE ZERO'); } };
       setHud('TENSION _');
       return true;
     };
     c.click = e => {
-      if (!(e.ctrlKey || e.metaKey || e.shiftKey)) return true;
       const hit = pickAt(e);
+      // Adding a wall pair: a plain click picks the next sheet.
+      if (c.adding && hit && hit.kind !== 'edge' && current.find(b => b.id === hit.body)?.sheet) {
+        if (!sel.bodies.includes(hit.body)) { sel.add({ kind: 'solid', body: hit.body }); selectionChanged(); }
+        return true;
+      }
+      if (!(e.ctrlKey || e.metaKey || e.shiftKey)) return true;
       if (hit?.kind !== 'edge') return true;
       sel.toggle({ kind: 'edge', body: hit.body, n: hit.n });
       selectionChanged();
@@ -7320,11 +7347,19 @@ export async function mount(root, backend) {
     c.finish = async () => {
       if (c.edges.length !== 2 && !crossing()) { setState('failed'); return toast($('bs-hint').textContent); }
       try {
-        const { id, scene: list } = crossing() ? await backend.commitSheetBridge(c.request()) : await backend.commitBridgeSurface(c.request());
+        const made = [];
+        let list = null;
+        // One undo step per pair, as each is its own bridge.
+        for (const r of crossing() ? pairs().map(sheetRequest) : [c.request()]) {
+          const res = crossing() ? await backend.commitSheetBridge(r) : await backend.commitBridgeSurface(r);
+          made.push(res.id);
+          list = res.scene;
+          record(text(), res.id);
+        }
         endCmd('committed');
-        record(text(), id);
         await showScene(list);
-        sel.replace({ kind: 'solid', body: id });
+        sel.clear();
+        for (const id of made) sel.add({ kind: 'solid', body: id });
         selectionChanged({ quiet: true });
       } catch (e) { setState('failed'); toast(say(e)); }
     };
@@ -10633,6 +10668,7 @@ export async function mount(root, backend) {
   $('bs-w').addEventListener('input', () => cmd?.id === 'bridge-surface' && cmd.preview());
   for (const b of $$('[data-bsshape]')) b.onclick = () => cmd?.id === 'bridge-surface' && cmd.set('shape', b.dataset.bsshape);
   for (const b of $$('[data-bstrim]')) b.onclick = () => cmd?.id === 'bridge-surface' && cmd.set('trim', b.dataset.bstrim);
+  $('bs-add').onclick = () => cmd?.id === 'bridge-surface' && cmd.key('add-pair');
   $('bs-s1').onclick = () => cmd?.id === 'bridge-surface' && cmd.flip(0);
   $('bs-s2').onclick = () => cmd?.id === 'bridge-surface' && cmd.flip(1);
   $('es-d').addEventListener('input', () => cmd?.id === 'extend-sheet' && cmd.preview());
