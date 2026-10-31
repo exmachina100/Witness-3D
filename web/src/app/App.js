@@ -104,7 +104,7 @@ import { arcPoints, circleThrough, curveFromNurbs, cvPoints, ellipsePoints, endT
 
 const KEYS = {
   material: [['FORK', 'OWN COPY'], ['⏎ / RMB', 'OK'], ['ESC', 'CANCEL']],
-  idle: [['CLICK', 'SELECT'], ['⇧ CLICK', 'ADD'], ['CTRL CLICK', 'REMOVE'], ['DRAG', 'BOX'], ['MMB', 'ORBIT'], ['RMB', 'PAN'], ['F', 'SEARCH']],
+  idle: [['CLICK', 'SELECT'], ['⇧ CLICK', 'ADD'], ['CTRL CLICK', 'REMOVE'], ['CTRL ⇧ CLICK', 'PICK FROM LIST'], ['DRAG', 'BOX'], ['MMB', 'ORBIT'], ['RMB', 'PAN'], ['F', 'SEARCH']],
   fillet: [['DRAG DOT', 'RADIUS'], ['IN', 'CHAMFER'], ['D', 'DISTANCE'], ['C', 'CHAMFER'], ['A', 'ANGLE'], ['V', 'VARIABLE POINT'], ['L', 'LIMIT POINTS'], ['CTRL CLICK', 'EDGES'], ['T', 'TANGENT EDGES'], ['CLICK ROUND', 'COPY RADIUS'], ['⏎ / RMB', 'OK']],
   move: [['X Y Z', 'AXIS'], ['⇧ X Y Z', 'PLANE'], ['G', 'SCREEN'], ['CTRL', 'SNAP'], ['⏎ / RMB', 'OK']],
   rotate: [['X Y Z', 'AXIS'], ['R', 'SCREEN'], ['CTRL', '15°'], ['⏎ / RMB', 'OK']],
@@ -265,6 +265,7 @@ const SHELL = `
     <div class="radial" data-id="radial" hidden><div class="radial-hub" data-id="radial-hub"></div></div>
     <button class="isolated" data-id="isolated" hidden title="Unisolate (Alt+.)">${icon('isolate')}<span>0 ISOLATED</span></button>
     <div class="boxsel" data-id="boxsel" hidden></div>
+    <div class="pickmenu" data-id="pickmenu" role="menu" aria-label="Pick from what is under the pointer" hidden></div>
     <div class="palette" data-id="palette" hidden>
       <div class="palette-title" data-id="palette-title">SEARCH COMMANDS</div>
       <input data-id="palette-input" placeholder="TYPE A COMMAND" autocomplete="off" spellcheck="false">
@@ -1135,6 +1136,30 @@ export async function mount(root, backend) {
   addEventListener('pointerup', e => { if (e.button === 1 && pivotDrag) { pivotDrag = null; controls.mouseButtons.MIDDLE = THREE.MOUSE.ROTATE; } });
   // The wheel's zoom direction has its own switch (Invert Wheel Direction).
   viewEl.addEventListener('wheel', () => { controls.zoomSpeed = wheelSpeed(prefs.navigation); }, { capture: true, passive: true });
+  // The selection context menu: the wheel moves down its list instead of zooming; with the left
+  // button held (Plasticity's left-click + wheel), the first turn opens it, and letting go selects.
+  viewEl.addEventListener('wheel', e => {
+    const held = down && down.button === 0 && !down.box && (!cmd || cmd.auto);
+    if (!pickMenu && !held) return;
+    e.preventDefault();
+    e.stopImmediatePropagation();
+    const step = e.deltaY > 0 || e.deltaX > 0 ? 1 : -1;
+    if (!pickMenu) {
+      openPickMenu(e);
+      if (pickMenu) { pickMenu.held = true; down.consumed = true; }
+      return;
+    }
+    movePick(pickMenu.at + step);
+  }, { capture: true, passive: false });
+  addEventListener('keydown', e => {
+    if (!pickMenu) return;
+    const keys = { Escape: () => closePickMenu(), ArrowDown: () => movePick(pickMenu.at + 1), ArrowUp: () => movePick(pickMenu.at - 1), Enter: () => choosePick(pickMenu.at, e.shiftKey) };
+    if (!keys[e.key]) return;
+    e.preventDefault();
+    e.stopImmediatePropagation();
+    keys[e.key]();
+    if (!pickMenu) { hover = null; drawOverlays(); }
+  }, true);
   // Regular Polygon: Shift+wheel adds or takes away a side instead of zooming.
   viewEl.addEventListener('wheel', e => {
     if (!e.shiftKey || (cmd?.id !== 'polygon' && !cmd?.wheel)) return;
@@ -2515,6 +2540,79 @@ export async function mount(root, backend) {
     if (sel.allows('solid')) return { kind: 'solid', body: id, point: faceHit.point };
     return null;
   }
+
+  /**
+   * Everything pickable under the pointer, nearest first, for the selection context menu
+   * (Ctrl+Shift+click): curve vertices and control points, curves, edges, regions, faces and
+   * solids, as the selection modes allow, hidden behind nothing (a face further back is listed too).
+   */
+  function pickAllAt(e) {
+    ray(e);
+    const out = [], seen = new Set();
+    const put = (it, d) => { const k = JSON.stringify({ ...it, point: undefined }); if (!seen.has(k)) { seen.add(k); out.push({ ...it, d }); } };
+    if (sel.allows('point')) { const v = vertexAt(local(e)) ?? poleAt(local(e)); if (v) put(v, -1); }
+    const meshes = shownMeshes().filter(m => !org.locked.has(m.userData.id));
+    const faces = raycaster.intersectObjects(meshes, false);
+    raycaster.params.Line.threshold = unitsPerPixel(faces[0]?.point ?? controls.target) * 6;
+    if ((sel.allows('edge') || sel.allows('solid')) && curveGroup.visible)
+      for (const h of raycaster.intersectObjects(curveGroup.children.filter(o => o.visible && o.userData.curve !== undefined), false)) put({ kind: 'curve', id: h.object.userData.curve, point: h.point }, h.distance);
+    if (sel.allows('edge'))
+      for (const h of raycaster.intersectObjects(meshes.map(m => m.userData.lines), false)) put({ kind: 'edge', body: h.object.parent.userData.id, n: h.object.userData.segEdge[h.index / 2], point: h.point }, h.distance);
+    if (sel.allows('face') && curveGroup.visible)
+      for (const h of raycaster.intersectObjects(curveGroup.children.filter(o => o.visible && o.userData.region !== undefined), false)) put({ kind: 'region', id: h.object.userData.region, point: h.point }, h.distance);
+    for (const h of faces) {
+      const { id, faceIds } = h.object.userData;
+      if (sel.allows('face')) put({ kind: 'face', body: id, n: faceIds[h.faceIndex], point: h.point }, h.distance);
+      if (sel.allows('solid')) put({ kind: 'solid', body: id, point: h.point }, h.distance + 1e-6);
+    }
+    return out.sort((a, b) => a.d - b.d);
+  }
+  const pickName = it => it.kind === 'solid' ? `${label(it.body)}${bodyOf(it.body)?.sheet ? ' SHEET' : ' SOLID'}`
+    : it.kind === 'curve' ? `${curveLabel(it.id)} CURVE` : it.kind === 'region' ? `${curveLabel(it.id)} REGION`
+    : it.kind === 'vertex' ? `${curveLabel(it.id)} POINT ${it.n + 1}` : it.kind === 'pole' ? `${label(it.body)} FACE ${it.face + 1} CV ${it.n + 1}`
+    : `${label(it.body)} ${it.kind.toUpperCase()} ${it.n + 1}`;
+  /**
+   * Plasticity's selection context menu: Ctrl+Shift+click lists what lies under the pointer, the
+   * wheel or arrow keys move down the list, and a click or Enter selects that one (Shift adds it).
+   */
+  let pickMenu = null;
+  function openPickMenu(e) {
+    const items = pickAllAt(e);
+    const el = $('pickmenu');
+    if (!items.length) { closePickMenu(); return toast('NOTHING UNDER THE POINTER'); }
+    pickMenu = { items, at: 0, add: false };
+    el.innerHTML = '';
+    items.forEach((it, i) => {
+      const b = document.createElement('button');
+      b.setAttribute('role', 'menuitem');
+      b.textContent = pickName(it);
+      b.title = 'Select this (Shift adds it)';
+      b.onpointerenter = () => movePick(i);
+      b.onclick = ev => choosePick(i, ev.shiftKey);
+      el.append(b);
+    });
+    const p = local(e);
+    Object.assign(el.style, { left: `${p.x + 8}px`, top: `${p.y + 8}px` });
+    el.hidden = false;
+    movePick(0);
+  }
+  function movePick(i) {
+    if (!pickMenu) return;
+    pickMenu.at = (i + pickMenu.items.length) % pickMenu.items.length;
+    [...$('pickmenu').children].forEach((b, k) => b.setAttribute('aria-current', String(k === pickMenu.at)));
+    const { point, d, ...it } = pickMenu.items[pickMenu.at];
+    hover = it;
+    drawOverlays();
+  }
+  function choosePick(i, add) {
+    if (!pickMenu) return;
+    const { point, d, ...it } = pickMenu.items[i];
+    closePickMenu();
+    applySelect(it, add ? 'add' : 'replace');
+    hover = null;
+    selectionChanged();
+  }
+  function closePickMenu() { pickMenu = null; $('pickmenu').hidden = true; }
 
   // --- selection ------------------------------------------------------------
   // Clicks follow Plasticity 0.6.30 (src/selection/Click.ts): with solids selectable, the first
@@ -10734,6 +10832,7 @@ export async function mount(root, backend) {
     const d = down;
     down = null;
     if (!d || d.button !== e.button) return;
+    if (pickMenu?.held && e.button === 0) return choosePick(pickMenu.at, e.shiftKey);
     const moved = Math.hypot(e.clientX - d.x, e.clientY - d.y) > 4;
     if (e.button === 2) { if (!moved && cmd) await finish(); return; } // Plasticity: right-click finishes
     if (e.button !== 0 || d.consumed) return;
@@ -10743,6 +10842,9 @@ export async function mount(root, backend) {
       return boxSelect(local({ clientX: d.x, clientY: d.y }), local(e), modOf(e));
     }
     if (moved) return;
+    if (pickMenu) closePickMenu();
+    // Ctrl+Shift+click: the selection context menu of what lies under the pointer.
+    if ((e.ctrlKey || e.metaKey) && e.shiftKey && (!cmd || cmd.auto)) return openPickMenu(e);
     // Alt+click an edge: its loop; Ctrl+Alt+click: its ring (Shift adds either to the selection).
     // Also while Fillet picks its edges, or a command came up by itself on the selection.
     if (e.altKey && (!cmd || cmd.auto || cmd.id === 'fillet')) {
