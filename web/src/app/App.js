@@ -88,7 +88,7 @@ import { P_MENU, RADIALS, mergeKeys, parseRadial, shortLabel, showKey, sliceAt, 
 import { ADVANCED_MATERIAL, ENVIRONMENTS, MATERIAL_LIBRARY, SHADERS, SHADER_OPTIONS, checkMaterial, formatMass, isColorKey, massOf, newMaterial, shader } from './shading.js';
 import { claude, describe, MODEL, reply, request } from './ai.js';
 import { icon } from './icons.js';
-import { limitEdges, mergeShortEdges, to3mf, toGlb, toObj, toStl } from '../meshExport.js';
+import { limitEdges, mergeShortEdges, polygonize, removeSmallParts, to3mf, toGlb, toObj, toStl } from '../meshExport.js';
 import { flatten, toDxf, toSvg } from '../drawingExport.js';
 import { readDxf } from '../dxf.js';
 import { distanceToFace } from '../dependentOffset.js';
@@ -363,6 +363,7 @@ const SHELL = `
       <span class="hint" data-id="mx-hint">—</span>
       <span class="label">FORMAT</span>
       <div class="seg" role="group" aria-label="Mesh format"><button data-mxf="obj" aria-pressed="true">OBJ</button><button data-mxf="stl" aria-pressed="false" title="Binary STL, millimetres">STL</button><button data-mxf="glb" aria-pressed="false" title="Binary glTF in metres, with each body's material">GLB</button><button data-mxf="3mf" aria-pressed="false" title="3MF for printing, millimetres, with each body's colour">3MF</button></div>
+      <div class="field" title="Overall density: sets Tolerance and Angle together, coarse to fine"><label for="w3d-mx-density">DENSITY</label><input id="w3d-mx-density" data-id="mx-density" type="range" min="0" max="1" step="0.01" value="0.33"></div>
       <div class="field"><label for="w3d-mx-tol">TOLERANCE</label><input id="w3d-mx-tol" data-id="mx-tol" type="number" step="0.01" min="0.001" value="0.05"></div>
       <div class="field"><label for="w3d-mx-angle">ANGLE °</label><input id="w3d-mx-angle" data-id="mx-angle" type="number" step="1" min="0.5" value="15"></div>
       <div class="field"><label for="w3d-mx-width">MAX WIDTH</label><input id="w3d-mx-width" data-id="mx-width" type="number" step="1" min="0" value="0"></div>
@@ -370,6 +371,10 @@ const SHELL = `
       <div class="field" data-id="mx-obj-scale"><label for="w3d-mx-scale">SCALE</label><input id="w3d-mx-scale" data-id="mx-scale" type="number" step="0.1" min="0.000001" value="1" title="OBJ: every coordinate multiplied by this, for the other program's units"></div>
       <span class="label" data-id="mx-up-label">UP AXIS</span>
       <div class="seg" role="group" aria-label="Up axis" data-id="mx-up"><button data-mxup="z" aria-pressed="true" title="Z up, as this app shows it">Z</button><button data-mxup="y" aria-pressed="false" title="Y up, as most mesh programs have it">Y</button></div>
+      <span class="label" data-id="mx-topo-label">TOPOLOGY</span>
+      <div class="seg" role="group" aria-label="Topology" data-id="mx-topo"><button data-mxtopo="tris" aria-pressed="true" title="Triangles only">TRIS</button><button data-mxtopo="quads" aria-pressed="false" title="Quads, with triangles where two will not pair">QUADS</button><button data-mxtopo="ngons" aria-pressed="false" title="Each flat run of faces one polygon of any number of sides">NGONS</button></div>
+      <div class="chips" data-id="mx-convex-row"><button data-id="mx-convex" aria-pressed="false" title="Ngons: only convex polygons; a run that is not convex stays triangles">CONVEX NGONS ONLY</button></div>
+      <div class="field" title="Separate pieces smaller across (their bounding box's diagonal) than this are left out; 0 keeps them all"><label for="w3d-mx-small">REMOVE SMALL FEATURES</label><input id="w3d-mx-small" data-id="mx-small" type="number" step="0.5" min="0" value="0"></div>
     </div>
     <div class="sec" data-panel="export-drawing" hidden>
       <span class="hint" data-id="dr-hint">—</span>
@@ -996,11 +1001,11 @@ const VIEWS = {
 export async function mount(root, backend) {
   root.innerHTML = SHELL;
   // Panel options carry their icon ahead of the key and name.
-  for (const b of root.querySelectorAll('[data-proj],[data-imp],[data-impcomp],[data-draw],[data-bop],[data-xop],[data-fop],[data-spiral],[data-toggle],[data-gmethod],[data-galign],[data-gcorner],[data-grow],[data-mfgrow],[data-drgrow],[data-eslimit],[data-flshape],[data-drtaper],[data-avaxis],[data-extshape],[data-esshape],[data-isodir],[data-id="oe-both"],[data-id="oe-individual"],[data-id="blend-tangent"],[data-id="ex-lock"],[data-id="bool-keep"],[data-id="prim-keep"],[data-id="ex-free"],[data-id="ex-pivot"],[data-id="ex-individual"],[data-id="patch-individual"],[data-id="patch-quad"],[data-id="as-symmetric"],[data-id="as-analysis"],[data-id="sq-analysis"],[data-id="dr-hidden"],[data-id="dr-curves"],[data-id="oc-lock"],[data-id="oc-free"],[data-id="oc-slot"],[data-id="oc-combine"],[data-id="es-unlimit"],[data-rbmethod],[data-oecorner],[data-saplane],[data-plaxis],[data-plop],[data-id="pl-flip"],[data-id="pl-instance"],[data-id="mirror-instance"],[data-id="ra-instance"],[data-id="rr-instance"],[data-id="ca-instance"],[data-id="br-trim"],[data-id="br-comb"],[data-id="ac-comb"],[data-id="dc-reblend"],[data-id="section-btn"],[data-id="sa-flip"],[data-id="rf-shrink"],[data-id="ut-keep"],[data-txfont],[data-id="tx-load"],[data-id="tx-system"],[data-txalign],[data-sldir],[data-dcflip],[data-id="dc-keep"],[data-imdepth],[data-imcull],[data-id="im-delete"],[data-id="cc-extend"],[data-id="cc-screen"],[data-inmode],[data-pfmode],[data-pfmirror],[data-pmethod],[data-sqbound],[data-asbound],[data-bsshape],[data-bstrim],[data-id="bs-s1"],[data-id="bs-s2"],[data-id="in-realize"],[data-id="in-dup"],[data-id="in-delete"],[data-id="matcap-load"],[data-id="matcap-custom"],[data-id="hdr-load"],[data-id="hdr-custom"]')) {
+  for (const b of root.querySelectorAll('[data-proj],[data-imp],[data-impcomp],[data-draw],[data-bop],[data-xop],[data-fop],[data-spiral],[data-toggle],[data-gmethod],[data-galign],[data-gcorner],[data-grow],[data-mfgrow],[data-drgrow],[data-eslimit],[data-flshape],[data-drtaper],[data-avaxis],[data-extshape],[data-esshape],[data-isodir],[data-id="oe-both"],[data-id="oe-individual"],[data-id="blend-tangent"],[data-id="ex-lock"],[data-id="bool-keep"],[data-id="prim-keep"],[data-id="ex-free"],[data-id="ex-pivot"],[data-id="ex-individual"],[data-id="patch-individual"],[data-id="patch-quad"],[data-id="as-symmetric"],[data-id="as-analysis"],[data-id="sq-analysis"],[data-id="dr-hidden"],[data-id="dr-curves"],[data-id="oc-lock"],[data-id="oc-free"],[data-id="oc-slot"],[data-id="oc-combine"],[data-id="es-unlimit"],[data-rbmethod],[data-oecorner],[data-saplane],[data-plaxis],[data-plop],[data-id="pl-flip"],[data-id="pl-instance"],[data-id="mirror-instance"],[data-id="ra-instance"],[data-id="rr-instance"],[data-id="ca-instance"],[data-id="br-trim"],[data-id="br-comb"],[data-id="ac-comb"],[data-id="dc-reblend"],[data-id="section-btn"],[data-id="sa-flip"],[data-id="rf-shrink"],[data-id="ut-keep"],[data-txfont],[data-id="tx-load"],[data-id="tx-system"],[data-txalign],[data-sldir],[data-dcflip],[data-id="dc-keep"],[data-imdepth],[data-imcull],[data-id="im-delete"],[data-id="cc-extend"],[data-id="cc-screen"],[data-inmode],[data-pfmode],[data-pfmirror],[data-pmethod],[data-mxtopo],[data-id="mx-convex"],[data-sqbound],[data-asbound],[data-bsshape],[data-bstrim],[data-id="bs-s1"],[data-id="bs-s2"],[data-id="in-realize"],[data-id="in-dup"],[data-id="in-delete"],[data-id="matcap-load"],[data-id="matcap-custom"],[data-id="hdr-load"],[data-id="hdr-custom"]')) {
     const name = (b.dataset.proj && (b.dataset.proj === 'screen' ? 'view-screen' : `proj-${b.dataset.proj}`)) ?? (b.dataset.imp && (b.dataset.imp === 'screen' ? 'view-screen' : `proj-${b.dataset.imp}`)) ?? (b.dataset.impcomp && `completion-${b.dataset.impcomp}`) ?? b.dataset.draw ?? b.dataset.bop ?? b.dataset.xop ?? b.dataset.fop ?? b.dataset.spiral ?? (b.dataset.toggle && `view-${b.dataset.toggle}`)
       ?? (b.dataset.gmethod && `guide-${b.dataset.gmethod}`) ?? (b.dataset.galign && `align-${b.dataset.galign}`) ?? (b.dataset.gcorner && (b.dataset.gcorner === 'round' ? 'corner-round' : 'corner-linear')) ?? (b.dataset.grow && `grow-${b.dataset.grow}`) ?? (b.dataset.mfgrow && `grow-${b.dataset.mfgrow}`) ?? (b.dataset.drgrow && `grow-${b.dataset.drgrow}`) ?? (b.dataset.eslimit && `limit-${b.dataset.eslimit}`) ?? (b.dataset.flshape && `fillet-${b.dataset.flshape}`) ?? (b.dataset.drtaper && `taper-${b.dataset.drtaper}`) ?? (b.dataset.avaxis && `axis-${b.dataset.avaxis}`) ?? (b.dataset.extshape && `extend-${b.dataset.extshape}`) ?? (b.dataset.esshape && `extend-${b.dataset.esshape}`) ?? (b.dataset.isodir && `iso-${b.dataset.isodir}`) ?? (b.dataset.rbmethod && `rebuild-${b.dataset.rbmethod}`) ?? (b.dataset.oecorner && `corner-${b.dataset.oecorner}`) ?? (b.dataset.saplane && `section-${b.dataset.saplane}`) ?? (b.dataset.plaxis && (b.dataset.plaxis === 'normal' ? 'place-normal' : `axis-${b.dataset.plaxis}`)) ?? b.dataset.plop
-      ?? (b.dataset.txfont && `font-${b.dataset.txfont}`) ?? (b.dataset.txalign && `txalign-${b.dataset.txalign}`) ?? (b.dataset.sldir && { u: 'slide-u', '-u': 'slide-back', v: 'slide-v', '-v': 'slide-vback', n: 'slide-n' }[b.dataset.sldir]) ?? (b.dataset.dcflip && { mirror: 'mirror', swap: 'swap-uv', normal: 'reverse-sheet' }[b.dataset.dcflip]) ?? (b.dataset.imdepth && `depth-${b.dataset.imdepth}`) ?? (b.dataset.imcull && `cull-${b.dataset.imcull}`) ?? b.dataset.inmode ?? (b.dataset.bsshape && `bridge-${b.dataset.bsshape}`) ?? (b.dataset.bstrim && `trimwall-${b.dataset.bstrim}`) ?? (b.dataset.pmethod && (b.dataset.pmethod === 'fill' ? 'patch-fill' : `trim-${b.dataset.pmethod}`)) ?? (b.dataset.pfmode && `falloff-${b.dataset.pfmode}`) ?? ((b.dataset.sqbound ?? b.dataset.asbound) && `bound-${b.dataset.sqbound ?? b.dataset.asbound}`) ?? (b.dataset.pfmirror && `mirror-${b.dataset.pfmirror}`)
-      ?? { 'matcap-load': 'matcap-load', 'matcap-custom': 'matcap', 'tx-load': 'font-load', 'tx-system': 'font-system', 'hdr-load': 'hdr-load', 'hdr-custom': 'hdr', 'ex-lock': 'lock', 'bool-keep': 'keep', 'prim-keep': 'keep', 'ex-free': 'freestyle', 'ex-pivot': 'pivot', 'ex-individual': 'individual', 'patch-individual': 'individual', 'patch-quad': 'square', 'as-symmetric': 'symmetric', 'as-analysis': 'analysis', 'sq-analysis': 'analysis', 'bs-s1': 'flip', 'bs-s2': 'flip', 'dr-hidden': 'hidden-lines', 'dr-curves': 'drawing-curves', 'oc-lock': 'lock', 'oc-free': 'freestyle', 'oc-slot': 'slot', 'oc-combine': 'combine', 'oe-both': 'both-sides', 'oe-individual': 'individual', 'blend-tangent': 'tangent-chain', 'es-unlimit': 'unlimit', 'rf-shrink': 'shrink', 'ut-keep': 'keep-edges', 'section-btn': 'view-section', 'sa-flip': 'flip', 'pl-flip': 'flip', 'pl-instance': 'instance', 'mirror-instance': 'instance', 'ra-instance': 'instance', 'rr-instance': 'instance', 'ca-instance': 'instance', 'br-trim': 'trim', 'br-comb': 'view-curvature', 'ac-comb': 'view-curvature', 'dc-reblend': 'reblend', 'dc-keep': 'keep', 'im-delete': 'delete', 'in-realize': 'realize-instance', 'cc-extend': 'extend', 'cc-screen': 'view-screen', 'in-dup': 'duplicate', 'in-delete': 'delete' }[b.dataset.id];
+      ?? (b.dataset.txfont && `font-${b.dataset.txfont}`) ?? (b.dataset.txalign && `txalign-${b.dataset.txalign}`) ?? (b.dataset.sldir && { u: 'slide-u', '-u': 'slide-back', v: 'slide-v', '-v': 'slide-vback', n: 'slide-n' }[b.dataset.sldir]) ?? (b.dataset.dcflip && { mirror: 'mirror', swap: 'swap-uv', normal: 'reverse-sheet' }[b.dataset.dcflip]) ?? (b.dataset.imdepth && `depth-${b.dataset.imdepth}`) ?? (b.dataset.imcull && `cull-${b.dataset.imcull}`) ?? b.dataset.inmode ?? (b.dataset.bsshape && `bridge-${b.dataset.bsshape}`) ?? (b.dataset.bstrim && `trimwall-${b.dataset.bstrim}`) ?? (b.dataset.mxtopo && `topo-${b.dataset.mxtopo}`) ?? (b.dataset.pmethod && (b.dataset.pmethod === 'fill' ? 'patch-fill' : `trim-${b.dataset.pmethod}`)) ?? (b.dataset.pfmode && `falloff-${b.dataset.pfmode}`) ?? ((b.dataset.sqbound ?? b.dataset.asbound) && `bound-${b.dataset.sqbound ?? b.dataset.asbound}`) ?? (b.dataset.pfmirror && `mirror-${b.dataset.pfmirror}`)
+      ?? { 'matcap-load': 'matcap-load', 'matcap-custom': 'matcap', 'tx-load': 'font-load', 'tx-system': 'font-system', 'hdr-load': 'hdr-load', 'hdr-custom': 'hdr', 'ex-lock': 'lock', 'bool-keep': 'keep', 'prim-keep': 'keep', 'ex-free': 'freestyle', 'ex-pivot': 'pivot', 'ex-individual': 'individual', 'patch-individual': 'individual', 'mx-convex': 'convex', 'patch-quad': 'square', 'as-symmetric': 'symmetric', 'as-analysis': 'analysis', 'sq-analysis': 'analysis', 'bs-s1': 'flip', 'bs-s2': 'flip', 'dr-hidden': 'hidden-lines', 'dr-curves': 'drawing-curves', 'oc-lock': 'lock', 'oc-free': 'freestyle', 'oc-slot': 'slot', 'oc-combine': 'combine', 'oe-both': 'both-sides', 'oe-individual': 'individual', 'blend-tangent': 'tangent-chain', 'es-unlimit': 'unlimit', 'rf-shrink': 'shrink', 'ut-keep': 'keep-edges', 'section-btn': 'view-section', 'sa-flip': 'flip', 'pl-flip': 'flip', 'pl-instance': 'instance', 'mirror-instance': 'instance', 'ra-instance': 'instance', 'rr-instance': 'instance', 'ca-instance': 'instance', 'br-trim': 'trim', 'br-comb': 'view-curvature', 'ac-comb': 'view-curvature', 'dc-reblend': 'reblend', 'dc-keep': 'keep', 'im-delete': 'delete', 'in-realize': 'realize-instance', 'cc-extend': 'extend', 'cc-screen': 'view-screen', 'in-dup': 'duplicate', 'in-delete': 'delete' }[b.dataset.id];
     b.insertAdjacentHTML('afterbegin', icon(name));
   }
   const $ = id => root.querySelector(`[data-id="${id}"]`);
@@ -7851,7 +7856,7 @@ export async function mount(root, backend) {
     // With nothing selected, the shown instances of solids go too, each as its master's mesh where it stands.
     const placed = sel.bodies.length ? [] : instances.filter(n => !n.curve && !n.hidden && current.some(b => b.id === n.master));
     if (!ids.length && !placed.length) return toast('NOTHING TO EXPORT');
-    const c = cmd = { id: 'export-mesh', format: 'obj', up: 'z' };
+    const c = cmd = { id: 'export-mesh', format: 'obj', up: 'z', topology: 'tris', convex: false };
     lastTool = 'export-mesh';
     showTool('export-mesh');
     setState('none');
@@ -7860,14 +7865,30 @@ export async function mount(root, backend) {
     const sync = () => {
       for (const b of $$('[data-mxf]')) b.setAttribute('aria-pressed', b.dataset.mxf === c.format);
       for (const b of $$('[data-mxup]')) b.setAttribute('aria-pressed', b.dataset.mxup === c.up);
-      // Scale and Up Axis are the OBJ options, as in Plasticity.
-      for (const id of ['mx-obj-scale', 'mx-up-label', 'mx-up']) $(id).hidden = c.format !== 'obj';
+      for (const b of $$('[data-mxtopo]')) b.setAttribute('aria-pressed', b.dataset.mxtopo === c.topology);
+      $('mx-convex').setAttribute('aria-pressed', String(c.convex));
+      // Scale, Up Axis and Topology are the OBJ options, as in Plasticity.
+      for (const id of ['mx-obj-scale', 'mx-up-label', 'mx-up', 'mx-topo-label', 'mx-topo']) $(id).hidden = c.format !== 'obj';
+      $('mx-convex-row').hidden = c.format !== 'obj' || c.topology !== 'ngons';
     };
     for (const b of $$('[data-mxup]')) b.onclick = () => { c.up = b.dataset.mxup; sync(); };
+    for (const b of $$('[data-mxtopo]')) b.onclick = () => { c.topology = b.dataset.mxtopo; sync(); };
+    $('mx-convex').onclick = () => { c.convex = !c.convex; sync(); };
+    // Density (Plasticity's one setting that moves the others): 0 is 0.5 mm and 30°, 1 is 0.0005 mm and 3°.
+    $('mx-density').oninput = () => {
+      const d = Math.min(1, Math.max(0, +$('mx-density').value || 0));
+      $('mx-tol').value = +(0.5 * 1000 ** -d).toPrecision(2);
+      $('mx-angle').value = +(30 * 10 ** -d).toFixed(1);
+    };
     c.key = action => { if (['obj', 'stl', 'glb', '3mf'].includes(action)) { c.format = action; sync(); return true; } return false; };
     c.finish = async () => {
       const tolerance = num('mx-tol'), angle = num('mx-angle') * DEG, maxWidth = num('mx-width'), minWidth = num('mx-min');
-      const sized = (positions, indices) => { const m = mergeShortEdges(positions, indices, minWidth); return limitEdges(m.positions, m.indices, maxWidth); };
+      const small = num('mx-small');
+      const sized = (positions, indices) => {
+        const m = mergeShortEdges(positions, indices, minWidth), l = limitEdges(m.positions, m.indices, maxWidth);
+        const r = removeSmallParts(l, small);
+        return c.format === 'obj' && c.topology !== 'tris' ? polygonize(r, c.topology, { convexOnly: c.convex }) : r;
+      };
       try {
         const masters = placed.map(n => n.master).filter((id, i, all) => all.indexOf(id) === i);
         const made = await backend.meshBodies([...new Set([...ids, ...masters])], { tolerance, angle });
@@ -7882,12 +7903,12 @@ export async function mount(root, backend) {
           const ix = at.determinant() < 0 ? m.indices.map((_, i) => m.indices[i - (i % 3) + [0, 2, 1][i % 3]]) : m.indices;
           meshes.push({ name: instanceLabel(n.id), ...look(n.master), sheet: sheet(n.master), ...sized(pos, ix) });
         }
-        const triangles = meshes.reduce((n, m) => n + m.indices.length / 3, 0);
+        const triangles = meshes.reduce((n, m) => n + m.indices.length / 3, 0), polygons = meshes.reduce((n, m) => n + (m.polygons?.length ?? m.indices.length / 3), 0);
         const name = `witness3d-${ids.length === 1 ? label(ids[0]).toLowerCase() : 'model'}.${c.format}`;
         const write = { obj: toObj, stl: toStl, glb: toGlb, '3mf': to3mf }[c.format];
         const msg = await backend.saveExport(name, c.format === 'obj' ? toObj(meshes, undefined, { scale: num('mx-scale') || 1, up: c.up }) : write(meshes));
         endCmd(msg ? 'committed' : 'cancelled');
-        if (msg) toast(`${msg} · ${triangles} TRIANGLES`);
+        if (msg) toast(`${msg} · ${c.format === 'obj' && c.topology !== 'tris' ? `${polygons} POLYGONS` : `${triangles} TRIANGLES`}`);
       } catch (e) { setState('failed'); toast(say(e)); }
     };
     c.abort = () => endCmd('cancelled');

@@ -84,10 +84,133 @@ export function toObj(meshes, comment = 'Witness 3D', { scale = 1, up = 'z' } = 
             const [x, y, z] = (up === 'y' ? [m.positions[i], m.positions[i + 1], m.positions[i + 2]] : toUser(m.positions[i], m.positions[i + 1], m.positions[i + 2])).map(c => c * scale);
             lines.push(`v ${+x.toFixed(6)} ${+y.toFixed(6)} ${+z.toFixed(6)}`);
         }
-        for (let i = 0; i < m.indices.length; i += 3) lines.push(`f ${m.indices[i] + 1 + base} ${m.indices[i + 1] + 1 + base} ${m.indices[i + 2] + 1 + base}`);
+        // Polygons (Topology Quads or Ngons) where the mesh has them, else its triangles.
+        const faces = m.polygons ?? Array.from({ length: m.indices.length / 3 }, (_, t) => [m.indices[3 * t], m.indices[3 * t + 1], m.indices[3 * t + 2]]);
+        for (const f of faces) lines.push(`f ${f.map(i => i + 1 + base).join(' ')}`);
         base += m.positions.length / 3;
     }
     return lines.join('\n') + '\n';
+}
+
+const sub = (P, i, j) => [P[3 * i] - P[3 * j], P[3 * i + 1] - P[3 * j + 1], P[3 * i + 2] - P[3 * j + 2]];
+const cross = (a, b) => [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]];
+const dot = (a, b) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
+
+/** Whether the polygon (vertex numbers, counter-clockwise about `n`) turns the same way at every corner. */
+function convex(P, poly, n) {
+    for (let k = 0; k < poly.length; k++) {
+        const a = poly[k], b = poly[(k + 1) % poly.length], c = poly[(k + 2) % poly.length];
+        if (dot(cross(sub(P, b, a), sub(P, c, b)), n) < -1e-12) return false;
+    }
+    return true;
+}
+
+/**
+ * Plasticity's OBJ Topology: the mesh's triangles welded and joined into polygons. 'tris' keeps
+ * them; 'quads' pairs neighbours lying in one plane into convex quads (across each triangle's
+ * longest side first), leaving the rest triangles; 'ngons' makes each run of neighbours lying in one
+ * plane one polygon round its outline (a run with a hole in it, or not convex with `convexOnly`,
+ * stays triangles). Returns { positions, indices, polygons } with polygons as vertex-number lists.
+ */
+export function polygonize(mesh, topology = 'tris', { convexOnly = false } = {}) {
+    const { positions: P, indices: I } = weld(mesh);
+    const nt = I.length / 3, tri = t => [I[3 * t], I[3 * t + 1], I[3 * t + 2]];
+    const polys = Array.from({ length: nt }, (_, t) => tri(t));
+    if (topology === 'tris' || !nt) return { positions: P, indices: I, polygons: polys };
+    const normal = t => { const [a, b, c] = tri(t), n = cross(sub(P, b, a), sub(P, c, a)), l = Math.hypot(...n); return l ? n.map(x => x / l) : [0, 0, 0]; };
+    const N = Array.from({ length: nt }, (_, t) => normal(t));
+    let size = 0;
+    for (let i = 0; i < P.length; i += 3) size = Math.max(size, Math.abs(P[i]), Math.abs(P[i + 1]), Math.abs(P[i + 2]));
+    const tol = 1e-6 * (1 + size);
+    // One plane: normals within about 0.05° and the other's far corner on this one's plane.
+    const flat = (t, u) => {
+        if (dot(N[t], N[u]) < 1 - 4e-7) return false;
+        const a = tri(t)[0];
+        return tri(u).every(v => Math.abs(dot(sub(P, v, a), N[t])) < tol);
+    };
+    // Directed side a→b: the triangle having it.
+    const side = new Map();
+    for (let t = 0; t < nt; t++) { const v = tri(t); for (let k = 0; k < 3; k++) side.set(`${v[k]},${v[(k + 1) % 3]}`, t); }
+    const across = (a, b) => side.get(`${b},${a}`);
+    if (topology === 'quads') {
+        const used = new Uint8Array(nt), out = [];
+        for (let t = 0; t < nt; t++) {
+            if (used[t]) continue;
+            const v = tri(t);
+            // Sides longest first: the diagonal of a quad is its triangles' longest side.
+            const order = [0, 1, 2].sort((i, j) => Math.hypot(...sub(P, v[(j + 1) % 3], v[j])) - Math.hypot(...sub(P, v[(i + 1) % 3], v[i])));
+            let quad = null;
+            for (const k of order) {
+                const a = v[k], b = v[(k + 1) % 3], c = v[(k + 2) % 3], u = across(a, b);
+                if (u === undefined || used[u] || u === t || !flat(t, u)) continue;
+                const q = tri(u).find(x => x !== a && x !== b);
+                const cand = [b, c, a, q];
+                if (convex(P, cand, N[t])) { quad = cand; used[u] = 1; break; }
+            }
+            used[t] = 1;
+            out.push(quad ?? v);
+        }
+        return { positions: P, indices: I, polygons: out };
+    }
+    // Ngons: runs of neighbours in one plane.
+    const root = Array.from({ length: nt }, (_, t) => t);
+    const find = t => { while (root[t] !== t) t = root[t] = root[root[t]]; return t; };
+    for (let t = 0; t < nt; t++) {
+        const v = tri(t);
+        for (let k = 0; k < 3; k++) { const u = across(v[k], v[(k + 1) % 3]); if (u !== undefined && flat(t, u)) root[find(u)] = find(t); }
+    }
+    const runs = new Map();
+    for (let t = 0; t < nt; t++) { const r = find(t); if (!runs.has(r)) runs.set(r, []); runs.get(r).push(t); }
+    const out = [];
+    for (const [r, ts] of runs) {
+        if (ts.length === 1) { out.push(tri(ts[0])); continue; }
+        const inRun = new Set(ts), next = new Map();
+        let bad = false;
+        for (const t of ts) {
+            const v = tri(t);
+            for (let k = 0; k < 3; k++) {
+                const a = v[k], b = v[(k + 1) % 3], u = across(a, b);
+                if (u !== undefined && inRun.has(u)) continue;
+                if (next.has(a)) bad = true;
+                next.set(a, b);
+            }
+        }
+        // One outline only: walk it from any corner and see that it takes in every outline side.
+        let loop = [];
+        if (!bad && next.size) {
+            const start = next.keys().next().value;
+            let at = start;
+            do { loop.push(at); at = next.get(at); } while (at !== undefined && at !== start && loop.length <= next.size);
+            if (at !== start || loop.length !== next.size) bad = true;
+        }
+        if (!bad && convexOnly && !convex(P, loop, N[r])) bad = true;
+        if (bad) for (const t of ts) out.push(tri(t));
+        else out.push(loop);
+    }
+    return { positions: P, indices: I, polygons: out };
+}
+
+/**
+ * Plasticity's Remove Small Features: the mesh's separate pieces (welded) whose bounding box is
+ * less than `size` across (its diagonal) left out. 0 keeps everything.
+ */
+export function removeSmallParts(mesh, size) {
+    if (!(size > 0)) return mesh;
+    const { positions: P, indices: I } = weld(mesh);
+    const root = Array.from({ length: P.length / 3 }, (_, i) => i);
+    const find = i => { while (root[i] !== i) i = root[i] = root[root[i]]; return i; };
+    for (let t = 0; t < I.length; t += 3) { root[find(I[t + 1])] = find(I[t]); root[find(I[t + 2])] = find(I[t]); }
+    const box = new Map();
+    for (let i = 0; i < P.length / 3; i++) {
+        const r = find(i), b = box.get(r) ?? [Infinity, Infinity, Infinity, -Infinity, -Infinity, -Infinity];
+        for (let k = 0; k < 3; k++) { b[k] = Math.min(b[k], P[3 * i + k]); b[k + 3] = Math.max(b[k + 3], P[3 * i + k]); }
+        box.set(r, b);
+    }
+    const big = r => { const b = box.get(r); return Math.hypot(b[3] - b[0], b[4] - b[1], b[5] - b[2]) >= size; };
+    const keep = new Map(), positions = [], indices = [];
+    const at = i => { if (!keep.has(i)) { keep.set(i, positions.length / 3); positions.push(P[3 * i], P[3 * i + 1], P[3 * i + 2]); } return keep.get(i); };
+    for (let t = 0; t < I.length; t += 3) if (big(find(I[t]))) indices.push(at(I[t]), at(I[t + 1]), at(I[t + 2]));
+    return { positions, indices };
 }
 
 /** Binary STL: an 80-byte header, the triangle count, then a normal and three vertices per triangle. */
