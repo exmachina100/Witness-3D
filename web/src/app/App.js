@@ -699,6 +699,7 @@ const SHELL = `
         <button data-pipeop="union" aria-pressed="false" title="Join the pipes to the target body"><kbd>Q</kbd>UNION</button>
         <button data-pipeop="difference" aria-pressed="false" title="Cut the pipes out of the target body"><kbd>W</kbd>DIFF</button>
         <button data-pipeop="intersect" aria-pressed="false" title="Keep only where the pipes and the target overlap"><kbd>⇧E</kbd>INTER</button>
+        <button data-pipeop="slice" aria-pressed="false" title="Cut the target where the pipes run, the pieces inside becoming bodies of their own"><kbd>⇧Q</kbd>SLICE</button>
         <button data-id="pipe-keep" aria-pressed="false" title="Keep the pipes as bodies too after a union, difference or intersect"><kbd>⇧T</kbd>KEEP TOOLS</button>
       </div>
     </div>
@@ -7813,7 +7814,7 @@ export async function mount(root, backend) {
     setState('none');
     const sides = () => Math.round(num('pipe-v'));
     const scale = () => num('pipe-s') || 1;
-    const OPS = { new: 'NEW', union: 'UNION', difference: 'DIFFERENCE', intersect: 'INTERSECT' };
+    const OPS = { new: 'NEW', union: 'UNION', difference: 'DIFFERENCE', intersect: 'INTERSECT', slice: 'SLICE' };
     const describe = () => `PIPE R${num('pipe-r')}${num('pipe-t') ? ` · WALL ${num('pipe-t')}` : ''}${sides() ? ` · ${sides()} SIDES` : ''}${num('pipe-a') && sides() ? ` · ${num('pipe-a')}°` : ''}${scale() !== 1 ? ` · ×${scale()}` : ''}${c.op !== 'new' && c.target !== null ? ` · ${OPS[c.op]} ${label(c.target)}` : ''}${c.keep && c.op !== 'new' ? ' · KEEP TOOLS' : ''}`;
     c.request = () => ({ curves: c.curves, radius: num('pipe-r'), thickness: num('pipe-t'), sides: sides(), angle: num('pipe-a') * DEG, scale: scale(),
       ...(c.op !== 'new' && c.target !== null && { op: c.op, target: c.target, keepTools: c.keep }) });

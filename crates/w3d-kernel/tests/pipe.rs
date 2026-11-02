@@ -115,3 +115,20 @@ fn a_pipe_cuts_or_joins_a_target_in_one_undo_step() {
     let exact = 1000.0 + PI * 10.0;
     assert!((v - exact).abs() / exact < 1e-3, "volume {v} vs {exact}");
 }
+
+#[test]
+fn a_pipe_slices_a_target_into_the_cut_body_and_the_piece_inside() {
+    use w3d_kernel::document::{Curve, CurveShape, Document};
+    let mut doc = Document::new(Occt);
+    let block = doc.add(Occt.box_from_corners(DVec3::new(-5.0, -5.0, -5.0), DVec3::new(5.0, 5.0, 5.0)));
+    let c = Curve { origin: [0.0, 0.0, 0.0], x: [1.0, 0.0, 0.0], normal: [0.0, 0.0, 1.0], shape: CurveShape::Polyline { points: vec![[-10.0, 0.0], [10.0, 0.0]], closed: false } };
+    let ids = doc.commit_curves(vec![c]).unwrap();
+    doc.clear_history();
+    let out = doc.commit_pipe_slice(&ids, 1.0, 0.0, 0, 0.0, 1.0, block, false).unwrap();
+    assert_eq!(out.len(), 2, "the cut body and the rod inside it");
+    let v = |id| doc.kernel.tessellate(doc.get(id).unwrap(), 0.0001).unwrap().volume();
+    assert!((v(out[0]) - (1000.0 - PI * 10.0)).abs() < 0.05);
+    assert!((v(out[1]) - PI * 10.0).abs() < 0.05);
+    assert!(doc.undo());
+    assert_eq!(doc.ids().len(), 1);
+}
