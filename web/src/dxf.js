@@ -24,12 +24,15 @@ function pairs(text) {
     return out;
 }
 
-/** Entities as { type, codes: [[code, value]...] }, from the ENTITIES section, and the header's units. */
+/**
+ * Entities as { type, codes: [[code, value]...] }, from the ENTITIES section, the blocks INSERT
+ * places (name -> { base, entities }), and the header's units.
+ */
 function read(text) {
     const all = pairs(text);
     if (!all.some(([k, v]) => k === 0 && v === 'SECTION')) throw new Error('NOT A DXF FILE (A TEXT DXF IS NEEDED; BINARY DXF IS NOT READ)');
-    let section = null, units = 0;
-    const entities = [];
+    let section = null, units = 0, block = null;
+    const entities = [], blocks = new Map();
     for (let i = 0; i < all.length; i++) {
         const [code, value] = all[i];
         if (code === 0 && value === 'SECTION') { section = all[i + 1]?.[1]; i++; continue; }
@@ -39,11 +42,26 @@ function read(text) {
             if (v?.[0] === 70) units = parseInt(v[1], 10);
             continue;
         }
+        if (section === 'BLOCKS') {
+            // BLOCK opens a definition (its own codes: 2 the name, 10/20 the base point), ENDBLK closes it.
+            if (code === 0 && value === 'BLOCK') { block = { head: [], entities: [] }; continue; }
+            if (code === 0 && value === 'ENDBLK') {
+                const name = block?.head.find(([k]) => k === 2)?.[1];
+                if (name !== undefined) blocks.set(name, { base: [num(block.head, 10), num(block.head, 20)], entities: block.entities });
+                block = null;
+                continue;
+            }
+            if (!block) continue;
+            if (code === 0) block.entities.push({ type: value, codes: [] });
+            else if (block.entities.length) block.entities.at(-1).codes.push([code, value]);
+            else block.head.push([code, value]);
+            continue;
+        }
         if (section !== 'ENTITIES') continue;
         if (code === 0) entities.push({ type: value, codes: [] });
         else entities.at(-1)?.codes.push([code, value]);
     }
-    return { entities, units };
+    return { entities, blocks, units };
 }
 
 const num = (codes, code, fallback = 0) => {
@@ -101,7 +119,7 @@ function ellipsePoints(c, major, ratio, t0, t1, n = 96) {
  * approximated, units, scale }. Throws on a file that isn't a text DXF or has nothing to import.
  */
 export function readDxf(text) {
-    const { entities, units } = read(text);
+    const { entities, blocks, units } = read(text);
     const scale = UNITS[units] ?? 1;
     const at = (x, y) => [x * scale, y * scale];
     const curves = [], skipped = {};
@@ -109,10 +127,18 @@ export function readDxf(text) {
     const skip = type => { skipped[type] = (skipped[type] ?? 0) + 1; };
     // A curve with a number that didn't read (a damaged file) is left out rather than sent on.
     const finite = v => Array.isArray(v) ? v.every(finite) : typeof v !== 'number' || Number.isFinite(v);
-    const add = shape => {
-        if (!shape) return;
+    const put = shape => {
         if (!Object.values(shape).every(finite) || !(shape.pieces ?? []).every(p => Object.values(p).every(finite))) return skip('DAMAGED ENTITY');
         curves.push({ ...XY, ...shape });
+    };
+    let inserted = 0;
+    // `place` carries a block's curves to where an INSERT puts them (identity at the top level).
+    const convert = (entities, place, depth) => {
+    const add = shape => {
+        if (!shape) return;
+        const placed = place(shape);
+        if (placed.approximated) approximated++;
+        put(placed.shape);
     };
     for (let i = 0; i < entities.length; i++) {
         const { type, codes } = entities[i];
@@ -189,10 +215,97 @@ export function readDxf(text) {
             } else skip('SPLINE (INCOMPLETE)');
             break;
         }
+        case 'INSERT': {
+            // A block placed: its curves moved from its base point, scaled, turned, and repeated in
+            // columns and rows (MINSERT). Nested blocks are followed a few levels deep.
+            const block = blocks.get(codes.find(([k]) => k === 2)?.[1]);
+            if (!block) { skip('INSERT (MISSING BLOCK)'); break; }
+            if (depth > 8) { skip('INSERT (NESTED TOO DEEP)'); break; }
+            const sx = f * num(codes, 41, 1), sy = num(codes, 42, 1), rot = f * num(codes, 50) * Math.PI / 180;
+            const cols = Math.max(1, num(codes, 70, 1)), rows = Math.max(1, num(codes, 71, 1)), dc = num(codes, 44) * scale, dr = num(codes, 45) * scale;
+            const base = at(...block.base), ins = at(f * num(codes, 10), num(codes, 20));
+            const c = Math.cos(rot), s = Math.sin(rot);
+            for (let r = 0; r < rows; r++) for (let k = 0; k < cols; k++) {
+                // The grid steps along the block's own turned x and y.
+                const o = [ins[0] + c * k * dc - s * r * dr, ins[1] + s * k * dc + c * r * dr];
+                const m = { a: c * sx, b: -s * sy, c: s * sx, d: c * sy, e: o[0] - (c * sx * base[0] - s * sy * base[1]), f: o[1] - (s * sx * base[0] + c * sy * base[1]) };
+                convert(block.entities, shape => { const t = transformShape(shape, m), p = place(t.shape); return { shape: p.shape, approximated: t.approximated || p.approximated }; }, depth + 1);
+            }
+            inserted++;
+            break;
+        }
         case 'VERTEX': case 'SEQEND': break;
         default: skip(type);
         }
     }
+    };
+    convert(entities, shape => ({ shape }), 0);
     if (!curves.length) throw new Error(Object.keys(skipped).length ? `NO CURVES TO IMPORT (ONLY ${Object.keys(skipped).join(', ')})` : 'NO CURVES TO IMPORT IN THAT DXF');
-    return { curves, skipped, approximated, units: UNIT_NAMES[units] ?? 'MM', scale };
+    return { curves, skipped, approximated, inserted, units: UNIT_NAMES[units] ?? 'MM', scale };
+}
+
+/**
+ * A curve shape carried by the affine map p -> (a x + b y + e, c x + d y + f). Points, poles and arcs'
+ * three points map exactly under any such map (an arc stays an arc while the map keeps shapes, a
+ * turn, a mirror or an even scale); a circle or ellipse under an uneven scale becomes an ellipse when
+ * its axes stay square, otherwise it, and an arc, go as smooth curves through points along them.
+ */
+export function transformShape(shape, m) {
+    const P = ([x, y]) => [m.a * x + m.b * y + m.e, m.c * x + m.d * y + m.f];
+    const L = ([x, y]) => [m.a * x + m.b * y, m.c * x + m.d * y];
+    const len = v => Math.hypot(v[0], v[1]);
+    // A similarity: columns square to each other and the same length.
+    const lx = len([m.a, m.c]), ly = len([m.b, m.d]);
+    const similar = Math.abs(m.a * m.b + m.c * m.d) < 1e-12 * (lx * ly + 1) && Math.abs(lx - ly) < 1e-12 * (lx + ly);
+    let approximated = false;
+    const one = sh => {
+        switch (sh.kind) {
+        case 'polyline': case 'spline': case 'cv': return { ...sh, points: sh.points.map(P) };
+        case 'nurbs': return { ...sh, poles: sh.poles.map(([x, y, z]) => [...P([x, y]), z]) };
+        case 'arc': {
+            if (similar) return { kind: 'arc', start: P(sh.start), mid: P(sh.mid), end: P(sh.end) };
+            approximated = true;
+            return { kind: 'spline', points: arcPoints(sh).map(P), closed: false };
+        }
+        case 'circle': {
+            if (similar) return { kind: 'circle', center: P(sh.center), radius: sh.radius * lx };
+            const u = L([sh.radius, 0]), v = L([0, sh.radius]);
+            if (Math.abs(u[0] * v[0] + u[1] * v[1]) < 1e-9 * (len(u) * len(v))) {
+                const [major, minor] = len(u) >= len(v) ? [u, len(v)] : [v, len(u)];
+                return { kind: 'ellipse', center: P(sh.center), major, minor };
+            }
+            approximated = true;
+            return { kind: 'spline', points: Array.from({ length: 96 }, (_, i) => { const t = 2 * Math.PI * i / 96; return P([sh.center[0] + sh.radius * Math.cos(t), sh.center[1] + sh.radius * Math.sin(t)]); }), closed: true };
+        }
+        case 'ellipse': {
+            const minorDir = [-sh.major[1], sh.major[0]].map(x => x / len(sh.major) * sh.minor);
+            const u = L(sh.major), v = L(minorDir);
+            if (Math.abs(u[0] * v[0] + u[1] * v[1]) < 1e-9 * (len(u) * len(v) + 1e-30)) {
+                const [major, minor] = len(u) >= len(v) ? [u, len(v)] : [v, len(u)];
+                return { kind: 'ellipse', center: P(sh.center), major, minor };
+            }
+            approximated = true;
+            return { kind: 'spline', points: Array.from({ length: 96 }, (_, i) => { const t = 2 * Math.PI * i / 96; return P([sh.center[0] + sh.major[0] * Math.cos(t) + minorDir[0] * Math.sin(t), sh.center[1] + sh.major[1] * Math.cos(t) + minorDir[1] * Math.sin(t)]); }), closed: true };
+        }
+        case 'contour': return { kind: 'contour', pieces: sh.pieces.map(one) };
+        default: return sh;
+        }
+    };
+    return { shape: one(shape), approximated };
+}
+
+/** Points along an arc given by its start, middle and end, for an arc that can't stay an arc. */
+function arcPoints({ start: a, mid: b, end: c }, n = 48) {
+    const d = 2 * (a[0] * (b[1] - c[1]) + b[0] * (c[1] - a[1]) + c[0] * (a[1] - b[1]));
+    if (Math.abs(d) < 1e-15) return [a, c];
+    const q = p => p[0] * p[0] + p[1] * p[1];
+    const o = [(q(a) * (b[1] - c[1]) + q(b) * (c[1] - a[1]) + q(c) * (a[1] - b[1])) / d, (q(a) * (c[0] - b[0]) + q(b) * (a[0] - c[0]) + q(c) * (b[0] - a[0])) / d];
+    const ang = p => Math.atan2(p[1] - o[1], p[0] - o[0]), r = Math.hypot(a[0] - o[0], a[1] - o[1]);
+    const t0 = ang(a), tm = ang(b);
+    let t1 = ang(c);
+    // Sweep from a through b to c: counter-clockwise when b lies on the way going that way.
+    const ccw = ((tm - t0 + 4 * Math.PI) % (2 * Math.PI)) < ((t1 - t0 + 4 * Math.PI) % (2 * Math.PI));
+    let sweep = ((t1 - t0 + 4 * Math.PI) % (2 * Math.PI));
+    if (!ccw) sweep -= 2 * Math.PI;
+    return Array.from({ length: n + 1 }, (_, i) => { const t = t0 + sweep * i / n; return [o[0] + r * Math.cos(t), o[1] + r * Math.sin(t)]; });
 }
