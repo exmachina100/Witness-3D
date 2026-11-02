@@ -56,7 +56,7 @@ test('old style polylines, ellipses and splines; the rest is counted as skipped'
     closeP(curves[2].points.at(-1), [0, 2]);
     assert.equal(curves[3].degree, 3);
     assert.deepEqual(curves[3].poles[1], [1, 2, 0]);
-    assert.deepEqual(skipped, { TEXT: 1, INSERT: 1 });
+    assert.deepEqual(skipped, { TEXT: 1, 'INSERT (MISSING BLOCK)': 1 });
 });
 
 test('a mirrored circle and nothing usable', () => {
@@ -72,4 +72,42 @@ test('a vertex missing its y is left out as damaged, not sent on as null', () =>
         [0, 'LINE', 10, 0, 20, 0, 11, 1, 21, 1]));
     assert.equal(curves.length, 1);
     assert.deepEqual(skipped, { 'DAMAGED ENTITY': 1 });
+});
+
+/** A DXF with a BLOCKS section holding the given blocks, then the entities. */
+const withBlocks = (blocks, ...entities) => [
+    0, 'SECTION', 2, 'HEADER', 9, '$INSUNITS', 70, 4, 0, 'ENDSEC',
+    0, 'SECTION', 2, 'BLOCKS', ...blocks.flat(), 0, 'ENDSEC',
+    0, 'SECTION', 2, 'ENTITIES', ...entities.flat(), 0, 'ENDSEC', 0, 'EOF',
+].join('\n');
+const block = (name, base, ...entities) => [0, 'BLOCK', 8, '0', 2, name, 70, 0, 10, base[0], 20, base[1], 30, 0, ...entities.flat(), 0, 'ENDBLK'];
+
+test('a block placed by INSERT: moved from its base, scaled, turned and repeated in a grid', () => {
+    const b = block('B', [1, 0], [0, 'LINE', 10, 1, 20, 0, 11, 2, 21, 0], [0, 'CIRCLE', 10, 1, 20, 0, 40, 1]);
+    const { curves, inserted, skipped } = readDxf(withBlocks([b],
+        [0, 'INSERT', 2, 'B', 10, 10, 20, 0],
+        [0, 'INSERT', 2, 'B', 10, 0, 20, 5, 41, 2, 42, 2, 50, 90],
+        [0, 'INSERT', 2, 'B', 10, 0, 20, 20, 70, 3, 71, 2, 44, 5, 45, 7]));
+    assert.equal(inserted, 3);
+    assert.deepEqual(skipped, {});
+    // Moved: the base (1, 0) lands on (10, 0).
+    closeP(curves[0].points[0], [10, 0]); closeP(curves[0].points[1], [11, 0]);
+    closeP(curves[1].center, [10, 0]);
+    // Doubled and turned 90°: the line runs up from (0, 5), the circle twice the size.
+    closeP(curves[2].points[1], [0, 7]);
+    close(curves[3].radius, 2);
+    // Three columns, two rows: six lines and six circles.
+    assert.equal(curves.length, 4 + 12);
+    closeP(curves.at(-2).points[0], [10, 27]);
+});
+
+test('an unevenly scaled circle becomes an ellipse, and nested blocks are followed', () => {
+    const inner = block('IN', [0, 0], [0, 'CIRCLE', 10, 0, 20, 0, 40, 1]);
+    const outer = block('OUT', [0, 0], [0, 'INSERT', 2, 'IN', 10, 3, 20, 0]);
+    const { curves } = readDxf(withBlocks([inner, outer], [0, 'INSERT', 2, 'OUT', 10, 0, 20, 0, 41, 2, 42, 1]));
+    assert.equal(curves.length, 1);
+    assert.equal(curves[0].kind, 'ellipse');
+    closeP(curves[0].center, [6, 0]);
+    close(Math.hypot(...curves[0].major), 2); close(curves[0].minor, 1);
+    assert.throws(() => readDxf(withBlocks([], [0, 'INSERT', 2, 'NONE', 10, 0, 20, 0])), /INSERT \(MISSING BLOCK\)/);
 });
