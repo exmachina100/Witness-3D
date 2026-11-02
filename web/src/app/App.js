@@ -124,7 +124,7 @@ const KEYS = {
   offset: [['DRAG DOT', 'DISTANCE'], ['D', 'DISTANCE'], ['A', 'ANGLE ADJACENT'], ['TAB', 'GROW MODE'], ['⇧ CLICK', 'FACES'], ['ALT+CLICK', 'A FACE TO MATCH'], ['⏎ / RMB', 'OK']],
   revolve: [['CLICK', 'AXIS START · END'], ['A', 'ANGLE'], ['⇧T', 'THICKNESS'], ['Q', 'UNION'], ['W', 'DIFFERENCE'], ['⇧E', 'INTERSECT'], ['B', 'NEW BODY'], ['⏎ / RMB', 'OK']],
   loft: [['CLICK', 'GUIDES (OPTIONAL)'], ['⏎ / RMB', 'OK'], ['ESC', 'CANCEL']],
-  'loft-sheet': [['CLICK', 'ADD / REMOVE A CURVE OR EDGE'], ['O', 'LOOP'], ['L', 'LIMIT POINT'], ['TAB', 'CONTINUITY (TWO EDGES)'], ['D', 'TENSION'], ['⏎ / RMB', 'OK'], ['ESC', 'CANCEL']],
+  'loft-sheet': [['CLICK', 'ADD / REMOVE A CURVE OR EDGE'], ['O', 'LOOP'], ['L', 'LIMIT POINT'], ['TAB', 'CONTINUITY (EVERY EDGE)'], ['D', 'TENSION'], ['⏎ / RMB', 'OK'], ['ESC', 'CANCEL']],
   sweep: [['CLICK', 'PATH · THEN A GUIDE'], ['M', 'GUIDE METHOD'], ['N', 'ALIGNMENT'], ['D', 'TWIST'], ['Q', 'UNION'], ['W', 'DIFFERENCE'], ['⇧E', 'INTERSECT'], ['B', 'NEW BODY'], ['⏎ / RMB', 'OK']],
   rect: [['CLICK', 'CORNERS'], ['S', 'SQUARE'], ['C', 'FROM CENTRE'], ['TAB', 'TYPE SIZE'], ['ALT', 'NO SNAP'], ['ESC', 'CANCEL']],
   circle: [['CLICK', 'CENTRE · RADIUS'], ['V', 'VERTICAL'], ['TAB', 'TYPE DIAMETER'], ['ALT', 'NO SNAP'], ['ESC', 'CANCEL']],
@@ -910,8 +910,8 @@ const SHELL = `
       <div class="field"><label>CURVES</label><output data-id="ls-count">0</output></div>
       <div class="field"><label>LIMIT POINTS</label><output data-id="ls-limits">0</output></div>
       <div data-id="ls-edges-row" hidden>
-        <span class="label">CONTINUITY · TWO EDGES</span>
-        <div class="seg" role="group" aria-label="Continuity (Tab cycles)"><button data-lscont="G0" aria-pressed="true" title="Meet the edges only">G0</button><button data-lscont="G1" aria-pressed="false" title="Leave both faces tangent">G1</button><button data-lscont="G2" aria-pressed="false" title="Match both faces' curvature too">G2</button></div>
+        <span class="label">CONTINUITY AT EACH EDGE · TAB SETS ALL</span>
+        <div data-id="ls-edge-conts"></div>
         <div class="field"><label for="w3d-ls-t">TENSION</label><input id="w3d-ls-t" data-id="ls-t" type="number" step="0.1" min="0.05" value="1" title="How far the sheet carries on from each face before it turns (D); 1 is a smooth cubic"></div>
       </div>
       <div class="chips"><button data-id="ls-loop" aria-pressed="false" title="Run the sheet on from the last curve back to the first (three curves or more)"><kbd>O</kbd>LOOP</button><button data-id="ls-limit" aria-pressed="false" title="Click a profile curve to set where the loft stops (up to two on each); click a point again to reverse it"><kbd>L</kbd>LIMIT POINT</button><button data-id="ls-simplify" aria-pressed="true" title="Simplify: parts of the loft that lie flat become trimmed planes rather than lofted surfaces">SIMPLIFY</button></div>
@@ -10161,21 +10161,35 @@ export async function mount(root, backend) {
     };
     const request = async () => ({ curves: await Promise.all(c.curves.map(profile)), loop: c.loop, simplify: c.simplify });
     const text = () => `${c.curves.map(p => typeof p === 'object' ? `${label(p.body)} EDGE ${p.n + 1}` : curveLabel(p)).join(' → ')}${c.loop ? ' → BACK TO THE FIRST' : ''}`;
-    // Two Edges: two body edges alone (no loop, no limit points) take a continuity, G0 to G2, and a
-    // tension. G1 and G2 leave each face as Square's two-sided fill does (square.js with each edge's
-    // way out of its face, normals and curvatures); G0 is the plain loft.
-    const twoEdges = () => !c.loop && c.curves.length === 2 && c.curves.every(p => typeof p === 'object') && backend.previewSplineSheet && backend.edgeFaces;
-    const smooth = () => twoEdges() && c.cont !== 'G0';
+    // Per-edge continuity (the manual's circles on the surface): two profiles, one or both body
+    // edges, each edge with its own continuity, G0 to G2, and one tension. G1 and G2 leave each face
+    // as Square's two-sided fill does (square.js with the edge's way out of its face, normals and
+    // curvatures); a curve profile, or an edge at G0, is only met. All at G0 is the plain loft.
+    c.conts ??= new Map();
+    const edgesOf = () => c.curves.filter(p => typeof p === 'object');
+    const contOf = p => c.conts.get(p.key) ?? 'G0';
+    const twoEdges = () => !c.loop && c.curves.length === 2 && edgesOf().length > 0 && c.limits.size === 0 && backend.previewSplineSheet && backend.edgeFaces;
+    const smooth = () => twoEdges() && edgesOf().some(p => contOf(p) !== 'G0');
     const reader = edgeSideReader(c.sides = c.sides ?? {});
+    const RANK = { G0: 0, G1: 1, G2: 2 };
     const fitEdges = async () => {
-      const items = c.curves.map(p => ({ kind: 'edge', body: p.body, n: p.n }));
+      const items = c.curves.map(p => typeof p === 'object' ? { kind: 'edge', body: p.body, n: p.n, cont: contOf(p) } : { kind: 'curve', id: p });
       const sides = await Promise.all(items.map(reader.sideOf));
       const all = sides.flat(), centre = [0, 1, 2].map(k => all.reduce((t, p) => t + p[k], 0) / all.length);
-      const faced = await Promise.all(sides.map((pts, i) => reader.withOut(items[i], pts, centre)));
+      const faced = await Promise.all(sides.map(async (pts, i) => {
+        const it = items[i];
+        if (it.kind !== 'edge' || it.cont === 'G0') return pts;
+        const side = await reader.withOut(it, pts, centre);
+        // G1 holds the way out only; G2 the curvature too.
+        if (it.cont === 'G1') { const only = side.map(q => [...q]); only.out = side.out; return only; }
+        return side;
+      }));
       const tension = num('ls-t');
       if (!(tension > 0)) throw new Error('the tension must be greater than zero');
-      return square(faced, { degree: 3, continuity: c.cont, tension });
+      const continuity = items.reduce((best, it) => RANK[it.cont] > RANK[best] ? it.cont : best, 'G0');
+      return square(faced, { degree: 3, continuity, tension });
     };
+    const contText = () => edgesOf().map(p => `${label(p.body)} EDGE ${p.n + 1} ${contOf(p)}`).join(' · ');
     c.preview = () => livePreview(c, async () => {
       if (smooth()) {
         const fit = await fitEdges();
@@ -10189,8 +10203,8 @@ export async function mount(root, backend) {
       return b ? [b] : null;
     }, list => {
       for (const b of list) showPreviewBody(b, phantom.add.face, phantom.add.edge).renderOrder = 5;
-      $('ls-hint').textContent = text() + (smooth() ? ` · ${c.cont} · TENSION ${num('ls-t')}` : '');
-      setHud(`LOFT · SHEET${c.loop ? ' · LOOP' : ''}${smooth() ? ` · ${c.cont}` : ''}`);
+      $('ls-hint').textContent = text() + (smooth() ? ` · ${contText()} · TENSION ${num('ls-t')}` : '');
+      setHud(`LOFT · SHEET${c.loop ? ' · LOOP' : ''}${smooth() ? ` · ${contText()}` : ''}`);
     }, 'ls-hint');
     const refresh = () => {
       $('ls-count').textContent = c.curves.length;
@@ -10198,7 +10212,10 @@ export async function mount(root, backend) {
       $('ls-loop').disabled = c.curves.length < 3;
       $('ls-simplify').setAttribute('aria-pressed', String(c.simplify));
       $('ls-edges-row').hidden = !twoEdges();
-      for (const b of $$('[data-lscont]')) b.setAttribute('aria-pressed', String(b.dataset.lscont === c.cont));
+      // One continuity switch for each edge profile.
+      const list = $('ls-edge-conts');
+      list.innerHTML = twoEdges() ? edgesOf().map(p => `<div class="field"><label>${label(p.body)} EDGE ${p.n + 1}</label><div class="seg" role="group" aria-label="Continuity at ${label(p.body)} edge ${p.n + 1}">${['G0', 'G1', 'G2'].map(g => `<button data-lsedge="${p.key}" data-lscont="${g}" aria-pressed="${contOf(p) === g}" title="${{ G0: 'Meet the edge only', G1: 'Leave the face tangent', G2: "Match the face's curvature too" }[g]}">${g}</button>`).join('')}</div></div>`).join('') : '';
+      for (const b of list.querySelectorAll('[data-lscont]')) b.onclick = () => { c.conts.set(b.dataset.lsedge, b.dataset.lscont); refresh(); };
       if (c.curves.length < 2) { clearPreview(); $('ls-hint').textContent = 'SELECT TWO CURVES OR MORE, IN ORDER'; return setState('none'); }
       c.preview();
     };
@@ -10214,12 +10231,14 @@ export async function mount(root, backend) {
       refresh();
     };
     c.refresh = () => refresh();
-    c.setCont = g => { c.cont = g; refresh(); };
+    // Tab (or the old shared switch) sets every edge's continuity at once.
+    c.setCont = g => { c.cont = g; for (const p of edgesOf()) c.conts.set(p.key, g); refresh(); };
     c.key = action => {
       if (action === 'simplify') { c.simplify = !c.simplify; refresh(); return true; }
       if (action === 'continuity') {
-        if (!twoEdges()) return toast('CONTINUITY IS FOR TWO EDGES'), true;
-        c.setCont({ G0: 'G1', G1: 'G2', G2: 'G0' }[c.cont]);
+        if (!twoEdges()) return toast('CONTINUITY IS FOR TWO PROFILES WITH A BODY EDGE'), true;
+        const now = edgesOf().map(contOf), all = now.every(g => g === now[0]) ? now[0] : 'G0';
+        c.setCont({ G0: 'G1', G1: 'G2', G2: 'G0' }[all]);
         return true;
       }
       if (action === 'tension') { $('ls-t').focus(); $('ls-t').select(); return true; }
@@ -11454,11 +11473,22 @@ export async function mount(root, backend) {
     const left = Object.entries(skipped).map(([t, n]) => `${n} ${t}`).join(', ');
     toast(`${ids.length} CURVE${ids.length > 1 ? 'S' : ''} FROM ${name.toUpperCase()} (${units})${approximated ? ` · ${approximated} ELLIPSE ARC${approximated > 1 ? 'S' : ''} AS SPLINES` : ''}${left ? ` · LEFT OUT ${left}` : ''}`);
   }
+  /** A STEP file read in the browser: the whole file as one body, as the desktop's import. */
+  async function importStepData(file) {
+    if (!backend.importStepData) throw new Error('STEP import is not in this build');
+    const r = await backend.importStepData(new Uint8Array(await file.arrayBuffer()));
+    if (cmd) abort();
+    sel.clear();
+    record(`IMPORT STEP ${file.name.toUpperCase()}`, r.id);
+    await showScene(r.scene);
+    toast(`IMPORTED ${file.name.toUpperCase()}`);
+  }
   $('import-file').onchange = e => fileAction(async () => {
     const file = e.target.files?.[0];
     e.target.value = '';
     if (!file) return;
     if (/\.(png|jpe?g)$/i.test(file.name)) return importImage(file, file.name);
+    if (/\.(step|stp)$/i.test(file.name)) return importStepData(file);
     await importDxf(await file.text(), file.name);
   });
   $('import').onclick = () => fileAction(async () => {
