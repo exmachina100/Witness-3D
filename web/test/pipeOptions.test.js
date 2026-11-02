@@ -39,3 +39,14 @@ test('Pipe cuts or joins a target body in one undo step, keeping the tube when a
     assert.equal(r.ids.length, 2);
     close(volume(be.shapes.get(id)), 1000 + Math.PI * 10, 0.05);
 });
+
+test('Shift+Q slices the target: the body cut and the piece inside the pipe', async () => {
+    const be = new LocalBackend();
+    const c = await line(be);
+    const id = be.nextId++;
+    be.put(id, box({ x: -5, y: -5, z: -5 }, { x: 5, y: 5, z: 5 }));
+    const r = await be.commitPipe({ curves: [c], radius: 1, op: 'slice', target: id });
+    assert.equal(r.ids.length, 2);
+    close(volume(be.shapes.get(r.ids[0])), 1000 - Math.PI * 10, 0.05);
+    close(volume(be.shapes.get(r.ids[1])), Math.PI * 10, 0.05);
+});

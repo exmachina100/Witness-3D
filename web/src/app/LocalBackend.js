@@ -1030,7 +1030,7 @@ export class LocalBackend {
 
     /** Pipe's booleans (Q union, W difference, Shift+E intersect): the target with each tube in turn, or null for new bodies. */
     pipeInto(req, tubes) {
-        const op = { union: 'union', difference: 'difference', intersect: 'intersection' }[req.op];
+        const op = { union: 'union', difference: 'difference', intersect: 'intersection', slice: 'difference' }[req.op];
         if (!op || req.target === null || req.target === undefined) return null;
         let s = this.shapes.get(req.target), history = null;
         if (!s) throw new Error('that body no longer exists');
@@ -1040,6 +1040,13 @@ export class LocalBackend {
             s = r.shape;
         }
         if (count(s, 'TopAbs_FACE') === 0) throw new Error('the boolean leaves nothing');
+        // Shift+Q: the pieces of the body inside the tubes become bodies of their own.
+        if (req.op === 'slice') {
+            const body = this.shapes.get(req.target);
+            const pieces = tubes.map(t => booleanWithHistory(body, t, 'intersection').shape).filter(p => count(p, 'TopAbs_FACE') > 0);
+            if (!pieces.length) throw new Error('the pipe does not meet the body');
+            return { shape: s, history, pieces };
+        }
         return { shape: s, history };
     }
 
@@ -1063,6 +1070,7 @@ export class LocalBackend {
             this.checkpoint();
             this.put(req.target, into.shape, into.history);
             const ids = [req.target];
+            for (const p of into.pieces ?? []) { const id = this.nextId++; this.put(id, p); ids.push(id); }
             if (req.keepTools) for (const t of tubes) { const id = this.nextId++; this.put(id, t); ids.push(id); }
             return { ids, scene: this.bodies() };
         }

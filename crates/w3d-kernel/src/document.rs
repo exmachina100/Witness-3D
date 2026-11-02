@@ -1496,6 +1496,33 @@ impl<K: Kernel> Document<K> {
         Ok(ids)
     }
 
+    /// Pipe's Shift+Q slice: `target` with the tubes cut away, and the pieces of it inside the
+    /// tubes (one per tube that meets it).
+    pub fn pipe_slice(&self, target: BodyId, tubes: &[K::Solid]) -> Result<(Traced<K::Solid>, Vec<K::Solid>), KernelError> {
+        let cut = self.pipe_into(target, tubes, BooleanOp::Difference)?;
+        let body = self.get(target).ok_or(KernelError::Invalid("that body no longer exists"))?;
+        let mut pieces = vec![];
+        for t in tubes {
+            let p = self.kernel.boolean(body, t, BooleanOp::Intersection)?.solid;
+            if self.kernel.face_count(&p) > 0 { pieces.push(p) }
+        }
+        if pieces.is_empty() { return Err(KernelError::Invalid("the pipe does not meet the body")) }
+        Ok((cut, pieces))
+    }
+
+    /// Pipe sliced through `target` as one undoable step. Returns the target, the pieces, then any kept tubes.
+    #[allow(clippy::too_many_arguments)]
+    pub fn commit_pipe_slice(&mut self, curves: &[CurveId], radius: f64, thickness: f64, sides: u32, angle: f64, scale: f64, target: BodyId, keep_tools: bool) -> Result<Vec<BodyId>, KernelError> {
+        let tubes = self.preview_pipe_with(curves, radius, thickness, sides, angle, scale)?;
+        let (cut, pieces) = self.pipe_slice(target, &tubes)?;
+        self.checkpoint();
+        self.replace_traced(target, cut);
+        let mut ids = vec![target];
+        ids.extend(pieces.into_iter().map(|p| self.add_unrecorded(p)));
+        if keep_tools { ids.extend(tubes.into_iter().map(|t| self.add_unrecorded(t))); }
+        Ok(ids)
+    }
+
     /// Plasticity's Patch, without changing the document: a sheet filling one closed loop of
     /// `curves` and body `edges`, each edge with its continuity with its body (0 none, 1 tangent,
     /// 2 curvature too). `tolerance` is how far the sheet may stray from the loop (mm; 0 keeps the

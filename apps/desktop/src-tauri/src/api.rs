@@ -1583,6 +1583,10 @@ impl PipeRequest {
 pub fn preview_pipe(m: &Model, req: PipeRequest) -> Option<Result<Body, ApiError>> {
     m.preview(move |doc| {
         let tubes = doc.preview_pipe_with(&req.curves, req.radius, req.thickness, req.sides, req.angle, req.scale)?;
+        if let (Some("slice"), Some(target)) = (req.op.as_deref(), req.target) {
+            let (cut, _) = doc.pipe_slice(target, &tubes)?;
+            return Ok(body(&doc.kernel, target, &cut.solid)?);
+        }
         if let Some((target, op)) = req.into_target() {
             let t = doc.pipe_into(target, &tubes, op)?;
             return Ok(body(&doc.kernel, target, &t.solid)?);
@@ -1597,7 +1601,10 @@ pub fn preview_pipe(m: &Model, req: PipeRequest) -> Option<Result<Body, ApiError
 
 pub fn commit_pipe(m: &Model, req: PipeRequest) -> Result<Duplicated, ApiError> {
     m.call(move |doc| {
-        let ids = doc.commit_pipe_with(&req.curves, req.radius, req.thickness, req.sides, req.angle, req.scale, req.into_target(), req.keep_tools)?;
+        let ids = match (req.op.as_deref(), req.target) {
+            (Some("slice"), Some(target)) => doc.commit_pipe_slice(&req.curves, req.radius, req.thickness, req.sides, req.angle, req.scale, target, req.keep_tools)?,
+            _ => doc.commit_pipe_with(&req.curves, req.radius, req.thickness, req.sides, req.angle, req.scale, req.into_target(), req.keep_tools)?,
+        };
         Ok(Duplicated { ids, scene: bodies(doc)? })
     })
 }
