@@ -307,11 +307,20 @@ pub fn pipe<K: Kernel>(k: &K, path: &Path, radius: f64, thickness: f64, sides: u
 /// Pipe with Plasticity's Angle (the polygon section turned about the path, radians) and Scale
 /// (the section's size at the far end, the start's being 1; it changes evenly along the path).
 pub fn pipe_with<K: Kernel>(k: &K, path: &Path, radius: f64, thickness: f64, sides: u32, angle: f64, scale: f64) -> Result<K::Solid, KernelError> {
+    pipe_section(k, path, radius, thickness, sides, angle, scale, None)
+}
+
+/// Pipe with Plasticity's custom profile (C): `custom` is a closed profile and its area centre in
+/// its own plane coordinates. The profile is carried to the start of the path, its centre on the
+/// path and its plane square to it, turned by `angle`, and swept along; it keeps its own size.
+#[allow(clippy::too_many_arguments)]
+pub fn pipe_section<K: Kernel>(k: &K, path: &Path, radius: f64, thickness: f64, sides: u32, angle: f64, scale: f64, custom: Option<(&Profile, (f64, f64))>) -> Result<K::Solid, KernelError> {
     if !angle.is_finite() { return Err(KernelError::Invalid("the angle must be a number")) }
     if !scale.is_finite() || scale <= 1e-6 { return Err(KernelError::Invalid("the end scale must be greater than zero")) }
-    if !radius.is_finite() || radius <= 1e-6 { return Err(KernelError::Invalid("the radius must be greater than zero")) }
+    if custom.is_some() && thickness > 1e-9 { return Err(KernelError::Invalid("a pipe with a custom profile is solid; set the thickness to 0")) }
+    if custom.is_none() && (!radius.is_finite() || radius <= 1e-6) { return Err(KernelError::Invalid("the radius must be greater than zero")) }
     if !thickness.is_finite() || thickness < 0.0 { return Err(KernelError::Invalid("the thickness can't be negative")) }
-    if thickness >= radius - 1e-6 { return Err(KernelError::Invalid("the wall is as thick as the pipe; use a thinner wall or leave it solid")) }
+    if custom.is_none() && thickness >= radius - 1e-6 { return Err(KernelError::Invalid("the wall is as thick as the pipe; use a thinner wall or leave it solid")) }
     if sides == 1 || sides == 2 || sides > 256 { return Err(KernelError::Invalid("a pipe's section is round (0 sides) or has 3 to 256 sides")) }
     let pts = k.sample(path, 4096)?;
     if pts.len() < 2 { return Err(KernelError::Invalid("the path is too short")) }
@@ -319,6 +328,11 @@ pub fn pipe_with<K: Kernel>(k: &K, path: &Path, radius: f64, thickness: f64, sid
     let normal = tangent.normalize();
     let x = if normal.x.abs() < 0.9 { DVec3::X } else { DVec3::Y };
     let frame = Frame::new(pts[0], x, normal);
+    if let Some((profile, (cx, cy))) = custom {
+        let (s, c) = angle.sin_cos();
+        let (fx, fy) = (frame.x * c + frame.y() * s, frame.y() * c - frame.x * s);
+        return k.sweep(profile, &Frame::new(pts[0] - fx * cx - fy * cy, fx, normal), path, 0.0, scale);
+    }
     let section = |r: f64| if sides == 0 {
         Profile::Circle { center: (0.0, 0.0), radius: r }
     } else {

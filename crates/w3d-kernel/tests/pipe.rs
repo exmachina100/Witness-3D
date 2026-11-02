@@ -103,13 +103,13 @@ fn a_pipe_cuts_or_joins_a_target_in_one_undo_step() {
     let c = Curve { origin: [0.0, 0.0, 0.0], x: [1.0, 0.0, 0.0], normal: [0.0, 0.0, 1.0], shape: CurveShape::Polyline { points: vec![[-10.0, 0.0], [10.0, 0.0]], closed: false } };
     let ids: Vec<GuideRef> = doc.commit_curves(vec![c]).unwrap().into_iter().map(Into::into).collect();
     doc.clear_history();
-    let out = doc.commit_pipe_with(&ids, 1.0, 0.0, 0, 0.0, 1.0, Some((block, BooleanOp::Difference)), false).unwrap();
+    let out = doc.commit_pipe_with(&ids, 1.0, 0.0, 0, 0.0, 1.0, None, Some((block, BooleanOp::Difference)), false).unwrap();
     assert_eq!(out, vec![block]);
     let v = doc.kernel.tessellate(doc.get(block).unwrap(), 0.0001).unwrap().volume();
     let exact = 1000.0 - PI * 10.0;
     assert!((v - exact).abs() / exact < 1e-3, "volume {v} vs {exact}");
     assert!(doc.undo());
-    let out = doc.commit_pipe_with(&ids, 1.0, 0.0, 0, 0.0, 1.0, Some((block, BooleanOp::Union)), true).unwrap();
+    let out = doc.commit_pipe_with(&ids, 1.0, 0.0, 0, 0.0, 1.0, None, Some((block, BooleanOp::Union)), true).unwrap();
     assert_eq!(out.len(), 2, "the target and the kept tube");
     let v = doc.kernel.tessellate(doc.get(block).unwrap(), 0.0001).unwrap().volume();
     let exact = 1000.0 + PI * 10.0;
@@ -124,7 +124,7 @@ fn a_pipe_slices_a_target_into_the_cut_body_and_the_piece_inside() {
     let c = Curve { origin: [0.0, 0.0, 0.0], x: [1.0, 0.0, 0.0], normal: [0.0, 0.0, 1.0], shape: CurveShape::Polyline { points: vec![[-10.0, 0.0], [10.0, 0.0]], closed: false } };
     let ids: Vec<GuideRef> = doc.commit_curves(vec![c]).unwrap().into_iter().map(Into::into).collect();
     doc.clear_history();
-    let out = doc.commit_pipe_slice(&ids, 1.0, 0.0, 0, 0.0, 1.0, block, false).unwrap();
+    let out = doc.commit_pipe_slice(&ids, 1.0, 0.0, 0, 0.0, 1.0, None, block, false).unwrap();
     assert_eq!(out.len(), 2, "the cut body and the rod inside it");
     let v = |id| doc.kernel.tessellate(doc.get(id).unwrap(), 0.0001).unwrap().volume();
     assert!((v(out[0]) - (1000.0 - PI * 10.0)).abs() < 0.05);
@@ -139,7 +139,26 @@ fn a_pipe_runs_along_a_path_given_whole() {
     use w3d_kernel::document::{Curve, CurveShape, Document, GuideRef};
     let doc = Document::new(Occt);
     let c = Curve { origin: [0.0, 0.0, 0.0], x: [1.0, 0.0, 0.0], normal: [0.0, 0.0, 1.0], shape: CurveShape::Polyline { points: vec![[2.0, 0.0], [7.0, 0.0]], closed: false } };
-    let tubes = doc.preview_pipe_with(&[GuideRef::Shape(c)], 1.0, 0.0, 0, 0.0, 1.0).unwrap();
+    let tubes = doc.preview_pipe_with(&[GuideRef::Shape(c)], 1.0, 0.0, 0, 0.0, 1.0, None).unwrap();
     let v = doc.kernel.tessellate(&tubes[0], 0.0001).unwrap().volume();
     assert!((v - PI * 5.0).abs() < 0.02, "volume {v}");
+}
+
+#[test]
+fn a_pipe_sweeps_a_custom_profile_centred_on_the_path() {
+    // Plasticity's C: a closed curve drawn anywhere becomes the section, its centre on the path.
+    use w3d_kernel::document::{Curve, CurveShape, Document, GuideRef};
+    let mut doc = Document::new(Occt);
+    let path = Curve { origin: [0.0, 0.0, 0.0], x: [1.0, 0.0, 0.0], normal: [0.0, 0.0, 1.0], shape: CurveShape::Polyline { points: vec![[0.0, 0.0], [10.0, 0.0]], closed: false } };
+    let rect = Curve { origin: [0.0, 0.0, 0.0], x: [1.0, 0.0, 0.0], normal: [0.0, 0.0, 1.0], shape: CurveShape::Polyline { points: vec![[20.0, 20.0], [24.0, 20.0], [24.0, 22.0], [20.0, 22.0]], closed: true } };
+    let ids = doc.commit_curves(vec![path, rect]).unwrap();
+    let tubes = doc.preview_pipe_with(&[ids[0].into()], 1.0, 0.0, 0, 0.0, 1.0, Some(&GuideRef::Drawn(ids[1]))).unwrap();
+    let m = doc.kernel.tessellate(&tubes[0], 0.0001).unwrap();
+    assert!((m.volume() - 80.0).abs() < 1e-3, "volume {}", m.volume());
+    // Centred on the path: the mesh's points average to the line's middle across it.
+    let n = m.positions.len() as f64;
+    let (y, z) = m.positions.iter().fold((0.0, 0.0), |(y, z), p| (y + p[1] / n, z + p[2] / n));
+    assert!(y.abs() < 1e-6 && z.abs() < 1e-6, "centre {y} {z}");
+    assert!(doc.preview_pipe_with(&[ids[0].into()], 1.0, 0.5, 0, 0.0, 1.0, Some(&GuideRef::Drawn(ids[1]))).is_err(), "custom profiles are solid");
+    assert!(doc.preview_pipe_with(&[ids[1].into()], 1.0, 0.0, 0, 0.0, 1.0, Some(&GuideRef::Drawn(ids[0]))).is_err(), "an open profile is refused");
 }

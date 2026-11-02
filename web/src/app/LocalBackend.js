@@ -1016,14 +1016,17 @@ export class LocalBackend {
     }
 
     /** Plasticity's Pipe: a tube along each of `curves`, round (`sides` 0) or polygonal, hollow with a `thickness`. */
-    pipeResult({ curves = [], radius, thickness = 0, sides = 0, angle = 0, scale = 1 }) {
+    pipeResult({ curves = [], radius, thickness = 0, sides = 0, angle = 0, scale = 1, profile = null }) {
         if (!curves.length) throw new Error('select the curves to run pipes along');
         const o = oc();
+        // The custom profile (C): a drawn closed curve by id, or one given whole.
+        const section = profile === null || profile === undefined ? null : typeof profile === 'object' ? profile : this.curveMap.get(profile);
+        if (profile !== null && profile !== undefined && !section) throw new Error('that profile no longer exists');
         return curves.map(id => {
             // A drawn curve by id, or a path given whole (Distance 1 and 2 moved its ends).
             const c = typeof id === 'object' && id ? id : this.curveMap.get(id);
             if (!c) throw new Error('that curve no longer exists');
-            const tube = pipe(c, radius, thickness, sides, angle, scale);
+            const tube = pipe(c, radius, thickness, sides, angle, scale, section);
             if (!new o.BRepCheck_Analyzer(tube, true, false, false).IsValid() || count(tube, 'TopAbs_SOLID') === 0) throw new Error('the pipe crosses itself; use a smaller radius');
             return tube;
         });
