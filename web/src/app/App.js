@@ -11492,13 +11492,13 @@ export async function mount(root, backend) {
   async function importDxf(text, name) {
     // Text comes in drawn in the Text tool's sans font (its letters as curves).
     const font = await loadFont(0).catch(() => null);
-    const { curves, skipped, approximated, inserted, texts, units } = readDxf(text, { font });
+    const { curves, skipped, approximated, inserted, texts, hatches, dimensions, units } = readDxf(text, { font });
     const { ids } = await backend.addCurves(curves);
     if (cmd) abort();
     record(`IMPORT DXF ${name.toUpperCase()}`, ids[0], curveLabel(ids[0]));
     await curvesChanged(ids);
     const left = Object.entries(skipped).map(([t, n]) => `${n} ${t}`).join(', ');
-    toast(`${ids.length} CURVE${ids.length > 1 ? 'S' : ''} FROM ${name.toUpperCase()} (${units})${inserted ? ` · ${inserted} BLOCK${inserted > 1 ? 'S' : ''} PLACED` : ''}${texts ? ` · ${texts} TEXT${texts > 1 ? 'S' : ''} AS CURVES` : ''}${approximated ? ` · ${approximated} ELLIPSE ARC${approximated > 1 ? 'S' : ''} AS SPLINES` : ''}${left ? ` · LEFT OUT ${left}` : ''}`);
+    toast(`${ids.length} CURVE${ids.length > 1 ? 'S' : ''} FROM ${name.toUpperCase()} (${units})${inserted ? ` · ${inserted} BLOCK${inserted > 1 ? 'S' : ''} PLACED` : ''}${texts ? ` · ${texts} TEXT${texts > 1 ? 'S' : ''} AS CURVES` : ''}${hatches ? ` · ${hatches} HATCH BOUNDAR${hatches > 1 ? 'IES' : 'Y'}` : ''}${dimensions ? ` · ${dimensions} DIMENSION${dimensions > 1 ? 'S' : ''}` : ''}${approximated ? ` · ${approximated} CURVE${approximated > 1 ? 'S' : ''} AS SPLINES THROUGH POINTS` : ''}${left ? ` · LEFT OUT ${left}` : ''}`);
   }
   /** A STEP file read in the browser: the whole file as one body, as the desktop's import. */
   async function importStepData(file) {

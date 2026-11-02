@@ -6,6 +6,7 @@
 // importer's code.
 
 import { textShapes } from './text.js';
+import { nurbsPoints } from './curves.js';
 
 /** The XY construction plane in model coordinates (user Z is model Y). */
 const XY = { origin: [0, 0, 0], x: [1, 0, 0], normal: [0, 1, 0] };
@@ -136,7 +137,7 @@ export function readDxf(text, { font = null } = {}) {
         if (!Object.values(shape).every(finite) || !(shape.pieces ?? []).every(p => Object.values(p).every(finite))) return skip('DAMAGED ENTITY');
         curves.push({ ...XY, ...shape });
     };
-    let inserted = 0, texts = 0;
+    let inserted = 0, texts = 0, hatches = 0, dimensions = 0;
     // `place` carries a block's curves to where an INSERT puts them (identity at the top level).
     const convert = (entities, place, depth) => {
     const add = shape => {
@@ -249,6 +250,34 @@ export function readDxf(text, { font = null } = {}) {
             texts++;
             break;
         }
+        case 'HATCH': {
+            // A hatch's boundary loops come in as closed curves (this app draws no fill patterns).
+            // Loops tied to entities already in the drawing (associative) would only repeat them.
+            const { loops, linked } = hatchLoops(codes);
+            for (const lp of loops) {
+                if (lp.approximated) approximated++;
+                add(mapShape(lp.shape, p => at(f * p[0], p[1])));
+            }
+            if (loops.length) hatches++;
+            else if (linked) skip('HATCH (BOUNDARY ALREADY DRAWN)');
+            else skip('HATCH (NO BOUNDARY)');
+            break;
+        }
+        case 'DIMENSION': {
+            // A dimension is drawn by its own block (lines, arrowheads, text) already where it stands.
+            const block = blocks.get(codes.find(([k]) => k === 2)?.[1]);
+            if (!block || depth > 8) { skip('DIMENSION (NOT DRAWN)'); break; }
+            convert(block.entities, place, depth + 1);
+            dimensions++;
+            break;
+        }
+        case 'SOLID': case 'TRACE': {
+            // A filled triangle or quad (arrowheads): its outline. The fourth corner comes before the third.
+            const q = [[10, 20], [11, 21], [13, 23], [12, 22]].map(([x, y]) => at(f * num(codes, x), num(codes, y)));
+            const pts = q.filter((pt, j) => !q.slice(0, j).some(r => near(r, pt)));
+            if (pts.length >= 3) add({ kind: 'polyline', points: pts, closed: true });
+            break;
+        }
         case 'VERTEX': case 'SEQEND': break;
         default: skip(type);
         }
@@ -256,7 +285,116 @@ export function readDxf(text, { font = null } = {}) {
     };
     convert(entities, shape => ({ shape }), 0);
     if (!curves.length) throw new Error(Object.keys(skipped).length ? `NO CURVES TO IMPORT (ONLY ${Object.keys(skipped).join(', ')})` : 'NO CURVES TO IMPORT IN THAT DXF');
-    return { curves, skipped, approximated, inserted, texts, units: UNIT_NAMES[units] ?? 'MM', scale };
+    return { curves, skipped, approximated, inserted, texts, hatches, dimensions, units: UNIT_NAMES[units] ?? 'MM', scale };
+}
+
+/** A shape with every point (in drawing units) carried by `P`; arcs keep their three points. */
+function mapShape(sh, P) {
+    switch (sh.kind) {
+    case 'polyline': case 'spline': return { ...sh, points: sh.points.map(P) };
+    case 'nurbs': return { ...sh, poles: sh.poles.map(([x, y, z]) => [...P([x, y]), z]) };
+    case 'arc': return { kind: 'arc', start: P(sh.start), mid: P(sh.mid), end: P(sh.end) };
+    case 'circle': { const c = P(sh.center), e = P([sh.center[0] + sh.radius, sh.center[1]]); return { kind: 'circle', center: c, radius: Math.hypot(e[0] - c[0], e[1] - c[1]) }; }
+    case 'ellipse': { const c = P(sh.center), e = P([sh.center[0] + sh.major[0], sh.center[1] + sh.major[1]]), k = Math.hypot(e[0] - c[0], e[1] - c[1]) / Math.hypot(...sh.major); return { kind: 'ellipse', center: c, major: [e[0] - c[0], e[1] - c[1]], minor: sh.minor * k }; }
+    case 'contour': return { kind: 'contour', pieces: sh.pieces.map(q => mapShape(q, P)) };
+    default: return sh;
+    }
+}
+
+/**
+ * A HATCH entity's boundary loops as curve shapes in drawing units: { loops: [{ shape, approximated }],
+ * linked } where `linked` counts loops left out because entities in the drawing already draw them.
+ * The boundary data is read in its order (91 loops; each a 92 type, then a polyline or 93 edges, then
+ * 97 source entities), so the pattern's own codes that follow are never taken for points.
+ */
+function hatchLoops(codes) {
+    let i = codes.findIndex(([k]) => k === 91);
+    if (i < 0) return { loops: [], linked: 0 };
+    const count = parseInt(codes[i++][1], 10) || 0;
+    const at = k => codes[i]?.[0] === k;
+    // The value of the next code `k`, skipping codes it doesn't know on the way.
+    const next = k => { while (i < codes.length && codes[i][0] !== k) i++; return i < codes.length ? parseFloat(codes[i++][1]) : NaN; };
+    const loops = [];
+    let linked = 0;
+    for (let n = 0; n < count && i < codes.length; n++) {
+        const type = next(92);
+        let shape = null, approximated = false;
+        if (type & 2) {
+            const bulged = next(72), closed = next(73), m = next(93);
+            const pts = [], bulges = [];
+            for (let j = 0; j < m; j++) {
+                pts.push([next(10), next(20)]);
+                bulges.push(bulged && at(42) ? parseFloat(codes[i++][1]) : 0);
+            }
+            shape = polyline(pts, bulges, closed !== 0 || pts.length > 2);
+        } else {
+            const m = next(93), pieces = [];
+            for (let j = 0; j < m; j++) {
+                const kind = next(72);
+                if (kind === 1) {
+                    const a = [next(10), next(20)], b = [next(11), next(21)];
+                    if (!near(a, b)) pieces.push({ kind: 'polyline', points: [a, b], closed: false });
+                } else if (kind === 2) {
+                    const c = [next(10), next(20)], r = next(40), s0 = next(50), s1 = next(51), ccw = next(73);
+                    pieces.push(arcEdge(c, r, s0, s1, ccw));
+                } else if (kind === 3) {
+                    const c = [next(10), next(20)], major = [next(11), next(21)], ratio = next(40), s0 = next(50), s1 = next(51), ccw = next(73);
+                    const sh = ellipseEdge(c, major, ratio, s0, s1, ccw);
+                    if (sh.kind === 'spline') approximated = true;
+                    pieces.push(sh);
+                } else if (kind === 4) {
+                    const degree = next(94), rational = next(73); next(74);
+                    const nk = next(95), np = next(96);
+                    const knots = Array.from({ length: nk }, () => next(40));
+                    const poles = Array.from({ length: np }, () => [next(10), next(20), 0]);
+                    const weights = rational && at(42) ? Array.from({ length: np }, () => next(42)) : poles.map(() => 1);
+                    // Newer files add fit points (97 then 11/21) and end tangents (12/22, 13/23); a 97
+                    // after the last edge is the fit count only when fit data follows it.
+                    if (at(97) && (j < m - 1 || codes[i + 1]?.[0] === 11 || (codes[i][1].trim() === '0' && codes[i + 1]?.[0] === 97))) {
+                        const fits = parseInt(codes[i++][1], 10) || 0;
+                        for (let q = 0; q < fits; q++) { next(11); next(21); }
+                        if (at(12)) { next(12); next(22); }
+                        if (at(13)) { next(13); next(23); }
+                    }
+                    if (np >= degree + 1 && knots.length === np + degree + 1) pieces.push({ kind: 'nurbs', degree, poles, weights, knots });
+                }
+            }
+            // A contour holds lines, arcs and splines through points: a NURBS edge among other
+            // edges goes as the points along it (a straight one as a line).
+            const joined = pieces.length > 1 ? pieces.map(q => {
+                if (q.kind !== 'nurbs') return q;
+                approximated = true;
+                const pts = nurbsPoints(q).map(([x, y]) => [x, y]);
+                return { kind: q.degree === 1 ? 'polyline' : 'spline', points: pts, closed: false };
+            }) : pieces;
+            shape = joined.length === 1 ? joined[0] : joined.length ? { kind: 'contour', pieces: joined } : null;
+        }
+        const sources = at(97) ? parseInt(codes[i++][1], 10) || 0 : 0;
+        for (let q = 0; q < sources && at(330); q++) i++;
+        if (sources > 0) { linked++; continue; }
+        if (shape) loops.push({ shape, approximated });
+    }
+    return { loops, linked };
+}
+
+/** A hatch's arc edge (angles in degrees; a clockwise edge's angles are measured clockwise). */
+function arcEdge(c, r, s0, s1, ccw) {
+    const rad = Math.PI / 180, sg = ccw ? 1 : -1;
+    let a0 = s0 * rad, a1 = s1 * rad;
+    if (a1 <= a0) a1 += 2 * Math.PI;
+    if (a1 - a0 >= 2 * Math.PI - 1e-9) return { kind: 'circle', center: c, radius: r };
+    const q = a => [c[0] + r * Math.cos(sg * a), c[1] + r * Math.sin(sg * a)];
+    return { kind: 'arc', start: q(a0), mid: q((a0 + a1) / 2), end: q(a1) };
+}
+
+/** A hatch's elliptic arc edge, a whole ellipse or points along the part of one. */
+function ellipseEdge(c, major, ratio, s0, s1, ccw) {
+    const rad = Math.PI / 180, sg = ccw ? 1 : -1;
+    let t0 = s0 * rad, t1 = s1 * rad;
+    if (t1 <= t0) t1 += 2 * Math.PI;
+    if (t1 - t0 >= 2 * Math.PI - 1e-9) return { kind: 'ellipse', center: c, major, minor: Math.hypot(...major) * ratio };
+    const pts = ellipsePoints(c, major, ratio, sg * t0, sg * t1);
+    return { kind: 'spline', points: pts, closed: false };
 }
 
 /** Special characters in DXF text: %%c diameter, %%d degree, %%p plus-minus, %%% percent. */
