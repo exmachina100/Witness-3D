@@ -16,7 +16,7 @@ import { facePoles } from '../facePoles.js';
 import { faceUvn } from '../faceUvn.js';
 import { deformBodies, deformReblend, warpBodies } from '../deformBody.js';
 import { filletFaces, rechamfer, refilletFaces, removeFaces, turnFlatFace } from '../removeFace.js';
-import { moveEdges } from '../moveEdges.js';
+import { moveEdges, moveFlatFaces } from '../moveEdges.js';
 import { moveFacePoles, subdivideFaces } from '../movePoles.js';
 import { isoparamSplit } from '../isoparamSplit.js';
 import { endless, withMaterial } from '../material.js';
@@ -365,8 +365,9 @@ export class LocalBackend {
     /**
      * Move Face (G with faces selected): the faces carried by `offset`, the faces round them
      * following. A flat face moved along itself looks the same, so here only the move across it
-     * counts: the faces are offset that far (they must all be flat and moved the same distance
-     * across). Turning faces, and moving round ones, is the desktop's (document.rs preview_move_faces).
+     * counts: the faces are offset that far (they must all be flat). Faces moved different distances
+     * across, or several turned at once, go by their planes on bodies with flat faces and straight edges
+     * (moveEdges.js moveFlatFaces). Moving round faces is the desktop's (document.rs preview_move_faces).
      * Edges on their own (straight ones) move and turn where the faces round them are flat, holes kept (moveEdges.js).
      */
     moveFacesResult(req) {
@@ -379,13 +380,15 @@ export class LocalBackend {
         if (!faces?.length && edges?.length) return { shape: moveEdges(shape, edges, { offset, pivot: req.pivot, axis: req.axis, angle }) };
         if (!faces?.length) throw new Error('select the faces to move');
         if (Math.abs(angle) > 1e-12) {
-            if (faces.length !== 1) throw new Error('the browser demo turns one face at a time; the desktop app turns several');
+            // Several faces turn together on bodies with flat faces and straight edges.
+            if (faces.length !== 1) { const r = moveFlatFaces(shape, faces, { offset, pivot: req.pivot, axis: req.axis, angle }); return r && { shape: r }; }
             return { shape: turnFlatFace(shape, faces[0], { pivot: req.pivot, axis: req.axis, angle, offset }) };
         }
         const planes = faces.map(f => facePlane(shape, f));
         if (planes.some(p => !p)) throw new Error('the browser demo moves flat faces only; the desktop app moves any face');
         const across = planes.map(p => offset[0] * p.normal.x + offset[1] * p.normal.y + offset[2] * p.normal.z);
-        if (across.some(d => Math.abs(d - across[0]) > 1e-9)) throw new Error('the browser demo moves faces the same distance across them; move them one at a time');
+        // Faces moved different distances across themselves: each plane carried, corners where they meet.
+        if (across.some(d => Math.abs(d - across[0]) > 1e-9)) { const r = moveFlatFaces(shape, faces, { offset }); return r && { shape: r }; }
         if (Math.abs(across[0]) < 1e-9) return null;
         return this.offset({ body, faces, distance: across[0], grow: 'none' });
     }
