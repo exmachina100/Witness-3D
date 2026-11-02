@@ -24,6 +24,7 @@ const rust = {
   previewBlend: req => tauri.core.invoke('preview_blend', { req }),
   commitBlend: req => tauri.core.invoke('commit_blend', { req }),
   commitMotion: req => tauri.core.invoke('commit_motion', { req }),
+  commitStretch: req => tauri.core.invoke('commit_stretch', { req }),
   deleteBodies: ids => tauri.core.invoke('delete_bodies', { ids }),
   duplicateBodies: ids => tauri.core.invoke('duplicate_bodies', { ids }),
   curves: () => tauri.core.invoke('curves'),

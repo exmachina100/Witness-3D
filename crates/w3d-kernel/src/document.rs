@@ -426,6 +426,26 @@ impl<K: Kernel> Document<K> {
         Ok(())
     }
 
+    /// Plasticity's Scale along X, Y or Z: the bodies stretched about `pivot` by the matrix `m`
+    /// (see [`Kernel::stretch`]) and then moved by `offset`, one undo step. A matrix that flattens
+    /// a body is refused.
+    pub fn commit_stretch(&mut self, bodies: &[BodyId], pivot: DVec3, m: glam::DMat3, offset: DVec3) -> Result<(), KernelError> {
+        if bodies.is_empty() { return Err(KernelError::Invalid("select something to scale")) }
+        if !m.is_finite() || !(m.determinant().abs() > 1e-9) { return Err(KernelError::Invalid("the scale must be greater than zero along every axis")) }
+        if !offset.is_finite() { return Err(KernelError::Invalid("the move is not a valid number")) }
+        if m.abs_diff_eq(glam::DMat3::IDENTITY, 1e-12) && offset.length() < 1e-12 { return Err(KernelError::NoOp) }
+        let mut moved = Vec::with_capacity(bodies.len());
+        for id in bodies {
+            let b = self.state.bodies.get(id).ok_or(KernelError::Invalid("that body no longer exists"))?;
+            let stretched = self.kernel.stretch(&b.solid, pivot, m)?;
+            let solid = if offset.length() < 1e-12 { stretched } else { self.kernel.transform(&stretched, &Motion::translation(offset)) };
+            moved.push((*id, Body { solid, refs: b.refs.clone() }));
+        }
+        self.checkpoint();
+        for (id, b) in moved { self.state.bodies.insert(id, Rc::new(b)); }
+        Ok(())
+    }
+
     /// Delete bodies, as one undoable step.
     pub fn commit_delete(&mut self, bodies: &[BodyId]) -> Result<(), KernelError> { self.commit_delete_items(bodies, &[]) }
 

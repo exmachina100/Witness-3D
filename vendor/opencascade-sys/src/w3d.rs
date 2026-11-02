@@ -74,6 +74,7 @@ mod inner {
         pub fn w3d_result_others(r: &W3dResult) -> UniquePtr<TopoDS_Shape>;
         pub fn w3d_solid_count(shape: &TopoDS_Shape) -> i32;
         pub fn w3d_reversed(shape: &TopoDS_Shape) -> UniquePtr<TopoDS_Shape>;
+        pub fn w3d_stretched(shape: &TopoDS_Shape, m: &[f64]) -> Result<UniquePtr<TopoDS_Shape>>;
         pub fn w3d_boundary_edges(shape: &TopoDS_Shape) -> Vec<i32>;
         pub fn w3d_edge_angles(shape: &TopoDS_Shape) -> Vec<f64>;
         pub fn w3d_face_surfaces(shape: &TopoDS_Shape) -> Vec<f64>;

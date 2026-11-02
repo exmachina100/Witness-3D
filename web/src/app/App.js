@@ -115,7 +115,7 @@ const KEYS = {
   fillet: [['DRAG DOT', 'RADIUS'], ['IN', 'CHAMFER'], ['D', 'DISTANCE'], ['C', 'CHAMFER'], ['A', 'ANGLE'], ['V', 'VARIABLE POINT'], ['L', 'LIMIT POINTS'], ['CTRL CLICK', 'EDGES'], ['T', 'TANGENT EDGES'], ['CLICK ROUND', 'COPY RADIUS'], ['⏎ / RMB', 'OK']],
   move: [['X Y Z', 'AXIS'], ['⇧ X Y Z', 'PLANE'], ['G', 'SCREEN'], ['CTRL', 'SNAP'], ['⏎ / RMB', 'OK']],
   rotate: [['X Y Z', 'AXIS'], ['R', 'SCREEN'], ['CTRL', '15°'], ['⏎ / RMB', 'OK']],
-  scale: [['S', 'UNIFORM'], ['CTRL', '0.1'], ['⏎ / RMB', 'OK']],
+  scale: [['S', 'UNIFORM'], ['X Y Z', 'ONE AXIS'], ['CTRL', '0.1'], ['⏎ / RMB', 'OK']],
   extrude: [['DRAG DOT', 'DISTANCE'], ['D', 'DISTANCE'], ['F', 'FREESTYLE: CLICK START · END'], ['V', 'PIVOT: CLICK'], ['I', 'INDIVIDUAL'], ['A', 'ANGLE'], ['⇧T', 'THICKNESS'], ['S', 'BOTH SIDES'], ['Q', 'UNION'], ['W', 'DIFFERENCE'], ['⇧E', 'INTERSECT'], ['⇧Q', 'SLICE'], ['B', 'NEW BODY'], ['⏎ / RMB', 'OK']],
   boolean: [['Q', 'UNION'], ['W', 'DIFFERENCE'], ['⇧E', 'INTERSECT'], ['⇧Q', 'SLICE'], ['T', 'KEEP TOOLS'], ['⏎ / RMB', 'OK']],
   offset: [['DRAG DOT', 'DISTANCE'], ['D', 'DISTANCE'], ['A', 'ANGLE ADJACENT'], ['TAB', 'GROW MODE'], ['⇧ CLICK', 'FACES'], ['ALT+CLICK', 'A FACE TO MATCH'], ['⏎ / RMB', 'OK']],
@@ -960,7 +960,7 @@ const SHELL = `
       <div class="field"><label for="w3d-angle">ANGLE °</label><input id="w3d-angle" data-id="angle" type="number" step="15" value="0"></div>
     </div>
     <div class="sec" data-panel="scale" hidden>
-      <span class="hint">DRAG THE CENTRE, PRESS S, OR TYPE</span>
+      <span class="hint">DRAG THE CENTRE OR AN AXIS, PRESS S OR X Y Z, OR TYPE</span>
       <div class="field"><label for="w3d-factor">FACTOR</label><input id="w3d-factor" data-id="factor" type="number" step="0.1" min="0.01" value="1"></div>
     </div>
     <div class="sec" data-panel="pushpull" hidden>
@@ -3710,7 +3710,7 @@ export async function mount(root, backend) {
     tc.addEventListener('dragging-changed', e => { controls.enabled = !e.value; if (e.value) { c.follow = null; c.auto = false; } });
     tc.addEventListener('objectChange', () => fromHandle());
     scene.add(tc.getHelper());
-    const c = cmd = { id: kind, auto, ids, curves, verts, poles, faceMove, vertexAt, curveOut: null, poleMoves: null, poleRows: null, sent: 0, shown: 0, pivot, handle, tc, offset: new THREE.Vector3(), quat: new THREE.Quaternion(), scale: 1, axis: 'z', follow: null,
+    const c = cmd = { id: kind, auto, ids, curves, verts, poles, faceMove, vertexAt, curveOut: null, poleMoves: null, poleRows: null, sent: 0, shown: 0, pivot, handle, tc, offset: new THREE.Vector3(), quat: new THREE.Quaternion(), scale: 1, stretch: new THREE.Vector3(1, 1, 1), axis: 'z', follow: null,
       frame: new THREE.Quaternion(), orient: xfPrefs.orient, pivotMode: xfPrefs.pivot, pivotAt: null, picking: false };
     // Plasticity's pivots: the box round the selection (Bbox), the mean of the items' middles
     // (Median) or the item selected last (Active); V clicks a pivot of your own, Alt+V removes it.
@@ -3774,9 +3774,16 @@ export async function mount(root, backend) {
       c.offset.copy(handle.position).sub(c.pivot);
       c.quat.copy(handle.quaternion).multiply(c.frame.clone().invert());
       if (kind === 'scale') {
-        // Uniform only: take whichever component the drag changed.
-        const s = handle.scale.toArray().reduce((a, b) => Math.abs(b - c.scale) > Math.abs(a - c.scale) ? b : a, c.scale);
-        c.scale = Math.max(0.001, s);
+        // The middle handle scales all three alike; an axis handle stretches the bodies that way
+        // only (Scale along X, Y or Z), which curves and points don't take.
+        const was = c.stretch.clone().multiplyScalar(c.scale), now = handle.scale;
+        const changed = [0, 1, 2].filter(i => Math.abs(now.getComponent(i) - was.getComponent(i)) > 1e-9);
+        if (changed.length && changed.length < 3 && stretchable(c)) {
+          for (const i of changed) c.stretch.setComponent(i, Math.max(0.001, now.getComponent(i)) / c.scale);
+        } else {
+          const s = now.toArray().map((v, i) => v / c.stretch.getComponent(i)).reduce((a, b) => Math.abs(b - c.scale) > Math.abs(a - c.scale) ? b : a, c.scale);
+          c.scale = Math.max(0.001, s);
+        }
       }
       apply();
     }
@@ -3796,7 +3803,10 @@ export async function mount(root, backend) {
         else if (action === 'screen') beginFollow({ type: 'rotate', dir: null, name: 'SCREEN' }, p);
         else return false;
       } else if (action === 'uniform') beginFollow({ type: 'scale', name: 'UNIFORM' }, p);
-      else return false;
+      else if ('xyz'.includes(action)) {
+        if (!stretchable(c)) { toast('SCALE ALONG ONE AXIS WORKS ON SOLIDS AND SHEETS; CURVES AND POINTS SCALE UNIFORMLY (S)'); return true; }
+        beginFollow({ type: 'scale', axis: 'xyz'.indexOf(action), name: action.toUpperCase() }, p);
+      } else return false;
       return true;
     };
     // Clicks don't change the selection while transforming, unless Move only came up by itself:
@@ -3896,7 +3906,7 @@ export async function mount(root, backend) {
     c.abort = () => c.free ? c.freestyle(false) : endCmd('cancelled');
     c.cleanup = () => {
       if (c.free) { c.free.line.removeFromParent(); c.free = null; }
-      for (const id of ids) { const m = bodyMesh(id); if (m) { m.position.set(0, 0, 0); m.quaternion.identity(); m.scale.set(1, 1, 1); } }
+      for (const id of ids) { const m = bodyMesh(id); if (m) { m.matrixAutoUpdate = true; m.position.set(0, 0, 0); m.quaternion.identity(); m.scale.set(1, 1, 1); m.updateMatrix(); } }
       clearPreview();
       tc.detach();
       tc.getHelper().removeFromParent();
@@ -4007,9 +4017,18 @@ export async function mount(root, backend) {
     const { pivot, offset, quat, scale } = c;
     c.handle.position.copy(pivot).add(offset);
     c.handle.quaternion.copy(quat).multiply(c.frame ?? new THREE.Quaternion());
-    c.handle.scale.setScalar(scale);
+    c.handle.scale.copy(c.stretch ?? new THREE.Vector3(1, 1, 1)).multiplyScalar(scale);
+    const lin = stretched(c) ? linearOf(c) : null;
     for (const id of c.ids) {
       const m = bodyMesh(id);
+      if (lin) {
+        // Scale along an axis: M = T(pivot + offset) · L · T(−pivot), which TRS can't hold.
+        m.matrixAutoUpdate = false;
+        m.matrix.setFromMatrix3(lin).setPosition(pivot.clone().add(offset).sub(pivot.clone().applyMatrix3(lin)));
+        m.matrixWorldNeedsUpdate = true;
+        continue;
+      }
+      m.matrixAutoUpdate = true;
       m.scale.setScalar(scale);
       m.quaternion.copy(quat);
       m.position.copy(pivot).add(offset).sub(pivot.clone().multiplyScalar(scale).applyQuaternion(quat));
@@ -4035,8 +4054,8 @@ export async function mount(root, backend) {
     if (c.follow?.text) setHud(`${c.follow.name} ${c.follow.text}_`);
     else setHud(c.id === 'move' ? `Δ ${user.map(fmt).join(' ')}${lock}`
       : c.id === 'rotate' ? `${c.follow?.type === 'rotate' && c.follow.dir === null ? 'SCREEN' : c.axis.toUpperCase()} ${fmt(angle)}°${lock}`
-        : `×${scale.toFixed(3)}${lock}`);
-    const moved = offset.lengthSq() > 1e-18 || Math.abs(quat.w) < 1 - 1e-12 || Math.abs(scale - 1) > 1e-12;
+        : stretched(c) ? `×${c.stretch.toArray().map(v => (v * scale).toFixed(3)).join(' × ')}${lock}` : `×${scale.toFixed(3)}${lock}`);
+    const moved = offset.lengthSq() > 1e-18 || Math.abs(quat.w) < 1 - 1e-12 || Math.abs(scale - 1) > 1e-12 || stretched(c);
     setState(moved ? 'updated' : 'none');
   }
 
@@ -4045,7 +4064,7 @@ export async function mount(root, backend) {
   /** The cursor drives one value until a click, Enter (keep) or Escape (put it back). */
   function beginFollow(f, e) {
     const c = cmd;
-    f.base = { offset: c.offset.clone(), quat: c.quat.clone(), scale: c.scale };
+    f.base = { offset: c.offset.clone(), quat: c.quat.clone(), scale: c.scale, stretch: c.stretch.clone() };
     f.text = '';
     const camDir = camera.getWorldDirection(new THREE.Vector3());
     const at = c.pivot.clone().add(c.offset);
@@ -4093,9 +4112,11 @@ export async function mount(root, backend) {
       c.quat.setFromAxisAngle(f.dir, deg * DEG).multiply(f.base.quat);
     } else if (f.type === 'scale') {
       const d0 = Math.hypot(f.start.x - f.centre.x, f.start.y - f.centre.y) || 1, d1 = Math.hypot(p.x - f.centre.x, p.y - f.centre.y);
-      let s = f.base.scale * d1 / d0;
+      const from = f.axis === undefined ? f.base.scale : f.base.stretch.getComponent(f.axis);
+      let s = from * d1 / d0;
       if (snap) s = Math.max(0.1, Math.round(s * 10) / 10);
-      c.scale = Math.max(0.001, s);
+      if (f.axis === undefined) c.scale = Math.max(0.001, s);
+      else c.stretch.setComponent(f.axis, Math.max(0.001, s));
     }
     apply();
   }
@@ -4104,13 +4125,13 @@ export async function mount(root, backend) {
     if (v === undefined) return apply();
     if (f.type === 'axis') c.offset.copy(f.base.offset).addScaledVector(f.dir, v);
     else if (f.type === 'rotate') c.quat.setFromAxisAngle(f.dir, v * DEG).multiply(f.base.quat);
-    else if (f.type === 'scale') { if (v > 0) c.scale = v; }
+    else if (f.type === 'scale') { if (v > 0) { if (f.axis === undefined) c.scale = v; else c.stretch.setComponent(f.axis, v); } }
     apply();
   }
   function endFollow(keep) {
     const c = cmd, f = c?.follow;
     if (!f) return;
-    if (!keep) { c.offset.copy(f.base.offset); c.quat.copy(f.base.quat); c.scale = f.base.scale; }
+    if (!keep) { c.offset.copy(f.base.offset); c.quat.copy(f.base.quat); c.scale = f.base.scale; if (f.base.stretch) c.stretch.copy(f.base.stretch); }
     c.follow = null;
     showSnap(null);
     apply();
@@ -4123,24 +4144,45 @@ export async function mount(root, backend) {
     const angle = 2 * Math.acos(Math.min(1, q.w)), s = Math.sqrt(Math.max(0, 1 - q.w * q.w));
     return s < 1e-9 ? { axis: [0, 1, 0], angle: 0 } : { axis: [q.x / s, q.y / s, q.z / s], angle };
   }
+  /** Whether transform `c` may scale along one axis: bodies only (curves and points scale uniformly). */
+  const stretchable = c => c.id === 'scale' && c.ids.length > 0 && !c.curves.length && !c.verts.length && !c.poles.length && !c.faceMove;
+  /** Whether transform `c` scales more along one of its gizmo's axes than another. */
+  const stretched = c => !!c.stretch && [0, 1, 2].some(i => Math.abs(c.stretch.getComponent(i) - 1) > 1e-9);
+  /**
+   * Transform `c`'s linear part as a world matrix: L = R · F · D · Fᵀ, D the per-axis scales in
+   * the gizmo's frame F (its orientation), R the turn so far.
+   */
+  function linearOf(c) {
+    const F = new THREE.Matrix4().makeRotationFromQuaternion(c.frame ?? new THREE.Quaternion());
+    const D = new THREE.Matrix4().makeScale(...c.stretch.clone().multiplyScalar(c.scale).toArray());
+    const R = new THREE.Matrix4().makeRotationFromQuaternion(c.quat);
+    const L = R.multiply(F.clone()).multiply(D).multiply(F.clone().transpose());
+    return new THREE.Matrix3().setFromMatrix4(L);
+  }
   /** Move Face's request for transform `c`: turned about the pivot, then moved. */
   const faceMoveRequest = c => ({ ...c.faceMove, offset: c.offset.toArray(), pivot: c.pivot.toArray(), ...axisAngle(c) });
 
   async function commitTransform() {
     const c = cmd;
     endFollow(true);
-    const moved = c.offset.lengthSq() > 1e-18 || Math.abs(c.quat.w) < 1 - 1e-12 || Math.abs(c.scale - 1) > 1e-12;
+    const moved = c.offset.lengthSq() > 1e-18 || Math.abs(c.quat.w) < 1 - 1e-12 || Math.abs(c.scale - 1) > 1e-12 || stretched(c);
     if (!moved) return endCmd(c.auto ? null : 'cancelled');
     const { axis, angle } = axisAngle(c);
     const req = { bodies: c.ids, offset: c.offset.toArray(), pivot: c.pivot.toArray(), axis, angle, scale: c.scale };
     const user = toUser(req.offset);
     const text = c.id === 'move' ? `MOVE ${user.map(fmt).join(' ')}`
-      : c.id === 'rotate' ? `ROTATE ${fmt(angle / DEG)}°` : `SCALE ×${c.scale.toFixed(3)}`;
+      : c.id === 'rotate' ? `ROTATE ${fmt(angle / DEG)}°`
+      : stretched(c) ? `SCALE ×${c.stretch.toArray().map(v => (v * c.scale).toFixed(3)).join(' × ')}` : `SCALE ×${c.scale.toFixed(3)}`;
     try {
       const out = c.curveOut;
       if ((c.curves.length || c.verts.length) && !out) throw new Error('those curves cannot be moved like that');
       let first = null;
-      if (c.ids.length) {
+      if (c.ids.length && stretched(c)) {
+        if (!backend.commitStretch) throw new Error('scaling along one axis is not in this build yet');
+        const { id, scene: list } = await backend.commitStretch({ bodies: c.ids, pivot: req.pivot, matrix: linearOf(c).elements.slice(), offset: req.offset });
+        first = id;
+        showScene(list);
+      } else if (c.ids.length) {
         const { id, scene: list } = await backend.commitMotion(req);
         first = id;
         showScene(list);

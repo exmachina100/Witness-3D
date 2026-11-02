@@ -760,6 +760,14 @@ async fn commit_offset(
 }
 
 #[tauri::command]
+async fn commit_stretch(
+    model: State<'_, Model>,
+    req: api::StretchRequest,
+) -> Result<api::Committed, api::ApiError> {
+    on_model(&model, move |m| api::commit_stretch(m, req)).await?
+}
+
+#[tauri::command]
 async fn commit_motion(
     model: State<'_, Model>,
     req: api::MotionRequest,
@@ -1217,6 +1225,7 @@ pub fn run() {
             copy_bodies,
             set_mesh_quality,
             commit_motion,
+            commit_stretch,
             delete_bodies,
             duplicate_bodies,
             curves,
