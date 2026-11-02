@@ -11503,22 +11503,11 @@ export async function mount(root, backend) {
     showScene(r.scene);
   });
 
-  /** A STEP file read in the browser: the whole file as one body, as the desktop's import. */
-  async function importStepData(file) {
-    if (!backend.importStepData) throw new Error('STEP import is not in this build');
-    const r = await backend.importStepData(new Uint8Array(await file.arrayBuffer()));
-    if (cmd) abort();
-    sel.clear();
-    record(`IMPORT STEP ${file.name.toUpperCase()}`, r.id);
-    await showScene(r.scene);
-    toast(`IMPORTED ${file.name.toUpperCase()}`);
-  }
   // --- pointer input --------------------------------------------------------
   let down = null; // { x, y, button, consumed, box }
   /** The dot being dragged or under the pointer, among the command's dots; else its main one. */
   const liveGizmo = () => [cmd?.gizmo, ...(cmd?.extraGizmos?.() ?? [])].find(g => g && (g.busy || g.state === 'hover')) ?? cmd?.gizmo;
   canvas.addEventListener('pointerdown', e => {
-    if (/\.(step|stp)$/i.test(file.name)) return importStepData(file);
     lastPointer = e;
     const g = liveGizmo();
     const grabbed = g?.busy || g?.state === 'hover' || (cmd?.tc?.enabled && cmd.tc.axis !== null);
