@@ -1,8 +1,11 @@
 // DXF import (Plasticity's File › Import reads DXF drawings as curves). The drawing's entities
 // become this app's planar curves on the XY construction plane, in millimetres: lines, polylines
-// (bulges become arcs), circles, arcs, ellipses and splines. Shared by both builds; the backends
+// (bulges become arcs), circles, arcs, ellipses and splines, blocks where INSERT places them, and
+// TEXT and MTEXT drawn as outlines in a given font. Shared by both builds; the backends
 // only store the curves. Written from the published DXF reference (group codes), not from any
 // importer's code.
+
+import { textShapes } from './text.js';
 
 /** The XY construction plane in model coordinates (user Z is model Y). */
 const XY = { origin: [0, 0, 0], x: [1, 0, 0], normal: [0, 1, 0] };
@@ -116,9 +119,11 @@ function ellipsePoints(c, major, ratio, t0, t1, n = 96) {
 
 /**
  * The drawing's curves, ready for addCurves, and what was left out: { curves, skipped: { TYPE: n },
- * approximated, units, scale }. Throws on a file that isn't a text DXF or has nothing to import.
+ * approximated, inserted, texts, units, scale }. With a `font` (text.js parseFont), TEXT and MTEXT
+ * come in as the outlines of their letters in it; without one they are skipped. Throws on a file
+ * that isn't a text DXF or has nothing to import.
  */
-export function readDxf(text) {
+export function readDxf(text, { font = null } = {}) {
     const { entities, blocks, units } = read(text);
     const scale = UNITS[units] ?? 1;
     const at = (x, y) => [x * scale, y * scale];
@@ -131,7 +136,7 @@ export function readDxf(text) {
         if (!Object.values(shape).every(finite) || !(shape.pieces ?? []).every(p => Object.values(p).every(finite))) return skip('DAMAGED ENTITY');
         curves.push({ ...XY, ...shape });
     };
-    let inserted = 0;
+    let inserted = 0, texts = 0;
     // `place` carries a block's curves to where an INSERT puts them (identity at the top level).
     const convert = (entities, place, depth) => {
     const add = shape => {
@@ -234,6 +239,16 @@ export function readDxf(text) {
             inserted++;
             break;
         }
+        case 'TEXT': case 'MTEXT': {
+            if (!font) { skip(type); break; }
+            const t = type === 'TEXT' ? textOf(codes) : mtextOf(codes);
+            if (!t || !t.string.trim()) break;
+            const placed = lettering(font, t, f, scale);
+            if (!placed) { skip(`${type} (EMPTY)`); break; }
+            for (const sh of placed) add(sh);
+            texts++;
+            break;
+        }
         case 'VERTEX': case 'SEQEND': break;
         default: skip(type);
         }
@@ -241,7 +256,62 @@ export function readDxf(text) {
     };
     convert(entities, shape => ({ shape }), 0);
     if (!curves.length) throw new Error(Object.keys(skipped).length ? `NO CURVES TO IMPORT (ONLY ${Object.keys(skipped).join(', ')})` : 'NO CURVES TO IMPORT IN THAT DXF');
-    return { curves, skipped, approximated, inserted, units: UNIT_NAMES[units] ?? 'MM', scale };
+    return { curves, skipped, approximated, inserted, texts, units: UNIT_NAMES[units] ?? 'MM', scale };
+}
+
+/** Special characters in DXF text: %%c diameter, %%d degree, %%p plus-minus, %%% percent. */
+const special = s => s.replace(/%%[cC]/g, 'Ø').replace(/%%[dD]/g, '°').replace(/%%[pP]/g, '±').replace(/%%%/g, '%').replace(/%%[uUoO]/g, '');
+
+/** A TEXT entity: its string, where it stands, height, turn, and how it is aligned there. */
+function textOf(codes) {
+    const str = codes.find(([k]) => k === 1)?.[1] ?? '';
+    const h = num(codes, 72), v = num(codes, 73);
+    // Aligned text (72 or 73 set) stands on its second point; Aligned and Fit (3, 5) are taken as left.
+    const aligned = (h !== 0 || v !== 0) && codes.some(([k]) => k === 11);
+    const at = aligned ? [num(codes, 11), num(codes, 21)] : [num(codes, 10), num(codes, 20)];
+    return {
+        string: special(str), at, height: num(codes, 40, 1), angle: num(codes, 50) * Math.PI / 180,
+        align: { 1: 'center', 2: 'right', 4: 'center' }[h] ?? 'left',
+        vertical: h === 4 ? 'middle' : { 1: 'bottom', 2: 'middle', 3: 'top' }[v] ?? 'baseline',
+    };
+}
+
+/** An MTEXT entity, its formatting codes stripped: paragraphs (\P) become lines. */
+function mtextOf(codes) {
+    const raw = codes.filter(([k]) => k === 3).map(([, v]) => v).join('') + (codes.find(([k]) => k === 1)?.[1] ?? '');
+    const string = special(raw)
+        .replace(/\\P/g, '\n').replace(/\\[~]/g, ' ')
+        .replace(/\\S([^;]*?)[#^/]([^;]*?);/g, '$1/$2')
+        .replace(/\\[LlOoKk]/g, '').replace(/\\[A-Za-z][^;\\{}]*;/g, '')
+        .replace(/\\([{}\\])/g, '$1').replace(/[{}]/g, '');
+    const p = Math.max(1, Math.min(9, num(codes, 71, 1))) - 1;
+    const dx = num(codes, 11, NaN), dy = num(codes, 21, NaN);
+    const angle = Number.isFinite(dx) && Number.isFinite(dy) && Math.hypot(dx, dy) > 0 ? Math.atan2(dy, dx) : num(codes, 50) * Math.PI / 180;
+    return {
+        string, at: [num(codes, 10), num(codes, 20)], height: num(codes, 40, 1), angle,
+        align: ['left', 'center', 'right'][p % 3], vertical: ['top', 'middle', 'bottom'][Math.floor(p / 3)],
+    };
+}
+
+/**
+ * The text's letters as curve shapes on the XY plane: laid out in `font` with its capital letters
+ * `height` tall (as DXF text heights go), placed and turned where the entity says.
+ */
+function lettering(font, t, flipX, scale) {
+    // The font's cap height, from the outline of H; a font without one uses 0.7 of the em.
+    const H = font.glyph('H'.codePointAt(0)).contours.flat();
+    const cap = H.length ? Math.max(...H.map(q => q.y)) / font.unitsPerEm : 0.7;
+    const size = t.height / (cap > 0 ? cap : 0.7);
+    const { shapes } = textShapes(font, t.string, size, t.align);
+    if (!shapes.length) return null;
+    const lines = t.string.split('\n').length, line = (font.ascender - font.descender + font.lineGap) * size / font.unitsPerEm;
+    const capH = cap * size, block = (lines - 1) * line + capH;
+    const dy = { baseline: 0, bottom: -font.descender * size / font.unitsPerEm, top: -capH, middle: -capH + block / 2 }[t.vertical];
+    const c = Math.cos(t.angle), s = Math.sin(t.angle), k = scale;
+    const ox = flipX * t.at[0] * k, oy = t.at[1] * k;
+    // Turned about the insertion point, scaled to millimetres, mirrored with the entity when it is.
+    const m = { a: flipX * c * k, b: -flipX * s * k, c: s * k, d: c * k, e: ox - flipX * s * dy * k, f: oy + c * dy * k };
+    return shapes.map(sh => transformShape({ kind: 'nurbs', ...sh }, m).shape);
 }
 
 /**

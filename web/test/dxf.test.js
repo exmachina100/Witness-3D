@@ -111,3 +111,25 @@ test('an unevenly scaled circle becomes an ellipse, and nested blocks are follow
     close(Math.hypot(...curves[0].major), 2); close(curves[0].minor, 1);
     assert.throws(() => readDxf(withBlocks([], [0, 'INSERT', 2, 'NONE', 10, 0, 20, 0])), /INSERT \(MISSING BLOCK\)/);
 });
+
+test('TEXT and MTEXT come in as letter outlines in the given font, or are skipped without one', async () => {
+    const { readFileSync } = await import('node:fs');
+    const { parseFont } = await import('../src/text.js');
+    const buf = readFileSync(new URL('../src/fonts/Outfit-Regular.ttf', import.meta.url));
+    const font = parseFont(buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength));
+    const file = dxf(4,
+        [0, 'TEXT', 10, 10, 20, 5, 40, 2.5, 1, 'HI'],
+        [0, 'MTEXT', 10, 0, 20, 0, 40, 5, 71, 1, 1, '{\\fArial|b0;A}\\PB']);
+    const { curves, texts } = readDxf(file, { font });
+    assert.equal(texts, 2);
+    assert.ok(curves.every(c => c.kind === 'nurbs'));
+    // HI: its capitals stand on the baseline at y = 5 and reach 2.5 above it, from x = 10.
+    const hi = curves.filter(c => c.poles.every(p => p[1] > 4));
+    const ys = hi.flatMap(c => c.poles.map(p => p[1])), xs = hi.flatMap(c => c.poles.map(p => p[0]));
+    close(Math.min(...ys), 5, 1e-6); close(Math.max(...ys), 7.5, 1e-6);
+    assert.ok(Math.min(...xs) >= 10);
+    // The MTEXT hangs from its top left corner: two lines below y = 0, the top at 0.
+    const m = curves.filter(c => c.poles.every(p => p[1] < 1e-6));
+    close(Math.max(...m.flatMap(c => c.poles.map(p => p[1]))), 0, 1e-6);
+    assert.throws(() => readDxf(file), /ONLY TEXT, MTEXT/);
+});
