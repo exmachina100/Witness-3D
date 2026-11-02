@@ -6013,7 +6013,7 @@ inline std::unique_ptr<TopoDS_Shape> w3d_unwrap_face(const TopoDS_Shape &shape, 
         for (int i = 0; i < n; i++)
           for (int j = 0; j < n; j++) pts[i * n + j] = ad.Value(u0 + (u1 - u0) * i / (n - 1), v0 + (v1 - v0) * j / (n - 1));
         grid = w3d_lscm(pts, n);
-        flat = [&grid, u0, u1, v0, v1](double u, double v) {
+        flat = [&grid, n, u0, u1, v0, v1](double u, double v) {
           const double a = std::min(std::max((u - u0) / (u1 - u0) * (n - 1), 0.0), double(n - 1));
           const double b = std::min(std::max((v - v0) / (v1 - v0) * (n - 1), 0.0), double(n - 1));
           const int i = std::min(int(a), n - 2), j = std::min(int(b), n - 2);
