@@ -10151,12 +10151,14 @@ export async function mount(root, backend) {
       return c.read.get(it.key);
     };
     c.read = new Map();
-    // Limit points (L): up to two on each drawn profile, in its plane's coordinates; the curve goes
-    // as the range they mark (loftLimits.js), clicking a point again lofting its other side.
+    // Limit points (L): up to two on each profile, drawn curve or body edge, in the curve's plane
+    // coordinates (an edge's: the plane of the smooth curve read along it); the curve goes as the
+    // range they mark (loftLimits.js), clicking a point again lofting its other side. Keyed by the
+    // curve's id, or the edge's key.
     c.limits = new Map();
     c.picking = false;
     const profile = p => {
-      if (typeof p === 'object') return edgeCurve(p);
+      if (typeof p === 'object') return edgeCurve(p).then(cv => { const l = c.limits.get(p.key); return l?.pts.length ? limitCurve(cv, l.pts, l.flip) : cv; });
       const l = c.limits.get(p);
       return l?.pts.length ? limitCurve(curveById(p), l.pts, l.flip) : p;
     };
@@ -10164,7 +10166,7 @@ export async function mount(root, backend) {
       for (const o of [...limitMarks.children]) dispose(o);
       const pts = [];
       for (const [id, l] of c.limits) {
-        const f = curveFrame(curveById(id));
+        const f = l.frame ?? curveFrame(curveById(id));
         for (const [u, v] of l.pts) pts.push(f.o.clone().addScaledVector(f.x, u).addScaledVector(f.y, v));
       }
       if (pts.length) limitMarks.add(new THREE.Points(new THREE.BufferGeometry().setFromPoints(pts), hullDots));
@@ -10238,7 +10240,7 @@ export async function mount(root, backend) {
       // Keep the order the profiles were picked in; new ones go on the end.
       c.curves = [...c.curves.filter(p => now.some(q => same(p, q))), ...now.filter(q => !c.curves.some(p => same(p, q)))];
       if (c.curves.length < 3) c.loop = false;
-      for (const id of c.limits.keys()) if (!c.curves.includes(id)) c.limits.delete(id);
+      for (const id of c.limits.keys()) if (!c.curves.some(p => (typeof p === 'object' ? p.key : p) === id)) c.limits.delete(id);
       showLimits();
       refresh();
     };
@@ -10257,7 +10259,7 @@ export async function mount(root, backend) {
       if (action === 'limit') {
         c.picking = !c.picking;
         showLimits();
-        setHud(c.picking ? 'CLICK A PROFILE CURVE FOR A LIMIT POINT; CLICK ONE AGAIN TO REVERSE IT' : 'LOFT · SHEET');
+        setHud(c.picking ? 'CLICK A PROFILE CURVE OR EDGE FOR A LIMIT POINT; CLICK ONE AGAIN TO REVERSE IT' : 'LOFT · SHEET');
         return true;
       }
       if (action !== 'loop') return false;
@@ -10269,17 +10271,16 @@ export async function mount(root, backend) {
     c.click = e => {
       const hit = pickAt(e);
       if (c.picking) {
-        if (!hit?.point || (hit.kind !== 'curve' && hit.kind !== 'region')) return true;
-        if (!c.curves.includes(hit.id)) return toast('CLICK ONE OF THE PROFILE CURVES'), true;
-        const f = curveFrame(curveById(hit.id)), d = hit.point.clone().sub(f.o), at = [d.dot(f.x), d.dot(f.y)];
-        const l = c.limits.get(hit.id) ?? { pts: [], flip: false };
-        const reach = unitsPerPixel(controls.target) * 10;
-        if (l.pts.some(q => Math.hypot(q[0] - at[0], q[1] - at[1]) < reach)) l.flip = !l.flip;
-        else if (l.pts.length >= 2) return toast('UP TO TWO LIMIT POINTS ON EACH CURVE'), true;
-        else l.pts.push(at);
-        c.limits.set(hit.id, l);
-        showLimits();
-        refresh();
+        if (!hit?.point || (hit.kind !== 'curve' && hit.kind !== 'region' && hit.kind !== 'edge')) return true;
+        const edge = hit.kind === 'edge' ? c.curves.find(p => typeof p === 'object' && p.key === `${hit.body}:${hit.n}`) : null;
+        if (hit.kind === 'edge' ? !edge : !c.curves.includes(hit.id)) return toast('CLICK ONE OF THE PROFILES'), true;
+        if (edge) {
+          // An edge's points go in the plane of the curve read along it, once that is read.
+          const point = hit.point.clone();
+          edgeCurve(edge).then(cv => { if (cmd === c) addLimit(edge.key, curveFrame(cv), point); }).catch(e => toast(say(e)));
+          return true;
+        }
+        addLimit(hit.id, curveFrame(curveById(hit.id)), hit.point);
         return true;
       }
       if (hit?.kind === 'curve') sel.toggle({ kind: 'curve', id: hit.id });
@@ -10288,6 +10289,18 @@ export async function mount(root, backend) {
       selectionChanged();
       return true;
     };
+    function addLimit(key, f, point) {
+      const d = point.clone().sub(f.o), at = [d.dot(f.x), d.dot(f.y)];
+      const l = c.limits.get(key) ?? { pts: [], flip: false };
+      if (typeof key === 'string') l.frame = f;
+      const reach = unitsPerPixel(controls.target) * 10;
+      if (l.pts.some(q => Math.hypot(q[0] - at[0], q[1] - at[1]) < reach)) l.flip = !l.flip;
+      else if (l.pts.length >= 2) return toast('UP TO TWO LIMIT POINTS ON EACH PROFILE');
+      else l.pts.push(at);
+      c.limits.set(key, l);
+      showLimits();
+      refresh();
+    }
     c.finish = async () => {
       if (c.curves.length < 2) { setState('failed'); return toast('SELECT TWO CURVES OR MORE, IN ORDER, TO LOFT'); }
       try {
