@@ -66,6 +66,7 @@ import { TOOLS, check, tool as toolInfo, withDefaults } from './tools.js';
 import { ACTIONS, COMMAND, VIEWPORT, keyFor, keyOf } from './keymap.js';
 import { adjacent, edgeLoop, edgeRing, topology } from './edgeLoops.js';
 import { Selection, faceBoundEdges, faceEdges, faceNeighbours } from './Selection.js';
+import { faceProfile } from '../faceProfile.js';
 import { edgeOffsetsBothSides, edgeOffsetsOnFace, facesLoopOffsets } from '../edgeOffset.js';
 import { curveArrayMotions } from '../curveArray.js';
 import { chamferDimensions, curveDimensions, faceDimensions, filletDimensions, solidDimensions } from '../dimension.js';
@@ -7876,16 +7877,18 @@ export async function mount(root, backend) {
     // B / Q / W / Shift+E make new bodies or union, cut or intersect the target (Shift+T keeps the tubes).
     // C picks a closed curve as a custom profile (the next curve clicked); C again goes back to round.
     const c = cmd = { id: 'pipe', curves: [], op: 'new', keep: false, target: null, profile: null, picking: false, sent: 0, shown: 0 };
+    // The profile is a drawn curve's id, or { curve, label } for a face's outline.
+    const profLabel = () => c.profile?.label ?? curveLabel(c.profile);
     lastTool = 'pipe';
     showTool('pipe');
     setState('none');
     const sides = () => Math.round(num('pipe-v'));
     const scale = () => num('pipe-s') || 1;
     const OPS = { new: 'NEW', union: 'UNION', difference: 'DIFFERENCE', intersect: 'INTERSECT', slice: 'SLICE' };
-    const describe = () => `PIPE${c.profile !== null ? '' : ` R${num('pipe-r')}`}${num('pipe-t') && c.profile === null ? ` · WALL ${num('pipe-t')}` : ''}${sides() ? ` · ${sides()} SIDES` : ''}${num('pipe-a') && sides() ? ` · ${num('pipe-a')}°` : ''}${scale() !== 1 ? ` · ×${scale()}` : ''}${untrimmed(num('pipe-d1'), num('pipe-d2')) ? '' : ` · DISTANCE ${num('pipe-d1')}/${num('pipe-d2')}`}${c.profile !== null ? ` · PROFILE ${curveLabel(c.profile)}` : ''}${c.op !== 'new' && c.target !== null ? ` · ${OPS[c.op]} ${label(c.target)}` : ''}${c.keep && c.op !== 'new' ? ' · KEEP TOOLS' : ''}`;
+    const describe = () => `PIPE${c.profile !== null ? '' : ` R${num('pipe-r')}`}${num('pipe-t') && c.profile === null ? ` · WALL ${num('pipe-t')}` : ''}${sides() ? ` · ${sides()} SIDES` : ''}${num('pipe-a') && sides() ? ` · ${num('pipe-a')}°` : ''}${scale() !== 1 ? ` · ×${scale()}` : ''}${untrimmed(num('pipe-d1'), num('pipe-d2')) ? '' : ` · DISTANCE ${num('pipe-d1')}/${num('pipe-d2')}`}${c.profile !== null ? ` · PROFILE ${profLabel()}` : ''}${c.op !== 'new' && c.target !== null ? ` · ${OPS[c.op]} ${label(c.target)}` : ''}${c.keep && c.op !== 'new' ? ' · KEEP TOOLS' : ''}`;
     // Distance 1 and 2 move the path's ends; the moved paths go to the backends whole.
     const paths = () => untrimmed(num('pipe-d1'), num('pipe-d2')) ? c.curves : c.curves.map(id => pipePath(curveById(id), num('pipe-d1'), num('pipe-d2')));
-    c.request = () => ({ curves: paths(), ...(c.profile !== null && { profile: c.profile }), radius: num('pipe-r'), thickness: c.profile !== null ? 0 : num('pipe-t'), sides: sides(), angle: num('pipe-a') * DEG, scale: scale(),
+    c.request = () => ({ curves: paths(), ...(c.profile !== null && { profile: c.profile.curve ?? c.profile }), radius: num('pipe-r'), thickness: c.profile !== null ? 0 : num('pipe-t'), sides: sides(), angle: num('pipe-a') * DEG, scale: scale(),
       ...(c.op !== 'new' && c.target !== null && { op: c.op, target: c.target, keepTools: c.keep }) });
     // The target: a solid selected with the curves, else the first shown solid the curves run through.
     const findTarget = () => {
@@ -7912,20 +7915,29 @@ export async function mount(root, backend) {
       }
       livePreview(c, async () => backend.previewPipe(c.request()), b => {
         showPreviewBody(b);
-        $('pipe-hint').textContent = `${c.curves.length} ${c.curves.length === 1 ? 'PIPE' : 'PIPES'} · ${c.profile !== null ? `PROFILE ${curveLabel(c.profile)}` : num('pipe-t') ? 'HOLLOW' : 'SOLID'}${c.target !== null ? ` · ${OPS[c.op]} ${label(c.target)}` : ''}`;
+        $('pipe-hint').textContent = `${c.curves.length} ${c.curves.length === 1 ? 'PIPE' : 'PIPES'} · ${c.profile !== null ? `PROFILE ${profLabel()}` : num('pipe-t') ? 'HOLLOW' : 'SOLID'}${c.target !== null ? ` · ${OPS[c.op]} ${label(c.target)}` : ''}`;
         setHud(describe());
       }, 'pipe-hint');
     };
     c.onSelection = () => {
       drawOverlays();
       if (c.picking) {
-        // The curve just clicked is the profile; the paths stay as they were.
+        // The curve or flat face just clicked is the profile; the paths stay as they were.
+        const face = sel.list().filter(it => it.kind === 'face').at(-1);
         const picked = sel.curves.filter(id => curveById(id) && !c.curves.includes(id));
-        if (!picked.length) return setHud('CLICK A CLOSED CURVE FOR THE PROFILE');
-        c.profile = picked[0];
+        if (face) {
+          const b = bodyOf(face.body), plane = b?.facePlanes?.[face.n];
+          if (!plane) { toast('PICK A FLAT FACE FOR THE PROFILE'); return setHud('CLICK A CLOSED CURVE OR A FLAT FACE FOR THE PROFILE'); }
+          try {
+            const { curve, holes } = faceProfile(faceBoundEdges(b, face.n).map(n => b.edges[n]), plane);
+            c.profile = { curve, label: `${label(face.body)} FACE` };
+            if (holes) toast(`THE FACE'S ${holes === 1 ? 'HOLE IS' : `${holes} HOLES ARE`} LEFT OUT; THE PIPE TAKES ITS OUTLINE`);
+          } catch (e) { toast(String(e.message ?? e).toUpperCase()); return; }
+        } else if (picked.length) c.profile = picked[0];
+        else return setHud('CLICK A CLOSED CURVE OR A FLAT FACE FOR THE PROFILE');
         c.picking = false;
       } else c.curves = sel.curves.filter(id => curveById(id) && id !== c.profile);
-      setTarget(c.curves.length ? `${c.curves.length} CURVES${c.profile !== null ? ` · PROFILE ${curveLabel(c.profile)}` : ''}` : '—');
+      setTarget(c.curves.length ? `${c.curves.length} CURVES${c.profile !== null ? ` · PROFILE ${profLabel()}` : ''}` : '—');
       if (!c.curves.length) {
         const missing = 'SELECT THE CURVES TO RUN PIPES ALONG';
         $('pipe-hint').textContent = missing;
@@ -7940,8 +7952,8 @@ export async function mount(root, backend) {
       if (action === 'profile') {
         if (c.profile !== null || c.picking) { c.profile = null; c.picking = false; c.preview(); setHud(describe()); return true; }
         c.picking = true;
-        $('pipe-hint').textContent = 'CLICK A CLOSED CURVE FOR THE PROFILE';
-        setHud('CLICK A CLOSED CURVE FOR THE PROFILE · C ROUND AGAIN');
+        $('pipe-hint').textContent = 'CLICK A CLOSED CURVE OR A FLAT FACE FOR THE PROFILE';
+        setHud('CLICK A CLOSED CURVE OR A FLAT FACE FOR THE PROFILE · C ROUND AGAIN');
         return true;
       }
       const field = { radius: ['pipe-r', 'RADIUS', v => v > 0, 'THE RADIUS MUST BE ABOVE ZERO'], thickness: ['pipe-t', 'THICKNESS', v => v >= 0, "THE THICKNESS CAN'T BE BELOW ZERO"], sides: ['pipe-v', 'SIDES', v => v === 0 || (v >= 3 && v <= 256), 'SIDES ARE 0 (ROUND) OR 3 TO 256'],
