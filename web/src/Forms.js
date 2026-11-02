@@ -615,8 +615,12 @@ export function loftGuided(cs, guides) {
  * Plasticity's Pipe: a tube of `radius` along `path`, its section a circle (`sides` 0) or a regular
  * polygon with corners on the radius; with a `thickness` the middle is hollow. As form.rs's pipe.
  */
-export function pipe(path, radius, thickness = 0, sides = 0, angle = 0, scale = 1) {
+export function pipe(path, radius, thickness = 0, sides = 0, angle = 0, scale = 1, profile = null) {
     const o = oc();
+    // Plasticity's custom profile (C): a closed curve as the section, carried to the start of the
+    // path with its area centre on it and its plane square to it, turned by Angle; it keeps its size.
+    if (profile && thickness > 1e-9) throw new Error('a pipe with a custom profile is solid; set the thickness to 0');
+    if (profile) radius = Math.max(radius, 1), thickness = 0;
     if (!Number.isFinite(angle)) throw new Error('the angle must be a number');
     if (!(scale > 1e-6) || !Number.isFinite(scale)) throw new Error('the end scale must be greater than zero');
     if (!Number.isFinite(radius) || radius <= 1e-6) throw new Error('the radius must be greater than zero');
@@ -628,7 +632,16 @@ export function pipe(path, radius, thickness = 0, sides = 0, angle = 0, scale = 
     if (!(n.length() > 0.5)) throw new Error('the path is too short');
     const x = (Math.abs(n.x) < 0.9 ? new THREE.Vector3(1, 0, 0) : new THREE.Vector3(0, 1, 0)).addScaledVector(n, -(Math.abs(n.x) < 0.9 ? n.x : n.y)).normalize();
     const y = n.clone().cross(x);
-    const section = r => {
+    const custom = profile && (() => {
+        const prof = section(profile), pl = plane(profile), g = new o.GProp_GProps();
+        o.BRepGProp.SurfaceProperties(face(prof.wire), g, false, false);
+        const xr = x.clone().multiplyScalar(Math.cos(angle)).addScaledVector(y, Math.sin(angle));
+        const t = new o.gp_Trsf();
+        t.SetDisplacement(new o.gp_Ax3(g.CentreOfMass(), dir(pl.n), dir(pl.x)), new o.gp_Ax3(pnt(start.point), dir(n), dir(xr)));
+        return o.TopoDS.Wire(new o.BRepBuilderAPI_Transform(prof.wire, t, true, false).Shape());
+    })();
+    const ring = r => {
+        if (custom) return custom;
         const mk = new o.BRepBuilderAPI_MakeWire();
         if (sides === 0) mk.Add(new o.BRepBuilderAPI_MakeEdge(new o.gp_Circ(new o.gp_Ax2(pnt(start.point), dir(n), dir(x)), r)).Edge());
         else {
@@ -644,7 +657,7 @@ export function pipe(path, radius, thickness = 0, sides = 0, angle = 0, scale = 
         const mk = new o.BRepOffsetAPI_MakePipeShell(spine.Wire());
         mk.SetMode(!!g.spiral);
         mk.SetTransitionMode(o.BRepBuilderAPI_TransitionMode.BRepBuilderAPI_RightCorner);
-        const w = section(r);
+        const w = ring(r);
         mk.Add(w, false, false);
         // Scale: the section at the far end is `scale` times the size, carried along the path as Sweep's is.
         if (tapered) mk.Add(carried({ wire: w, centre: start.point, normal: n }, g, 1, 64, 0, scale), spine.Vertex(), false, false);

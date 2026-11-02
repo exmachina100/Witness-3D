@@ -1589,6 +1589,10 @@ pub struct PipeRequest {
     /// The section's size at the far end (1 when left out).
     #[serde(default = "one")]
     pub scale: f64,
+    /// Plasticity's custom profile (C): a closed curve, by id or whole, swept in place of the round
+    /// or polygon section.
+    #[serde(default)]
+    pub profile: Option<GuideRef>,
     /// "new" (or left out), "union", "difference" or "intersect" with `target`.
     #[serde(default)]
     pub op: Option<String>,
@@ -1607,7 +1611,7 @@ impl PipeRequest {
 
 pub fn preview_pipe(m: &Model, req: PipeRequest) -> Option<Result<Body, ApiError>> {
     m.preview(move |doc| {
-        let tubes = doc.preview_pipe_with(&req.curves, req.radius, req.thickness, req.sides, req.angle, req.scale)?;
+        let tubes = doc.preview_pipe_with(&req.curves, req.radius, req.thickness, req.sides, req.angle, req.scale, req.profile.as_ref())?;
         if let (Some("slice"), Some(target)) = (req.op.as_deref(), req.target) {
             let (cut, _) = doc.pipe_slice(target, &tubes)?;
             return Ok(body(&doc.kernel, target, &cut.solid)?);
@@ -1627,8 +1631,8 @@ pub fn preview_pipe(m: &Model, req: PipeRequest) -> Option<Result<Body, ApiError
 pub fn commit_pipe(m: &Model, req: PipeRequest) -> Result<Duplicated, ApiError> {
     m.call(move |doc| {
         let ids = match (req.op.as_deref(), req.target) {
-            (Some("slice"), Some(target)) => doc.commit_pipe_slice(&req.curves, req.radius, req.thickness, req.sides, req.angle, req.scale, target, req.keep_tools)?,
-            _ => doc.commit_pipe_with(&req.curves, req.radius, req.thickness, req.sides, req.angle, req.scale, req.into_target(), req.keep_tools)?,
+            (Some("slice"), Some(target)) => doc.commit_pipe_slice(&req.curves, req.radius, req.thickness, req.sides, req.angle, req.scale, req.profile.as_ref(), target, req.keep_tools)?,
+            _ => doc.commit_pipe_with(&req.curves, req.radius, req.thickness, req.sides, req.angle, req.scale, req.profile.as_ref(), req.into_target(), req.keep_tools)?,
         };
         Ok(Duplicated { ids, scene: bodies(doc)? })
     })

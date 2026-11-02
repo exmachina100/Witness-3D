@@ -1464,20 +1464,38 @@ impl<K: Kernel> Document<K> {
 
     /// Plasticity's Pipe, without changing the document: a tube along each curve.
     pub fn preview_pipe(&self, curves: &[CurveId], radius: f64, thickness: f64, sides: u32) -> Result<Vec<K::Solid>, KernelError> {
-        self.preview_pipe_with(&curves.iter().map(|&c| c.into()).collect::<Vec<GuideRef>>(), radius, thickness, sides, 0.0, 1.0)
+        self.preview_pipe_with(&curves.iter().map(|&c| c.into()).collect::<Vec<GuideRef>>(), radius, thickness, sides, 0.0, 1.0, None)
     }
 
     /// Pipe with an Angle (radians) for a polygon section and an end Scale.
     /// Each path is a drawn curve, or a curve given whole (its ends moved by Distance 1 and 2).
-    pub fn preview_pipe_with(&self, curves: &[GuideRef], radius: f64, thickness: f64, sides: u32, angle: f64, scale: f64) -> Result<Vec<K::Solid>, KernelError> {
+    pub fn preview_pipe_with(&self, curves: &[GuideRef], radius: f64, thickness: f64, sides: u32, angle: f64, scale: f64, profile: Option<&GuideRef>) -> Result<Vec<K::Solid>, KernelError> {
         if curves.is_empty() { return Err(KernelError::Invalid("select the curves to run pipes along")) }
+        let custom = profile.map(|p| self.pipe_profile(p)).transpose()?;
         self.guide_paths(curves)?.iter().map(|path| {
-            let tube = crate::form::pipe_with(&self.kernel, path, radius, thickness, sides, angle, scale)?;
+            let tube = crate::form::pipe_section(&self.kernel, path, radius, thickness, sides, angle, scale, custom.as_ref().map(|(p, c)| (p, *c)))?;
             if !self.kernel.is_valid(&tube) || self.kernel.solid_count(&tube) == 0 {
                 return Err(KernelError::Invalid("the pipe crosses itself; use a smaller radius"));
             }
             Ok(tube)
         }).collect()
+    }
+
+    /// Pipe's custom profile: a closed curve as a profile, with its area centre in its own plane.
+    fn pipe_profile(&self, p: &GuideRef) -> Result<(Profile, (f64, f64)), KernelError> {
+        let c = match p { GuideRef::Drawn(id) => self.curve(*id).cloned().ok_or(KernelError::Invalid("that profile no longer exists"))?, GuideRef::Shape(c) => c.clone() };
+        let profile = c.profile().ok_or(KernelError::Invalid("the profile must be a closed curve"))?;
+        let f = c.frame();
+        let pts: Vec<(f64, f64)> = self.kernel.sample(&c.path(), 512)?.iter().map(|q| ((*q - f.origin).dot(f.x), (*q - f.origin).dot(f.y()))).collect();
+        // The area centre of the sampled outline (shoelace).
+        let (mut a, mut cx, mut cy) = (0.0, 0.0, 0.0);
+        for i in 0..pts.len() {
+            let (p, q) = (pts[i], pts[(i + 1) % pts.len()]);
+            let w = p.0 * q.1 - q.0 * p.1;
+            a += w; cx += (p.0 + q.0) * w; cy += (p.1 + q.1) * w;
+        }
+        if a.abs() < 1e-12 { return Err(KernelError::Invalid("the profile encloses no area")) }
+        Ok((profile, (cx / (3.0 * a), cy / (3.0 * a))))
     }
 
     /// Pipe as one undoable step: each tube is a body of its own and the curves stay.
@@ -1503,8 +1521,8 @@ impl<K: Kernel> Document<K> {
     /// Pipe with its options as one undoable step: new bodies, or `target` changed by the tubes
     /// (`keep_tools` also keeps each tube as a body). Returns the target first, then any new bodies.
     #[allow(clippy::too_many_arguments)]
-    pub fn commit_pipe_with(&mut self, curves: &[GuideRef], radius: f64, thickness: f64, sides: u32, angle: f64, scale: f64, into: Option<(BodyId, BooleanOp)>, keep_tools: bool) -> Result<Vec<BodyId>, KernelError> {
-        let tubes = self.preview_pipe_with(curves, radius, thickness, sides, angle, scale)?;
+    pub fn commit_pipe_with(&mut self, curves: &[GuideRef], radius: f64, thickness: f64, sides: u32, angle: f64, scale: f64, profile: Option<&GuideRef>, into: Option<(BodyId, BooleanOp)>, keep_tools: bool) -> Result<Vec<BodyId>, KernelError> {
+        let tubes = self.preview_pipe_with(curves, radius, thickness, sides, angle, scale, profile)?;
         let Some((target, op)) = into else {
             self.checkpoint();
             return Ok(tubes.into_iter().map(|t| self.add_unrecorded(t)).collect());
@@ -1533,8 +1551,8 @@ impl<K: Kernel> Document<K> {
 
     /// Pipe sliced through `target` as one undoable step. Returns the target, the pieces, then any kept tubes.
     #[allow(clippy::too_many_arguments)]
-    pub fn commit_pipe_slice(&mut self, curves: &[GuideRef], radius: f64, thickness: f64, sides: u32, angle: f64, scale: f64, target: BodyId, keep_tools: bool) -> Result<Vec<BodyId>, KernelError> {
-        let tubes = self.preview_pipe_with(curves, radius, thickness, sides, angle, scale)?;
+    pub fn commit_pipe_slice(&mut self, curves: &[GuideRef], radius: f64, thickness: f64, sides: u32, angle: f64, scale: f64, profile: Option<&GuideRef>, target: BodyId, keep_tools: bool) -> Result<Vec<BodyId>, KernelError> {
+        let tubes = self.preview_pipe_with(curves, radius, thickness, sides, angle, scale, profile)?;
         let (cut, pieces) = self.pipe_slice(target, &tubes)?;
         self.checkpoint();
         self.replace_traced(target, cut);
