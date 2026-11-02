@@ -36,6 +36,11 @@ export const PREF_FIELDS = {
         { key: 'autoFillet', label: 'FILLET', type: 'bool', value: true },
         { key: 'autoMove', label: 'MOVE', type: 'bool', value: true },
     ],
+    // Plasticity's Grid and Units › Length, and the mass shown for the selection.
+    units: [
+        { key: 'length', label: 'LENGTH', type: 'choice', value: 'mm', options: ['mm', 'cm', 'm', 'in', 'ft'] },
+        { key: 'mass', label: 'MASS', type: 'choice', value: 'g', options: ['g', 'kg', 'oz', 'lb'] },
+    ],
     performance: [
         { key: 'renderQuality', label: 'GPU RENDERING QUALITY (PIXEL RATIO)', type: 'number', value: 2, min: 0.5, max: 2 },
         { key: 'facetQuality', label: 'CPU FACET QUALITY', type: 'number', value: 1, min: 0.25, max: 4 },
@@ -55,6 +60,7 @@ export function defaultPrefs() {
 /** One value checked against its field: the right type and in range, else the default. */
 export function checkPref(field, v) {
     if (field.type === 'bool') return typeof v === 'boolean' ? v : field.value;
+    if (field.type === 'choice') return field.options.includes(v) ? v : field.value;
     if (field.type === 'color') return typeof v === 'string' && HEX.test(v) ? v.toLowerCase() : field.value;
     const n = typeof v === 'string' && v.trim() !== '' ? Number(v) : v;
     if (typeof n !== 'number' || !Number.isFinite(n)) return field.value;

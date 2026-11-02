@@ -90,7 +90,8 @@ import { Constraints } from './constraints.js';
 import { SNAP_KINDS, allowed as snapAllowed, kindOf as snapKindOf, parseSnaps } from './snapKinds.js';
 import { Organise } from './Organise.js';
 import { P_MENU, RADIALS, mergeKeys, parseRadial, shortLabel, showKey, sliceAt, slicePosition } from './menus.js';
-import { ADVANCED_MATERIAL, ENVIRONMENTS, MATERIAL_LIBRARY, SHADERS, SHADER_OPTIONS, checkMaterial, formatMass, isColorKey, massOf, newMaterial, shader } from './shading.js';
+import { formatLength, fromUnit, parseLength, showMass, showVolume, toUnit } from '../units.js';
+import { ADVANCED_MATERIAL, ENVIRONMENTS, MATERIAL_LIBRARY, SHADERS, SHADER_OPTIONS, checkMaterial, isColorKey, massOf, newMaterial, shader } from './shading.js';
 import { claude, describe, MODEL, reply, request } from './ai.js';
 import { icon } from './icons.js';
 import { limitEdges, mergeShortEdges, polygonize, removeSmallParts, to3mf, toGlb, toObj, toStl } from '../meshExport.js';
@@ -1039,7 +1040,7 @@ const SHELL = `
   <footer class="status">
     <span>SYS.1 / <span data-id="status-tool">SELECT</span> / <span data-id="status-target">VOID</span></span>
     <span data-id="kernel"></span>
-    <span>UNITS MM</span>
+    <span data-id="units-label">UNITS MM</span>
     <span>PLANE <span data-id="status-plane">XY</span></span>
     <span data-id="blender" hidden title="Blender and Cinema 4D bridges">BRIDGE <output data-id="blender-state">—</output></span>
     <span>PREVIEW <output data-id="ms">—</output> MS · COALESCED <output data-id="coalesced">0→0</output></span>
@@ -1765,7 +1766,7 @@ export async function mount(root, backend) {
     await refreshSurfaceCombs();
     const k = Math.max(0, ...surfaceCombs.filter(on).flatMap(c => (c.runs ?? [c.teeth]).flat().map(t => t.k)));
     const what = [edges.length && `${edges.length} EDGE${edges.length > 1 ? 'S' : ''}`, faces.length && `${faces.length} FACE${faces.length > 1 ? 'S' : ''}`].filter(Boolean).join(' AND ');
-    toast(surfaceCombs.some(on) ? `CURVATURE ON ${what}${k > 0 ? ` · TIGHTEST RADIUS ${(1 / k).toFixed(3)} MM` : ' · FLAT'}` : 'SURFACE CURVATURE OFF');
+    toast(surfaceCombs.some(on) ? `CURVATURE ON ${what}${k > 0 ? ` · TIGHTEST RADIUS ${len((1 / k).toFixed(3))} ${U()}` : ' · FLAT'}` : 'SURFACE CURVATURE OFF');
   }
 
   async function loadCurves() {
@@ -2331,7 +2332,7 @@ export async function mount(root, backend) {
     setState('none');
     setTarget(imageLabel(id));
     const show = () => {
-      $('im-hint').textContent = `${im.name.toUpperCase()} · ${Math.round(im.width * 10) / 10} × ${Math.round(im.width * im.aspect * 10) / 10} MM`;
+      $('im-hint').textContent = `${im.name.toUpperCase()} · ${Math.round(im.width * 10) / 10} × ${len(Math.round(im.width * im.aspect * 10) / 10)} ${U()}`;
       for (const b of $$('[data-imdepth]')) b.setAttribute('aria-pressed', String(b.dataset.imdepth === im.depth));
       for (const b of $$('[data-imcull]')) b.setAttribute('aria-pressed', String(b.dataset.imcull === im.culling));
       drawImages();
@@ -2381,7 +2382,7 @@ export async function mount(root, backend) {
   function renderTotals() {
     // Disabled bodies are left out of the scene, so out of its totals too.
     const placed = placedSolids().filter(({ n }) => !org.disabled.has(n.master)), on = current.filter(b => !org.disabled.has(b.id));
-    $('volume').textContent = (on.reduce((v, b) => v + b.volume, 0) + placed.reduce((v, { n, b }) => v + b.volume * n.scale ** 3, 0)).toFixed(3);
+    $('volume').textContent = showVolume(on.reduce((v, b) => v + b.volume, 0) + placed.reduce((v, { n, b }) => v + b.volume * n.scale ** 3, 0), lengthUnit);
     $('faces').textContent = on.reduce((k, b) => k + b.facePlanes.length, 0) + placed.reduce((k, { b }) => k + b.facePlanes.length, 0);
   }
   function drawInstances() {
@@ -4052,7 +4053,7 @@ export async function mount(root, backend) {
     if (document.activeElement !== $('factor')) $('factor').value = +scale.toFixed(4);
     const lock = c.follow ? ` · ${c.follow.name}` : '';
     if (c.follow?.text) setHud(`${c.follow.name} ${c.follow.text}_`);
-    else setHud(c.id === 'move' ? `Δ ${user.map(fmt).join(' ')}${lock}`
+    else setHud(c.id === 'move' ? `Δ ${user.map(v => fmt(toUnit(v, lengthUnit))).join(' ')} ${U()}${lock}`
       : c.id === 'rotate' ? `${c.follow?.type === 'rotate' && c.follow.dir === null ? 'SCREEN' : c.axis.toUpperCase()} ${fmt(angle)}°${lock}`
         : stretched(c) ? `×${c.stretch.toArray().map(v => (v * scale).toFixed(3)).join(' × ')}${lock}` : `×${scale.toFixed(3)}${lock}`);
     const moved = offset.lengthSq() > 1e-18 || Math.abs(quat.w) < 1 - 1e-12 || Math.abs(scale - 1) > 1e-12 || stretched(c);
@@ -4123,7 +4124,7 @@ export async function mount(root, backend) {
   function followTyped(f) {
     const c = cmd, v = typed(f.text);
     if (v === undefined) return apply();
-    if (f.type === 'axis') c.offset.copy(f.base.offset).addScaledVector(f.dir, v);
+    if (f.type === 'axis') c.offset.copy(f.base.offset).addScaledVector(f.dir, fromUnit(v, lengthUnit));
     else if (f.type === 'rotate') c.quat.setFromAxisAngle(f.dir, v * DEG).multiply(f.base.quat);
     else if (f.type === 'scale') { if (v > 0) { if (f.axis === undefined) c.scale = v; else c.stretch.setComponent(f.axis, v); } }
     apply();
@@ -4170,7 +4171,7 @@ export async function mount(root, backend) {
     const { axis, angle } = axisAngle(c);
     const req = { bodies: c.ids, offset: c.offset.toArray(), pivot: c.pivot.toArray(), axis, angle, scale: c.scale };
     const user = toUser(req.offset);
-    const text = c.id === 'move' ? `MOVE ${user.map(fmt).join(' ')}`
+    const text = c.id === 'move' ? `MOVE ${user.map(v => fmt(toUnit(v, lengthUnit))).join(' ')} ${U()}`
       : c.id === 'rotate' ? `ROTATE ${fmt(angle / DEG)}°`
       : stretched(c) ? `SCALE ×${c.stretch.toArray().map(v => (v * c.scale).toFixed(3)).join(' × ')}` : `SCALE ×${c.scale.toFixed(3)}`;
     try {
@@ -5466,7 +5467,7 @@ export async function mount(root, backend) {
         c.out = c.compute();
         showCurvePreview(c.out);
         $(hint).textContent = `${ids.length} CURVE${ids.length > 1 ? 'S' : ''}`;
-        setHud(c.placing ? 'CLICK WHERE THE OFFSET GOES' : `${toolInfo(id).label} ${num(field)} MM${offset ? ` · ${corner().toUpperCase()}${c.both ? ' · BOTH SIDES' : ''}${c.slot ? ' · SLOT' : ''}${c.combined ? ' · COMBINED' : ''}` : ''}`);
+        setHud(c.placing ? 'CLICK WHERE THE OFFSET GOES' : `${toolInfo(id).label} ${len(num(field))} ${U()}${offset ? ` · ${corner().toUpperCase()}${c.both ? ' · BOTH SIDES' : ''}${c.slot ? ' · SLOT' : ''}${c.combined ? ' · COMBINED' : ''}` : ''}`);
         setState('updated');
       } catch (e) { c.out = null; $(hint).textContent = say(e); setHud(`${toolInfo(id).label} FAILED`); setState('failed'); }
     };
@@ -5514,7 +5515,7 @@ export async function mount(root, backend) {
       try {
         const { ids: made } = offset ? await backend.addCurves(c.out) : await backend.replaceCurves(ids, c.out);
         endCmd('committed');
-        record(`${toolInfo(id).label} ${num(field)} MM`, made[0], curveLabel(made[0]));
+        record(`${toolInfo(id).label} ${len(num(field))} ${U()}`, made[0], curveLabel(made[0]));
         await curvesChanged(made);
       } catch (e) { setState('failed'); toast(say(e)); }
     };
@@ -5546,7 +5547,7 @@ export async function mount(root, backend) {
         c.out = c.compute();
         showCurvePreview(c.out);
         $('ov-hint').textContent = `${picked.length} VERT${picked.length > 1 ? 'ICES' : 'EX'} ON ${curves.length} CURVE${curves.length > 1 ? 'S' : ''}`;
-        setHud(`OFFSET VERTEX ${num('ov-d')} MM`);
+        setHud(`OFFSET VERTEX ${len(num('ov-d'))} ${U()}`);
         setState('updated');
       } catch (e) { c.out = null; $('ov-hint').textContent = say(e); setHud('OFFSET VERTEX FAILED'); setState('failed'); }
     };
@@ -5570,7 +5571,7 @@ export async function mount(root, backend) {
       try {
         const { ids: made } = await backend.replaceCurves(curves, c.out);
         endCmd('committed');
-        record(`OFFSET VERTEX ${num('ov-d')} MM`, made[0], curveLabel(made[0]));
+        record(`OFFSET VERTEX ${len(num('ov-d'))} ${U()}`, made[0], curveLabel(made[0]));
         await curvesChanged(made);
       } catch (e) { setState('failed'); toast(say(e)); }
     };
@@ -5615,7 +5616,7 @@ export async function mount(root, backend) {
         c.out = c.compute();
         showCurvePreview(c.out);
         $('sl-hint').textContent = `${picked.length} CONTROL POINT${picked.length > 1 ? 'S' : ''} ON ${curves.length} CURVE${curves.length > 1 ? 'S' : ''}`;
-        setHud(`SLIDE ${c.dir.toUpperCase()} ${num('sl-d')} MM`);
+        setHud(`SLIDE ${c.dir.toUpperCase()} ${len(num('sl-d'))} ${U()}`);
         setState(num('sl-d') ? 'updated' : 'none');
       } catch (e) { c.out = null; $('sl-hint').textContent = say(e); setHud('SLIDE FAILED'); setState('failed'); }
     };
@@ -5633,7 +5634,7 @@ export async function mount(root, backend) {
       try {
         const { ids: made } = await backend.replaceCurves(curves, c.out);
         endCmd('committed');
-        record(`SLIDE ${c.dir.toUpperCase()} ${num('sl-d')} MM`, made[0], curveLabel(made[0]));
+        record(`SLIDE ${c.dir.toUpperCase()} ${len(num('sl-d'))} ${U()}`, made[0], curveLabel(made[0]));
         await curvesChanged(made);
       } catch (e) { setState('failed'); toast(say(e)); }
     };
@@ -5675,7 +5676,7 @@ export async function mount(root, backend) {
       const [[, by]] = slidePoles(rowsOf(first.face), [first.n], 1, c.dir);
       c.gizmo = dot(at, new THREE.Vector3(...by).normalize(), v => { $('sl-d').value = +v.toFixed(3); c.preview(); });
     };
-    const text = () => `SLIDE ${c.dir.toUpperCase()} ${num('sl-d')} MM`;
+    const text = () => `SLIDE ${c.dir.toUpperCase()} ${len(num('sl-d'))} ${U()}`;
     c.preview = () => {
       c.gizmo?.render(num('sl-d'));
       try {
@@ -5702,7 +5703,7 @@ export async function mount(root, backend) {
       try {
         const { id, scene: list } = await backend.commitMoveFacePoles({ body, moves: c.moves });
         endCmd('committed');
-        record(`SLIDE SURFACE CV ${c.dir.toUpperCase()} ${num('sl-d')} MM`, id, `${picked.length} SURFACE POINT${picked.length > 1 ? 'S' : ''}`);
+        record(`SLIDE SURFACE CV ${c.dir.toUpperCase()} ${len(num('sl-d'))} ${U()}`, id, `${picked.length} SURFACE POINT${picked.length > 1 ? 'S' : ''}`);
         await showScene(list);
       } catch (e) { setState('failed'); toast(say(e)); }
     };
@@ -5740,7 +5741,7 @@ export async function mount(root, backend) {
         c.out = c.compute();
         showCurvePreview(c.out);
         $('fv-hint').textContent = `${picked.length} VERT${picked.length > 1 ? 'ICES' : 'EX'} ON ${curves.length} CURVE${curves.length > 1 ? 'S' : ''}`;
-        setHud(`${shape} ${Math.abs(v)} MM`);
+        setHud(`${shape} ${len(Math.abs(v))} ${U()}`);
         setState('updated');
       } catch (e) { c.out = null; $('fv-hint').textContent = say(e); setHud(`${shape} FAILED`); setState('failed'); }
     };
@@ -5768,7 +5769,7 @@ export async function mount(root, backend) {
       try {
         const { ids: made } = await backend.replaceCurves(curves, c.out);
         endCmd('committed');
-        record(`FILLET VERTEX ${value() < 0 ? 'CHAMFER' : 'R'} ${Math.abs(value())} MM`, made[0], curveLabel(made[0]));
+        record(`FILLET VERTEX ${value() < 0 ? 'CHAMFER' : 'R'} ${len(Math.abs(value()))} ${U()}`, made[0], curveLabel(made[0]));
         await curvesChanged(made);
       } catch (e) { setState('failed'); toast(say(e)); }
     };
@@ -6078,8 +6079,8 @@ export async function mount(root, backend) {
       catch (e) { c.data = null; clearPreview(); $('cs-hint').textContent = say(e); return setState('failed'); }
       c.data = splineSheetData(fit);
       const miss = fit.error < 1e-4 ? '< 0.0001' : fit.error.toFixed(4);
-      $('cs-hint').textContent = fit.met ? `${n} POINTS · WITHIN ${miss} MM · ${fit.spans.join(' × ')} SPANS`
-        : `${n} POINTS · MISSES BY ${miss} MM: RAISE THE ANGULAR TOLERANCE`;
+      $('cs-hint').textContent = fit.met ? `${n} POINTS · WITHIN ${len(miss)} ${U()} · ${fit.spans.join(' × ')} SPANS`
+        : `${n} POINTS · MISSES BY ${len(miss)} ${U()}: RAISE THE ANGULAR TOLERANCE`;
       setHud(`CONSTRAINED SURFACE · ${n} POINTS`);
       livePreview(c, () => backend.previewSplineSheet({ data: c.data }), b => showPreviewBody(b), 'cs-hint');
     };
@@ -6159,7 +6160,7 @@ export async function mount(root, backend) {
         });
         showCurvePreview(c.out);
         $('av-hint').textContent = `${picked.length} VERTICES ON ${curves.length} CURVE${curves.length > 1 ? 'S' : ''}`;
-        setHud(`ALIGN ${c.axis.toUpperCase()} = ${value} MM`);
+        setHud(`ALIGN ${c.axis.toUpperCase()} = ${len(value)} ${U()}`);
         setState('updated');
       } catch (e) { c.out = null; $('av-hint').textContent = say(e); setHud('ALIGN FAILED'); setState('failed'); }
     };
@@ -6176,7 +6177,7 @@ export async function mount(root, backend) {
       try {
         const { ids: made } = await backend.replaceCurves(curves, c.out);
         endCmd('committed');
-        record(`ALIGN VERTEX ${c.axis.toUpperCase()} ${num('av-v')} MM`, made[0], `${picked.length} VERTICES`);
+        record(`ALIGN VERTEX ${c.axis.toUpperCase()} ${len(num('av-v'))} ${U()}`, made[0], `${picked.length} VERTICES`);
         await curvesChanged(made);
       } catch (e) { setState('failed'); toast(say(e)); }
     };
@@ -6229,7 +6230,7 @@ export async function mount(root, backend) {
           c.any = { body: c.body, edges: picked, distance: Math.abs(d), side: c.both ? 2 : !sides.length && d < 0 ? 1 : 0, away: !c.both && sides.length ? sides[0] : null };
           const how = c.both ? 'BOTH SIDES' : sides.length ? 'THE CURVED SIDE' : d < 0 ? 'THE OTHER SIDE' : 'ONE SIDE';
           $('oe-hint').textContent = `${picked.length} EDGE${picked.length > 1 ? 'S' : ''} ON ${how} · ROUND CORNERS${c.both ? '' : ' · − FOR THE OTHER SIDE, S FOR BOTH'}`;
-          livePreview(c, () => backend.previewOffsetEdges(c.any), b => { showPreviewBody(b); setHud(`OFFSET EDGE ${d} MM · ${how}`); }, 'oe-hint');
+          livePreview(c, () => backend.previewOffsetEdges(c.any), b => { showPreviewBody(b); setHud(`OFFSET EDGE ${len(d)} ${U()} · ${how}`); }, 'oe-hint');
           return;
         }
         if (c.both) {
@@ -6247,7 +6248,7 @@ export async function mount(root, backend) {
       } catch (e) { c.shapes = null; $('oe-hint').textContent = say(e); setState('failed'); return; }
       showCurvePreview(c.shapes);
       $('oe-hint').textContent = `${c.shapes.length} ${loop ? 'LOOP' : 'OFFSET'}${c.shapes.length > 1 ? 'S' : ''} ON FACE${c.faces.length > 1 ? 'S' : ''} ${c.faces.join(' AND ')}${loop ? (picked.length > 1 ? ` · I FOR ${c.individual ? 'COMBINED' : 'INDIVIDUAL'}` : '') : (sides.length > 1 || backend.previewOffsetEdges) && !c.both ? ' · − FOR THE OTHER FACE, S FOR BOTH' : ''}`;
-      livePreview(c, () => backend.previewImprint(c.request()), b => { showPreviewBody(b); showCurvePreview(c.shapes); setHud(`${loop ? 'OFFSET FACE LOOP' : 'OFFSET EDGE'} ${d} MM · ${c.both ? 'BOTH SIDES' : c.corner.toUpperCase()}`); }, 'oe-hint');
+      livePreview(c, () => backend.previewImprint(c.request()), b => { showPreviewBody(b); showCurvePreview(c.shapes); setHud(`${loop ? 'OFFSET FACE LOOP' : 'OFFSET EDGE'} ${len(d)} ${U()} · ${c.both ? 'BOTH SIDES' : c.corner.toUpperCase()}`); }, 'oe-hint');
     };
     c.request = () => ({ body: c.body, faces: c.faces, curves: [], tools: { shapes: c.shapes } });
     c.setCorner = setCorner;
@@ -6276,7 +6277,7 @@ export async function mount(root, backend) {
       try {
         const { id: made, scene: list } = c.any ? await backend.commitOffsetEdges(c.any) : await backend.commitImprint(c.request());
         endCmd('committed');
-        record(`${loop ? 'OFFSET FACE LOOP' : 'OFFSET EDGE'} ${num('oe-d')} MM${c.both ? ' BOTH SIDES' : ''}`, made);
+        record(`${loop ? 'OFFSET FACE LOOP' : 'OFFSET EDGE'} ${len(num('oe-d'))} ${U()}${c.both ? ' BOTH SIDES' : ''}`, made);
         await showScene(list);
         sel.replace({ kind: 'solid', body: made });
         selectionChanged({ quiet: true });
@@ -6699,8 +6700,8 @@ export async function mount(root, backend) {
       // three.js keeps what lies on the side the plane's normal points to: the model past the slice.
       const keep = c.flip ? into.clone().negate() : into.clone();
       applySection(new THREE.Plane().setFromNormalAndCoplanarPoint(keep, c.at.origin));
-      $('sa-hint').textContent = `${c.how === 'selection' ? 'THE SELECTED FACE' : c.how === 'previous' ? 'THE PREVIOUS SECTION' : `CPLANE ${cplane.name}`} · ${d} MM IN${c.flip ? ' · FLIPPED' : ''}`;
-      setHud(`SECTION ${d} MM`);
+      $('sa-hint').textContent = `${c.how === 'selection' ? 'THE SELECTED FACE' : c.how === 'previous' ? 'THE PREVIOUS SECTION' : `CPLANE ${cplane.name}`} · ${len(d)} ${U()} IN${c.flip ? ' · FLIPPED' : ''}`;
+      setHud(`SECTION ${len(d)} ${U()}`);
     };
     c.setHow = how => { c.how = how; c.preview(); };
     c.key = action => {
@@ -6762,6 +6763,7 @@ export async function mount(root, backend) {
     setTarget(which.curve !== undefined ? curveLabel(which.curve) : label(which.body ?? which.solid));
     const box = $('dm-fields');
     box.innerHTML = dims.map((d, i) => `<div class="field"><label for="w3d-dm-${i}">${d.label}</label><input id="w3d-dm-${i}" data-dm="${i}" type="number" step="0.1" min="0.001" value="${+d.value.toFixed(3)}"></div>`).join('');
+    unitFields();
     const fields = [...box.querySelectorAll('[data-dm]')];
     const show = () => {
       setHud(dims.map((d, i) => `${i === c.active ? '▸ ' : ''}${d.label} ${c.values[i].toFixed(3)}`).join(' · '));
@@ -7134,8 +7136,8 @@ export async function mount(root, backend) {
       const r = b.rebuilt ?? [];
       $('rf-cvs').textContent = r.map(f => `${f.poles[0]}×${f.poles[1]}`).join(' ') || '—';
       const dev = Math.max(0, ...r.map(f => f.deviation));
-      $('rf-hint').textContent = `${c.faces.length} FACE${c.faces.length > 1 ? 'S' : ''} OF ${label(c.body)} · MAX DEVIATION ${mm(dev)} MM`;
-      setHud(c.method === 'explicit' ? `REBUILD FACE · DEGREE ${num('rf-du')}×${num('rf-dv')} · SPANS ${num('rf-su')}×${num('rf-sv')}` : `REBUILD FACE · WITHIN ${num('rf-tol')} MM`);
+      $('rf-hint').textContent = `${c.faces.length} FACE${c.faces.length > 1 ? 'S' : ''} OF ${label(c.body)} · MAX DEVIATION ${len(mm(dev))} ${U()}`;
+      setHud(c.method === 'explicit' ? `REBUILD FACE · DEGREE ${num('rf-du')}×${num('rf-dv')} · SPANS ${num('rf-su')}×${num('rf-sv')}` : `REBUILD FACE · WITHIN ${len(num('rf-tol'))} ${U()}`);
     }, 'rf-hint');
     c.setMethod = m => {
       c.method = m;
@@ -7188,7 +7190,7 @@ export async function mount(root, backend) {
         const { id, scene: list, rebuilt } = await backend.commitRebuildFaces(c.request());
         endCmd('committed');
         const dev = Math.max(0, ...(rebuilt ?? []).map(f => f.deviation));
-        record(`REBUILD FACE ×${c.faces.length}`, id, `${(rebuilt ?? []).map(f => `${f.poles[0]}×${f.poles[1]} CVS`).join(' ')} · ${mm(dev)} MM`);
+        record(`REBUILD FACE ×${c.faces.length}`, id, `${(rebuilt ?? []).map(f => `${f.poles[0]}×${f.poles[1]} CVS`).join(' ')} · ${len(mm(dev))} ${U()}`);
         await showScene(list);
         sel.replace({ kind: 'solid', body: id });
         selectionChanged({ quiet: true });
@@ -7750,7 +7752,7 @@ export async function mount(root, backend) {
     c.preview = () => (c.armed = true) && livePreview(c, () => backend.previewExtendSheet(c.request()), b => {
       const m = showPreviewBody(b, phantom.add.face, phantom.add.edge);
       m.renderOrder = 5;
-      const how = c.limit != null ? `${c.outside ? 'THROUGH' : 'UP TO'} ${label(c.limit)}` : `${num('es-d')} MM`;
+      const how = c.limit != null ? `${c.outside ? 'THROUGH' : 'UP TO'} ${label(c.limit)}` : `${len(num('es-d'))} ${U()}`;
       $('es-hint').textContent = `${label(c.edge.body)} · ${c.limit != null ? how : `${how} PAST THE EDGE`}`;
       setHud(`EXTEND SHEET ${how} · ${c.shape.toUpperCase()}`);
     }, 'es-hint');
@@ -7767,7 +7769,7 @@ export async function mount(root, backend) {
       c.edge = e;
       setTarget(label(e.body));
       if (!c.armed) {
-        $('es-hint').textContent = `${label(e.body)} · TYPE A DISTANCE (D) OR ENTER FOR ${num('es-d')} MM`;
+        $('es-hint').textContent = `${label(e.body)} · TYPE A DISTANCE (D) OR ENTER FOR ${len(num('es-d'))} ${U()}`;
         return setHud('EXTEND SHEET');
       }
       c.preview();
@@ -7784,7 +7786,7 @@ export async function mount(root, backend) {
       try {
         const { id, scene: list } = await backend.commitExtendSheet(c.request());
         endCmd('committed');
-        record(`EXTEND SHEET ${c.limit != null ? `UP TO ${label(c.limit)}` : `${num('es-d')} MM`} ${c.shape.toUpperCase()}`, id);
+        record(`EXTEND SHEET ${c.limit != null ? `UP TO ${label(c.limit)}` : `${len(num('es-d'))} ${U()}`} ${c.shape.toUpperCase()}`, id);
         await showScene(list);
         sel.replace({ kind: 'solid', body: id });
         selectionChanged({ quiet: true });
@@ -7815,12 +7817,12 @@ export async function mount(root, backend) {
     lastTool = 'thicken';
     showTool('thicken');
     setState('none');
-    const describe = () => `THICKEN ${c.faces.length ? `${c.faces.length} FACE${c.faces.length > 1 ? 'S' : ''} ` : ''}${num('th-f')}${num('th-b') ? ` + ${num('th-b')} BACK` : ''} MM`;
+    const describe = () => `THICKEN ${c.faces.length ? `${c.faces.length} FACE${c.faces.length > 1 ? 'S' : ''} ` : ''}${len(num('th-f'))}${num('th-b') ? ` + ${len(num('th-b'))} BACK` : ''} ${U()}`;
     c.request = () => ({ body: c.body, faces: c.faces, front: num('th-f'), back: num('th-b') });
     c.preview = () => livePreview(c, () => backend.previewThicken(c.request()), b => {
       // Thicken Face's solid is a new body; the one its faces are on stays in view.
       showPreviewBody(c.faces.length ? { ...b, id: -1 } : b);
-      $('th-hint').textContent = `${label(c.body)}${c.faces.length ? ` · ${c.faces.length} FACE${c.faces.length > 1 ? 'S' : ''}` : ''} · ${num('th-f') + num('th-b')} MM THICK`;
+      $('th-hint').textContent = `${label(c.body)}${c.faces.length ? ` · ${c.faces.length} FACE${c.faces.length > 1 ? 'S' : ''}` : ''} · ${len(num('th-f') + num('th-b'))} ${U()} THICK`;
       setHud(describe());
     }, 'th-hint');
     c.onSelection = () => {
@@ -8452,7 +8454,7 @@ export async function mount(root, backend) {
     const show = (a, b) => {
       line.geometry.setFromPoints([a, b]);
       const [dx, dy, dz] = toUser(b.clone().sub(a).toArray());
-      setHud(`DISTANCE ${a.distanceTo(b).toFixed(3)} MM · ΔX ${dx.toFixed(3)} ΔY ${dy.toFixed(3)} ΔZ ${dz.toFixed(3)}`);
+      setHud(`DISTANCE ${len(a.distanceTo(b).toFixed(3))} ${U()} · ΔX ${dx.toFixed(3)} ΔY ${dy.toFixed(3)} ΔZ ${dz.toFixed(3)}`);
     };
     c.move = e => { if (!c.a) return; const b = pointOf(e); if (b) show(c.a, b); };
     c.click = e => {
@@ -8482,7 +8484,7 @@ export async function mount(root, backend) {
     const placed = sel.bodies.length ? [] : placedSolids().filter(({ n }) => materials.has(materialOf.get(n.master)));
     const grams = weighed.reduce((g, id) => g + massOf(bodyOf(id)?.volume ?? 0, materials.get(materialOf.get(id)).density), 0)
       + placed.reduce((g, { n, b }) => g + massOf(b.volume * n.scale ** 3, materials.get(materialOf.get(n.master)).density), 0);
-    $('mass').textContent = weighed.length || placed.length ? formatMass(grams) : '—';
+    $('mass').textContent = weighed.length || placed.length ? showMass(grams, prefs.units.mass) : '—';
   }
   /** Bodies that use the material changed: their faces take the new values. */
   function materialsChanged() {
@@ -8523,7 +8525,7 @@ export async function mount(root, backend) {
       $('mat-hint').textContent = `${c.mat.name} · USED BY ${users}`;
       for (const input of $$('[data-mat]')) if (input !== document.activeElement) input.value = c.mat[input.dataset.mat];
       const g = ids.reduce((sum, id) => sum + massOf(bodyOf(id)?.volume ?? 0, c.mat.density), 0);
-      $('mat-mass').textContent = formatMass(g);
+      $('mat-mass').textContent = showMass(g, prefs.units.mass);
       materialsChanged();
     };
     c.edit = (key, value) => {
@@ -8719,7 +8721,7 @@ export async function mount(root, backend) {
       if (!c.first || c.done) { c.first = pick; c.done = false; setHud('CLICK THE SECOND CURVE NEAR ITS END'); return true; }
       try {
         const r = continuity(c.first.src, c.first.end, pick.src, pick.end);
-        setHud(`${r.continuity} · GAP ${r.gap.toFixed(4)} MM · ANGLE ${r.angle.toFixed(3)}° · K ${r.ka.toFixed(4)} / ${r.kb.toFixed(4)}`);
+        setHud(`${r.continuity} · GAP ${len(r.gap.toFixed(4))} ${U()} · ANGLE ${r.angle.toFixed(3)}° · K ${r.ka.toFixed(4)} / ${r.kb.toFixed(4)}`);
         setState('updated');
       } catch (err) { setHud(say(err)); setState('failed'); }
       c.done = true;
@@ -8754,7 +8756,7 @@ export async function mount(root, backend) {
         }
       }
       if (r === null) { setHud('NO RADIUS THERE: PICK A CIRCLE, ARC OR ROUND EDGE'); return true; }
-      setHud(`RADIUS ${r.toFixed(3)} MM · DIAMETER ${(2 * r).toFixed(3)} MM`);
+      setHud(`RADIUS ${len(r.toFixed(3))} ${U()} · DIAMETER ${len((2 * r).toFixed(3))} ${U()}`);
       setState('updated');
       return true;
     };
@@ -8779,7 +8781,7 @@ export async function mount(root, backend) {
         const out = extendCurve(src, nearestEnd(src, at), num('ext-len'), extShape());
         const { ids: made } = await backend.replaceCurves([src.id], [out]);
         c.count++;
-        record(`EXTEND ${curveLabel(src.id)} ${num('ext-len')} MM ${extShape().toUpperCase()}`, made[0], curveLabel(made[0]));
+        record(`EXTEND ${curveLabel(src.id)} ${len(num('ext-len'))} ${U()} ${extShape().toUpperCase()}`, made[0], curveLabel(made[0]));
         await loadCurves();
         setHud(`${c.count} EXTENDED · CLICK ANOTHER, OR ⏎`);
         setState('committed');
@@ -8989,7 +8991,7 @@ export async function mount(root, backend) {
         const r = await alignAnalysis(backend, req, tol);
         if (cmd !== c || c.req !== req) return;
         const mark = ok => ok === null ? '' : ok ? ' ✓' : ' ✗';
-        $('as-r0').textContent = `${r.gap.toFixed(4)} MM${mark(r.ok.g0)}`;
+        $('as-r0').textContent = `${len(r.gap.toFixed(4))} ${U()}${mark(r.ok.g0)}`;
         $('as-r1').textContent = `${r.angle.toFixed(3)}°${mark(r.ok.g1)}`;
         $('as-r2').textContent = r.bend === null ? 'NEEDS 3 ROWS' : `${r.bend.toFixed(1)}%${mark(r.ok.g2)}`;
       } catch (e) { $('as-r0').textContent = say(e); }
@@ -9836,7 +9838,7 @@ export async function mount(root, backend) {
     showTool('shell');
     setState('none');
     c.request = () => ({ body: c.body, faces: c.faces, thickness: num('shell-t') });
-    c.preview = () => livePreview(c, () => backend.previewShell(c.request()), b => { showPreviewBody(b); setHud(`SHELL ${num('shell-t')} MM`); }, 'shell-hint');
+    c.preview = () => livePreview(c, () => backend.previewShell(c.request()), b => { showPreviewBody(b); setHud(`SHELL ${len(num('shell-t'))} ${U()}`); }, 'shell-hint');
     c.onSelection = () => {
       drawOverlays();
       const b = faceBody() ?? (whole()?.length === 1 ? whole()[0] : null);
@@ -9865,7 +9867,7 @@ export async function mount(root, backend) {
       try {
         const { id, scene: list } = await backend.commitShell(c.request());
         endCmd('committed');
-        record(c.faces.length ? `SHELL ${num('shell-t')} MM ×${c.faces.length}` : `SHELL ${num('shell-t')} MM · HOLLOW`, id);
+        record(c.faces.length ? `SHELL ${len(num('shell-t'))} ${U()} ×${c.faces.length}` : `SHELL ${len(num('shell-t'))} ${U()} · HOLLOW`, id);
         await showScene(list);
         sel.replace({ kind: 'solid', body: id });
         selectionChanged({ quiet: true });
@@ -10755,7 +10757,7 @@ export async function mount(root, backend) {
       case 'grid':
         // Plasticity's palette commands: Grid: increase / decrease grid size, toggle grid snapping.
         if (arg === 'snap') { view.snap = !view.snap; applyView(); snapsFor(view.snap); toast(view.snap ? 'GRID SNAPPING ON' : 'GRID SNAPPING OFF (CTRL SNAPS)'); }
-        else { setGrid(arg === 'inc' ? 1 : -1); toast(`GRID ${gridStep()} MM`); }
+        else { setGrid(arg === 'inc' ? 1 : -1); toast(`GRID ${len(gridStep())} ${U()}`); }
         return true;
       case 'overlays': {
         // Alt+Shift+Z: the grid, navigation cube and key hints off or on, to look at the model alone.
@@ -10981,10 +10983,54 @@ export async function mount(root, backend) {
   }
   // Preferences: Plasticity's window of settings, by section; each change applies and is kept at once.
   // The bridge settings live with the desktop app and take effect the next time it starts.
-  const PREF_SECTIONS = { navigation: 'NAVIGATION', appearance: 'APPEARANCE', commands: 'COMMANDS', performance: 'PERFORMANCE', network: 'NETWORK' };
+  const PREF_SECTIONS = { navigation: 'NAVIGATION', appearance: 'APPEARANCE', commands: 'COMMANDS', units: 'UNITS', performance: 'PERFORMANCE', network: 'NETWORK' };
   // Performance: the facets the bodies are drawn with, as last asked of the backend.
   let facetQuality = 1, aoShader = false;
+  // Plasticity's Units: the model stays in millimetres; length fields show and take the chosen
+  // unit (with arithmetic and unit suffixes, units.js), so code reading and writing them still
+  // sees millimetres.
+  const LENGTH_FIELDS = ['blend-distance', 'spiral-radius', 'spiral-length', 'ex-distance', 'ex-thickness', 'off-distance', 'mx-tol', 'mx-width', 'mx-min', 'mx-small', 'dr-tol',
+    'oc-d', 'oe-d', 'ov-d', 'sl-d', 'cs-tol', 'sa-d', 'tx-size', 'pl-d', 'rf-tol', 'rf-eu', 'rf-ev', 'fv-r', 'fc-r', 'draft-d', 'patch-tol', 'bs-w', 'es-d', 'th-f', 'th-b',
+    'pipe-r', 'pipe-t', 'hole-d', 'hole-depth', 'ext-len', 'prim-w', 'prim-d', 'prim-r', 'prim-h', 'shell-t', 'mirror-at', 'form-thickness', 'distance', 'ra-sx', 'ra-sy', 'ra-sz', 'im-w'];
+  const rawValue = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value');
+  let lengthUnit = 'mm';
+  function unitField(el) {
+    if (!el || el.dataset.unit) return;
+    const mm = parseFloat(rawValue.get.call(el));
+    el.dataset.unit = 'length';
+    el.type = 'text';
+    el.inputMode = 'decimal';
+    el.autocomplete = 'off';
+    Object.defineProperty(el, 'value', {
+      configurable: true,
+      get() { const v = parseLength(rawValue.get.call(this), lengthUnit); if (v !== undefined) this.mm = v; return v === undefined ? '' : String(v); },
+      set(v) {
+        const n = typeof v === 'number' ? v : parseFloat(v);
+        if (Number.isFinite(n)) this.mm = n;
+        rawValue.set.call(this, Number.isFinite(n) ? formatLength(n, lengthUnit) : String(v ?? ''));
+      },
+    });
+    // A finished entry shows as a plain number in the unit.
+    el.addEventListener('change', () => { if (Number.isFinite(el.mm)) rawValue.set.call(el, formatLength(el.mm, lengthUnit)); });
+    el.title = `${el.title ? `${el.title}. ` : ''}In ${lengthUnit}; type a unit (2in, 5cm) or sums (5 + 2in)`;
+    if (Number.isFinite(mm)) el.value = mm;
+  }
+  function unitFields() {
+    for (const id of LENGTH_FIELDS) unitField($(id));
+    for (const el of $$('[data-move], [data-dm]')) unitField(el);
+  }
+  /** A length readout in the chosen unit. */
+  const len = (mm, digits = 3) => `${formatLength(Number(mm), lengthUnit, digits)}`;
+  const U = () => lengthUnit.toUpperCase();
+
   function applyPrefs() {
+    if (prefs.units.length !== lengthUnit) {
+      lengthUnit = prefs.units.length;
+      for (const el of $$('[data-unit="length"]')) { if (Number.isFinite(el.mm)) rawValue.set.call(el, formatLength(el.mm, lengthUnit)); el.title = el.title.replace(/In \w+;/, `In ${lengthUnit};`); }
+      $('units-label').textContent = `UNITS ${lengthUnit.toUpperCase()}`;
+      renderTotals();
+      selectionChanged?.({ quiet: true });
+    }
     Object.assign(controls, controlSettings(prefs.navigation));
     const perf = prefs.performance;
     renderer.setPixelRatio(Math.min(devicePixelRatio, perf.renderQuality));
@@ -11027,6 +11073,7 @@ export async function mount(root, backend) {
       const v = prefs[s][f.key], off = f.desktop && !desktop, id = `pf-${s}-${f.key}`;
       const input = f.type === 'bool' ? `<input type="checkbox" id="${id}" ${v ? 'checked' : ''}>`
         : f.type === 'color' ? `<input type="color" id="${id}" value="${v}">`
+        : f.type === 'choice' ? `<select id="${id}">${f.options.map(o => `<option value="${o}"${o === v ? ' selected' : ''}>${o.toUpperCase()}</option>`).join('')}</select>`
         : `<input type="number" id="${id}" value="${v}" min="${f.min}" max="${f.max}" step="${f.step ?? 0.1}">`;
       const note = off ? 'DESKTOP APP ONLY' : f.restart ? 'AFTER A RESTART' : '';
       return `<label class="pf-row${off ? ' off' : ''}" data-pref="${s}.${f.key}" title="${note ? note.charAt(0) + note.slice(1).toLowerCase() : f.label}"><span>${f.label}${note ? `<small>${note}</small>` : ''}</span>${input.replace('>', off ? ' disabled>' : '>')}</label>`;
@@ -11035,7 +11082,7 @@ export async function mount(root, backend) {
       + Object.entries(PREF_FIELDS).map(([s, fs]) => `<div class="pf-title">${PREF_SECTIONS[s]}</div>` + fs.map(f => field(s, f)).join('')).join('');
     el.hidden = false;
     for (const row of el.querySelectorAll('[data-pref]')) {
-      const [s, key] = row.dataset.pref.split('.'), input = row.querySelector('input');
+      const [s, key] = row.dataset.pref.split('.'), input = row.querySelector('input, select');
       input.onchange = input.oninput = () => {
         if (input.type === 'number' && input.value === '') return;
         prefs = setPref(prefs, s, key, input.type === 'checkbox' ? input.checked : input.value);
@@ -11962,6 +12009,7 @@ export async function mount(root, backend) {
     ortho.left = -half * w / h; ortho.right = half * w / h;
     ortho.updateProjectionMatrix();
   }
+  unitFields();
   applyPrefs();
   renderer.setAnimationLoop(() => {
     resize();
