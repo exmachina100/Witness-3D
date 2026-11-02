@@ -49,7 +49,16 @@ pub enum FilletShape {
     /// A round tangent to all three faces around two edges of one face: the face it replaces and
     /// the two beside it (a rib's top rounded off). The size is not used.
     Full,
+    /// Chamfers only: Plasticity's Apex chamfer shape (the default chamfer is Offset, the
+    /// distance set back along each face). Here the distance is the chamfer's throat, measured
+    /// from the sharp corner (the apex of its section) square to the chamfer face, equal on both
+    /// sides. The manual says only that it reduces the chamfer border's displacement; this is
+    /// our reading. Ignored for fillets.
+    Apex,
 }
+
+/// The angle [`Kernel::blend`] takes for an Apex chamfer (a constant-throat chamfer).
+pub const THROAT: f64 = -1.0;
 
 /// A point on a rounded edge where the radius is `size` × `scale`; the radius runs smoothly from
 /// point to point and back to `size` at the ends of the edge's contour.
@@ -138,7 +147,8 @@ pub fn blend<K: Kernel>(k: &K, body: &K::Solid, p: &BlendParams) -> Result<Trace
         }
     }
     let variable = if chordal.is_empty() { variable } else { &chordal[..] };
-    let mut traced = k.blend(body, &edges, size, p.kind, p.angle, variable)?;
+    let angle = if p.kind == Blend::Chamfer && p.shape == FilletShape::Apex { THROAT } else { p.angle };
+    let mut traced = k.blend(body, &edges, size, p.kind, angle, variable)?;
     if matches!(shape, FilletShape::Conic | FilletShape::G2) {
         let mut rounds: Vec<u32> = traced.history.generated_faces.iter().map(|&(_, f)| f).collect();
         rounds.sort_unstable();

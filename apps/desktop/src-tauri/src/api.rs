@@ -684,7 +684,8 @@ pub struct BlendRequest {
     /// Variable points of a fillet: radius `size` × scale at a point on one of the edges.
     #[serde(default)]
     pub variable: Vec<VariableIn>,
-    /// Plasticity's fillet Shape: "round" (the default), "chordal", "conic", "g2" or "full".
+    /// Plasticity's fillet Shape: "round" (the default), "chordal", "conic", "g2" or "full";
+    /// for a chamfer "apex" (the distance is the throat) or anything else for Offset.
     #[serde(default)]
     pub shape: String,
     /// The Conic shape's rho, or how far the G2 shape reaches toward the corner.
@@ -719,6 +720,7 @@ impl BlendRequest {
                 "conic" => FilletShape::Conic,
                 "g2" => FilletShape::G2,
                 "full" => FilletShape::Full,
+                "apex" => FilletShape::Apex,
                 _ => FilletShape::Round,
             },
             tension: self.tension,

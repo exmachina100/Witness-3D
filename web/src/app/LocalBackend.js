@@ -4,7 +4,7 @@
 import * as THREE from 'three';
 import { ExtrudeFactory } from '../ExtrudeFactory.js';
 import { NoOpError } from '../GeometryFactory.js';
-import { arrayMotions, blendEdges, booleanWithHistory, extrudeFace, bounds, box, count, draftFaces, faceSheet, imprintEdgesWithHistory, imprintWithHistory, planeSheet, regions, unifyWithHistory, boundaryEdges, splitWithHistory, draftWithHistory, exportSTEP, facePlane, mirror, mirror as mirrorShape, numberedEdges, oc, primitive, shellFaces, tessellate, transform, volume } from '../Kernel.js';
+import { THROAT, arrayMotions, blendEdges, booleanWithHistory, extrudeFace, bounds, box, count, draftFaces, faceSheet, imprintEdgesWithHistory, imprintWithHistory, planeSheet, regions, unifyWithHistory, boundaryEdges, splitWithHistory, draftWithHistory, exportSTEP, facePlane, mirror, mirror as mirrorShape, numberedEdges, oc, primitive, shellFaces, tessellate, transform, volume } from '../Kernel.js';
 import { cutSheets, loft, loftGuided, loftSheet, offsetFlatFaces, pipe, regionFace, revolve, splineSamples, sweep, sweepGuided } from '../Forms.js';
 import { curveFromNurbs, ends, join, loops, MEET, nurbsLoop } from '../curves.js';
 import { isoparam, meetCurves, projectCurveCurve, projectCurves, projectedEdges, sectionCurves } from '../Project.js';
@@ -1417,7 +1417,8 @@ export class LocalBackend {
             const c = chordal(shape, unique, size);
             return blendEdges(shape, unique, c.size, false, withHistory, angle, c.variable);
         }
-        return blendEdges(shape, unique, size, kind === 'chamfer', withHistory, angle, variable);
+        // Apex chamfer: the distance is the throat (see Kernel.js blendEdges, THROAT).
+        return blendEdges(shape, unique, size, kind === 'chamfer', withHistory, kind === 'chamfer' && section === 'apex' ? THROAT : angle, variable);
     }
 
     async commitBlend(req) {

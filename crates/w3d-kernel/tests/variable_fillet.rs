@@ -90,3 +90,20 @@ fn variable_points_are_checked() {
     p.kind = Blend::Chamfer;
     assert!(blend(&k, &b, &p).is_ok());
 }
+
+#[test]
+fn an_apex_chamfer_takes_its_distance_as_the_throat() {
+    let _turn = turn();
+    let k = Occt;
+    let (b, e) = block(&k);
+    let full = 40.0 * 30.0 * 20.0;
+    let mut p = params(e, vec![]);
+    p.kind = Blend::Chamfer;
+    // Offset (the default): set back 3 along each face, a triangle of area 4.5.
+    let offset = full - volume(&k, &blend(&k, &b, &p).unwrap().solid);
+    assert!((offset - 4.5 * 30.0).abs() < 1e-3, "offset chamfer took {offset}");
+    // Apex: 3 from the corner square to the chamfer face, legs 3√2, area 9.
+    p.shape = w3d_kernel::blend::FilletShape::Apex;
+    let apex = full - volume(&k, &blend(&k, &b, &p).unwrap().solid);
+    assert!((apex - 9.0 * 30.0).abs() < 1e-3, "apex chamfer took {apex}");
+}

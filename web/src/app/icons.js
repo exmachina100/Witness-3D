@@ -230,6 +230,9 @@ const ICONS = {
     reblend: `<path d="M4 20V12a10 7 0 0 1 10-7h6" stroke-dasharray="2 2"/><path ${A} d="M8 20v-5a6 6 0 0 1 6-6h6"/><path d="M4 20h4"/>`,
     'fillet-round': `<path d="M5 3v8M13 19h8"/><path ${A} d="M5 11a8 8 0 0 0 8 8"/>`,
     'fillet-chordal': `<path d="M5 3v8M13 19h8"/><path ${A} d="M5 11a8 8 0 0 0 8 8"/><path d="M5 11l8 8" stroke-dasharray="2 2"/>`,
+    // Chamfer shapes: Offset sets back along each face (ticks on the faces), Apex measures from the corner (dashed throat).
+    'chamfer-offset': `<path d="M5 3v8M13 19h8"/><path ${A} d="M5 11l8 8"/><path d="M3 11h4M13 21v-4"/>`,
+    'chamfer-apex': `<path d="M5 3v8M13 19h8"/><path ${A} d="M5 11l8 8"/><path d="M5 19l4-4" stroke-dasharray="2 2"/><circle cx="5" cy="19" r="1.2"/>`,
     'fillet-conic': `<path d="M5 3v8M13 19h8"/><path ${A} d="M5 11Q5 19 13 19"/><circle cx="5" cy="19" r="1.2"/>`,
     'fillet-g2': `<path d="M5 3v6M15 19h6"/><path ${A} d="M5 9C5 16 8 19 15 19"/>`,
     'tangent-chain': `<path d="M3 17h7"/><path ${A} d="M10 17a6 6 0 0 0 6-6V4"/><path d="M16 4v-1M3 17H2" stroke-dasharray="1 2"/><circle cx="10" cy="17" r="1.2"/>`,

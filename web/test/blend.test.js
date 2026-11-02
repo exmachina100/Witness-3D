@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { before, test } from 'node:test';
 import * as THREE from 'three';
-import { BlendError, blendEdges, box, count, loadKernel, numberedEdges, tessellate, volume } from '../src/Kernel.js';
+import { BlendError, THROAT, blendEdges, box, count, loadKernel, numberedEdges, tessellate, volume } from '../src/Kernel.js';
 
 before(async () => { await loadKernel() });
 
@@ -47,4 +47,11 @@ test('a chamfer at an angle cuts a right triangle of that shape', () => {
     const s = enclosure();
     const top = tessellate(s).polylines.findIndex(p => p[1] === 30 && p[4] === 30 && p[2] === 25 && p[5] === 25);
     close(volume(blendEdges(s, [top], 3, true, false, Math.PI / 6)), 120000 - 0.5 * 9 * Math.tan(Math.PI / 6) * 80, 1e-6);
+});
+
+test('an Apex chamfer takes its distance as the throat, from the corner to the chamfer face', () => {
+    const s = enclosure();
+    const top = tessellate(s).polylines.findIndex(p => p[1] === 30 && p[4] === 30 && p[2] === 25 && p[5] === 25);
+    // A square corner with throat 3: an isosceles right triangle of height 3, legs 3√2, area 9.
+    close(volume(blendEdges(s, [top], 3, true, false, THROAT)), 120000 - 9 * 80, 1e-6);
 });
