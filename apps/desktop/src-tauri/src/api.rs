@@ -826,6 +826,28 @@ pub fn commit_motion(m: &Model, req: MotionRequest) -> Result<Committed, ApiErro
     })
 }
 
+/// Plasticity's Scale along X, Y or Z: bodies stretched about `pivot` by `matrix` (3 × 3, column
+/// by column), then moved by `offset`, as one undoable step.
+#[derive(Deserialize, Debug)]
+pub struct StretchRequest {
+    pub bodies: Vec<BodyId>,
+    pub pivot: [f64; 3],
+    pub matrix: [f64; 9],
+    #[serde(default)]
+    pub offset: [f64; 3],
+}
+
+pub fn commit_stretch(m: &Model, req: StretchRequest) -> Result<Committed, ApiError> {
+    if req.pivot.iter().chain(&req.matrix).chain(&req.offset).any(|v| !v.is_finite()) {
+        return Err(String::from("the scale is not a valid number").into());
+    }
+    m.call(move |doc| {
+        let first = *req.bodies.first().ok_or(KernelError::Invalid("select something to scale"))?;
+        doc.commit_stretch(&req.bodies, DVec3::from_array(req.pivot), glam::DMat3::from_cols_array(&req.matrix), DVec3::from_array(req.offset))?;
+        Ok(Committed { id: first, scene: bodies(doc)? })
+    })
+}
+
 /// Delete bodies, as one undoable step.
 pub fn delete_bodies(m: &Model, ids: Vec<BodyId>) -> Result<Vec<Body>, ApiError> {
     m.call(move |doc| { doc.commit_delete(&ids)?; Ok(bodies(doc)?) })

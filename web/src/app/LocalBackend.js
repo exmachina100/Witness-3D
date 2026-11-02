@@ -14,7 +14,7 @@ import { offsetEdges } from '../edgeTube.js';
 import { faceSurfaces } from '../faceSurfaces.js';
 import { facePoles } from '../facePoles.js';
 import { faceUvn } from '../faceUvn.js';
-import { deformBodies, deformReblend } from '../deformBody.js';
+import { deformBodies, deformReblend, warpBodies } from '../deformBody.js';
 import { filletFaces, rechamfer, refilletFaces, removeFaces, turnFlatFace } from '../removeFace.js';
 import { moveFacePoles, subdivideFaces } from '../movePoles.js';
 import { isoparamSplit } from '../isoparamSplit.js';
@@ -1437,6 +1437,24 @@ export class LocalBackend {
         if (Math.hypot(...offset) < 1e-12 && Math.abs(angle) < 1e-12 && Math.abs(scale - 1) < 1e-12) throw new Error('nothing to do');
         this.checkpoint();
         for (const id of bodies) this.shapes.set(id, transform(this.shapes.get(id), { offset, pivot, axis, angle, scale }));
+        return { id: bodies[0], scene: this.bodies() };
+    }
+
+    /** Scale along X, Y or Z: bodies stretched about `pivot` by a 3 × 3 matrix (column by column), then moved. */
+    async commitStretch({ bodies, pivot = [0, 0, 0], matrix, offset = [0, 0, 0] }) {
+        if (!bodies?.length) throw new Error('select something to scale');
+        if (bodies.some(id => !this.shapes.has(id))) throw new Error('that body no longer exists');
+        if (matrix?.length !== 9 || [...pivot, ...matrix, ...offset].some(v => !Number.isFinite(v))) throw new Error('the scale is not a valid number');
+        const [a, b, c, d, e, f, g, h, i] = matrix;
+        if (!(Math.abs(a * (e * i - f * h) - d * (b * i - c * h) + g * (b * f - c * e)) > 1e-9)) throw new Error('the scale must be greater than zero along every axis');
+        // This OpenCascade build has no general (affine) transform, so each face is refitted
+        // through the stretched points (Deform's warp), within 0.01 mm.
+        const at = (r, col) => matrix[col * 3 + r];
+        const warp = p => [0, 1, 2].map(r => pivot[r] + offset[r] + at(r, 0) * (p[0] - pivot[0]) + at(r, 1) * (p[1] - pivot[1]) + at(r, 2) * (p[2] - pivot[2]));
+        const shapes = warpBodies(bodies.map(id => this.shapes.get(id)), warp, 0.01);
+        const made = bodies.map((id, i) => [id, shapes[i]]);
+        this.checkpoint();
+        for (const [id, s] of made) this.shapes.set(id, s);
         return { id: bodies[0], scene: this.bodies() };
     }
 

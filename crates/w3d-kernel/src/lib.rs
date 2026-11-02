@@ -585,6 +585,11 @@ pub trait Kernel {
     fn join_sheets(&self, _sheets: &[&Self::Solid]) -> Result<Self::Solid, KernelError> {
         Err(KernelError::Invalid("this kernel cannot join sheets"))
     }
+    /// Plasticity's Scale along X, Y or Z: every point p goes to `pivot` + `m` (p − `pivot`), `m`
+    /// a 3 × 3 matrix (column-major), so the body can stretch more one way than another.
+    fn stretch(&self, _s: &Self::Solid, _pivot: DVec3, _m: glam::DMat3) -> Result<Self::Solid, KernelError> {
+        Err(KernelError::Invalid("this kernel cannot stretch bodies"))
+    }
     /// Plasticity's Unjoin: each face as a sheet of its own (`faces`), or each separate shell or solid.
     fn unjoin(&self, _s: &Self::Solid, _faces: bool) -> Result<Vec<Self::Solid>, KernelError> {
         Err(KernelError::Invalid("this kernel cannot unjoin"))

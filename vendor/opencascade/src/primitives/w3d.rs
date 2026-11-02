@@ -244,6 +244,11 @@ impl Shape {
     }
 
     /// The same faces facing the other way (Reverse Sheet); faces and edges keep their numbers.
+    /// Stretched about a pivot: `m` is a 3 × 3 matrix row by row, then the pivot (Scale X/Y/Z).
+    pub fn stretched(&self, m: &[f64; 12]) -> Result<Shape, String> {
+        ffi::w3d::w3d_stretched(&self.inner, m).map(|s| Shape::from_shape(&s)).map_err(reason)
+    }
+
     pub fn reversed(&self) -> Shape {
         Shape::from_shape(&ffi::w3d::w3d_reversed(&self.inner))
     }

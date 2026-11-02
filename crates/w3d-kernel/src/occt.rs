@@ -582,6 +582,15 @@ impl Kernel for Occt {
 
     fn reversed(&self, s: &Shape) -> Result<Shape, KernelError> { Ok(s.reversed()) }
 
+    fn stretch(&self, s: &Shape, pivot: DVec3, m: glam::DMat3) -> Result<Shape, KernelError> {
+        // Row by row, then the pivot.
+        let t = m.transpose().to_cols_array();
+        let mut a = [0.0; 12];
+        a[..9].copy_from_slice(&t);
+        a[9..].copy_from_slice(&pivot.to_array());
+        s.stretched(&a).map_err(shim)
+    }
+
     fn boundary_edges(&self, s: &Shape) -> Vec<u32> {
         s.boundary_edges().into_iter().map(|i| i as u32).collect()
     }

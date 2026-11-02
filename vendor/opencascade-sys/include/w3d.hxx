@@ -6,6 +6,8 @@
 #pragma once
 #include "rust/cxx.h"
 #include <BRepAlgoAPI_Common.hxx>
+#include <BRepBuilderAPI_GTransform.hxx>
+#include <gp_GTrsf.hxx>
 #include <BRepBuilderAPI_MakeEdge.hxx>
 #include <BRepBuilderAPI_MakeFace.hxx>
 #include <BRepBuilderAPI_MakePolygon.hxx>
@@ -2090,6 +2092,23 @@ inline std::unique_ptr<W3dResult> w3d_unify(const TopoDS_Shape &shape) {
 // Plasticity's Reverse Sheet: the same faces facing the other way. Faces and edges keep their numbers.
 inline std::unique_ptr<TopoDS_Shape> w3d_reversed(const TopoDS_Shape &shape) {
   return std::unique_ptr<TopoDS_Shape>(new TopoDS_Shape(shape.Reversed()));
+}
+
+// Plasticity's Scale along X, Y or Z (non-uniform): every point p goes to pivot + M (p - pivot),
+// `m` holding the 3 × 3 matrix M row by row and then the pivot. The faces become B-splines where
+// a stretch would bend their kind (a cylinder stretched across its axis). Throws when OCCT fails.
+inline std::unique_ptr<TopoDS_Shape> w3d_stretched(const TopoDS_Shape &shape, rust::Slice<const double> m) {
+  if (m.size() != 12) throw std::runtime_error("a stretch takes a 3 x 3 matrix and a pivot");
+  gp_GTrsf g;
+  for (int r = 0; r < 3; r++)
+    for (int c = 0; c < 3; c++) g.SetValue(r + 1, c + 1, m[r * 3 + c]);
+  gp_XYZ pivot(m[9], m[10], m[11]), moved = pivot;
+  g.Transforms(moved);
+  // The translation part: pivot - M pivot (Transforms above applied M and a zero translation).
+  g.SetTranslationPart(pivot - moved);
+  BRepBuilderAPI_GTransform t(shape, g, true);
+  if (!t.IsDone()) throw std::runtime_error("the kernel could not stretch that body");
+  return std::unique_ptr<TopoDS_Shape>(new TopoDS_Shape(t.Shape()));
 }
 
 // Plasticity's Find Boundary Edges: the numbers (TopExp::MapShapes order) of the edges that bound
