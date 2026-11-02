@@ -1576,7 +1576,8 @@ pub fn commit_thicken(m: &Model, req: ThickenRequest) -> Result<Committed, ApiEr
 /// Pipe: a tube along each of `curves`, round (`sides` 0) or polygonal, hollow with a `thickness`.
 #[derive(Deserialize, Debug, Clone)]
 pub struct PipeRequest {
-    pub curves: Vec<CurveId>,
+    /// Drawn curves by id, or paths given whole (Distance 1 and 2 moved their ends).
+    pub curves: Vec<GuideRef>,
     pub radius: f64,
     #[serde(default)]
     pub thickness: f64,

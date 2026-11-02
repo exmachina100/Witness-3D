@@ -98,6 +98,7 @@ import { limitEdges, mergeShortEdges, polygonize, removeSmallParts, to3mf, toGlb
 import { flatten, toDxf, toSvg } from '../drawingExport.js';
 import { readDxf } from '../dxf.js';
 import { distanceToFace } from '../dependentOffset.js';
+import { pipePath, untrimmed } from '../pipePath.js';
 import { ALIGN_CURVE_CONTINUITY, alignCurveEnd, BRIDGE_CONTINUITY, bridgeContinuous, bridgeEnd, continuity, curvatureComb, curveVertices, deleteVertices, explode, EXTEND_SHAPES, extendCurve, filletCurve, nearestEnd, OFFSET_CORNERS, offsetCurve, offsetSlot, offsetThrough, unionLoops, moveVertices, alignedInPlane, offsetVertex, rebuildCurve, subdivideCurve, completeCurve, convertVertices, insertKnotAt, raiseDegree, reverseCurve, transformCurve, moveVerticesTo, slideCurveCVs, splitCurve, tangentCircle, tangentCircle3, trim, cutCurve, cuttersFor, samples as curveSamples } from '../curveEdit.js';
 import { ViewGizmo } from './ViewGizmo.js';
 import { Toolbar } from './Toolbar.js';
@@ -167,7 +168,7 @@ const KEYS = {
   'bridge-surface': [['⇧ CLICK', 'TWO EDGES, OR TWO CROSSING SHEETS'], ['T', 'TENSION'], ['A', 'ADD WALL PAIR'], ['⏎ / RMB', 'OK']],
   'extend-sheet': [['CLICK', "A SHEET'S EDGE"], ['D', 'DISTANCE'], ['CTRL+CLICK', 'A BODY TO REACH'], ['TAB', 'NATURAL · LINEAR · SOFT · REFLECTIVE'], ['⏎ / RMB', 'OK']],
   thicken: [['CLICK', 'A SHEET'], ['ALT CLICK', 'FACES (THICKEN FACE)'], ['D', 'FRONT'], ['B', 'BACK'], ['⏎ / RMB', 'OK']],
-  pipe: [['⇧ CLICK', 'CURVES'], ['R', 'RADIUS'], ['T', 'THICKNESS'], ['V', 'SIDES'], ['⏎ / RMB', 'OK']],
+  pipe: [['⇧ CLICK', 'CURVES'], ['R', 'RADIUS'], ['T', 'THICKNESS'], ['V', 'SIDES'], ['⇧1 ⇧2', 'DISTANCES'], ['⏎ / RMB', 'OK']],
   patch: [['⇧ CLICK', 'CURVES · EDGES'], ['T', 'TANGENT TO FACES'], ['Q', 'QUAD-SIDED'], ['⏎ / RMB', 'OK']],
   hole: [['CLICK', 'A FLAT FACE'], ['T', 'THROUGH ALL'], ['TYPE', 'SIZE IN PANEL'], ['⏎ / RMB', 'OK']],
   split: [['CLICK', 'WHERE TO SPLIT'], ['ESC / ⏎', 'DONE']],
@@ -696,6 +697,8 @@ const SHELL = `
       <div class="field"><label for="w3d-pipe-v">SIDES</label><input id="w3d-pipe-v" data-id="pipe-v" type="number" step="1" min="0" max="256" value="0" title="0 for a round pipe, or 3 to 256 for a polygon"></div>
       <div class="field"><label for="w3d-pipe-a">ANGLE</label><input id="w3d-pipe-a" data-id="pipe-a" type="number" step="15" value="0" title="Turns a polygon section about the path, in degrees (A)"></div>
       <div class="field"><label for="w3d-pipe-s">SCALE</label><input id="w3d-pipe-s" data-id="pipe-s" type="number" step="0.1" min="0.01" value="1" title="The section's size at the far end; 1 keeps it the same (S)"></div>
+      <div class="field"><label for="w3d-pipe-d1">DISTANCE 1</label><input id="w3d-pipe-d1" data-id="pipe-d1" type="number" step="0.05" min="0.01" value="1" title="Where the pipe starts, as a fraction of the path: 1 at its start, less pulls it in, more carries it on past (Shift+1)"></div>
+      <div class="field"><label for="w3d-pipe-d2">DISTANCE 2</label><input id="w3d-pipe-d2" data-id="pipe-d2" type="number" step="0.05" min="0.01" value="1" title="Where the pipe ends, as a fraction of the path: 1 at its end, less pulls it in, more carries it on past (Shift+2)"></div>
       <div class="chips">
         <button data-pipeop="new" aria-pressed="true" title="Each pipe a body of its own"><kbd>B</kbd>NEW</button>
         <button data-pipeop="union" aria-pressed="false" title="Join the pipes to the target body"><kbd>Q</kbd>UNION</button>
@@ -7877,8 +7880,10 @@ export async function mount(root, backend) {
     const sides = () => Math.round(num('pipe-v'));
     const scale = () => num('pipe-s') || 1;
     const OPS = { new: 'NEW', union: 'UNION', difference: 'DIFFERENCE', intersect: 'INTERSECT', slice: 'SLICE' };
-    const describe = () => `PIPE R${num('pipe-r')}${num('pipe-t') ? ` · WALL ${num('pipe-t')}` : ''}${sides() ? ` · ${sides()} SIDES` : ''}${num('pipe-a') && sides() ? ` · ${num('pipe-a')}°` : ''}${scale() !== 1 ? ` · ×${scale()}` : ''}${c.op !== 'new' && c.target !== null ? ` · ${OPS[c.op]} ${label(c.target)}` : ''}${c.keep && c.op !== 'new' ? ' · KEEP TOOLS' : ''}`;
-    c.request = () => ({ curves: c.curves, radius: num('pipe-r'), thickness: num('pipe-t'), sides: sides(), angle: num('pipe-a') * DEG, scale: scale(),
+    const describe = () => `PIPE R${num('pipe-r')}${num('pipe-t') ? ` · WALL ${num('pipe-t')}` : ''}${sides() ? ` · ${sides()} SIDES` : ''}${num('pipe-a') && sides() ? ` · ${num('pipe-a')}°` : ''}${scale() !== 1 ? ` · ×${scale()}` : ''}${untrimmed(num('pipe-d1'), num('pipe-d2')) ? '' : ` · DISTANCE ${num('pipe-d1')}/${num('pipe-d2')}`}${c.op !== 'new' && c.target !== null ? ` · ${OPS[c.op]} ${label(c.target)}` : ''}${c.keep && c.op !== 'new' ? ' · KEEP TOOLS' : ''}`;
+    // Distance 1 and 2 move the path's ends; the moved paths go to the backends whole.
+    const paths = () => untrimmed(num('pipe-d1'), num('pipe-d2')) ? c.curves : c.curves.map(id => pipePath(curveById(id), num('pipe-d1'), num('pipe-d2')));
+    c.request = () => ({ curves: paths(), radius: num('pipe-r'), thickness: num('pipe-t'), sides: sides(), angle: num('pipe-a') * DEG, scale: scale(),
       ...(c.op !== 'new' && c.target !== null && { op: c.op, target: c.target, keepTools: c.keep }) });
     // The target: a solid selected with the curves, else the first shown solid the curves run through.
     const findTarget = () => {
@@ -7903,7 +7908,7 @@ export async function mount(root, backend) {
         clearPreview();
         return setHud(missing);
       }
-      livePreview(c, () => backend.previewPipe(c.request()), b => {
+      livePreview(c, async () => backend.previewPipe(c.request()), b => {
         showPreviewBody(b);
         $('pipe-hint').textContent = `${c.curves.length} ${c.curves.length === 1 ? 'PIPE' : 'PIPES'} · ${num('pipe-t') ? 'HOLLOW' : 'SOLID'}${c.target !== null ? ` · ${OPS[c.op]} ${label(c.target)}` : ''}`;
         setHud(describe());
@@ -7925,7 +7930,8 @@ export async function mount(root, backend) {
       if (OPS[action]) { c.op = action; syncOps(); c.preview(); return true; }
       if (action === 'keep') { c.keep = !c.keep; syncOps(); c.preview(); return true; }
       const field = { radius: ['pipe-r', 'RADIUS', v => v > 0, 'THE RADIUS MUST BE ABOVE ZERO'], thickness: ['pipe-t', 'THICKNESS', v => v >= 0, "THE THICKNESS CAN'T BE BELOW ZERO"], sides: ['pipe-v', 'SIDES', v => v === 0 || (v >= 3 && v <= 256), 'SIDES ARE 0 (ROUND) OR 3 TO 256'],
-        angle: ['pipe-a', 'ANGLE', v => Number.isFinite(v), 'THE ANGLE MUST BE A NUMBER'], scale: ['pipe-s', 'SCALE', v => v > 0, 'THE SCALE MUST BE ABOVE ZERO'] }[action];
+        angle: ['pipe-a', 'ANGLE', v => Number.isFinite(v), 'THE ANGLE MUST BE A NUMBER'], scale: ['pipe-s', 'SCALE', v => v > 0, 'THE SCALE MUST BE ABOVE ZERO'],
+        distance1: ['pipe-d1', 'DISTANCE 1', v => v > 0, 'THE DISTANCE MUST BE ABOVE ZERO'], distance2: ['pipe-d2', 'DISTANCE 2', v => v > 0, 'THE DISTANCE MUST BE ABOVE ZERO'] }[action];
       if (!field) return false;
       c.entry = { label: field[1], text: '', apply: v => { if (field[2](v)) { $(field[0]).value = v; c.preview(); } else toast(field[3]); } };
       setHud(`${field[1]} _`);
@@ -11889,7 +11895,7 @@ export async function mount(root, backend) {
   for (const b of $$('[data-eslimit]')) b.onclick = () => cmd?.id === 'extend-sheet' && cmd.setOutside(b.dataset.eslimit === 'outside');
   $('es-unlimit').onclick = () => cmd?.id === 'extend-sheet' && cmd.setLimit(null);
   for (const f of ['th-f', 'th-b']) $(f).addEventListener('input', () => cmd?.id === 'thicken' && cmd.preview());
-  for (const f of ['pipe-r', 'pipe-t', 'pipe-v', 'pipe-a', 'pipe-s']) $(f).addEventListener('input', () => cmd?.id === 'pipe' && cmd.preview());
+  for (const f of ['pipe-r', 'pipe-t', 'pipe-v', 'pipe-a', 'pipe-s', 'pipe-d1', 'pipe-d2']) $(f).addEventListener('input', () => cmd?.id === 'pipe' && cmd.preview());
   $('patch-tangent').onclick = () => cmd?.id === 'patch' && cmd.key('tangent');
   $('patch-quad').onclick = () => cmd?.id === 'patch' && cmd.key('quad');
   for (const b of $$('[data-pcont]')) b.onclick = () => cmd?.id === 'patch' && cmd.setCont(b.dataset.pcont);
@@ -12262,6 +12268,8 @@ export async function mount(root, backend) {
         $('pipe-v').value = p.sides;
         $('pipe-a').value = p.angle ?? 0;
         $('pipe-s').value = p.scale ?? 1;
+        $('pipe-d1').value = p.distance1 ?? 1;
+        $('pipe-d2').value = p.distance2 ?? 1;
         await startTool('pipe');
         if (cmd?.id !== 'pipe') throw new Error('give the curves to run pipes along');
       } else if (id === 'patch') {

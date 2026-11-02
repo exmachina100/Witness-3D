@@ -170,7 +170,7 @@ export const COMMAND = {
     patch: { t: 'tangent', i: 'individual', q: 'quad' },
     thicken: { d: 'front', b: 'back' },
     // Pipe: R radius, T wall thickness, V sides.
-    pipe: { r: 'radius', t: 'thickness', v: 'sides', a: 'angle', s: 'scale', b: 'new', q: 'union', w: 'difference', 'shift-e': 'intersect', 'shift-q': 'slice', 'shift-t': 'keep' },
+    pipe: { r: 'radius', t: 'thickness', v: 'sides', a: 'angle', s: 'scale', 'shift-1': 'distance1', 'shift-2': 'distance2', b: 'new', q: 'union', w: 'difference', 'shift-e': 'intersect', 'shift-q': 'slice', 'shift-t': 'keep' },
     'extend-sheet': { d: 'distance', tab: 'shape' },
     // Export drawing: H leaves hidden lines out (or back in), C the curves.
     'export-drawing': { h: 'hidden', c: 'curves' },

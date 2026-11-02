@@ -1020,7 +1020,8 @@ export class LocalBackend {
         if (!curves.length) throw new Error('select the curves to run pipes along');
         const o = oc();
         return curves.map(id => {
-            const c = this.curveMap.get(id);
+            // A drawn curve by id, or a path given whole (Distance 1 and 2 moved its ends).
+            const c = typeof id === 'object' && id ? id : this.curveMap.get(id);
             if (!c) throw new Error('that curve no longer exists');
             const tube = pipe(c, radius, thickness, sides, angle, scale);
             if (!new o.BRepCheck_Analyzer(tube, true, false, false).IsValid() || count(tube, 'TopAbs_SOLID') === 0) throw new Error('the pipe crosses itself; use a smaller radius');
