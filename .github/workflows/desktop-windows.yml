@@ -40,7 +40,10 @@ jobs:
           path: |
             target/release/bundle/nsis/*.exe
             target/release/bundle/msi/*.msi
+      # The installers are always in the run's witness-3d-windows artifact; the release is extra,
+      # and the repository's token settings can refuse it, so a refusal doesn't fail the build.
       - name: Publish the release
+        continue-on-error: true
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
