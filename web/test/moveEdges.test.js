@@ -67,3 +67,36 @@ test('faces with round holes beside the edges keep their holes', () => {
     // But a top with a hole can't tilt in the browser.
     assert.throws(() => moveEdges(b, [edgeAt(b, 0, [5, 10, 10])], { offset: [0, 5, 0] }), /hole/);
 });
+
+import { moveFlatFaces } from '../src/moveEdges.js';
+
+/** The face of `s` whose centre lies at `at`. */
+function faceAt(s, at) {
+    const o = oc();
+    return numbered(s, 'TopAbs_FACE').findIndex(f => {
+        const p = new o.GProp_GProps();
+        o.BRepGProp.SurfaceProperties(f, p, false, false);
+        const c = p.CentreOfMass();
+        return Math.hypot(c.X() - at[0], c.Y() - at[1], c.Z() - at[2]) < 1e-6;
+    });
+}
+
+test('several flat faces moved at once, each only across itself', () => {
+    const b = box({ x: 0, y: 0, z: 0 }, { x: 10, y: 10, z: 10 });
+    const r = moveFlatFaces(b, [faceAt(b, [5, 10, 5]), faceAt(b, [10, 5, 5])], { offset: [2, 5, 0] });
+    close(volume(r), 12 * 15 * 10);
+});
+
+test('several flat faces turned at once: their neighbours meet them where the planes cross', () => {
+    const b = box({ x: 0, y: 0, z: 0 }, { x: 10, y: 10, z: 10 });
+    const r = moveFlatFaces(b, [faceAt(b, [5, 10, 5]), faceAt(b, [5, 0, 5])], { pivot: [5, 5, 5], axis: [0, 0, 1], angle: 0.1 });
+    close(volume(r), 1000 / Math.cos(0.1));
+    assert.equal(numbered(r, 'TopAbs_FACE').length, 6);
+});
+
+test('a face moved along itself changes nothing, and round bodies are refused', () => {
+    const b = box({ x: 0, y: 0, z: 0 }, { x: 10, y: 10, z: 10 });
+    assert.equal(moveFlatFaces(b, [faceAt(b, [5, 10, 5])], { offset: [3, 0, 0] }), null);
+    const cyl = new (oc().BRepPrimAPI_MakeCylinder)(5, 10).Shape();
+    assert.throws(() => moveFlatFaces(cyl, [0], { offset: [0, 1, 0] }), /desktop/);
+});

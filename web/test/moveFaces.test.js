@@ -23,12 +23,15 @@ test('a top moved up and along itself makes the block taller', async () => {
     assert.ok(Math.abs(be.scene()[0].volume - 80 * 20 * 50) < 1e-3);
 });
 
-test('a move along the face alone does nothing, and turning several faces is for the desktop', async () => {
+test('a move along the face alone does nothing, and several faces turn together', async () => {
     const { be, seed, top } = setup();
     const same = await be.previewMoveFaces({ body: seed.id, faces: [top], offset: [5, 0, 0] });
     assert.ok(Math.abs(same.volume - seed.volume) < 1e-6);
     await assert.rejects(async () => be.commitMoveFaces({ body: seed.id, faces: [top], offset: [5, 0, 0] }), /nothing/);
-    await assert.rejects(async () => be.previewMoveFaces({ body: seed.id, faces: [top, 0], angle: 0.2, axis: [0, 0, 1] }), /desktop/);
+    // Top and bottom turned together about the block's middle: the ends meet them where they now are.
+    const bottom = seed.facePlanes.findIndex(p => p && p.normal[1] < -0.999);
+    const both = await be.previewMoveFaces({ body: seed.id, faces: [top, bottom], pivot: [0, 15, 0], angle: 0.2, axis: [0, 0, 1] });
+    assert.ok(Math.abs(both.volume - 80 * 30 / Math.cos(0.2) * 50) < 1e-3, `${both.volume}`);
 });
 
 test('a top turned about an edge leans, and its sides follow, either way', async () => {
