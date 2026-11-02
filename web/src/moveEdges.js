@@ -3,8 +3,9 @@
 // corner keeps its plane while that still holds its corners where they now stand, otherwise it tilts
 // to the plane through them, and a face that can't stay flat is refused with the reason.
 //
-// The browser takes solids whose faces are all flat and whose edges are all straight (blocks,
-// wedges, prisms). The faces that move are remade from their corners and sewn back to the rest.
+// The browser moves straight edges whose faces round the moved corners are flat (blocks, wedges,
+// prisms, and such faces on any body: a block with a round hole through it, the hole left as it is).
+// The faces that move are remade from their corners, their holes kept, and sewn back to the rest.
 
 import { bounds, numbered, numberedEdges, oc, unifyWithHistory } from './Kernel.js';
 
@@ -20,7 +21,8 @@ export function moveEdges(shape, edgeNos, { offset = [0, 0, 0], pivot = [0, 0, 0
     const all = numberedEdges(shape);
     const picked = edgeNos.map(n => all[n]);
     if (!picked.length || picked.some(e => !e)) throw new Error('select the edges to move again');
-    for (const e of all) if (new o.BRepAdaptor_Curve(e).GetType() !== o.GeomAbs_CurveType.GeomAbs_Line) throw new Error('the browser demo moves edges of bodies with straight edges and flat faces; the desktop app moves edges on curved bodies');
+    const straight = e => new o.BRepAdaptor_Curve(e).GetType() === o.GeomAbs_CurveType.GeomAbs_Line;
+    if (!picked.every(straight)) throw new Error('the browser demo moves straight edges; the desktop app moves curved ones');
     // The corners that move, by where they stand.
     const ends = e => numbered(e, 'TopAbs_VERTEX').map(v => xyz(o.BRep_Tool.Pnt(o.TopoDS.Vertex(v))));
     const moving = picked.flatMap(ends);
@@ -31,26 +33,50 @@ export function moveEdges(shape, edgeNos, { offset = [0, 0, 0], pivot = [0, 0, 0
     const faces = numbered(shape, 'TopAbs_FACE').map(f => o.TopoDS.Face(f));
     const out = [];
     for (const face of faces) {
+        if (!numbered(face, 'TopAbs_VERTEX').some(v => moves(xyz(o.BRep_Tool.Pnt(o.TopoDS.Vertex(v)))))) { out.push(face); continue; }
         const s = new o.BRepAdaptor_Surface(face, true);
-        if (s.GetType() !== o.GeomAbs_SurfaceType.GeomAbs_Plane) throw new Error('the browser demo moves edges of bodies with flat faces only; the desktop app moves edges on curved bodies');
-        const wires = numbered(face, 'TopAbs_WIRE').map(w => loopOf(w, tol));
-        if (!wires.some(w => w.some(moves))) { out.push(face); continue; }
-        if (wires.length > 1) throw new Error('a face beside the edges has a hole; the browser demo moves edges beside faces without holes');
-        const loop = wires[0], now = loop.map(to);
-        // The face keeps its plane while every corner still lies on it; else the plane through them.
+        if (s.GetType() !== o.GeomAbs_SurfaceType.GeomAbs_Plane) throw new Error('a curved face beside the edges would have to change shape; the browser demo moves edges beside flat faces, the desktop app beside curved ones');
+        // Each loop of the face: one with a moving corner is remade through its corners where they
+        // now stand (its edges must be straight); one without stays as it is, round holes included.
+        const outer = o.BRepTools.OuterWire(face);
+        const loops = numbered(face, 'TopAbs_WIRE').map(w => {
+            const wire = o.TopoDS.Wire(w), edges = numbered(wire, 'TopAbs_EDGE').map(e => o.TopoDS.Edge(e));
+            const touched = numbered(wire, 'TopAbs_VERTEX').some(v => moves(xyz(o.BRep_Tool.Pnt(o.TopoDS.Vertex(v)))));
+            if (touched && !edges.every(straight)) throw new Error('a face beside the edges has a curved edge that would have to move; the desktop app moves those');
+            const now = touched ? loopOf(wire, tol).map(to) : null;
+            // Where the loop stands now: its corners, or points along its edges when it stays.
+            const pts = now ?? edges.flatMap(e => { const c = new o.BRepAdaptor_Curve(e); return [0, 0.25, 0.5, 0.75, 1].map(t => xyz(c.Value(c.FirstParameter() + (c.LastParameter() - c.FirstParameter()) * t))); });
+            return { wire, now, pts, outer: wire.IsSame(outer) };
+        });
         const pln = s.Plane(), n0 = xyz(pln.Axis().Direction()), p0 = xyz(pln.Location());
-        const keeps = now.every(p => Math.abs(dot(sub(p, p0), n0)) <= tol);
-        if (!keeps) {
-            const [c, n] = fitPlane(now);
-            if (now.some(p => Math.abs(dot(sub(p, c), n)) > 1e3 * tol)) throw new Error("a face beside the edges would have to bend (its corners no longer lie in one plane); move the edges across their faces");
+        const pts = loops.flatMap(lp => lp.pts);
+        // The face keeps its plane while every corner still lies on it; else the plane through them.
+        let plane = pln;
+        if (!pts.every(p => Math.abs(dot(sub(p, p0), n0)) <= tol)) {
+            const main = loops.find(lp => lp.outer) ?? loops[0];
+            const [c, n] = fitPlane(main.pts);
+            if (main.pts.some(p => Math.abs(dot(sub(p, c), n)) > 1e3 * tol)) throw new Error("a face beside the edges would have to bend (its corners no longer lie in one plane); move the edges across their faces");
+            if (pts.some(p => Math.abs(dot(sub(p, c), n)) > 1e3 * tol)) throw new Error('a face beside the edges has a hole that would have to tilt with it; the desktop app moves those');
+            plane = new o.gp_Pln(pnt(c), new o.gp_Dir(n[0], n[1], n[2]));
         }
-        if (now.some((p, i) => dist(p, now[(i + 1) % now.length]) <= tol)) throw new Error('that move closes up a face beside the edges');
-        const wire = new o.BRepBuilderAPI_MakeWire();
-        now.forEach((p, i) => wire.Add(new o.BRepBuilderAPI_MakeEdge(pnt(p), pnt(now[(i + 1) % now.length])).Edge()));
-        if (!wire.IsDone()) throw new Error('a face beside the edges could not be remade');
-        const mk = new o.BRepBuilderAPI_MakeFace(wire.Wire(), true);
+        const wires = loops.map(lp => {
+            if (!lp.now) return lp.wire;
+            const now = lp.now;
+            if (now.some((p, i) => dist(p, now[(i + 1) % now.length]) <= tol)) throw new Error('that move closes up a face beside the edges');
+            const wire = new o.BRepBuilderAPI_MakeWire();
+            now.forEach((p, i) => wire.Add(new o.BRepBuilderAPI_MakeEdge(pnt(p), pnt(now[(i + 1) % now.length])).Edge()));
+            if (!wire.IsDone()) throw new Error('a face beside the edges could not be remade');
+            return wire.Wire();
+        });
+        const first = loops.findIndex(lp => lp.outer);
+        const order = first > 0 ? [wires[first], ...wires.filter((_, i) => i !== first)] : wires;
+        const mk = new o.BRepBuilderAPI_MakeFace(plane, order[0], true);
+        for (const w of order.slice(1)) mk.Add(w);
         if (!mk.IsDone()) throw new Error('a face beside the edges could not be remade flat');
-        out.push(mk.Face());
+        const fix = new o.ShapeFix_Face(mk.Face());
+        fix.FixOrientation();
+        fix.Perform();
+        out.push(fix.Face());
     }
     const sew = new o.BRepBuilderAPI_Sewing(10 * tol, true, true, true, false);
     for (const f of out) sew.Add(f);

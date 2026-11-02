@@ -45,3 +45,25 @@ test('an edge moved along itself, and edges on a round body, are refused', () =>
     const cyl = new (oc().BRepPrimAPI_MakeCylinder)(5, 10).Shape();
     assert.throws(() => moveEdges(cyl, [0], { offset: [0, 1, 0] }), /desktop/);
 });
+
+/** A 10 mm block with a round hole of radius 2 bored along `axis` through `at`. */
+function holed(at, dir) {
+    const o = oc();
+    const b = box({ x: 0, y: 0, z: 0 }, { x: 10, y: 10, z: 10 });
+    const cyl = new o.BRepPrimAPI_MakeCylinder(new o.gp_Ax2(new o.gp_Pnt(...at), new o.gp_Dir(...dir)), 2, 12).Shape();
+    const cut = new o.BRepAlgoAPI_Cut(b, cyl, new o.Message_ProgressRange());
+    return cut.Shape();
+}
+
+test('faces with round holes beside the edges keep their holes', () => {
+    // Bored along x: the ends take the gable shape round their holes.
+    const a = holed([-1, 4, 5], [1, 0, 0]);
+    const r = moveEdges(a, [edgeAt(a, 0, [5, 10, 10])], { offset: [0, 5, 0] });
+    close(volume(r), 1000 + 250 - Math.PI * 4 * 10, 1e-3);
+    // Bored down through the top: the top stays flat with its hole while its front edge is pushed out.
+    const b = holed([5, -1, 5], [0, 1, 0]);
+    const s = moveEdges(b, [edgeAt(b, 0, [5, 10, 10])], { offset: [0, 0, 4] });
+    close(volume(s), 1000 + 200 - Math.PI * 4 * 10, 1e-3);
+    // But a top with a hole can't tilt in the browser.
+    assert.throws(() => moveEdges(b, [edgeAt(b, 0, [5, 10, 10])], { offset: [0, 5, 0] }), /hole/);
+});

@@ -367,7 +367,7 @@ export class LocalBackend {
      * following. A flat face moved along itself looks the same, so here only the move across it
      * counts: the faces are offset that far (they must all be flat and moved the same distance
      * across). Turning faces, and moving round ones, is the desktop's (document.rs preview_move_faces).
-     * Edges on their own move and turn on bodies with flat faces and straight edges (moveEdges.js).
+     * Edges on their own (straight ones) move and turn where the faces round them are flat, holes kept (moveEdges.js).
      */
     moveFacesResult(req) {
         const { body, faces, edges, offset = [0, 0, 0], angle = 0, chamfer } = req;
