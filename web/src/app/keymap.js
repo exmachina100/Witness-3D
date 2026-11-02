@@ -43,7 +43,7 @@ export const VIEWPORT = {
     o: 'tool:offset-curve',
     // Sketching (manual: Line is Shift+A; 0.6.30 for the rectangle and circle, which 26.1 leaves unbound)
     'shift-q': 'draw:rect', 'shift-w': 'draw:circle', 'shift-a': 'draw:line',
-    'shift-x': 'delete', 'shift-delete': 'delete', 'shift-backspace': 'delete',
+    'shift-x': 'delete', 'shift-delete': 'delete', 'shift-backspace': 'delete', delete: 'delete', backspace: 'delete',
     'shift-d': 'duplicate', 'alt-d': 'alt-duplicate', 'shift-g': 'slide',
     // Place (manual: Ctrl+D)
     'ctrl-d': 'place',
