@@ -1464,13 +1464,14 @@ impl<K: Kernel> Document<K> {
 
     /// Plasticity's Pipe, without changing the document: a tube along each curve.
     pub fn preview_pipe(&self, curves: &[CurveId], radius: f64, thickness: f64, sides: u32) -> Result<Vec<K::Solid>, KernelError> {
-        self.preview_pipe_with(curves, radius, thickness, sides, 0.0, 1.0)
+        self.preview_pipe_with(&curves.iter().map(|&c| c.into()).collect::<Vec<GuideRef>>(), radius, thickness, sides, 0.0, 1.0)
     }
 
     /// Pipe with an Angle (radians) for a polygon section and an end Scale.
-    pub fn preview_pipe_with(&self, curves: &[CurveId], radius: f64, thickness: f64, sides: u32, angle: f64, scale: f64) -> Result<Vec<K::Solid>, KernelError> {
+    /// Each path is a drawn curve, or a curve given whole (its ends moved by Distance 1 and 2).
+    pub fn preview_pipe_with(&self, curves: &[GuideRef], radius: f64, thickness: f64, sides: u32, angle: f64, scale: f64) -> Result<Vec<K::Solid>, KernelError> {
         if curves.is_empty() { return Err(KernelError::Invalid("select the curves to run pipes along")) }
-        self.cutters(curves)?.iter().map(|(path, _)| {
+        self.guide_paths(curves)?.iter().map(|path| {
             let tube = crate::form::pipe_with(&self.kernel, path, radius, thickness, sides, angle, scale)?;
             if !self.kernel.is_valid(&tube) || self.kernel.solid_count(&tube) == 0 {
                 return Err(KernelError::Invalid("the pipe crosses itself; use a smaller radius"));
@@ -1502,7 +1503,7 @@ impl<K: Kernel> Document<K> {
     /// Pipe with its options as one undoable step: new bodies, or `target` changed by the tubes
     /// (`keep_tools` also keeps each tube as a body). Returns the target first, then any new bodies.
     #[allow(clippy::too_many_arguments)]
-    pub fn commit_pipe_with(&mut self, curves: &[CurveId], radius: f64, thickness: f64, sides: u32, angle: f64, scale: f64, into: Option<(BodyId, BooleanOp)>, keep_tools: bool) -> Result<Vec<BodyId>, KernelError> {
+    pub fn commit_pipe_with(&mut self, curves: &[GuideRef], radius: f64, thickness: f64, sides: u32, angle: f64, scale: f64, into: Option<(BodyId, BooleanOp)>, keep_tools: bool) -> Result<Vec<BodyId>, KernelError> {
         let tubes = self.preview_pipe_with(curves, radius, thickness, sides, angle, scale)?;
         let Some((target, op)) = into else {
             self.checkpoint();
@@ -1532,7 +1533,7 @@ impl<K: Kernel> Document<K> {
 
     /// Pipe sliced through `target` as one undoable step. Returns the target, the pieces, then any kept tubes.
     #[allow(clippy::too_many_arguments)]
-    pub fn commit_pipe_slice(&mut self, curves: &[CurveId], radius: f64, thickness: f64, sides: u32, angle: f64, scale: f64, target: BodyId, keep_tools: bool) -> Result<Vec<BodyId>, KernelError> {
+    pub fn commit_pipe_slice(&mut self, curves: &[GuideRef], radius: f64, thickness: f64, sides: u32, angle: f64, scale: f64, target: BodyId, keep_tools: bool) -> Result<Vec<BodyId>, KernelError> {
         let tubes = self.preview_pipe_with(curves, radius, thickness, sides, angle, scale)?;
         let (cut, pieces) = self.pipe_slice(target, &tubes)?;
         self.checkpoint();

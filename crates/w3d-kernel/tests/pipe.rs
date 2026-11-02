@@ -97,11 +97,11 @@ fn angle_turns_the_section_and_scale_tapers_it() {
 
 #[test]
 fn a_pipe_cuts_or_joins_a_target_in_one_undo_step() {
-    use w3d_kernel::document::{Curve, CurveShape, Document};
+    use w3d_kernel::document::{Curve, CurveShape, Document, GuideRef};
     let mut doc = Document::new(Occt);
     let block = doc.add(Occt.box_from_corners(DVec3::new(-5.0, -5.0, -5.0), DVec3::new(5.0, 5.0, 5.0)));
     let c = Curve { origin: [0.0, 0.0, 0.0], x: [1.0, 0.0, 0.0], normal: [0.0, 0.0, 1.0], shape: CurveShape::Polyline { points: vec![[-10.0, 0.0], [10.0, 0.0]], closed: false } };
-    let ids = doc.commit_curves(vec![c]).unwrap();
+    let ids: Vec<GuideRef> = doc.commit_curves(vec![c]).unwrap().into_iter().map(Into::into).collect();
     doc.clear_history();
     let out = doc.commit_pipe_with(&ids, 1.0, 0.0, 0, 0.0, 1.0, Some((block, BooleanOp::Difference)), false).unwrap();
     assert_eq!(out, vec![block]);
@@ -118,11 +118,11 @@ fn a_pipe_cuts_or_joins_a_target_in_one_undo_step() {
 
 #[test]
 fn a_pipe_slices_a_target_into_the_cut_body_and_the_piece_inside() {
-    use w3d_kernel::document::{Curve, CurveShape, Document};
+    use w3d_kernel::document::{Curve, CurveShape, Document, GuideRef};
     let mut doc = Document::new(Occt);
     let block = doc.add(Occt.box_from_corners(DVec3::new(-5.0, -5.0, -5.0), DVec3::new(5.0, 5.0, 5.0)));
     let c = Curve { origin: [0.0, 0.0, 0.0], x: [1.0, 0.0, 0.0], normal: [0.0, 0.0, 1.0], shape: CurveShape::Polyline { points: vec![[-10.0, 0.0], [10.0, 0.0]], closed: false } };
-    let ids = doc.commit_curves(vec![c]).unwrap();
+    let ids: Vec<GuideRef> = doc.commit_curves(vec![c]).unwrap().into_iter().map(Into::into).collect();
     doc.clear_history();
     let out = doc.commit_pipe_slice(&ids, 1.0, 0.0, 0, 0.0, 1.0, block, false).unwrap();
     assert_eq!(out.len(), 2, "the cut body and the rod inside it");
@@ -131,4 +131,15 @@ fn a_pipe_slices_a_target_into_the_cut_body_and_the_piece_inside() {
     assert!((v(out[1]) - PI * 10.0).abs() < 0.05);
     assert!(doc.undo());
     assert_eq!(doc.ids().len(), 1);
+}
+
+#[test]
+fn a_pipe_runs_along_a_path_given_whole() {
+    // Distance 1 and 2 send the moved path itself rather than the drawn curve's id.
+    use w3d_kernel::document::{Curve, CurveShape, Document, GuideRef};
+    let doc = Document::new(Occt);
+    let c = Curve { origin: [0.0, 0.0, 0.0], x: [1.0, 0.0, 0.0], normal: [0.0, 0.0, 1.0], shape: CurveShape::Polyline { points: vec![[2.0, 0.0], [7.0, 0.0]], closed: false } };
+    let tubes = doc.preview_pipe_with(&[GuideRef::Shape(c)], 1.0, 0.0, 0, 0.0, 1.0).unwrap();
+    let v = doc.kernel.tessellate(&tubes[0], 0.0001).unwrap().volume();
+    assert!((v - PI * 5.0).abs() < 0.02, "volume {v}");
 }
