@@ -45,3 +45,7 @@ test('keys set by the user sit over the defaults', () => {
     assert.deepEqual(k, { b: 'tool:boolean', q: 'radial:selection-mode' });
     assert.equal(showKey('ctrl-shift-s'), 'CTRL SHIFT S');
 });
+
+test('Delete, Backspace and Shift+X all delete (manual: Delete Face)', () => {
+    for (const k of ['delete', 'backspace', 'shift-x']) assert.equal(VIEWPORT[k], 'delete', k);
+});

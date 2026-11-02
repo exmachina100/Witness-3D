@@ -10447,7 +10447,10 @@ export async function mount(root, backend) {
       } catch (e) { toast(say(e)); }
       return;
     }
-    if (!ids.length && !curves.length) return toast(sel.size ? 'DELETE WORKS ON SOLIDS, CURVES AND CURVE POINTS FOR NOW' : 'SELECT SOMETHING TO DELETE');
+    const faces = sel.list('face');
+    if (!ids.length && !curves.length && faces.length) return deleteFaces(faces);
+    if (!ids.length && !curves.length && sel.list('edge').length) return toast('DELETE DOES NOT REMOVE EDGES; SELECT FACES (3) OR THE SOLID (4)');
+    if (!ids.length && !curves.length) return toast(sel.size ? 'DELETE WORKS ON SOLIDS, FACES, CURVES AND CURVE POINTS' : 'SELECT SOMETHING TO DELETE');
     try {
       const list = backend.deleteItems ? await backend.deleteItems(ids, curves) : await backend.deleteBodies(ids);
       const names = [...ids.map(label), ...curves.map(curveLabel)];
@@ -10456,6 +10459,37 @@ export async function mount(root, backend) {
       await showScene(list);
     } catch (e) { toast(say(e)); }
   }
+  /**
+   * Plasticity's Delete Face: Delete with faces selected removes them and heals each solid by
+   * growing the neighbouring faces into the gap (Remove Face), so a fillet or chamfer goes back
+   * to its sharp corner. When that fails on a fillet face, the whole fillet chain holding it is
+   * removed instead; if that fails too the model stays as it was.
+   */
+  async function deleteFaces(items) {
+    if (!backend.commitRemoveFaces) return toast('DELETING FACES IS NOT IN THIS BUILD YET');
+    const byBody = new Map();
+    for (const it of items) byBody.set(it.body, [...(byBody.get(it.body) ?? []), it.n]);
+    const done = [];
+    let list = null;
+    for (const [body, faces] of byBody) {
+      try {
+        ({ scene: list } = await backend.commitRemoveFaces({ body, faces }));
+      } catch (e) {
+        let chain = null;
+        try { chain = backend.filletFaces ? await backend.filletFaces({ body, faces }) : null; } catch { chain = null; }
+        const wider = chain && chain.some(n => !faces.includes(n));
+        if (!wider) { toast(`${label(body)}: ${say(e)}`); continue; }
+        try { ({ scene: list } = await backend.commitRemoveFaces({ body, faces: chain })); } catch (e2) { toast(`${label(body)}: ${say(e2)}`); continue; }
+      }
+      done.push(body);
+      record(`DELETE ${faces.length} FACE${faces.length > 1 ? 'S' : ''}`, body, label(body));
+    }
+    if (!done.length) return;
+    sel.clear();
+    await showScene(list);
+    selectionChanged({ quiet: true });
+  }
+
   /**
    * Plasticity's Join (J): the selected curves that meet end to end become one, which bounds a
    * region when it closes; selected sheets that meet edge to edge become one body, a solid when
