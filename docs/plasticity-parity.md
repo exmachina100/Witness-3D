@@ -133,7 +133,7 @@ opencascade.js (which lacks IGES).
 
 | Format | Plasticity 26.1.4 | Witness 3D plan | Status |
 |---|---|---|---|
-| STEP | import, export | `STEPControl` in both builds | Done |
+| STEP | import, export | `STEPControl` in both builds | Done: the desktop reads STEP and IGES; the browser reads STEP through File › Import (the whole file as one body, one undo step) and has no IGES reader in its kernel build |
 | IGES | import, export | `IGESControl` (TKDEIGES) on the desktop, through the STEP dialogs by extension | Done on the desktop |
 | ACIS SAT | import, export | No open implementation | Not planned |
 | Parasolid X_T | import, export | No open implementation | Not planned |

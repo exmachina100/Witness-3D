@@ -27,6 +27,7 @@
 //   save()                       -> file name, or null if the user backed out
 //   open()                       -> { name, scene: Body[] }, or null
 //   importStep()                 -> { id, scene: Body[] }, { dxf: text, name } for a drawing, or null
+//   importStepData(bytes)        -> { id, scene: Body[] }: a STEP file read in the browser
 //   curves()                     -> Curve[]; addCurves(Curve[]) -> { ids }
 //   deleteItems(bodies, curves)  -> Body[]
 //   previewBoolean({ target, tools, op }) -> Body, or null when stale
@@ -232,7 +233,7 @@ const SHELL = `
     <button class="export" data-id="file-open" hidden>${icon('file-open')}OPEN</button>
     <button class="export" data-id="file-save" hidden>${icon('file-save')}SAVE</button>
     <button class="export" data-id="import" hidden title="Import a STEP, IGES or DXF file">${icon('import')}IMPORT</button>
-    <input type="file" data-id="import-file" accept=".dxf,.png,.jpg,.jpeg" hidden>
+    <input type="file" data-id="import-file" accept=".step,.stp,.dxf,.png,.jpg,.jpeg" hidden>
     <button class="export" data-id="export" disabled title="Export STEP">${icon('export')}STEP</button>
     <span class="file" data-id="file-name">UNTITLED.W3D</span>
   </header>
@@ -11426,7 +11427,7 @@ export async function mount(root, backend) {
     $(id).hidden = typeof backend[method] !== 'function';
   }
   // Without a native import (the browser), Import still reads DXF drawings as curves.
-  if (!backend.importStep && backend.addCurves) { $('import').hidden = false; $('import').title = 'Import a DXF drawing as curves, or a PNG or JPEG reference image'; }
+  if (!backend.importStep && backend.addCurves) { $('import').hidden = false; $('import').title = backend.importStepData ? 'Import a STEP model, a DXF drawing as curves, or a PNG or JPEG reference image' : 'Import a DXF drawing as curves, or a PNG or JPEG reference image'; }
   $('file-new').onclick = () => fileAction(async () => { newScene(await backend.newDocument(), 'UNTITLED.W3D'); await restoreAppState(); });
   function openFile(path) {
     return fileAction(async () => {
@@ -11472,11 +11473,22 @@ export async function mount(root, backend) {
     showScene(r.scene);
   });
 
+  /** A STEP file read in the browser: the whole file as one body, as the desktop's import. */
+  async function importStepData(file) {
+    if (!backend.importStepData) throw new Error('STEP import is not in this build');
+    const r = await backend.importStepData(new Uint8Array(await file.arrayBuffer()));
+    if (cmd) abort();
+    sel.clear();
+    record(`IMPORT STEP ${file.name.toUpperCase()}`, r.id);
+    await showScene(r.scene);
+    toast(`IMPORTED ${file.name.toUpperCase()}`);
+  }
   // --- pointer input --------------------------------------------------------
   let down = null; // { x, y, button, consumed, box }
   /** The dot being dragged or under the pointer, among the command's dots; else its main one. */
   const liveGizmo = () => [cmd?.gizmo, ...(cmd?.extraGizmos?.() ?? [])].find(g => g && (g.busy || g.state === 'hover')) ?? cmd?.gizmo;
   canvas.addEventListener('pointerdown', e => {
+    if (/\.(step|stp)$/i.test(file.name)) return importStepData(file);
     lastPointer = e;
     const g = liveGizmo();
     const grabbed = g?.busy || g?.state === 'hover' || (cmd?.tc?.enabled && cmd.tc.axis !== null);
