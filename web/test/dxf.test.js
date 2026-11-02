@@ -133,3 +133,56 @@ test('TEXT and MTEXT come in as letter outlines in the given font, or are skippe
     close(Math.max(...m.flatMap(c => c.poles.map(p => p[1]))), 0, 1e-6);
     assert.throws(() => readDxf(file), /ONLY TEXT, MTEXT/);
 });
+
+test('HATCH boundaries come in as closed loops; pattern data and associative loops are left out', () => {
+    const { curves, hatches, skipped } = readDxf(dxf(4,
+        // A polyline loop (a 4 x 2 rectangle with a bulged right end), then the pattern's own codes.
+        [0, 'HATCH', 10, 0, 20, 0, 30, 0, 2, 'ANSI31', 70, 0, 71, 0, 91, 2,
+            92, 2, 72, 1, 73, 1, 93, 4, 10, 0, 20, 0, 42, 0, 10, 4, 20, 0, 42, 1, 10, 4, 20, 2, 42, 0, 10, 0, 20, 2, 42, 0, 97, 0,
+            // An edge loop: a line, a half circle round the right end, a line, and a spline closing it.
+            92, 1, 93, 4,
+            72, 1, 10, 10, 20, 0, 11, 14, 21, 0,
+            72, 2, 10, 14, 20, 1, 40, 1, 50, 270, 51, 90, 73, 1,
+            72, 1, 10, 14, 20, 2, 11, 10, 21, 2,
+            72, 4, 94, 1, 73, 0, 74, 0, 95, 4, 96, 2, 40, 0, 40, 0, 40, 1, 40, 1, 10, 10, 20, 2, 10, 10, 20, 0, 97, 0,
+            97, 0,
+            75, 0, 76, 1, 52, 0, 41, 1, 77, 0, 78, 1, 53, 45, 43, 0, 44, 0, 45, -1, 46, 1, 79, 0, 98, 1, 10, 99, 20, 99],
+        [0, 'HATCH', 10, 0, 20, 0, 30, 0, 2, 'SOLID', 70, 1, 71, 1, 91, 1,
+            92, 2, 72, 0, 73, 1, 93, 3, 10, 0, 20, 0, 10, 1, 20, 0, 10, 0, 20, 1, 97, 1, 330, 'AB', 75, 0, 76, 1, 98, 0]));
+    assert.equal(hatches, 1);
+    assert.deepEqual(skipped, { 'HATCH (BOUNDARY ALREADY DRAWN)': 1 });
+    assert.equal(curves.length, 2);
+    const [poly, edges] = curves;
+    assert.equal(poly.kind, 'contour');
+    assert.deepEqual(poly.pieces.map(p => p.kind), ['polyline', 'arc', 'polyline']);
+    closeP(poly.pieces[1].mid, [5, 1]);
+    assert.equal(edges.kind, 'contour');
+    assert.deepEqual(edges.pieces.map(p => p.kind), ['polyline', 'arc', 'polyline', 'polyline']);
+    // Counter-clockwise from 270° through 0° to 90°: from (14, 0) round the right to (14, 2).
+    const arc = edges.pieces[1];
+    closeP(arc.start, [14, 0]); closeP(arc.mid, [15, 1]); closeP(arc.end, [14, 2]);
+    // A clockwise edge's angles are measured clockwise: 90° to 270° runs from (0, -1) by the left to (0, 1).
+    const cw = readDxf(dxf(4, [0, 'HATCH', 91, 1, 92, 1, 93, 2, 72, 2, 10, 0, 20, 0, 40, 1, 50, 90, 51, 270, 73, 0, 72, 1, 10, 0, 20, 1, 11, 0, 21, -1, 97, 0])).curves[0].pieces[0];
+    closeP(cw.start, [0, -1]); closeP(cw.mid, [-1, 0]); closeP(cw.end, [0, 1]);
+    // The seed point (99, 99) after the pattern is not a curve point.
+    assert.ok(curves.every(c => !JSON.stringify(c).match(/(^|[^.\d])99[,\]]/)));
+});
+
+test('a DIMENSION is drawn from its block: lines, arrowheads (SOLID) and text', async () => {
+    const { parseFont } = await import('../src/text.js');
+    const { readFileSync, readdirSync } = await import('node:fs');
+    const dir = new URL('../src/fonts/', import.meta.url);
+    const file = readdirSync(dir).find(f => f.endsWith('.ttf'));
+    const buf = readFileSync(new URL(file, dir));
+    const font = parseFont(buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength));
+    const b = block('*D1', [0, 0],
+        [0, 'LINE', 10, 0, 20, 5, 11, 10, 21, 5],
+        [0, 'SOLID', 10, 0, 20, 5, 11, 1, 21, 5.2, 12, 1, 22, 4.8, 13, 1, 23, 4.8],
+        [0, 'MTEXT', 10, 5, 20, 5.5, 40, 1, 71, 8, 1, '10']);
+    const { curves, dimensions, skipped } = readDxf(withBlocks([b], [0, 'DIMENSION', 2, '*D1', 10, 0, 20, 5, 70, 0]), { font });
+    assert.equal(dimensions, 1);
+    assert.deepEqual(skipped, {});
+    assert.equal(curves[0].kind, 'polyline');
+    assert.equal(curves[1].kind, 'polyline'); assert.equal(curves[1].closed, true); assert.equal(curves[1].points.length, 3);
+    assert.ok(curves.length > 3, 'the text came in as letters');
+});
