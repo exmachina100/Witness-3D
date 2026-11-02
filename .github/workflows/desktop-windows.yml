@@ -20,6 +20,9 @@ jobs:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
+        with:
+          # Keep the OpenCascade build even when a later step fails.
+          cache-on-failure: true
       - uses: actions/setup-node@v4
         with:
           node-version: 22
