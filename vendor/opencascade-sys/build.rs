@@ -113,6 +113,9 @@ fn main() {
     build
         .cpp(true)
         .flag_if_supported("-std=c++11")
+        // MSVC: the shim uses C++17 structured bindings and throws exceptions.
+        .flag_if_supported("/std:c++17")
+        .flag_if_supported("/EHsc")
         .define("_USE_MATH_DEFINES", "TRUE")
         .include(occt_config.include_dir)
         .include("include")

@@ -145,6 +145,15 @@
 #include <stdexcept>
 #include <string>
 
+// <windows.h>, pulled in by OCCT on Windows, defines `near` and `far` as empty macros; the shim
+// uses both as variable names.
+#ifdef near
+#undef near
+#endif
+#ifdef far
+#undef far
+#endif
+
 inline std::runtime_error w3d_kernel_error(const Standard_Failure &f) {
   const char *msg = f.GetMessageString();
   return std::runtime_error(std::string("kernel: ") + f.DynamicType()->Name() + (msg && *msg ? std::string(" ") + msg : ""));
