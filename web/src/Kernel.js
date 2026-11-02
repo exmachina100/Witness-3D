@@ -548,6 +548,24 @@ export function exportSTEP(shape) {
     return bytes;
 }
 
+/**
+ * A STEP file's bytes read into one shape (in millimetres), as the desktop's File › Import does.
+ * This kernel build has no IGES reader. Throws when the file holds no shapes.
+ */
+export function importSTEP(bytes) {
+    const o = oc();
+    const path = '/witness3d-import.step';
+    o.FS.writeFile(path, bytes);
+    try {
+        const reader = new o.STEPControl_Reader();
+        if (reader.ReadFile(path) !== o.IFSelect_ReturnStatus.IFSelect_RetDone) throw new Error('that STEP file could not be read');
+        if (!reader.TransferRoots(new o.Message_ProgressRange())) throw new Error('that STEP file holds no shapes');
+        const shape = reader.OneShape();
+        if (shape.IsNull()) throw new Error('that STEP file holds no shapes');
+        return shape;
+    } finally { o.FS.unlink(path); }
+}
+
 // --- Round 6: Box, Cylinder, Sphere, Shell and Mirror, matching crates/w3d-kernel/src/solids.rs ---
 
 const SMALL = 1e-6;

@@ -4,7 +4,7 @@
 import * as THREE from 'three';
 import { ExtrudeFactory } from '../ExtrudeFactory.js';
 import { NoOpError } from '../GeometryFactory.js';
-import { THROAT, arrayMotions, blendEdges, booleanWithHistory, extrudeFace, bounds, box, count, draftFaces, faceSheet, imprintEdgesWithHistory, imprintWithHistory, planeSheet, regions, unifyWithHistory, boundaryEdges, splitWithHistory, draftWithHistory, exportSTEP, facePlane, mirror, mirror as mirrorShape, numberedEdges, oc, primitive, shellFaces, tessellate, transform, volume } from '../Kernel.js';
+import { THROAT, arrayMotions, importSTEP, blendEdges, booleanWithHistory, extrudeFace, bounds, box, count, draftFaces, faceSheet, imprintEdgesWithHistory, imprintWithHistory, planeSheet, regions, unifyWithHistory, boundaryEdges, splitWithHistory, draftWithHistory, exportSTEP, facePlane, mirror, mirror as mirrorShape, numberedEdges, oc, primitive, shellFaces, tessellate, transform, volume } from '../Kernel.js';
 import { cutSheets, loft, loftGuided, loftSheet, offsetFlatFaces, pipe, regionFace, revolve, splineSamples, sweep, sweepGuided } from '../Forms.js';
 import { curveFromNurbs, ends, join, loops, MEET, nurbsLoop } from '../curves.js';
 import { isoparam, meetCurves, projectCurveCurve, projectCurves, projectedEdges, sectionCurves } from '../Project.js';
@@ -435,6 +435,15 @@ export class LocalBackend {
     }
 
     /** The primitive as one undo step: a new body, or the target changed (and a slice's piece added). */
+    /** File › Import of a STEP file's bytes: the whole file as one body, one undo step (as the desktop). */
+    async importStepData(bytes) {
+        const shape = importSTEP(bytes);
+        this.checkpoint();
+        const id = this.nextId++;
+        this.put(id, shape);
+        return { id, scene: this.bodies() };
+    }
+
     async commitPrimitive(req) {
         const p = this.primitiveResult(req);
         this.checkpoint();
