@@ -162,3 +162,22 @@ fn a_pipe_sweeps_a_custom_profile_centred_on_the_path() {
     assert!(doc.preview_pipe_with(&[ids[0].into()], 1.0, 0.5, 0, 0.0, 1.0, Some(&GuideRef::Drawn(ids[1]))).is_err(), "custom profiles are solid");
     assert!(doc.preview_pipe_with(&[ids[1].into()], 1.0, 0.0, 0, 0.0, 1.0, Some(&GuideRef::Drawn(ids[0]))).is_err(), "an open profile is refused");
 }
+
+#[test]
+fn a_pipe_sweeps_a_face_outline_given_whole() {
+    // C then a flat face: the face's outline comes as a contour of lines and arcs, given whole.
+    use w3d_kernel::document::{Curve, CurveShape, Document, GuideRef};
+    let mut doc = Document::new(Occt);
+    let path = Curve { origin: [0.0, 0.0, 0.0], x: [1.0, 0.0, 0.0], normal: [0.0, 0.0, 1.0], shape: CurveShape::Polyline { points: vec![[0.0, 0.0], [10.0, 0.0]], closed: false } };
+    let ids = doc.commit_curves(vec![path]).unwrap();
+    // A slot 10 long and 4 wide (40 + 4π mm²), as the browser's faceProfile writes it.
+    let slot: Curve = serde_json::from_str(r#"{"origin":[0,0,5],"x":[0,1,0],"normal":[0,0,1],"kind":"contour","pieces":[
+        {"kind":"polyline","points":[[0,0],[10,0]],"closed":false},
+        {"kind":"arc","start":[10,0],"mid":[12,2],"end":[10,4]},
+        {"kind":"polyline","points":[[10,4],[0,4]],"closed":false},
+        {"kind":"arc","start":[0,4],"mid":[-2,2],"end":[0,0]}]}"#).unwrap();
+    let tubes = doc.preview_pipe_with(&[ids[0].into()], 1.0, 0.0, 0, 0.0, 1.0, Some(&GuideRef::Shape(slot))).unwrap();
+    let m = doc.kernel.tessellate(&tubes[0], 0.0001).unwrap();
+    let want = 10.0 * (40.0 + 4.0 * std::f64::consts::PI);
+    assert!((m.volume() - want).abs() < 0.05, "volume {} want {want}", m.volume());
+}
