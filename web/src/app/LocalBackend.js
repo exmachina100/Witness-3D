@@ -16,6 +16,7 @@ import { facePoles } from '../facePoles.js';
 import { faceUvn } from '../faceUvn.js';
 import { deformBodies, deformReblend, warpBodies } from '../deformBody.js';
 import { filletFaces, rechamfer, refilletFaces, removeFaces, turnFlatFace } from '../removeFace.js';
+import { moveEdges } from '../moveEdges.js';
 import { moveFacePoles, subdivideFaces } from '../movePoles.js';
 import { isoparamSplit } from '../isoparamSplit.js';
 import { endless, withMaterial } from '../material.js';
@@ -366,6 +367,7 @@ export class LocalBackend {
      * following. A flat face moved along itself looks the same, so here only the move across it
      * counts: the faces are offset that far (they must all be flat and moved the same distance
      * across). Turning faces, and moving round ones, is the desktop's (document.rs preview_move_faces).
+     * Edges on their own move and turn on bodies with flat faces and straight edges (moveEdges.js).
      */
     moveFacesResult(req) {
         const { body, faces, edges, offset = [0, 0, 0], angle = 0, chamfer } = req;
@@ -373,7 +375,8 @@ export class LocalBackend {
         if (!shape) throw new Error('that body no longer exists');
         // A chamfer turned to a new setback on one side (Dimension).
         if (chamfer) return { shape: rechamfer(shape, chamfer) };
-        if (!faces?.length && edges?.length) throw new Error('the browser demo moves faces; the desktop app moves edges too');
+        // Edges on their own (Move Edge): the faces at their corners tilt to them.
+        if (!faces?.length && edges?.length) return { shape: moveEdges(shape, edges, { offset, pivot: req.pivot, axis: req.axis, angle }) };
         if (!faces?.length) throw new Error('select the faces to move');
         if (Math.abs(angle) > 1e-12) {
             if (faces.length !== 1) throw new Error('the browser demo turns one face at a time; the desktop app turns several');
