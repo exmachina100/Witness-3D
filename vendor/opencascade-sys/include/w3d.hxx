@@ -184,9 +184,11 @@ inline const char *w3d_stripe_reason(ChFiDS_ErrorStatus status) {
 }
 
 // Add one edge to a chamfer: equal distances, or `size` on the edge's first face and an angle
-// (radians) from it when `angle` is not 45 degrees.
+// (radians) from it when `angle` is not 45 degrees. A negative angle is a constant-throat chamfer
+// (Plasticity's Apex shape): `size` is the height from the sharp corner to the chamfer face.
 inline void w3d_add_chamfer(BRepFilletAPI_MakeChamfer &c, const TopoDS_Shape &shape, double size, double angle,
                             const TopoDS_Edge &edge) {
+  if (angle < 0) { c.SetMode(ChFiDS_ConstThroatChamfer); c.Add(size, edge); return; }
   if (!(angle > 0) || std::fabs(angle - M_PI / 4) < 1e-9) { c.Add(size, edge); return; }
   TopTools_IndexedDataMapOfShapeListOfShape faces;
   TopExp::MapShapesAndAncestors(shape, TopAbs_EDGE, TopAbs_FACE, faces);
