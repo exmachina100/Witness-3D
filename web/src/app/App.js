@@ -228,6 +228,7 @@ const SHELL = `
 <div class="w3d">
   <header class="bar">
     <div class="brand"><button class="pmenu-open" data-id="pmenu-open" aria-haspopup="menu" aria-expanded="false" title="File menu">WITNESS 3D <span class="caret">▾</span></button></div>
+    <nav class="ctx" data-id="ctx" aria-label="Suggested commands for the selection"></nav>
     <span class="spacer"></span>
     <button class="export" data-action="ask" title="Ask for a command in words (Ctrl+K)">${icon('ask')}ASK</button>
     <button class="export" data-id="file-new" hidden>${icon('file-new')}NEW</button>
@@ -313,6 +314,7 @@ const SHELL = `
       ${BAR.map(([a, k, l]) => `<button data-action="${a}" aria-label="${l}" title="${l}${k ? ` (${k})` : ''}">${icon(a === 'palette' ? 'search' : a === 'suggest' ? 'suggest' : a.replace('tool:', ''))}${k ? `<kbd>${k}</kbd>` : ''}</button>`).join('')}
     </div>
     <div class="keys" data-id="keys">${keysHtml('idle')}</div>
+    <div class="stepline" data-id="stepline" aria-live="polite"><span data-id="step-text">SELECT · F SEARCH</span><span class="step-keys" data-id="step-keys"></span></div>
     <span class="snap-tag" data-id="snap-tag" hidden></span>
     <div class="radial" data-id="radial" hidden><div class="radial-hub" data-id="radial-hub"></div></div>
     <button class="isolated" data-id="isolated" hidden title="Unisolate (Alt+.)">${icon('isolate')}<span>0 ISOLATED</span></button>
@@ -2956,6 +2958,7 @@ export async function mount(root, backend) {
   function selectionChanged({ quiet = false } = {}) {
     drawOverlays();
     renderOutliner();
+    renderContext();
     const n = sel.size;
     $('sel-count').textContent = n ? `${n} ${[...new Set(sel.list().map(it => it.kind === 'pole' ? 'surface point' : it.kind))].join('+').toUpperCase()}` : '—';
     renderMass();
@@ -3162,11 +3165,15 @@ export async function mount(root, backend) {
     const h = $('hud');
     if (text) { h.textContent = text; delete h.dataset.idle; }
     else { h.textContent = 'SELECT · F SEARCH'; h.dataset.idle = ''; }
+    // The step line under the Command Bar names the same step (approved layout plan).
+    $('step-text').textContent = h.textContent;
   }
   function showTool(id) {
     toolbar.setActive(id);
     for (const el of $$('[data-panel]')) el.hidden = el.dataset.panel !== (id === 'spiral' ? 'spiral' : DRAW[id] ? 'draw' : FORMS[id] ? 'form' : PRIMS[id] ? 'primitive' : id);
     $('keys').innerHTML = keysHtml(KEYS[id] ? id : 'idle');
+    $('step-keys').innerHTML = (KEYS[id] ?? []).map(([k, what]) => `<kbd>${k}</kbd>${what}`).join('');
+    $('stepline').dataset.cmd = id ?? '';
     const name = !id ? 'SELECT' : EDITS[id] ?? DRAW[id] ?? toolInfo(id).label;
     $('tool-name').textContent = name;
     $('status-tool').textContent = name;
@@ -11315,6 +11322,44 @@ export async function mount(root, backend) {
    * holding only drawing tools and the Command Bar's common commands, this is where the rest of the
    * modeling commands come up, by what they act on.
    */
+  /** An action's icon: its tool's, else its kind's, else the nearest one drawn. */
+  function iconFor(action) {
+    const [kind, id] = action.split(':');
+    const name = kind === 'tool' || kind === 'draw' ? id : kind === 'palette' ? 'search' : action;
+    return icon(ICON_ALIAS[action] ?? ICON_ALIAS[kind] ?? name) || icon(ICON_ALIAS[kind] ?? kind) || icon('suggest');
+  }
+  const ICON_ALIAS = {
+    unjoin: 'explode', 'unjoin:pieces': 'explode', 'unjoin:faces': 'explode', 'unjoin:curves': 'explode', select: 'mode-all', 'select:invert': 'mode-all', 'select:all': 'mode-all',
+    convert: 'mode-solid', export: 'export', 'export:drawing': 'export-drawing', material: 'material', 'material:set': 'material', measure: 'measure',
+    'view:focus': 'nav-focus', 'view:surface-curvature': 'view-curvature', 'plane:selection': 'plane-face', 'plane:selection-keep-view': 'plane-face', 'plane:view': 'plane-view',
+    hide: 'view-faces', 'unhide-all': 'view-faces', 'tool:shell': 'shell', 'tool:offset': 'offset', 'tool:hole': 'hole', unify: 'unify', lock: 'padlock', 'unlock-all': 'unlock',
+  };
+  /**
+   * The context strip (approved layout plan, ours rather than Plasticity's): the suggested commands
+   * for the selection as icons, grouped by the manual's categories; empty with nothing selected.
+   */
+  const CTX_GROUPS = [
+    ['CREATE', /^(tool|draw):(extrude|revolve|loft|sweep|pipe|patch|bridge-surface|bridge|box|cylinder|sphere|thicken|shell|hole)$|^(square|bridge-edge|text|alt-duplicate|create-outline)$/],
+    ['BOOLEAN · CUT', /^tool:(boolean|cut|imprint|project)$|^(cut-curve|trim|split|slot)$/],
+    ['FILLET · OFFSET', /^tool:(fillet|fillet-curve|offset|offset-curve|remove-face|draft|extend-sheet)$|^(remove-fillets|extend)$/],
+    ['TRANSFORM', /^tool:(move|rotate|scale|mirror|rect-array|radial-array|curve-array)$|^(duplicate|place|copy-place|create-instance|slide|align-vertex|align-curve|align-surface|project-align|deform-curve|dimension)$/],
+    ['EDIT', /^(join|unjoin:.*|explode|reverse|reverse-sheet|rebuild|insert-knot|raise-degree|subdivide|complete-edge|match-face|untrim|unwrap|isoparam|unify|boundary-edges|convert-vertex|toggle-points)$/],
+  ];
+  function renderContext() {
+    const el = $('ctx');
+    if (!sel.size) { el.innerHTML = ''; return; }
+    const groups = new Map();
+    for (const e of suggestions()) {
+      const g = CTX_GROUPS.find(([, re]) => re.test(e.action))?.[0] ?? 'MORE';
+      if (!groups.has(g)) groups.set(g, []);
+      groups.get(g).push(e);
+    }
+    const order = [...CTX_GROUPS.map(([g]) => g), 'MORE'];
+    el.innerHTML = order.filter(g => groups.has(g)).map(g => `<div class="ctx-group" role="group" aria-label="${g}">`
+      + groups.get(g).map(e => { const k = keyLabel(e.action); return `<button data-ctx="${e.action}" aria-label="${e.label}" title="${e.label}${k ? ` (${k})` : ''}">${iconFor(e.action)}</button>`; }).join('')
+      + '</div>').join('');
+    for (const b of el.querySelectorAll('[data-ctx]')) b.onclick = () => doAction(b.dataset.ctx);
+  }
   function suggestions() {
     const kinds = new Set(sel.list().map(it => it.kind));
     const out = [];
@@ -11372,7 +11417,7 @@ export async function mount(root, backend) {
       if (l.replace(/\s+/g, '').includes(q)) return 1;
       return fuzzy(q, l.replace(/\s+/g, '')) ? 2 : 3;
     };
-    palette.items = pool.map(e => [rank(e), e]).filter(([r]) => r < 3).sort((a, b) => a[0] - b[0]).map(([, e]) => e).slice(0, 12);
+    palette.items = pool.map(e => [rank(e), e]).filter(([r]) => r < 3).sort((a, b) => a[0] - b[0]).map(([, e]) => e).slice(0, palette.suggest ? Infinity : 12);
     palette.index = Math.min(palette.index, Math.max(0, palette.items.length - 1));
     const ul = $('palette-list');
     ul.innerHTML = '';
@@ -11380,8 +11425,7 @@ export async function mount(root, backend) {
       const li = document.createElement('li');
       li.setAttribute('role', 'option');
       li.setAttribute('aria-selected', i === palette.index);
-      const [kind, id] = e.action.split(':');
-      li.innerHTML = `<span>${icon(kind === 'tool' || kind === 'draw' ? id : kind === 'palette' ? 'search' : kind)}${e.label}</span><kbd>${palette.binding === e ? 'PRESS A KEY · ⌫ CLEARS' : keyLabel(e.action)}</kbd>`;
+      li.innerHTML = `<span>${iconFor(e.action)}${e.label}</span><kbd>${palette.binding === e ? 'PRESS A KEY · ⌫ CLEARS' : keyLabel(e.action)}</kbd>`;
       li.onmousedown = ev => { ev.preventDefault(); if (ev.button === 0) runPalette(i); };
       // Plasticity: right-click a command in the palette to give it a key of your own.
       li.oncontextmenu = ev => { ev.preventDefault(); palette.binding = e; palette.index = i; renderPalette(); };
