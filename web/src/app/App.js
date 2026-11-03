@@ -183,7 +183,7 @@ const KEYS = {
   'export-mesh': [['TYPE', 'OPTIONS IN THE DIALOG'], ['⏎ / RMB', 'SAVE'], ['ESC', 'CANCEL']],
   'export-drawing': [['VIEW', 'AS THE CAMERA SEES IT'], ['H', 'HIDDEN LINES'], ['C', 'CURVES'], ['⏎ / RMB', 'SAVE'], ['ESC', 'CANCEL']],
   'tangent-circle': [['CLICK', 'FIRST · SECOND CURVE · SIZE OR THIRD CURVE'], ['F', 'FREEZE'], ['TAB', 'RADIUS'], ['ESC', 'CANCEL']],
-  extend: [['CLICK', 'NEAR AN END'], ['D / DRAG DOT', 'LENGTH'], ['S', 'SHAPE NATURAL · LINEAR · ARC · SOFT · REFL'], ['⏎', 'OK'], ['ESC', 'CANCEL']],
+  extend: [['CLICK', 'NEAR AN END'], ['D / DRAG DOT', 'LENGTH'], ['CLICK CURVE / SOLID', 'EXTEND TO IT'], ['S', 'SHAPE NATURAL · LINEAR · ARC · SOFT · REFL'], ['⏎', 'OK'], ['ESC', 'CANCEL']],
   bridge: [['T / D', 'TENSION'], ['TAB', 'CONTINUITY G0 G1 G2 G3'], ['X Y Z', 'AXIS'], ['Q', 'TRIM'], ['CHIP', 'CONSTRAIN'], ['⏎ / RMB', 'OK']],
   'bridge-edge': [['D', 'TENSION'], ['TAB', 'CONTINUITY G0 G1 G2 G3'], ['X Y Z', 'AXIS'], ['⏎ / RMB', 'OK']],
   'align-surface': [['TAB', 'CONTINUITY G0 G1 G2'], ['D', 'TENSION'], ['⏎ / RMB', 'OK']],
@@ -9281,10 +9281,80 @@ export async function mount(root, backend) {
       c.extraGizmos = () => c.gizmo ? [c.gizmo] : [];
       c.preview();
     };
+    /**
+     * Dependent Curve Extend (manual: Extend Curve): with the extension open, a click on another curve
+     * or a solid sets the length so the extension (in the shape chosen) runs up to it, where it first
+     * meets it. The target is kept, so changing the shape meets it again.
+     */
+    c.meet = () => {
+      if (!c.target) return;
+      const f = curveFrame(c.src), start = extendStart(c.src, c.which), end = lift(f, { x: start.at[0], y: start.at[1] });
+      // The extension as a long run of points from the end outward (shorter tries if the shape can't reach so far).
+      const box = new THREE.Box3().setFromObject(c.target.body != null ? bodyMesh(c.target.body) : curveGroup);
+      let far = Math.max(1, box.getSize(new THREE.Vector3()).length() + box.distanceToPoint(end)) * 2, run = null;
+      for (let k = 0; k < 12 && !run; k++, far /= 2) {
+        try {
+          const out = extendCurve(c.src, c.which, far, extShape()), pts = curve2d(out).map(q => lift(curveFrame(out), q));
+          if (c.which === 0) pts.reverse();
+          let i = 0, best = Infinity;
+          pts.forEach((q, j) => { const d = q.distanceToSquared(end); if (d < best) { best = d; i = j; } });
+          run = [end, ...pts.slice(i + 1)];
+        } catch { run = null; }
+      }
+      if (!run || run.length < 2) return toast('THE EXTENSION CANNOT REACH THAT');
+      let along = 0, hitAt = null;
+      if (c.target.body != null) {
+        const mesh = bodyMesh(c.target.body), cast = new THREE.Raycaster();
+        for (let i = 1; i < run.length && hitAt === null; i++) {
+          const d = run[i].clone().sub(run[i - 1]), l = d.length();
+          if (l < 1e-12) continue;
+          cast.set(run[i - 1], d.divideScalar(l));
+          cast.far = l;
+          const h = cast.intersectObject(mesh, false).find(x => x.distance > 1e-6 || i > 1);
+          if (h) hitAt = along + h.distance;
+          along += l;
+        }
+      } else {
+        // A curve: where the run crosses it, in the source curve's plane.
+        const tc = curveById(c.target.curve), tf = curveFrame(tc), flat = v => { const d = v.clone().sub(f.o); return [d.dot(f.x), d.dot(f.y), d.dot(f.n)]; };
+        const tq = curve2d(tc).map(q => flat(lift(tf, q)));
+        if (isClosed(tc)) tq.push(tq[0]);
+        if (tq.some(q => Math.abs(q[2]) > 1e-4)) return toast('THE TARGET CURVE MUST LIE IN THE PLANE OF THE CURVE');
+        const rq = run.map(flat);
+        for (let i = 1; i < rq.length && hitAt === null; i++) {
+          const [a, b] = [rq[i - 1], rq[i]], l = Math.hypot(b[0] - a[0], b[1] - a[1]);
+          let first = null;
+          for (let j = 1; j < tq.length; j++) {
+            const [p, q] = [tq[j - 1], tq[j]], r = [b[0] - a[0], b[1] - a[1]], s2 = [q[0] - p[0], q[1] - p[1]];
+            const den = r[0] * s2[1] - r[1] * s2[0];
+            if (Math.abs(den) < 1e-12) continue;
+            const t = ((p[0] - a[0]) * s2[1] - (p[1] - a[1]) * s2[0]) / den, u = ((p[0] - a[0]) * r[1] - (p[1] - a[1]) * r[0]) / den;
+            if (t >= 0 && t <= 1 && u >= -1e-9 && u <= 1 + 1e-9 && (i > 1 || t * l > 1e-6) && (first === null || t < first)) first = t;
+          }
+          if (first !== null) hitAt = along + first * l;
+          along += l;
+        }
+      }
+      if (hitAt === null || !(hitAt > 1e-6)) return toast(`THE ${extShape().toUpperCase()} EXTENSION DOES NOT MEET ${c.target.body != null ? label(c.target.body) : curveLabel(c.target.curve)}`);
+      $('ext-len').value = +hitAt.toFixed(4);
+      c.gizmo.value = hitAt;
+      c.gizmo.render(hitAt);
+      c.preview();
+      say1(`${curveLabel(c.src.id)} TO ${c.target.body != null ? label(c.target.body) : curveLabel(c.target.curve)} · ${len(hitAt)} ${U()} · ${extShape().toUpperCase()} · ⏎ OK`);
+    };
     c.click = e => {
-      if (c.src) return true;
       ray(e);
       raycaster.params.Line.threshold = unitsPerPixel(controls.target) * 6;
+      if (c.src) {
+        // The target: another curve, else a solid under the pointer.
+        const ch = raycaster.intersectObjects(curveGroup.children.filter(o => o.userData.curve !== undefined && o.userData.curve !== c.src.id), false)[0];
+        const bh = raycaster.intersectObjects(shownMeshes(), false)[0];
+        if (ch && (!bh || ch.distance <= bh.distance + 1e-6)) c.target = { curve: ch.object.userData.curve };
+        else if (bh) c.target = { body: bh.object.userData.id };
+        else return true;
+        c.meet();
+        return true;
+      }
       const hit = raycaster.intersectObjects(curveGroup.children.filter(o => o.userData.curve !== undefined), false)[0];
       const src = hit && curveById(hit.object.userData.curve);
       if (!src) return toast('CLICK NEAR THE END OF AN OPEN CURVE'), true;
@@ -9295,10 +9365,10 @@ export async function mount(root, backend) {
     c.key = action => {
       if (action === 'shape') {
         setExtShape(EXTEND_SHAPES[(EXTEND_SHAPES.indexOf(extShape()) + 1) % EXTEND_SHAPES.length]);
-        c.preview();
+        if (c.target) c.meet(); else c.preview();
         return true;
       }
-      if (action === 'length') { c.gizmo?.activate(lastPointer); return true; }
+      if (action === 'length') { c.target = null; c.gizmo?.activate(lastPointer); return true; }
       return false;
     };
     c.finish = async () => {
@@ -12814,7 +12884,7 @@ export async function mount(root, backend) {
   $('be-end').onclick = () => cmd?.id === 'bridge-edge' && cmd.cycleEnd(1);
   $('br-end').onclick = () => cmd?.id === 'bridge' && cmd.cycleEnd(1);
   $('oc-lock').onclick = () => cmd?.id === 'offset-curve' && cmd.key('lock');
-  for (const b of $$('[data-extshape]')) b.onclick = () => { setExtShape(b.dataset.extshape); if (cmd?.id === 'extend') cmd.preview(); };
+  for (const b of $$('[data-extshape]')) b.onclick = () => { setExtShape(b.dataset.extshape); if (cmd?.id === 'extend') (cmd.target ? cmd.meet() : cmd.preview()); };
   $('ext-len').addEventListener('input', () => { if (cmd?.id !== 'extend' || !cmd.gizmo) return; cmd.gizmo.value = num('ext-len'); cmd.gizmo.render(num('ext-len')); cmd.preview(); });
   $('oc-slot').onclick = () => cmd?.id === 'offset-curve' && cmd.key('slot');
   $('oc-combine').onclick = () => cmd?.id === 'offset-curve' && cmd.key('combine');
