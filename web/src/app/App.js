@@ -2284,7 +2284,7 @@ export async function mount(root, backend) {
       e.dataTransfer.effectAllowed = 'move';
       e.dataTransfer.setData('text/plain', 'w3d-outliner');
     };
-    row.ondragend = () => { dragging = null; for (const r of $('outliner').querySelectorAll('.drop')) r.classList.remove('drop'); };
+    row.ondragend = () => { dragging = null; for (const r of $('outliner').querySelectorAll('.drop, .drop-above')) r.classList.remove('drop', 'drop-above'); };
   }
   function dropOn(el, gid) {
     el.ondragover = e => { if (!dragging) return; e.preventDefault(); el.classList.add('drop'); };
@@ -2297,6 +2297,20 @@ export async function mount(root, backend) {
       if (!d) return;
       if (gid === null) orgOp('MOVE TO TOP', () => org.removeFromGroup(d.ids, d.groups));
       else orgOp(`MOVE INTO ${org.group(gid)?.name ?? 'GROUP'}`, () => org.addToGroup(gid, d.ids, d.groups));
+      renderOutliner();
+    };
+  }
+  // Dropped on an object row: above it, in its group.
+  function dropAbove(el, key) {
+    el.ondragover = e => { if (!dragging) return; e.preventDefault(); el.classList.add('drop-above'); };
+    el.ondragleave = () => el.classList.remove('drop-above');
+    el.ondrop = e => {
+      e.preventDefault();
+      el.classList.remove('drop-above');
+      const d = dragging;
+      dragging = null;
+      if (!d) return;
+      orgOp('REORDER', () => org.moveBefore(d.ids, d.groups, key));
       renderOutliner();
     };
   }
@@ -2413,6 +2427,7 @@ export async function mount(root, backend) {
       };
       row.oncontextmenu = e => { e.preventDefault(); objectMenu(e, b.id); };
       dragRow(row, { key: b.id, selected: () => sel.has({ kind: 'solid', body: b.id }) });
+      dropAbove(row, b.id);
       out.append(row);
     };
     const curveRow = (c, depth) => {
@@ -2438,6 +2453,7 @@ export async function mount(root, backend) {
       };
       row.oncontextmenu = e => { e.preventDefault(); objectMenu(e, k); };
       dragRow(row, { key: k, selected: () => sel.has({ kind: 'curve', id: c.id }) });
+      dropAbove(row, k);
       out.append(row);
     };
     // A group is a folder: its own groups, then its bodies and curves. Clicking it selects the group; Alt+click everything in it.
@@ -2484,11 +2500,11 @@ export async function mount(root, backend) {
     for (const g of org.childGroups(null)) folder(g, 0);
     const loose = b => !org.groupOf.has(b.id);
     if (!solids.length && !org.groups.length) out.insertAdjacentHTML('beforeend', '<div class="empty">NO SOLIDS</div>');
-    for (const b of solids.filter(loose)) bodyRow(b, 0);
+    for (const b of org.sorted(solids.filter(loose), b => b.id)) bodyRow(b, 0);
     if (sheets.some(loose)) out.insertAdjacentHTML('beforeend', '<div class="group-title">▾ SHEETS</div>');
-    for (const b of sheets.filter(loose)) bodyRow(b, 0);
+    for (const b of org.sorted(sheets.filter(loose), b => b.id)) bodyRow(b, 0);
     out.insertAdjacentHTML('beforeend', '<div class="group-title">▾ CURVES</div>');
-    for (const c of curveList.filter(c => !org.groupOf.has(curveKey(c.id)))) curveRow(c, 0);
+    for (const c of org.sorted(curveList.filter(c => !org.groupOf.has(curveKey(c.id))), c => curveKey(c.id))) curveRow(c, 0);
     if (cmd?.id === 'pushpull' && cmd.at) out.insertAdjacentHTML('beforeend', `<div class="row-item curve"><span class="ln"></span><span>${profileKind === 'circle' ? 'CIRCLE' : 'RECT'}.001</span></div>`);
     else if (!curveList.length) out.insertAdjacentHTML('beforeend', '<div class="empty">NO CURVES</div>');
     // Right-click a section title: Select all in it (manual: Outliner).
