@@ -244,7 +244,6 @@ const SHELL = `
   <div class="prefs" data-id="prefs" role="dialog" aria-label="Preferences" hidden></div>
 
   <aside class="left" aria-label="Document">
-    <nav class="tools rail" data-id="tools" aria-label="Tools" aria-orientation="vertical"></nav>
     <div class="doc">
     <div class="tabs" role="tablist">
       <button role="tab" data-id="tab-outliner" aria-selected="true">OUTLINER</button>
@@ -268,6 +267,7 @@ const SHELL = `
   <main class="view">
     <canvas aria-label="3D modeling viewport"></canvas>
     <span class="corner tl"></span><span class="corner tr"></span><span class="corner bl"></span><span class="corner br"></span>
+    <nav class="tools rail" data-id="tools" aria-label="Tools" aria-orientation="vertical"></nav>
     <div class="vtl">
       <button class="plane-pill" data-action="plane:save" title="Construction plane: click to save it to the list in the Inspector">${icon('plane-world')}<output data-id="plane">XY</output></button>
       <span class="hud" data-id="hud" data-idle>SELECT · F SEARCH</span>
