@@ -113,7 +113,7 @@ function reversed(side) {
     return c;
 }
 /** A side cut in two at half its length, its extras cut with it. */
-function halves(side) {
+export function halves(side) {
     const at = byLength(side), half = at.total / 2;
     let run = 0, k = 1;
     for (; k < side.length - 1; k++) {

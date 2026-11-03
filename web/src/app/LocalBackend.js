@@ -1206,13 +1206,13 @@ export class LocalBackend {
     }
 
     /** Constrained Surface: the sheet of the surface fitted through the clicked points (splineSheet.js numbers). */
-    previewSplineSheet({ data }) {
-        return this.latest(async () => this.body(0, splineSheet(data)));
+    previewSplineSheet({ data, more = [] }) {
+        return this.latest(async () => this.body(0, splineSheets(data, more)));
     }
 
-    /** Constrained Surface as one undo step: the sheet is a new body. */
-    async commitSplineSheet({ data }) {
-        const sheet = splineSheet(data);
+    /** Constrained Surface as one undo step: the sheet is a new body (an N-sided fill's patches sewn into one). */
+    async commitSplineSheet({ data, more = [] }) {
+        const sheet = splineSheets(data, more);
         this.checkpoint();
         const id = this.nextId++;
         this.put(id, sheet);
@@ -1660,4 +1660,9 @@ function chain(a, b) {
         return out;
     };
     return { faces: [compose(a.faces[0], b.faces[0]), []], edges: [compose(a.edges[0], b.edges[0]), []], generatedFaces: [] };
+}
+
+/** A B-spline sheet, or several (an N-sided fill's patches) sewn into one. */
+function splineSheets(data, more) {
+    return more.length ? joinSheets([splineSheet(data), ...more.map(d => splineSheet(d))]) : splineSheet(data);
 }
