@@ -349,6 +349,14 @@ impl Kernel for Occt {
         Shape::sweep_guided(&section(profile, frame)?, &path_numbers(path)?, &guide, method as i32, parallel, round).map_err(shim)
     }
 
+    fn curve_regions(&self, curves: &[Path], origin: DVec3, normal: DVec3) -> Result<Vec<Shape>, KernelError> {
+        let mut all = Vec::new();
+        for c in curves { all.extend(path_numbers(c)?) }
+        let plane = [origin.x, origin.y, origin.z, normal.x, normal.y, normal.z];
+        let regions = Shape::curve_regions(&all, &plane).map_err(shim)?;
+        Ok(regions.faces().map(|f| Shape::from(f)).collect())
+    }
+
     fn loft_faces(&self, faces: &[&Shape]) -> Result<Shape, KernelError> {
         Shape::loft_faces(faces).map_err(shim)
     }

@@ -667,7 +667,53 @@ impl<K: Kernel> Document<K> {
     /// Plasticity's union folds extra targets in as tools; a cut, intersect or slice works on each
     /// target the shape reaches, and leaves the ones it misses. Without a document change.
     pub fn preview_extrude_many(&self, target: Option<BodyId>, more: &[BodyId], p: &ExtrudeParams) -> Result<ExtrudeMany<K::Solid>, KernelError> {
-        let first = self.preview_extrude(target, p);
+        if p.distance.abs() < 1e-9 && p.back.abs() < 1e-9 { return Err(KernelError::NoOp) }
+        let tool = crate::extrude::tool(&self.kernel, target.and_then(|id| self.get(id)), p)?;
+        self.extrude_many_with(target, more, p, tool)
+    }
+
+    /// Plasticity's regions of drawn curves taken together (see `Kernel::curve_regions`), on the
+    /// first curve's plane; every curve must lie on it.
+    pub fn curve_regions(&self, curves: &[CurveId]) -> Result<Vec<K::Solid>, KernelError> {
+        let first = self.curve(*curves.first().ok_or(KernelError::Invalid("select the curves first"))?).ok_or(KernelError::Invalid("that curve no longer exists"))?;
+        let f = first.frame();
+        let paths = curves.iter().map(|id| self.curve(*id).map(|c| c.path()).ok_or(KernelError::Invalid("that curve no longer exists"))).collect::<Result<Vec<_>, _>>()?;
+        self.kernel.curve_regions(&paths, f.origin, f.normal)
+    }
+
+    /// The extrude's shape from the `pieces` of the regions of `curves` (Plasticity's regions of
+    /// crossing, touching or nested curves), each drawn out as `p` says.
+    pub fn region_pieces_tool(&self, curves: &[CurveId], pieces: &[u32], p: &ExtrudeParams) -> Result<K::Solid, KernelError> {
+        let sheets = self.curve_regions(curves)?;
+        if pieces.is_empty() { return Err(KernelError::Invalid("select a region first")) }
+        let one = ExtrudeParams { face: Some(0), more_faces: vec![], individual: false, more_regions: vec![], ..p.clone() };
+        let mut out: Option<K::Solid> = None;
+        for &n in pieces {
+            let sheet = sheets.get(n as usize).ok_or(KernelError::Invalid("that region no longer exists"))?;
+            let t = crate::extrude::tool(&self.kernel, Some(sheet), &one)?;
+            out = Some(match out { None => t, Some(all) => self.kernel.boolean(&all, &t, BooleanOp::Union)?.solid });
+        }
+        Ok(out.expect("at least one piece"))
+    }
+
+    /// Extrude of region pieces onto the targets, without a document change.
+    pub fn preview_extrude_pieces(&self, target: Option<BodyId>, more: &[BodyId], p: &ExtrudeParams, curves: &[CurveId], pieces: &[u32]) -> Result<ExtrudeMany<K::Solid>, KernelError> {
+        if p.distance.abs() < 1e-9 && p.back.abs() < 1e-9 { return Err(KernelError::NoOp) }
+        let tool = self.region_pieces_tool(curves, pieces, p)?;
+        self.extrude_many_with(target, more, p, tool)
+    }
+
+    /// Extrude of region pieces as one undoable step.
+    pub fn commit_extrude_pieces(&mut self, target: Option<BodyId>, more: &[BodyId], p: &ExtrudeParams, curves: &[CurveId], pieces: &[u32]) -> Result<BodyId, KernelError> {
+        let r = self.preview_extrude_pieces(target, more, p, curves, pieces)?;
+        self.checkpoint();
+        self.apply_many(r)
+    }
+
+    fn extrude_many_with(&self, target: Option<BodyId>, more: &[BodyId], p: &ExtrudeParams, tool: K::Solid) -> Result<ExtrudeMany<K::Solid>, KernelError> {
+        let copy = |t: &K::Solid| self.kernel.transform(t, &Motion::translation(DVec3::ZERO));
+        let t0 = target.and_then(|id| self.get(id));
+        let first = crate::extrude::combine(&self.kernel, t0, copy(&tool), p.operation, crate::extrude::outward(&self.kernel, t0, p), crate::extrude::MISSES[0]);
         let single = |r: ExtrudeResult<K::Solid>| match r {
             ExtrudeResult::New(s) => ExtrudeMany { changed: vec![], new: Some(s), folded: vec![] },
             r => ExtrudeMany { changed: vec![(target.expect("a change has a target"), r)], new: None, folded: vec![] },
@@ -695,7 +741,6 @@ impl<K: Kernel> Document<K> {
             return Ok(out);
         }
         let op = match p.operation { Operation::Intersect => Operation::Intersect, Operation::Slice => Operation::Slice, _ => Operation::Difference };
-        let tool = crate::extrude::tool(k, Some(body(tid)?), p)?;
         let mut changed = vec![];
         for id in std::iter::once(tid).chain(rest) {
             let copy = k.transform(&tool, &Motion::translation(DVec3::ZERO));

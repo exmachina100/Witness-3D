@@ -5,7 +5,7 @@ import * as THREE from 'three';
 import { ExtrudeFactory } from '../ExtrudeFactory.js';
 import { NoOpError } from '../GeometryFactory.js';
 import { THROAT, arrayMotions, importSTEP, blendEdges, boolean, booleanWithHistory, extrudeFace, bounds, box, count, draftFaces, faceSheet, imprintEdgesWithHistory, imprintWithHistory, planeSheet, regions, unifyWithHistory, boundaryEdges, splitWithHistory, draftWithHistory, exportSTEP, facePlane, mirror, mirror as mirrorShape, numbered, numberedEdges, oc, primitive, shellFaces, tessellate, transform, volume } from '../Kernel.js';
-import { curveIsOpen, cutSheets, extrudeCurve, loft, loftFaces, loftGuided, loftSheet, loftSheetGuided, offsetFlatFaces, pipe, regionFace, revolve, revolveCurve, splineSamples, sweep, sweepCurve, sweepGuided } from '../Forms.js';
+import { curveIsOpen, curveRegions, cutSheets, extrudeCurve, loft, loftFaces, loftGuided, loftSheet, loftSheetGuided, offsetFlatFaces, pipe, regionFace, revolve, revolveCurve, splineSamples, sweep, sweepCurve, sweepGuided } from '../Forms.js';
 import { curveFromNurbs, ends, join, loops, MEET, nurbsLoop } from '../curves.js';
 import { isoparam, meetCurves, projectCurveCurve, projectCurves, projectedEdges, sectionCurves } from '../Project.js';
 import { isSheet, patch } from '../Patch.js';
@@ -112,7 +112,17 @@ export class LocalBackend {
     /** Run the extrude through Plasticity's factory logic (ExtrudeFactory.calculate). */
     async run(req) {
         const f = new ExtrudeFactory({ shape: id => this.shapes.get(id) });
-        if (req.region !== undefined && req.region !== null) {
+        if (req.arrangement?.length) {
+            // Regions of crossing, touching or nested curves (Plasticity's regions of all coplanar
+            // curves together): the picked pieces, joined.
+            const faces = this.regionFaces(req.arrangement);
+            const picked = (req.pieces ?? []).map(n => faces[n]);
+            if (!picked.length || picked.some(f => !f)) throw new Error('that region no longer exists');
+            f.baseFace = picked[0];
+            for (const m of picked.slice(1)) f.moreFaces.push({ face: m, hole: false });
+            const c = this.curveMap.get(req.arrangement[0]);
+            f.origin.copy(v3(c.origin)); f.normal.copy(v3(c.normal)); f.xAxis.copy(v3(c.x));
+        } else if (req.region !== undefined && req.region !== null) {
             const c = this.curveMap.get(req.region);
             if (!c) throw new Error('that curve no longer exists');
             if (!isClosed(c)) throw new Error('only a closed curve has a region to extrude');
@@ -184,6 +194,18 @@ export class LocalBackend {
             if (met && count(u.shape, 'TopAbs_SOLID')) changed.push({ id, ...u });
         }
         return changed.length ? { changed, folded: [] } : null;
+    }
+
+    /** The region faces of drawn curves taken together (see Forms.js curveRegions). */
+    regionFaces(ids) {
+        const cs = ids.map(id => this.curveMap.get(id));
+        if (cs.some(c => !c)) throw new Error('that curve no longer exists');
+        return curveRegions(cs);
+    }
+
+    /** Plasticity's regions of drawn curves taken together, each as a body (id 0) to draw and pick. */
+    async curveRegions({ curves }) {
+        return this.regionFaces(curves).map(f => this.body(0, f));
     }
 
     /** Drawn curves, as { id, ...curve }. */

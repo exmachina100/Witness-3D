@@ -154,6 +154,12 @@ pub struct ExtrudeRequest {
     pub sheets: Vec<CurveId>,
     #[serde(default)]
     pub sheet_direction: Option<[f64; 3]>,
+    /// Regions of crossing, touching or nested curves (Plasticity's regions of all coplanar curves
+    /// together): the curves taken together, and which of their regions to extrude.
+    #[serde(default)]
+    pub arrangement: Vec<CurveId>,
+    #[serde(default)]
+    pub pieces: Vec<u32>,
     #[serde(default)]
     pub origin: [f64; 3],
     #[serde(default = "up")]
@@ -294,7 +300,7 @@ impl ExtrudeRequest {
         let profile = match self.profile {
             Some(ProfileShape::Rect { width, height }) => Profile::rectangle(width, height),
             Some(ProfileShape::Circle { radius }) => Profile::Circle { center: (0.0, 0.0), radius },
-            None if self.face.is_some() => Profile::rectangle(1.0, 1.0),
+            None if self.face.is_some() || !self.arrangement.is_empty() => Profile::rectangle(1.0, 1.0),
             None => return Err("say what to extrude: a profile, a region or a face".into()),
         };
         Ok(ExtrudeParams {
@@ -331,11 +337,11 @@ pub fn preview(m: &Model, req: ExtrudeRequest) -> Option<Result<Preview, String>
             return Ok(Preview { outcome: Outcome::New, tool, result: None, piece: None, more: all, others: vec![], folded: vec![] });
         }
         let p = req.params(doc)?;
-        let many = match doc.preview_extrude_many(req.target, &req.targets, &p) {
+        let many = match if req.arrangement.is_empty() { doc.preview_extrude_many(req.target, &req.targets, &p) } else { doc.preview_extrude_pieces(req.target, &req.targets, &p, &req.arrangement, &req.pieces) } {
             Err(KernelError::NoOp) => return Ok(Preview { outcome: Outcome::None, tool: None, result: None, piece: None, more: vec![], others: vec![], folded: vec![] }),
             r => r.map_err(|e| e.to_string())?,
         };
-        let tool = extrude::tool(&doc.kernel, req.target.and_then(|id| doc.get(id)), &p).map_err(|e| e.to_string())?;
+        let tool = if req.arrangement.is_empty() { extrude::tool(&doc.kernel, req.target.and_then(|id| doc.get(id)), &p) } else { doc.region_pieces_tool(&req.arrangement, &req.pieces, &p) }.map_err(|e| e.to_string())?;
         let tool = Some(body(&doc.kernel, 0, &tool)?);
         let mut changed = many.changed.into_iter();
         let (target, result) = match (changed.next(), many.new) {
@@ -366,7 +372,8 @@ pub fn commit(m: &Model, req: ExtrudeRequest) -> Result<Committed, String> {
             return Ok(Committed { id: *ids.last().ok_or("nothing to do")?, scene: bodies(doc)? });
         }
         let p = req.params(doc)?;
-        let id = if req.sheets.is_empty() { doc.commit_extrude_many(req.target, &req.targets, &p) }
+        let id = if !req.arrangement.is_empty() { doc.commit_extrude_pieces(req.target, &req.targets, &p, &req.arrangement, &req.pieces) }
+            else if req.sheets.is_empty() { doc.commit_extrude_many(req.target, &req.targets, &p) }
             else { doc.commit_extrude_mixed(req.target, &req.targets, &p, &req.sheets, req.sheet_dir()?) }.map_err(|e| e.to_string())?;
         Ok(Committed { id, scene: bodies(doc)? })
     })
@@ -1750,6 +1757,17 @@ pub struct EdgeCurvatureRequest {
     pub edge: u32,
     #[serde(default)]
     pub n: Option<usize>,
+}
+
+/// Plasticity's regions of drawn curves taken together: each region as a body (id 0) to draw and pick.
+#[derive(Deserialize, Debug, Clone)]
+pub struct CurveRegionsRequest { pub curves: Vec<CurveId> }
+
+pub fn curve_regions(m: &Model, req: CurveRegionsRequest) -> Result<Vec<Body>, ApiError> {
+    m.call(move |doc| {
+        let sheets = doc.curve_regions(&req.curves)?;
+        Ok(sheets.iter().map(|s| body(&doc.kernel, 0, s)).collect::<Result<Vec<_>, _>>()?)
+    })
 }
 
 pub fn edge_curvature(m: &Model, req: EdgeCurvatureRequest) -> Result<Vec<w3d_kernel::CombTooth>, ApiError> {

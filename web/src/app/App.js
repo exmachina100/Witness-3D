@@ -1698,6 +1698,30 @@ export async function mount(root, backend) {
   const curveGroup = new THREE.Group();
   scene.add(curveGroup);
   let curveList = [];
+  // Plasticity's regions of crossing, touching or nested curves (all coplanar curves together):
+  // region id "<curve ids>#<piece>" -> { curves, piece, at, normal }.
+  let derivedRegions = new Map();
+  /**
+   * Curves that make regions together: those on one plane whose extents meet, in groups of two or
+   * more. A closed curve on its own stays its own region.
+   */
+  function regionClusters(list) {
+    const flat = list.filter(c => c.kind !== 'spiral' && !(c.kind === 'nurbs' && c.poles?.some(q => Math.abs(q[2] ?? 0) > 1e-9)));
+    const info = flat.map(c => {
+      const f = curveFrame(c), box = new THREE.Box3();
+      for (const q of curve2d(c)) box.expandByPoint(lift(f, q));
+      return { c, n: f.n, d: f.n.dot(f.o), box: box.expandByScalar(1e-4) };
+    });
+    const parent = info.map((_, i) => i), find = i => parent[i] === i ? i : (parent[i] = find(parent[i]));
+    for (let i = 0; i < info.length; i++) for (let j = i + 1; j < info.length; j++) {
+      const a = info[i], b = info[j], dot = a.n.dot(b.n);
+      if (Math.abs(dot) < 1 - 1e-9 || Math.abs(a.d - Math.sign(dot) * b.d) > 1e-6 || !a.box.intersectsBox(b.box)) continue;
+      parent[find(i)] = find(j);
+    }
+    const groups = new Map();
+    info.forEach((x, i) => { const r = find(i); if (!groups.has(r)) groups.set(r, []); groups.get(r).push(x.c); });
+    return [...groups.values()].filter(g => g.length > 1);
+  }
   const curveMat = {
     normal: new THREE.LineBasicMaterial({ color: 0x9a968c }),
     hover: new THREE.LineBasicMaterial({ color: 0xffffff }),
@@ -1845,7 +1869,8 @@ export async function mount(root, backend) {
 
   async function loadCurves() {
     curveList = backend.curves ? await backend.curves() : [];
-    sel.keepCurves(curveList.map(c => c.id));
+    const clusters = backend.curveRegions ? regionClusters(curveList) : [];
+    const together = new Set(clusters.flat().map(c => c.id));
     for (const k of [...materialOf.keys()]) if (typeof k === 'string' && !curveById(curveKeyId(k))) materialOf.delete(k);
     for (const id of [...shownPoints.curves]) if (!curveById(id)) shownPoints.curves.delete(id);
     paintShownPoints();
@@ -1856,7 +1881,7 @@ export async function mount(root, backend) {
       line.userData = { curve: c.id };
       line.renderOrder = 9;
       curveGroup.add(line);
-      if (!isClosed(c)) continue;
+      if (!isClosed(c) || together.has(c.id)) continue;
       const g = new THREE.ShapeGeometry(new THREE.Shape(pts), 1);
       g.applyMatrix4(new THREE.Matrix4().makeBasis(f.x, f.y, f.n).setPosition(lift(f, { x: 0, y: 0 }, 0.02)));
       const m = new THREE.Mesh(g, regionMat.normal);
@@ -1864,6 +1889,34 @@ export async function mount(root, backend) {
       m.renderOrder = 7;
       curveGroup.add(m);
     }
+    // Curves that cross, touch or nest: their regions taken together, from the kernel.
+    derivedRegions = new Map();
+    for (const cl of clusters) {
+      const ids = cl.map(c => c.id), f = curveFrame(cl[0]);
+      let list = [];
+      try { list = await backend.curveRegions({ curves: ids }); } catch { list = []; }
+      list.forEach((b, k) => {
+        const g = new THREE.BufferGeometry();
+        g.setAttribute('position', new THREE.Float32BufferAttribute(Array.from(b.positions), 3));
+        g.setIndex(Array.from(b.indices));
+        g.translate(f.n.x * 0.02, f.n.y * 0.02, f.n.z * 0.02);
+        const id = `${ids.join(',')}#${k}`;
+        const m = new THREE.Mesh(g, regionMat.normal);
+        m.userData = { region: id };
+        m.renderOrder = 7;
+        curveGroup.add(m);
+        // Where the region's gizmo stands: the middle of its largest triangle (inside a ring too).
+        const pos = g.getAttribute('position'), idx = g.getIndex();
+        let best = 0, at = new THREE.Vector3();
+        for (let t = 0; t < idx.count; t += 3) {
+          const [A, B, C] = [0, 1, 2].map(j => new THREE.Vector3().fromBufferAttribute(pos, idx.getX(t + j)));
+          const a = B.clone().sub(A).cross(C.clone().sub(A)).length();
+          if (a > best) { best = a; at = A.add(B).add(C).divideScalar(3); }
+        }
+        derivedRegions.set(id, { curves: ids, piece: k, at, normal: f.n.clone(), x: f.x.clone() });
+      });
+    }
+    sel.keepCurves([...curveList.map(c => c.id), ...derivedRegions.keys()]);
     drawOverlays();
     drawInstances();
     renderOutliner();
@@ -5072,6 +5125,12 @@ export async function mount(root, backend) {
       const at = pts.reduce((a, q) => a.add(q), new THREE.Vector3()).divideScalar(Math.max(1, pts.length));
       return { curves: cs.map(c => c.id), at, normal: f.n, target: null, name: cs.length > 1 ? `${cs.length} CURVES` : curveLabel(cs[0].id) };
     }
+    if (it.kind === 'region' && derivedRegions.has(it.id)) {
+      // Regions of curves taken together: the selected pieces of the same curves, joined.
+      const d = derivedRegions.get(it.id);
+      const same = sel.list('region').map(r => derivedRegions.get(r.id)).filter(x => x && x.curves.join() === d.curves.join());
+      return { arrangement: d.curves, pieces: same.map(x => x.piece), at: d.at.clone(), normal: d.normal.clone(), x: d.x.clone(), target: selectedTarget() ?? bodyAt(d.at, d.normal), targets: selectedTargets().slice(1), name: same.length > 1 ? `${same.length} REGIONS` : 'REGION' };
+    }
     if (it.kind === 'region') {
       // Every selected region goes together, those inside others cut out as holes.
       const all = sel.list('region').map(r => curveById(r.id)).filter(c => c && isClosed(c));
@@ -5125,7 +5184,7 @@ export async function mount(root, backend) {
       setTarget(all);
       $('ex-hint').textContent = `${c.src.name}${t ? ` ON ${all}` : ''}`;
       $('ex-target').textContent = all;
-      $('ex-pick-target').disabled = c.src.region === undefined;
+      $('ex-pick-target').disabled = c.src.region === undefined && !c.src.arrangement;
       $('ex-pick-target').setAttribute('aria-pressed', String(c.picking === 'target'));
     };
     c.syncTarget();
@@ -5264,7 +5323,8 @@ export async function mount(root, backend) {
     back: c.lock ? Math.abs(c.distance) : 0, angle: c.angle * DEG, thickness: c.thickness,
   } : ({
     target: c.src.target, ...(c.src.targets?.length && c.src.target !== null && { targets: c.src.targets }),
-    ...(c.src.sheets?.length && { sheets: c.src.sheets, sheetDirection: (c.direction ?? c.src.sheetNormal).toArray() }), ...(c.src.region !== undefined ? { region: c.src.region, moreRegions: c.src.more ?? [], holes: c.src.holes ?? [] } : { face: c.src.face, faces: c.src.faces ?? [], individual: c.individual }), distance: c.distance, op: c.op,
+    ...(c.src.arrangement && { arrangement: c.src.arrangement, pieces: c.src.pieces, origin: c.src.at.toArray(), normal: c.src.normal.toArray(), xAxis: c.src.x.toArray() }),
+    ...(c.src.sheets?.length && { sheets: c.src.sheets, sheetDirection: (c.direction ?? c.src.sheetNormal).toArray() }), ...(c.src.arrangement ? {} : c.src.region !== undefined ? { region: c.src.region, moreRegions: c.src.more ?? [], holes: c.src.holes ?? [] } : { face: c.src.face, faces: c.src.faces ?? [], individual: c.individual }), distance: c.distance, op: c.op,
     back: c.lock ? Math.abs(c.distance) : 0, angle: c.angle * DEG, thickness: c.thickness,
     ...((c.direction ?? c.src.direction) && { direction: (c.direction ?? c.src.direction).toArray() }),
   });
@@ -12403,7 +12463,7 @@ export async function mount(root, backend) {
   };
   $('ex-pick-target').onclick = () => {
     const c = cmd;
-    if (c?.id !== 'extrude' || c.src.region === undefined) return;
+    if (c?.id !== 'extrude' || (c.src.region === undefined && !c.src.arrangement)) return;
     c.auto = false;
     c.picking = c.picking === 'target' ? null : 'target';
     c.syncTarget();

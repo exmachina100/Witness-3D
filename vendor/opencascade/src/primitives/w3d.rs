@@ -568,6 +568,12 @@ impl Shape {
     }
 
     /// Plasticity's Join for sheets: `sheets` sewn into one body within `tol`; closed, a solid (see `w3d_join_sheets`).
+    /// Plasticity's regions of coplanar curves taken together (w3d_curve_regions): a compound of faces.
+    pub fn curve_regions(paths: &[f64], plane: &[f64]) -> Result<Shape, String> {
+        let s = ffi::w3d::w3d_curve_regions(paths, plane).map_err(reason)?;
+        Ok(Shape::from_shape(&s))
+    }
+
     /// Loft of faces: a solid through the faces' outer boundaries, in order (w3d_loft_faces).
     pub fn loft_faces(faces: &[&Shape]) -> Result<Shape, String> {
         let all = Shape::from(crate::primitives::Compound::from_shapes(faces.iter().copied()));
