@@ -1512,7 +1512,66 @@ impl<K: Kernel> Document<K> {
 
     /// Unjoin as one undoable step: `body` keeps the first piece and the rest become new bodies.
     pub fn commit_unjoin(&mut self, body: BodyId, faces: bool) -> Result<Vec<BodyId>, KernelError> {
-        let mut pieces = self.preview_unjoin(body, faces)?.into_iter();
+        let pieces = self.preview_unjoin(body, faces)?;
+        self.commit_pieces(body, pieces)
+    }
+
+    /// Plasticity's Unjoin Faces: only the `picked` faces of `body` come away. The rest of the body
+    /// stays one sheet (first), and the picked faces become sheets, faces that touch sewn together.
+    /// With every face picked, each face is a sheet of its own.
+    pub fn preview_unjoin_faces(&self, body: BodyId, picked: &[u32]) -> Result<Vec<K::Solid>, KernelError> {
+        let s = self.get(body).ok_or(KernelError::Invalid("that body no longer exists"))?;
+        if picked.is_empty() { return Err(KernelError::Invalid("select the faces to unjoin")) }
+        let faces = self.kernel.unjoin(s, true)?;
+        if picked.iter().any(|&f| f as usize >= faces.len()) { return Err(KernelError::Invalid("that face no longer exists")) }
+        let (mut rest, mut away) = (vec![], vec![]);
+        for (i, f) in faces.into_iter().enumerate() {
+            if picked.contains(&(i as u32)) { away.push(f) } else { rest.push(f) }
+        }
+        if rest.is_empty() { return Ok(away) }
+        let mut out = self.sew_touching(rest);
+        out.extend(self.sew_touching(away));
+        Ok(out)
+    }
+
+    /// Unjoin Faces as one undoable step: `body` keeps the rest of itself, the picked faces are new bodies.
+    pub fn commit_unjoin_faces(&mut self, body: BodyId, picked: &[u32]) -> Result<Vec<BodyId>, KernelError> {
+        let pieces = self.preview_unjoin_faces(body, picked)?;
+        self.commit_pieces(body, pieces)
+    }
+
+    /// Face sheets sewn into as few sheets as they make: one when they all meet, else one per
+    /// group of faces that touch, edge to edge.
+    fn sew_touching(&self, faces: Vec<K::Solid>) -> Vec<K::Solid> {
+        if faces.len() < 2 { return faces }
+        if let Ok(one) = self.kernel.join_sheets(&faces.iter().collect::<Vec<_>>()) { return vec![one] }
+        let mut left = faces;
+        let mut out = vec![];
+        while !left.is_empty() {
+            let mut group = vec![left.remove(0)];
+            loop {
+                let before = group.len();
+                let mut i = 0;
+                while i < left.len() {
+                    let mut trial: Vec<&K::Solid> = group.iter().collect();
+                    trial.push(&left[i]);
+                    if self.kernel.join_sheets(&trial).is_ok() { group.push(left.remove(i)) } else { i += 1 }
+                }
+                if group.len() == before { break }
+            }
+            if group.len() == 1 { out.extend(group) } else {
+                match self.kernel.join_sheets(&group.iter().collect::<Vec<_>>()) {
+                    Ok(one) => out.push(one),
+                    Err(_) => out.extend(group),
+                }
+            }
+        }
+        out
+    }
+
+    /// `body` replaced by the first of `pieces` and the rest added, as one undo step.
+    fn commit_pieces(&mut self, body: BodyId, pieces: Vec<K::Solid>) -> Result<Vec<BodyId>, KernelError> {
+        let mut pieces = pieces.into_iter();
         let first = pieces.next().ok_or(KernelError::NoOp)?;
         self.checkpoint();
         self.replace_traced(body, Traced { solid: first, history: History::default() });

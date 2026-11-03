@@ -2003,11 +2003,14 @@ pub struct UnjoinRequest {
     pub body: BodyId,
     #[serde(default)]
     pub faces: bool,
+    /// Unjoin Faces: only these faces come away (the body keeps the rest).
+    #[serde(default)]
+    pub picked: Vec<u32>,
 }
 
 pub fn commit_unjoin(m: &Model, req: UnjoinRequest) -> Result<Duplicated, ApiError> {
     m.call(move |doc| {
-        let ids = doc.commit_unjoin(req.body, req.faces)?;
+        let ids = if req.picked.is_empty() { doc.commit_unjoin(req.body, req.faces)? } else { doc.commit_unjoin_faces(req.body, &req.picked)? };
         Ok(Duplicated { ids, scene: bodies(doc)? })
     })
 }

@@ -119,3 +119,27 @@ fn the_document_joins_and_unjoins_in_one_undo_step_each() {
     assert!(doc.undo());
     assert_eq!(doc.ids(), vec![block]);
 }
+
+#[test]
+fn unjoin_faces_takes_only_the_picked_faces_away() {
+    use w3d_kernel::document::Document;
+    let mut doc = Document::new(Occt);
+    let block = doc.add(doc.kernel.box_from_corners(DVec3::ZERO, DVec3::splat(10.0)));
+    doc.clear_history();
+    // Two faces come away: the block keeps the other four as one open sheet.
+    let ids = doc.commit_unjoin_faces(block, &[0, 2]).unwrap();
+    assert_eq!(ids[0], block, "the body keeps the rest of itself");
+    let rest = doc.get(block).unwrap();
+    assert!(doc.kernel.is_sheet(rest));
+    assert_eq!(doc.kernel.face_count(rest), 4);
+    let away: usize = ids[1..].iter().map(|id| doc.kernel.face_count(doc.get(*id).unwrap())).sum();
+    assert_eq!(away, 2);
+    assert!(doc.undo());
+    assert_eq!(doc.ids(), vec![block]);
+    // One face: the block becomes a five-sided open box and the face a sheet.
+    let ids = doc.commit_unjoin_faces(block, &[5]).unwrap();
+    assert_eq!(ids.len(), 2);
+    assert_eq!(doc.kernel.face_count(doc.get(block).unwrap()), 5);
+    assert_eq!(doc.kernel.face_count(doc.get(ids[1]).unwrap()), 1);
+    assert!(doc.commit_unjoin_faces(block, &[]).is_err());
+}
