@@ -199,7 +199,7 @@ button:focus-visible, input:focus-visible { outline: 1px solid var(--accent); ou
 .sec[hidden] { display: none; }
 
 /* Plasticity's command bar, along the bottom of the viewport */
-.cmdbar { position: absolute; left: 50%; bottom: 14px; transform: translateX(-50%); display: flex; border: 1px solid rgba(239, 235, 224, 0.35); background: var(--ground); font-size: 10px; }
+.cmdbar { position: absolute; left: 50%; bottom: 30px; transform: translateX(-50%); display: flex; border: 1px solid rgba(239, 235, 224, 0.35); background: var(--ground); font-size: 10px; }
 .cmdbar button { padding: 6px 10px; color: var(--muted); white-space: nowrap; }
 .cmdbar button + button { border-left: 1px solid var(--rule-soft); }
 .cmdbar button:hover { color: var(--ink); background: var(--hover); }
@@ -378,3 +378,16 @@ input[type="range"] { accent-color: var(--accent); }
 .vpop.fov { width: 260px; flex-direction: row; align-items: center; }
 .vpop.fov .field { flex: 1; }
 @media (max-width: 600px) { .vtl { max-width: calc(100% - 28px); top: 46px; } .vhead { overflow-x: auto; max-width: calc(100% - 20px); } }
+
+/* Context strip in the top bar: the selection's suggested commands as icons, in the manual's groups. */
+.ctx { display: flex; align-items: stretch; min-width: 0; overflow-x: auto; scrollbar-width: none; }
+.ctx::-webkit-scrollbar { display: none; }
+.ctx-group { display: flex; align-items: stretch; flex: none; border-right: 1px solid var(--rule); }
+.ctx button { width: 34px; display: grid; place-items: center; color: var(--muted); flex: none; }
+.ctx button:hover, .ctx button:focus-visible { color: var(--ink); background: var(--hover); }
+.ctx .ico { width: 18px; height: 18px; }
+/* Step line under the Command Bar: the running command's step and its keys. */
+.stepline { position: absolute; left: 50%; bottom: 8px; transform: translateX(-50%); max-width: calc(100% - 40px); display: flex; align-items: center; gap: 14px; font-size: 10px; color: var(--muted); white-space: nowrap; overflow: hidden; pointer-events: none; }
+.stepline [data-id="step-text"] { color: var(--ink); }
+.stepline .step-keys { display: flex; gap: 6px; align-items: center; overflow: hidden; text-overflow: ellipsis; }
+.stepline kbd { font: inherit; padding: 0 4px; border: 1px solid rgba(239, 235, 224, 0.5); margin-left: 6px; }
