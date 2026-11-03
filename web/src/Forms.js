@@ -179,6 +179,33 @@ export function revolve(c, axisPoint, axisDir, angle, thickness = 0) {
     return thickness > 1e-12 ? boolean(solid, turned(grown(w, -thickness)), 'difference') : solid;
 }
 
+/** Whether a drawn curve is open (no region): Revolve and Sweep make sheets of those. */
+export function curveIsOpen(c) { const g = geometry(c); return !g.circle && !(g.closed && g.points.length >= 3) }
+
+/** Plasticity's Revolve of a curve: the curve turned about the axis into a sheet (as w3d_revolve_sheet). */
+export function revolveCurve(c, axisPoint, axisDir, angle) {
+    const o = oc();
+    if (!Number.isFinite(angle) || Math.abs(angle) < 1e-9) return null;
+    const d = new THREE.Vector3(...axisDir);
+    if (d.length() < 1e-9) throw new Error('pick two different points for the axis');
+    const a = Math.max(-2 * Math.PI, Math.min(2 * Math.PI, angle));
+    const mk = new o.BRepPrimAPI_MakeRevol(curveWire(c), new o.gp_Ax1(pnt(new THREE.Vector3(...axisPoint)), dir(d.normalize())), a, true);
+    if (!mk.IsDone()) throw new Error('the curve could not be revolved about that axis');
+    return mk.Shape();
+}
+
+/** Plasticity's Sweep of a curve: the curve carried along the path into a sheet (as w3d_sweep_sheet). */
+export function sweepCurve(c, path) {
+    const o = oc();
+    const mk = new o.BRepOffsetAPI_MakePipeShell(wireOf(geometry(path)).Wire());
+    mk.SetMode(false);
+    mk.SetTransitionMode(o.BRepBuilderAPI_TransitionMode.BRepBuilderAPI_RightCorner);
+    mk.Add(curveWire(c), false, false);
+    mk.Build(new o.Message_ProgressRange());
+    if (!mk.IsDone()) throw new Error('the curve could not be swept along that path');
+    return mk.Shape();
+}
+
 export function loft(cs) {
     const o = oc();
     if (cs.length < 2) throw new Error('select two regions or more to loft');

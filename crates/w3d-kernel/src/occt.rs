@@ -318,6 +318,15 @@ impl Kernel for Occt {
         Shape::loft_sheet(&all, looped, simplify).map_err(shim)
     }
 
+    fn revolve_curve(&self, curve: &Path, axis_point: DVec3, axis_dir: DVec3, angle: f64) -> Result<Shape, KernelError> {
+        let axis = [axis_point.x, axis_point.y, axis_point.z, axis_dir.x, axis_dir.y, axis_dir.z];
+        Shape::revolve_sheet(&path_numbers(curve)?, axis, angle).map_err(shim)
+    }
+
+    fn sweep_curve(&self, curve: &Path, path: &Path) -> Result<Shape, KernelError> {
+        Shape::sweep_sheet(&path_numbers(curve)?, &path_numbers(path)?).map_err(shim)
+    }
+
     fn sweep(&self, profile: &Profile, frame: &Frame, path: &Path, twist: f64, scale: f64) -> Result<Shape, KernelError> {
         Shape::sweep_section(&section(profile, frame)?, &path_numbers(path)?, twist, scale).map_err(shim)
     }

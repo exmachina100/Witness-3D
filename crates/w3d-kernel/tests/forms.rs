@@ -545,3 +545,15 @@ fn a_sweep_slices_the_body_and_keeps_its_shape_when_asked() {
     assert!(doc.undo());
     assert_eq!(doc.ids().len(), 1, "one undo step");
 }
+
+#[test]
+fn revolve_and_sweep_of_an_open_curve_make_sheets() {
+    let k = Occt;
+    let line = Path::Polyline { points: vec![DVec3::new(10.0, 0.0, 0.0), DVec3::new(10.0, 20.0, 0.0)], closed: false };
+    let turned = k.revolve_curve(&line, DVec3::ZERO, DVec3::Y, 2.0 * PI).unwrap();
+    assert!(k.is_sheet(&turned));
+    let along = Path::Polyline { points: vec![DVec3::new(10.0, 0.0, 0.0), DVec3::new(10.0, 0.0, 30.0)], closed: false };
+    let swept = k.sweep_curve(&line, &along).unwrap();
+    assert!(k.is_sheet(&swept));
+    assert_eq!(k.face_count(&swept), 1);
+}

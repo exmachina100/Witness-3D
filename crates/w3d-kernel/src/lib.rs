@@ -376,6 +376,14 @@ pub trait Kernel {
         Err(KernelError::Invalid("this kernel cannot loft curves"))
     }
     /// `profile` swept along `path`; the far end turned by `twist` radians and scaled by `scale`.
+    /// Plasticity's Revolve of a curve: the curve turned about the axis into a sheet.
+    fn revolve_curve(&self, _curve: &Path, _axis_point: DVec3, _axis_dir: DVec3, _angle: f64) -> Result<Self::Solid, KernelError> {
+        Err(KernelError::Invalid("this kernel cannot revolve curves"))
+    }
+    /// Plasticity's Sweep of a curve: the curve carried along `path` into a sheet.
+    fn sweep_curve(&self, _curve: &Path, _path: &Path) -> Result<Self::Solid, KernelError> {
+        Err(KernelError::Invalid("this kernel cannot sweep curves"))
+    }
     fn sweep(&self, _profile: &Profile, _frame: &Frame, _path: &Path, _twist: f64, _scale: f64) -> Result<Self::Solid, KernelError> {
         Err(KernelError::Invalid("this kernel cannot sweep"))
     }

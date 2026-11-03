@@ -710,6 +710,39 @@ inline std::unique_ptr<TopoDS_Shape> w3d_revolve(rust::Slice<const double> secti
   }
 }
 
+// Plasticity's Revolve of a curve: the curve (open or closed) turned `angle` radians about the axis
+// into a sheet.
+inline std::unique_ptr<TopoDS_Shape> w3d_revolve_sheet(rust::Slice<const double> curve, rust::Slice<const double> axis, double angle) {
+  try {
+    if (axis.size() != 6) throw std::runtime_error("an axis is a point and a direction");
+    TopoDS_Wire w = w3d_one_section(curve);
+    gp_Ax1 ax(gp_Pnt(axis[0], axis[1], axis[2]), gp_Dir(axis[3], axis[4], axis[5]));
+    BRepPrimAPI_MakeRevol mk(w, ax, angle, Standard_True);
+    mk.Build();
+    if (!mk.IsDone()) throw std::runtime_error("the curve could not be revolved about that axis");
+    return std::unique_ptr<TopoDS_Shape>(new TopoDS_Shape(mk.Shape()));
+  } catch (const Standard_Failure &f) {
+    throw w3d_kernel_error(f);
+  }
+}
+
+// Plasticity's Sweep of a curve: the curve carried along the path into a sheet, mitred at corners.
+inline std::unique_ptr<TopoDS_Shape> w3d_sweep_sheet(rust::Slice<const double> curve, rust::Slice<const double> path) {
+  try {
+    TopoDS_Wire profile = w3d_one_section(curve);
+    TopoDS_Wire spine = w3d_one_section(path);
+    BRepOffsetAPI_MakePipeShell mk(spine);
+    mk.SetMode(Standard_False);
+    mk.SetTransitionMode(BRepBuilderAPI_RightCorner);
+    mk.Add(profile, Standard_False, Standard_False);
+    mk.Build();
+    if (!mk.IsDone()) throw std::runtime_error("the curve could not be swept along that path");
+    return std::unique_ptr<TopoDS_Shape>(new TopoDS_Shape(mk.Shape()));
+  } catch (const Standard_Failure &f) {
+    throw w3d_kernel_error(f);
+  }
+}
+
 // A solid through the sections, in order.
 inline std::unique_ptr<TopoDS_Shape> w3d_loft(rust::Slice<const double> sections) {
   try {

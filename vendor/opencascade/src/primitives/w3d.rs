@@ -141,6 +141,18 @@ impl Shape {
         Ok(Shape::from_shape(&s))
     }
 
+    /// A curve (path numbers) turned `angle` radians about `axis` into a sheet.
+    pub fn revolve_sheet(curve: &[f64], axis: [f64; 6], angle: f64) -> Result<Shape, String> {
+        let s = ffi::w3d::w3d_revolve_sheet(curve, &axis, angle).map_err(reason)?;
+        Ok(Shape::from_shape(&s))
+    }
+
+    /// A curve (path numbers) swept along `path` into a sheet.
+    pub fn sweep_sheet(curve: &[f64], path: &[f64]) -> Result<Shape, String> {
+        let s = ffi::w3d::w3d_sweep_sheet(curve, path).map_err(reason)?;
+        Ok(Shape::from_shape(&s))
+    }
+
     /// A solid through the profiles, given one after another.
     pub fn loft_sections(sections: &[f64]) -> Result<Shape, String> {
         let s = ffi::w3d::w3d_loft(sections).map_err(reason)?;

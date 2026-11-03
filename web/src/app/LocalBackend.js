@@ -5,7 +5,7 @@ import * as THREE from 'three';
 import { ExtrudeFactory } from '../ExtrudeFactory.js';
 import { NoOpError } from '../GeometryFactory.js';
 import { THROAT, arrayMotions, importSTEP, blendEdges, booleanWithHistory, extrudeFace, bounds, box, count, draftFaces, faceSheet, imprintEdgesWithHistory, imprintWithHistory, planeSheet, regions, unifyWithHistory, boundaryEdges, splitWithHistory, draftWithHistory, exportSTEP, facePlane, mirror, mirror as mirrorShape, numberedEdges, oc, primitive, shellFaces, tessellate, transform, volume } from '../Kernel.js';
-import { cutSheets, loft, loftGuided, loftSheet, offsetFlatFaces, pipe, regionFace, revolve, splineSamples, sweep, sweepGuided } from '../Forms.js';
+import { curveIsOpen, cutSheets, loft, loftGuided, loftSheet, offsetFlatFaces, pipe, regionFace, revolve, revolveCurve, splineSamples, sweep, sweepCurve, sweepGuided } from '../Forms.js';
 import { curveFromNurbs, ends, join, loops, MEET, nurbsLoop } from '../curves.js';
 import { isoparam, meetCurves, projectCurveCurve, projectCurves, projectedEdges, sectionCurves } from '../Project.js';
 import { isSheet, patch } from '../Patch.js';
@@ -273,6 +273,19 @@ export class LocalBackend {
         // A guide is a drawn curve's id, or a curve given whole (a body edge picked as a guide).
         const guide = g => typeof g === 'object' && g ? g : c(g);
         if (!req.regions?.length) throw new Error('select a region first');
+        // An open curve revolves or sweeps into a sheet, a new body (manual: a curve makes a sheet).
+        if ((req.kind === 'revolve' || req.kind === 'sweep') && curveIsOpen(c(req.regions[0]))) {
+            if (!['new', 'auto', undefined].includes(req.op)) throw new Error('a curve makes a sheet, a new body; pick a region to join, cut or intersect');
+            let sheet;
+            if (req.kind === 'revolve') sheet = revolveCurve(c(req.regions[0]), req.axisPoint ?? [0, 0, 0], req.axisDir ?? [0, 1, 0], req.angle ?? 2 * Math.PI);
+            else {
+                if (req.path === undefined || req.path === null) throw new Error('pick the path to sweep along');
+                if (req.regions.includes(req.path)) throw new Error('pick a path other than the profile');
+                if (Math.abs(req.twist ?? 0) > 1e-12 || Math.abs((req.scale ?? 1) - 1) > 1e-12) throw new Error('twist and scale take a region; set them back to 0 and 1');
+                sheet = sweepCurve(c(req.regions[0]), c(req.path));
+            }
+            return sheet ? { tool: sheet, outcome: 'new' } : null;
+        }
         let tool;
         if (req.kind === 'revolve') tool = revolve(c(req.regions[0]), req.axisPoint ?? [0, 0, 0], req.axisDir ?? [0, 1, 0], req.angle ?? 2 * Math.PI, req.thickness ?? 0);
         else if (req.kind === 'loft') {
