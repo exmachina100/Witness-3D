@@ -200,7 +200,7 @@ const KEYS = {
   cylinder: [['CLICK', 'CENTRE · RADIUS · HEIGHT'], ['V', 'VERTICAL'], ['TAB', 'TYPE'], ['F', 'RADIUS'], ['D', 'HEIGHT'], ['Q W ⇧E ⇧Q', 'BOOLEAN'], ['B', 'NEW BODY'], ['⏎ / RMB', 'OK']],
   sphere: [['CLICK', 'CENTRE · SIZE'], ['TAB', 'TYPE'], ['D', 'DIAMETER'], ['Q W ⇧E ⇧Q', 'BOOLEAN'], ['B', 'NEW BODY'], ['⏎ / RMB', 'OK']],
   shell: [['D', 'THICKNESS'], ['⇧ CLICK', 'FACES'], ['⏎ / RMB', 'OK']],
-  mirror: [['X Y Z', 'PLANE'], ['⇧ X Y Z', 'NEGATIVE'], ['CLICK', 'FACE PLANE'], ['F', 'FREESTYLE'], ['Q', 'UNION'], ['I', 'INSTANCES'], ['⏎ / RMB', 'OK']],
+  mirror: [['X Y Z', 'PLANE'], ['⇧ X Y Z', 'NEGATIVE'], ['CLICK', 'ARROW OR FACE PLANE'], ['DRAG DOT', 'MOVE PLANE'], ['F', 'FREESTYLE'], ['Q', 'UNION'], ['I', 'INSTANCES'], ['⏎ / RMB', 'OK']],
   'rect-array': [['CLICK', 'DIRECTION 1, THEN 2'], ['TYPE', 'COUNTS · SPACING'], ['TAB', 'SPACING / EXTENT'], ['⇧ WHEEL', 'COPIES'], ['X Y Z', 'WHEEL AXIS'], ['J', 'JOIN'], ['I', 'INSTANCES'], ['⏎ / RMB', 'OK']],
   'radial-array': [['CLICK', 'CENTRE POINT'], ['X Y Z', 'AXIS'], ['TAB', 'TOTAL / SPACING'], ['⇧ WHEEL', 'COPIES'], ['J', 'JOIN'], ['I', 'INSTANCES'], ['⏎ / RMB', 'OK']],
   'curve-array': [['CLICK', 'CURVE'], ['A', 'ALIGN'], ['J', 'JOIN'], ['I', 'INSTANCES'], ['⏎ / RMB', 'OK']],
@@ -10222,14 +10222,51 @@ export async function mount(root, backend) {
   function startMirror() {
     const c = startCopies('mirror', c => {
       const sign = c.neg ? -1 : 1;
-      if (c.plane) return { origin: c.plane.origin.toArray(), normal: c.plane.normal.clone().multiplyScalar(sign).toArray(), cut: c.cut };
+      if (c.plane) return { origin: c.plane.origin.clone().addScaledVector(c.plane.normal, c.shift).toArray(), normal: c.plane.normal.clone().multiplyScalar(sign).toArray(), cut: c.cut };
       if (!c.axis) return null;
       const n = userAxis(c.axis), at = num('mirror-at');
       return { origin: toWorld(n.map(v => v * at)), normal: toWorld(n.map(v => v * sign)), cut: c.cut };
     }, c => !c.plane && !c.axis ? 'MIRROR · PICK AN AXIS (X, Y, Z) OR CLICK A FACE' : `MIRROR ACROSS ${c.plane ? c.plane.name : `${c.neg ? '−' : ''}${c.axis.toUpperCase()} = ${num('mirror-at')}`}${c.cut ? ' · CUT' : ''}`);
     if (!c) return;
-    c.axis = null; c.neg = false; c.cut = true; c.plane = null; c.free = null;
+    c.axis = null; c.neg = false; c.cut = true; c.plane = null; c.free = null; c.shift = 0;
+    // The Mirror gizmo (manual common/mirror): six arrows, ±X ±Y ±Z, at the middle of what is
+    // mirrored pick the plane; then the yellow dot drags the plane along its normal.
+    const box = new THREE.Box3();
+    for (const b of c.ids) { const m = bodyMesh(b); if (m) box.expandByObject(m); }
+    for (const id of c.curves) { const cv = curveById(id), f = curveFrame(cv); for (const q of curve2d(cv)) box.expandByPoint(lift(f, q)); }
+    const centre = box.isEmpty() ? cplane.origin.clone() : box.getCenter(new THREE.Vector3());
+    const arrows = new THREE.Group(), size = unitsPerPixel(centre) * 70;
+    const AXIS_COLOURS = { x: 0xe8473b, y: 0x5cb85c, z: 0x4a8fe0 };
+    for (const a of ['x', 'y', 'z']) for (const neg of [false, true]) {
+      const d = new THREE.Vector3(...toWorld(userAxis(a).map(v => neg ? -v : v))).normalize();
+      const h = new THREE.ArrowHelper(d, centre, size, AXIS_COLOURS[a], size * 0.32, size * 0.18);
+      h.userData.pick = `${neg ? '-' : ''}${a}`;
+      for (const o of [h.line, h.cone]) { o.material.depthTest = false; o.material.transparent = true; o.material.opacity = neg ? 0.55 : 1; o.renderOrder = 21; }
+      arrows.add(h);
+    }
+    scene.add(arrows);
+    // The plane as it stands: a point on it and its normal (unsigned, so the dot's value is AT).
+    const planeNow = () => {
+      if (c.plane) return { o: c.plane.origin.clone().addScaledVector(c.plane.normal, c.shift), n: c.plane.normal.clone() };
+      if (!c.axis) return null;
+      const n = new THREE.Vector3(...toWorld(userAxis(c.axis))).normalize();
+      return { o: new THREE.Vector3(...toWorld(userAxis(c.axis).map(v => v * num('mirror-at')))), n };
+    };
+    const placeDot = () => {
+      c.gizmo?.dispose(); c.gizmo = null;
+      const pl = planeNow();
+      if (!pl) return;
+      const anchor = centre.clone().addScaledVector(pl.n, -centre.clone().sub(pl.o).dot(pl.n));
+      const at0 = num('mirror-at'), shift0 = c.shift;
+      c.gizmo = dot(anchor, pl.n, d => {
+        const step = snapping(lastPointer) ? Math.round(d / gridStep()) * gridStep() : d;
+        if (c.plane) c.shift = shift0 + step;
+        else $('mirror-at').value = String(Math.round((at0 + step) * 1000) / 1000);
+        c.preview();
+      }, () => setTimeout(() => { if (cmd === c) placeDot(); }));
+    };
     const sync = () => {
+      placeDot();
       syncAxis(c);
       if (c.plane) for (const b of $$('[data-mx]')) b.setAttribute('aria-pressed', 'false');
       $('mirror-neg').setAttribute('aria-pressed', c.neg);
@@ -10239,7 +10276,7 @@ export async function mount(root, backend) {
     const key = c.key;
     c.key = action => {
       if (['x', 'y', 'z', '-x', '-y', '-z'].includes(action)) {
-        c.neg = action.startsWith('-'); c.axis = action.replace('-', ''); c.plane = null; c.free = null;
+        c.neg = action.startsWith('-'); c.axis = action.replace('-', ''); c.plane = null; c.free = null; c.shift = 0;
         sync(); c.preview(); return true;
       }
       if (action === 'negative') { c.neg = !c.neg; sync(); c.preview(); return true; }
@@ -10258,9 +10295,13 @@ export async function mount(root, backend) {
         const n = d.clone().cross(cplane.normal);
         c.free = null;
         if (n.lengthSq() < 1e-12) { toast('CLICK TWO DIFFERENT POINTS'); sync(); return true; }
-        c.plane = { origin: a, normal: n.normalize(), name: 'FREESTYLE LINE' };
+        c.plane = { origin: a, normal: n.normalize(), name: 'FREESTYLE LINE' }; c.shift = 0;
         sync(); c.preview(); return true;
       }
+      // An arrow of the gizmo clicked: that axis, that way.
+      ray(e);
+      const arrow = raycaster.intersectObjects(arrows.children.map(h => h.cone), false)[0];
+      if (arrow) return c.key(arrow.object.parent.userData.pick);
       // A face clicked: the plane on it (flat), or touching it where clicked (curved).
       const hit = pickAt(e);
       if (hit?.kind !== 'face' && hit?.kind !== 'solid') return true;
@@ -10271,8 +10312,11 @@ export async function mount(root, backend) {
       const normal = fp ? new THREE.Vector3(...fp.normal) : meshHit.face.normal.clone().transformDirection(meshHit.object.matrixWorld);
       const origin = fp ? new THREE.Vector3(...fp.origin) : meshHit.point.clone();
       c.plane = { origin, normal: normal.normalize(), name: `${label(id)} FACE ${f + 1}${fp ? '' : ' (TOUCHING)'}` };
+      c.shift = 0;
       sync(); c.preview(); return true;
     };
+    const cleanup = c.cleanup;
+    c.cleanup = () => { cleanup(); c.gizmo?.dispose(); c.gizmo = null; scene.remove(arrows); arrows.traverse(o => { o.geometry?.dispose(); o.material?.dispose(); }); };
     sync();
     c.preview();
   }
