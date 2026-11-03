@@ -4553,12 +4553,14 @@ export async function mount(root, backend) {
     for (const b of $$('[data-draw]')) b.setAttribute('aria-pressed', false);
     c.knife = false;
     c.move = e => {
+      if (c.adjust) return;
       if (c.id === 'tangent-arc' && !c.plane) return;
       const p = drawPoint(e);
       showSnap(p?.snap, e);
       if (p && !p.curved) { c.cursor = p; drawShape(); }
     };
     c.click = e => {
+      if (c.adjust) return true;
       if (c.id === 'tangent-arc' && !c.plane) { tangentStart(e); return true; }
       const p = drawPoint(e);
       if (p?.curved) toast('DRAW ON A FLAT FACE OR THE CONSTRUCTION PLANE');
@@ -4566,6 +4568,12 @@ export async function mount(root, backend) {
       return true;
     };
     c.key = action => {
+      if (c.adjust) {
+        // D and F: that size from the cursor, or typed.
+        const i = { 'size-d': 0, 'size-f': 1 }[action];
+        if (i !== undefined) c.adjust.gizmos[i]?.activate(lastPointer);
+        return true;
+      }
       if (action === 'knife') {
         c.knife = !c.knife;
         $$('[data-draw="knife"]')[0].setAttribute('aria-pressed', c.knife);
@@ -4617,10 +4625,10 @@ export async function mount(root, backend) {
       }
       return false;
     };
-    c.entryDone = () => c.entry ? setHud(`${c.entry.label} ${c.entry.text}_`) : drawShape();
+    c.entryDone = () => c.entry ? setHud(`${c.entry.label} ${c.entry.text}_`) : c.adjust ? c.adjust.show() : drawShape();
     c.finish = () => finishDraw();
-    c.abort = () => endCmd('cancelled');
-    c.cleanup = () => { drawPreview.visible = false; };
+    c.abort = () => c.adjust ? keepAdjusted(true) : endCmd('cancelled');
+    c.cleanup = () => { drawPreview.visible = false; for (const g of c.adjust?.gizmos ?? []) g.dispose(); };
     drawShape();
   }
 
@@ -4927,7 +4935,80 @@ export async function mount(root, backend) {
   function commitRect(a, b) {
     const k = rectCorners(a, b);
     if (Math.abs(k[1][0] - k[0][0]) < 1e-6 || Math.abs(k[2][1] - k[1][1]) < 1e-6) return toast('THE RECTANGLE NEEDS A WIDTH AND A HEIGHT');
-    return commitCurve(curveOf({ kind: 'polyline', points: k, closed: true }), `RECTANGLE ${Math.abs(k[1][0] - k[0][0]).toFixed(2)} × ${Math.abs(k[2][1] - k[1][1]).toFixed(2)}`);
+    return adjustShape({ kind: 'polyline', points: k, closed: true }, cmd.plane, `RECTANGLE ${Math.abs(k[1][0] - k[0][0]).toFixed(2)} × ${Math.abs(k[2][1] - k[1][1]).toFixed(2)}`);
+  }
+
+  // Plasticity's confirm step for shapes (manual: center-circle, corner-rectangle, polygon and
+  // ellipse, step 4: "Confirm by clicking OK in the command dialog or by right-clicking"): after
+  // the last click the shape stays open, its sizes on yellow dots, D (and F) to set them from the
+  // cursor or by typing; Enter, right-click or OK keeps it. Escape keeps it as placed.
+  const ADJUSTED = { rect: 1, 'center-rect': 1, rect3: 1, circle: 1, circle2: 1, circle3: 1, polygon: 1, ellipse: 1, ellipse3: 1 };
+  /** The sizes a shape can be adjusted by: [{ key, label, at, dir, value }] in its plane, and how to rebuild it. */
+  function shapeSizes(c, curve) {
+    const v2 = (a, b) => new THREE.Vector2(a, b);
+    if (curve.kind === 'circle') {
+      const o = v2(...curve.center);
+      return { sizes: [{ key: 'D', label: 'RADIUS', at: o, dir: v2(1, 0), value: curve.radius }], build: ([r]) => Math.abs(r) > 1e-6 && { ...curve, radius: Math.abs(r) }, text: ([r]) => `CIRCLE ⌀ ${(2 * Math.abs(r)).toFixed(2)}` };
+    }
+    if (curve.kind === 'ellipse') {
+      const o = v2(...curve.center), m = v2(...curve.major), R = m.length(), u = m.clone().divideScalar(R);
+      return { sizes: [{ key: 'D', label: 'LENGTH', at: o, dir: u, value: R }, { key: 'F', label: 'WIDTH', at: o, dir: v2(-u.y, u.x), value: curve.minor }],
+        build: ([a, b]) => Math.abs(a) > 1e-6 && Math.abs(b) > 1e-6 && { ...curve, major: [u.x * Math.abs(a), u.y * Math.abs(a)], minor: Math.abs(b) },
+        text: ([a, b]) => `ELLIPSE ${(2 * Math.abs(a)).toFixed(2)} × ${(2 * Math.abs(b)).toFixed(2)}` };
+    }
+    const k = curve.points.map(q => v2(...q));
+    if (c.id === 'polygon') {
+      const o = k.reduce((a, q) => a.add(q), v2(0, 0)).divideScalar(k.length), R = k[0].distanceTo(o);
+      return { sizes: [{ key: 'D', label: 'RADIUS', at: o, dir: k[0].clone().sub(o).normalize(), value: R }],
+        build: ([r]) => Math.abs(r) > 1e-6 && { ...curve, points: k.map(q => q.clone().sub(o).multiplyScalar(Math.abs(r) / R).add(o).toArray()) },
+        text: ([r]) => `POLYGON ×${k.length} R ${Math.abs(r).toFixed(2)}` };
+    }
+    // A rectangle: width along its first side, length along its second, from the first corner (or the centre).
+    const w = k[1].distanceTo(k[0]), l = k[3].distanceTo(k[0]), u = k[1].clone().sub(k[0]).divideScalar(w), v = k[3].clone().sub(k[0]).divideScalar(l);
+    const mid = k[0].clone().add(k[2]).multiplyScalar(0.5), half = !!c.centre;
+    const corners = (W, L) => half
+      ? [[-1, -1], [1, -1], [1, 1], [-1, 1]].map(([a, b]) => mid.clone().addScaledVector(u, a * W).addScaledVector(v, b * L).toArray())
+      : [[0, 0], [1, 0], [1, 1], [0, 1]].map(([a, b]) => k[0].clone().addScaledVector(u, a * W).addScaledVector(v, b * L).toArray());
+    const f = half ? 2 : 1;
+    return { sizes: [{ key: 'D', label: 'WIDTH', at: half ? mid : k[0], dir: u, value: w / f }, { key: 'F', label: 'LENGTH', at: half ? mid : k[0], dir: v, value: l / f }],
+      build: ([W, L]) => Math.abs(W) > 1e-6 && Math.abs(L) > 1e-6 && { ...curve, points: corners(W, L) },
+      text: ([W, L]) => `RECTANGLE ${(f * Math.abs(W)).toFixed(2)} × ${(f * Math.abs(L)).toFixed(2)}` };
+  }
+  function adjustShape(curve, frame, text) {
+    const c = cmd;
+    if (!ADJUSTED[c.id]) return commitCurve(curveOf(curve, frame), text);
+    const shape = shapeSizes(c, curve), values = shape.sizes.map(z => z.value);
+    c.adjust = { curve, placed: curve, frame, text, shape, values, gizmos: [] };
+    const show = () => {
+      const now = shape.build(values);
+      if (now) { c.adjust.curve = now; c.adjust.text = shape.text(values); }
+      const pts = curve2d(c.adjust.curve);
+      drawPreview.geometry.dispose();
+      drawPreview.geometry = new THREE.BufferGeometry().setFromPoints([...pts, pts[0]].map(q => lift(frame, q, 0.03)));
+      drawPreview.visible = true;
+      const size = shape.sizes.map((z, i) => `${z.key} ${z.label} ${fmt(Math.abs(values[i]))}`).join(' · ');
+      $('draw-size').textContent = c.adjust.text;
+      $('draw-hint').textContent = `${size} · ⏎ OK`;
+      setHud(`${c.adjust.text} · ⏎ OK`);
+    };
+    c.adjust.show = show;
+    c.extraGizmos = () => c.adjust?.gizmos ?? [];
+    shape.sizes.forEach((z, i) => {
+      const at = lift(frame, z.at, 0.03), dir = lift(frame, z.at.clone().add(z.dir), 0.03).sub(at).normalize();
+      const g = dot(at, dir, d => { values[i] = snapping(lastPointer) ? Math.round(d / gridStep()) * gridStep() : d; show(); });
+      g.value = z.value;
+      g.render(z.value);
+      c.adjust.gizmos.push(g);
+    });
+    $('keys').innerHTML = shape.sizes.map(z => `<kbd>${z.key}</kbd><span>${z.label}</span>`).join('') + '<kbd>DRAG DOT</kbd><span>SIZE</span><kbd>⏎ / RMB</kbd><span>OK</span><kbd>ESC</kbd><span>KEEP AS PLACED</span>';
+    show();
+  }
+  /** The adjusted shape kept (Enter, right-click, OK; Escape keeps it as it was placed). */
+  function keepAdjusted(asPlaced = false) {
+    const a = cmd.adjust;
+    for (const g of a.gizmos) g.dispose();
+    a.gizmos = [];
+    return commitCurve(curveOf(asPlaced ? a.placed ?? a.curve : a.curve, a.frame), a.text);
   }
 
   function commitLine(closed) {
@@ -4940,10 +5021,11 @@ export async function mount(root, backend) {
   function commitDrawn(pts) {
     const d = drawn(cmd, pts);
     if (typeof d.curve === 'string') { cmd.pts = pts.slice(0, -1); drawShape(); return toast(d.curve); }
-    return commitCurve(curveOf(d.curve, d.frame ?? cmd.plane), d.text);
+    return adjustShape(d.curve, d.frame ?? cmd.plane, d.text);
   }
   async function finishDraw() {
     const c = cmd;
+    if (c.adjust) return keepAdjusted();
     if ((c.id === 'line' || c.id === 'spline' || c.id === 'cv') && c.pts.length >= 2) return commitLine(false);
     endCmd(c.plane ? 'cancelled' : null);
   }
