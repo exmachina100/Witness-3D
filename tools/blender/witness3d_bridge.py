@@ -5,6 +5,11 @@
 # Witness 3D. It is one-way. Blender only receives meshes, and an update replaces an object's
 # geometry in place, so materials, modifiers, the camera and the lights set up in Blender stay.
 #
+# As Plasticity's does, it mirrors the outliner: a collection per document under "Witness 3D", and
+# inside it a collection per group (named by its path, "HOUSING/PARTS/LID", since Blender's names are
+# global), with each body named as in the outliner. Bodies hidden in Witness 3D arrive hidden, or not
+# at all with "Only visible". Documents stay apart: refreshing one leaves another's objects alone.
+#
 # Install: Edit > Preferences > Add-ons > Install from Disk, pick this file, enable it. The panel is
 # in the 3D view's sidebar (N), under "Witness 3D". The Witness 3D desktop app listens on
 # 127.0.0.1:8981. Protocol: apps/desktop/src-tauri/src/bridge.rs.
@@ -147,6 +152,41 @@ class Link:
 
 # --- turning messages into Blender objects --------------------------------------------------
 
+def document_name(msg):
+    """The document's name as its collection is named: the file's name without .w3d."""
+    name = (msg.get("document") or "").strip()
+    name = name[:-4] if name.lower().endswith(".w3d") else name
+    return name if name and name != COLLECTION else "UNTITLED"
+
+
+def plan(msg, only_visible=False):
+    """What the scene should hold for a meshes message: each object with the collection path it
+    belongs in (outermost first) and whether it is hidden. Pure, so it is tested without Blender."""
+    doc = document_name(msg)
+    out = []
+    for m in msg.get("objects", []):
+        hidden = bool(m.get("hidden"))
+        if hidden and only_visible:
+            continue
+        path = [str(g) for g in (m.get("path") or [])]
+        cols = [COLLECTION, doc] + ["/".join([doc] + path[:i + 1]) for i in range(len(path))]
+        out.append(dict(m, document=doc, collections=cols, hidden=hidden))
+    return doc, out
+
+
+def child(parent, name):
+    """The collection for `name` under `parent`, made if it isn't there. It is found by the name
+    it was made for, so a collection of the user's with the same name doesn't get mixed in."""
+    for c in parent.children:
+        if c.get("w3d_name") == name:
+            return c
+    col = bpy.data.collections.new(name)
+    col["w3d"] = True
+    col["w3d_name"] = name
+    parent.children.link(col)
+    return col
+
+
 def collection(scene):
     col = bpy.data.collections.get(COLLECTION)
     if col is None:
@@ -156,14 +196,27 @@ def collection(scene):
     return col
 
 
-def apply_meshes(scene, objects, scale):
-    """Make the Witness 3D collection hold exactly `objects`, updating geometry in place."""
-    col = collection(scene)
-    have = {o.get("w3d_id"): o for o in col.objects if o.get("w3d_id") is not None}
+def apply_meshes(scene, msg, scale, only_visible=False):
+    """Make the document's collection hold exactly the message's objects, in their groups,
+    updating geometry in place."""
+    root = collection(scene)
+    doc, objects = plan(msg, only_visible)
+    # This document's objects (older versions kept them loose in the root: they are adopted).
+    have = {o.get("w3d_id"): o for o in bpy.data.objects
+            if o.get("w3d_id") is not None and (o.get("w3d_doc") == doc or (o.get("w3d_doc") is None and o.name in root.objects))}
     seen = set()
     for m in objects:
         seen.add(m["id"])
         obj = have.get(m["id"])
+        cols = m["collections"]
+        target = root
+        for name in cols[1:]:
+            target = child(target, name)
+        if obj is not None:
+            place(obj, target, root)
+            if obj.name != m["name"] and not obj.name.startswith(m["name"] + "."):
+                obj.name = m["name"]
+            show(obj, m["hidden"])
         if obj is not None and obj.get("w3d_revision") == m["revision"]:
             continue
         p = m["positions"]
@@ -174,7 +227,9 @@ def apply_meshes(scene, objects, scale):
             mesh = bpy.data.meshes.new(m["name"])
             obj = bpy.data.objects.new(m["name"], mesh)
             obj["w3d_id"] = m["id"]
-            col.objects.link(obj)
+            obj["w3d_doc"] = doc
+            target.objects.link(obj)
+            show(obj, m["hidden"])
         mesh = obj.data
         # Clearing keeps the mesh's material slots, so materials set in Blender stay put.
         mesh.clear_geometry()
@@ -190,6 +245,41 @@ def apply_meshes(scene, objects, scale):
             bpy.data.objects.remove(obj)
             if mesh.users == 0:
                 bpy.data.meshes.remove(mesh)
+    # Group collections nothing is in any more go (only ones this add-on made).
+    for c in root.children:
+        if c.get("w3d_name") == doc:
+            prune(c)
+
+
+def place(obj, target, root):
+    """Move an object into `target`, out of any other collection under the Witness 3D root."""
+    inside = set()
+    stack = [root]
+    while stack:
+        c = stack.pop()
+        inside.add(c.name)
+        stack.extend(c.children)
+    for c in list(obj.users_collection):
+        if c.name in inside and c != target:
+            c.objects.unlink(obj)
+    if obj.name not in target.objects:
+        target.objects.link(obj)
+
+
+def show(obj, hidden):
+    """Hidden in Witness 3D, hidden in the viewport here (the eye in Blender's outliner)."""
+    try:
+        obj.hide_set(hidden)
+    except RuntimeError:  # not in the view layer yet
+        obj.hide_viewport = hidden
+    obj["w3d_hidden"] = hidden
+
+
+def prune(col):
+    for c in list(col.children):
+        prune(c)
+        if c.get("w3d") and not c.objects and not c.children:
+            bpy.data.collections.remove(c)
 
 
 # --- the add-on: state, operators, panel ------------------------------------------------------
@@ -200,7 +290,7 @@ state = {"link": None, "error": ""}
 def handle(scene, msg):
     kind = msg.get("type")
     if kind == "meshes":
-        apply_meshes(scene, msg["objects"], scene.w3d_scale)
+        apply_meshes(scene, msg, scene.w3d_scale, scene.w3d_only_visible)
     elif kind == "error":
         state["error"] = msg.get("message", "")
     elif kind == "closed":
@@ -300,6 +390,7 @@ if bpy is not None:
                 col.operator("witness3d.disconnect", icon="UNLINKED")
             col.prop(s, "w3d_live")
             col.prop(s, "w3d_scale")
+            col.prop(s, "w3d_only_visible")
             if state["error"]:
                 col.label(text=state["error"], icon="ERROR")
 
@@ -314,6 +405,8 @@ def register():
                                         description="Update the meshes whenever the model changes in Witness 3D")
     S.w3d_scale = bpy.props.FloatProperty(name="Scale", default=0.001, min=1e-6,
                                           description="Blender units per millimetre; 0.001 gives metres")
+    S.w3d_only_visible = bpy.props.BoolProperty(name="Only visible", default=False,
+                                                description="Leave out bodies hidden in Witness 3D (otherwise they come in hidden)")
     for c in CLASSES:
         bpy.utils.register_class(c)
 
@@ -322,5 +415,5 @@ def unregister():
     disconnect()
     for c in reversed(CLASSES):
         bpy.utils.unregister_class(c)
-    for p in ("w3d_host", "w3d_port", "w3d_live", "w3d_scale"):
+    for p in ("w3d_host", "w3d_port", "w3d_live", "w3d_scale", "w3d_only_visible"):
         delattr(bpy.types.Scene, p)
