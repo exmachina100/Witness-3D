@@ -992,6 +992,20 @@ export function transformCurve(c, { pivot, offset = [0, 0, 0], rotate = v => v, 
 }
 
 /**
+ * The curve mirrored across the plane through `origin` square to `normal` (Plasticity's Mirror on
+ * curves). The plane coordinates stay as they are: the frame is reflected and its normal turned
+ * round, which keeps v along normal × x on the mirrored side; a 3D curve's heights flip with it.
+ */
+export function mirrorCurve(c, origin, normal) {
+    const l = Math.hypot(...normal), n = normal.map(v => v / l);
+    const vec = v => { const d = v[0] * n[0] + v[1] * n[1] + v[2] * n[2]; return v.map((x, i) => x - 2 * d * n[i]); };
+    const pt = p => { const d = (p[0] - origin[0]) * n[0] + (p[1] - origin[1]) * n[1] + (p[2] - origin[2]) * n[2]; return p.map((x, i) => x - 2 * d * n[i]); };
+    const out = { ...c, origin: pt(c.origin), x: vec(c.x), normal: vec(c.normal).map(v => -v) };
+    if (c.kind === 'nurbs') out.poles = c.poles.map(([u, v, w = 0]) => [u, v, -w]);
+    return out;
+}
+
+/**
  * The curve with the vertices in `moves` (vertex number → new model-space point) moved, each kept
  * in the curve's plane by dropping the part of its move across the plane.
  */
