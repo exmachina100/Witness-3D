@@ -1577,6 +1577,25 @@ impl<K: Kernel> Document<K> {
         self.commit_pieces(body, pieces)
     }
 
+    /// Plasticity's Duplicate of faces: the `picked` faces of `body` copied as new sheets (faces that
+    /// touch sewn together), the body left as it is. One undoable step; returns the new bodies.
+    pub fn commit_copy_faces(&mut self, body: BodyId, picked: &[u32]) -> Result<Vec<BodyId>, KernelError> {
+        let s = self.get(body).ok_or(KernelError::Invalid("that body no longer exists"))?;
+        if picked.is_empty() { return Err(KernelError::Invalid("select the faces to duplicate")) }
+        let copies = match self.kernel.unjoin(s, true) {
+            Ok(faces) => {
+                if picked.iter().any(|&f| f as usize >= faces.len()) { return Err(KernelError::Invalid("that face no longer exists")) }
+                let away = faces.into_iter().enumerate().filter(|(i, _)| picked.contains(&(*i as u32))).map(|(_, f)| f).collect();
+                self.sew_touching(away)
+            }
+            // A body of one face: the copy is the whole of it.
+            Err(_) if picked == [0] => vec![self.kernel.transform(s, &Motion::translation(DVec3::ZERO))],
+            Err(e) => return Err(e),
+        };
+        self.checkpoint();
+        Ok(copies.into_iter().map(|c| self.add_unrecorded(c)).collect())
+    }
+
     /// Face sheets sewn into as few sheets as they make: one when they all meet, else one per
     /// group of faces that touch, edge to edge.
     fn sew_touching(&self, faces: Vec<K::Solid>) -> Vec<K::Solid> {

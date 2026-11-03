@@ -2029,11 +2029,16 @@ pub struct UnjoinRequest {
     /// Unjoin Faces: only these faces come away (the body keeps the rest).
     #[serde(default)]
     pub picked: Vec<u32>,
+    /// Duplicate of faces: the picked faces copied as new sheets, the body left as it is.
+    #[serde(default)]
+    pub copy: bool,
 }
 
 pub fn commit_unjoin(m: &Model, req: UnjoinRequest) -> Result<Duplicated, ApiError> {
     m.call(move |doc| {
-        let ids = if req.picked.is_empty() { doc.commit_unjoin(req.body, req.faces)? } else { doc.commit_unjoin_faces(req.body, &req.picked)? };
+        let ids = if req.copy { doc.commit_copy_faces(req.body, &req.picked)? }
+            else if req.picked.is_empty() { doc.commit_unjoin(req.body, req.faces)? }
+            else { doc.commit_unjoin_faces(req.body, &req.picked)? };
         Ok(Duplicated { ids, scene: bodies(doc)? })
     })
 }

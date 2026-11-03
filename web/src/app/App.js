@@ -3224,6 +3224,8 @@ export async function mount(root, backend) {
   // One command runs at a time: `cmd` is { id, finish(), abort(), key?(action, e), click?(e), ... }.
   // Starting a command finishes the one running, as in Plasticity.
   let cmd = null, lastTool = null;
+  /** An action Shift+R runs instead of lastTool (Duplicate, whose Move is not what repeats). */
+  let lastRepeat = null;
   function setState(s) { for (const li of $('states').children) li.setAttribute('aria-current', li.dataset.s === s); }
   function setHud(text) {
     const h = $('hud');
@@ -3767,6 +3769,7 @@ export async function mount(root, backend) {
   // and typing while it does sets the value exactly. The meshes follow as the preview, since a
   // rigid motion needs no kernel work; finishing sends one request, one undo step.
   function startTransform(kind, { follow = null, auto = false } = {}) {
+    lastRepeat = null;
     // A face's picked control points move on their own, not their body.
     const poles = sel.list('pole').filter(p => poleOf(p));
     // Faces on their own move and turn by themselves, their neighbours following (Move Face).
@@ -10977,17 +10980,51 @@ export async function mount(root, backend) {
     } catch (e) { toast(say(e)); }
   }
   /** Plasticity's Shift+D: copy, select the copies, and move them with the cursor. */
+  /**
+   * Plasticity's Duplicate (Shift+D): copies of the selected solids, curves and regions, edges (as
+   * curves) and faces (as sheets), selected, then the Move gizmo to place them. Shift+R repeats
+   * Duplicate rather than the Move.
+   */
   async function duplicateSelected() {
     if (cmd) await finish();
-    const ids = targetBodies();
-    if (!ids.length) return toast('SELECT A SOLID TO DUPLICATE');
+    const faces = sel.list('face'), edges = sel.list('edge'), curves = sel.curves.filter(curveById);
+    const ids = faces.length || edges.length || curves.length ? sel.solids : targetBodies();
+    if (!ids.length && !faces.length && !edges.length && !curves.length) return toast('SELECT WHAT TO DUPLICATE');
     try {
-      const { ids: copies, scene: list } = await backend.duplicateBodies(ids);
-      record(`DUPLICATE ${ids.map(label).join(' ')}`, copies[0]);
+      const made = [];
+      let list = null;
+      if (ids.length) {
+        const r = await backend.duplicateBodies(ids);
+        list = r.scene;
+        made.push(...r.ids.map(id => ({ kind: 'solid', body: id })));
+      }
+      // Faces: copied as sheets, one call per body (touching faces sewn together).
+      for (const body of new Set(faces.map(f => f.body))) {
+        if (!backend.commitUnjoin) throw new Error('duplicating faces is not in this build yet');
+        const r = await backend.commitUnjoin({ body, faces: true, picked: faces.filter(f => f.body === body).map(f => f.n), copy: true });
+        list = r.scene;
+        made.push(...r.ids.map(id => ({ kind: 'solid', body: id })));
+      }
+      // Curves and regions as they are; edges as the curves along them.
+      const drawn = curves.map(id => { const { id: _, ...c } = curveById(id); return c; });
+      for (const e of edges) {
+        const teeth = await backend.edgeCurvature({ body: e.body, edge: e.n, n: 64 });
+        const pts = teeth.map(t => t.at), closed = pts.length > 3 && Math.hypot(...pts[0].map((x, k) => x - pts.at(-1)[k])) < 1e-6;
+        drawn.push(curveFromNurbs(smoothThrough(closed ? pts.slice(0, -1) : pts, closed), [0, -1, 0]));
+      }
+      if (drawn.length) {
+        if (!backend.addCurves) throw new Error('drawing is not in this build yet');
+        const { ids: cids } = await backend.addCurves(drawn);
+        for (const id of cids) made.push({ kind: 'curve', id });
+        await loadCurves();
+      }
+      record(`DUPLICATE ×${made.length}`, made.find(m => m.kind === 'solid')?.body);
+      if (list) await showScene(list);
       sel.clear();
-      for (const id of copies) sel.add({ kind: 'solid', body: id });
-      showScene(list);
+      for (const it of made) sel.add(it.kind === 'curve' && curveList.some(c => c.id === it.id && isClosed(c)) ? { kind: 'region', id: it.id } : it);
+      selectionChanged({ quiet: true });
       startTransform('move', { follow: 'screen' });
+      lastRepeat = 'duplicate';
     } catch (e) { toast(say(e)); }
   }
   /**
@@ -11262,7 +11299,16 @@ export async function mount(root, backend) {
       case 'palette': openPalette(false); return true;
       case 'ask': openAsk(); return true;
       case 'suggest': openPalette(true); return true;
-      case 'repeat': if (lastTool) await startTool(lastTool); else toast('NO COMMAND TO REPEAT'); return true;
+      // Shift+R: the last command again. After Duplicate it is Duplicate (not its Move); a command
+      // startTool does not start itself runs as its action.
+      case 'repeat': {
+        if (lastRepeat) { await doAction(lastRepeat); return true; }
+        if (!lastTool) { toast('NO COMMAND TO REPEAT'); return true; }
+        const again = lastTool;
+        await startTool(again);
+        if (!cmd && again !== 'repeat' && await doAction(again) === false) toast(`${toolInfo(again).label} CAN'T BE REPEATED`);
+        return true;
+      }
       case 'delete': await deleteSelected(); return true;
       case 'duplicate': await duplicateSelected(); return true;
       case 'copy': await copySelected(); return true;

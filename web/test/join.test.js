@@ -67,3 +67,16 @@ test('Unjoin Faces takes only the picked faces away; the body keeps the rest as 
     assert.equal(be.scene().length, 1);
     assert.throws(() => unjoinFaces(be.shapes.get(seed.id), []), /select the faces/);
 });
+
+test('Duplicate of faces copies them as sheets and leaves the body as it is', async () => {
+    const be = new LocalBackend({ seed: 'enclosure' });
+    const seed = be.scene()[0];
+    const v = volume(be.shapes.get(seed.id));
+    const { ids } = await be.commitUnjoin({ body: seed.id, faces: true, picked: [0, 1], copy: true });
+    assert.ok(ids.length >= 1 && !ids.includes(seed.id));
+    close(volume(be.shapes.get(seed.id)), v, 1e-6);
+    assert.equal(ids.reduce((n, id) => n + count(be.shapes.get(id), 'TopAbs_FACE'), 0), 2);
+    assert.ok(ids.every(id => isSheet(be.shapes.get(id))));
+    await be.undo();
+    assert.equal(be.scene().length, 1);
+});
