@@ -2382,6 +2382,7 @@ export async function mount(root, backend) {
     row.scrollIntoView({ block: 'nearest' });
     row.querySelector('.name').dispatchEvent(new MouseEvent('dblclick', { bubbles: true }));
   }
+  const closedSections = new Set();   // outliner sections folded away (SOLIDS, CURVES, ...)
   function renderOutliner() {
     const out = $('outliner');
     out.innerHTML = '<div class="group-title">▾ SOLIDS</div>';
@@ -2494,7 +2495,7 @@ export async function mount(root, backend) {
     // Dropped on a section title: out of every group, to the top.
     for (const t of out.querySelectorAll('.group-title')) dropOn(t, null);
     for (const t of out.querySelectorAll('.group-title')) {
-      const what = { '▾ SOLIDS': 'solids', '▾ SHEETS': 'sheets', '▾ CURVES': 'curves' }[t.textContent];
+      const what = { 'SOLIDS': 'solids', 'SHEETS': 'sheets', 'CURVES': 'curves' }[t.textContent.slice(2)];
       if (what) t.oncontextmenu = e => { e.preventDefault(); openOMenu(e, [['SELECT ALL', () => doAction(`select:${what}`)]]); };
     }
     if (instances.length) out.insertAdjacentHTML('beforeend', '<div class="group-title">▾ INSTANCES</div>');
@@ -2550,6 +2551,16 @@ export async function mount(root, backend) {
         renderOutliner();
       };
       out.append(row);
+    }
+    // A click on a section title folds it away or opens it again (the rows stay as they are).
+    let folded = false;
+    for (const el of out.children) {
+      if (!el.classList.contains('group-title')) { if (folded) el.hidden = true; continue; }
+      const sec = el.textContent.slice(2);
+      folded = closedSections.has(sec);
+      el.textContent = `${folded ? '▸' : '▾'} ${sec}`;
+      el.title = folded ? 'Open this section' : 'Fold this section';
+      el.onclick = () => { closedSections.has(sec) ? closedSections.delete(sec) : closedSections.add(sec); renderOutliner(); };
     }
   }
   function renderHistory() {
