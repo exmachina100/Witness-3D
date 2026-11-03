@@ -1962,6 +1962,8 @@ export async function mount(root, backend) {
   const vertexDots = new THREE.Group();
   const vertexMat = Object.fromEntries(Object.entries({ normal: [0x9a968c, 5], hover: [0xffffff, 9], selected: [COLORS.accent, 9] })
     .map(([k, [color, size]]) => [k, new THREE.PointsMaterial({ color, size, sizeAttenuation: false, depthTest: false })]));
+  // Shown control points (Toggle Points) have their own size (Preferences › Appearance).
+  const cpMat = Object.fromEntries(Object.entries(vertexMat).map(([k, m]) => [k, m.clone()]));
   scene.add(vertexDots);
   /** Each shown curve's vertices in model space: [{ id, n, at }]. */
   function vertexList() {
@@ -2015,8 +2017,8 @@ export async function mount(root, backend) {
       }
     }
     if (segs.length) { const l = new THREE.LineSegments(new THREE.BufferGeometry().setFromPoints(segs), netLine); l.renderOrder = 11; pointsGroup.add(l); }
-    if (dots.length) { const d = new THREE.Points(new THREE.BufferGeometry().setFromPoints(dots), vertexMat.normal); d.renderOrder = 11; pointsGroup.add(d); }
-    for (const [k, pts] of Object.entries(lit)) if (pts.length) { const d = new THREE.Points(new THREE.BufferGeometry().setFromPoints(pts), vertexMat[k]); d.renderOrder = 12; pointsGroup.add(d); }
+    if (dots.length) { const d = new THREE.Points(new THREE.BufferGeometry().setFromPoints(dots), cpMat.normal); d.renderOrder = 11; pointsGroup.add(d); }
+    for (const [k, pts] of Object.entries(lit)) if (pts.length) { const d = new THREE.Points(new THREE.BufferGeometry().setFromPoints(pts), cpMat[k]); d.renderOrder = 12; pointsGroup.add(d); }
   }
   /** The shown faces' control points: [{ body, face, n, at }]. */
   function poleList() {
@@ -12210,6 +12212,16 @@ export async function mount(root, backend) {
   const len = (mm, digits = 3) => `${formatLength(Number(mm), lengthUnit, digits)}`;
   const U = () => lengthUnit.toUpperCase();
 
+  // Accent applies at once (Plasticity's does): every material drawn in the old accent takes the new one.
+  function setAccent(hex) {
+    const next = parseInt(hex.slice(1), 16);
+    root.style.setProperty('--accent', hex);
+    if (next === COLORS.accent) return;
+    const was = COLORS.accent, mats = new Set([phantom.cut.face, phantom.cut.edge, curveMat.selected, regionMat.selected, vertexMat.selected, cpMat.selected, overlayMat.selected, overlayMat.face, hullDots]);
+    scene.traverse(o => { for (const m of [o.material].flat()) if (m?.color) mats.add(m); });
+    for (const m of mats) if (m?.color?.getHex() === was) m.color.setHex(next);
+    COLORS.accent = next;
+  }
   function applyPrefs() {
     if (prefs.units.length !== lengthUnit) {
       lengthUnit = prefs.units.length;
@@ -12242,8 +12254,16 @@ export async function mount(root, backend) {
     COLORS.ground = c.ground;
     paintGrid(c.gridMajor, c.grid);
     edgeMat.color.set(look.edge);
-    vertexMat.normal.size = look.pointSize;
-    vertexMat.hover.size = vertexMat.selected.size = look.pointSize + 4;
+    cpMat.normal.size = look.pointSize;
+    cpMat.hover.size = cpMat.selected.size = look.pointSize + 4;
+    vertexMat.normal.size = look.vertexSize;
+    vertexMat.hover.size = vertexMat.selected.size = look.vertexSize + 4;
+    instanceEdgeMat.color.set(look.instanceEdge);
+    combMat.color.set(look.measurement);
+    root.style.setProperty('--muted', look.supporting);
+    root.style.setProperty('--raised', look.neutral);
+    $('nav').style.zoom = look.cubeSize === 1 ? '' : String(look.cubeSize);
+    setAccent(look.accent);
     // Zoom Factor scales the whole interface; the shell keeps filling the window.
     const shell = root.querySelector('.w3d'), z = look.uiScale;
     shell.style.zoom = z === 1 ? '' : String(z);
@@ -12266,7 +12286,7 @@ export async function mount(root, backend) {
     const field = (s, f) => {
       const v = prefs[s][f.key], off = f.desktop && !desktop, id = `pf-${s}-${f.key}`;
       const input = f.type === 'bool' ? `<input type="checkbox" id="${id}" ${v ? 'checked' : ''}>`
-        : f.type === 'color' ? `<input type="color" id="${id}" value="${v}">`
+        : f.type === 'color' ? (f.presets ? `<span class="pf-swatches">${f.presets.map(c => `<button type="button" data-swatch="${c}" style="background:${c}" title="${c.toUpperCase()}" aria-label="Preset ${c}"></button>`).join('')}</span>` : '') + `<input type="color" id="${id}" value="${v}">`
         : f.type === 'choice' ? `<select id="${id}">${f.options.map(o => `<option value="${o}"${o === v ? ' selected' : ''}>${o.toUpperCase()}</option>`).join('')}</select>`
         : `<input type="number" id="${id}" value="${v}" min="${f.min}" max="${f.max}" step="${f.step ?? 0.1}">`;
       const note = off ? 'DESKTOP APP ONLY' : f.restart ? 'AFTER A RESTART' : '';
@@ -12295,6 +12315,14 @@ export async function mount(root, backend) {
       };
       input.onblur = () => { const v = prefs[s][key]; if (input.type !== 'checkbox') input.value = v; };
     }
+    // Viewport presets: a click takes that colour.
+    for (const b of el.querySelectorAll('[data-swatch]')) b.onclick = e => {
+      e.preventDefault();
+      const row = b.closest('[data-pref]'), [s, key] = row.dataset.pref.split('.');
+      row.querySelector('input').value = b.dataset.swatch;
+      prefs = setPref(prefs, s, key, b.dataset.swatch);
+      keepPrefs(s);
+    };
     $('prefs-close').onclick = closePrefs;
     $('prefs-reset').onclick = () => { prefs = readPrefs(null); keepPrefs('network'); openPrefs(); toast('PREFERENCES BACK TO THEIR DEFAULTS'); };
   }

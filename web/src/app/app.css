@@ -166,6 +166,9 @@ button:focus-visible, input:focus-visible { outline: 1px solid var(--accent); ou
 .stepper button { padding: 6px 10px; color: var(--muted); }
 .stepper button:hover { color: var(--ink); }
 .stepper output { min-width: 44px; text-align: center; font-variant-numeric: tabular-nums; }
+.pf-swatches { display: inline-flex; gap: 4px; margin-right: 8px; }
+.pf-swatches button { width: 16px; height: 16px; border: 1px solid var(--rule); padding: 0; cursor: pointer; }
+.pf-swatches button:hover { border-color: var(--accent); }
 .stepper input { width: 52px; font: inherit; color: var(--ink); background: none; border: 0; text-align: center; font-variant-numeric: tabular-nums; -moz-appearance: textfield; appearance: textfield; }
 .stepper input::-webkit-inner-spin-button, .stepper input::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
 .states { padding: 14px; display: flex; flex-direction: column; gap: 7px; }
