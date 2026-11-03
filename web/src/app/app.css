@@ -323,6 +323,7 @@ input[type="range"] { accent-color: var(--accent); }
 .pmenu-open .caret { color: var(--accent); font-size: 10px; }
 .pmenu { position: fixed; left: 0; top: 40px; width: 260px; z-index: 20; background: var(--raised); border: 1px solid var(--rule); box-shadow: 0 12px 40px rgba(0, 0, 0, 0.5); padding: 4px 0; font-size: 11px; }
 .pmenu[hidden] { display: none; }
+.omenu { width: 230px; z-index: 30; }
 .pmenu button { display: flex; justify-content: space-between; width: 100%; padding: 8px 14px; color: var(--ink); text-align: left; }
 .pmenu button:hover:not(:disabled) { background: var(--ink); color: var(--on-accent); }
 .pmenu button:disabled { color: var(--dim); }

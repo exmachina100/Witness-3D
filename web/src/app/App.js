@@ -242,6 +242,7 @@ const SHELL = `
     <span class="file" data-id="file-name">UNTITLED.W3D</span>
   </header>
   <div class="pmenu" data-id="pmenu" role="menu" hidden></div>
+  <div class="pmenu omenu" data-id="omenu" role="menu" hidden></div>
   <div class="prefs" data-id="prefs" role="dialog" aria-label="Preferences" hidden></div>
 
   <aside class="left" aria-label="Document">
@@ -2249,6 +2250,66 @@ export async function mount(root, backend) {
     const gone = history[i].sources.length - there.length;
     toast(`SOURCES OF ${history[i].text}${there.length ? ` · ${there.length} SELECTED` : ''}${gone ? ` · ${gone} NO LONGER THERE` : ''}`);
   }
+  /** The outliner's right-click menu: [label, run, disabled?] entries, null for a rule. */
+  function openOMenu(e, entries) {
+    const m = $('omenu');
+    m.innerHTML = entries.map((x, i) => x ? `<button role="menuitem" data-om="${i}" ${x[2] ? 'disabled' : ''}><span>${x[0]}</span></button>` : '<hr>').join('');
+    for (const b of m.querySelectorAll('[data-om]')) b.onclick = () => { m.hidden = true; entries[+b.dataset.om][1](); };
+    m.hidden = false;
+    const w = m.offsetWidth, h = m.offsetHeight;
+    m.style.left = `${Math.min(e.clientX, innerWidth - w - 4)}px`;
+    m.style.top = `${Math.min(e.clientY, innerHeight - h - 4)}px`;
+  }
+  /** Put organise keys (bodies' ids, curves' "c:<id>") into the selection. */
+  function selectKeys(keys, mod = 'replace') {
+    if (mod === 'replace') sel.clear();
+    for (const k of keys.filter(k => org.picks(k))) sel.add(typeof k === 'string' ? { kind: 'curve', id: curveKeyId(k) } : { kind: 'solid', body: k });
+    selectionChanged();
+  }
+  /** Right-click a folder (manual: Outliner): the group's own commands. */
+  function groupMenu(e, g) {
+    const keys = allObjectKeys(), all = () => org.allMembers(g.id, keys);
+    const picked = () => ({ ids: [...sel.solids, ...selectedCurveKeys()], groups: sel.groups.filter(x => x !== g.id && !org.within(g.id, x)) });
+    const some = picked(), none = !some.ids.length && !some.groups.length;
+    openOMenu(e, [
+      ['ADD SELECTION TO GROUP', () => { const { ids, groups } = picked(); org.addToGroup(g.id, ids, groups); renderOutliner(); }, none],
+      ['NEW SUBGROUP WITH SELECTION', () => { const { ids, groups } = picked(); const n = org.makeGroup(ids, undefined, groups); if (n) { n.parent = g.id; g.open = true; } renderOutliner(); }, none],
+      ['MOVE SELECTED ITEMS TO ROOT', () => { org.removeFromGroup(some.ids, some.groups); renderOutliner(); }, none],
+      ['SELECT ALL', () => selectKeys(all())],
+      null,
+      ['EXPAND ALL', () => { for (const x of org.groups) x.open = true; renderOutliner(); }],
+      ['COLLAPSE ALL', () => { for (const x of org.groups) x.open = false; renderOutliner(); }],
+      null,
+      ['DISSOLVE', () => { org.dissolve(g.id); organised(); renderOutliner(); }],
+      ['DELETE RECURSIVELY', () => deleteGroup(g.id)],
+    ]);
+  }
+  /** Right-click an object row: Add to Isolation (manual: Outliner), and the group it is in. */
+  function objectMenu(e, key) {
+    openOMenu(e, [
+      ['ADD TO ISOLATION', () => { org.addToIsolation([key]); organised(); renderOutliner(); }, !org.layers.length],
+      ['REMOVE FROM GROUP', () => { org.removeFromGroup([key]); renderOutliner(); }, !org.groupOf.has(key)],
+      ['SELECT', () => selectKeys([key])],
+    ]);
+  }
+  /** Delete Recursively: everything the group holds goes (one undo step for the scene), then the group and those inside it. */
+  async function deleteGroup(gid) {
+    const keys = org.allMembers(gid, allObjectKeys());
+    const ids = keys.filter(k => typeof k === 'number'), curves = keys.filter(k => typeof k === 'string').map(curveKeyId);
+    try {
+      if (ids.length || curves.length) {
+        const list = backend.deleteItems ? await backend.deleteItems(ids, curves) : await backend.deleteBodies(ids);
+        const names = [...ids.map(label), ...curves.map(curveLabel)];
+        record(`DELETE ${org.group(gid)?.name ?? 'GROUP'} · ${names.join(' ')}`, ids[0] ?? curves[0], names[0]);
+        sel.clear();
+        org.deleteGroup(gid);
+        await showScene(list);
+        if (curves.length) await loadCurves();
+      } else org.deleteGroup(gid);
+      organised();
+      renderOutliner();
+    } catch (err) { toast(say(err)); }
+  }
   function renderOutliner() {
     const out = $('outliner');
     out.innerHTML = '<div class="group-title">▾ SOLIDS</div>';
@@ -2273,6 +2334,7 @@ export async function mount(root, backend) {
         applySelect({ kind: 'solid', body: b.id }, e.shiftKey ? 'add' : (e.ctrlKey || e.metaKey) ? 'remove' : 'replace');
         selectionChanged();
       };
+      row.oncontextmenu = e => { e.preventDefault(); objectMenu(e, b.id); };
       out.append(row);
     };
     const curveRow = (c, depth) => {
@@ -2292,6 +2354,7 @@ export async function mount(root, backend) {
         applySelect({ kind: 'curve', id: c.id }, modOf(e));
         selectionChanged();
       };
+      row.oncontextmenu = e => { e.preventDefault(); objectMenu(e, k); };
       out.append(row);
     };
     // A group is a folder: its own groups, then its bodies and curves. Clicking it selects the group; Alt+click everything in it.
@@ -2333,6 +2396,7 @@ export async function mount(root, backend) {
       };
       // Plasticity: double-clicking a group makes it the active collection (the name renames).
       row.ondblclick = e => { if (e.target.closest('button, .name')) return; org.toggleActive(g.id); renderOutliner(); };
+      row.oncontextmenu = e => { e.preventDefault(); groupMenu(e, g); };
       out.append(row);
       if (!g.open) return;
       for (const c of org.childGroups(g.id)) folder(c, depth + 1);
@@ -2349,6 +2413,11 @@ export async function mount(root, backend) {
     for (const c of curveList.filter(c => !org.groupOf.has(curveKey(c.id)))) curveRow(c, 0);
     if (cmd?.id === 'pushpull' && cmd.at) out.insertAdjacentHTML('beforeend', `<div class="row-item curve"><span class="ln"></span><span>${profileKind === 'circle' ? 'CIRCLE' : 'RECT'}.001</span></div>`);
     else if (!curveList.length) out.insertAdjacentHTML('beforeend', '<div class="empty">NO CURVES</div>');
+    // Right-click a section title: Select all in it (manual: Outliner).
+    for (const t of out.querySelectorAll('.group-title')) {
+      const what = { '▾ SOLIDS': 'solids', '▾ SHEETS': 'sheets', '▾ CURVES': 'curves' }[t.textContent];
+      if (what) t.oncontextmenu = e => { e.preventDefault(); openOMenu(e, [['SELECT ALL', () => doAction(`select:${what}`)]]); };
+    }
     if (instances.length) out.insertAdjacentHTML('beforeend', '<div class="group-title">▾ INSTANCES</div>');
     for (const n of instances) {
       const row = document.createElement('div');
@@ -11926,6 +11995,7 @@ export async function mount(root, backend) {
       case 'ungroup': ungroupSelected(); return true;
       case 'lock': lockSelected(); return true;
       case 'unlock-all': org.setLocked([...org.locked], false); organised(); return true;
+      case 'delete-empty-groups': { const n = org.deleteEmptyGroups(allObjectKeys()); toast(n ? `${n} EMPTY GROUP${n > 1 ? 'S' : ''} DELETED` : 'NO EMPTY GROUPS'); renderOutliner(); return true; }
       case 'undo': await step('undo'); return true;
       case 'redo': await step('redo'); return true;
     }
@@ -12105,6 +12175,7 @@ export async function mount(root, backend) {
   function closePMenu() { $('pmenu').hidden = true; $('pmenu-open').setAttribute('aria-expanded', 'false'); }
   $('pmenu-open').onclick = () => $('pmenu').hidden ? openPMenu() : closePMenu();
   addEventListener('pointerdown', e => { if (!$('pmenu').hidden && !e.target.closest('.pmenu, .pmenu-open')) closePMenu(); }, true);
+  addEventListener('pointerdown', e => { if (!$('omenu').hidden && !e.target.closest('.omenu')) $('omenu').hidden = true; }, true);
 
   // Radial menus: the items around the cursor; click one, or hold the menu's key, point and let go.
   const radials = new Map([...RADIALS, ...store.get('w3d-radials', [])].map(m => [m.command, m]));

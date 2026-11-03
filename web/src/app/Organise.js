@@ -96,6 +96,27 @@ export class Organise {
         for (const gid of nest) this.group(gid).parent = g.id;
         return g;
     }
+    /** Add to a group (its context menu): these items and groups move into it (never a group into itself). */
+    addToGroup(gid, ids, groupIds = []) {
+        if (!this.group(gid)) return;
+        for (const id of ids) this.groupOf.set(id, gid);
+        for (const x of groupIds) if (x !== gid && !this.within(gid, x) && this.group(x)) this.group(x).parent = gid;
+    }
+    /** Add to Isolation: these show in the current isolation layer too. */
+    addToIsolation(ids) { if (this.layers.length) for (const id of ids) this.layers.at(-1).add(id); }
+    /** Delete Recursively's last step: the group and every group inside it go (their members are already gone). */
+    deleteGroup(gid) {
+        const gone = new Set(this.groups.filter(g => this.within(g.id, gid)).map(g => g.id));
+        this.groups = this.groups.filter(g => !gone.has(g.id));
+        for (const [id, at] of [...this.groupOf]) if (gone.has(at)) this.groupOf.delete(id);
+        if (gone.has(this.active)) this.active = null;
+    }
+    /** Delete empty groups: groups holding nothing (no objects of `ids` anywhere inside them) go. Returns how many. */
+    deleteEmptyGroups(ids) {
+        const empty = this.groups.filter(g => !this.allMembers(g.id, ids).length).map(g => g.id);
+        for (const gid of empty) if (this.group(gid)) this.deleteGroup(gid);
+        return empty.length;
+    }
     /** True when group `gid` is `outer` or lies somewhere inside it. */
     within(gid, outer) {
         for (let g = this.group(gid); g; g = this.group(g.parent)) if (g.id === outer) return true;
