@@ -838,17 +838,31 @@ export function shapedExtrude(base, n, d, back = 0, angle = 0, thickness = 0) {
     return boolean(solid, regionStack(base, n, d, back, angle, -thickness), 'difference');
 }
 
-/** The numbered face of `shape` as a face to extrude, with its outward normal. */
+/**
+ * The numbered face of `shape` as a face to extrude, with its outward normal: a flat face's plane
+ * normal, a curved face's normal at the middle of its parameters (as the desktop's normal_at_center).
+ */
 export function faceBase(shape, index) {
     const o = oc(), p = facePlane(shape, index);
-    if (!p) throw new Error('only flat faces can be extruded here yet');
     let i = 0;
     for (const ex = new o.TopExp_Explorer(shape, o.TopAbs_ShapeEnum.TopAbs_FACE, o.TopAbs_ShapeEnum.TopAbs_SHAPE); ex.More(); ex.Next(), i++) {
         if (i !== index) continue;
         const f = o.TopoDS.Face(ex.Current());
-        return { face: o.TopoDS.Face(f.Oriented(o.TopAbs_Orientation.TopAbs_FORWARD)), normal: p.normal };
+        return { face: o.TopoDS.Face(f.Oriented(o.TopAbs_Orientation.TopAbs_FORWARD)), normal: p?.normal ?? curvedNormal(f) };
     }
     throw new Error('that face no longer exists');
+}
+
+/** A curved face's outward normal at the middle of its parameter range. */
+function curvedNormal(f) {
+    const o = oc(), s = new o.BRepAdaptor_Surface(f, true);
+    const u = (s.FirstUParameter() + s.LastUParameter()) / 2, v = (s.FirstVParameter() + s.LastVParameter()) / 2;
+    const pt = new o.gp_Pnt(), du = new o.gp_Vec(), dv = new o.gp_Vec();
+    s.D1(u, v, pt, du, dv);
+    const n = new THREE.Vector3(du.X(), du.Y(), du.Z()).cross(new THREE.Vector3(dv.X(), dv.Y(), dv.Z()));
+    if (!(n.length() > 1e-12)) throw new Error('that face has no direction to extrude in');
+    if (f.Orientation() === o.TopAbs_Orientation.TopAbs_REVERSED) n.negate();
+    return n.normalize();
 }
 
 /**

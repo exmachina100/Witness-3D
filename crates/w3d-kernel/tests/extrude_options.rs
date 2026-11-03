@@ -111,3 +111,21 @@ fn letters_with_corners_join_and_mesh() {
     let one = tool(&k, None, &ExtrudeParams { profile: letter_d(0.0), ..square(2.0, None) }).unwrap();
     assert_eq!(k.face_count(&one), 2 + 5);
 }
+
+#[test]
+fn a_curved_face_extrudes_along_a_direction_and_joins() {
+    let k = Occt;
+    let cyl = w3d_kernel::solids::primitive(&k, &Primitive::Cylinder { frame: Frame::new(DVec3::ZERO, DVec3::X, DVec3::Z), radius: 5.0, height: 10.0 }).unwrap();
+    let planes = k.tessellate(&cyl, 0.01).unwrap().face_planes;
+    let side = planes.iter().position(|p| p.is_none()).expect("a curved side") as u32;
+    let p = ExtrudeParams {
+        profile: Profile::rectangle(1.0, 1.0), frame: Frame::new(DVec3::ZERO, DVec3::X, DVec3::Z),
+        distance: 3.0, back: 0.0, angle: 0.0, thickness: 0.0,
+        operation: Operation::Auto, face: Some(side), direction: Some(DVec3::X), more_faces: vec![], individual: false, more_regions: vec![],
+    };
+    let before = volume(&k, &cyl);
+    match extrude(&k, Some(&cyl), &p).unwrap() {
+        ExtrudeResult::Replace { solid, .. } => assert!(volume(&k, &solid) > before + 1.0),
+        _ => panic!("a curved face pulled out joins its body"),
+    }
+}

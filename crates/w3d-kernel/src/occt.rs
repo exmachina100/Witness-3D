@@ -229,7 +229,7 @@ impl Kernel for Occt {
 
     fn extrude_face(&self, s: &Shape, face: u32, e: &Extent) -> Result<Shape, KernelError> {
         let f = s.face_at(face as usize).ok_or(KernelError::Invalid("that face no longer exists"))?;
-        let normal = f.normal_at_center();
+        let normal = self.face_normal(s, face).ok_or(KernelError::Invalid("that face has no direction to extrude in"))?;
         if !normal.is_finite() || normal.length() < 0.5 { return Err(KernelError::Invalid("that face has no direction to extrude in")) }
         if e.is_plain() { return Ok(Shape::from(f.extrude(normal.normalize() * e.distance))) }
         s.extrude_face_shaped(face as usize, normal.normalize().to_array(), e.distance, e.back, e.angle, e.thickness).map_err(shim)
@@ -245,7 +245,15 @@ impl Kernel for Occt {
     }
 
     fn face_normal(&self, s: &Shape, face: u32) -> Option<DVec3> {
-        let n = s.face_at(face as usize)?.normal_at_center();
+        let f = s.face_at(face as usize)?;
+        // The outward normal at the middle of the face's parameters. (Projecting its centre of
+        // mass, as normal_at_center does, aborts where that centre lies on an axis, as a whole
+        // cylinder's does; it is kept for a face the parameter map can't read.)
+        if let Ok((_, pts)) = self.face_uvn(s, face, true, &[DVec3::new(0.5, 0.5, 0.0), DVec3::new(0.5, 0.5, 1.0)]) {
+            let n = pts[1] - pts[0];
+            if n.is_finite() && n.length() > 0.5 { return Some(n.normalize()) }
+        }
+        let n = f.normal_at_center();
         (n.is_finite() && n.length() > 0.5).then(|| n.normalize())
     }
 

@@ -2126,6 +2126,21 @@ export async function mount(root, backend) {
   }
 
   /** The area-weighted centre of a face, from its display triangles. */
+  /** A point on a face near its middle and the face's outward normal there, from its triangles. */
+  function faceSpot(body, face) {
+    const { positions: p, indices: ix, faceIds } = body, mid = faceCentre(body, face);
+    const a = new THREE.Vector3(), b = new THREE.Vector3(), d = new THREE.Vector3();
+    let best = null;
+    for (let t = 0; t < faceIds.length; t++) {
+      if (faceIds[t] !== face) continue;
+      a.fromArray(p, ix[3 * t] * 3); b.fromArray(p, ix[3 * t + 1] * 3); d.fromArray(p, ix[3 * t + 2] * 3);
+      const c = a.clone().add(b).add(d).divideScalar(3), n = b.clone().sub(a).cross(d.clone().sub(a));
+      if (n.length() < 1e-12) continue;
+      const far = c.distanceToSquared(mid);
+      if (!best || far < best.far) best = { far, at: c, normal: n.normalize() };
+    }
+    return best;
+  }
   function faceCentre(body, face) {
     const { positions: p, indices: ix, faceIds } = body;
     const c = new THREE.Vector3(), a = new THREE.Vector3(), b = new THREE.Vector3(), d = new THREE.Vector3();
@@ -5055,10 +5070,15 @@ export async function mount(root, backend) {
       return { region: c.id, at, normal, target: selectedTarget() ?? bodyAt(at, normal), name: curveLabel(c.id) };
     }
     const b = bodyOf(it.body), p = b?.facePlanes[it.n];
-    if (!p) return { curved: true };
-    // The other selected flat faces of the same body go with it (Direct or Individual, I).
-    const faces = sel.list('face').filter(f => f.body === it.body && f.n !== it.n && b.facePlanes[f.n]).map(f => f.n);
-    return { face: it.n, faces, at: faceCentre(b, it.n), normal: new THREE.Vector3(...p.normal), target: b.id, name: `${faces.length ? `${faces.length + 1} FACES` : 'FACE'} · ${label(b.id)}` };
+    if (!b) return null;
+    // The other selected faces of the same body go with it (Direct or Individual, I).
+    const faces = sel.list('face').filter(f => f.body === it.body && f.n !== it.n).map(f => f.n);
+    const name = `${faces.length ? `${faces.length + 1} FACES` : 'FACE'} · ${label(b.id)}`;
+    if (p) return { face: it.n, faces, at: faceCentre(b, it.n), normal: new THREE.Vector3(...p.normal), target: b.id, name };
+    // A curved face (Plasticity extrudes faces of any kind): the gizmo stands on the face's triangle
+    // nearest its middle; the kernel takes the face's own normal there.
+    const near = faceSpot(b, it.n);
+    return near ? { face: it.n, faces, at: near.at, normal: near.normal, direction: near.normal, target: b.id, name } : { curved: true };
   }
   /** A solid selected with the regions: Plasticity takes the selected solids as Extrude's targets. */
   const selectedTarget = () => sel.solids.find(id => org.shows(id) && !current.find(b => b.id === id)?.sheet) ?? null;
@@ -5074,7 +5094,7 @@ export async function mount(root, backend) {
   function startExtrude({ auto = false } = {}) {
     const src = extrudeSource();
     if (!src || src.curved) {
-      if (!auto) toast(src?.curved ? 'EXTRUDE A FLAT FACE, A REGION OR A CURVE' : 'SELECT A REGION, A FLAT FACE OR A CURVE TO EXTRUDE');
+      if (!auto) toast(src?.curved ? 'THAT FACE HAS NO DIRECTION TO EXTRUDE IN' : 'SELECT A REGION, A FACE OR A CURVE TO EXTRUDE');
       return;
     }
     const c = cmd = { id: 'extrude', auto, src, distance: 0, angle: 0, thickness: 0, lock: false, op: 'auto', direction: null, individual: false, picking: null, freeStart: null, pivot: src.at.clone(), outcome: null, sent: 0, shown: 0, gizmo: null, entry: null };
@@ -5218,7 +5238,7 @@ export async function mount(root, backend) {
   } : ({
     target: c.src.target, ...(c.src.region !== undefined ? { region: c.src.region, moreRegions: c.src.more ?? [], holes: c.src.holes ?? [] } : { face: c.src.face, faces: c.src.faces ?? [], individual: c.individual }), distance: c.distance, op: c.op,
     back: c.lock ? Math.abs(c.distance) : 0, angle: c.angle * DEG, thickness: c.thickness,
-    ...(c.direction && { direction: c.direction.toArray() }),
+    ...((c.direction ?? c.src.direction) && { direction: (c.direction ?? c.src.direction).toArray() }),
   });
   async function previewExtrude() {
     const c = cmd;
