@@ -10175,19 +10175,22 @@ export async function mount(root, backend) {
     };
     const request = async () => ({ curves: await Promise.all(c.curves.map(profile)), loop: c.loop, simplify: c.simplify });
     const text = () => `${c.curves.map(p => typeof p === 'object' ? `${label(p.body)} EDGE ${p.n + 1}` : curveLabel(p)).join(' → ')}${c.loop ? ' → BACK TO THE FIRST' : ''}`;
-    // Per-edge continuity (the manual's circles on the surface): two profiles, one or both body
-    // edges, each edge with its own continuity, G0 to G2, and one tension. G1 and G2 leave each face
+    // Per-edge continuity (the manual's circles on the surface): the first and last profiles, when
+    // body edges, each with its own continuity, G0 to G2, and one tension (three profiles or more go
+    // through the inner ones, square.js loft). G1 and G2 leave each face
     // as Square's two-sided fill does (square.js with the edge's way out of its face, normals and
     // curvatures); a curve profile, or an edge at G0, is only met. All at G0 is the plain loft.
     c.conts ??= new Map();
-    const edgesOf = () => c.curves.filter(p => typeof p === 'object');
+    // The edges that can carry their face on: the first and last profiles' (the inner ones are passed through).
+    const edgesOf = () => c.curves.filter((p, i) => typeof p === 'object' && (i === 0 || i === c.curves.length - 1));
     const contOf = p => c.conts.get(p.key) ?? 'G0';
-    const twoEdges = () => !c.loop && c.curves.length === 2 && edgesOf().length > 0 && c.limits.size === 0 && backend.previewSplineSheet && backend.edgeFaces;
+    const twoEdges = () => !c.loop && c.curves.length >= 2 && edgesOf().length > 0 && c.limits.size === 0 && backend.previewSplineSheet && backend.edgeFaces;
     const smooth = () => twoEdges() && edgesOf().some(p => contOf(p) !== 'G0');
     const reader = edgeSideReader(c.sides = c.sides ?? {});
     const RANK = { G0: 0, G1: 1, G2: 2 };
     const fitEdges = async () => {
-      const items = c.curves.map(p => typeof p === 'object' ? { kind: 'edge', body: p.body, n: p.n, cont: contOf(p) } : { kind: 'curve', id: p });
+      const ends = edgesOf();
+      const items = c.curves.map(p => typeof p === 'object' ? { kind: 'edge', body: p.body, n: p.n, cont: ends.includes(p) ? contOf(p) : 'G0' } : { kind: 'curve', id: p });
       const sides = await Promise.all(items.map(reader.sideOf));
       const all = sides.flat(), centre = [0, 1, 2].map(k => all.reduce((t, p) => t + p[k], 0) / all.length);
       const faced = await Promise.all(sides.map(async (pts, i) => {
@@ -10201,7 +10204,7 @@ export async function mount(root, backend) {
       const tension = num('ls-t');
       if (!(tension > 0)) throw new Error('the tension must be greater than zero');
       const continuity = items.reduce((best, it) => RANK[it.cont] > RANK[best] ? it.cont : best, 'G0');
-      return square(faced, { degree: 3, continuity, tension });
+      return square(faced, { degree: 3, continuity, tension, loft: items.length > 2 });
     };
     const contText = () => edgesOf().map(p => `${label(p.body)} EDGE ${p.n + 1} ${contOf(p)}`).join(' · ');
     c.preview = () => livePreview(c, async () => {
@@ -10250,7 +10253,7 @@ export async function mount(root, backend) {
     c.key = action => {
       if (action === 'simplify') { c.simplify = !c.simplify; refresh(); return true; }
       if (action === 'continuity') {
-        if (!twoEdges()) return toast('CONTINUITY IS FOR TWO PROFILES WITH A BODY EDGE'), true;
+        if (!twoEdges()) return toast('CONTINUITY IS FOR A FIRST OR LAST PROFILE THAT IS A BODY EDGE'), true;
         const now = edgesOf().map(contOf), all = now.every(g => g === now[0]) ? now[0] : 'G0';
         c.setCont({ G0: 'G1', G1: 'G2', G2: 'G0' }[all]);
         return true;

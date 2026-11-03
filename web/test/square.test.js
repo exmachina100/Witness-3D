@@ -191,3 +191,27 @@ test("Analysis checks a sheet's G0, G1 and G2 along its sides, whatever it was f
     assert.equal(c.turn, null);
     assert.equal(c.bend, null);
 });
+
+test('a loft through three profiles or more passes through each, in order', () => {
+    // Straight lines along x at three heights, bowed in z: the sheet passes through the middle one.
+    const line = (y, z) => Array.from({ length: 11 }, (_, i) => [i, y, z]);
+    const fit = square([line(0, 0), line(5, 4), line(10, 0)], { loft: true });
+    assert.ok(fit.gap < 0.01, `${fit.gap}`);
+    // Profiles given the other way round are turned to run with the first.
+    const back = square([line(0, 0), [...line(5, 4)].reverse(), line(10, 0)], { loft: true });
+    assert.ok(back.gap < 0.01, `${back.gap}`);
+    assert.throws(() => square([line(0, 0), line(0, 0), line(5, 0)], { loft: true }), /on each other/);
+});
+
+test("a loft's first profile with a face leaves that face tangent (G1)", () => {
+    const line = (y, z) => Array.from({ length: 11 }, (_, i) => [i, y, z]);
+    // The first profile is an edge whose face carries on along +z; the next profiles lie along +y.
+    const first = line(0, 0);
+    first.out = first.map(() => [0, 0, 1]);
+    const fit = square([first, line(5, 5), line(10, 5)], { loft: true, continuity: 'G1' });
+    assert.ok(fit.gap < 0.01, `${fit.gap}`);
+    assert.ok(fit.turn < 0.5, `${fit.turn}`);
+    // The surface leaves the first edge heading up z: the next row of poles sits straight above it.
+    const [p0, p1] = [fit.poles[5][0], fit.poles[5][1]];
+    assert.ok(Math.abs(p1[1] - p0[1]) < 1e-6 && p1[2] > p0[2], `${p0} ${p1}`);
+});

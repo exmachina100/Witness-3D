@@ -63,6 +63,49 @@ function copy(side) {
     for (const k of EXTRAS) if (side[k]) c[k] = side[k].map(d => [...d]);
     return c;
 }
+/**
+ * A loft through three profiles or more, in order (Loft with body edges among its profiles): v runs
+ * from the first profile to the last, reaching each at its share of the way (by the mean distance
+ * between neighbours), a cubic Hermite across each stretch with Catmull-Rom slopes at the inner
+ * profiles; at the first and last, an edge with its face's way out leaves along it (as far out as
+ * the next profile is, times tension), else heads straight for the next profile.
+ */
+function loftSurface(sides, tension) {
+    const list = [sides[0]];
+    for (const side of sides.slice(1)) {
+        const a = list.at(-1);
+        list.push(dist(a[0], side[0]) + dist(a.at(-1), side.at(-1)) > dist(a[0], side.at(-1)) + dist(a.at(-1), side[0]) ? reversed(side) : side);
+    }
+    const F = list.map(side => byLength(side)), n = F.length;
+    const gaps = F.slice(1).map((f, k) => { let t = 0; for (let i = 0; i <= 8; i++) t += dist(f(i / 8), F[k](i / 8)); return t / 9; });
+    if (gaps.some(g => !(g > 1e-9))) throw new Error('two profiles of the loft lie on each other');
+    const total = gaps.reduce((a, b) => a + b, 0), vs = [0];
+    for (const g of gaps) vs.push(vs.at(-1) + g / total);
+    vs[n - 1] = 1;
+    const oa = outOf(list[0]), oz = outOf(list[n - 1]);
+    // dP/dv at profile k for parameter u.
+    const slope = (k, u) => {
+        if (k === 0) return oa ? mul(oa(u), gaps[0] * tension / (vs[1] - vs[0])) : mul(sub(F[1](u), F[0](u)), 1 / (vs[1] - vs[0]));
+        if (k === n - 1) return oz ? mul(oz(u), -gaps[n - 2] * tension / (vs[n - 1] - vs[n - 2])) : mul(sub(F[n - 1](u), F[n - 2](u)), 1 / (vs[n - 1] - vs[n - 2]));
+        return mul(sub(F[k + 1](u), F[k - 1](u)), 1 / (vs[k + 1] - vs[k - 1]));
+    };
+    const at = (u, v) => {
+        let k = 0;
+        while (k < n - 2 && v > vs[k + 1]) k++;
+        const h = vs[k + 1] - vs[k], t = Math.min(Math.max((v - vs[k]) / h, 0), 1);
+        return hermite(t, F[k](u), F[k + 1](u), mul(slope(k, u), h), mul(slope(k + 1, u), h));
+    };
+    const inner = F.slice(1, -1).map((f, i) => ({ v: vs[i + 1], f }));
+    return { at, sides: [F[0], null, F[n - 1], null], outs: [oa, null, oz, null], bends: [bendOf(list[0]), null, bendOf(list[n - 1]), null], inner };
+}
+
+/** How far the surface strays from the inner profiles of a loft, at the v each is reached. */
+function innerGap(surface, inner = [], n = 64) {
+    let most = 0;
+    for (const { v, f } of inner) for (let i = 0; i <= n; i++) most = Math.max(most, dist(surfaceAt(surface, i / n, v), f(i / n)));
+    return most;
+}
+
 /** A side the other way round. */
 function reversed(side) {
     const c = [...side].reverse();
@@ -104,7 +147,8 @@ const outOf = side => {
 };
 
 /** The surface the sides describe, as a function of (u, v) in 0..1. */
-export function boundarySurface(sides, gap, tension = 1) {
+export function boundarySurface(sides, gap, tension = 1, loft = false) {
+    if (loft && sides.length >= 3) return loftSurface(sides, tension);
     if (sides.length === 2) {
         // A loft: the second side runs the same way as the first.
         let [a, b] = sides;
@@ -300,7 +344,7 @@ export function quadSides(sides, gap) {
  * `flatness` 0 to 1 pulls the inner control points (those the sides and continuity leave free)
  * toward the plane of the boundary, 1 onto it.
  */
-export function square(sides, { degree = 3, spans = 0, tolerance = 0.01, continuity = 'G0', angle = 0.5, tension = 1, flatness = 0, boundary = 'natural', weight = 1 } = {}) {
+export function square(sides, { degree = 3, spans = 0, tolerance = 0.01, continuity = 'G0', angle = 0.5, tension = 1, flatness = 0, boundary = 'natural', weight = 1, loft = false } = {}) {
     if (!BOUNDARY.includes(boundary)) throw new Error('the boundary is Natural, Normal, Next or Adjacent');
     if (!(weight > 0 && weight <= 1)) throw new Error('the weight runs from above 0 to 1');
     if (!(degree >= 1 && degree <= 7)) throw new Error('the degree runs from 1 to 7');
@@ -310,7 +354,7 @@ export function square(sides, { degree = 3, spans = 0, tolerance = 0.01, continu
     // Control points each way that G1 (two rows from each side) or G2 (three) needs.
     const rows = curved ? 6 : tangent ? 4 : 2;
     const size = Math.max(...sides.flat().map(p => dist(p, sides[0][0])));
-    const shape = boundarySurface(sides, Math.max(tolerance, 1e-3 * size), tension);
+    const shape = boundarySurface(sides, Math.max(tolerance, 1e-3 * size), tension, loft);
     const make = (su, sv) => {
         const uk = knots(su, degree), vk = knots(sv, degree), nu = su + degree, nv = sv + degree;
         const mu = 4 * su + degree + 1, mv = 4 * sv + degree + 1;
@@ -337,7 +381,7 @@ export function square(sides, { degree = 3, spans = 0, tolerance = 0.01, continu
         if (curved) curvatureRows(poles, uk, vk, degree, shape.bends, open);
         if (flatness > 0) flatten(poles, Math.min(1, flatness), rowsU / 2, rowsV / 2);
         const out = { degree: [degree, degree], uKnots: uk, vKnots: vk, poles, spans: [su, sv] };
-        out.gap = sideGap(out, shape.sides);
+        out.gap = Math.max(sideGap(out, shape.sides), innerGap(out, shape.inner));
         out.turn = tangent ? sideTurn(out, shape.outs) : 0;
         out.bend = curved ? sideBend(out, shape.bends) : 0;
         return out;
@@ -353,7 +397,7 @@ export function square(sides, { degree = 3, spans = 0, tolerance = 0.01, continu
         const held = shape.outs.map(Boolean);
         if (boundary !== 'natural') crossFlow(out.poles, boundary, held);
         if (weight < 1) loosen(out.poles, 1 - weight, held.map(h => h ? (curved ? 3 : 2) : 0));
-        out.gap = sideGap(out, shape.sides);
+        out.gap = Math.max(sideGap(out, shape.sides), innerGap(out, shape.inner));
         out.turn = tangent ? sideTurn(out, shape.outs) : 0;
         out.bend = curved ? sideBend(out, shape.bends) : 0;
         return out;
