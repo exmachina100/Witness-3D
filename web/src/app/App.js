@@ -91,7 +91,7 @@ import { arrayMotions, radialSpec, rectangularSpec } from '../arrayMotions.js';
 import { FREE_STEPS, freeMove as freeMove3, freeRotate, freeScale } from '../freestyle.js';
 import { Constraints } from './constraints.js';
 import { SNAP_KINDS, allowed as snapAllowed, kindOf as snapKindOf, parseSnaps } from './snapKinds.js';
-import { Organise } from './Organise.js';
+import { Organise, curveKey } from './Organise.js';
 import { P_MENU, RADIALS, mergeKeys, parseRadial, shortLabel, showKey, sliceAt, slicePosition } from './menus.js';
 import { formatLength, fromUnit, parseLength, showMass, showVolume, toUnit } from '../units.js';
 import { ADVANCED_MATERIAL, ENVIRONMENTS, MATERIAL_LIBRARY, SHADERS, SHADER_OPTIONS, checkMaterial, isColorKey, massOf, newMaterial, shader } from './shading.js';
@@ -1171,6 +1171,9 @@ export async function mount(root, backend) {
   scene.background = new THREE.Color(COLORS.ground);
   const persp = new THREE.PerspectiveCamera(35, 1, 1, 4000);
   const ortho = new THREE.OrthographicCamera(-1, 1, 1, -1, -4000, 4000);
+  // Layer 2: locked curves and regions, drawn but out of the default raycast layer so clicks pass them.
+  persp.layers.enable(2);
+  ortho.layers.enable(2);
   let camera = persp;
   const controls = new OrbitControls(camera, canvas);
   controls.enableDamping = true;
@@ -1921,6 +1924,8 @@ export async function mount(root, backend) {
       });
     }
     sel.keepCurves([...curveList.map(c => c.id), ...derivedRegions.keys()]);
+    org.prune(curveList.map(c => curveKey(c.id)), 'curve');
+    applyCurveOrg();
     drawOverlays();
     drawInstances();
     renderOutliner();
@@ -2316,12 +2321,21 @@ export async function mount(root, backend) {
     for (const b of sheets.filter(loose)) bodyRow(b, 0);
     out.insertAdjacentHTML('beforeend', '<div class="group-title">▾ CURVES</div>');
     for (const c of curveList) {
-      const row = document.createElement('div');
-      row.className = 'row-item curve';
+      const row = document.createElement('div'), k = curveKey(c.id);
+      const locked = org.locked.has(k), shown = !org.hidden.has(k), off = org.disabled.has(k);
+      row.className = 'row-item curve' + (locked ? ' locked' : '') + (org.shows(k) ? '' : ' off') + (off ? ' disabled' : '');
       row.setAttribute('aria-current', sel.has({ kind: 'curve', id: c.id }) || sel.has({ kind: 'region', id: c.id }));
       const look = { circle: 'circle', arc: 'arc3', spline: 'spline', cv: 'cv', ellipse: 'ellipse', contour: 'join', spiral: 'spiral', nurbs: 'project' }[c.kind] ?? (!c.closed ? 'line' : c.points.length === 4 ? 'rect' : 'polygon');
-      row.innerHTML = `${icon(look)}<span class="name">${curveName(c)}</span><span class="tag">${curveLabel(c.id)}</span>`;
-      row.onclick = e => { applySelect({ kind: 'curve', id: c.id }, modOf(e)); selectionChanged(); };
+      row.innerHTML = `${icon(look)}<span class="name">${curveName(c)}</span><span class="tag">${curveLabel(c.id)}</span>${toggles(shown, locked, off)}`;
+      row.onclick = e => {
+        if (e.target.closest('.dis')) return setDisabled([k], !off);
+        if (off) return toast('DISABLED · ENABLE TO SELECT');
+        if (e.target.closest('.eye')) return setHidden([k], shown);
+        if (e.target.closest('.lk')) { org.setLocked([k], !locked); return organised(); }
+        if (!org.picks(k)) return toast(locked ? 'LOCKED · UNLOCK TO SELECT' : 'HIDDEN');
+        applySelect({ kind: 'curve', id: c.id }, modOf(e));
+        selectionChanged();
+      };
       out.append(row);
     }
     if (cmd?.id === 'pushpull' && cmd.at) out.insertAdjacentHTML('beforeend', `<div class="row-item curve"><span class="ln"></span><span>${profileKind === 'circle' ? 'CIRCLE' : 'RECT'}.001</span></div>`);
@@ -3012,7 +3026,8 @@ export async function mount(root, backend) {
         });
       }
     }
-    if (sel.allows('edge') || sel.allows('solid')) for (const c of curveList) {
+    if ((sel.allows('edge') || sel.allows('solid')) && curveGroup.visible) for (const c of curveList) {
+      if (!org.picks(curveKey(c.id))) continue;
       const f = curveFrame(c);
       if (polyHit(curve2d(c).map(p => screenOf(lift(f, p))), isClosed(c))) found.push({ kind: 'curve', id: c.id });
     }
@@ -11601,9 +11616,28 @@ export async function mount(root, backend) {
     org.setHidden(ids, hide);
     organised();
   }
+  /** The curves a selected curve, region or curve point stands for (a region of crossing curves: all of them). */
+  const curvesOfItem = it => it.kind === 'region' && derivedRegions.has(it.id) ? derivedRegions.get(it.id).curves : [it.id];
+  /** The selected curves' and regions' organise keys (Plasticity's Hide, Isolate and Lock take them). */
+  const selectedCurveKeys = () => [...new Set(sel.list().filter(it => it.kind === 'curve' || it.kind === 'region').flatMap(curvesOfItem).filter(id => curveById(id)).map(curveKey))];
+  /** Everything Hide and Invert can reach: the bodies and the curves. */
+  const allObjectKeys = () => [...current.map(b => b.id), ...curveList.map(c => curveKey(c.id))];
+  /** Curves and regions show as their curves are hidden, locked, disabled or isolated. */
+  function applyCurveOrg() {
+    for (const o of curveGroup.children) {
+      const ids = o.userData.curve !== undefined ? [o.userData.curve] : o.userData.region !== undefined ? curvesOfItem({ kind: 'region', id: o.userData.region }) : null;
+      if (!ids) continue;
+      const keys = ids.map(curveKey), shown = keys.every(k => org.shows(k)), picks = keys.every(k => org.picks(k));
+      o.visible = shown;
+      o.layers.set(!shown ? 1 : picks ? 0 : 2);
+    }
+    curveSnapCache.shown = null;
+  }
   /** After a change to what shows or locks: the viewport, the selection (nothing hidden or locked stays picked) and the outliner. */
   function organised() {
     for (const it of sel.list()) if (it.body !== undefined && !org.picks(it.body)) sel.remove(it);
+    for (const it of sel.list()) if ((it.kind === 'curve' || it.kind === 'region' || it.kind === 'vertex') && !curvesOfItem(it).every(id => org.picks(curveKey(id)))) sel.remove(it);
+    applyCurveOrg();
     for (const m of bodies.children) m.visible = org.shows(m.userData.id);
     renderIsolated();
     selectionChanged({ quiet: true });
@@ -11621,7 +11655,7 @@ export async function mount(root, backend) {
     b.querySelector('span').textContent = `${n} ISOLATED`;
   }
   function isolateSelected() {
-    const ids = sel.bodies.filter(id => org.shows(id));
+    const ids = [...sel.bodies, ...selectedCurveKeys()].filter(id => org.shows(id));
     if (!ids.length && !org.layers.length) return toast('SELECT WHAT TO ISOLATE');
     org.isolate(ids);
     organised();
@@ -11637,8 +11671,9 @@ export async function mount(root, backend) {
     renderOutliner();
   }
   function lockSelected() {
-    if (!sel.bodies.length) return toast('SELECT BODIES TO LOCK');
-    org.setLocked(sel.bodies, true);
+    const ids = [...sel.bodies, ...selectedCurveKeys()];
+    if (!ids.length) return toast('SELECT WHAT TO LOCK');
+    org.setLocked(ids, true);
     organised();
   }
   async function exportSelected() {
@@ -11720,7 +11755,7 @@ export async function mount(root, backend) {
         } else if (arg === 'curves') {
           // Plasticity's Select All Curves: every curve in the viewport.
           sel.clear();
-          if (curveGroup.visible) for (const o of curveGroup.children) if (o.visible && o.userData.curve !== undefined) sel.add({ kind: 'curve', id: o.userData.curve });
+          if (curveGroup.visible) for (const o of curveGroup.children) if (o.visible && o.layers.isEnabled(0) && o.userData.curve !== undefined) sel.add({ kind: 'curve', id: o.userData.curve });
           if (!sel.size) toast('NO CURVES TO SELECT');
         } else if (arg === 'measurements') {
           sel.clear();
@@ -11863,10 +11898,10 @@ export async function mount(root, backend) {
       // Plasticity's Slot: Offset Curve with Offset Region's slot on (an open curve closed round its ends).
       case 'slot': await startCurveEdit('offset-curve'); if (cmd?.id === 'offset-curve' && !cmd.slot) cmd.key('slot'); return true;
       case 'insert-knot': if (cmd) await finish(); startInsertKnot(); return true;
-      case 'hide': setHidden(sel.bodies, true); return true;
-      case 'hide-others': setHidden(current.map(b => b.id).filter(id => !sel.bodies.includes(id)), true); return true;
+      case 'hide': setHidden([...sel.bodies, ...selectedCurveKeys()], true); return true;
+      case 'hide-others': { const keep = new Set([...sel.bodies, ...selectedCurveKeys()]); setHidden(allObjectKeys().filter(id => !keep.has(id)), true); return true; }
       case 'unhide-all': setHidden([...org.hidden], false); return true;
-      case 'invert-hidden': org.invertHidden(current.map(b => b.id).filter(id => !org.disabled.has(id))); organised(); return true;
+      case 'invert-hidden': org.invertHidden(allObjectKeys().filter(id => !org.disabled.has(id))); organised(); return true;
       case 'isolate': isolateSelected(); return true;
       case 'unisolate': org.unisolate(); organised(); return true;
       case 'group': groupSelected(); return true;

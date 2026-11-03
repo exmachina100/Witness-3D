@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { Organise } from '../src/app/Organise.js';
+import { Organise, curveKey } from '../src/app/Organise.js';
 import { VIEWPORT, ACTIONS } from '../src/app/keymap.js';
 
 test('isolate shows only the selection, in layers that step back one at a time', () => {
@@ -9,7 +9,8 @@ test('isolate shows only the selection, in layers that step back one at a time',
     assert.equal(o.isolate([1, 2, 3]), 1);
     assert.equal(o.isolate([2]), 2);
     assert.deepEqual([1, 2, 3, 4].filter(id => o.shows(id)), [2]);
-    assert.equal(o.isolated, 1);
+    assert.equal(o.isolated, 2);          // the second layer
+
     assert.equal(o.isolate([]), 1);   // . with nothing selected
     assert.deepEqual([1, 2, 3, 4].filter(id => o.shows(id)), [1, 2, 3]);
     o.isolate([1]);
@@ -148,4 +149,27 @@ test("the bridges' outline: each body's groups from the top, hidden ones marked,
         3: { path: [outer.name, 'GROUP 2'], hidden: true },
         4: { path: [], hidden: false },
     });
+});
+
+test('curves hide, isolate, lock and disable beside bodies, and prune apart', () => {
+    const o = new Organise();
+    const [c1, c2] = [curveKey(1), curveKey(2)];
+    o.prune([1, 2]);
+    o.prune([c1, c2], 'curve');
+    o.setHidden([c1], true);
+    o.setLocked([c2], true);
+    assert.ok(!o.shows(c1) && o.shows(c2) && !o.picks(c2) && o.shows(1));
+    // A body prune leaves the curves' state alone, and the other way round.
+    o.prune([1]);
+    assert.ok(o.hidden.has(c1) && o.locked.has(c2));
+    o.prune([c2], 'curve');
+    assert.ok(!o.hidden.has(c1) && o.locked.has(c2));
+    // Isolating a curve hides the bodies; a curve drawn while isolated shows.
+    o.isolate([c2]);
+    assert.ok(!o.shows(1) && o.shows(c2));
+    o.prune([c2, curveKey(3)], 'curve');
+    assert.ok(o.shows(curveKey(3)));
+    o.setDisabled([c2], true);
+    const back = Organise.from(JSON.parse(JSON.stringify(o)));
+    assert.ok(back.disabled.has(c2) && back.locked.has(c2));
 });

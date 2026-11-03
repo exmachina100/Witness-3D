@@ -3,7 +3,12 @@
 // be hidden or locked (a locked body shows but can't be selected or changed), and Isolate (.) shows
 // only the selection, in layers that . with nothing selected peels back one at a time (Alt+. all at once).
 //
-// Bodies are named by id. Ids that leave the scene drop out of everything on the next prune().
+// Bodies are named by id, drawn curves by "c:<id>" (Plasticity's Hide, Isolate, Lock and Disable
+// take curves and regions too). Ids that leave the scene drop out of everything on the next prune().
+
+/** A drawn curve's key here, beside the bodies' numeric ids. */
+export const curveKey = id => `c:${id}`;
+const isCurveKey = k => typeof k === 'string' && /^c:\d+$/.test(k);
 
 export class Organise {
     constructor() {
@@ -21,15 +26,19 @@ export class Organise {
      * Keep up with the scene: forget bodies that are gone (the empty groups stay; Plasticity dims
      * them), and show new ones made while isolated, so a command's result doesn't vanish.
      */
-    prune(ids) {
+    prune(ids, kind = 'body') {
+        // Bodies and curves load apart, so each prune only touches its own kind of key.
+        const mine = k => kind === 'curve' ? isCurveKey(k) : typeof k === 'number';
         const live = new Set(ids);
-        if (this.known) for (const id of ids) if (!this.known.has(id)) {
+        this.knownOf ??= {};
+        const known = this.knownOf[kind];
+        if (known) for (const id of ids) if (!known.has(id)) {
             for (const l of this.layers) l.add(id);
             if (this.active !== null && !this.groupOf.has(id)) this.groupOf.set(id, this.active);
         }
-        this.known = live;
-        for (const s of [this.hidden, this.locked, this.disabled, ...this.layers]) for (const id of [...s]) if (!live.has(id)) s.delete(id);
-        for (const id of [...this.groupOf.keys()]) if (!live.has(id)) this.groupOf.delete(id);
+        this.knownOf[kind] = live;
+        for (const s of [this.hidden, this.locked, this.disabled, ...this.layers]) for (const id of [...s]) if (mine(id) && !live.has(id)) s.delete(id);
+        for (const id of [...this.groupOf.keys()]) if (mine(id) && !live.has(id)) this.groupOf.delete(id);
         while (this.layers.length && !this.layers.at(-1).size) this.layers.pop();
     }
 
@@ -54,8 +63,8 @@ export class Organise {
         return this.layers.length;
     }
     unisolate() { this.layers = []; }
-    /** How many bodies the innermost layer shows, for the "N ISOLATED" button; 0 when nothing is isolated. */
-    get isolated() { return this.layers.length ? this.layers.at(-1).size : 0; }
+    /** Which isolation layer is showing, for the "N ISOLATED" button (manual: 2 Isolated is the second layer); 0 when none. */
+    get isolated() { return this.layers.length; }
 
     group(id) { return this.groups.find(g => g.id === id); }
     /** The groups inside a group (null for the top), in order made. */
@@ -104,14 +113,14 @@ export class Organise {
     static from(data) {
         const o = new Organise();
         if (!data || typeof data !== 'object') return o;
-        const ids = list => Array.isArray(list) ? list.filter(Number.isInteger) : [];
+        const ids = list => Array.isArray(list) ? list.filter(k => Number.isInteger(k) || isCurveKey(k)) : [];
         o.hidden = new Set(ids(data.hidden));
         o.locked = new Set(ids(data.locked));
         o.disabled = new Set(ids(data.disabled));
         o.groups = Array.isArray(data.groups) ? data.groups.filter(g => Number.isInteger(g?.id)).map(g => ({ id: g.id, name: String(g.name ?? `GROUP ${g.id}`), parent: Number.isInteger(g.parent) ? g.parent : null, open: g.open !== false })) : [];
         const known = new Set(o.groups.map(g => g.id));
         for (const g of o.groups) if (!known.has(g.parent)) g.parent = null;
-        o.groupOf = new Map((Array.isArray(data.groupOf) ? data.groupOf : []).filter(([b, g]) => Number.isInteger(b) && known.has(g)));
+        o.groupOf = new Map((Array.isArray(data.groupOf) ? data.groupOf : []).filter(([b, g]) => (Number.isInteger(b) || isCurveKey(b)) && known.has(g)));
         o.active = known.has(data.active) ? data.active : null;
         o.nextGroup = Math.max(Number.isInteger(data.nextGroup) ? data.nextGroup : 1, ...o.groups.map(g => g.id + 1));
         return o;
