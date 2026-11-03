@@ -400,7 +400,8 @@ const SHELL = `
     </div>
     <div class="sec" data-panel="boolean" hidden>
       <span class="hint" data-id="bool-hint">THE FIRST SOLID SELECTED IS THE TARGET</span>
-      <div class="field"><label>TOOLS</label><output data-id="bool-tools">—</output></div>
+      <div class="field"><button class="pick" data-id="bool-pick-targets" aria-pressed="false" title="Pick the target bodies again: click solids, then Enter or right-click">TARGETS</button><output data-id="bool-targets">—</output></div>
+      <div class="field"><button class="pick" data-id="bool-pick-tools" aria-pressed="false" title="Pick the tool bodies again: click solids, then Enter or right-click">TOOLS</button><output data-id="bool-tools">—</output></div>
       <span class="label">OPERATION</span>
       <div class="seg wrap2" role="group" aria-label="Boolean operation">
         <button data-bop="union" aria-pressed="true"><kbd>Q</kbd>UNION</button>
@@ -5193,31 +5194,78 @@ export async function mount(root, backend) {
   // Shift+E intersect, Shift+Q slice (the target splits where each tool cuts it); T keeps the tools.
   // Region makes a solid of each part of space the bodies (solids and sheets) close off. The target
   // changes and the tools go.
+  /**
+   * Plasticity's Boolean (Q): it starts with or without a selection. With two solids or more selected
+   * the first is the target and the rest are tools; with one, it is the target and the command asks
+   * for the tools; with none, it asks for the target bodies, then (Enter or right-click) the tool
+   * bodies. TARGETS and TOOLS in the panel pick either set again while the command stays open.
+   * Several targets: Union folds the extra targets in as tools; the other operations apply the tools
+   * to each target in turn.
+   */
   function startBoolean() {
-    const ids = sel.solids.filter(id => org.shows(id));
-    if (ids.length < 2) return toast('SELECT THE TARGET, THEN THE TOOLS');
     if (!backend.previewBoolean) return toast('BOOLEAN IS NOT IN THIS BUILD YET');
-    const c = cmd = { id: 'boolean', target: ids[0], tools: ids.slice(1), op: 'union', keep: false, targetMaterial: 'default', toolMaterial: 'default', sent: 0, shown: 0 };
+    const ids = sel.solids.filter(id => org.shows(id));
+    const c = cmd = { id: 'boolean', targets: ids.slice(0, 1), tools: ids.slice(1), stage: ids.length > 1 ? null : ids.length ? 'tools' : 'targets', op: 'union', keep: false, targetMaterial: 'default', toolMaterial: 'default', sent: 0, shown: 0 };
     lastTool = 'boolean';
     showTool('boolean');
     setState('none');
-    setTarget(label(c.target));
-    $('bool-hint').textContent = `TARGET ${label(c.target)}`;
-    $('bool-tools').textContent = c.tools.map(label).join(' ');
-    c.onSelection = () => drawOverlays();
+    const shown = () => targetBodies().filter(id => org.shows(id));
+    c.sync = () => {
+      setTarget(c.targets.length ? c.targets.map(label).join(' ') : '—');
+      $('bool-targets').textContent = c.targets.map(label).join(' ') || '—';
+      $('bool-tools').textContent = c.tools.map(label).join(' ') || '—';
+      $('bool-pick-targets').setAttribute('aria-pressed', String(c.stage === 'targets'));
+      $('bool-pick-tools').setAttribute('aria-pressed', String(c.stage === 'tools'));
+      const ask = c.stage === 'targets' ? 'SELECT TARGET BODIES · ⏎ OR RMB FOR THE TOOLS' : c.stage === 'tools' ? 'SELECT TOOL BODIES · ⏎ OR RMB WHEN DONE' : null;
+      $('bool-hint').textContent = ask ?? `TARGET ${c.targets.map(label).join(' ')}`;
+      if (ask) setHud(ask);
+    };
+    // Picking a set: the selection shows that set, and clicks change it.
+    c.pick = stage => {
+      c.stage = stage;
+      sel.clear();
+      for (const id of stage === 'targets' ? c.targets : c.tools) sel.add({ kind: 'solid', body: id });
+      drawOverlays(); renderOutliner();
+      clearPreview();
+      for (const t of [...c.targets, ...c.tools]) { const m = bodyMesh(t); if (m) m.visible = true; }
+      c.sync();
+      if (stage === 'tools' && c.tools.length) previewBooleanCmd();
+    };
+    c.onSelection = () => {
+      drawOverlays();
+      if (!c.stage) return;
+      const picked = shown();
+      if (c.stage === 'targets') { c.targets = picked; c.tools = c.tools.filter(t => !picked.includes(t)); }
+      else { c.tools = picked.filter(t => !c.targets.includes(t)); }
+      c.sync();
+      if (c.stage === 'tools' && c.tools.length && c.targets.length) previewBooleanCmd();
+      else if (c.stage === 'tools') clearPreview();
+    };
     c.key = action => {
       if (action === 'keep') c.keep = !c.keep;
       else c.op = action;
-      previewBooleanCmd();
+      if (c.targets.length && c.tools.length) previewBooleanCmd(); else c.sync();
       return true;
     };
-    c.finish = () => commitBooleanCmd();
+    c.finish = () => {
+      if (c.stage === 'targets') { if (!c.targets.length) return setHud('SELECT TARGET BODIES FIRST'); return c.pick('tools'); }
+      if (!c.tools.length) return setHud('SELECT TOOL BODIES');
+      return commitBooleanCmd();
+    };
     c.abort = () => endCmd('cancelled');
-    c.cleanup = () => clearPreview();
-    previewBooleanCmd();
+    c.cleanup = () => { clearPreview(); for (const t of [...c.targets, ...c.tools]) { const m = bodyMesh(t); if (m) m.visible = true; } };
+    if (c.stage) c.pick(c.stage);
+    else { c.sync(); previewBooleanCmd(); }
+  }
+  /** The boolean requests, one per target: Union folds extra targets in as tools. */
+  function booleanRequests(c) {
+    const base = { op: c.op === 'region' ? 'union' : c.op, region: c.op === 'region', targetMaterial: c.targetMaterial, toolMaterial: c.toolMaterial };
+    if (c.op === 'union' || c.op === 'region' || c.targets.length === 1) return [{ ...base, target: c.targets[0], tools: [...c.targets.slice(1), ...c.tools] }];
+    return c.targets.map(target => ({ ...base, target, tools: c.tools }));
   }
   async function previewBooleanCmd() {
     const c = cmd;
+    c.sync?.();
     for (const b of $$('[data-bop]')) b.setAttribute('aria-pressed', b.dataset.bop === c.op);
     for (const b of $$('[data-btmat]')) b.setAttribute('aria-pressed', b.dataset.btmat === c.targetMaterial);
     for (const b of $$('[data-bumat]')) b.setAttribute('aria-pressed', b.dataset.bumat === c.toolMaterial);
@@ -5225,40 +5273,48 @@ export async function mount(root, backend) {
     const n = ++c.sent;
     setState('updating');
     const t0 = performance.now();
-    let body;
-    try { body = await backend.previewBoolean({ target: c.target, tools: c.tools, op: c.op === 'region' ? 'union' : c.op, region: c.op === 'region', targetMaterial: c.targetMaterial, toolMaterial: c.toolMaterial }); }
+    let bodies;
+    try { bodies = []; for (const req of booleanRequests(c)) bodies.push(await backend.previewBoolean(req)); }
     catch (e) {
       if (cmd !== c || n !== c.sent) return;
       clearPreview();
       setState('failed');
       return setHud(say(e));
     }
-    if (!body || cmd !== c || n < c.shown) return;
+    if (!bodies.every(Boolean) || cmd !== c || n < c.shown) return;
     c.shown = n;
     $('ms').textContent = Math.round(performance.now() - t0);
     clearPreview();
-    showPreviewBody(body);
+    for (const body of bodies) showPreviewBody(body);
     // The tools show as phantoms unless they are kept; a slice's pieces as new bodies.
-    if (!c.keep) for (const t of c.tools) {
+    const tools = c.op === 'union' || c.op === 'region' ? [...c.targets.slice(1), ...c.tools] : c.tools;
+    if (!c.keep) for (const t of tools) {
       const m = bodyMesh(t), b = bodyOf(t);
       if (m) m.visible = false;
       const look = phantom[c.op === 'difference' || c.op === 'slice' ? 'cut' : 'add'];
       if (b) { const ph = meshOf(b, look.face, look.edge); ph.renderOrder = 5; previewGroup.add(ph); }
     }
-    for (const piece of body.pieces ?? []) { const m = meshOf(piece, phantom.add.face, phantom.add.edge); m.renderOrder = 6; previewGroup.add(m); }
+    for (const body of bodies) for (const piece of body.pieces ?? []) { const m = meshOf(piece, phantom.add.face, phantom.add.edge); m.renderOrder = 6; previewGroup.add(m); }
     const mats = [c.targetMaterial !== 'default' && `TARGET ${c.targetMaterial.toUpperCase()}`, c.toolMaterial !== 'default' && `TOOL ${c.toolMaterial.toUpperCase()}`].filter(Boolean).map(t => ` · ${t}`).join('');
-    setHud(`${c.op.toUpperCase()}${c.op === 'region' ? ` · ${1 + (body.pieces?.length ?? 0)} SOLIDS` : ''}${mats}${c.keep ? ' · KEEP TOOLS' : ''}`);
+    const pieces = bodies.reduce((k, b) => k + (b.pieces?.length ?? 0), 0);
+    setHud(`${c.op.toUpperCase()}${c.op === 'region' ? ` · ${1 + pieces} SOLIDS` : ''}${bodies.length > 1 ? ` · ${bodies.length} TARGETS` : ''}${mats}${c.keep ? ' · KEEP TOOLS' : ''}`);
     if (n === c.sent) setState('updated');
   }
   async function commitBooleanCmd() {
     const c = cmd;
     try {
-      const { id, scene: list } = await backend.commitBoolean({ target: c.target, tools: c.tools, op: c.op === 'region' ? 'union' : c.op, region: c.op === 'region', targetMaterial: c.targetMaterial, toolMaterial: c.toolMaterial, keepTools: c.keep });
+      const reqs = booleanRequests(c), made = [];
+      let list;
+      for (const [i, req] of reqs.entries()) {
+        // The tools stay until the last target has had them, unless they are kept anyway.
+        const r = await backend.commitBoolean({ ...req, keepTools: c.keep || i < reqs.length - 1 });
+        made.push(r.id); list = r.scene;
+        record(`BOOLEAN ${c.op.toUpperCase()} ${req.tools.map(label).join(' ')}`, r.id);
+      }
       endCmd('committed');
-      record(`BOOLEAN ${c.op.toUpperCase()} ${c.tools.map(label).join(' ')}`, id);
       sel.clear();
       await showScene(list);
-      sel.replace({ kind: 'solid', body: id });
+      for (const id of made) sel.add({ kind: 'solid', body: id });
       selectionChanged({ quiet: true });
     } catch (e) { setState('failed'); toast(say(e)); }
   }
@@ -11968,6 +12024,8 @@ export async function mount(root, backend) {
   for (const b of $$('[data-drgrow]')) b.onclick = () => cmd?.id === 'draft' && cmd.growTo(b.dataset.drgrow);
   $('ut-keep').onclick = () => cmd?.id === 'untrim' && cmd.setKeep(!cmd.keep);
   $('section-btn').onclick = () => doAction('section');
+  $('bool-pick-targets').onclick = () => cmd?.id === 'boolean' && cmd.pick('targets');
+  $('bool-pick-tools').onclick = () => cmd?.id === 'boolean' && cmd.pick('tools');
   // The viewport header (approved layout plan): Ortho (right-click for the field of view), Overlays,
   // the view toggles, and Shader, whose settings open in a panel under it (click or right-click).
   const viewPop = $('view-pop'), fovPop = $('fov-pop');
