@@ -17,6 +17,7 @@ import { faceUvn } from '../faceUvn.js';
 import { deformBodies, deformReblend, warpBodies } from '../deformBody.js';
 import { filletFaces, rechamfer, refilletFaces, removeFaces, turnFlatFace } from '../removeFace.js';
 import { moveEdges, moveFlatFaces } from '../moveEdges.js';
+import { offsetCurvedFaces } from '../offsetCurved.js';
 import { moveFacePoles, subdivideFaces } from '../movePoles.js';
 import { isoparamSplit } from '../isoparamSplit.js';
 import { endless, withMaterial } from '../material.js';
@@ -330,7 +331,10 @@ export class LocalBackend {
         return { id, scene: this.bodies() };
     }
 
-    /** Offset Face. This build has no per-face offset, so flat faces are pushed by joining or cutting slabs. */
+    /**
+     * Offset Face. This build has no per-face offset, so flat faces are pushed by joining or cutting slabs,
+     * and curved ones whose neighbours meet them square on by slabs along their normals (offsetCurved.js).
+     */
     offset({ body, faces, distance, angle = 0, grow = 'moving', chamfer }) {
         const shape = this.shapes.get(body);
         if (!shape) throw new Error('that body no longer exists');
@@ -338,7 +342,11 @@ export class LocalBackend {
         if (!Number.isFinite(distance)) throw new Error('the distance is not a number');
         if (!Number.isFinite(angle) || Math.abs(angle) >= Math.PI / 2) throw new Error('the angle must be between -90° and 90°');
         if (Math.abs(distance) < 1e-9 && Math.abs(angle) < 1e-9) return null;
-        if (faces.some(f => !facePlane(shape, f))) throw new Error('the browser demo offsets flat faces only; the desktop app offsets any face');
+        // Curved faces (a boss's or hole's wall): a slab joined or cut along each (offsetCurved.js).
+        if (faces.some(f => !facePlane(shape, f))) {
+            if (Math.abs(angle) > 1e-9) throw new Error('the browser demo turns flat faces only (A); the desktop app any face');
+            return offsetCurvedFaces(shape, [...new Set(faces)], distance);
+        }
         // A chamfer's new distance (Dimension): the faces beside it carried along.
         if (chamfer && Math.abs(angle) < 1e-9) return { shape: rechamfer(shape, chamfer) };
         const picked = [...new Set(faces)];
