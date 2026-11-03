@@ -95,7 +95,7 @@ pub fn tool<K: Kernel>(k: &K, target: Option<&K::Solid>, p: &ExtrudeParams) -> R
 
 /// Whether a positive distance moves away from the body: false when the freestyle direction
 /// points back into the face or region it starts from.
-fn outward<K: Kernel>(k: &K, target: Option<&K::Solid>, p: &ExtrudeParams) -> bool {
+pub fn outward<K: Kernel>(k: &K, target: Option<&K::Solid>, p: &ExtrudeParams) -> bool {
     let reference = match p.face {
         Some(f) => target.and_then(|t| k.face_normal(t, f)),
         None => Some(p.frame.normal),
@@ -116,6 +116,20 @@ pub enum ExtrudeResult<S> {
     /// The target cut in two: `solid` replaces it, `piece` (the part inside the tool) is a new body.
     Slice { solid: S, history: History, piece: S },
 }
+
+/// An extrude onto several target bodies (Plasticity's Extrude: the targets are the faces' bodies
+/// and every selected solid).
+pub struct ExtrudeMany<S> {
+    /// The targets changed, the first target first: each a `Replace` or a `Slice`.
+    pub changed: Vec<(u32, ExtrudeResult<S>)>,
+    /// A new body: a new-body extrude, or one that met no target.
+    pub new: Option<S>,
+    /// Targets a union folded into the first (they go).
+    pub folded: Vec<u32>,
+}
+
+/// The messages `combine` gives when the tool does not reach a body (a target it misses is left).
+pub const MISSES: [&str; 2] = ["the extrude does not meet the body", "the slice does not cut through the body"];
 
 pub fn extrude<K: Kernel>(k: &K, target: Option<&K::Solid>, p: &ExtrudeParams) -> Result<ExtrudeResult<K::Solid>, KernelError> {
     if p.distance.abs() < 1e-9 && p.back.abs() < 1e-9 {

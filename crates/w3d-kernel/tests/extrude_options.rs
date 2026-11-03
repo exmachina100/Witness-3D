@@ -129,3 +129,41 @@ fn a_curved_face_extrudes_along_a_direction_and_joins() {
         _ => panic!("a curved face pulled out joins its body"),
     }
 }
+
+/// Two 20 mm cubes side by side (x 0..20 and 30..50) and a 50 × 10 square under both, z from 20.
+fn two_cubes() -> (w3d_kernel::document::Document<Occt>, u32, u32, ExtrudeParams) {
+    let mut doc = w3d_kernel::document::Document::new(Occt);
+    let a = doc.add(doc.kernel.box_from_corners(DVec3::ZERO, DVec3::splat(20.0)));
+    let b = doc.add(doc.kernel.box_from_corners(DVec3::new(30.0, 0.0, 0.0), DVec3::new(50.0, 20.0, 20.0)));
+    doc.clear_history();
+    let p = ExtrudeParams { profile: Profile::rectangle(50.0, 10.0), frame: Frame::new(DVec3::new(25.0, 10.0, 20.0), DVec3::X, DVec3::Z), operation: Operation::Auto, ..square(-5.0, None) };
+    (doc, a, b, p)
+}
+
+#[test]
+fn an_extrude_cuts_every_target_it_reaches() {
+    let (mut doc, a, b, p) = two_cubes();
+    // Pushed 5 in across both cubes: each loses a 20 × 10 × 5 slot (1000 mm³), each its own body.
+    assert_eq!(doc.commit_extrude_many(Some(a), &[b], &p).unwrap(), a);
+    let v = |id| volume(&doc.kernel, doc.get(id).unwrap());
+    assert!((v(a) - 7000.0).abs() < 1e-6 && (v(b) - 7000.0).abs() < 1e-6, "{} {}", v(a), v(b));
+    assert_eq!(doc.ids().len(), 2);
+    assert!(doc.undo());
+    assert!((volume(&doc.kernel, doc.get(b).unwrap()) - 8000.0).abs() < 1e-6, "one undo step");
+    // A target the cut misses is left as it is.
+    let far = doc.add(doc.kernel.box_from_corners(DVec3::new(0.0, 100.0, 0.0), DVec3::new(10.0, 110.0, 10.0)));
+    doc.commit_extrude_many(Some(a), &[far], &p).unwrap();
+    assert!((volume(&doc.kernel, doc.get(far).unwrap()) - 1000.0).abs() < 1e-6);
+}
+
+#[test]
+fn an_extrude_pulled_out_joins_every_target_into_the_first() {
+    let (mut doc, a, b, p) = two_cubes();
+    // Pulled 5 out: the slab bridges the cubes, and both join it in one body.
+    let p = ExtrudeParams { distance: 5.0, ..p };
+    assert_eq!(doc.commit_extrude_many(Some(a), &[b], &p).unwrap(), a);
+    assert_eq!(doc.ids(), vec![a]);
+    let s = doc.get(a).unwrap();
+    assert_eq!(doc.kernel.solid_count(s), 1);
+    assert!((volume(&doc.kernel, s) - (16000.0 + 50.0 * 10.0 * 5.0)).abs() < 1e-6, "{}", volume(&doc.kernel, s));
+}
