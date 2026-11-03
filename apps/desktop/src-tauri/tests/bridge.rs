@@ -87,3 +87,39 @@ fn network_settings_read_safely() {
     assert_eq!(Settings::read(Some(r#"{"bridge":false,"port":5000}"#)), Settings { bridge: false, port: 5000 });
     assert_eq!(Settings::read(Some(r#"{"bridge":true,"port":80}"#)).port, PORT);
 }
+
+#[test]
+fn refacet_sends_just_the_bodies_asked_for_at_their_settings() {
+    let model = Arc::new(api::start_enclosure());
+    let scene = api::scene(&model).unwrap();
+    let edges = (0..scene[0].edges.len() as u32).collect::<Vec<_>>();
+    let req: api::BlendRequest =
+        serde_json::from_value(json!({ "body": 1, "edges": edges, "size": 4.0, "kind": "fillet" })).unwrap();
+    api::commit_blend(&model, req).unwrap();
+    let display = api::scene(&model).unwrap()[0].indices.len();
+
+    let m = model.clone();
+    let bridge = Bridge::start(0, Arc::new(move || api::scene(&m))).unwrap();
+    bridge.on_refacet(api::bridge_refacet(model.clone()));
+    let (mut ws, _) = tungstenite::connect(format!("ws://{}", bridge.addr)).unwrap();
+    assert_eq!(read(&mut ws)["type"], "hello");
+    let mut tris = |r: Value| {
+        ws.send(Message::text(r.to_string())).unwrap();
+        let msg = read(&mut ws);
+        assert_eq!(msg["type"], "meshes", "{msg}");
+        assert_eq!(msg["partial"], true);
+        let o = msg["objects"].as_array().unwrap();
+        assert_eq!(o.len(), 1);
+        o[0]["indices"].as_array().unwrap().len() / 3
+    };
+    let fine = tris(json!({ "type": "refacet", "ids": [1, 99], "tolerance": 0.005, "angle": 0.1 }));
+    let coarse = tris(json!({ "type": "refacet", "ids": [1], "tolerance": 0.1, "angle": 1.0 }));
+    assert!(fine > 2 * coarse, "fine {fine} vs coarse {coarse}");
+    // The viewport's facets are not touched by a refacet.
+    assert_eq!(api::scene(&model).unwrap()[0].indices.len(), display);
+    // Advanced settings: a coarse edge angle wins over the fine Angle.
+    let advanced = tris(json!({ "type": "refacet", "ids": [1], "tolerance": 0.1, "angle": 0.1, "edge_angle_tolerance": 1.0, "face_angle_tolerance": 1.0 }));
+    assert!(advanced < fine);
+    ws.send(Message::text(json!({ "type": "refacet", "ids": [1], "tolerance": "x" }).to_string())).unwrap();
+    assert_eq!(read(&mut ws)["type"], "error");
+}

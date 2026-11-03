@@ -13,6 +13,11 @@
 //!                    every body there is; z is up, millimetres. Bodies missing from it are gone.
 //!                    `document` is the file's name, `path` the outliner groups a body is in (from
 //!                    the top) and `hidden` whether it is hidden; disabled bodies are not sent.
+//!   client → server  { type: "refacet", ids, tolerance, angle, ngon, min_width,
+//!                    edge_chord_tolerance, edge_angle_tolerance, face_plane_tolerance,
+//!                    face_angle_tolerance }
+//!                    reply: a "meshes" message with `partial: true` holding just those bodies,
+//!                    faceted at those settings (Plasticity's Refacet; the rest stay as they are)
 //!   server → client  { type: "error", message }
 //! Only 127.0.0.1 is listened on.
 
@@ -56,6 +61,8 @@ impl Settings {
 }
 
 type Scene = Arc<dyn Fn() -> Result<Vec<Body>, String> + Send + Sync>;
+/// Facets the bodies named at Refacet settings (the request's JSON, as api::Refacet reads it).
+pub type RefacetFn = Arc<dyn Fn(Vec<u32>, &Value) -> Result<Vec<Body>, String> + Send + Sync>;
 
 struct Client {
     live: bool,
@@ -68,6 +75,7 @@ pub struct Bridge {
     clients: Arc<Mutex<Vec<Arc<Mutex<Client>>>>>,
     scene: Scene,
     outline: Arc<Mutex<Value>>,
+    refacet: Arc<Mutex<Option<RefacetFn>>>,
     pub addr: SocketAddr,
 }
 
@@ -88,6 +96,12 @@ struct MeshOut<'a> {
 /// the app last said about the document ({ document, objects: { id: { path, hidden } } }); a body
 /// it names is sent with its groups, and once it has said anything, bodies it leaves out (disabled) go.
 pub fn meshes(bodies: &[Body], outline: &Value) -> String {
+    meshes_message(bodies, outline, false)
+}
+
+/// The "meshes" message; `partial` says it holds only some bodies (a Refacet reply), so the
+/// add-on must not take the others as gone.
+pub fn meshes_message(bodies: &[Body], outline: &Value, partial: bool) -> String {
     let known = outline["objects"].as_object();
     let objects: Vec<_> = bodies
         .iter()
@@ -117,7 +131,9 @@ pub fn meshes(bodies: &[Body], outline: &Value) -> String {
         })
         .collect();
     let document = outline["document"].as_str().unwrap_or("Witness 3D");
-    json!({ "type": "meshes", "document": document, "objects": objects }).to_string()
+    let mut msg = json!({ "type": "meshes", "document": document, "objects": objects });
+    if partial { msg["partial"] = json!(true) }
+    msg.to_string()
 }
 
 impl Bridge {
@@ -128,6 +144,7 @@ impl Bridge {
             clients: Arc::default(),
             scene,
             outline: Arc::new(Mutex::new(Value::Null)),
+            refacet: Arc::default(),
             addr: listener.local_addr()?,
         };
         let b = bridge.clone();
@@ -151,6 +168,21 @@ impl Bridge {
     /// The app's document name and outliner groups, sent with the meshes from now on.
     pub fn set_outline(&self, outline: Value) {
         *self.outline.lock().unwrap() = outline;
+    }
+
+    /// What answers Refacet requests; without one they get an error.
+    pub fn on_refacet(&self, f: RefacetFn) {
+        *self.refacet.lock().unwrap() = Some(f);
+    }
+
+    fn refaceted(&self, req: &Value) -> String {
+        let ids: Vec<u32> = req["ids"].as_array().map(|a| a.iter().filter_map(|v| v.as_u64()).map(|v| v as u32).collect()).unwrap_or_default();
+        let f = self.refacet.lock().unwrap().clone();
+        match f.map(|f| f(ids, req)) {
+            Some(Ok(bodies)) => meshes_message(&bodies, &self.outline.lock().unwrap(), true),
+            Some(Err(e)) => json!({ "type": "error", "message": e }).to_string(),
+            None => json!({ "type": "error", "message": "this app can't refacet" }).to_string(),
+        }
     }
 
     /// The model changed: send the bodies to every add-on with Live Link on.
@@ -218,6 +250,7 @@ impl Bridge {
                     let v: Value = serde_json::from_str(t.as_str()).unwrap_or(Value::Null);
                     match v["type"].as_str() {
                         Some("refresh") => ws.send(Message::text(self.message()))?,
+                        Some("refacet") => ws.send(Message::text(self.refaceted(&v)))?,
                         Some("live") => {
                             let on = v["on"].as_bool().unwrap_or(false);
                             me.lock().unwrap().live = on;

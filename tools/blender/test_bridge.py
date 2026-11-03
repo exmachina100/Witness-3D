@@ -126,6 +126,29 @@ try:
     check(len(ours()) == 1, "the object was updated in place, not duplicated")
     render("blender-after.png")
 
+    # Refacet the body finer, as Plasticity's add-on does: one welded piece, the material kept.
+    for o in bpy.context.view_layer.objects:
+        o.select_set(o == body)
+    scene.w3d_tolerance, scene.w3d_angle = 0.005, 0.2
+    tris = len(body.data.polygons)
+    check(w3d.refacet_selected(bpy.context) is None, "Refacet is sent for the selected body")
+    wait_for(lambda: len(body.data.polygons) != tris, "the refaceted mesh")
+    fine = len(body.data.polygons)
+    check(fine > tris, "the finer settings give more facets (%d -> %d)" % (tris, fine))
+    import bmesh
+    bm = bmesh.new()
+    bm.from_mesh(body.data)
+    check(all(len(e.link_faces) == 2 for e in bm.edges), "the refaceted mesh is welded into one closed piece")
+    check(all(e.smooth for e in bm.edges), "a body rounded all over has no sharp edges")
+    bm.free()
+    check(len(body.data.materials) == 1 and body.data.materials[0] == mat, "the material stays through Refacet")
+    check(tuple(round(d * 1000, 2) for d in body.dimensions) == (80.0, 50.0, 30.0), "and so does its size")
+    scene.w3d_facet_type = "NGON"
+    check(w3d.refacet_selected(bpy.context) is None, "Refacet as Ngon")
+    wait_for(lambda: len(body.data.polygons) < fine, "the Ngon mesh")
+    check(max(len(p.vertices) for p in body.data.polygons) > 4, "the flat faces come back as n-gons")
+    scene.w3d_facet_type = "TRI"
+
     # The app's outliner: the document is HOUSING.W3D, the body is LID in group PARTS, hidden.
     rev = body["w3d_revision"]
     check(say('outline {"document":"HOUSING.W3D","objects":{"1":{"path":["PARTS"],"name":"LID","hidden":true}}}') == "ok", "the app sends its outliner")

@@ -10,6 +10,13 @@
 # global), with each body named as in the outliner. Bodies hidden in Witness 3D arrive hidden, or not
 # at all with "Only visible". Documents stay apart: refreshing one leaves another's objects alone.
 #
+# Refacet, as in Plasticity's add-on, asks Witness 3D to facet the selected bridge objects again at
+# the panel's settings: Tri or Ngon, Tolerance (millimetres) and Angle (radians), and under Advanced
+# the edge chord and angle, face plane and angle tolerances and a minimum width. A refaceted mesh is
+# welded into one piece with the B-rep edges marked sharp, and with Ngon the facets of each face are
+# merged where they lie flat. Live Link keeps each object's settings: when the body changes it is
+# refaceted again.
+#
 # Install: Edit > Preferences > Add-ons > Install from Disk, pick this file, enable it. The panel is
 # in the 3D view's sidebar (N), under "Witness 3D". The Witness 3D desktop app listens on
 # 127.0.0.1:8981. Protocol: apps/desktop/src-tauri/src/bridge.rs.
@@ -35,8 +42,9 @@ import threading
 
 try:
     import bpy
+    import bmesh
 except ImportError:  # the WebSocket client is usable without Blender, for tests
-    bpy = None
+    bpy = bmesh = None
 
 COLLECTION = "Witness 3D"
 GUID = b"258EAFA5-E914-47DA-95CA-C5AB0DC85B11"
@@ -201,6 +209,8 @@ def apply_meshes(scene, msg, scale, only_visible=False):
     updating geometry in place."""
     root = collection(scene)
     doc, objects = plan(msg, only_visible)
+    partial = bool(msg.get("partial"))
+    again = {}
     # This document's objects (older versions kept them loose in the root: they are adopted).
     have = {o.get("w3d_id"): o for o in bpy.data.objects
             if o.get("w3d_id") is not None and (o.get("w3d_doc") == doc or (o.get("w3d_doc") is None and o.name in root.objects))}
@@ -217,7 +227,7 @@ def apply_meshes(scene, msg, scale, only_visible=False):
             if obj.name != m["name"] and not obj.name.startswith(m["name"] + "."):
                 obj.name = m["name"]
             show(obj, m["hidden"])
-        if obj is not None and obj.get("w3d_revision") == m["revision"]:
+        if obj is not None and obj.get("w3d_revision") == m["revision"] and not partial:
             continue
         p = m["positions"]
         verts = [(p[i] * scale, p[i + 1] * scale, p[i + 2] * scale) for i in range(0, len(p), 3)]
@@ -233,12 +243,19 @@ def apply_meshes(scene, msg, scale, only_visible=False):
         mesh = obj.data
         # Clearing keeps the mesh's material slots, so materials set in Blender stay put.
         mesh.clear_geometry()
-        mesh.from_pydata(verts, [], faces)
-        # Witness 3D sends each B-rep face with its own vertices, so smooth shading stays sharp
-        # at the face boundaries and smooth across rounds.
-        mesh.polygons.foreach_set("use_smooth", [True] * len(mesh.polygons))
+        if partial:
+            build_refaceted(mesh, verts, faces, m.get("faceIds") or [0] * len(faces), bool(obj.get("w3d_ngon")), 0.0005 * scale)
+        else:
+            mesh.from_pydata(verts, [], faces)
+            # Witness 3D sends each B-rep face with its own vertices, so smooth shading stays sharp
+            # at the face boundaries and smooth across rounds.
+            mesh.polygons.foreach_set("use_smooth", [True] * len(mesh.polygons))
+            if obj.get("w3d_refacet"):
+                again.setdefault(obj["w3d_refacet"], []).append(m["id"])
         mesh.update()
         obj["w3d_revision"] = m["revision"]
+    if partial:
+        return []
     for wid, obj in have.items():
         if wid not in seen:
             mesh = obj.data
@@ -249,6 +266,7 @@ def apply_meshes(scene, msg, scale, only_visible=False):
     for c in root.children:
         if c.get("w3d_name") == doc:
             prune(c)
+    return refacet_requests(again)
 
 
 def place(obj, target, root):
@@ -284,13 +302,58 @@ def prune(col):
 
 # --- the add-on: state, operators, panel ------------------------------------------------------
 
-state = {"link": None, "error": ""}
+state = {"link": None, "error": "", "document": None}
+
+# Edges between B-rep faces bending more than this are marked sharp in a refaceted mesh.
+SHARP_ANGLE = 0.0873  # 5°
+
+
+def refacet_settings(scene):
+    """The panel's Refacet settings as the bridge takes them (bridge.rs)."""
+    r = {"ngon": scene.w3d_facet_type == "NGON", "tolerance": scene.w3d_tolerance, "angle": scene.w3d_angle}
+    if scene.w3d_advanced:
+        r.update(min_width=scene.w3d_min_width,
+                 edge_chord_tolerance=scene.w3d_edge_chord_tolerance, edge_angle_tolerance=scene.w3d_edge_angle_tolerance,
+                 face_plane_tolerance=scene.w3d_face_plane_tolerance, face_angle_tolerance=scene.w3d_face_angle_tolerance)
+    return r
+
+
+def refacet_requests(groups):
+    """{settings JSON: [ids]} as refacet requests, one per set of settings."""
+    return [dict(json.loads(k), type="refacet", ids=sorted(ids)) for k, ids in sorted(groups.items())]
+
+
+def build_refaceted(mesh, verts, faces, face_ids, ngon, weld):
+    """Fill `mesh` welded into one piece, with sharp B-rep edges and (Ngon) flat facets merged."""
+    bm = bmesh.new()
+    bv = [bm.verts.new(v) for v in verts]
+    layer = bm.faces.layers.int.new("w3d_face")
+    for f, fid in zip(faces, face_ids):
+        try:
+            bf = bm.faces.new((bv[f[0]], bv[f[1]], bv[f[2]]))
+        except ValueError:  # degenerate or repeated
+            continue
+        bf[layer] = fid
+    bmesh.ops.remove_doubles(bm, verts=bm.verts, dist=weld)
+    if ngon:
+        inner = [e for e in bm.edges if len(e.link_faces) == 2 and e.link_faces[0][layer] == e.link_faces[1][layer]]
+        bmesh.ops.dissolve_limit(bm, angle_limit=0.0175, use_dissolve_boundaries=False, verts=[], edges=inner)
+    for e in bm.edges:
+        fs = e.link_faces
+        e.smooth = not (len(fs) == 2 and fs[0][layer] != fs[1][layer] and e.calc_face_angle(0.0) > SHARP_ANGLE)
+    for f in bm.faces:
+        f.smooth = True
+    bm.to_mesh(mesh)
+    bm.free()
 
 
 def handle(scene, msg):
     kind = msg.get("type")
     if kind == "meshes":
-        apply_meshes(scene, msg, scene.w3d_scale, scene.w3d_only_visible)
+        state["document"] = document_name(msg)
+        for req in apply_meshes(scene, msg, scene.w3d_scale, scene.w3d_only_visible) or []:
+            if state["link"] is not None:
+                state["link"].send(req)
     elif kind == "error":
         state["error"] = msg.get("message", "")
     elif kind == "closed":
@@ -371,6 +434,34 @@ if bpy is not None:
             state["link"].send({"type": "refresh"})
             return {"FINISHED"}
 
+    def refacet_selected(context):
+        """Ask for the selected bridge objects of the current document again at the panel's settings."""
+        if state["link"] is None:
+            return "Connect to Witness 3D first"
+        objs = [o for o in context.selected_objects if o.get("w3d_id") is not None and o.get("w3d_doc") == state["document"]]
+        if not objs:
+            return "Select objects from Witness 3D's open document"
+        r = refacet_settings(context.scene)
+        key = json.dumps(r, sort_keys=True)
+        for o in objs:
+            o["w3d_refacet"] = key
+            o["w3d_ngon"] = r["ngon"]
+        for req in refacet_requests({key: [o["w3d_id"] for o in objs]}):
+            state["link"].send(req)
+        return None
+
+    class W3D_OT_refacet(bpy.types.Operator):
+        """Facet the selected Witness 3D objects again at these settings"""
+        bl_idname = "witness3d.refacet"
+        bl_label = "Refacet"
+
+        def execute(self, context):
+            err = refacet_selected(context)
+            if err:
+                self.report({"ERROR"}, err)
+                return {"CANCELLED"}
+            return {"FINISHED"}
+
     class W3D_PT_panel(bpy.types.Panel):
         bl_label = "Witness 3D"
         bl_space_type = "VIEW_3D"
@@ -391,10 +482,26 @@ if bpy is not None:
             col.prop(s, "w3d_live")
             col.prop(s, "w3d_scale")
             col.prop(s, "w3d_only_visible")
+            box = col.box()
+            box.row().prop(s, "w3d_facet_type", expand=True)
+            box.prop(s, "w3d_tolerance")
+            box.prop(s, "w3d_angle")
+            box.prop(s, "w3d_advanced")
+            if s.w3d_advanced:
+                for p in ("w3d_min_width", "w3d_edge_chord_tolerance", "w3d_edge_angle_tolerance",
+                          "w3d_face_plane_tolerance", "w3d_face_angle_tolerance"):
+                    box.prop(s, p)
+            row = box.row()
+            row.enabled = state["link"] is not None
+            row.operator("witness3d.refacet", icon="MOD_TRIANGULATE")
             if state["error"]:
                 col.label(text=state["error"], icon="ERROR")
 
-    CLASSES = (W3D_OT_connect, W3D_OT_disconnect, W3D_OT_refresh, W3D_PT_panel)
+    CLASSES = (W3D_OT_connect, W3D_OT_disconnect, W3D_OT_refresh, W3D_OT_refacet, W3D_PT_panel)
+
+REFACET_PROPS = ("w3d_facet_type", "w3d_tolerance", "w3d_angle", "w3d_advanced", "w3d_min_width",
+                 "w3d_edge_chord_tolerance", "w3d_edge_angle_tolerance", "w3d_face_plane_tolerance",
+                 "w3d_face_angle_tolerance")
 
 
 def register():
@@ -407,6 +514,20 @@ def register():
                                           description="Blender units per millimetre; 0.001 gives metres")
     S.w3d_only_visible = bpy.props.BoolProperty(name="Only visible", default=False,
                                                 description="Leave out bodies hidden in Witness 3D (otherwise they come in hidden)")
+    P = bpy.props
+    S.w3d_facet_type = P.EnumProperty(name="Facets", default="TRI", items=[
+        ("TRI", "Tri", "Triangles everywhere"), ("NGON", "Ngon", "Flat stretches of a face merged into n-gons")])
+    S.w3d_tolerance = P.FloatProperty(name="Tolerance", default=0.01, min=0.0001, max=0.1, precision=4,
+                                      description="How far facets may stray from the surface, in millimetres")
+    S.w3d_angle = P.FloatProperty(name="Angle", default=0.45, min=0.1, max=1.0,
+                                  description="How far neighbouring facets may turn, in radians")
+    S.w3d_advanced = P.BoolProperty(name="Advanced", default=False, description="Set edge and face tolerances apart")
+    S.w3d_min_width = P.FloatProperty(name="Min Width", default=0.0, min=0.0, max=100.0,
+                                      description="No facet edge shorter than this, in millimetres (0: no limit)")
+    S.w3d_edge_chord_tolerance = P.FloatProperty(name="Edge chord tolerance", default=0.01, min=0.0001, max=1.0, precision=4)
+    S.w3d_edge_angle_tolerance = P.FloatProperty(name="Edge angle tolerance", default=0.45, min=0.01, max=1.5)
+    S.w3d_face_plane_tolerance = P.FloatProperty(name="Face plane tolerance", default=0.01, min=0.0001, max=1.0, precision=4)
+    S.w3d_face_angle_tolerance = P.FloatProperty(name="Face angle tolerance", default=0.45, min=0.01, max=1.5)
     for c in CLASSES:
         bpy.utils.register_class(c)
 
@@ -415,5 +536,5 @@ def unregister():
     disconnect()
     for c in reversed(CLASSES):
         bpy.utils.unregister_class(c)
-    for p in ("w3d_host", "w3d_port", "w3d_live", "w3d_scale", "w3d_only_visible"):
+    for p in ("w3d_host", "w3d_port", "w3d_live", "w3d_scale", "w3d_only_visible") + REFACET_PROPS:
         delattr(bpy.types.Scene, p)

@@ -16,6 +16,7 @@ fn main() {
     let model = Arc::new(api::start_enclosure());
     let m = model.clone();
     let bridge = Bridge::start(port, Arc::new(move || api::scene(&m))).expect("port in use");
+    bridge.on_refacet(api::bridge_refacet(model.clone()));
     println!("listening {}", bridge.addr);
     for line in std::io::stdin().lock().lines() {
         let line = line.unwrap();

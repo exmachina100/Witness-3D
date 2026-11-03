@@ -263,6 +263,79 @@ fn doc_body(doc: &Document<Occt>, id: BodyId) -> Result<Body, String> {
     Ok(b)
 }
 
+/// The Blender bridge's Refacet settings (Plasticity's add-on: Tolerance, Angle and the Advanced
+/// tolerances). Tolerances are millimetres, angles radians.
+#[derive(Debug, Clone, Copy, PartialEq, Deserialize)]
+#[serde(default)]
+pub struct Refacet {
+    pub tolerance: f64,
+    pub angle: f64,
+    pub min_width: f64,
+    pub edge_chord_tolerance: Option<f64>,
+    pub edge_angle_tolerance: Option<f64>,
+    pub face_plane_tolerance: Option<f64>,
+    pub face_angle_tolerance: Option<f64>,
+    /// Ngon output: flat faces get coarse facets (a plane angle of 45°, as Plasticity sends).
+    pub ngon: bool,
+}
+
+impl Default for Refacet {
+    fn default() -> Self {
+        Refacet { tolerance: 0.01, angle: 0.45, min_width: 0.0, edge_chord_tolerance: None, edge_angle_tolerance: None, face_plane_tolerance: None, face_angle_tolerance: None, ngon: false }
+    }
+}
+
+impl Refacet {
+    /// What the kernel's mesher takes: [edge chord, edge angle, face plane, face angle, min size],
+    /// held to ranges that stay quick (no finer than 0.001 mm, angles 0.01 to 1.5 radians).
+    pub fn params(&self) -> [f64; 5] {
+        let tol = |t: f64| if t.is_finite() { t.clamp(0.001, 10.0) } else { 0.01 };
+        let ang = |a: f64| if a.is_finite() { a.clamp(0.01, 1.5) } else { 0.45 };
+        let face_angle = self.face_angle_tolerance.unwrap_or(if self.ngon { std::f64::consts::FRAC_PI_4 } else { self.angle });
+        [
+            tol(self.edge_chord_tolerance.unwrap_or(self.tolerance)),
+            ang(self.edge_angle_tolerance.unwrap_or(self.angle)),
+            tol(self.face_plane_tolerance.unwrap_or(self.tolerance)),
+            ang(face_angle),
+            if self.min_width.is_finite() { self.min_width.max(0.0) } else { 0.0 },
+        ]
+    }
+}
+
+/// The bridge's Refacet answer, reading the request's settings.
+pub fn bridge_refacet(m: std::sync::Arc<Model>) -> crate::bridge::RefacetFn {
+    std::sync::Arc::new(move |ids, req| {
+        let r: Refacet = serde_json::from_value(req.clone()).map_err(|e| format!("bad Refacet settings: {e}"))?;
+        refacet(&m, ids, r)
+    })
+}
+
+/// The bodies `ids` faceted at `r` (Blender bridge Refacet); ids that aren't bodies are skipped.
+pub fn refacet(m: &Model, ids: Vec<BodyId>, r: Refacet) -> Result<Vec<Body>, String> {
+    let p = r.params();
+    m.call(move |doc| {
+        let mut out = vec![];
+        for id in ids {
+            let Some(solid) = doc.get(id) else { continue };
+            let t = doc.kernel.refacet(solid, p).map_err(|e| e.to_string())?;
+            out.push(Body {
+                id,
+                volume: 0.0,
+                sheet: doc.kernel.is_sheet(solid),
+                positions: t.positions.iter().flatten().map(|&c| c as f32).collect(),
+                indices: t.indices,
+                face_ids: t.face_ids,
+                face_planes: vec![],
+                edges: vec![],
+                face_refs: vec![],
+                edge_refs: vec![],
+                revision: doc.revision(),
+            });
+        }
+        Ok(out)
+    })
+}
+
 fn bodies(doc: &Document<Occt>) -> Result<Vec<Body>, String> {
     doc.ids().into_iter().map(|id| doc_body(doc, id)).collect()
 }

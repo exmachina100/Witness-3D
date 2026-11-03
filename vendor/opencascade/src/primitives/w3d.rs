@@ -299,6 +299,11 @@ impl Shape {
     /// Drops the shape's facets, so the next mesh is made afresh even when coarser.
     pub fn clear_mesh(&self) { ffi::w3d::w3d_clear_mesh(&self.inner) }
 
+    /// Facets at Refacet settings, on a copy: per face [nv, nt, points, triangles] (see w3d.hxx).
+    pub fn refacet(&self, p: &[f64]) -> Result<Vec<f64>, String> {
+        ffi::w3d::w3d_refacet(&self.inner, p).map(|v| v.into_iter().collect()).map_err(|e| e.what().to_string())
+    }
+
     pub fn face_poles(&self) -> Vec<f64> {
         ffi::w3d::w3d_face_poles(&self.inner).into_iter().collect()
     }
