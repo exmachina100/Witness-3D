@@ -428,6 +428,13 @@ impl FormRequest {
         };
         Ok(doc.form_params(&self.regions, kind, operation)?)
     }
+
+    /// Revolve and Sweep take every selected region (closed curves), each its own shape; Loft takes
+    /// them all as its sections.
+    fn all_params(&self, doc: &Document<Occt>) -> Result<Vec<FormParams>, ApiError> {
+        if self.kind == FormName::Loft || self.regions.len() < 2 { return Ok(vec![self.params(doc)?]) }
+        self.regions.iter().map(|&r| FormRequest { regions: vec![r], ..self.clone() }.params(doc)).collect()
+    }
 }
 
 fn preview_of(doc: &Document<Occt>, target: Option<BodyId>, result: ExtrudeResult<<Occt as Kernel>::Solid>, tool: Option<Body>) -> Result<Preview, String> {
@@ -453,15 +460,15 @@ fn preview_of(doc: &Document<Occt>, target: Option<BodyId>, result: ExtrudeResul
 /// What a Revolve, Loft or Sweep would make. `None` means a newer request superseded it.
 pub fn preview_form(m: &Model, req: FormRequest) -> Option<Result<Preview, ApiError>> {
     m.preview(move |doc| {
-        let p = req.params(doc)?;
-        let target = req.target.filter(|_| p.operation != Operation::NewBody);
-        let result = match doc.preview_form(target, &p) {
+        let ps = req.all_params(doc)?;
+        let target = req.target.filter(|_| ps[0].operation != Operation::NewBody);
+        let result = match doc.preview_forms(target, &ps) {
             Err(KernelError::NoOp) => return Ok(Preview { outcome: Outcome::None, tool: None, result: None, piece: None, more: vec![] }),
             r => r?,
         };
         let tool = match &result {
             ExtrudeResult::New(_) => None,
-            ExtrudeResult::Replace { .. } | ExtrudeResult::Slice { .. } => Some(body(&doc.kernel, 0, &form::tool(&doc.kernel, &p)?)?),
+            ExtrudeResult::Replace { .. } | ExtrudeResult::Slice { .. } => Some(body(&doc.kernel, 0, &doc.forms_tool(&ps)?)?),
         };
         Ok(preview_of(doc, target, result, tool)?)
     })
@@ -470,9 +477,9 @@ pub fn preview_form(m: &Model, req: FormRequest) -> Option<Result<Preview, ApiEr
 /// Run a Revolve, Loft or Sweep as one undoable step.
 pub fn commit_form(m: &Model, req: FormRequest) -> Result<Committed, ApiError> {
     m.call(move |doc| {
-        let p = req.params(doc)?;
-        let target = req.target.filter(|_| p.operation != Operation::NewBody);
-        let id = doc.commit_form_keeping(target, &p, req.keep)?;
+        let ps = req.all_params(doc)?;
+        let target = req.target.filter(|_| ps[0].operation != Operation::NewBody);
+        let id = doc.commit_forms_keeping(target, &ps, req.keep)?;
         Ok(Committed { id, scene: bodies(doc)? })
     })
 }

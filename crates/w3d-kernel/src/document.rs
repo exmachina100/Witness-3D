@@ -785,6 +785,43 @@ impl<K: Kernel> Document<K> {
         Ok(self.commit_result(target, r))
     }
 
+    /// Revolve or Sweep of several regions at once (Plasticity takes every selected region): each
+    /// region's shape, fused into one, then joined, cut or intersected with the target together.
+    pub fn preview_forms(&self, target: Option<BodyId>, ps: &[FormParams]) -> Result<ExtrudeResult<K::Solid>, KernelError> {
+        match ps {
+            [] => Err(KernelError::Invalid("select a region first")),
+            [p] => self.preview_form(target, p),
+            _ => {
+                let tool = self.forms_tool(ps)?;
+                crate::extrude::combine(&self.kernel, target.and_then(|id| self.get(id)), tool, ps[0].operation, true, "the shape does not meet the body")
+            }
+        }
+    }
+
+    /// The shapes of several forms fused into one tool.
+    pub fn forms_tool(&self, ps: &[FormParams]) -> Result<K::Solid, KernelError> {
+        let (first, rest) = ps.split_first().ok_or(KernelError::Invalid("select a region first"))?;
+        let mut tool = crate::form::tool(&self.kernel, first)?;
+        for p in rest {
+            let next = crate::form::tool(&self.kernel, p)?;
+            tool = self.kernel.boolean(&tool, &next, BooleanOp::Union)?.solid;
+        }
+        if !self.kernel.is_valid(&tool) || self.kernel.solid_count(&tool) == 0 {
+            return Err(KernelError::Invalid("the shape crosses itself; change the axis, path or profiles"));
+        }
+        Ok(tool)
+    }
+
+    /// Commit several forms as one undoable step (see preview_forms), keeping the tool with `keep`.
+    pub fn commit_forms_keeping(&mut self, target: Option<BodyId>, ps: &[FormParams], keep: bool) -> Result<BodyId, KernelError> {
+        if let [p] = ps { return self.commit_form_keeping(target, p, keep) }
+        let r = self.preview_forms(target, ps)?;
+        let tool = if keep && !matches!(r, ExtrudeResult::New(_)) { Some(self.forms_tool(ps)?) } else { None };
+        let id = self.commit_result(target, r);
+        if let Some(t) = tool { self.add_unrecorded(t); }
+        Ok(id)
+    }
+
     /// Commit a form; with `keep` a union, difference, intersect or slice also keeps the new shape
     /// as a body of its own (Plasticity's T keep tools), in the same undo step.
     pub fn commit_form_keeping(&mut self, target: Option<BodyId>, p: &FormParams, keep: bool) -> Result<BodyId, KernelError> {
