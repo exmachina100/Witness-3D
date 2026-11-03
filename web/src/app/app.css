@@ -303,6 +303,12 @@ button:focus-visible, input:focus-visible { outline: 1px solid var(--accent); ou
 .swatches { display: grid; grid-template-columns: repeat(7, 1fr); gap: 6px; }
 .swatches button { aspect-ratio: 1; border-radius: 50%; border: 1px solid var(--rule); }
 .swatches button[aria-pressed="true"] { outline: 2px solid var(--accent); outline-offset: 1px; }
+/* Shader swatches: three rows at most, the rest (your matcaps) scrolled in the same list. */
+.swatches[data-id="shader-swatches"] { grid-template-columns: repeat(7, 30px); grid-auto-rows: 30px; justify-content: space-between; max-height: calc(3 * 30px + 2 * 6px + 4px); overflow-y: auto; padding: 2px; scrollbar-width: thin; }
+.swatches[data-id="shader-swatches"] button { aspect-ratio: auto; }
+.swatches button.add { display: grid; place-items: center; border-style: dashed; color: var(--muted); background: none; }
+.swatches button.add:hover { color: var(--ink); border-color: var(--ink); }
+.swatches button.add .ico { width: 16px; height: 16px; }
 [data-id="render-options"][hidden], [data-id="shader-option"][hidden] { display: none; }
 input[aria-invalid="true"] { border-color: var(--accent); color: var(--accent); }
 input[type="range"] { accent-color: var(--accent); }

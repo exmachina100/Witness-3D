@@ -289,9 +289,8 @@ const SHELL = `
 
       <div class="field"><label for="w3d-comb-scale">COMB SCALE</label><input id="w3d-comb-scale" data-id="comb-scale" type="range" min="0.1" max="4" step="0.1" value="1" title="Length of the curvature combs on curves and edges"></div>
       <span class="label">SHADER <output data-id="shader-name">CERAMIC DARK</output></span>
-      <div class="swatches" role="group" aria-label="Shader mode">${SHADERS.map(s => `<button data-shader="${s.id}" aria-pressed="${s.id === 'ceramic-dark'}" aria-label="${s.name}" title="${s.name}: ${s.use}" style="background: ${s.swatch}"></button>`).join('')}</div>
-      <div class="chips"><button data-id="matcap-load" title="Load a matcap image (PNG or JPEG) as the shader; it stays for next time">LOAD MATCAP</button><button data-id="matcap-custom" aria-pressed="false" hidden title="Your matcap">MY MATCAP</button></div>
-      <input type="file" data-id="matcap-file" accept=".png,.jpg,.jpeg,image/png,image/jpeg" hidden>
+      <div class="swatches" data-id="shader-swatches" role="group" aria-label="Shader mode">${SHADERS.map(s => `<button data-shader="${s.id}" aria-pressed="${s.id === 'ceramic-dark'}" aria-label="${s.name}" title="${s.name}: ${s.use}" style="background: ${s.swatch}"></button>`).join('')}</div>
+      <input type="file" data-id="matcap-file" accept=".png,.jpg,.jpeg,image/png,image/jpeg" multiple hidden>
       <div class="stepper" data-id="shader-option" hidden><span data-id="shader-option-label">STRIPES</span><button data-id="shader-option-dec" aria-label="Less">−</button><output data-id="shader-option-value">24</output><button data-id="shader-option-inc" aria-label="More">+</button></div>
       <div data-id="render-options" hidden>
         <span class="label">ENVIRONMENT</span>
@@ -1493,9 +1492,20 @@ export async function mount(root, backend) {
     envMaps[id] = pmrem.fromScene(room, 0.02).texture;
     return envMaps[id];
   }
-  // Your own matcap (kept for next time in this browser or app) and HDR environment (this session).
+  // Your own matcaps (kept for next time in this browser or app), each a swatch after the built-in
+  // shaders as in Plasticity's list; the shader 'custom:<n>' shows the n-th. And the HDR environment
+  // (this session).
   let matcapUrl = null, hdrName = '';
+  let myMatcaps = [];
+  try {
+    myMatcaps = JSON.parse(localStorage.getItem('w3d-matcaps') ?? '[]');
+    const old = localStorage.getItem('w3d-matcap');
+    if (old && !myMatcaps.some(m => m.url === old)) myMatcaps.push({ name: 'My matcap', url: old });
+  } catch { /* no storage */ }
+  const keepMatcaps = () => { try { localStorage.setItem('w3d-matcaps', JSON.stringify(myMatcaps)); localStorage.removeItem('w3d-matcap'); return true; } catch { return false; } };
+  const matcapAt = id => /^custom:\d+$/.test(id ?? '') ? myMatcaps[Number(id.slice(7))] : id === 'custom' ? myMatcaps[0] : null;
   function useMatcap(url) {
+    if (url === matcapUrl) return Promise.resolve();
     return new Promise((ok, fail) => new THREE.TextureLoader().load(url, t => {
       t.colorSpace = THREE.NoColorSpace;   // shown as drawn: the shader writes display colours
       shadeU.matcap.value.dispose();
@@ -1504,7 +1514,37 @@ export async function mount(root, backend) {
       ok();
     }, undefined, () => fail(new Error('that image could not be read'))));
   }
-  try { const kept = localStorage.getItem('w3d-matcap'); if (kept) useMatcap(kept).catch(() => {}); } catch { /* no storage */ }
+  /** The uploaded matcaps' swatches after the built-in ones, then the + swatch that loads one more. */
+  function renderMatcapSwatches() {
+    const grid = $('shader-swatches');
+    if (!grid) return;
+    for (const b of grid.querySelectorAll('[data-mymatcap], [data-id="matcap-load"]')) b.remove();
+    myMatcaps.forEach((m, i) => {
+      const b = document.createElement('button');
+      b.dataset.mymatcap = String(i);
+      b.setAttribute('aria-label', m.name);
+      b.title = `${m.name}: your matcap · right-click to take it off the list`;
+      b.style.background = `center / cover no-repeat url("${m.url}")`;
+      b.onclick = () => { view.shader = `custom:${i}`; view.render = false; applyView(); };
+      b.oncontextmenu = e => {
+        e.preventDefault();
+        myMatcaps.splice(i, 1);
+        keepMatcaps();
+        if (view.shader.startsWith('custom')) view.shader = 'ceramic-dark';
+        renderMatcapSwatches();
+        applyView();
+      };
+      grid.append(b);
+    });
+    const add = document.createElement('button');
+    add.dataset.id = 'matcap-load';
+    add.className = 'add';
+    add.setAttribute('aria-label', 'Load matcap');
+    add.title = 'Load a matcap image (PNG or JPEG); it joins this list and stays for next time';
+    add.innerHTML = icon('matcap-load');
+    add.onclick = () => $('matcap-file').click();
+    grid.append(add);
+  }
   async function loadHdr(file) {
     const exr = /\.exr$/i.test(file.name);
     const url = URL.createObjectURL(file);
@@ -1545,8 +1585,10 @@ export async function mount(root, backend) {
   }
 
   function applyView() {
-    const custom = view.shader === 'custom' && matcapUrl;
-    const sh = custom ? { id: 'custom', name: 'My matcap', mode: 14 } : shader(view.shader);
+    const mine = matcapAt(view.shader);
+    if (view.shader.startsWith('custom') && !mine) view.shader = 'ceramic-dark';
+    if (mine && mine.url !== matcapUrl) useMatcap(mine.url).catch(e => toast(say(e)));
+    const sh = mine ? { id: view.shader, name: mine.name, mode: 14 } : shader(view.shader);
     shadeU.mode.value = view.render ? -1 : sh.mode;
     shadeU.pull.value.copy(cplane.normal);
     shadeU.stripes.value = shaderOpts.stripes;
@@ -1569,8 +1611,7 @@ export async function mount(root, backend) {
     $('vh-ortho')?.setAttribute('aria-pressed', String(camera.isOrthographicCamera));
     for (const b of $$('[data-shader]')) b.setAttribute('aria-pressed', !view.render && b.dataset.shader === sh.id);
     for (const b of $$('[data-env]')) b.setAttribute('aria-pressed', b.dataset.env === view.environment);
-    $('matcap-custom').hidden = !matcapUrl;
-    $('matcap-custom').setAttribute('aria-pressed', String(!view.render && !!custom));
+    for (const b of $$('[data-mymatcap]')) b.setAttribute('aria-pressed', String(!view.render && view.shader === `custom:${b.dataset.mymatcap}`));
     $('hdr-custom').hidden = !envMaps.hdr;
     $('hdr-custom').setAttribute('aria-pressed', String(view.environment === 'hdr'));
     if (envMaps.hdr) $('hdr-custom').title = `Your HDR environment: ${hdrName}`;
@@ -11996,19 +12037,22 @@ export async function mount(root, backend) {
     if (!e.target.value || !f) return;
     try { takeFont(await f.read(), f.name); e.target.hidden = true; } catch (err) { toast(say(err)); }
   });
-  $('matcap-load').onclick = () => $('matcap-file').click();
+  renderMatcapSwatches();
   $('matcap-file').addEventListener('change', async e => {
-    const f = e.target.files?.[0];
+    const files = [...(e.target.files ?? [])];
     e.target.value = '';
-    if (!f) return;
-    try {
-      const url = await asDataUrl(f);
-      await useMatcap(url);
-      try { localStorage.setItem('w3d-matcap', url); } catch { toast('MATCAP LOADED; TOO BIG TO KEEP FOR NEXT TIME'); }
-      view.shader = 'custom'; view.render = false; applyView();
-    } catch (err) { toast(say(err)); }
+    for (const f of files) {
+      try {
+        const url = await asDataUrl(f);
+        await useMatcap(url);
+        myMatcaps.push({ name: f.name.replace(/\.[^.]+$/, ''), url });
+        if (!keepMatcaps()) toast('MATCAP LOADED; TOO BIG TO KEEP FOR NEXT TIME');
+        renderMatcapSwatches();
+        $('shader-swatches').scrollTop = $('shader-swatches').scrollHeight;
+        view.shader = `custom:${myMatcaps.length - 1}`; view.render = false; applyView();
+      } catch (err) { toast(say(err)); }
+    }
   });
-  $('matcap-custom').onclick = () => { view.shader = 'custom'; view.render = false; applyView(); };
   $('hdr-load').onclick = () => $('hdr-file').click();
   $('hdr-file').addEventListener('change', async e => {
     const f = e.target.files?.[0];
