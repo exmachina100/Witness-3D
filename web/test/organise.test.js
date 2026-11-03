@@ -265,3 +265,20 @@ test('objects take names that save, undo and leave with their object', () => {
     assert.ok(!o.names.has(2));
     assert.equal(o.names.get(curveKey(3)), 'RAIL');
 });
+
+test('dragging a row above another reorders it and moves it into that row\'s group', () => {
+    const o = new Organise();
+    o.prune([1, 2, 3, 4]);
+    const g = o.makeGroup([3, 4]);
+    assert.deepEqual(o.members(null, [1, 2, 3, 4]), [1, 2]);
+    assert.ok(o.moveBefore([2], [], 1));
+    assert.deepEqual(o.members(null, [1, 2, 3, 4]), [2, 1]);
+    o.moveBefore([1], [], 4);                       // into the group, above 4
+    assert.deepEqual(o.members(g.id, [1, 2, 3, 4]), [3, 1, 4]);
+    const h = o.makeGroup([2]);
+    o.moveBefore([], [h.id], `g:${g.id}`);          // groups reorder among groups
+    assert.deepEqual(o.childGroups(null).map(x => x.id), [h.id, g.id]);
+    assert.ok(!o.moveBefore([], [g.id], 3));        // never into itself
+    const back = Organise.from(JSON.parse(JSON.stringify(o.toJSON())));
+    assert.deepEqual(back.members(g.id, [1, 2, 3, 4]), [3, 1, 4]);
+});

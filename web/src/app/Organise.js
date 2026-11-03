@@ -21,6 +21,36 @@ export class Organise {
         this.groupOf = new Map(); // body id -> group id
         this.nextGroup = 1;
         this.names = new Map();   // object key -> the name given in the outliner (none: the default)
+        this.order = [];          // outliner order set by dragging: object keys and "g:<id>" for groups; the rest follow as made
+    }
+    /** These keys (objects, or "g:<id>" groups) in their outliner order. */
+    sorted(keys, key = k => k) {
+        const at = new Map(this.order.map((k, i) => [k, i]));
+        const rank = k => at.has(key(k)) ? at.get(key(k)) : 1e9;
+        return [...keys].sort((a, b) => rank(a) - rank(b));
+    }
+    /**
+     * Drag a row onto another (manual: drag and drop to reorder the Outliner): the dragged objects
+     * and groups go just above `target` (an object key or "g:<id>"), into its group.
+     */
+    moveBefore(ids, groupIds, target) {
+        const tg = typeof target === 'string' && target.startsWith('g:') ? this.group(+target.slice(2)) : null;
+        const parent = tg ? tg.parent : this.groupOf.get(target) ?? null;
+        const moving = [...ids.filter(id => id !== target), ...groupIds.filter(g => `g:${g}` !== target && !(parent !== null && this.within(parent, g)) && this.group(g)).map(g => `g:${g}`)];
+        if (!moving.length) return false;
+        for (const k of moving) {
+            if (k.startsWith?.('g:')) this.group(+k.slice(2)).parent = parent;
+            else if (parent === null) this.groupOf.delete(k);
+            else this.groupOf.set(k, parent);
+        }
+        const gone = new Set(moving);
+        // Everything not yet ordered keeps its place, after what was.
+        const known = [...(this.knownOf?.body ?? []), ...(this.knownOf?.curve ?? []), ...this.groups.map(g => `g:${g.id}`)];
+        const order = [...this.order, ...known.filter(k => !this.order.includes(k))].filter(k => !gone.has(k));
+        if (!order.includes(target)) order.push(target);
+        order.splice(order.indexOf(target), 0, ...moving);
+        this.order = order;
+        return true;
     }
 
     /**
@@ -41,6 +71,7 @@ export class Organise {
         for (const s of [this.hidden, this.locked, this.disabled, ...this.layers]) for (const id of [...s]) if (mine(id) && !live.has(id)) s.delete(id);
         for (const id of [...this.groupOf.keys()]) if (mine(id) && !live.has(id)) this.groupOf.delete(id);
         for (const id of [...this.names.keys()]) if (mine(id) && !live.has(id)) this.names.delete(id);
+        this.order = this.order.filter(k => !mine(k) || live.has(k));
         while (this.layers.length && !this.layers.at(-1).size) this.layers.pop();
     }
 
@@ -70,9 +101,9 @@ export class Organise {
 
     group(id) { return this.groups.find(g => g.id === id); }
     /** The groups inside a group (null for the top), in order made. */
-    childGroups(parent) { return this.groups.filter(g => g.parent === parent); }
+    childGroups(parent) { return this.sorted(this.groups.filter(g => g.parent === parent), g => `g:${g.id}`); }
     /** The bodies directly in a group (null for the top), in the order given. */
-    members(parent, ids) { return ids.filter(id => (this.groupOf.get(id) ?? null) === parent); }
+    members(parent, ids) { return this.sorted(ids.filter(id => (this.groupOf.get(id) ?? null) === parent)); }
     /** Every body in a group and the groups inside it. */
     allMembers(gid, ids) {
         const inside = new Set([gid]);
@@ -151,14 +182,14 @@ export class Organise {
     }
     /** What is kept in the file: groups, the group of each body, hidden, locked and disabled, and the active collection. Isolation is a view and isn't kept. */
     toJSON() {
-        return { groups: this.groups.map(g => ({ ...g })), groupOf: [...this.groupOf], hidden: [...this.hidden], locked: [...this.locked], disabled: [...this.disabled], active: this.active, nextGroup: this.nextGroup, names: [...this.names] };
+        return { groups: this.groups.map(g => ({ ...g })), groupOf: [...this.groupOf], hidden: [...this.hidden], locked: [...this.locked], disabled: [...this.disabled], active: this.active, nextGroup: this.nextGroup, names: [...this.names], order: [...this.order] };
     }
     /** Everything an undo step puts back: what toJSON() keeps and the isolation layers. */
     snapshot() { return { ...this.toJSON(), layers: this.layers.map(l => [...l]) }; }
     /** Back to a snapshot() (Ctrl+Z on an organising step). */
     restore(snap) {
         const o = Organise.from(snap);
-        for (const k of ['hidden', 'locked', 'disabled', 'groups', 'groupOf', 'active', 'nextGroup', 'names']) this[k] = o[k];
+        for (const k of ['hidden', 'locked', 'disabled', 'groups', 'groupOf', 'active', 'nextGroup', 'names', 'order']) this[k] = o[k];
         this.layers = (Array.isArray(snap?.layers) ? snap.layers : []).map(l => new Set(l));
     }
     /** Back from toJSON(); anything missing or malformed is left empty. */
@@ -174,6 +205,7 @@ export class Organise {
         for (const g of o.groups) if (!known.has(g.parent)) g.parent = null;
         o.groupOf = new Map((Array.isArray(data.groupOf) ? data.groupOf : []).filter(([b, g]) => (Number.isInteger(b) || isCurveKey(b)) && known.has(g)));
         o.active = known.has(data.active) ? data.active : null;
+        o.order = (Array.isArray(data.order) ? data.order : []).filter(k => Number.isInteger(k) || isCurveKey(k) || (typeof k === 'string' && /^g:\d+$/.test(k) && known.has(+k.slice(2))));
         o.names = new Map((Array.isArray(data.names) ? data.names : []).filter(e => Array.isArray(e) && (Number.isInteger(e[0]) || isCurveKey(e[0])) && typeof e[1] === 'string' && e[1].trim()));
         o.nextGroup = Math.max(Number.isInteger(data.nextGroup) ? data.nextGroup : 1, ...o.groups.map(g => g.id + 1));
         return o;
