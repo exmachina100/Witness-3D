@@ -568,6 +568,13 @@ impl Shape {
     }
 
     /// Plasticity's Join for sheets: `sheets` sewn into one body within `tol`; closed, a solid (see `w3d_join_sheets`).
+    /// Loft of faces: a solid through the faces' outer boundaries, in order (w3d_loft_faces).
+    pub fn loft_faces(faces: &[&Shape]) -> Result<Shape, String> {
+        let all = Shape::from(crate::primitives::Compound::from_shapes(faces.iter().copied()));
+        let s = ffi::w3d::w3d_loft_faces(&all.inner).map_err(reason)?;
+        Ok(Shape::from_shape(&s))
+    }
+
     pub fn join_sheets(sheets: &[&Shape], tol: f64) -> Result<Shape, String> {
         let all = Shape::from(crate::primitives::Compound::from_shapes(sheets.iter().copied()));
         let joined = ffi::w3d::w3d_join_sheets(&all.inner, tol).map_err(reason)?;

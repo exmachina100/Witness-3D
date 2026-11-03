@@ -1754,6 +1754,28 @@ impl<K: Kernel> Document<K> {
         self.kernel.loft_sheet(&paths, looped, simplify)
     }
 
+    /// Plasticity's Loft of faces, without changing the document: a solid between the faces
+    /// (body, face number), in order.
+    pub fn preview_loft_faces(&self, faces: &[(BodyId, u32)]) -> Result<K::Solid, KernelError> {
+        if faces.len() < 2 { return Err(KernelError::Invalid("select two faces or more, in order, to loft")) }
+        // Each face as a sheet of its own; a one-face body (a sheet) goes as it is.
+        let mut own: Vec<Option<K::Solid>> = Vec::new();
+        for &(b, f) in faces {
+            let s = self.get(b).ok_or(KernelError::Invalid("that body no longer exists"))?;
+            match self.kernel.unjoin(s, true) {
+                Ok(mut all) if (f as usize) < all.len() => own.push(Some(all.swap_remove(f as usize))),
+                Err(_) if f == 0 => own.push(None),
+                _ => return Err(KernelError::Invalid("that face no longer exists")),
+            }
+        }
+        let refs: Vec<&K::Solid> = own.iter().zip(faces).map(|(o, &(b, _))| o.as_ref().or_else(|| self.get(b)).unwrap()).collect();
+        let solid = self.kernel.loft_faces(&refs)?;
+        if !self.kernel.is_valid(&solid) || self.kernel.solid_count(&solid) == 0 {
+            return Err(KernelError::Invalid("the loft between those faces crosses itself"));
+        }
+        Ok(solid)
+    }
+
     /// Loft of curves along guides (Shift+click), without changing the document.
     pub fn preview_loft_sheet_guided(&self, curves: &[GuideRef], guides: &[GuideRef], simplify: bool) -> Result<K::Solid, KernelError> {
         if guides.is_empty() { return self.preview_loft_sheet(curves, false, simplify) }

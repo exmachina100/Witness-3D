@@ -35,3 +35,16 @@ test('a loft of two lines bows up to its guides; a loop or a profile as guide is
     assert.ok(scene.some(x => x.id === id));
     assert.throws(() => be.loftSheetResult({ curves: [a, b], guides: [a] }), /both a profile and a guide/);
 });
+
+test('a loft of two faces is a solid between them', async () => {
+    const { box, facePlane, volume } = await import('../src/Kernel.js');
+    const THREE = await import('three');
+    const be = new LocalBackend({ seed: 'enclosure' });
+    const a = 101, b = 102;
+    be.put(a, box(new THREE.Vector3(100, 0, 0), new THREE.Vector3(110, 10, 10)));
+    be.put(b, box(new THREE.Vector3(100, 20, 0), new THREE.Vector3(110, 30, 10)));
+    const facing = (id, y) => [0, 1, 2, 3, 4, 5].find(f => Math.abs((n => (n.y ?? n[1]))(facePlane(be.shapes.get(id), f).normal) - y) < 1e-9);
+    const s = be.loftSheetResult({ faces: [[a, facing(a, 1)], [b, facing(b, -1)]] });
+    assert.ok(Math.abs(volume(s) - 1000) < 1);
+    assert.throws(() => be.loftSheetResult({ faces: [[a, 0]] }), /two faces/);
+});

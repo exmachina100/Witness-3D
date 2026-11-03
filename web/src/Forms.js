@@ -598,6 +598,19 @@ export function loftGuided(cs, guides) {
     return loftAlong(cs.map(c => section(c).wire), guides, true, loft(cs), i => planes[i]);
 }
 
+/** Plasticity's Loft of faces: a solid through the faces' outer boundaries, in order. As w3d_loft_faces. */
+export function loftFaces(faces) {
+    const o = oc();
+    if (faces.length < 2) throw new Error('select two faces or more, in order, to loft');
+    const mk = new o.BRepOffsetAPI_ThruSections(true, false, 1e-6);
+    for (const f of faces) mk.AddWire(o.BRepTools.OuterWire(o.TopoDS.Face(f)));
+    mk.Build(new o.Message_ProgressRange());
+    if (!mk.IsDone()) throw new Error('no solid could be lofted between those faces');
+    const s = mk.Shape();
+    if (!new o.BRepCheck_Analyzer(s, true, false, false).IsValid() || count(s, 'TopAbs_SOLID') === 0) throw new Error('the loft between those faces crosses itself');
+    return s;
+}
+
 /**
  * Plasticity's Loft of curves with guides (Shift+click): a sheet through the curves, in order, its
  * sides running along the guides, as loftGuided does for regions. As w3d_loft_sheet_guided.

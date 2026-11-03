@@ -4,8 +4,8 @@
 import * as THREE from 'three';
 import { ExtrudeFactory } from '../ExtrudeFactory.js';
 import { NoOpError } from '../GeometryFactory.js';
-import { THROAT, arrayMotions, importSTEP, blendEdges, boolean, booleanWithHistory, extrudeFace, bounds, box, count, draftFaces, faceSheet, imprintEdgesWithHistory, imprintWithHistory, planeSheet, regions, unifyWithHistory, boundaryEdges, splitWithHistory, draftWithHistory, exportSTEP, facePlane, mirror, mirror as mirrorShape, numberedEdges, oc, primitive, shellFaces, tessellate, transform, volume } from '../Kernel.js';
-import { curveIsOpen, cutSheets, extrudeCurve, loft, loftGuided, loftSheet, loftSheetGuided, offsetFlatFaces, pipe, regionFace, revolve, revolveCurve, splineSamples, sweep, sweepCurve, sweepGuided } from '../Forms.js';
+import { THROAT, arrayMotions, importSTEP, blendEdges, boolean, booleanWithHistory, extrudeFace, bounds, box, count, draftFaces, faceSheet, imprintEdgesWithHistory, imprintWithHistory, planeSheet, regions, unifyWithHistory, boundaryEdges, splitWithHistory, draftWithHistory, exportSTEP, facePlane, mirror, mirror as mirrorShape, numbered, numberedEdges, oc, primitive, shellFaces, tessellate, transform, volume } from '../Kernel.js';
+import { curveIsOpen, cutSheets, extrudeCurve, loft, loftFaces, loftGuided, loftSheet, loftSheetGuided, offsetFlatFaces, pipe, regionFace, revolve, revolveCurve, splineSamples, sweep, sweepCurve, sweepGuided } from '../Forms.js';
 import { curveFromNurbs, ends, join, loops, MEET, nurbsLoop } from '../curves.js';
 import { isoparam, meetCurves, projectCurveCurve, projectCurves, projectedEdges, sectionCurves } from '../Project.js';
 import { isSheet, patch } from '../Patch.js';
@@ -1030,6 +1030,14 @@ export class LocalBackend {
     loftSheetResult(req) {
         const c = id => { const x = this.curveMap.get(id); if (!x) throw new Error('that curve no longer exists'); return x; };
         // A drawn curve's id, or a curve given whole (a body edge picked as a profile).
+        // Loft of faces: (body, face number) pairs, in order; a solid.
+        if (req.faces?.length) return loftFaces(req.faces.map(([b, n]) => {
+            const s = this.shapes.get(b);
+            if (!s) throw new Error('that body no longer exists');
+            const f = numbered(s, 'TopAbs_FACE')[n];
+            if (!f) throw new Error('that face no longer exists');
+            return f;
+        }));
         const of = g => typeof g === 'object' && g ? g : c(g), guides = req.guides ?? [];
         if (!guides.length) return loftSheet((req.curves ?? []).map(of), !!req.loop, req.simplify ?? true);
         // Guides (Shift+click): the sheet's sides run along them.

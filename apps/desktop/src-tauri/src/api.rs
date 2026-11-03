@@ -1509,10 +1509,14 @@ pub struct LoftSheetRequest {
     /// Guides (Shift+click): drawn curves or body edges the sheet's sides run along.
     #[serde(default)]
     pub guides: Vec<GuideRef>,
+    /// Loft of faces: (body, face number) pairs, in order; makes a solid instead of a sheet.
+    #[serde(default)]
+    pub faces: Vec<(BodyId, u32)>,
 }
 
 impl LoftSheetRequest {
     fn sheet(&self, doc: &Document<Occt>) -> Result<<Occt as Kernel>::Solid, KernelError> {
+        if !self.faces.is_empty() { return doc.preview_loft_faces(&self.faces) }
         if self.guides.is_empty() { return doc.preview_loft_sheet(&self.curves, self.looped, self.simplify) }
         if self.looped { return Err(KernelError::Invalid("a loop doesn't go with guides; turn Loop off")) }
         doc.preview_loft_sheet_guided(&self.curves, &self.guides, self.simplify)

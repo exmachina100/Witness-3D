@@ -375,6 +375,11 @@ pub trait Kernel {
     fn loft_sheet(&self, _curves: &[Path], _looped: bool, _simplify: bool) -> Result<Self::Solid, KernelError> {
         Err(KernelError::Invalid("this kernel cannot loft curves"))
     }
+    /// Plasticity's Loft of faces: a solid through the outer boundaries of `faces` (each a one-face
+    /// sheet), in order.
+    fn loft_faces(&self, _faces: &[&Self::Solid]) -> Result<Self::Solid, KernelError> {
+        Err(KernelError::Invalid("this kernel cannot loft faces"))
+    }
     /// Loft of curves with guides (Shift+click): the sheet's sides run along `guides`, each of
     /// which touches every curve.
     fn loft_sheet_guided(&self, _curves: &[Path], _guides: &[Path], _simplify: bool) -> Result<Self::Solid, KernelError> {

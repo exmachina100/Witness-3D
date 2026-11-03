@@ -349,6 +349,10 @@ impl Kernel for Occt {
         Shape::sweep_guided(&section(profile, frame)?, &path_numbers(path)?, &guide, method as i32, parallel, round).map_err(shim)
     }
 
+    fn loft_faces(&self, faces: &[&Shape]) -> Result<Shape, KernelError> {
+        Shape::loft_faces(faces).map_err(shim)
+    }
+
     fn loft_sheet_guided(&self, curves: &[Path], guides: &[Path], simplify: bool) -> Result<Shape, KernelError> {
         let mut all = Vec::new();
         for c in curves { all.extend(path_numbers(c)?) }
