@@ -3,6 +3,7 @@
 
 pub mod api;
 pub mod bridge;
+pub mod backup;
 
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
@@ -872,6 +873,44 @@ fn reset_startup_scene(app: tauri::AppHandle) -> Result<bool, String> {
     Ok(true)
 }
 
+/// Where backups for emergencies go (Preferences › Backup): the app's data folder.
+fn backup_dir(app: &tauri::AppHandle) -> Result<PathBuf, String> {
+    Ok(app.path().app_data_dir().map_err(|e| e.to_string())?.join("backup"))
+}
+
+/// Write this window's backup of the document, replacing its last one.
+#[tauri::command]
+async fn backup_save(app: tauri::AppHandle, model: State<'_, Model>, document: String) -> Result<(), String> {
+    let dir = backup_dir(&app)?;
+    std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+    let pid = std::process::id();
+    let path = dir.join(backup::file_name(&document, pid));
+    let tmp = dir.join(format!(".writing~{pid}"));
+    on_model(&model, move |m| api::save(m, tmp)).await??;
+    backup::clear_own(&dir, pid);
+    std::fs::rename(dir.join(format!(".writing~{pid}")), &path).map_err(|e| e.to_string())
+}
+
+/// The backups other runs left behind (a crash), newest first.
+#[tauri::command]
+fn backup_list(app: tauri::AppHandle) -> Result<Vec<backup::Entry>, String> {
+    Ok(backup::list(&backup_dir(&app)?, std::process::id()))
+}
+
+/// Open a backup as the document. It stays a backup until saved somewhere.
+#[tauri::command]
+async fn backup_open(app: tauri::AppHandle, model: State<'_, Model>, path: PathBuf) -> Result<Vec<api::Body>, String> {
+    if !backup::is_backup(&backup_dir(&app)?, &path) { return Err("not a backup".into()) }
+    on_model(&model, move |m| api::open(m, path)).await?
+}
+
+/// Throw a backup away.
+#[tauri::command]
+fn backup_discard(app: tauri::AppHandle, path: PathBuf) -> Result<(), String> {
+    if !backup::is_backup(&backup_dir(&app)?, &path) { return Err("not a backup".into()) }
+    std::fs::remove_file(path).map_err(|e| e.to_string())
+}
+
 /// P-Menu › New Window: another copy of the app, starting a document of its own.
 #[tauri::command]
 fn new_window() -> Result<(), String> {
@@ -1249,6 +1288,10 @@ pub fn run() {
             open,
             startup_file,
             save_startup_scene,
+            backup_save,
+            backup_list,
+            backup_open,
+            backup_discard,
             network_prefs,
             set_network_prefs,
             system_fonts,
@@ -1265,6 +1308,10 @@ pub fn run() {
         .build(tauri::generate_context!())
         .expect("error while building Witness 3D")
         .run(|_app, _event| {
+            // A clean exit takes this run's backups with it; a crash leaves them to recover.
+            if let tauri::RunEvent::Exit = _event {
+                if let Ok(dir) = backup_dir(_app) { backup::clear_own(&dir, std::process::id()) }
+            }
             // macOS hands double-clicked files over as an event rather than as arguments: keep the
             // first for start-up, and tell a running window to open it.
             #[cfg(target_os = "macos")]
