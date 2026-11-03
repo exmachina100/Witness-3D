@@ -102,7 +102,7 @@ import { flatten, toDxf, toSvg } from '../drawingExport.js';
 import { readDxf } from '../dxf.js';
 import { distanceToFace } from '../dependentOffset.js';
 import { pipePath, untrimmed } from '../pipePath.js';
-import { ALIGN_CURVE_CONTINUITY, alignCurveEnd, BRIDGE_CONTINUITY, bridgeContinuous, bridgeEnd, continuity, curvatureComb, curveVertices, deleteVertices, explode, EXTEND_SHAPES, extendCurve, filletCurve, nearestEnd, OFFSET_CORNERS, offsetCurve, offsetSlot, offsetThrough, unionLoops, moveVertices, alignedInPlane, offsetVertex, rebuildCurve, subdivideCurve, completeCurve, convertVertices, insertKnotAt, raiseDegree, reverseCurve, transformCurve, moveVerticesTo, slideCurveCVs, splitCurve, tangentCircle, tangentCircle3, trim, cutCurve, cuttersFor, samples as curveSamples } from '../curveEdit.js';
+import { ALIGN_CURVE_CONTINUITY, mirrorCurve, alignCurveEnd, BRIDGE_CONTINUITY, bridgeContinuous, bridgeEnd, continuity, curvatureComb, curveVertices, deleteVertices, explode, EXTEND_SHAPES, extendCurve, filletCurve, nearestEnd, OFFSET_CORNERS, offsetCurve, offsetSlot, offsetThrough, unionLoops, moveVertices, alignedInPlane, offsetVertex, rebuildCurve, subdivideCurve, completeCurve, convertVertices, insertKnotAt, raiseDegree, reverseCurve, transformCurve, moveVerticesTo, slideCurveCVs, splitCurve, tangentCircle, tangentCircle3, trim, cutCurve, cuttersFor, samples as curveSamples } from '../curveEdit.js';
 import { ViewGizmo } from './ViewGizmo.js';
 import { Toolbar } from './Toolbar.js';
 import { arcballAbout, dragAngles, orbitAbout } from './orbit.js';
@@ -10119,22 +10119,34 @@ export async function mount(root, backend) {
 
   /** The commands that copy the selected solids: Mirror and the two arrays. */
   function startCopies(id, request, describe) {
-    const ids = targetBodies().filter(b => org.shows(b));
-    if (!ids.length) { toast(`SELECT A SOLID TO ${toolInfo(id).label}`); return null; }
+    // Mirror takes curves and regions too (manual common/mirror); the arrays solids.
+    const curves = id === 'mirror' ? sel.curves.filter(curveById) : [];
+    const ids = (curves.length ? sel.solids : targetBodies()).filter(b => org.shows(b));
+    if (!ids.length && !curves.length) { toast(`SELECT ${id === 'mirror' ? 'SOLIDS OR CURVES' : 'A SOLID'} TO ${toolInfo(id).label}`); return null; }
     const preview = id === 'mirror' ? 'previewMirror' : 'previewArray', commit = id === 'mirror' ? 'commitMirror' : 'commitArray';
     if (!backend[preview]) { toast(`${toolInfo(id).label} IS NOT IN THIS BUILD YET`); return null; }
     const hint = { mirror: 'mirror-hint', 'rect-array': 'ra-hint', 'radial-array': 'rr-hint', 'curve-array': 'ca-hint' }[id];
     const joinBtn = { mirror: 'mirror-join', 'rect-array': 'ra-join', 'radial-array': 'rr-join', 'curve-array': 'ca-join' }[id];
     const instanceBtn = { mirror: 'mirror-instance', 'rect-array': 'ra-instance', 'radial-array': 'rr-instance', 'curve-array': 'ca-instance' }[id];
-    const c = cmd = { id, ids, join: false, instance: false, sent: 0, shown: 0 };
+    const c = cmd = { id, ids, curves, join: false, instance: false, sent: 0, shown: 0 };
     lastTool = id;
     showTool(id);
     setState('none');
-    setTarget(ids.length === 1 ? label(ids[0]) : `${ids.length} SOLIDS`);
-    $(hint).textContent = `${ids.length} SOLID${ids.length > 1 ? 'S' : ''}`;
+    const what = [ids.length ? (ids.length === 1 ? label(ids[0]) : `${ids.length} SOLIDS`) : '', curves.length ? (curves.length === 1 ? curveLabel(curves[0]) : `${curves.length} CURVES`) : ''].filter(Boolean).join(' · ');
+    setTarget(what);
+    $(hint).textContent = what;
     $(joinBtn).setAttribute('aria-pressed', 'false');
     if (instanceBtn) $(instanceBtn).setAttribute('aria-pressed', 'false');
-    c.preview = () => livePreview(c, () => backend[preview]({ bodies: c.ids, ...request(c) }), list => { showCopies(list); setHud(describe(c, list.length)); }, hint);
+    c.preview = () => {
+      const req = request(c);
+      // Mirror waits for its plane: an axis (X, Y, Z or a handle) or a face.
+      if (!req) { clearPreview(); setState('none'); return setHud(describe(c, 0)); }
+      livePreview(c, async () => c.ids.length ? backend[preview]({ bodies: c.ids, ...req }) : [], list => {
+        showCopies(list);
+        if (c.curves.length) showCurvePreview(c.curves.map(cid => mirrorCurve(curveById(cid), req.origin, req.normal)));
+        setHud(describe(c, list.length + c.curves.length));
+      }, hint);
+    };
     c.key = action => {
       // An array of instances: each copy an instance of its solid, so they join nothing.
       if (action === 'instance' && instanceBtn) {
@@ -10175,13 +10187,19 @@ export async function mount(root, backend) {
         } catch (e) { setState('failed'); toast(say(e)); }
         return;
       }
+      const req = request(c);
+      if (!req) return toast('PICK THE MIRROR PLANE: X, Y OR Z, OR CLICK A FACE');
       try {
-        const { ids: made, scene: list } = await backend[commit]({ bodies: c.ids, ...request(c), join: c.join });
+        const { ids: made, scene: list } = c.ids.length ? await backend[commit]({ bodies: c.ids, ...req, join: c.join }) : { ids: [], scene: null };
+        // Curves: their mirror images as new curves.
+        const { ids: drawn } = c.curves.length ? await backend.addCurves(c.curves.map(cid => { const { id: _, ...m } = mirrorCurve(curveById(cid), req.origin, req.normal); return m; })) : { ids: [] };
         endCmd('committed');
-        record(`${toolInfo(id).label}${c.join ? ' · JOINED' : ''}`, made[0], c.join ? label(made[0]) : `${made.length} NEW`);
-        await showScene(list);
+        record(`${toolInfo(id).label}${c.join ? ' · JOINED' : ''}`, made[0], made.length ? (c.join ? label(made[0]) : `${made.length} NEW`) : `${drawn.length} CURVE${drawn.length > 1 ? 'S' : ''}`);
+        if (list) await showScene(list);
+        if (drawn.length) await loadCurves();
         sel.clear();
         for (const b of made) sel.add({ kind: 'solid', body: b });
+        for (const cid of drawn) sel.add({ kind: curveList.some(x => x.id === cid && isClosed(x)) ? 'region' : 'curve', id: cid });
         selectionChanged({ quiet: true });
       } catch (e) { setState('failed'); toast(say(e)); }
     };
@@ -10204,11 +10222,12 @@ export async function mount(root, backend) {
     const c = startCopies('mirror', c => {
       const sign = c.neg ? -1 : 1;
       if (c.plane) return { origin: c.plane.origin.toArray(), normal: c.plane.normal.clone().multiplyScalar(sign).toArray(), cut: c.cut };
+      if (!c.axis) return null;
       const n = userAxis(c.axis), at = num('mirror-at');
       return { origin: toWorld(n.map(v => v * at)), normal: toWorld(n.map(v => v * sign)), cut: c.cut };
-    }, c => `MIRROR ACROSS ${c.plane ? c.plane.name : `${c.neg ? '−' : ''}${c.axis.toUpperCase()} = ${num('mirror-at')}`}${c.cut ? ' · CUT' : ''}`);
+    }, c => !c.plane && !c.axis ? 'MIRROR · PICK AN AXIS (X, Y, Z) OR CLICK A FACE' : `MIRROR ACROSS ${c.plane ? c.plane.name : `${c.neg ? '−' : ''}${c.axis.toUpperCase()} = ${num('mirror-at')}`}${c.cut ? ' · CUT' : ''}`);
     if (!c) return;
-    c.axis = 'x'; c.neg = false; c.cut = false; c.plane = null; c.free = null;
+    c.axis = null; c.neg = false; c.cut = true; c.plane = null; c.free = null;
     const sync = () => {
       syncAxis(c);
       if (c.plane) for (const b of $$('[data-mx]')) b.setAttribute('aria-pressed', 'false');
