@@ -178,7 +178,7 @@ const KEYS = {
   'measure-distance': [['CLICK', 'TWO POINTS'], ['CLICK', 'AGAIN TO RESTART'], ['ESC', 'DONE']],
   'measure-radius': [['CLICK', 'A ROUND EDGE OR CURVE'], ['ESC', 'DONE']],
   'measure-continuity': [['CLICK', 'NEAR TWO CURVE ENDS'], ['ESC', 'DONE']],
-  'export-mesh': [['TYPE', 'OPTIONS IN PANEL'], ['⏎ / RMB', 'SAVE'], ['ESC', 'CANCEL']],
+  'export-mesh': [['TYPE', 'OPTIONS IN THE DIALOG'], ['⏎ / RMB', 'SAVE'], ['ESC', 'CANCEL']],
   'export-drawing': [['VIEW', 'AS THE CAMERA SEES IT'], ['H', 'HIDDEN LINES'], ['C', 'CURVES'], ['⏎ / RMB', 'SAVE'], ['ESC', 'CANCEL']],
   'tangent-circle': [['CLICK', 'FIRST · SECOND CURVE · SIZE OR THIRD CURVE'], ['F', 'FREEZE'], ['TAB', 'RADIUS'], ['ESC', 'CANCEL']],
   extend: [['CLICK', 'NEAR AN END'], ['S', 'SHAPE NATURAL / LINEAR'], ['TYPE', 'LENGTH IN PANEL'], ['ESC / ⏎', 'DONE']],
@@ -424,7 +424,8 @@ const SHELL = `
       <div class="seg" role="group" aria-label="Grow mode"><button data-grow="moving" aria-pressed="true" title="Move the whole wall when the offset gets to the outer wall">MOVING</button><button data-grow="fixed" aria-pressed="false" title="Stop at the outer wall">FIXED</button><button data-grow="none" aria-pressed="false" title="Keep going by itself, past the outer wall">NONE</button></div>
       <div class="field"><label>FACES</label><output data-id="off-count">0</output></div>
     </div>
-    <div class="sec" data-panel="export-mesh" hidden>
+    <div class="sec xdialog" data-panel="export-mesh" role="dialog" aria-label="Export mesh" hidden>
+      <div class="xd-head"><span>EXPORT MESH</span><button data-xd="cancel" title="Cancel (Esc)" aria-label="Cancel">${icon('close')}</button></div>
       <span class="hint" data-id="mx-hint">—</span>
       <span class="label">FORMAT</span>
       <div class="seg" role="group" aria-label="Mesh format"><button data-mxf="obj" aria-pressed="true">OBJ</button><button data-mxf="stl" aria-pressed="false" title="Binary STL, millimetres">STL</button><button data-mxf="glb" aria-pressed="false" title="Binary glTF in metres, with each body's material">GLB</button><button data-mxf="3mf" aria-pressed="false" title="3MF for printing, millimetres, with each body's colour">3MF</button></div>
@@ -440,13 +441,16 @@ const SHELL = `
       <div class="seg" role="group" aria-label="Topology" data-id="mx-topo"><button data-mxtopo="tris" aria-pressed="true" title="Triangles only">TRIS</button><button data-mxtopo="quads" aria-pressed="false" title="Quads, with triangles where two will not pair">QUADS</button><button data-mxtopo="ngons" aria-pressed="false" title="Each flat run of faces one polygon of any number of sides">NGONS</button></div>
       <div class="chips" data-id="mx-convex-row"><button data-id="mx-convex" aria-pressed="false" title="Ngons: only convex polygons; a run that is not convex stays triangles">CONVEX NGONS ONLY</button></div>
       <div class="field" title="Separate pieces smaller across (their bounding box's diagonal) than this are left out; 0 keeps them all"><label for="w3d-mx-small">REMOVE SMALL FEATURES</label><input id="w3d-mx-small" data-id="mx-small" type="number" step="0.5" min="0" value="0"></div>
+      <div class="xd-foot"><button data-xd="cancel" title="Cancel (Esc)">CANCEL</button><button data-xd="ok" class="primary" title="Export (Enter)">EXPORT</button></div>
     </div>
-    <div class="sec" data-panel="export-drawing" hidden>
+    <div class="sec xdialog" data-panel="export-drawing" role="dialog" aria-label="Export drawing" hidden>
+      <div class="xd-head"><span>EXPORT DRAWING</span><button data-xd="cancel" title="Cancel (Esc)" aria-label="Cancel">${icon('close')}</button></div>
       <span class="hint" data-id="dr-hint">—</span>
       <span class="label">FORMAT</span>
       <div class="seg" role="group" aria-label="Drawing format"><button data-drf="svg" aria-pressed="true">SVG</button><button data-drf="dxf" aria-pressed="false">DXF</button></div>
       <div class="chips"><button data-id="dr-hidden" aria-pressed="true" title="Hidden lines (H)">HIDDEN</button><button data-id="dr-curves" aria-pressed="true" title="Curves (C)">CURVES</button></div>
       <div class="field"><label for="w3d-dr-tol">TOLERANCE</label><input id="w3d-dr-tol" data-id="dr-tol" type="number" step="0.01" min="0.001" value="0.01"></div>
+      <div class="xd-foot"><button data-xd="cancel" title="Cancel (Esc)">CANCEL</button><button data-xd="ok" class="primary" title="Export (Enter)">EXPORT</button></div>
     </div>
     <div class="sec" data-panel="offset-curve" hidden>
       <span class="hint" data-id="oc-hint">—</span>
@@ -12122,6 +12126,12 @@ export async function mount(root, backend) {
   for (const b of $$('[data-drgrow]')) b.onclick = () => cmd?.id === 'draft' && cmd.growTo(b.dataset.drgrow);
   $('ut-keep').onclick = () => cmd?.id === 'untrim' && cmd.setKeep(!cmd.keep);
   $('section-btn').onclick = () => doAction('section');
+  // Export options open as a small dialog over the view (Plasticity's export options window),
+  // with Export and Cancel at its foot as well as Enter and Esc.
+  for (const b of $$('[data-xd]')) b.onclick = () => {
+    if (!cmd || !['export-mesh', 'export-drawing'].includes(cmd.id)) return;
+    if (b.dataset.xd === 'ok') cmd.finish(); else cmd.abort();
+  };
   $('ex-pick-target').onclick = () => {
     const c = cmd;
     if (c?.id !== 'extrude' || c.src.region === undefined) return;
