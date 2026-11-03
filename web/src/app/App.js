@@ -102,7 +102,7 @@ import { flatten, toDxf, toSvg } from '../drawingExport.js';
 import { readDxf } from '../dxf.js';
 import { distanceToFace } from '../dependentOffset.js';
 import { pipePath, untrimmed } from '../pipePath.js';
-import { ALIGN_CURVE_CONTINUITY, mirrorCurve, alignCurveEnd, BRIDGE_CONTINUITY, bridgeContinuous, bridgeEnd, continuity, curvatureComb, curveVertices, deleteVertices, explode, EXTEND_SHAPES, extendCurve, filletCurve, nearestEnd, OFFSET_CORNERS, offsetCurve, offsetSlot, offsetThrough, unionLoops, moveVertices, alignedInPlane, offsetVertex, rebuildCurve, subdivideCurve, completeCurve, convertVertices, insertKnotAt, raiseDegree, reverseCurve, transformCurve, moveVerticesTo, slideCurveCVs, splitCurve, tangentCircle, tangentCircle3, trim, cutCurve, cuttersFor, samples as curveSamples } from '../curveEdit.js';
+import { ALIGN_CURVE_CONTINUITY, mirrorCurve, alignCurveEnd, BRIDGE_CONTINUITY, bridgeContinuous, bridgeEnd, continuity, curvatureComb, curveVertices, deleteVertices, explode, EXTEND_SHAPES, extendCurve, extendStart, filletCurve, nearestEnd, OFFSET_CORNERS, offsetCurve, offsetSlot, offsetThrough, unionLoops, moveVertices, alignedInPlane, offsetVertex, rebuildCurve, subdivideCurve, completeCurve, convertVertices, insertKnotAt, raiseDegree, reverseCurve, transformCurve, moveVerticesTo, slideCurveCVs, splitCurve, tangentCircle, tangentCircle3, trim, cutCurve, cuttersFor, samples as curveSamples } from '../curveEdit.js';
 import { ViewGizmo } from './ViewGizmo.js';
 import { Toolbar } from './Toolbar.js';
 import { arcballAbout, dragAngles, orbitAbout } from './orbit.js';
@@ -183,7 +183,7 @@ const KEYS = {
   'export-mesh': [['TYPE', 'OPTIONS IN THE DIALOG'], ['⏎ / RMB', 'SAVE'], ['ESC', 'CANCEL']],
   'export-drawing': [['VIEW', 'AS THE CAMERA SEES IT'], ['H', 'HIDDEN LINES'], ['C', 'CURVES'], ['⏎ / RMB', 'SAVE'], ['ESC', 'CANCEL']],
   'tangent-circle': [['CLICK', 'FIRST · SECOND CURVE · SIZE OR THIRD CURVE'], ['F', 'FREEZE'], ['TAB', 'RADIUS'], ['ESC', 'CANCEL']],
-  extend: [['CLICK', 'NEAR AN END'], ['S', 'SHAPE NATURAL / LINEAR'], ['TYPE', 'LENGTH IN PANEL'], ['ESC / ⏎', 'DONE']],
+  extend: [['CLICK', 'NEAR AN END'], ['D / DRAG DOT', 'LENGTH'], ['S', 'SHAPE NATURAL · LINEAR · ARC · SOFT · REFL'], ['⏎', 'OK'], ['ESC', 'CANCEL']],
   bridge: [['T / D', 'TENSION'], ['TAB', 'CONTINUITY G0 G1 G2 G3'], ['X Y Z', 'AXIS'], ['Q', 'TRIM'], ['CHIP', 'CONSTRAIN'], ['⏎ / RMB', 'OK']],
   'bridge-edge': [['D', 'TENSION'], ['TAB', 'CONTINUITY G0 G1 G2 G3'], ['X Y Z', 'AXIS'], ['⏎ / RMB', 'OK']],
   'align-surface': [['TAB', 'CONTINUITY G0 G1 G2'], ['D', 'TENSION'], ['⏎ / RMB', 'OK']],
@@ -767,12 +767,15 @@ const SHELL = `
       <div class="chips"><button data-id="hole-through" aria-pressed="false"><kbd>T</kbd>THROUGH ALL</button></div>
     </div>
     <div class="sec" data-panel="extend" hidden>
-      <span class="hint" data-id="ext-hint">CLICK NEAR THE END OF AN OPEN CURVE</span>
+      <span class="hint" data-id="ext-hint">CLICK NEAR THE END OF AN OPEN CURVE, OR SELECT ITS END POINT FIRST</span>
       <div class="field"><label for="w3d-ext-len">LENGTH</label><input id="w3d-ext-len" data-id="ext-len" type="number" step="1" min="0.01" value="10"></div>
       <span class="label">SHAPE</span>
       <div class="seg" role="group" aria-label="Extend shape">
-        <button data-extshape="natural" aria-pressed="true" title="Carry on as the curve does: an arc round its circle, a curve with its end curvature"><kbd>S</kbd>NATURAL</button>
+        <button data-extshape="natural" aria-pressed="true" title="Carry on as the curve runs, its curvature changing as it was"><kbd>S</kbd>NATURAL</button>
         <button data-extshape="linear" aria-pressed="false" title="Carry on straight along the end">LINEAR</button>
+        <button data-extshape="arc" aria-pressed="false" title="Carry on round the end's circle of curvature">ARC</button>
+        <button data-extshape="soft" aria-pressed="false" title="Leave with the end's curvature and ease out straight">SOFT</button>
+        <button data-extshape="reflective" aria-pressed="false" title="The curve's own end mirrored through the end point, into an S">REFL</button>
       </div>
     </div>
     <div class="sec" data-panel="bridge" hidden>
@@ -9242,37 +9245,78 @@ export async function mount(root, backend) {
   }
 
   /** Plasticity's Extend Curve: click near an open end of a line or arc to lengthen it by the panel's length. */
+  /**
+   * Plasticity's Extend Curve (manual: Extend Curve): the curve's end point selected (or clicked near
+   * the end once the command runs), then D or the dot at the end sets the length, dragged or typed,
+   * with the extension shown as it would be; S cycles the shape (Natural, Linear, Arc, Soft,
+   * Reflective). Enter keeps it.
+   */
   function startExtend() {
     if (!backend.replaceCurves) return toast('EXTEND IS NOT IN THIS BUILD YET');
-    const c = cmd = { id: 'extend', count: 0 };
+    const c = cmd = { id: 'extend', src: null, which: 0, out: null, gizmo: null };
     lastTool = 'extend';
     showTool('extend');
     setState('none');
-    setHud('CLICK NEAR AN END');
-    c.click = async e => {
-      const hit = pickAt(e);
-      const src = (hit?.kind === 'curve' || hit?.kind === 'region') && curveById(hit.id);
-      if (!src || !hit.point) return true;
-      const f = curveFrame(src), d = hit.point.clone().sub(f.o), at = [d.dot(f.x), d.dot(f.y)];
+    const say1 = t => { $('ext-hint').textContent = t; setHud(t); };
+    c.preview = () => {
+      if (!c.src) return;
+      clearPreview();
+      const L = num('ext-len');
       try {
-        const out = extendCurve(src, nearestEnd(src, at), num('ext-len'), extShape());
-        const { ids: made } = await backend.replaceCurves([src.id], [out]);
-        c.count++;
-        record(`EXTEND ${curveLabel(src.id)} ${len(num('ext-len'))} ${U()} ${extShape().toUpperCase()}`, made[0], curveLabel(made[0]));
-        await loadCurves();
-        setHud(`${c.count} EXTENDED · CLICK ANOTHER, OR ⏎`);
-        setState('committed');
-      } catch (err) { setState('failed'); toast(say(err)); }
+        c.out = extendCurve(c.src, c.which, L, extShape());
+        showCurvePreview([c.out]);
+        say1(`${curveLabel(c.src.id)} + ${len(L)} ${U()} · ${extShape().toUpperCase()} · D LENGTH · ⏎ OK`);
+        setState('updated');
+      } catch (err) { c.out = null; say1(say(err)); setState('failed'); }
+    };
+    c.begin = (src, which) => {
+      let s0;
+      try { s0 = extendStart(src, which); } catch (err) { return toast(say(err)); }
+      c.src = src; c.which = which;
+      setTarget(curveLabel(src.id));
+      const f = curveFrame(src), at = lift(f, { x: s0.at[0], y: s0.at[1] }, 0.03), dir = lift(f, { x: s0.at[0] + s0.out[0], y: s0.at[1] + s0.out[1] }, 0.03).sub(at).normalize();
+      c.gizmo = dot(at, dir, v => { $('ext-len').value = +Math.max(0.01, snapping(lastPointer) ? Math.round(v / gridStep()) * gridStep() || gridStep() : v).toFixed(4); c.preview(); });
+      c.gizmo.value = num('ext-len');
+      c.gizmo.render(num('ext-len'));
+      c.extraGizmos = () => c.gizmo ? [c.gizmo] : [];
+      c.preview();
+    };
+    c.click = e => {
+      if (c.src) return true;
+      ray(e);
+      raycaster.params.Line.threshold = unitsPerPixel(controls.target) * 6;
+      const hit = raycaster.intersectObjects(curveGroup.children.filter(o => o.userData.curve !== undefined), false)[0];
+      const src = hit && curveById(hit.object.userData.curve);
+      if (!src) return toast('CLICK NEAR THE END OF AN OPEN CURVE'), true;
+      const f = curveFrame(src), d = hit.point.clone().sub(f.o);
+      try { c.begin(src, nearestEnd(src, [d.dot(f.x), d.dot(f.y)])); } catch (err) { toast(say(err)); }
       return true;
     };
     c.key = action => {
-      if (action !== 'shape') return false;
-      setExtShape(EXTEND_SHAPES[(EXTEND_SHAPES.indexOf(extShape()) + 1) % EXTEND_SHAPES.length]);
-      setHud(`${extShape().toUpperCase()} · CLICK NEAR AN END`);
-      return true;
+      if (action === 'shape') {
+        setExtShape(EXTEND_SHAPES[(EXTEND_SHAPES.indexOf(extShape()) + 1) % EXTEND_SHAPES.length]);
+        c.preview();
+        return true;
+      }
+      if (action === 'length') { c.gizmo?.activate(lastPointer); return true; }
+      return false;
     };
-    c.finish = () => endCmd(c.count ? 'committed' : 'cancelled');
-    c.abort = () => endCmd(c.count ? 'committed' : 'cancelled');
+    c.finish = async () => {
+      if (!c.out) return c.src ? toast($('ext-hint').textContent) : endCmd('cancelled');
+      try {
+        const { ids: made } = await backend.replaceCurves([c.src.id], [c.out]);
+        const L = num('ext-len');
+        endCmd('committed');
+        record(`EXTEND ${curveLabel(c.src.id)} ${len(L)} ${U()} ${extShape().toUpperCase()}`, made[0], curveLabel(made[0]));
+        await curvesChanged(made);
+      } catch (err) { setState('failed'); toast(say(err)); }
+    };
+    c.abort = () => endCmd('cancelled');
+    c.cleanup = () => { c.gizmo?.dispose(); c.gizmo = null; clearPreview(); };
+    // An end point selected first: that end at once.
+    const v = sel.list('vertex').map(x => ({ x, cv: curveById(x.id) })).find(({ x, cv }) => cv && (x.n === 0 || x.n === curveVertices(cv).length - 1));
+    if (v) c.begin(v.cv, v.x.n === 0 ? 0 : 1);
+    else say1('CLICK NEAR THE END OF AN OPEN CURVE');
   }
   const extShape = () => $$('[data-extshape]').find(b => b.getAttribute('aria-pressed') === 'true')?.dataset.extshape ?? 'natural';
   const setExtShape = shape => { for (const b of $$('[data-extshape]')) b.setAttribute('aria-pressed', String(b.dataset.extshape === shape)); };
@@ -12770,7 +12814,8 @@ export async function mount(root, backend) {
   $('be-end').onclick = () => cmd?.id === 'bridge-edge' && cmd.cycleEnd(1);
   $('br-end').onclick = () => cmd?.id === 'bridge' && cmd.cycleEnd(1);
   $('oc-lock').onclick = () => cmd?.id === 'offset-curve' && cmd.key('lock');
-  for (const b of $$('[data-extshape]')) b.onclick = () => setExtShape(b.dataset.extshape);
+  for (const b of $$('[data-extshape]')) b.onclick = () => { setExtShape(b.dataset.extshape); if (cmd?.id === 'extend') cmd.preview(); };
+  $('ext-len').addEventListener('input', () => { if (cmd?.id !== 'extend' || !cmd.gizmo) return; cmd.gizmo.value = num('ext-len'); cmd.gizmo.render(num('ext-len')); cmd.preview(); });
   $('oc-slot').onclick = () => cmd?.id === 'offset-curve' && cmd.key('slot');
   $('oc-combine').onclick = () => cmd?.id === 'offset-curve' && cmd.key('combine');
   $('oc-free').onclick = () => cmd?.id === 'offset-curve' && cmd.key('freestyle');

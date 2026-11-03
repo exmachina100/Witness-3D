@@ -21,11 +21,11 @@ test('an arc extends round its circle (natural) or straight along its end (linea
     assert.deepEqual(r6(lin0.pieces[0].points[1]), [10, 0]);
 });
 
-test('a spline extends with an arc of its end curvature, or a line', () => {
-    // Points on a circle of radius 20: the natural extension carries on round the same circle.
+test('a spline extends with an arc of its end curvature (Arc), or a line', () => {
+    // Points on a circle of radius 20: the Arc extension carries on round the same circle.
     const pts = Array.from({ length: 9 }, (_, i) => { const t = i * 0.1; return [20 * Math.cos(t), 20 * Math.sin(t)]; });
     const sp = { ...plane, kind: 'spline', points: pts, samples: Array.from({ length: 401 }, (_, i) => { const t = i * 0.8 / 400; return [20 * Math.cos(t), 20 * Math.sin(t)]; }), closed: false };
-    const nat = extendCurve(sp, 1, 10);
+    const nat = extendCurve(sp, 1, 10, 'arc');
     assert.deepEqual(nat.pieces.map(p => p.kind), ['spline', 'arc']);
     const end = nat.pieces[1].end, want = 0.8 + 10 / 20;
     assert.ok(Math.hypot(end[0] - 20 * Math.cos(want), end[1] - 20 * Math.sin(want)) < 0.05, `end ${end}`);

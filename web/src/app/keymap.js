@@ -142,7 +142,7 @@ export const COMMAND = {
     // Constrained Surface (manual: Ctrl+Z takes the last point off).
     'constrained-surface': { 'ctrl-z': 'back', tab: 'optimize' },
     square: { d: 'degree', tab: 'continuity', t: 'tension', q: 'quad' },
-    extend: { s: 'shape' },
+    extend: { s: 'shape', d: 'length' },
     rebuild: { c: 'count', d: 'degree' },
     // Rebuild Face: M method, T tolerance, D degree, S spans, E extend, H shrink.
     untrim: { tab: 'keep-edges' },

@@ -485,6 +485,8 @@ export function unionLoops(shapes) {
     return out;
 }
 const dedupe = pts => pts.filter((p, i) => i === 0 || dist(p, pts[i - 1]) > 1e-6);
+/** Corner points of a polyline with those lying straight between their neighbours dropped. */
+const mergeStraight = pts => dedupe(pts).filter((p, i, a) => i === 0 || i === a.length - 1 || Math.abs(cross2(sub(p, a[i - 1]), sub(a[i + 1], p))) > 1e-9 * dist(p, a[i - 1]) * dist(a[i + 1], p) || dot2(sub(p, a[i - 1]), sub(a[i + 1], p)) < 0);
 
 // --- Fillet Curve ---------------------------------------------------------------------------------
 
@@ -1398,8 +1400,27 @@ export function nearestEnd(c, at) {
  * Plasticity's Extend Curve: lengthen an open line or arc by `length` mm at end `which` (0 start,
  * 1 end), carrying on in the same direction or round the same circle.
  */
-/** Plasticity 26.1's Extend Curve shapes: carry on as the curve does, or straight along its end. */
-export const EXTEND_SHAPES = ['natural', 'linear'];
+/**
+ * Plasticity's Extend Curve shapes (manual: Extend Curve): Natural carries the curve on as it runs,
+ * its curvature changing as it was (a cubic in arc length from the end's tangent, curvature and its
+ * change); Linear goes straight along the end; Arc goes round the end's circle of curvature; Soft
+ * leaves with the end's tangent and curvature and eases out straight by its far end; Reflective is
+ * the curve's own last stretch turned through the end point (2e - S), so the bend mirrors into an S.
+ */
+export const EXTEND_SHAPES = ['natural', 'linear', 'arc', 'soft', 'reflective'];
+
+/** The last `length` of the open sample run `pts` (ending at its last point) mirrored through that point, from it. */
+function reflected(pts, length) {
+    const r = pts.at(-1), out = [r];
+    let left = length;
+    for (let i = pts.length - 1; i > 0 && left > 1e-12; i--) {
+        const a = pts[i], b = pts[i - 1], l = dist(a, b), q = l <= left ? b : add(a, mul(sub(b, a), left / l));
+        out.push(sub(mul(r, 2), q));
+        left -= Math.min(l, left);
+    }
+    if (left > 1e-6) throw new Error('the curve is shorter than the extension; Reflective mirrors its own end');
+    return out;
+}
 
 export function extendCurve(c, which, length, shape = 'natural') {
     if (!(Number.isFinite(length) && length > 1e-6)) throw new Error('the length must be greater than zero');
@@ -1407,12 +1428,17 @@ export function extendCurve(c, which, length, shape = 'natural') {
     if (c.kind === 'polyline' && !c.closed) {
         const pts = dedupe(c.points).map(p => [...p]);
         if (pts.length < 2) throw new Error('the line is too short to extend');
+        if (shape === 'reflective') {
+            // The line's own corners up to `length` back, mirrored through its end.
+            const run = which ? pts : [...pts].reverse(), out = [...run, ...reflected(run, length).slice(1)];
+            return withShape(c, { kind: 'polyline', points: mergeStraight(which ? out : out.reverse()), closed: false });
+        }
         const [i, j] = which ? [pts.length - 1, pts.length - 2] : [0, 1];
         const dir = norm(sub(pts[i], pts[j]));
         pts[i] = add(pts[i], mul(dir, length));
         return withShape(c, { kind: 'polyline', points: pts, closed: false });
     }
-    if (c.kind === 'arc' && shape === 'natural') {
+    if (c.kind === 'arc' && (shape === 'natural' || shape === 'arc')) {
         const g = arcGeometry(c.start, c.mid, c.end);
         if (!g) throw new Error('the arc is a straight line');
         const extra = Math.sign(g.sweep) * length / g.radius, sweep = g.sweep + extra;
@@ -1430,29 +1456,46 @@ export function extendCurve(c, which, length, shape = 'natural') {
         const pieces = [...c.pieces.slice(0, k), ...parts, ...c.pieces.slice(k + 1)];
         return withShape(c, { kind: 'contour', pieces: mergeLines(pieces) });
     }
-    // Anything else gets a new piece at that end: a line along it, or (natural) an arc of its end curvature.
-    const pts = samples(c, 192).points, n = pts.length;
-    let [p, q, r] = which ? [pts[n - 3] ?? pts[n - 2], pts[n - 2], pts[n - 1]] : [pts[2] ?? pts[1], pts[1], pts[0]];
-    let out = norm(sub(r, q));
-    if (c.kind === 'arc') {
-        // An arc's end direction exactly: square to its radius, the way it runs.
-        const g = arcGeometry(c.start, c.mid, c.end), t = which ? g.start + g.sweep : g.start, turn = Math.sign(g.sweep);
-        const along = [-Math.sin(t) * turn, Math.cos(t) * turn];
-        r = which ? c.end : c.start; out = which ? along : mul(along, -1);
-    }
-    const k = shape === 'natural' && n >= 3 && c.kind !== 'arc' ? curvature3(p, q, r) : 0;
+    // Anything else gets a new piece at that end, shaped from the end's tangent and curvature.
+    const pts = samples(c, 192).points;
+    const E = endFrame(c, which), r = E.at, out = E.out, k = dot2(E.K, left(out));
+    const steps = 32, through = f => ({ kind: 'spline', points: Array.from({ length: steps + 1 }, (_, i) => f(length * i / steps)), closed: false });
     let extra;
-    if (Math.abs(k) * length < 1e-6) extra = { kind: 'polyline', points: [r, add(r, mul(out, length))], closed: false };
-    else {
+    if (shape === 'reflective') {
+        const run = which ? pts : [...pts].reverse();
+        extra = { kind: 'spline', points: reflected(run, length), closed: false };
+    } else if (shape === 'linear' || (Math.abs(k) * length < 1e-6 && (shape !== 'natural' || len(E.dK) * length * length < 1e-6))) {
+        extra = { kind: 'polyline', points: [r, add(r, mul(out, length))], closed: false };
+    } else if (shape === 'arc' || (shape === 'natural' && c.kind === 'arc')) {
         if (Math.abs(k) * length >= TAU - 1e-6) throw new Error('the extension would close on itself; use a shorter length');
         const center = add(r, mul(left(out), 1 / k));
         extra = arcPiece({ center, radius: 1 / Math.abs(k), start: Math.atan2(r[1] - center[1], r[0] - center[0]), sweep: length * k }, 0, 1);
+    } else if (shape === 'natural') {
+        // The curve's own Taylor cubic in arc length: tangent, curvature and its change carried on.
+        extra = through(t => add(add(r, mul(out, t)), add(mul(E.K, t * t / 2), mul(E.dK, t * t * t / 6))));
+    } else {
+        // Soft: the curvature falls from the end's to nothing along the extension, k(s) = k (1 - s / L).
+        const h = Math.atan2(out[1], out[0]), fine = 256, track = [r];
+        let at = r;
+        for (let i = 0; i < fine; i++) {
+            const m = (i + 0.5) * length / fine, th = h + k * (m - m * m / (2 * length));
+            at = add(at, mul([Math.cos(th), Math.sin(th)], length / fine));
+            if ((i + 1) % (fine / steps) === 0) track.push(at);
+        }
+        extra = { kind: 'spline', points: track, closed: false };
     }
     const own = c.kind === 'arc' ? [{ kind: 'arc', start: c.start, mid: c.mid, end: c.end }]
         : c.kind === 'spline' ? [{ kind: 'spline', points: c.points.map(v => [...v]), closed: false }]
         : [{ kind: 'spline', points: pts, closed: false }];
     const flipped = extra.kind === 'arc' ? { kind: 'arc', start: extra.end, mid: extra.mid, end: extra.start } : { ...extra, points: [...extra.points].reverse() };
     return withShape(c, { kind: 'contour', pieces: which ? [...own, extra] : [flipped, ...own] });
+}
+
+/** Where Extend Curve starts: end `which` of an open curve and the way out of it, in its plane. */
+export function extendStart(c, which) {
+    if (ends2(c) === null) throw new Error('extend the open end of a curve');
+    const E = endFrame(c, which);
+    return { at: E.at, out: E.out };
 }
 
 /** The end point and outward direction of an open curve at end `which` (0 start, 1 end). */
