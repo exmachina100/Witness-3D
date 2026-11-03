@@ -112,6 +112,7 @@ import { stepSources } from './sources.js';
 import { parallelCylinders, parallelFlatFaces, relatedFaces, samePlane } from './faceGroups.js';
 import { circleTangents, closestOnScreen, commonTangents, curvePointSnaps, intersections, perpendicularFeet, tangentPoints } from '../curveSnaps.js';
 import { PREF_FIELDS, changedPrefs, controlSettings, readPrefs, setPref, viewColors, wheelSpeed } from './prefs.js';
+import { drawnCurve3d, isFlat as flat3d, cv3d, spline3d } from '../draw3d.js';
 import { arcPoints, circleThrough, curveFromNurbs, cvPoints, ellipsePoints, endTangent, helixPoints, loops, nurbsLoop, nurbsPoints, polygonCorners, spiralAngle, tangentArc } from '../curves.js';
 
 const KEYS = {
@@ -1881,7 +1882,7 @@ export async function mount(root, backend) {
       line.userData = { curve: c.id };
       line.renderOrder = 9;
       curveGroup.add(line);
-      if (!isClosed(c) || together.has(c.id)) continue;
+      if (!isClosed(c) || together.has(c.id) || (c.kind === 'nurbs' && c.poles.some(q => Math.abs(q[2] ?? 0) > 1e-9))) continue;
       const g = new THREE.ShapeGeometry(new THREE.Shape(pts), 1);
       g.applyMatrix4(new THREE.Matrix4().makeBasis(f.x, f.y, f.n).setPosition(lift(f, { x: 0, y: 0 }, 0.02)));
       const m = new THREE.Mesh(g, regionMat.normal);
@@ -3225,7 +3226,7 @@ export async function mount(root, backend) {
     }
     return out.map(x => ({ point: new THREE.Vector3(...x.point), kind: x.kind }));
   }
-  function snapNear(e, meshes, plane = null, from = null) {
+  function snapNear(e, meshes, plane = null, from = null, normal = null) {
     if (!snapSettings.on) return null;
     const ok = s => snapAllowed(s.kind, snapSettings, cmd?.snapSkip);
     const c = local(e);
@@ -3233,7 +3234,7 @@ export async function mount(root, backend) {
     // 2026.2: instances snap as their masters do, where they stand.
     const placed = instanceGroup.children.filter(o => o.isMesh && o.visible).flatMap(o => instanceSnaps(o));
     const curves = curvePolys();
-    const all = [...meshes.flatMap(m => [...snapCandidates(m), ...sectionSnaps(m)]), ...placed, ...curves.snaps, ...(from ? fromSnaps(from, plane?.normal) : [])];
+    const all = [...meshes.flatMap(m => [...snapCandidates(m), ...sectionSnaps(m)]), ...placed, ...curves.snaps, ...(from ? fromSnaps(from, plane?.normal ?? normal) : [])];
     for (const s of all) {
       if (!ok(s) || (plane && Math.abs(plane.distanceToPoint(s.point)) > 1e-3)) continue;
       const p = screenOf(s.point);
@@ -4396,7 +4397,13 @@ export async function mount(root, backend) {
       const { faceIds, facePlanes, id } = hit.object.userData;
       const face = faceIds[hit.faceIndex];
       const p = facePlanes[face];
-      if (!p) return { curved: true };
+      if (!p) {
+        // A curved face: the plane touching it at the point (its smooth normal there, toward the eye).
+        const n = hit.normal?.clone().transformDirection(hit.object.matrixWorld);
+        if (!n) return { curved: true };
+        const s = e.altKey ? null : snapNear(e, [hit.object]);
+        return { curved: true, touching: { origin: (s ? s.point : hit.point).clone(), normal: n, target: id, face, snap: s } };
+      }
       const normal = new THREE.Vector3(...p.normal);
       const plane = new THREE.Plane().setFromNormalAndCoplanarPoint(normal, new THREE.Vector3(...p.origin));
       const s = e.altKey ? null : snapNear(e, [hit.object], plane);
@@ -4563,7 +4570,7 @@ export async function mount(root, backend) {
       if (c.adjust) return true;
       if (c.id === 'tangent-arc' && !c.plane) { tangentStart(e); return true; }
       const p = drawPoint(e);
-      if (p?.curved) toast('DRAW ON A FLAT FACE OR THE CONSTRUCTION PLANE');
+      if (p?.curved) toast('THAT FACE GIVES NO PLANE TO DRAW ON');
       else if (p) { addPoint(p, e); c.tanOrig = null; }
       return true;
     };
@@ -4618,7 +4625,7 @@ export async function mount(root, backend) {
         // X, Y or Z keeps the next point on that axis through the last one (press again to free it).
         const a = action.slice(5);
         if (c.axis === a) c.axis = null;
-        else if (c.plane && Math.hypot(worldAxis(a).dot(c.plane.x), worldAxis(a).dot(c.plane.y)) < 1e-6) return toast(`${a.toUpperCase()} IS ACROSS THE DRAWING PLANE`), true;
+        else if (c.plane && !FREE3D[c.id] && Math.hypot(worldAxis(a).dot(c.plane.x), worldAxis(a).dot(c.plane.y)) < 1e-6) return toast(`${a.toUpperCase()} IS ACROSS THE DRAWING PLANE`), true;
         else c.axis = a;
         drawShape();
         return true;
@@ -4642,15 +4649,21 @@ export async function mount(root, backend) {
     drawShape();
   }
 
+  // Plasticity picks these tools' points in 3D (OSS CurveCommand: no plane restriction): snaps off
+  // the first point's plane, points on faces, and X/Y/Z along that world axis, Z included.
+  const FREE3D = { line: 1, spline: 1, cv: 1 };
   /** The point under the pointer: on a face or the construction plane for the first, then in the drawing's plane. */
   function drawPoint(e) {
     const c = cmd;
     if (!c.plane) {
-      const h = placeAt(e);
+      let h = placeAt(e);
+      // A curved face sets the drawing's orientation: the plane touching it where clicked.
+      if (h?.touching) h = h.touching;
       if (!h || h.curved) return h;
       const x = frameFor(h.normal);
-      return { plane: { o: h.origin.clone(), n: h.normal.clone(), x, y: new THREE.Vector3().crossVectors(h.normal, x), target: h.target, face: h.face }, uv: new THREE.Vector2(), snap: h.snap };
+      return { plane: { o: h.origin.clone(), n: h.normal.clone(), x, y: new THREE.Vector3().crossVectors(h.normal, x), target: h.target, face: h.face }, uv: FREE3D[c.id] ? new THREE.Vector3() : new THREE.Vector2(), snap: h.snap };
     }
+    if (FREE3D[c.id]) return drawPoint3d(e);
     ray(e);
     const { o, n, x, y } = c.plane;
     const plane = new THREE.Plane().setFromNormalAndCoplanarPoint(n, o);
@@ -4679,6 +4692,49 @@ export async function mount(root, backend) {
         return { uv: new THREE.Vector2(last.x + t * du, last.y + t * dv), snap: null };
       }
     }
+    return { uv, snap: s };
+  }
+
+  /** drawPoint for the 3D tools: [x, y, height] in the drawing plane's coordinates. */
+  function drawPoint3d(e) {
+    const c = cmd, { o, n, x, y } = c.plane;
+    ray(e);
+    const plane = new THREE.Plane().setFromNormalAndCoplanarPoint(n, o);
+    const toLocal = P => { const d = P.clone().sub(o), h = d.dot(n); return new THREE.Vector3(d.dot(x), d.dot(y), Math.abs(h) < 1e-9 ? 0 : h); };
+    const last = c.pts.at(-1), from = last ? lift(c.plane, last) : null;
+    let s = e.altKey ? null : snapNear(e, shownMeshes(), null, from, n);
+    if (c.id === 'line' && c.pts.length === 1 && !(c.pts[0].z ?? 0)) {
+      const t = e.altKey ? null : tanTanSnap(e, (c.tanOrig ?? c.pts[0]), c.plane);
+      if (t) {
+        c.tanOrig ??= c.pts[0].clone();
+        const ds = new THREE.Vector3(...t.start).sub(o);
+        c.pts[0] = new THREE.Vector3(ds.dot(x), ds.dot(y), 0);
+        s = t;
+      } else if (c.tanOrig) { c.pts[0] = c.tanOrig; c.tanOrig = null; }
+    }
+    if (c.axis && from) {
+      // Along the world axis through the last point: the snap's place on it, else nearest the pointer's ray.
+      const d = worldAxis(c.axis);
+      let t;
+      if (s) t = s.point.clone().sub(from).dot(d);
+      else {
+        const w = from.clone().sub(raycaster.ray.origin), r = raycaster.ray.direction, b = d.dot(r), den = 1 - b * b;
+        if (den < 1e-9) return null;
+        t = (b * w.dot(r) - w.dot(d)) / den;
+        if (snapping(e)) t = Math.round(t / gridStep()) * gridStep();
+      }
+      return { uv: toLocal(from.clone().addScaledVector(d, t)), snap: s && { point: from.clone().addScaledVector(d, t), kind: s.kind } };
+    }
+    const onPlane = raycaster.ray.intersectPlane(plane, new THREE.Vector3());
+    if (!s && !e.altKey && snapSettings.on) {
+      // A point on a face standing in front of the drawing plane (Plasticity snaps to faces too).
+      const hit = raycaster.intersectObjects(shownMeshes(), false)[0];
+      if (hit && (!onPlane || hit.distance < raycaster.ray.origin.distanceTo(onPlane) - 1e-6)) s = { point: hit.point.clone(), kind: 'ON FACE' };
+    }
+    const P = s ? s.point : onPlane;
+    if (!P) return null;
+    const uv = toLocal(P);
+    if (!s && snapping(e)) uv.set(Math.round(uv.x / gridStep()) * gridStep(), Math.round(uv.y / gridStep()) * gridStep(), 0);
     return { uv, snap: s };
   }
 
@@ -4740,7 +4796,13 @@ export async function mount(root, backend) {
    * its size for the readout, and the curve once there are enough points (or an error).
    */
   function drawn(c, pts) {
-    const P = pts.map(p => [p.x, p.y]), [a, b, q] = P, n = P.length;
+    const P = pts.map(p => FREE3D[c.id] ? [p.x, p.y, p.z ?? 0] : [p.x, p.y]), [a, b, q] = P, n = P.length;
+    if (FREE3D[c.id] && !flat3d(P)) {
+      // Off the plane: the curve the commit will make (lines as they are).
+      const len = (r, t) => Math.hypot(t[0] - r[0], t[1] - r[1], t[2] - r[2]);
+      if (c.id === 'line') return { show: P, size: `L ${len(P.at(-2), P.at(-1)).toFixed(2)} · 3D` };
+      try { return { show: nurbsPoints(c.id === 'spline' ? spline3d(P) : cv3d(P), 16), size: `×${c.pts.length} · 3D` }; } catch { return { show: P, size: '—' }; }
+    }
     const d = (p, r) => Math.hypot(r[0] - p[0], r[1] - p[1]);
     const ring = (o, r) => new THREE.Path().absarc(o[0], o[1], r, 0, Math.PI * 2).getPoints(96).map(p => [p.x, p.y]);
     const line = () => ({ show: P, size: `L ${d(a, b).toFixed(2)}` });
@@ -4853,7 +4915,7 @@ export async function mount(root, backend) {
     trackSweep(c);
     const { show, size, frame } = drawn(c, [...c.pts, c.cursor.uv]);
     drawPreview.geometry.dispose();
-    drawPreview.geometry = new THREE.BufferGeometry().setFromPoints(show.map(([u, v]) => lift(frame ?? f, { x: u, y: v }, frame ? 0 : 0.03)));
+    drawPreview.geometry = new THREE.BufferGeometry().setFromPoints(show.map(([u, v, w = 0]) => lift(frame ?? f, { x: u, y: v, z: w }, frame ? 0 : 0.03)));
     drawPreview.visible = true;
     $('draw-size').textContent = size;
     setHud(size);
@@ -4889,7 +4951,7 @@ export async function mount(root, backend) {
   function typeSize() {
     const c = cmd;
     if (!c.plane) return toast('CLICK TO PLACE THE FIRST POINT, THEN TAB');
-    const a = c.pts[0], b = c.cursor?.uv ?? a.clone().add(new THREE.Vector2(1, 1));
+    const a = c.pts[0], b = c.cursor?.uv ?? a.clone().add(a.isVector3 ? new THREE.Vector3(1, 1, 0) : new THREE.Vector2(1, 1));
     const sx = Math.sign(b.x - a.x) || 1, sy = Math.sign(b.y - a.y) || 1;
     const dir = b.clone().sub(c.pts.at(-1));
     if (dir.lengthSq() < 1e-12) dir.set(1, 0);
@@ -5013,6 +5075,14 @@ export async function mount(root, backend) {
 
   function commitLine(closed) {
     const c = cmd, points = c.pts.map(p => [p.x, p.y]);
+    const p3 = c.pts.map(p => [p.x, p.y, p.z ?? 0]);
+    if (!flat3d(p3)) {
+      // Off the drawing plane: a NURBS curve with heights (Plasticity's 3D polylines and splines).
+      let shape;
+      try { shape = drawnCurve3d(c.id, p3, closed); } catch (e) { return toast(say(e)); }
+      const what = c.id === 'spline' ? 'SPLINE' : c.id === 'cv' ? 'CV CURVE' : closed ? 'POLYGON' : 'LINE';
+      return commitCurve(curveOf(shape), `${what} ×${c.pts.length}${closed ? ' CLOSED' : ''} 3D`);
+    }
     if (c.id === 'spline') return commitCurve(curveOf({ kind: 'spline', points, closed }), `SPLINE ×${c.pts.length}${closed ? ' CLOSED' : ''}`);
     if (c.id === 'cv') return commitCurve(curveOf({ kind: 'cv', points, closed }), `CV CURVE ×${c.pts.length}${closed ? ' CLOSED' : ''}`);
     return commitCurve(curveOf({ kind: 'polyline', points, closed }), `${closed ? 'POLYGON' : 'LINE'} ×${c.pts.length}`);
