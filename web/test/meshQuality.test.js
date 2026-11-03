@@ -7,7 +7,7 @@ import { LocalBackend } from '../src/app/LocalBackend.js';
 before(async () => { await loadKernel() });
 
 test('a higher facet quality tessellates curved bodies finer', async () => {
-    const be = new LocalBackend();
+    const be = new LocalBackend({ seed: 'enclosure' });
     const { id } = await be.commitPrimitive({ kind: 'cylinder', frame: { origin: [100, 0, 0], x: [1, 0, 0], normal: [0, 1, 0] }, radius: 20, height: 10 });
     const tris = list => list.find(b => b.id === id).indices.length / 3;
     const plain = tris(be.bodies());

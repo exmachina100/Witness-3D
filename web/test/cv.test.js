@@ -33,7 +33,7 @@ test('a closed control-point curve is a smooth loop inside its control polygon',
 });
 
 test('a closed control-point curve bounds a region the kernel extrudes', async () => {
-    const be = new LocalBackend();
+    const be = new LocalBackend({ seed: 'enclosure' });
     const plane = { origin: [0, 100, 0], x: [1, 0, 0], normal: [0, 1, 0] };
     const { ids: [id] } = await be.addCurves([{ ...plane, kind: 'cv', points: [[0, 0], [20, 0], [20, 20], [0, 20]], closed: true }]);
     const { id: made, scene } = await be.commit({ region: id, distance: 5, op: 'new' });

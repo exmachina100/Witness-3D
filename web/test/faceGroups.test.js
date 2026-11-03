@@ -12,7 +12,7 @@ const mid = (b, n) => { const e = b.edges[n]; return [0, 1, 2].map(i => (e[i] + 
 const near = (a, b) => Math.abs(a - b) < 1e-6;
 
 test('a plain box: each face is related to itself only; parallel faces come in pairs', () => {
-    const b = new LocalBackend().scene()[0];
+    const b = new LocalBackend({ seed: 'enclosure' }).scene()[0];
     const top = b.facePlanes.findIndex(p => p && p.normal[1] > 0.999);
     assert.deepEqual(relatedFaces(b, top, topology(b)), [top]);
     const par = parallelFlatFaces(b.facePlanes, top);
@@ -21,7 +21,7 @@ test('a plain box: each face is related to itself only; parallel faces come in p
 });
 
 test('a rounded edge: the fillet and the two faces it blends are related', async () => {
-    const be = new LocalBackend(), b0 = be.scene()[0];
+    const be = new LocalBackend({ seed: 'enclosure' }), b0 = be.scene()[0];
     const upright = b0.edges.findIndex((_, n) => near(mid(b0, n)[0], 40) && near(mid(b0, n)[2], 25));
     await be.commitBlend({ body: b0.id, edges: [upright], size: 5, kind: 'fillet' });
     const b = be.scene()[0];

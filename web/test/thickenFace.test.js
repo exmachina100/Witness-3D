@@ -17,7 +17,7 @@ const close = (a, b, eps = 1e-6) => assert.ok(Math.abs(a - b) < eps, `${a} != ${
 const facing = (shape, n) => [...Array(count(shape, 'TopAbs_FACE')).keys()].find(i => facePlane(shape, i)?.normal.dot(n) > 0.999);
 
 test("a box's top becomes a slab on it and the box stays", async () => {
-    const be = new LocalBackend();
+    const be = new LocalBackend({ seed: 'enclosure' });
     const seed = be.scene()[0];
     const s = be.shapes.get(seed.id);
     const top = facing(s, v(0, 1, 0));
@@ -51,7 +51,7 @@ test('a face of a sheet thickens on its own', async () => {
     const cube = box(v(0, 0, 0), v(10, 10, 10));
     const pieces = unjoin(cube, true);
     const sheet = joinSheets([pieces[facing(cube, v(0, 0, 1))], pieces[facing(cube, v(1, 0, 0))]]);
-    const be = new LocalBackend();
+    const be = new LocalBackend({ seed: 'enclosure' });
     const id = be.nextId++;
     be.put(id, sheet);
     const flat = facing(sheet, v(0, 0, 1));

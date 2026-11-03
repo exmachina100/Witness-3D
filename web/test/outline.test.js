@@ -23,7 +23,7 @@ const onRectXZ = (p, [x0, x1, z0, z1]) => Math.abs(p.y) < 1e-6 && p.x > x0 - 1e-
     && Math.min(Math.abs(p.x - x0), Math.abs(p.x - x1), Math.abs(p.z - z0), Math.abs(p.z - z1)) < 1e-6;
 
 test("the seed block's outline on the ground is its footprint", async () => {
-    const be = new LocalBackend();
+    const be = new LocalBackend({ seed: 'enclosure' });
     const seed = be.scene()[0];
     const out = await be.previewProject({ mode: 'outline', body: seed.id, origin: [0, 0, 0], normal: [0, 1, 0] });
     assert.equal(out.length, 1);
@@ -57,6 +57,6 @@ test('a hole through a plate gives a second loop; seen edge-on it is hidden', ()
 });
 
 test('the outline needs a body', async () => {
-    const be = new LocalBackend();
+    const be = new LocalBackend({ seed: 'enclosure' });
     await assert.rejects(be.previewProject({ mode: 'outline', body: 'nope', origin: [0, 0, 0], normal: [0, 1, 0] }), /no longer exists/);
 });

@@ -11,7 +11,7 @@ const close = (a, b, eps = 1e-3) => assert.ok(Math.abs(a - b) < eps, `${a} != ${
 const frustum = (a, b, d, h) => h / 6 * (a * b + (a - 2 * d) * (b - 2 * d) + 4 * (a - d) * (b - d));
 
 test("offset face's adjacent angle leans the sides about their far edges", async () => {
-    const be = new LocalBackend();
+    const be = new LocalBackend({ seed: 'enclosure' });
     const [b] = be.bodies();
     const top = b.facePlanes.findIndex(p => p && p.normal[1] > 0.99);
     const refs = [...b.faceRefs], lean = Math.atan(5 / 30);
@@ -25,7 +25,7 @@ test("offset face's adjacent angle leans the sides about their far edges", async
 });
 
 test('a circle swept along a spiral makes a spring', async () => {
-    const be = new LocalBackend();
+    const be = new LocalBackend({ seed: 'enclosure' });
     const pitch = 10, tangent = [0, pitch / (2 * Math.PI), -10], l = Math.hypot(...tangent);
     const { ids: [ring, spring] } = await be.addCurves([
         { origin: [10, 0, 0], x: [1, 0, 0], normal: tangent.map(v => v / l), kind: 'circle', center: [0, 0], radius: 1 },

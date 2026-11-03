@@ -10,7 +10,7 @@ before(async () => { await loadKernel() });
 const close = (a, b, eps = 1e-6) => assert.ok(Math.abs(a - b) < eps, `${a} != ${b}`);
 
 test('an instance moved, turned and scaled exports where it stands', () => {
-    const be = new LocalBackend();
+    const be = new LocalBackend({ seed: 'enclosure' });
     const id = be.scene()[0].id;
     const box = bounds(be.shapes.get(id)), centre = box.getCenter(new THREE.Vector3());
     const n = { ...newInstance(1, id, centre.toArray()), position: [centre.x + 200, centre.y, centre.z], scale: 0.5,
@@ -28,7 +28,7 @@ test('an instance moved, turned and scaled exports where it stands', () => {
 });
 
 test('a drawing takes instances where they stand', async () => {
-    const be = new LocalBackend();
+    const be = new LocalBackend({ seed: 'enclosure' });
     const id = be.scene()[0].id;
     const centre = bounds(be.shapes.get(id)).getCenter(new THREE.Vector3());
     const n = { ...newInstance(1, id, centre.toArray()), position: [centre.x + 200, centre.y, centre.z] };
@@ -41,7 +41,7 @@ test('a drawing takes instances where they stand', async () => {
 
 test('a mirrored instance stands where Mirror puts the copy, and exports there', async () => {
     const { mirroredInstance, matrixOf, checkInstance } = await import('../src/app/instances.js');
-    const be = new LocalBackend();
+    const be = new LocalBackend({ seed: 'enclosure' });
     const id = be.scene()[0].id;
     const box = bounds(be.shapes.get(id)), centre = box.getCenter(new THREE.Vector3());
     const plane = { origin: [box.max.x + 10, 0, 0], normal: [1, 0, 0] };

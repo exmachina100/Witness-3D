@@ -123,7 +123,7 @@ test('a fillet made again at a new radius', async () => {
 
 test('the browser backend removes faces, finds fillets and sizes them, each one undo step', async () => {
     const { LocalBackend } = await import('../src/app/LocalBackend.js');
-    const be = new LocalBackend();
+    const be = new LocalBackend({ seed: 'enclosure' });
     const id = [...be.shapes.keys()][0];
     const b = be.shapes.get(id);
     const v0 = volume(b);

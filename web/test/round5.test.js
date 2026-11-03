@@ -12,7 +12,7 @@ const ground = shape => ({ origin: [0, 0, 0], x: [1, 0, 0], normal: [0, 1, 0], .
 const line = (a, b) => ground({ kind: 'polyline', points: [a, b], closed: false });
 
 test('an ellipse extrudes to π R r h whichever radius is longer', async () => {
-    const be = new LocalBackend();
+    const be = new LocalBackend({ seed: 'enclosure' });
     const { ids: [wide, tall] } = await be.addCurves([ground({ kind: 'ellipse', center: [0, 0], major: [10, 0], minor: 4 }), ground({ kind: 'ellipse', center: [1, 2], major: [0, 3], minor: 6 })]);
     close((await be.preview({ region: wide, distance: 5, op: 'new' })).tool.volume, Math.PI * 200, 0.5);
     close((await be.preview({ region: tall, distance: 5, op: 'new' })).tool.volume, Math.PI * 90, 0.5);
@@ -20,7 +20,7 @@ test('an ellipse extrudes to π R r h whichever radius is longer', async () => {
 });
 
 test('J joins a line and an arc into a region, as one undo step', async () => {
-    const be = new LocalBackend();
+    const be = new LocalBackend({ seed: 'enclosure' });
     const { ids } = await be.addCurves([line([0, -5], [0, 5]), ground({ kind: 'arc', start: [0, -5], mid: [5, 0], end: [0, 5] })]);
     const { ids: joined } = await be.joinCurves(ids);
     assert.equal(joined.length, 1);
@@ -44,7 +44,7 @@ test('join makes one closed line from lines in any order and keeps separate runs
 });
 
 test('a face with a hole takes an angle and a thickness', async () => {
-    const be = new LocalBackend();
+    const be = new LocalBackend({ seed: 'enclosure' });
     const { ids: [rod] } = await be.addCurves([{ origin: [0, -1, 0], x: [1, 0, 0], normal: [0, 1, 0], kind: 'circle', center: [0, 0], radius: 5 }]);
     await be.commit({ target: 1, region: rod, distance: 40, op: 'difference' });
     const top = be.body(1, be.shapes.get(1)).facePlanes.findIndex(p => p && p.normal[1] > 0.99 && Math.abs(p.origin[1] - 30) < 1e-6);
@@ -55,14 +55,14 @@ test('a face with a hole takes an angle and a thickness', async () => {
 });
 
 test('Revolve takes a thickness', async () => {
-    const be = new LocalBackend();
+    const be = new LocalBackend({ seed: 'enclosure' });
     const { ids: [r] } = await be.addCurves([ground({ kind: 'polyline', points: [[10, -5], [20, -5], [20, 5], [10, 5]], closed: true })]);
     const p = await be.previewForm({ regions: [r], kind: 'revolve', axisPoint: [0, 0, 0], axisDir: [0, 0, 1], angle: 2 * Math.PI, thickness: 1 });
     close(p.tool.volume, Math.PI * 3000 - Math.PI * 240 * 8, 2);
 });
 
 test('Boolean Shift+Q slices the target by each tool as one step', async () => {
-    const be = new LocalBackend();
+    const be = new LocalBackend({ seed: 'enclosure' });
     const { ids: [copy] } = await be.duplicateBodies([1]);
     await be.commitMotion({ bodies: [copy], offset: [60, 0, 0] });
     const p = await be.previewBoolean({ target: 1, tools: [copy], op: 'slice' });

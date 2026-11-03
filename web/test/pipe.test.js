@@ -15,7 +15,7 @@ async function line(be) {
 }
 
 test('a straight pipe is a cylinder, solid or hollow', async () => {
-    const be = new LocalBackend();
+    const be = new LocalBackend({ seed: 'enclosure' });
     const c = await line(be);
     const [solid] = be.pipeResult({ curves: [c], radius: 2 });
     close(volume(solid), Math.PI * 4 * 10, 1e-3);
@@ -26,7 +26,7 @@ test('a straight pipe is a cylinder, solid or hollow', async () => {
 });
 
 test('a four-sided pipe has its corners on the radius', async () => {
-    const be = new LocalBackend();
+    const be = new LocalBackend({ seed: 'enclosure' });
     const c = await line(be);
     const [square] = be.pipeResult({ curves: [c], radius: 2, sides: 4 });
     // A square with corners 2 from the centre has side 2√2, so area 8.
@@ -34,14 +34,14 @@ test('a four-sided pipe has its corners on the radius', async () => {
 });
 
 test('a pipe round a circle is a torus', async () => {
-    const be = new LocalBackend();
+    const be = new LocalBackend({ seed: 'enclosure' });
     const { ids: [ring] } = await be.addCurves([{ origin: [0, 0, 0], x: [1, 0, 0], normal: [0, 1, 0], kind: 'circle', center: [0, 0], radius: 10 }]);
     const [torus] = be.pipeResult({ curves: [ring], radius: 1 });
     close(volume(torus), 2 * Math.PI ** 2 * 10 * 1, 0.05);
 });
 
 test('bad sizes are refused, and commit adds one body per curve in one undo step', async () => {
-    const be = new LocalBackend();
+    const be = new LocalBackend({ seed: 'enclosure' });
     const c = await line(be);
     assert.throws(() => be.pipeResult({ curves: [c], radius: 0 }), /radius/);
     assert.throws(() => be.pipeResult({ curves: [c], radius: 2, thickness: 2 }), /thick/);

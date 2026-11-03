@@ -13,7 +13,7 @@ const square = (s, y = 30) => on(y, { kind: 'polyline', points: [[-s / 2, -s / 2
 const lean = Math.atan(1 / 5);
 
 test('Extrude leans its sides with A, leaves walls with Shift+T and goes both ways with S', async () => {
-    const be = new LocalBackend();
+    const be = new LocalBackend({ seed: 'enclosure' });
     const { ids: [sq] } = await be.addCurves([square(10, 100)]);
     const vol = async opts => (await be.preview({ region: sq, distance: 5, ...opts })).tool.volume;
     close(await vol({ angle: lean }), frustum(100, 64, 5));
@@ -27,14 +27,14 @@ test('Extrude leans its sides with A, leaves walls with Shift+T and goes both wa
 });
 
 test('a face extrudes with an angle', async () => {
-    const be = new LocalBackend();
+    const be = new LocalBackend({ seed: 'enclosure' });
     const top = be.body(1, be.shapes.get(1)).facePlanes.findIndex(p => p && p.normal[1] > 0.99);
     const p = await be.preview({ target: 1, face: top, distance: 10, angle: Math.atan(0.1), op: 'new' });
     close(p.tool.volume, 10 / 6 * (4000 + 4 * 79 * 49 + 78 * 48), 0.05);
 });
 
 test('Shift+Q slices the body in two as one step', async () => {
-    const be = new LocalBackend();
+    const be = new LocalBackend({ seed: 'enclosure' });
     const { ids: [r] } = await be.addCurves([on(30, { kind: 'polyline', points: [[-10, -5], [10, -5], [10, 5], [-10, 5]], closed: true })]);
     const p = await be.preview({ target: 1, region: r, distance: -30, op: 'slice' });
     assert.equal(p.outcome, 'slice');
@@ -47,7 +47,7 @@ test('Shift+Q slices the body in two as one step', async () => {
 });
 
 test('splines and arcs are drawn, checked and used', async () => {
-    const be = new LocalBackend();
+    const be = new LocalBackend({ seed: 'enclosure' });
     const blob = on(100, { kind: 'spline', points: [[0, 0], [10, 0], [10, 10], [0, 10]], closed: true });
     const arc = on(100, { kind: 'arc', start: [0, 0], mid: [5, 5], end: [10, 0] });
     const { ids: [b, a] } = await be.addCurves([blob, arc]);

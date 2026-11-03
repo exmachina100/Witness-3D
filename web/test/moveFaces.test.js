@@ -9,7 +9,7 @@ before(async () => { await loadKernel() });
 
 // The seed block is x −40..40, y 0..30, z −25..25.
 const setup = () => {
-    const be = new LocalBackend();
+    const be = new LocalBackend({ seed: 'enclosure' });
     const seed = be.scene()[0];
     const top = seed.facePlanes.findIndex(p => p && p.normal[1] > 0.999);
     return { be, seed, top };

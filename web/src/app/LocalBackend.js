@@ -42,7 +42,8 @@ const v3 = a => new THREE.Vector3(...a);
 export class LocalBackend {
     info = { kernel: 'OPENCASCADE · WASM', units: 'mm' };
 
-    constructor() {
+    /** `seed` 'cube' (new documents) or 'enclosure' (the 80 × 30 × 50 blank the tests are written on). */
+    constructor({ seed = 'cube' } = {}) {
         this.shapes = new Map();
         // Copy with Placement's bodies, outside the document and its undo steps.
         this.clipboard = [];
@@ -59,8 +60,9 @@ export class LocalBackend {
         // | 'contour', points, closed, center, radius, start, mid, end, major, minor, pieces }.
         this.curveMap = new Map();
         this.nextCurve = 1;
-        // The product-enclosure blank, in millimetres, as on the desktop.
-        this.put(this.nextId++, box(new THREE.Vector3(-40, 0, -25), new THREE.Vector3(40, 30, 25)));
+        // New documents start with a 50 mm cube on the ground, as on the desktop.
+        if (seed === 'enclosure') this.put(this.nextId++, box(new THREE.Vector3(-40, 0, -25), new THREE.Vector3(40, 30, 25)));
+        else this.put(this.nextId++, box(new THREE.Vector3(-25, 0, -25), new THREE.Vector3(25, 50, 25)));
     }
 
     fresh(n) { const start = this.nextRef; this.nextRef += n; return Array.from({ length: n }, (_, i) => start + i) }

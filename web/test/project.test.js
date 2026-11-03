@@ -32,7 +32,7 @@ const length = pts => pts.slice(1).reduce((s, p, i) => s + p.distanceTo(pts[i]),
 const over = { origin: [0, 50, 0], x: [1, 0, 0], normal: [0, 1, 0], kind: 'polyline', points: [[-100, 0], [100, 0]], closed: false };
 
 test('a line projected down lands on the top, or all round without hiding', async () => {
-    const be = new LocalBackend();
+    const be = new LocalBackend({ seed: 'enclosure' });
     const seed = be.scene()[0];
     const { ids: [line] } = await be.addCurves([over]);
     const seen = await be.previewProject({ mode: 'curve-body', body: seed.id, curves: [line], dir: [0, -1, 0], hide: true });
@@ -55,7 +55,7 @@ test('a line projected down lands on the top, or all round without hiding', asyn
 });
 
 test('a face half hidden keeps only the part seen', async () => {
-    const be = new LocalBackend();
+    const be = new LocalBackend({ seed: 'enclosure' });
     const seed = be.scene()[0];
     // A slab over the left half (x −40..0, height 40..45) on a wall at the left end: with hide, the
     // block's top shows only where the slab does not cover it.
@@ -73,7 +73,7 @@ test('a face half hidden keeps only the part seen', async () => {
 });
 
 test('a circle projected onto the top is a region that extrudes', async () => {
-    const be = new LocalBackend();
+    const be = new LocalBackend({ seed: 'enclosure' });
     const seed = be.scene()[0];
     const { ids: [ring] } = await be.addCurves([{ origin: [0, 50, 0], x: [1, 0, 0], normal: [0, 1, 0], kind: 'circle', center: [0, 0], radius: 5 }]);
     const out = await be.previewProject({ mode: 'curve-body', body: seed.id, curves: [ring], dir: [0, -1, 0], hide: true });
@@ -86,7 +86,7 @@ test('a circle projected onto the top is a region that extrudes', async () => {
 });
 
 test('two bodies meet in curves, and two curves where their sheets cross', async () => {
-    const be = new LocalBackend();
+    const be = new LocalBackend({ seed: 'enclosure' });
     const seed = be.scene()[0];
     // A post up through the top: x −10..10, y 20..40, z −10..10. They meet in a square on the top.
     const { id: post } = await be.commitPrimitive({ kind: 'box', frame: { origin: [-10, 20, 10], x: [1, 0, 0], normal: [0, 1, 0] }, width: 20, depth: 20, height: 20 });

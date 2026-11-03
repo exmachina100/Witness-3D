@@ -39,7 +39,7 @@ test('basis functions add up to one and their derivatives to zero', () => {
 });
 
 for (const continuity of ['G0', 'G1', 'G2']) test(`a sheet's side meets a curved edge in ${continuity}`, async () => {
-    const be = new LocalBackend();
+    const be = new LocalBackend({ seed: 'enclosure' });
     // Reference: x 0..20, curling up to z = 6 at x = 20. Target: a flat sheet at z = 8 from x = 21 to 35.
     const ref = sheet((i, j) => [20 * i / 3, 20 * j / 3, [0, 0, 2, 6][i]]);
     const tgt = sheet((i, j) => [21 + 14 * i / 3, 20 * j / 3, 8]);
@@ -107,7 +107,7 @@ test('partial alignment eases out to the side\'s ends', async () => {
 });
 
 for (const continuity of ['G0', 'G1']) test(`Symmetric: both sides move to meet halfway in ${continuity}, one undo step`, async () => {
-    const be = new LocalBackend();
+    const be = new LocalBackend({ seed: 'enclosure' });
     const ref = sheet((i, j) => [20 * i / 3, 20 * j / 3, [0, 0, 2, 6][i]]);
     const tgt = sheet((i, j) => [21 + 14 * i / 3, 20 * j / 3, 8]);
     be.put(901, ref);
@@ -139,7 +139,7 @@ for (const continuity of ['G0', 'G1']) test(`Symmetric: both sides move to meet 
 });
 
 test('Symmetric refuses G2', async () => {
-    const be = new LocalBackend();
+    const be = new LocalBackend({ seed: 'enclosure' });
     be.shapes.set(901, sheet((i, j) => [20 * i / 3, 20 * j / 3, 0]));
     be.shapes.set(902, sheet((i, j) => [21 + 14 * i / 3, 20 * j / 3, 1]));
     const target = { body: 902, edge: edgeNear(be.shapes.get(902), [21, 10, 1]) }, reference = { body: 901, edge: edgeNear(be.shapes.get(901), [20, 10, 0]) };
@@ -147,7 +147,7 @@ test('Symmetric refuses G2', async () => {
 });
 
 test('Analysis passes each continuity up to the one aligned, and fails the next', async () => {
-    const be = new LocalBackend();
+    const be = new LocalBackend({ seed: 'enclosure' });
     const ref = sheet((i, j) => [20 * i / 3, 20 * j / 3, [0, 0, 2, 6][i]]);
     const tgt = sheet((i, j) => [21 + 14 * i / 3, 20 * j / 3, 8]);
     be.shapes.set(901, ref);
@@ -192,7 +192,7 @@ test('Boundary turns how the sheet leaves the aligned side at its ends', async (
 });
 
 test('Degree/Spans: the target rebuilt first, then aligned', async () => {
-    const be = new LocalBackend();
+    const be = new LocalBackend({ seed: 'enclosure' });
     const ref = sheet((i, j) => [20 * i / 3, 20 * j / 3, [0, 0, 2, 6][i]]);
     const tgt = sheet((i, j) => [21 + 14 * i / 3, 20 * j / 3, 8]);
     be.put(901, ref);

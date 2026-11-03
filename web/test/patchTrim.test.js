@@ -14,7 +14,7 @@ const edgesWhere = (s, pick) => numberedEdges(s).map((e, n) => {
 }).filter(n => n >= 0);
 
 test('Trim to hole keeps the target inside the hole, as one undo step', async () => {
-    const be = new LocalBackend();
+    const be = new LocalBackend({ seed: 'enclosure' });
     const base = cut(planeSheet([0, 0, 0], [0, 0, 1], 10), box({ x: -3, y: -3, z: -1 }, { x: 3, y: 3, z: 1 }));
     be.put(100, base);
     be.put(101, planeSheet([0, 0, 1], [0, 0, 1], 10));
@@ -28,7 +28,7 @@ test('Trim to hole keeps the target inside the hole, as one undo step', async ()
 });
 
 test('Trim to sheet keeps the target past where the base ends; edges must be on one sheet', async () => {
-    const be = new LocalBackend();
+    const be = new LocalBackend({ seed: 'enclosure' });
     const half = cut(planeSheet([0, 0, 0], [0, 0, 1], 10), box({ x: 0, y: -11, z: -1 }, { x: 11, y: 11, z: 1 }));
     be.put(100, half);
     be.put(101, planeSheet([0, 0, 1], [0, 0, 1], 10));

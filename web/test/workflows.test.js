@@ -46,7 +46,7 @@ function facesFacing(be, id, point, normal) {
 const yCylinder = (at, down, radius, height) => ({ kind: 'cylinder', frame: { origin: at, x: [1, 0, 0], normal: [0, down ? -1 : 1, 0] }, radius, height });
 
 test('enclosure: rounded box, shelled, ported, bossed and drilled', async () => {
-    const be = new LocalBackend();
+    const be = new LocalBackend({ seed: 'enclosure' });
     // Width along x, depth along normal × x (−z), height along y: the box (−40, 0, −25)–(40, 30, 25).
     const { id: a } = await be.commitPrimitive({ kind: 'box', frame: { origin: [-40, 0, 25], x: [1, 0, 0], normal: [0, 1, 0] }, width: 80, depth: 50, height: 30, op: 'new' });
     close(step(be, 'box', a), 120000, 1e-6);
@@ -91,7 +91,7 @@ const oval = (z, w, h) => ({ origin: [0, 10, z], x: [1, 0, 0], normal: [0, 0, 1]
     points: Array.from({ length: 8 }, (_, i) => [w / 2 * Math.cos(i * PI / 4), h / 2 * Math.sin(i * PI / 4)]) });
 
 test('mirror housing: lofted, shelled open at the door, cap rounded, mirrored', async () => {
-    const be = new LocalBackend();
+    const be = new LocalBackend({ seed: 'enclosure' });
     const { ids: sections } = await be.addCurves([oval(0, 60, 30), oval(40, 90, 50), oval(70, 70, 40)]);
     const { id: a } = await be.commitForm({ kind: 'loft', regions: sections, op: 'new' });
     const lofted = step(be, 'loft', a);
@@ -116,7 +116,7 @@ test('mirror housing: lofted, shelled open at the door, cap rounded, mirrored', 
 });
 
 test('handle: a bar swept along an arch, joined to a plate, the seams rounded', async () => {
-    const be = new LocalBackend();
+    const be = new LocalBackend({ seed: 'enclosure' });
     const { id: plate } = await be.commitPrimitive({ kind: 'box', frame: { origin: [-15, -8, 15], x: [1, 0, 0], normal: [0, 1, 0] }, width: 110, depth: 30, height: 8, op: 'new' });
     close(step(be, 'plate', plate), 26400, 1e-6);
 

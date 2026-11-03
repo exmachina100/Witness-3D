@@ -13,7 +13,7 @@ const close = (a, b, eps = 1e-6) => assert.ok(Math.abs(a - b) < eps, `${a} != ${
 
 
 test('the six faces of a block, unjoined then joined, make the block again', async () => {
-    const be = new LocalBackend();
+    const be = new LocalBackend({ seed: 'enclosure' });
     const seed = be.scene()[0];
     const v = volume(be.shapes.get(seed.id));
     const { ids } = await be.commitUnjoin({ body: seed.id, faces: true });
@@ -33,7 +33,7 @@ test('the six faces of a block, unjoined then joined, make the block again', asy
 });
 
 test('two sheets sharing an edge join into one open sheet; sheets apart are refused', () => {
-    const be = new LocalBackend();
+    const be = new LocalBackend({ seed: 'enclosure' });
     const faces = unjoin(be.shapes.get(be.scene()[0].id), true);
     // Two neighbouring faces of the block share one edge.
     let pair = null;
@@ -49,6 +49,6 @@ test('two sheets sharing an edge join into one open sheet; sheets apart are refu
 });
 
 test('a one-piece body has nothing to unjoin into pieces', () => {
-    const be = new LocalBackend();
+    const be = new LocalBackend({ seed: 'enclosure' });
     assert.throws(() => unjoin(be.shapes.get(be.scene()[0].id), false), /all one piece/);
 });

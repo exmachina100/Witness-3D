@@ -11,7 +11,7 @@ before(async () => { await loadKernel() });
 const close = (a, b, eps = 1e-6) => assert.ok(Math.abs(a - b) < eps, `${a} != ${b}`);
 
 test("a block's three sides, and a new width", async () => {
-    const be = new LocalBackend();
+    const be = new LocalBackend({ seed: 'enclosure' });
     const id = be.scene()[0].id;
     const dims = solidDimensions(id, await be.faceSurfaces({ body: id }));
     assert.deepEqual(dims.map(d => [d.label, +d.value.toFixed(6)]), [['WIDTH', 80], ['LENGTH', 50], ['HEIGHT', 30]]);
@@ -82,7 +82,7 @@ test('a round on a circular edge, a torus rather than a cylinder, still reads as
 
 test("a chamfer's distance, and a new one", async () => {
     const o = oc();
-    const be = new LocalBackend();
+    const be = new LocalBackend({ seed: 'enclosure' });
     const id = be.scene()[0].id;
     const block = be.shapes.get(id);
     be.shapes.set(id, blendEdges(block, [0], 3, true));
@@ -115,7 +115,7 @@ test("a chamfer's distance, and a new one", async () => {
 
 test("an unequal chamfer's two distances, each turning the face about its other edge", async () => {
     const o = oc();
-    const be = new LocalBackend();
+    const be = new LocalBackend({ seed: 'enclosure' });
     const id = be.scene()[0].id;
     const block = be.shapes.get(id);
     // 3 mm on one side and 6 on the other.

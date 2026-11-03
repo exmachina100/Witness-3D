@@ -32,7 +32,7 @@ test('copies turn with the tangent about the curve normal, or keep square', () =
 });
 
 test('the browser build places a copy of a body at each spot along the curve', async () => {
-    const be = new LocalBackend();
+    const be = new LocalBackend({ seed: 'enclosure' });
     const seed = be.scene()[0]; // 80 × 30 × 50, centred on x = 0
     const line = { origin: [0, 0, 0], x: [1, 0, 0], normal: [0, 1, 0], kind: 'polyline', points: [[0, 0], [300, 0]], closed: false };
     const { ids: made, scene } = await be.commitArray({ bodies: [seed.id], spec: { kind: 'motions', motions: curveArrayMotions(line, 4) } });

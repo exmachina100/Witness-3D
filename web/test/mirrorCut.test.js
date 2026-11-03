@@ -7,7 +7,7 @@ import { LocalBackend } from '../src/app/LocalBackend.js';
 before(async () => { await loadKernel() });
 
 const setup = () => {
-    const be = new LocalBackend();
+    const be = new LocalBackend({ seed: 'enclosure' });
     const id = be.nextId++;
     be.put(id, box({ x: -40, y: 0, z: 0 }, { x: 40, y: 10, z: 10 }));   // corners: x -40..40, volume 8000
     return { be, id };

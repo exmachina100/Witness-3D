@@ -103,7 +103,7 @@ test('natural bends on with the sheet where linear goes straight', () => {
 });
 
 test('trimmed edges and solids are refused; the backend keeps the body in one undo step', async () => {
-    const be = new LocalBackend();
+    const be = new LocalBackend({ seed: 'enclosure' });
     const seed = be.scene()[0];
     await assert.rejects(be.previewExtendSheet({ body: seed.id, edge: 0, distance: 1 }), /solid/);
     const { ids: [ring] } = await be.addCurves([{ origin: [0, 0, 0], x: [1, 0, 0], normal: [0, 0, 1], kind: 'circle', center: [0, 0], radius: 4 }]);
@@ -145,7 +145,7 @@ test('limit carries the sheet on until it meets the body', async () => {
     assert.throws(() => extendSheetTo(a, e, wall, 'reflective'), /reflective/);
     assert.throws(() => extendSheetTo(a, e, box(new THREE.Vector3(20, -5, 10), new THREE.Vector3(30, 15, 20)), 'linear'), /never meets/);
     // Through the backend, by body.
-    const be = new LocalBackend();
+    const be = new LocalBackend({ seed: 'enclosure' });
     const { ids } = await be.addCurves([{ origin: [0, 0, 0], x: [1, 0, 0], normal: [0, 0, 1], kind: 'polyline', points: [[0, 0], [10, 0], [10, 10], [0, 10]], closed: true }]);
     const { id: sheet } = await be.commitPatch({ curves: ids, edges: [] });
     const { id: block } = await be.commitPrimitive({ kind: 'box', frame: { origin: [20, -5, 5], x: [1, 0, 0], normal: [0, 0, -1] }, width: 10, depth: -20, height: 10, op: 'new' });

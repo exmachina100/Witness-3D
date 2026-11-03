@@ -13,7 +13,7 @@ const find = (b, pick) => b.edges.findIndex((_, n) => pick(mid(b, n)));
 const near = (a, b) => Math.abs(a - b) < 1e-6;
 
 test('a box: each edge is its own loop, and its ring is the four edges parallel to it', () => {
-    const be = new LocalBackend(), b = be.scene()[0];
+    const be = new LocalBackend({ seed: 'enclosure' }), b = be.scene()[0];
     const e = find(b, p => near(p[1], 30) && near(p[2], 25));
     assert.ok(e >= 0);
     assert.deepEqual(edgeLoop(b, e), [e]);
@@ -24,7 +24,7 @@ test('a box: each edge is its own loop, and its ring is the four edges parallel 
 });
 
 test('a box with one upright edge rounded: a top edge\'s loop runs on round the arc to the next edge', async () => {
-    const be = new LocalBackend(), b0 = be.scene()[0];
+    const be = new LocalBackend({ seed: 'enclosure' }), b0 = be.scene()[0];
     const upright = find(b0, p => near(p[0], 40) && near(p[2], 25));
     await be.commitBlend({ body: b0.id, edges: [upright], size: 5, kind: 'fillet' });
     const b = be.scene()[0];
@@ -36,7 +36,7 @@ test('a box with one upright edge rounded: a top edge\'s loop runs on round the 
 });
 
 test('Select Adjacent: a face gains the faces beside it, an edge the edges at its corners', () => {
-    const be = new LocalBackend(), b = be.scene()[0];
+    const be = new LocalBackend({ seed: 'enclosure' }), b = be.scene()[0];
     const top = b.facePlanes.findIndex(p => p && p.normal[1] > 0.999);
     assert.equal(adjacent(b, 'face', [top]).length, 5);
     const e = find(b, p => near(p[1], 30) && near(p[2], 25));

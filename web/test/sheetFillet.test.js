@@ -38,7 +38,7 @@ test('trim walls: both joins all, short and long trim one, none adds the bridge 
 
 test('sheets apart are refused, and the backend commits in one undo step', async () => {
     assert.throws(() => sheetFillet(planeSheet([0, 0, 0], [0, 0, 1], 10), planeSheet([30, 0, 0], [1, 0, 0], 10), { width: 2 }), /do not cross/);
-    const be = new LocalBackend();
+    const be = new LocalBackend({ seed: 'enclosure' });
     const [a, b] = crossing();
     be.put(101, a); be.put(102, b);
     const before = be.shapes.size;

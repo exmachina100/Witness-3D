@@ -40,7 +40,7 @@ test('max width splits long edges, keeping the area', () => {
 });
 
 test('the backend meshes finer at a smaller tolerance', async () => {
-    const be = new LocalBackend();
+    const be = new LocalBackend({ seed: 'enclosure' });
     await be.commitPrimitive({ kind: 'sphere', center: [0, 100, 0], radius: 10 });
     const id = be.scene().at(-1).id;
     const [coarse] = await be.meshBodies([id], { tolerance: 1, angle: 0.5 });

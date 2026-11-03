@@ -11,7 +11,7 @@ const square = (s, y = 30) => ({ origin: [0, y, 0], x: [1, 0, 0], normal: [0, 1,
 const up = { origin: [0, 30, 0], x: [1, 0, 0], normal: [0, 0, 1], kind: 'polyline', points: [[0, 0], [0, 20]], closed: false };
 
 test('sweep joins a boss along a path, and is a new body unless asked', async () => {
-    const be = new LocalBackend();
+    const be = new LocalBackend({ seed: 'enclosure' });
     const { ids: [sq, path] } = await be.addCurves([square(10), up]);
     const fresh = await be.previewForm({ target: 1, regions: [sq], kind: 'sweep', path });
     assert.equal(fresh.outcome, 'new');
@@ -26,7 +26,7 @@ test('sweep joins a boss along a path, and is a new body unless asked', async ()
 });
 
 test('revolve cuts a half drum and loft builds a frustum', async () => {
-    const be = new LocalBackend();
+    const be = new LocalBackend({ seed: 'enclosure' });
     const { ids: [sq, top] } = await be.addCurves([square(10), square(5, 50)]);
     const cut = await be.previewForm({ target: 1, regions: [sq], kind: 'revolve', axisPoint: [5, 30, 0], axisDir: [0, 0, 1], angle: Math.PI, op: 'difference' });
     assert.equal(cut.outcome, 'cut');
@@ -37,7 +37,7 @@ test('revolve cuts a half drum and loft builds a frustum', async () => {
 });
 
 test('offset face pushes the flat top up and keeps its ref', async () => {
-    const be = new LocalBackend();
+    const be = new LocalBackend({ seed: 'enclosure' });
     const [b] = be.bodies();
     const top = b.facePlanes.findIndex(p => p && p.normal[1] > 0.99);
     const ref = b.faceRefs[top];
@@ -49,7 +49,7 @@ test('offset face pushes the flat top up and keeps its ref', async () => {
 });
 
 test('Shift+Q slices the body with a sweep and T keeps the swept shape too', async () => {
-    const be = new LocalBackend();
+    const be = new LocalBackend({ seed: 'enclosure' });
     const path = { ...up, origin: [0, 20, 0] };
     const { ids: [sq, p] } = await be.addCurves([square(10, 20), path]);
     const pre = await be.previewForm({ target: 1, regions: [sq], kind: 'sweep', path: p, op: 'slice' });

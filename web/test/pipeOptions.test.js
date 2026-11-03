@@ -14,7 +14,7 @@ async function line(be) {
 }
 
 test('Angle turns a polygon section and Scale tapers the pipe', async () => {
-    const be = new LocalBackend();
+    const be = new LocalBackend({ seed: 'enclosure' });
     const c = await line(be);
     const [bar] = be.pipeResult({ curves: [c], radius: 2, sides: 4, angle: Math.PI / 4 });
     close(volume(bar), 8 * 20, 1e-6);
@@ -26,7 +26,7 @@ test('Angle turns a polygon section and Scale tapers the pipe', async () => {
 });
 
 test('Pipe cuts or joins a target body in one undo step, keeping the tube when asked', async () => {
-    const be = new LocalBackend();
+    const be = new LocalBackend({ seed: 'enclosure' });
     const c = await line(be);
     const id = be.nextId++;
     be.put(id, box({ x: -5, y: -5, z: -5 }, { x: 5, y: 5, z: 5 }));
@@ -41,7 +41,7 @@ test('Pipe cuts or joins a target body in one undo step, keeping the tube when a
 });
 
 test('Shift+Q slices the target: the body cut and the piece inside the pipe', async () => {
-    const be = new LocalBackend();
+    const be = new LocalBackend({ seed: 'enclosure' });
     const c = await line(be);
     const id = be.nextId++;
     be.put(id, box({ x: -5, y: -5, z: -5 }, { x: 5, y: 5, z: 5 }));

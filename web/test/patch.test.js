@@ -30,7 +30,7 @@ function line(a, b) {
 }
 
 test('a flat loop of curves is filled with its plane, and kept as a sheet', async () => {
-    const be = new LocalBackend();
+    const be = new LocalBackend({ seed: 'enclosure' });
     const { ids: [ring] } = await be.addCurves([{ origin: [0, 60, 0], x: [1, 0, 0], normal: [0, 1, 0], kind: 'circle', center: [0, 0], radius: 5 }]);
     const shown = await be.previewPatch({ curves: [ring] });
     // The mesh is a polygon inside the circle: within its 0.05 mm deflection all round.
@@ -47,7 +47,7 @@ test('a flat loop of curves is filled with its plane, and kept as a sheet', asyn
 });
 
 test('a twisted loop gets a smooth sheet through it, an open one is refused', async () => {
-    const be = new LocalBackend();
+    const be = new LocalBackend({ seed: 'enclosure' });
     const c = [[0, 60, 0], [10, 58, 0], [10, 60, 10], [0, 58, 10]];
     const sides = c.map((p, i) => line(p, c[(i + 1) % 4]));
     const { ids } = await be.addCurves(sides);
@@ -58,7 +58,7 @@ test('a twisted loop gets a smooth sheet through it, an open one is refused', as
 });
 
 test("a body's rim closes flat; tangent to upright walls is refused", async () => {
-    const be = new LocalBackend();
+    const be = new LocalBackend({ seed: 'enclosure' });
     const seed = be.scene()[0];
     // The seed block's top is at y = 30: its four top edges make a flat loop.
     const top = seed.edges.map((e, n) => ({ e, n })).filter(({ e }) => { for (let i = 1; i < e.length; i += 3) if (Math.abs(e[i] - 30) > 1e-9) return false; return true; }).map(({ n }) => n);
@@ -70,7 +70,7 @@ test("a body's rim closes flat; tangent to upright walls is refused", async () =
 });
 
 test('an edge asks for curvature as well as tangency through continuity', async () => {
-    const be = new LocalBackend();
+    const be = new LocalBackend({ seed: 'enclosure' });
     const seed = be.scene()[0];
     const top = seed.edges.map((e, n) => ({ e, n })).filter(({ e }) => { for (let i = 1; i < e.length; i += 3) if (Math.abs(e[i] - 30) > 1e-9) return false; return true; }).map(({ n }) => n);
     // Continuity 0 is the flat lid, as no continuity is; 1 and 2 ask the upright walls for tangency
@@ -83,7 +83,7 @@ test('an edge asks for curvature as well as tangency through continuity', async 
 });
 
 test("Tolerance says how far apart the loop's pieces may be and still close", async () => {
-    const be = new LocalBackend();
+    const be = new LocalBackend({ seed: 'enclosure' });
     // A twisted square whose last side stops 0.05 mm short of the first corner.
     const c = [[0, 60, 0], [10, 58, 0], [10, 60, 10], [0, 58, 10]];
     const sides = c.map((p, i) => line(p, i === 3 ? [0, 60, 0.05] : c[(i + 1) % 4]));

@@ -45,7 +45,7 @@ test('scale stretches the block about its middle', () => {
 });
 
 test('the backend previews and commits a deform in place, or keeps the body', async () => {
-    const be = new LocalBackend();
+    const be = new LocalBackend({ seed: 'enclosure' });
     be.put(1, plate());
     const id = be.nextId++;
     be.put(id, block());
@@ -84,7 +84,7 @@ test('Reblend makes stretched fillets round again, as crates/w3d-kernel/tests/de
     const [bare] = deformReblend([box({ x: -5, y: -5, z: 0 }, { x: 5, y: 5, z: 4 })], p, top, p, top, o);
     assert.ok(Math.abs(volume(bare) - 800) < 1e-3, String(volume(bare)));
     // The backend takes Reblend now.
-    const be = new LocalBackend();
+    const be = new LocalBackend({ seed: 'enclosure' });
     be.put(1, plate());
     const id = be.nextId++;
     be.put(id, block);

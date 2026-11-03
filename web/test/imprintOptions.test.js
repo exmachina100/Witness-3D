@@ -8,7 +8,7 @@ before(async () => { await loadKernel() });
 
 // The seed block is x −40..40, y 0..30; lines are drawn 10 mm above it, facing up.
 const setup = async points => {
-    const be = new LocalBackend();
+    const be = new LocalBackend({ seed: 'enclosure' });
     const seed = be.scene()[0];
     const { ids: [line] } = await be.addCurves([{ origin: [0, 40, 0], x: [1, 0, 0], normal: [0, 1, 0], kind: 'polyline', points, closed: false }]);
     return { be, seed, line };
@@ -43,7 +43,7 @@ test('Completion Edge carries a short curve on across its face', async () => {
 
 test('Hide Occlusion leaves flat faces seen edge-on alone', async () => {
     // Drawn on the top itself, carried on past its edges and down the sides.
-    const be = new LocalBackend();
+    const be = new LocalBackend({ seed: 'enclosure' });
     const seed = be.scene()[0];
     const { ids: [line] } = await be.addCurves([{ origin: [0, 30, 0], x: [1, 0, 0], normal: [0, 1, 0], kind: 'polyline', points: [[-10, 0], [10, 0]], closed: false }]);
     await be.commitImprint({ body: seed.id, curves: [line], projection: { dir: [0, -1, 0], both: true, hide: true, complete: true } });

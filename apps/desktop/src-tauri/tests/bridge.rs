@@ -18,7 +18,7 @@ fn read(
 
 #[test]
 fn refresh_and_live_link_send_z_up_meshes() {
-    let model = Arc::new(api::start());
+    let model = Arc::new(api::start_enclosure());
     let m = model.clone();
     let bridge = Bridge::start(0, Arc::new(move || api::scene(&m))).unwrap();
     let (mut ws, _) = tungstenite::connect(format!("ws://{}", bridge.addr)).unwrap();

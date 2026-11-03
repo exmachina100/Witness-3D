@@ -9,7 +9,7 @@ before(async () => { await loadKernel() });
 const toUser = ([x, y, z]) => [x, -z, y];
 
 test('the model sees the enclosure in user coordinates, edges by ref', () => {
-    const be = new LocalBackend();
+    const be = new LocalBackend({ seed: 'enclosure' });
     const d = describe({ bodies: be.scene(), curves: [], context: { edges: null }, toUser });
     const b = d.bodies[0];
     assert.deepEqual(b.box, { min: [-40, -25, 0], max: [40, 25, 30] });
