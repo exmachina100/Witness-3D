@@ -166,6 +166,8 @@ button:focus-visible, input:focus-visible { outline: 1px solid var(--accent); ou
 .stepper button { padding: 6px 10px; color: var(--muted); }
 .stepper button:hover { color: var(--ink); }
 .stepper output { min-width: 44px; text-align: center; font-variant-numeric: tabular-nums; }
+.stepper input { width: 52px; font: inherit; color: var(--ink); background: none; border: 0; text-align: center; font-variant-numeric: tabular-nums; -moz-appearance: textfield; appearance: textfield; }
+.stepper input::-webkit-inner-spin-button, .stepper input::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
 .states { padding: 14px; display: flex; flex-direction: column; gap: 7px; }
 .states > .label { color: var(--muted); }
 .states li { list-style: none; color: var(--dim); }
@@ -181,6 +183,8 @@ button:focus-visible, input:focus-visible { outline: 1px solid var(--accent); ou
 /* status bar */
 .status { grid-column: 1 / -1; grid-row: 3; display: flex; align-items: center; gap: 24px; padding: 0 14px; border-top: 1px solid var(--rule); color: var(--muted); font-size: 10px; white-space: nowrap; overflow: hidden; }
 .status .spacer { flex: 1; }
+.status .status-btn { font: inherit; color: inherit; background: none; border: 0; padding: 0; cursor: pointer; letter-spacing: inherit; }
+.status .status-btn:hover { color: var(--accent); }
 .status output { font-variant-numeric: tabular-nums; }
 
 .w3d.no-left { grid-template-columns: 0 minmax(0, 1fr) 264px; }
