@@ -52,6 +52,15 @@ export function unjoinFaces(shape, picked) {
     return [...sewTouching(rest), ...sewTouching(away)];
 }
 
+/** Plasticity's Duplicate of faces: copies of the `picked` faces of `shape` as sheets, touching ones sewn together. */
+export function copyFaces(shape, picked) {
+    if (!picked?.length) throw new Error('select the faces to duplicate');
+    const faces = numbered(shape, 'TopAbs_FACE');
+    if (picked.some(n => n < 0 || n >= faces.length)) throw new Error('that face no longer exists');
+    const o = oc(), copy = f => new o.BRepBuilderAPI_Transform(f, new o.gp_Trsf(), true, false).Shape();
+    return sewTouching(picked.map(n => copy(faces[n])));
+}
+
 /** Face sheets sewn into as few sheets as they make: one per group of faces that touch. */
 function sewTouching(faces) {
     if (faces.length < 2) return faces;

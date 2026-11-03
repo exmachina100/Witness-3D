@@ -34,7 +34,7 @@ import { splineSheet } from '../splineSheet.js';
 import { unwrapFace } from '../unwrap.js';
 import { edgeCurvature } from '../edgeCurvature.js';
 import { edgeFaces } from '../edgeFaces.js';
-import { joinSheets, unjoin, unjoinFaces } from '../Join.js';
+import { copyFaces, joinSheets, unjoin, unjoinFaces } from '../Join.js';
 import { hiddenLines } from '../Drawing.js';
 
 const v3 = a => new THREE.Vector3(...a);
@@ -1360,6 +1360,15 @@ export class LocalBackend {
 
     /** Unjoin as one undo step: the body keeps the first piece and the rest become new bodies. */
     async commitUnjoin(req) {
+        // Duplicate of faces: the copies as new sheets, the body left as it is.
+        if (req.copy) {
+            const s = this.shapes.get(req.body);
+            if (!s) throw new Error('that body no longer exists');
+            const copies = copyFaces(s, req.picked);
+            this.checkpoint();
+            const ids = copies.map(p => { const id = this.nextId++; this.put(id, p); return id; });
+            return { ids, scene: this.bodies() };
+        }
         const [first, ...rest] = this.unjoinResult(req);
         this.checkpoint();
         this.put(req.body, first);

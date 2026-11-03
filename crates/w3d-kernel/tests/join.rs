@@ -143,3 +143,25 @@ fn unjoin_faces_takes_only_the_picked_faces_away() {
     assert_eq!(doc.kernel.face_count(doc.get(ids[1]).unwrap()), 1);
     assert!(doc.commit_unjoin_faces(block, &[]).is_err());
 }
+
+#[test]
+fn duplicate_faces_copies_them_as_sheets_and_leaves_the_body() {
+    use w3d_kernel::document::Document;
+    let mut doc = Document::new(Occt);
+    let block = doc.add(doc.kernel.box_from_corners(DVec3::ZERO, DVec3::splat(10.0)));
+    doc.clear_history();
+    let ids = doc.commit_copy_faces(block, &[0, 2]).unwrap();
+    assert!(!ids.contains(&block));
+    assert_eq!(doc.kernel.face_count(doc.get(block).unwrap()), 6, "the block is left as it is");
+    assert!(!doc.kernel.is_sheet(doc.get(block).unwrap()));
+    let copied: usize = ids.iter().map(|id| doc.kernel.face_count(doc.get(*id).unwrap())).sum();
+    assert_eq!(copied, 2);
+    assert!(ids.iter().all(|id| doc.kernel.is_sheet(doc.get(*id).unwrap())));
+    assert!(doc.undo());
+    assert_eq!(doc.ids(), vec![block]);
+    // A one-face sheet copies whole.
+    let sheet = doc.commit_unjoin_faces(block, &[1]).unwrap()[1];
+    let copy = doc.commit_copy_faces(sheet, &[0]).unwrap();
+    assert_eq!(copy.len(), 1);
+    assert_eq!(doc.kernel.face_count(doc.get(copy[0]).unwrap()), 1);
+}
