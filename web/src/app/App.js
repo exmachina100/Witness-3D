@@ -388,6 +388,7 @@ const SHELL = `
         <button data-id="ex-individual" aria-pressed="false" title="Each selected face along its own normal instead of all along the first face's"><kbd>I</kbd>INDIVIDUAL</button>
       </div>
       <div class="field"><label>RESULT</label><output data-id="ex-outcome">—</output></div>
+      <div class="field"><button class="pick" data-id="ex-pick-target" aria-pressed="false" title="Pick the target body: click a solid to join, cut or intersect with, or empty space for a new body">TARGET</button><output data-id="ex-target">—</output></div>
       <span class="label">OPERATION</span>
       <div class="seg wrap" role="group" aria-label="Extrude operation">
         <button data-xop="union" aria-pressed="false"><kbd>Q</kbd>UNION</button>
@@ -5042,12 +5043,12 @@ export async function mount(root, backend) {
       if (all.length > 1) {
         const { first, more, holes } = regionsToExtrude(all.map(c => { const f = curveFrame(c); return { id: c.id, origin: f.o.toArray(), normal: f.n.toArray(), points: curve2d(c).map(p => lift(f, p).toArray()) }; }));
         const c = curveById(first), at = regionCentre(c), normal = curveFrame(c).n;
-        return { region: first, more, holes, at, normal, target: bodyAt(at, normal), name: `${all.length} REGIONS${holes.length ? ` · ${holes.length} HOLE${holes.length > 1 ? 'S' : ''}` : ''}` };
+        return { region: first, more, holes, at, normal, target: selectedTarget() ?? bodyAt(at, normal), name: `${all.length} REGIONS${holes.length ? ` · ${holes.length} HOLE${holes.length > 1 ? 'S' : ''}` : ''}` };
       }
       const c = curveList.find(c => c.id === it.id);
       if (!c) return null;
       const at = regionCentre(c), normal = curveFrame(c).n;
-      return { region: c.id, at, normal, target: bodyAt(at, normal), name: curveLabel(c.id) };
+      return { region: c.id, at, normal, target: selectedTarget() ?? bodyAt(at, normal), name: curveLabel(c.id) };
     }
     const b = bodyOf(it.body), p = b?.facePlanes[it.n];
     if (!p) return { curved: true };
@@ -5055,6 +5056,8 @@ export async function mount(root, backend) {
     const faces = sel.list('face').filter(f => f.body === it.body && f.n !== it.n && b.facePlanes[f.n]).map(f => f.n);
     return { face: it.n, faces, at: faceCentre(b, it.n), normal: new THREE.Vector3(...p.normal), target: b.id, name: `${faces.length ? `${faces.length + 1} FACES` : 'FACE'} · ${label(b.id)}` };
   }
+  /** A solid selected with the regions: Plasticity takes the selected solids as Extrude's targets. */
+  const selectedTarget = () => sel.solids.find(id => org.shows(id) && !current.find(b => b.id === id)?.sheet) ?? null;
   /** The body a region lies on: one whose face is under (or over) it. */
   function bodyAt(at, n) {
     for (const s of [1, -1]) {
@@ -5074,8 +5077,17 @@ export async function mount(root, backend) {
     lastTool = 'extrude';
     showTool('extrude');
     setState('none');
-    setTarget(src.target ? label(src.target) : 'NEW BODY');
-    $('ex-hint').textContent = `${src.name}${src.target ? ` ON ${label(src.target)}` : ''}`;
+    // The target: shown in the panel, and picked again with TARGET (regions only; a face extrudes
+    // on its own body, curves make new sheets).
+    c.syncTarget = () => {
+      const t = c.src.target;
+      setTarget(t ? label(t) : 'NEW BODY');
+      $('ex-hint').textContent = `${c.src.name}${t ? ` ON ${label(t)}` : ''}`;
+      $('ex-target').textContent = t ? label(t) : 'NEW BODY';
+      $('ex-pick-target').disabled = c.src.region === undefined;
+      $('ex-pick-target').setAttribute('aria-pressed', String(c.picking === 'target'));
+    };
+    c.syncTarget();
     $('ex-distance').value = 0;
     $('ex-angle').value = 0;
     $('ex-thickness').value = 0;
@@ -5130,6 +5142,16 @@ export async function mount(root, backend) {
     c.entryDone = () => { if (!c.entry) previewExtrude(); };
     c.click = e => {
       if (!c.picking) return false;
+      if (c.picking === 'target') {
+        ray(e);
+        const hit = raycaster.intersectObjects(shownMeshes().filter(m => !org.locked.has(m.userData.id) && !current.find(b => b.id === m.userData.id)?.sheet), false)[0];
+        c.src.target = hit?.object.userData.id ?? null;
+        c.picking = null;
+        c.syncTarget();
+        setHud(c.src.target ? `TARGET ${label(c.src.target)}` : 'NEW BODY');
+        if (c.distance) previewExtrude();
+        return true;
+      }
       const p = axisPointAt(e);
       if (!p) return true;
       if (c.picking === 'pivot') {
@@ -12100,6 +12122,14 @@ export async function mount(root, backend) {
   for (const b of $$('[data-drgrow]')) b.onclick = () => cmd?.id === 'draft' && cmd.growTo(b.dataset.drgrow);
   $('ut-keep').onclick = () => cmd?.id === 'untrim' && cmd.setKeep(!cmd.keep);
   $('section-btn').onclick = () => doAction('section');
+  $('ex-pick-target').onclick = () => {
+    const c = cmd;
+    if (c?.id !== 'extrude' || c.src.region === undefined) return;
+    c.auto = false;
+    c.picking = c.picking === 'target' ? null : 'target';
+    c.syncTarget();
+    setHud(c.picking ? 'CLICK THE TARGET BODY · EMPTY SPACE FOR A NEW BODY' : 'DRAG THE DOT');
+  };
   $('bool-pick-targets').onclick = () => cmd?.id === 'boolean' && cmd.pick('targets');
   $('bool-pick-tools').onclick = () => cmd?.id === 'boolean' && cmd.pick('tools');
   // The viewport header (approved layout plan): Ortho (right-click for the field of view), Overlays,
