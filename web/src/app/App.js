@@ -10427,11 +10427,14 @@ export async function mount(root, backend) {
       startLoftSheet([]);
       return cmd?.onSelection?.();
     }
-    const regions = sel.list('region').map(it => it.id).filter(rid => curveList.some(c => c.id === rid && isClosed(c)));
+    let regions = sel.list('region').map(it => it.id).filter(rid => curveList.some(c => c.id === rid && isClosed(c)));
+    // Revolve and Sweep take a curve too, which makes a sheet (manual: a curve makes a sheet).
+    const curveOnly = id !== 'loft' && !regions.length && sel.curves.length > 0;
+    if (curveOnly) regions = sel.list('curve').map(it => it.id).filter(cid => curveList.some(c => c.id === cid));
     if (!backend.previewForm) return toast(`${toolInfo(id).label} IS NOT IN THIS BUILD YET`);
-    if (!regions.length || (id === 'loft' && regions.length < 2)) return toast(id === 'loft' ? 'SELECT TWO REGIONS OR MORE, IN ORDER, TO LOFT' : `SELECT A REGION TO ${toolInfo(id).label}`);
+    if (!regions.length || (id === 'loft' && regions.length < 2)) return toast(id === 'loft' ? 'SELECT TWO REGIONS OR MORE, IN ORDER, TO LOFT' : `SELECT A REGION OR A CURVE TO ${toolInfo(id).label}`);
     const first = curveList.find(c => c.id === regions[0]);
-    const target = bodyAt(regionCentre(first), curveFrame(first).n);
+    const target = curveOnly && !isClosed(first) ? null : bodyAt(regionCentre(first), curveFrame(first).n);
     const c = cmd = { id, regions: id === 'loft' ? regions : regions.slice(0, 1), target, op: 'new', angle: 360, thickness: 0, twist: 0, scale: 1, p1: null, p2: null, path: null, guides: [], method: 'point', align: 'normal', corner: 'mitre', outcome: null, sent: 0, shown: 0, line: null };
     lastTool = id;
     showTool(id);
@@ -11434,7 +11437,7 @@ export async function mount(root, backend) {
     if (kinds.has('curve') || kinds.has('region')) {
       if (kinds.has('solid')) out.push('tool:project', 'tool:cut', 'tool:imprint');
       if (sel.curves.length === 2) out.push('tool:project');
-      out.push('tool:patch', 'tool:pipe', 'alt-duplicate', 'toggle-points', 'create-instance');
+      out.push('tool:revolve', 'tool:sweep', 'tool:patch', 'tool:pipe', 'alt-duplicate', 'toggle-points', 'create-instance');
       if (kinds.has('face')) out.push('tool:imprint');
       if (kinds.has('face')) out.push('tool:draft');
       out.push('trim', 'split', 'cut-curve', 'extend', 'tool:offset-curve', 'slot', 'tool:fillet-curve');

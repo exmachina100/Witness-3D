@@ -24,6 +24,11 @@ pub enum FormKind {
     /// Sweep the profile along `path`, turning its far end by `twist` radians and scaling it by
     /// `scale`; or following `guide` by `method`; or kept parallel to itself (`align`).
     Sweep { path: Path, twist: f64, scale: f64, guides: Vec<Path>, method: GuideMethod, align: Alignment, round: bool },
+    /// Revolve of a curve rather than a region (manual: a curve makes a sheet): `curve` turned
+    /// `angle` radians about the axis. The params' profile is not used.
+    RevolveCurve { curve: Path, axis_point: DVec3, axis_dir: DVec3, angle: f64 },
+    /// Sweep of a curve rather than a region: `curve` carried along `path` into a sheet.
+    SweepCurve { curve: Path, path: Path },
 }
 
 /// How a swept section follows its guide (Plasticity's Guide method).
@@ -106,8 +111,19 @@ pub fn tool<K: Kernel>(k: &K, p: &FormParams) -> Result<K::Solid, KernelError> {
             let method = match method { GuideMethod::Point => 0, GuideMethod::Chord => 1, GuideMethod::Curve => 2 };
             k.sweep_guided(&p.profile, &p.frame, path, guides, method, *align == Alignment::Parallel, *round)
         }
+        FormKind::RevolveCurve { curve, axis_point, axis_dir, angle } => {
+            if !angle.is_finite() || angle.abs() < 1e-9 { return Err(KernelError::NoOp) }
+            if axis_dir.length() < 1e-9 || !axis_dir.is_finite() || !axis_point.is_finite() {
+                return Err(KernelError::Invalid("pick two different points for the axis"));
+            }
+            k.revolve_curve(curve, *axis_point, axis_dir.normalize(), angle.clamp(-std::f64::consts::TAU, std::f64::consts::TAU))
+        }
+        FormKind::SweepCurve { curve, path } => k.sweep_curve(curve, path),
     }
 }
+
+/// Whether the form makes a sheet (from a curve) rather than a solid (from a region).
+pub fn makes_sheet(kind: &FormKind) -> bool { matches!(kind, FormKind::RevolveCurve { .. } | FormKind::SweepCurve { .. }) }
 
 pub fn form<K: Kernel>(
     k: &K,
@@ -115,6 +131,14 @@ pub fn form<K: Kernel>(
     p: &FormParams,
 ) -> Result<ExtrudeResult<K::Solid>, KernelError> {
     let tool = tool(k, p)?;
+    // A curve's sheet is a new body of its own; booleans take a region's solid.
+    if makes_sheet(&p.kind) {
+        if !matches!(p.operation, Operation::NewBody | Operation::Auto) {
+            return Err(KernelError::Invalid("a curve makes a sheet, a new body; pick a region to join, cut or intersect"));
+        }
+        if !k.is_valid(&tool) { return Err(KernelError::Invalid("the sheet crosses itself; change the axis or path")) }
+        return Ok(ExtrudeResult::New(tool));
+    }
     if !k.is_valid(&tool) || k.solid_count(&tool) == 0 {
         return Err(KernelError::Invalid(
             "the shape crosses itself; change the axis, path or profiles",

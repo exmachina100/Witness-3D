@@ -705,6 +705,23 @@ impl<K: Kernel> Document<K> {
     /// Revolve, Loft or Sweep of drawn regions. Loft takes them in order; the others take one.
     pub fn form_params(&self, regions: &[CurveId], kind: FormRequest, operation: Operation) -> Result<FormParams, KernelError> {
         let (first, rest) = regions.split_first().ok_or(KernelError::Invalid("select a region first"))?;
+        // An open curve revolves or sweeps into a sheet (manual: a curve makes a sheet).
+        let c = self.curve(*first).ok_or(KernelError::Invalid("that curve no longer exists"))?;
+        if c.profile().is_none() {
+            let curve = c.path();
+            let frame = c.frame();
+            let kind = match kind {
+                FormRequest::Revolve { axis_point, axis_dir, angle, .. } => FormKind::RevolveCurve { curve, axis_point, axis_dir, angle },
+                FormRequest::Sweep { path, twist, scale } => {
+                    if path == *first { return Err(KernelError::Invalid("pick a path other than the profile")) }
+                    if twist.abs() > 1e-12 || (scale - 1.0).abs() > 1e-12 { return Err(KernelError::Invalid("twist and scale take a region; set them back to 0 and 1")) }
+                    let path = self.curve(path).ok_or(KernelError::Invalid("that path no longer exists"))?.path();
+                    FormKind::SweepCurve { curve, path }
+                }
+                _ => return Err(KernelError::Invalid("only a closed curve has a region")),
+            };
+            return Ok(FormParams { profile: Profile::Polygon(vec![]), frame, kind, operation });
+        }
         let (profile, frame) = self.region(*first)?;
         let kind = match kind {
             FormRequest::Revolve { axis_point, axis_dir, angle, thickness } => FormKind::Revolve { axis_point, axis_dir, angle, thickness },
