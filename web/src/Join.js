@@ -38,6 +38,40 @@ export function joinSheets(shapes) {
     return shell;
 }
 
+/**
+ * Plasticity's Unjoin Faces: only the `picked` faces (numbers) of `shape` come away. The rest stays
+ * one sheet (first), and the picked faces become sheets, faces that touch sewn together. With every
+ * face picked, each face is a sheet of its own (as desktop's Document::preview_unjoin_faces).
+ */
+export function unjoinFaces(shape, picked) {
+    if (!picked?.length) throw new Error('select the faces to unjoin');
+    const faces = unjoin(shape, true);
+    if (picked.some(n => n < 0 || n >= faces.length)) throw new Error('that face no longer exists');
+    const away = faces.filter((_, i) => picked.includes(i)), rest = faces.filter((_, i) => !picked.includes(i));
+    if (!rest.length) return away;
+    return [...sewTouching(rest), ...sewTouching(away)];
+}
+
+/** Face sheets sewn into as few sheets as they make: one per group of faces that touch. */
+function sewTouching(faces) {
+    if (faces.length < 2) return faces;
+    const tryJoin = list => { try { return joinSheets(list) } catch { return null } };
+    const one = tryJoin(faces);
+    if (one) return [one];
+    const left = [...faces], out = [];
+    while (left.length) {
+        const group = [left.shift()];
+        for (let grew = true; grew;) {
+            grew = false;
+            for (let i = 0; i < left.length;) {
+                if (tryJoin([...group, left[i]])) { group.push(...left.splice(i, 1)); grew = true } else i++;
+            }
+        }
+        out.push(...(group.length === 1 ? group : [tryJoin(group) ?? group].flat()));
+    }
+    return out;
+}
+
 /** `shape` taken apart: each face as a sheet (`faces`), or each separate solid, shell or loose face. */
 export function unjoin(shape, faces) {
     const o = oc();

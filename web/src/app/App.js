@@ -10856,14 +10856,19 @@ export async function mount(root, backend) {
       selectionChanged({ quiet: true });
     } catch (e) { toast(say(e)); }
   }
-  /** Plasticity's Unjoin: the selected body taken apart into its faces (as sheets) or its separate pieces. */
+  /**
+   * Plasticity's Unjoin: the selected body taken apart into its faces (as sheets) or its separate
+   * pieces. With faces selected (Unjoin Faces), only those faces come away from their body.
+   */
   async function unjoinSelected(faces) {
     if (cmd) await finish();
-    const ids = targetBodies();
+    const picked = faces ? sel.list('face') : [];
+    const ids = picked.length ? [...new Set(picked.map(f => f.body))] : targetBodies();
     if (ids.length !== 1) return toast(ids.length ? 'UNJOIN ONE BODY AT A TIME' : 'SELECT A BODY TO UNJOIN');
     if (!backend.commitUnjoin) return toast('UNJOIN IS NOT IN THIS BUILD YET');
     try {
-      const { ids: pieces, scene: list } = await backend.commitUnjoin({ body: ids[0], faces });
+      const req = { body: ids[0], faces, ...(picked.length ? { picked: picked.map(f => f.n) } : {}) };
+      const { ids: pieces, scene: list } = await backend.commitUnjoin(req);
       record(`UNJOIN ${faces ? 'FACES' : 'SHELLS'} ${label(ids[0])} ×${pieces.length}`, pieces[0]);
       await showScene(list);
       sel.clear();
@@ -11171,7 +11176,10 @@ export async function mount(root, backend) {
       case 'unjoin':
         // Alt+J: Unjoin Faces with faces selected, else Unjoin Curve.
         if (arg === 'key') { if (sel.list('face').length && !sel.curves.length) await unjoinSelected(true); else await explodeSelected('UNJOIN'); return true; }
-        await (arg === 'curves' || (!targetBodies().length && sel.curves.some(curveById)) ? explodeSelected('UNJOIN') : unjoinSelected(arg !== 'pieces')); return true;
+        // Unjoin from the palette runs by the selection (manual /solid/unjoin): curves, faces, or a
+        // body's separate shells.
+        if (arg === 'curves' || (!targetBodies().length && !sel.list('face').length && sel.curves.some(curveById))) { await explodeSelected('UNJOIN'); return true; }
+        await unjoinSelected(arg === 'faces' || (!arg && sel.list('face').length > 0)); return true;
       case 'material': if (arg === 'remove') removeMaterial(); else await startTool('material'); return true;
     }
     switch (a) {

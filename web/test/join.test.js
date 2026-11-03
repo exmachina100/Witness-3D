@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 import { before, test } from 'node:test';
 import { LocalBackend } from '../src/app/LocalBackend.js';
 import { count, loadKernel, volume } from '../src/Kernel.js';
-import { joinSheets, unjoin } from '../src/Join.js';
+import { joinSheets, unjoin, unjoinFaces } from '../src/Join.js';
 import { isSheet } from '../src/Patch.js';
 
 before(async () => { await loadKernel() });
@@ -51,4 +51,19 @@ test('two sheets sharing an edge join into one open sheet; sheets apart are refu
 test('a one-piece body has nothing to unjoin into pieces', () => {
     const be = new LocalBackend({ seed: 'enclosure' });
     assert.throws(() => unjoin(be.shapes.get(be.scene()[0].id), false), /all one piece/);
+});
+
+test('Unjoin Faces takes only the picked faces away; the body keeps the rest as one sheet', async () => {
+    const be = new LocalBackend({ seed: 'enclosure' });
+    const seed = be.scene()[0];
+    const n = count(be.shapes.get(seed.id), 'TopAbs_FACE');
+    const { ids } = await be.commitUnjoin({ body: seed.id, faces: true, picked: [0] });
+    assert.equal(ids.length, 2);
+    assert.equal(ids[0], seed.id);
+    assert.ok(isSheet(be.shapes.get(seed.id)));
+    assert.equal(count(be.shapes.get(seed.id), 'TopAbs_FACE'), n - 1);
+    assert.equal(count(be.shapes.get(ids[1]), 'TopAbs_FACE'), 1);
+    await be.undo();
+    assert.equal(be.scene().length, 1);
+    assert.throws(() => unjoinFaces(be.shapes.get(seed.id), []), /select the faces/);
 });

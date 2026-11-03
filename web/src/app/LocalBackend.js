@@ -34,7 +34,7 @@ import { splineSheet } from '../splineSheet.js';
 import { unwrapFace } from '../unwrap.js';
 import { edgeCurvature } from '../edgeCurvature.js';
 import { edgeFaces } from '../edgeFaces.js';
-import { joinSheets, unjoin } from '../Join.js';
+import { joinSheets, unjoin, unjoinFaces } from '../Join.js';
 import { hiddenLines } from '../Drawing.js';
 
 const v3 = a => new THREE.Vector3(...a);
@@ -1334,10 +1334,10 @@ export class LocalBackend {
     }
 
     /** Plasticity's Unjoin: `body` taken apart into its faces (`faces`) or its separate pieces. */
-    unjoinResult({ body, faces }) {
+    unjoinResult({ body, faces, picked }) {
         const s = this.shapes.get(body);
         if (!s) throw new Error('that body no longer exists');
-        return unjoin(s, !!faces);
+        return picked?.length ? unjoinFaces(s, picked) : unjoin(s, !!faces);
     }
 
     /** Unjoin as one undo step: the body keeps the first piece and the rest become new bodies. */
