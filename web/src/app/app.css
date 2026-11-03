@@ -391,3 +391,7 @@ input[type="range"] { accent-color: var(--accent); }
 .stepline [data-id="step-text"] { color: var(--ink); }
 .stepline .step-keys { display: flex; gap: 6px; align-items: center; overflow: hidden; text-overflow: ellipsis; }
 .stepline kbd { font: inherit; padding: 0 4px; border: 1px solid rgba(239, 235, 224, 0.5); margin-left: 6px; }
+/* Boolean's TARGETS / TOOLS buttons: pick that set again. */
+.field button.pick { padding: 7px 6px; border: 1px solid var(--rule); color: var(--muted); font: inherit; }
+.field button.pick:hover { color: var(--ink); }
+.field button.pick[aria-pressed="true"] { border-color: var(--accent); color: var(--accent); }
