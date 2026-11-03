@@ -201,8 +201,8 @@ const KEYS = {
   sphere: [['CLICK', 'CENTRE · SIZE'], ['TAB', 'TYPE'], ['D', 'DIAMETER'], ['Q W ⇧E ⇧Q', 'BOOLEAN'], ['B', 'NEW BODY'], ['⏎ / RMB', 'OK']],
   shell: [['D', 'THICKNESS'], ['⇧ CLICK', 'FACES'], ['⏎ / RMB', 'OK']],
   mirror: [['X Y Z', 'PLANE'], ['⇧ X Y Z', 'NEGATIVE'], ['CLICK', 'FACE PLANE'], ['F', 'FREESTYLE'], ['Q', 'UNION'], ['I', 'INSTANCES'], ['⏎ / RMB', 'OK']],
-  'rect-array': [['TYPE', 'COUNTS · SPACING'], ['TAB', 'SPACING / EXTENT'], ['⇧ WHEEL', 'COPIES'], ['X Y Z', 'WHEEL AXIS'], ['J', 'JOIN'], ['I', 'INSTANCES'], ['⏎ / RMB', 'OK']],
-  'radial-array': [['X Y Z', 'AXIS'], ['TAB', 'TOTAL / SPACING'], ['⇧ WHEEL', 'COPIES'], ['J', 'JOIN'], ['I', 'INSTANCES'], ['⏎ / RMB', 'OK']],
+  'rect-array': [['CLICK', 'DIRECTION 1, THEN 2'], ['TYPE', 'COUNTS · SPACING'], ['TAB', 'SPACING / EXTENT'], ['⇧ WHEEL', 'COPIES'], ['X Y Z', 'WHEEL AXIS'], ['J', 'JOIN'], ['I', 'INSTANCES'], ['⏎ / RMB', 'OK']],
+  'radial-array': [['CLICK', 'CENTRE POINT'], ['X Y Z', 'AXIS'], ['TAB', 'TOTAL / SPACING'], ['⇧ WHEEL', 'COPIES'], ['J', 'JOIN'], ['I', 'INSTANCES'], ['⏎ / RMB', 'OK']],
   'curve-array': [['CLICK', 'CURVE'], ['A', 'ALIGN'], ['J', 'JOIN'], ['I', 'INSTANCES'], ['⏎ / RMB', 'OK']],
   pushpull: [['CLICK', 'PLACE'], ['DRAG DOT', 'DISTANCE'], ['Q', 'JOIN'], ['W', 'CUT'], ['B', 'NEW'], ['R C', 'SHAPE'], ['⏎ / RMB', 'OK']],
 };
@@ -10163,6 +10163,7 @@ export async function mount(root, backend) {
       return false;
     };
     c.finish = async () => {
+      if (c.instance && !request(c)) return toast(id === 'mirror' ? 'PICK THE MIRROR PLANE: X, Y OR Z, OR CLICK A FACE' : 'CLICK THE CENTRE POINT');
       if (c.instance && id === 'mirror') {
         // Mirror with I: each solid gets a mirrored instance where its copy would stand.
         const plane = request(c);
@@ -10188,7 +10189,7 @@ export async function mount(root, backend) {
         return;
       }
       const req = request(c);
-      if (!req) return toast('PICK THE MIRROR PLANE: X, Y OR Z, OR CLICK A FACE');
+      if (!req) return toast(id === 'mirror' ? 'PICK THE MIRROR PLANE: X, Y OR Z, OR CLICK A FACE' : 'CLICK THE CENTRE POINT');
       try {
         const { ids: made, scene: list } = c.ids.length ? await backend[commit]({ bodies: c.ids, ...req, join: c.join }) : { ids: [], scene: null };
         // Curves: their mirror images as new curves.
@@ -10278,14 +10279,42 @@ export async function mount(root, backend) {
 
   // Plasticity's Mode: Rectangular Spacing or Extent, Radial Total or Spacing (Tab switches);
   // Shift+wheel adds or takes away a copy (Rectangular: along the axis last picked with X/Y/Z).
+  // Radial: click the centre point first (manual common/radial-array). Rectangular: click the
+  // direction from the solids (Distance 1), and again for a second direction (Distance 2); X, Y and Z
+  // along the axes until then.
   function startArray(id) {
     const radial = id === 'radial-array';
+    // A clicked direction, scaled by its spacing (or extent) field.
+    const along = (c, i, a) => c.dirs[i] ? c.dirs[i].toArray().map(v => v * num(`ra-s${a}`)) : toWorld(userAxis(a).map(v => v * num(`ra-s${a}`)));
     const c = startCopies(id, c => radial
-      ? { spec: radialSpec(cplane.origin.toArray(), toWorld(userAxis(c.axis)), num('rr-angle') * DEG, Math.round(num('rr-count')), c.mode) }
-      : { spec: rectangularSpec(['x', 'y', 'z'].map(a => toWorld(userAxis(a).map(v => v * num(`ra-s${a}`)))), ['x', 'y', 'z'].map(a => Math.round(num(`ra-c${a}`))), c.mode) },
-    (c, n) => `${n} ${n === 1 ? 'COPY' : 'COPIES'}${c.mode === 'extent' ? ' · EXTENT' : radial && c.mode === 'spacing' ? ' · SPACING' : ''}`);
+      ? (c.centre ? { spec: radialSpec(c.centre.toArray(), toWorld(userAxis(c.axis)), num('rr-angle') * DEG, Math.round(num('rr-count')), c.mode) } : null)
+      : { spec: rectangularSpec(['x', 'y', 'z'].map((a, i) => along(c, i, a)), ['x', 'y', 'z'].map(a => Math.round(num(`ra-c${a}`))), c.mode) },
+    (c, n) => radial && !c.centre ? 'RADIAL ARRAY · CLICK THE CENTRE POINT'
+      : `${n} ${n === 1 ? 'COPY' : 'COPIES'}${c.mode === 'extent' ? ' · EXTENT' : radial && c.mode === 'spacing' ? ' · SPACING' : ''}${!radial && c.dirs.length < 2 ? ` · CLICK ${c.dirs.length ? 'A SECOND DIRECTION (OPTIONAL)' : 'THE DIRECTION'}` : ''}`);
     if (!c) return;
     c.axis = radial ? 'z' : 'x';
+    c.centre = null;
+    c.dirs = [];
+    // Where the solids are: the start of a rectangular array's direction clicks.
+    const box = new THREE.Box3();
+    for (const b of c.ids) { const m = bodyMesh(b); if (m) box.expandByObject(m); }
+    const from = box.isEmpty() ? cplane.origin.clone() : box.getCenter(new THREE.Vector3());
+    c.click = e => {
+      const p = axisPointAt(e);
+      if (!p) return true;
+      if (radial) { c.centre = p; c.preview(); return true; }
+      // Measured in the construction plane from under the solids' middle.
+      const d = p.clone().sub(from).projectOnPlane(cplane.normal);
+      if (d.length() < 1e-9) return true;
+      const i = Math.min(c.dirs.length, 1), a = ['x', 'y'][i];
+      c.dirs[i] = d.clone().normalize();
+      // The distance clicked is the spacing (or the extent, in Extent mode); two copies at least.
+      $(`ra-s${a}`).value = String(Math.round(d.length() * 1000) / 1000);
+      if (Math.round(num(`ra-c${a}`)) < 2) $(`ra-c${a}`).value = '2';
+      c.axis = a;
+      c.preview();
+      return true;
+    };
     const modes = radial ? ['total', 'spacing'] : ['spacing', 'extent'];
     c.mode = modes[0];
     const syncMode = () => {
