@@ -18,7 +18,7 @@ async function disc(be) {
 }
 
 test('a disc thickens into a puck, front and back', async () => {
-    const be = new LocalBackend();
+    const be = new LocalBackend({ seed: 'enclosure' });
     const sheet = await disc(be);
     const puck = await be.previewThicken({ body: sheet, front: 2, back: 0 });
     assert.equal(puck.sheet, false);
@@ -31,7 +31,7 @@ test('a disc thickens into a puck, front and back', async () => {
 });
 
 test('the sheet body turns solid in one undo step and keeps its id', async () => {
-    const be = new LocalBackend();
+    const be = new LocalBackend({ seed: 'enclosure' });
     const sheet = await disc(be);
     const { id, scene } = await be.commitThicken({ body: sheet, front: 1 });
     assert.equal(id, sheet);
@@ -41,7 +41,7 @@ test('the sheet body turns solid in one undo step and keeps its id', async () =>
 });
 
 test('solids and no thickness are refused', async () => {
-    const be = new LocalBackend();
+    const be = new LocalBackend({ seed: 'enclosure' });
     const seed = be.scene()[0];
     await assert.rejects(be.previewThicken({ body: seed.id, front: 1 }), /already solid/);
     const sheet = await disc(be);

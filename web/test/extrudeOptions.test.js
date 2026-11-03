@@ -15,7 +15,7 @@ function bounds(shape) {
 }
 /** A backend holding a 20 mm cube from the origin, and the face of it facing `n`. */
 function cube() {
-    const be = new LocalBackend();
+    const be = new LocalBackend({ seed: 'enclosure' });
     be.shapes.clear();
     be.put(1, box(new THREE.Vector3(0, 0, 0), new THREE.Vector3(20, 20, 20)));
     const face = n => { for (let i = 0; i < 6; i++) if (facePlane(be.shapes.get(1), i).normal.dot(n) > 0.99) return i; };
@@ -23,7 +23,7 @@ function cube() {
 }
 
 test('freestyle leans a region extrude along its direction', async () => {
-    const be = new LocalBackend();
+    const be = new LocalBackend({ seed: 'enclosure' });
     const { ids: [sq] } = await be.addCurves([{ origin: [0, 0, 50], x: [1, 0, 0], normal: [0, 0, 1], kind: 'polyline', points: [[-5, -5], [5, -5], [5, 5], [-5, 5]], closed: true }]);
     const { r } = await be.run({ region: sq, distance: 10, direction: [1, 0, 1], op: 'new' });
     const h = 10 / Math.SQRT2;

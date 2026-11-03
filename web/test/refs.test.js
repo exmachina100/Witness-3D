@@ -20,14 +20,14 @@ const vertical = b => b.edges.flatMap((p, i) => {
 const withRef = (b, r) => b.edgeRefs.flatMap((x, i) => x === r ? [i] : []);
 
 test('every body carries one ref per face and edge', () => {
-    const [b] = new LocalBackend().scene();
+    const [b] = new LocalBackend({ seed: 'enclosure' }).scene();
     assert.equal(b.faceRefs.length, 6);
     assert.equal(b.edgeRefs.length, 12);
     assert.equal(new Set([...b.faceRefs, ...b.edgeRefs]).size, 18);
 });
 
 test('an edge keeps its ref through a boss joined elsewhere', async () => {
-    const be = new LocalBackend();
+    const be = new LocalBackend({ seed: 'enclosure' });
     const [b] = be.scene();
     const r = b.edgeRefs[topFront(b)[0]];
     const { scene: [after] } = await be.commit({
@@ -40,7 +40,7 @@ test('an edge keeps its ref through a boss joined elsewhere', async () => {
 });
 
 test('a fillet keeps trimmed edges and gives its rounds new face refs; undo restores', async () => {
-    const be = new LocalBackend();
+    const be = new LocalBackend({ seed: 'enclosure' });
     const [b] = be.scene();
     const r = b.edgeRefs[topFront(b)[0]];
     const { scene: [after] } = await be.commitBlend({ body: b.id, edges: vertical(b), size: 4, kind: 'fillet' });
@@ -51,7 +51,7 @@ test('a fillet keeps trimmed edges and gives its rounds new face refs; undo rest
 });
 
 test('a move keeps refs and moves the geometry', async () => {
-    const be = new LocalBackend();
+    const be = new LocalBackend({ seed: 'enclosure' });
     const [b] = be.scene();
     const { scene: [after] } = await be.commitMotion({ bodies: [b.id], offset: [10, 0, 0], angle: Math.PI / 2 });
     assert.deepEqual(after.edgeRefs, b.edgeRefs);

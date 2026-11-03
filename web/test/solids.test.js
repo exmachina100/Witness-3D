@@ -83,7 +83,7 @@ test('array motions count copies and spread a full turn evenly', () => {
 });
 
 test('the backend adds primitives and shells as single undo steps', async () => {
-    const be = new LocalBackend();
+    const be = new LocalBackend({ seed: 'enclosure' });
     const before = be.scene().length;
     const { id } = await be.commitPrimitive({ kind: 'sphere', center: [0, 100, 0], radius: 5 });
     assert.equal(be.scene().length, before + 1);
@@ -102,7 +102,7 @@ test('the backend adds primitives and shells as single undo steps', async () => 
 });
 
 test('mirror and arrays make copies, or join them, in one undo step', async () => {
-    const be = new LocalBackend();
+    const be = new LocalBackend({ seed: 'enclosure' });
     const seed = be.scene()[0]; // 80 × 30 × 50, from x −40 to 40
     const copies = await be.previewMirror({ bodies: [seed.id], origin: [60, 0, 0], normal: [1, 0, 0] });
     assert.equal(copies.length, 1);
@@ -130,7 +130,7 @@ test('mirror and arrays make copies, or join them, in one undo step', async () =
 });
 
 test('a hole is a round cut: to a depth, or through, as one undo step', async () => {
-    const be = new LocalBackend();
+    const be = new LocalBackend({ seed: 'enclosure' });
     const seed = be.scene()[0]; // 80 × 30 × 50, top face at y = 30
     const hole = depth => ({ target: seed.id, origin: [10, 30, 5], normal: [0, 1, 0], xAxis: [1, 0, 0], profile: { kind: 'circle', radius: 3 }, distance: -depth, op: 'difference' });
     const p = await be.preview(hole(10));
@@ -143,7 +143,7 @@ test('a hole is a round cut: to a depth, or through, as one undo step', async ()
 });
 
 test('cut splits a body along a drawn line into separate solids, as one undo step', async () => {
-    const be = new LocalBackend();
+    const be = new LocalBackend({ seed: 'enclosure' });
     const seed = be.scene()[0]; // 80 × 30 × 50 at x −40..40, y 0..30
     // A line across the top, drawn on the ground plane: x = 10, from front to back.
     const { ids: [line] } = await be.addCurves([{ origin: [0, 0, 0], x: [1, 0, 0], normal: [0, 1, 0], kind: 'polyline', points: [[10, -100], [10, 100]], closed: false }]);
@@ -165,7 +165,7 @@ test('cut splits a body along a drawn line into separate solids, as one undo ste
 });
 
 test('imprint splits faces where curves cross them and keeps the body whole', async () => {
-    const be = new LocalBackend();
+    const be = new LocalBackend({ seed: 'enclosure' });
     const seed = be.scene()[0];
     const faces = seed.faceRefs.length;
     const { ids: [line] } = await be.addCurves([{ origin: [0, 0, 0], x: [1, 0, 0], normal: [0, 1, 0], kind: 'polyline', points: [[10, -100], [10, 100]], closed: false }]);
@@ -187,7 +187,7 @@ test('imprint splits faces where curves cross them and keeps the body whole', as
 });
 
 test('delete redundant topology merges the faces an imprint split, in one undo step', async () => {
-    const be = new LocalBackend();
+    const be = new LocalBackend({ seed: 'enclosure' });
     const seed = be.scene()[0];
     const faces = seed.faceRefs.length;
     const { ids: [line] } = await be.addCurves([{ origin: [0, 0, 0], x: [1, 0, 0], normal: [0, 1, 0], kind: 'polyline', points: [[10, -100], [10, 100]], closed: false }]);
@@ -202,7 +202,7 @@ test('delete redundant topology merges the faces an imprint split, in one undo s
 });
 
 test('cut with a plane or another body\'s face, and imprint one body on another', async () => {
-    const be = new LocalBackend();
+    const be = new LocalBackend({ seed: 'enclosure' });
     const seed = be.scene()[0]; // 80 × 30 × 50, x −40..40, y 0..30
     // A post standing through the top: x −10..10, y 20..40, z −10..10.
     const { id: post } = await be.commitPrimitive({ kind: 'box', frame: { origin: [-10, 20, 10], x: [1, 0, 0], normal: [0, 1, 0] }, width: 20, depth: 20, height: 20 });
@@ -232,7 +232,7 @@ test('cut with a plane or another body\'s face, and imprint one body on another'
 });
 
 test('draft face closes the sides of a block in along the pull, as one undo step', async () => {
-    const be = new LocalBackend();
+    const be = new LocalBackend({ seed: 'enclosure' });
     const { id } = await be.commitPrimitive({ kind: 'box', frame: { origin: [100, 0, 10], x: [1, 0, 0], normal: [0, 1, 0] }, width: 20, depth: 20, height: 20 });
     const faces = be.scene().find(b => b.id === id).facePlanes;
     const sides = faces.map((p, i) => [p, i]).filter(([p]) => Math.abs(p.normal[1]) < 0.5).map(([, i]) => i);
@@ -251,7 +251,7 @@ test("Draft Face's Grow: an inner face drafted past the outer wall pushes it, st
     // x = 13 (as crates/w3d-kernel/tests/draft_grow.rs). Drafted 45 degrees about its foot it leans
     // out 5 mm at the top, 2 mm past the wall.
     const { boolean } = await import('../src/Kernel.js');
-    const be = new LocalBackend();
+    const be = new LocalBackend({ seed: 'enclosure' });
     const step = boolean(box({ x: 0, y: 0, z: 0 }, { x: 13, y: 20, z: 10 }), box({ x: 10, y: -1, z: 5 }, { x: 14, y: 21, z: 11 }), 'difference');
     be.put(950, step);
     const riser = be.scene().find(b => b.id === 950).facePlanes.findIndex(p => p && p.normal[0] > 0.999 && Math.abs(p.origin[0] - 10) < 1e-9);
@@ -273,7 +273,7 @@ test('Find Boundary Edges: a sheet\'s open sides, none on a solid or at a seam',
 });
 
 test('Reverse Sheet turns a sheet over as one undo step and refuses a solid', async () => {
-    const be = new LocalBackend();
+    const be = new LocalBackend({ seed: 'enclosure' });
     const seed = be.scene()[0];
     const { ids: [sq] } = await be.addCurves([{ origin: [0, 50, 0], x: [1, 0, 0], normal: [0, 1, 0], kind: 'polyline', points: [[0, 0], [10, 0], [10, 10], [0, 10]], closed: true }]);
     const { id } = await be.commitPatch({ curves: [sq] });

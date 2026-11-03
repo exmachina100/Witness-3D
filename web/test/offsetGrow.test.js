@@ -12,7 +12,7 @@ const v = (x, y, z) => new THREE.Vector3(x, y, z);
 test('offset face grow modes past the outer wall, as on the desktop', async () => {
     // A 10 wide, 20 tall block with a 20 long, 5 tall ledge beyond it; its wall over the ledge is at x = 10.
     const step = boolean(box(v(0, 0, 0), v(10, 20, 20)), box(v(10, 0, 0), v(30, 20, 5)), 'union');
-    const be = new LocalBackend();
+    const be = new LocalBackend({ seed: 'enclosure' });
     be.put(1, step);
     const wall = Array.from({ length: count(step, 'TopAbs_FACE') }, (_, j) => j)
         .find(j => { const p = facePlane(step, j); return p && p.normal.x > 0.999 && Math.abs(p.origin.x - 10) < 1e-6 });

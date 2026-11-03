@@ -8,7 +8,7 @@ before(async () => { await loadKernel() });
 
 test('a block stretched along x about a pivot grows only that way, then moves', async () => {
     // The seed block: x −40..40, y 0..30, z −25..25.
-    const be = new LocalBackend();
+    const be = new LocalBackend({ seed: 'enclosure' });
     const [seed] = be.scene();
     await be.commitStretch({ bodies: [seed.id], pivot: [20, 0, 0], matrix: [2, 0, 0, 0, 1, 0, 0, 0, 1], offset: [0, 1, 0] });
     const s = be.shapes.get(seed.id);
@@ -18,7 +18,7 @@ test('a block stretched along x about a pivot grows only that way, then moves', 
 });
 
 test('the backend stretches bodies as one undo step and refuses flattening them', async () => {
-    const be = new LocalBackend();
+    const be = new LocalBackend({ seed: 'enclosure' });
     const [seed] = be.scene();
     const v0 = seed.volume;
     await assert.rejects(be.commitStretch({ bodies: [seed.id], matrix: [1, 0, 0, 0, 0, 0, 0, 0, 1] }), /greater than zero/);

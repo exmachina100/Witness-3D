@@ -21,7 +21,7 @@ test('a sheet across a block splits it; an open sheet alone closes nothing', () 
 });
 
 test('Region as one undo step replaces the bodies with the regions', async () => {
-    const be = new LocalBackend();
+    const be = new LocalBackend({ seed: 'enclosure' });
     const a = be.nextId++, b = be.nextId++;
     be.put(a, box({ x: 0, y: 0, z: 0 }, { x: 10, y: 10, z: 10 }));
     be.put(b, box({ x: 5, y: 5, z: 5 }, { x: 15, y: 15, z: 15 }));

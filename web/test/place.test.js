@@ -9,7 +9,7 @@ before(async () => { await loadKernel() });
 const close = (a, b, eps = 1e-6) => assert.ok(Math.abs(a - b) < eps, `${a} != ${b}`);
 /** The seed block (80 × 30 × 50, id 1) and a 10 mm cube standing beside it. */
 async function scene() {
-    const be = new LocalBackend();
+    const be = new LocalBackend({ seed: 'enclosure' });
     const seed = be.scene()[0].id;
     const { id: cube } = await be.commitPrimitive({ kind: 'box', frame: { origin: [100, 0, 0], x: [1, 0, 0], normal: [0, 1, 0] }, width: 10, depth: 10, height: 10 });
     return { be, seed, cube };

@@ -13,7 +13,7 @@ const frame = { origin: [0, 0, 0], x: [1, 0, 0], normal: [0, 1, 0] };
 const font = parseFont(readFileSync(new URL('../src/fonts/Outfit-Regular.ttf', import.meta.url)));
 
 test('text extrudes with the counters cut out', async () => {
-    const be = new LocalBackend();
+    const be = new LocalBackend({ seed: 'enclosure' });
     const curves = textShapes(font, 'Bob 80', 10).shapes.map(s => ({ ...frame, kind: 'nurbs', ...s }));
     const { ids } = await be.addCurves(curves);
     // Plane (x, y) is model (x, -z) here.

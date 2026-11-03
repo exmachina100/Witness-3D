@@ -39,7 +39,7 @@ test('a fillet, which its neighbours run on from smoothly, is refused', () => {
 
 test('Offset Face in the browser backend takes a curved face', async () => {
     const { LocalBackend } = await import('../src/app/LocalBackend.js');
-    const be = new LocalBackend();
+    const be = new LocalBackend({ seed: 'enclosure' });
     const cyl = new (oc().BRepPrimAPI_MakeCylinder)(5, 10).Shape();
     be.put(99, cyl);
     const b = await be.previewOffset({ body: 99, faces: [cylFace(cyl)], distance: 2 });

@@ -12,7 +12,7 @@ const FULL = 40 * 30 * 20;
 
 /** A 40 × 30 × 20 block in a backend, and the numbers of its edges along y at z = 0 (x = 0 and x = 40). */
 function block() {
-    const o = oc(), be = new LocalBackend(), b = box({ x: 0, y: 0, z: 0 }, { x: 40, y: 30, z: 20 });
+    const o = oc(), be = new LocalBackend({ seed: 'enclosure' }), b = box({ x: 0, y: 0, z: 0 }, { x: 40, y: 30, z: 20 });
     be.put(1, b);
     const at = x => numberedEdges(b).findIndex(e => {
         const c = new o.BRepAdaptor_Curve(e);
@@ -54,7 +54,7 @@ test('a bad tension is refused', () => {
 });
 
 test('a round rim takes the shapes', () => {
-    const o = oc(), be = new LocalBackend();
+    const o = oc(), be = new LocalBackend({ seed: 'enclosure' });
     // A block with a bowl cut into its top: the rim joins a flat face to a ball.
     const slab = box({ x: 0, y: 0, z: 0 }, { x: 100, y: 100, z: 50 });
     const ball = new o.BRepPrimAPI_MakeSphere(new o.gp_Pnt(50, 50, 80), 40).Shape();

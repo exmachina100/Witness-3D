@@ -7,7 +7,7 @@ import { LocalBackend } from '../src/app/LocalBackend.js';
 before(async () => { await loadKernel() });
 
 const setup = () => {
-    const be = new LocalBackend();
+    const be = new LocalBackend({ seed: 'enclosure' });
     const block = be.nextId++, sheet = be.nextId++, small = be.nextId++;
     be.put(block, box({ x: 0, y: 0, z: 0 }, { x: 10, y: 10, z: 10 }));
     be.put(sheet, planeSheet([5, 5, 3], [0, 0, 1], 20));

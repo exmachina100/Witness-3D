@@ -8,7 +8,7 @@ import { cutCurve, cuttersFor, samples } from '../src/curveEdit.js';
 before(async () => { await loadKernel() });
 
 test('a face cuts a curve where it crosses the curve\'s plane', async () => {
-    const be = new LocalBackend();
+    const be = new LocalBackend({ seed: 'enclosure' });
     const seed = be.scene()[0]; // x −40..40, y 0..30
     // A line at half height, x −100..100, in the plane y = 15.
     const c = { origin: [0, 15, 0], x: [1, 0, 0], normal: [0, 1, 0], kind: 'polyline', points: [[-100, 0], [100, 0]], closed: false };

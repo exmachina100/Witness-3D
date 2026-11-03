@@ -29,14 +29,14 @@ pub fn set_mesh_quality(m: &Model, quality: f64) -> Result<Vec<Body>, String> {
 
 pub type Model = Engine<Occt>;
 
-/// The product-enclosure blank every new document starts with: 80 × 30 × 50 mm on the ground.
+/// The cube every new document starts with: 50 mm on each side, standing on the ground.
 fn seed(doc: &mut Document<Occt>) {
-    let body = doc.kernel.box_from_corners(DVec3::new(-40.0, 0.0, -25.0), DVec3::new(40.0, 30.0, 25.0));
+    let body = doc.kernel.box_from_corners(DVec3::new(-25.0, 0.0, -25.0), DVec3::new(25.0, 50.0, 25.0));
     doc.replace_all([(1, body, None)], 2, 1);
 }
 
 /// A new document: the user's startup scene (File › Save As Startup Scene) when there is one that
-/// opens, else the seed enclosure.
+/// opens, else the seed cube.
 fn fresh(doc: &mut Document<Occt>, startup: Option<&std::path::Path>) {
     doc.app_state = None;
     if let Some(path) = startup.filter(|p| p.exists()) {
@@ -49,6 +49,17 @@ fn fresh(doc: &mut Document<Occt>, startup: Option<&std::path::Path>) {
 }
 
 pub fn start() -> Model { start_with(None) }
+
+/// A model holding the 80 × 30 × 50 mm enclosure blank instead of the cube, which the tests are
+/// written on.
+pub fn start_enclosure() -> Model {
+    let engine = Engine::new(|| Occt);
+    engine.call(|doc| {
+        let body = doc.kernel.box_from_corners(DVec3::new(-40.0, 0.0, -25.0), DVec3::new(40.0, 30.0, 25.0));
+        doc.replace_all([(1, body, None)], 2, 1);
+    });
+    engine
+}
 
 /// The model at launch, from the startup scene at `startup` if there is one.
 pub fn start_with(startup: Option<PathBuf>) -> Model {
@@ -744,7 +755,7 @@ pub fn commit_blend(m: &Model, req: BlendRequest) -> Result<Committed, ApiError>
     })
 }
 
-/// Start over with the startup scene, or the seed enclosure.
+/// Start over with the startup scene, or the seed cube.
 pub fn new_document(m: &Model, startup: Option<PathBuf>) -> Result<Vec<Body>, String> {
     m.call(move |doc| { fresh(doc, startup.as_deref()); bodies(doc) })
 }

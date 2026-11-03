@@ -21,7 +21,7 @@ const arc = (start, mid, end) => ({ origin: [0, 0, 0], x: [1, 0, 0], normal: [0,
 const line = (a, b) => ({ origin: [0, 0, 0], x: [1, 0, 0], normal: [0, 0, 1], kind: 'polyline', points: [a, b], closed: false });
 
 async function loftWith(guides) {
-    const be = new LocalBackend();
+    const be = new LocalBackend({ seed: 'enclosure' });
     const { ids } = await be.addCurves([square(0), square(20), ...guides]);
     return { be, f: () => be.form({ kind: 'loft', regions: ids.slice(0, 2), guides: ids.slice(2) }) };
 }
@@ -66,7 +66,7 @@ test('a third guide bends the sections onto it too', async () => {
 });
 
 test('Point keeps the section on the guide; Chord does not scale it', async () => {
-    const be = new LocalBackend();
+    const be = new LocalBackend({ seed: 'enclosure' });
     // A 10 × 10 square centred on the Y axis on the ground (y = 0), swept up Y with a guide from
     // its corner (5, 0, 5) out to (10, 20, 10).
     const { ids } = await be.addCurves([
@@ -84,7 +84,7 @@ test('Point keeps the section on the guide; Chord does not scale it', async () =
 });
 
 test('a second guide scales the section to touch both', async () => {
-    const be = new LocalBackend();
+    const be = new LocalBackend({ seed: 'enclosure' });
     const { ids } = await be.addCurves([
         { origin: [0, 0, 0], x: [1, 0, 0], normal: [0, 1, 0], kind: 'polyline', points: [[-5, -5], [5, -5], [5, 5], [-5, 5]], closed: true },
         line([0, 0], [0, 20]),
@@ -119,7 +119,7 @@ test('a second guide scales the section to touch both', async () => {
 });
 
 test('Parallel keeps the section at its drawn angle', async () => {
-    const be = new LocalBackend();
+    const be = new LocalBackend({ seed: 'enclosure' });
     const c = Math.SQRT1_2;
     // A 2 × 2 square on the ground, swept a quarter turn from the origin up to (10, 10, 0).
     const { ids } = await be.addCurves([
@@ -134,7 +134,7 @@ test('Parallel keeps the section at its drawn angle', async () => {
 });
 
 test('Round corners round the section about the path corner', async () => {
-    const be = new LocalBackend();
+    const be = new LocalBackend({ seed: 'enclosure' });
     // A 2 × 2 square swept up 10 and then along +X 10, as crates/w3d-kernel/tests/guides.rs.
     const { ids } = await be.addCurves([
         { origin: [0, 0, 0], x: [1, 0, 0], normal: [0, 1, 0], kind: 'polyline', points: [[-1, -1], [1, -1], [1, 1], [-1, 1]], closed: true },
@@ -165,7 +165,7 @@ test('a body edge serves as a guide, given as a curve through points along it', 
 });
 
 test('a curve replaced by an edited copy of itself is listed under its new id, and lofts', async () => {
-    const be = new LocalBackend();
+    const be = new LocalBackend({ seed: 'enclosure' });
     await be.addCurves([square(0), square(5)]);
     // A move hands back the listed curve spread with new points: it still carries id 2 and samples.
     const listed = be.curves().find(c => c.id === 2);

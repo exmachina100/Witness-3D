@@ -29,7 +29,7 @@ async function sheet(be, x0, y) {
 }
 
 test('level sheets bridge flat; a step bridges with an S that leaves each level', async () => {
-    const be = new LocalBackend();
+    const be = new LocalBackend({ seed: 'enclosure' });
     const a = await sheet(be, 0, 60), b = await sheet(be, 20, 60);
     const flat = await be.previewBridgeSurface({ a: { body: a.id, edge: a.at(10) }, b: { body: b.id, edge: b.at(20) } });
     for (const p of pts(flat)) assert.ok(Math.abs(p.y - 60) < 1e-6, `${p.y} off the plane`);
@@ -46,7 +46,7 @@ test('level sheets bridge flat; a step bridges with an S that leaves each level'
 });
 
 test('loose or mismatched edges are refused', async () => {
-    const be = new LocalBackend();
+    const be = new LocalBackend({ seed: 'enclosure' });
     const a = await sheet(be, 0, 60);
     await assert.rejects(async () => be.previewBridgeSurface({ a: { body: a.id, edge: 0 }, b: { body: a.id, edge: 0 } }), /two different edges/);
     const { ids: [ring] } = await be.addCurves([{ origin: [30, 60, 0], x: [1, 0, 0], normal: [0, 1, 0], kind: 'circle', center: [0, 0], radius: 3 }]);
@@ -55,7 +55,7 @@ test('loose or mismatched edges are refused', async () => {
 });
 
 test('two rims bridge round', async () => {
-    const be = new LocalBackend();
+    const be = new LocalBackend({ seed: 'enclosure' });
     const disc = async y => {
         const { ids: [ring] } = await be.addCurves([{ origin: [0, y, 0], x: [1, 0, 0], normal: [0, 1, 0], kind: 'circle', center: [0, 0], radius: 5 }]);
         return (await be.commitPatch({ curves: [ring] })).id;

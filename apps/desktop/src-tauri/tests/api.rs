@@ -19,7 +19,7 @@ fn close(a: f64, b: f64) { assert!((a - b).abs() < 1e-3, "{a} != {b}") }
 
 #[test]
 fn seed_scene_is_one_box_with_pickable_faces() {
-    let m = api::start();
+    let m = api::start_enclosure();
     let scene = api::scene(&m).unwrap();
     assert_eq!(scene.len(), 1);
     let b = &scene[0];
@@ -32,7 +32,7 @@ fn seed_scene_is_one_box_with_pickable_faces() {
 
 #[test]
 fn preview_then_commit_then_undo() {
-    let m = api::start();
+    let m = api::start_enclosure();
     let id = api::scene(&m).unwrap()[0].id;
 
     let p = api::preview(&m, on_top(Some(id), -10.0)).expect("not superseded").unwrap();
@@ -50,7 +50,7 @@ fn preview_then_commit_then_undo() {
 
 #[test]
 fn zero_distance_previews_nothing() {
-    let m = api::start();
+    let m = api::start_enclosure();
     let p = api::preview(&m, on_top(Some(1), 0.0)).unwrap().unwrap();
     assert!(matches!(p.outcome, Outcome::None));
     assert!(p.tool.is_none());
@@ -66,7 +66,7 @@ fn requests_parse_from_the_viewport_json() {
 
 #[test]
 fn exports_step() {
-    let m = api::start();
+    let m = api::start_enclosure();
     let path = std::env::temp_dir().join("w3d-desktop-test.step");
     api::export_step(&m, 1, path.clone(), None, None).unwrap();
     assert!(std::fs::read_to_string(path).unwrap().starts_with("ISO-10303-21;"));
@@ -82,7 +82,7 @@ fn vertical_edges(b: &api::Body) -> Vec<u32> {
 
 #[test]
 fn fillet_previews_commits_and_undoes() {
-    let m = api::start();
+    let m = api::start_enclosure();
     let b = &api::scene(&m).unwrap()[0];
     let edges = vertical_edges(b);
     assert_eq!(edges.len(), 4);
@@ -101,7 +101,7 @@ fn fillet_previews_commits_and_undoes() {
 
 #[test]
 fn a_failed_fillet_says_why_and_changes_nothing() {
-    let m = api::start();
+    let m = api::start_enclosure();
     let b = &api::scene(&m).unwrap()[0];
     let req = fillet(b.id, vertical_edges(b), 30.0);
     let err = api::commit_blend(&m, req).unwrap_err();
@@ -119,7 +119,7 @@ fn blend_requests_parse_from_the_viewport_json() {
 
 #[test]
 fn saves_reopens_and_imports_step() {
-    let m = api::start();
+    let m = api::start_enclosure();
     let dir = std::env::temp_dir().join(format!("w3d-desktop-{}", std::process::id()));
     std::fs::create_dir_all(&dir).unwrap();
     api::commit(&m, on_top(Some(1), 10.0)).unwrap();
@@ -127,16 +127,16 @@ fn saves_reopens_and_imports_step() {
     api::export_step(&m, 1, dir.join("a.step"), None, None).unwrap();
 
     api::new_document(&m, None).unwrap();
-    close(api::scene(&m).unwrap()[0].volume, 120_000.0);
+    close(api::scene(&m).unwrap()[0].volume, 125_000.0);
     // A startup scene is what new documents start from; one that is missing or unreadable is not.
     api::new_document(&m, Some(dir.join("a.w3d"))).unwrap();
     close(api::scene(&m).unwrap()[0].volume, 121_000.0);
     close(api::scene(&api::start_with(Some(dir.join("a.w3d")))).unwrap()[0].volume, 121_000.0);
     std::fs::write(dir.join("bad.w3d"), "not a model").unwrap();
     api::new_document(&m, Some(dir.join("bad.w3d"))).unwrap();
-    close(api::scene(&m).unwrap()[0].volume, 120_000.0);
+    close(api::scene(&m).unwrap()[0].volume, 125_000.0);
     api::new_document(&m, Some(dir.join("none.w3d"))).unwrap();
-    close(api::scene(&m).unwrap()[0].volume, 120_000.0);
+    close(api::scene(&m).unwrap()[0].volume, 125_000.0);
     let reopened = api::open(&m, dir.join("a.w3d")).unwrap();
     close(reopened[0].volume, 121_000.0);
 
@@ -156,7 +156,7 @@ fn top_front(b: &api::Body) -> Vec<u32> {
 
 #[test]
 fn bodies_carry_refs_that_survive_a_fillet() {
-    let m = api::start();
+    let m = api::start_enclosure();
     let before = api::scene(&m).unwrap().remove(0);
     assert_eq!(before.edge_refs.len(), before.edges.len());
     assert_eq!(before.face_refs.len(), before.face_planes.len());
@@ -170,7 +170,7 @@ fn bodies_carry_refs_that_survive_a_fillet() {
 
 #[test]
 fn a_body_moves_and_turns_as_one_undoable_step() {
-    let m = api::start();
+    let m = api::start_enclosure();
     let before = api::scene(&m).unwrap().remove(0);
     let req: MotionRequest = serde_json::from_str(r#"{"bodies":[1],"offset":[10,0,0],"pivot":[0,0,0],"axis":[0,1,0],"angle":1.5707963267948966}"#).unwrap();
     let after = api::commit_motion(&m, req).unwrap().scene.remove(0);
@@ -189,7 +189,7 @@ fn a_body_moves_and_turns_as_one_undoable_step() {
 
 #[test]
 fn bodies_duplicate_and_delete_as_one_step_each() {
-    let m = api::start();
+    let m = api::start_enclosure();
     let d = api::duplicate_bodies(&m, vec![1]).unwrap();
     assert_eq!(d.ids, vec![2]);
     assert_eq!(d.scene.len(), 2);
@@ -199,7 +199,7 @@ fn bodies_duplicate_and_delete_as_one_step_each() {
 
 #[test]
 fn a_drawn_rectangle_extrudes_as_a_region_with_a_chosen_operation() {
-    let m = api::start();
+    let m = api::start_enclosure();
     let curves: Vec<w3d_kernel::Curve> = serde_json::from_str(r#"[{"origin":[0,30,0],"x":[1,0,0],"normal":[0,1,0],
         "kind":"polyline","points":[[-5,-5],[5,-5],[5,5],[-5,5]],"closed":true}]"#).unwrap();
     let ids = api::add_curves(&m, curves).unwrap().ids;
@@ -220,7 +220,7 @@ fn a_drawn_rectangle_extrudes_as_a_region_with_a_chosen_operation() {
 
 #[test]
 fn boolean_cuts_the_target_with_a_duplicate_and_removes_it() {
-    let m = api::start();
+    let m = api::start_enclosure();
     let d = api::duplicate_bodies(&m, vec![1]).unwrap();
     let moved = api::commit_motion(&m, MotionRequest { bodies: d.ids.clone(), offset: [40.0, 0.0, 0.0], pivot: [0.0; 3], axis: [0.0, 1.0, 0.0], angle: 0.0, scale: 1.0 }).unwrap();
     assert_eq!(moved.scene.len(), 2);
@@ -235,7 +235,7 @@ fn boolean_cuts_the_target_with_a_duplicate_and_removes_it() {
 
 #[test]
 fn splines_come_with_samples_and_extrudes_take_their_options_from_json() {
-    let m = api::start();
+    let m = api::start_enclosure();
     let curves: Vec<w3d_kernel::Curve> = serde_json::from_str(r#"[
         {"origin":[0,30,0],"x":[1,0,0],"normal":[0,1,0],"kind":"polyline","points":[[-10,-5],[10,-5],[10,5],[-10,5]],"closed":true},
         {"origin":[0,30,0],"x":[1,0,0],"normal":[0,1,0],"kind":"spline","points":[[20,0],[30,0],[30,10]],"closed":false},
@@ -264,7 +264,7 @@ fn splines_come_with_samples_and_extrudes_take_their_options_from_json() {
 
 #[test]
 fn boolean_slices_join_takes_curve_ids_and_contours_come_with_samples() {
-    let m = api::start();
+    let m = api::start_enclosure();
     let d = api::duplicate_bodies(&m, vec![1]).unwrap();
     api::commit_motion(&m, MotionRequest { bodies: d.ids.clone(), offset: [60.0, 0.0, 0.0], pivot: [0.0; 3], axis: [0.0, 1.0, 0.0], angle: 0.0, scale: 1.0 }).unwrap();
     // Shift+Q: the target loses the 20 mm the copy overlaps, which becomes a body of its own.
@@ -299,7 +299,7 @@ fn boolean_slices_join_takes_curve_ids_and_contours_come_with_samples() {
 
 #[test]
 fn offset_face_takes_an_adjacent_angle_and_spirals_round_trip_as_json() {
-    let m = api::start();
+    let m = api::start_enclosure();
     let b = &api::scene(&m).unwrap()[0];
     let top = b.face_planes.iter().position(|p| p.as_ref().is_some_and(|p| p.normal[1] > 0.99)).unwrap() as u32;
     // A: the sides lean 5 in over the 30 height, about the bottom edges.

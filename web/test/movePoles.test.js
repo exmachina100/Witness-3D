@@ -12,7 +12,7 @@ before(async () => { await loadKernel() });
 const top = rows => Math.max(...rows.flat().map(p => p[2]));
 
 test('a flat sheet corner lifts, its edges with it', async () => {
-    const be = new LocalBackend();
+    const be = new LocalBackend({ seed: 'enclosure' });
     const { ids } = await be.addCurves([{ kind: 'polyline', origin: [0, 0, 0], x: [1, 0, 0], normal: [0, 0, 1], points: [[0, 0], [10, 0], [10, 10], [0, 10]], closed: true }]);
     const { id } = await be.commitPatch({ curves: ids });
     const shape = be.shapes.get(id);

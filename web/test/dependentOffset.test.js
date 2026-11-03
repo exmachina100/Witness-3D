@@ -10,7 +10,7 @@ before(async () => { await loadKernel() });
 const facing = (b, normal) => b.facePlanes.findIndex(p => p && p.normal.every((v, k) => Math.abs(v - normal[k]) < 1e-9));
 
 test('a face runs up to a parallel face, forward or back, and misses one off to the side', async () => {
-    const be = new LocalBackend();
+    const be = new LocalBackend({ seed: 'enclosure' });
     const { id: a } = await be.commitPrimitive({ kind: 'box', frame: { origin: [0, 0, 10], x: [1, 0, 0], normal: [0, 1, 0] }, width: 10, depth: 10, height: 10, op: 'new' });
     const { id: shelf } = await be.commitPrimitive({ kind: 'box', frame: { origin: [-5, 17.5, 15], x: [1, 0, 0], normal: [0, 1, 0] }, width: 20, depth: 20, height: 2, op: 'new' });
     const body = id => be.bodies().find(b => b.id === id);

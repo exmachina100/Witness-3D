@@ -10,7 +10,7 @@ const close = (a, b, eps = 1e-3) => assert.ok(Math.abs(a - b) < eps, `${a} != ${
 const topRect = (w, d) => ({ origin: [0, 30, 0], x: [1, 0, 0], normal: [0, 1, 0], kind: 'polyline', points: [[-w / 2, -d / 2], [w / 2, -d / 2], [w / 2, d / 2], [-w / 2, d / 2]], closed: true });
 
 test('a drawn region extrudes with a chosen operation, and undo takes back curve and solid in turn', async () => {
-    const be = new LocalBackend();
+    const be = new LocalBackend({ seed: 'enclosure' });
     const { ids } = await be.addCurves([topRect(20, 10)]);
     assert.deepEqual(be.curves().map(c => c.id), ids);
     const p = await be.preview({ target: 1, region: ids[0], distance: 5 });
@@ -35,7 +35,7 @@ test('a drawn region extrudes with a chosen operation, and undo takes back curve
 });
 
 test('a circle region with an offset centre extrudes where it was drawn', async () => {
-    const be = new LocalBackend();
+    const be = new LocalBackend({ seed: 'enclosure' });
     const { ids } = await be.addCurves([{ ...topRect(1, 1), kind: 'circle', center: [100, 0], radius: 5 }]);
     const { id, scene } = await be.commit({ target: 1, region: ids[0], distance: 4 });
     assert.notEqual(id, 1); // off the body, so a new one
@@ -46,7 +46,7 @@ test('a circle region with an offset centre extrudes where it was drawn', async 
 });
 
 test('a face extrudes along its normal and joins or cuts', async () => {
-    const be = new LocalBackend();
+    const be = new LocalBackend({ seed: 'enclosure' });
     const top = be.scene()[0].facePlanes.findIndex(p => p && p.normal[1] > 0.99);
     let { scene } = await be.commit({ target: 1, face: top, distance: 10 });
     close(scene[0].volume, 80 * 40 * 50);
@@ -56,7 +56,7 @@ test('a face extrudes along its normal and joins or cuts', async () => {
 });
 
 test('boolean changes the target, removes the tools unless kept, and undoes', async () => {
-    const be = new LocalBackend();
+    const be = new LocalBackend({ seed: 'enclosure' });
     const { ids } = await be.duplicateBodies([1]);
     await be.commitMotion({ bodies: ids, offset: [40, 0, 0] });
     close((await be.previewBoolean({ target: 1, tools: ids, op: 'difference' })).volume, 60000);

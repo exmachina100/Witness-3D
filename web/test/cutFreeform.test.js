@@ -19,7 +19,7 @@ function bulge() {
 }
 
 test('a curved face cuts by its extension', async () => {
-    const be = new LocalBackend();
+    const be = new LocalBackend({ seed: 'enclosure' });
     const seed = be.scene()[0];
     be.shapes.set(999, bulge());
     const [[, r]] = be.cutResult({ bodies: [seed.id], tools: { faces: [{ body: 999, face: 0 }] } });
