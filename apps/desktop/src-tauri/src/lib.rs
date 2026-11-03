@@ -1166,6 +1166,7 @@ pub fn run() {
         .setup(|app| {
             let model = Arc::new(api::start_with(startup_scene(app.handle()).ok()));
             let m = model.clone();
+            let mr = model.clone();
             // Without the port (another copy running, say) the app still works, minus the bridge.
             let net = network_settings(app.handle());
             let bridge = net
@@ -1174,6 +1175,7 @@ pub fn run() {
                     bridge::Bridge::start(net.port, Arc::new(move || api::scene(&m)))
                         .map_err(|e| eprintln!("Blender bridge off: {e}"))
                         .ok()
+                        .inspect(|b| b.on_refacet(api::bridge_refacet(mr)))
                 })
                 .flatten();
             app.manage(Model(model));

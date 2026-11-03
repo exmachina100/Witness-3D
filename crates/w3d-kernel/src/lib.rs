@@ -695,6 +695,12 @@ pub trait Kernel {
     /// Whether the kernel's own checker accepts the shape.
     fn is_valid(&self, s: &Self::Solid) -> bool;
     fn tessellate(&self, s: &Self::Solid, tolerance: f64) -> Result<Tessellation, KernelError>;
+    /// Facets at the Blender bridge's Refacet settings, leaving the display facets alone: `p` is
+    /// [edge chord tolerance, edge angle (radians), face plane tolerance, face angle, min size].
+    /// Only positions, indices and face ids are filled.
+    fn refacet(&self, _s: &Self::Solid, _p: [f64; 5]) -> Result<Tessellation, KernelError> {
+        Err(KernelError::Refused("this kernel can't refacet".into()))
+    }
     fn write_step(&self, s: &Self::Solid, path: &std::path::Path) -> Result<(), KernelError>;
     fn read_step(&self, path: &std::path::Path) -> Result<Self::Solid, KernelError>;
     /// IGES out and in (Plasticity 26 reads and writes it through HOOPS Exchange; see the teardown).

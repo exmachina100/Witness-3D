@@ -716,6 +716,25 @@ impl Kernel for Occt {
         Ok(t)
     }
 
+    fn refacet(&self, s: &Shape, p: [f64; 5]) -> Result<Tessellation, KernelError> {
+        let data = s.refacet(&p).map_err(KernelError::Refused)?;
+        let mut t = Tessellation::default();
+        let mut i = 0;
+        let mut face = 0u32;
+        while i + 1 < data.len() {
+            let (nv, nt) = (data[i] as usize, data[i + 1] as usize);
+            i += 2;
+            let offset = t.positions.len() as u32;
+            t.positions.extend(data[i..i + 3 * nv].chunks(3).map(|c| [c[0], c[1], c[2]]));
+            i += 3 * nv;
+            t.indices.extend(data[i..i + 3 * nt].iter().map(|&k| offset + k as u32));
+            i += 3 * nt;
+            t.face_ids.extend(std::iter::repeat(face).take(nt));
+            face += 1;
+        }
+        Ok(t)
+    }
+
     fn write_step(&self, s: &Shape, path: &FilePath) -> Result<(), KernelError> {
         s.write_step(path).map_err(failed)
     }

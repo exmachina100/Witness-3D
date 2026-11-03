@@ -5,6 +5,9 @@
 // Standard_Failure and rethrows it as std::runtime_error; a stray one would abort the process.
 #pragma once
 #include "rust/cxx.h"
+#include <Poly_Triangulation.hxx>
+#include <BRepMesh_IncrementalMesh.hxx>
+#include <IMeshTools_Parameters.hxx>
 #include <BRepAlgoAPI_Common.hxx>
 #include <BRepBuilderAPI_GTransform.hxx>
 #include <gp_GTrsf.hxx>
@@ -2411,6 +2414,46 @@ inline W3dSplineFace w3d_spline_face(const TopoDS_Face &f) {
 // none. These are the control points w3d_move_face_poles moves.
 // BRepMesh keeps facets that are already finer than asked; drop them so a coarser mesh takes.
 inline void w3d_clear_mesh(const TopoDS_Shape &shape) { BRepTools::Clean(shape, Standard_True); }
+
+// Facets of `shape` at the bridge's Refacet settings (Plasticity: Refacet in the Blender add-on),
+// made on a copy so the viewport's facets stay as they are. p = [edge chord tolerance, edge angle
+// (radians), face plane tolerance, face angle, min size]. Per face, in TopExp order: [nv, nt, nv
+// points (x, y, z), nt triangles (three 0-based indices, wound outward)].
+inline rust::Vec<double> w3d_refacet(const TopoDS_Shape &shape, rust::Slice<const double> p) {
+  if (p.size() < 5) throw std::runtime_error("refacet takes five settings");
+  TopoDS_Shape work = BRepBuilderAPI_Copy(shape, Standard_False, Standard_False).Shape();
+  IMeshTools_Parameters mp;
+  mp.Deflection = p[0];
+  mp.Angle = p[1];
+  mp.DeflectionInterior = p[2];
+  mp.AngleInterior = p[3];
+  mp.MinSize = p[4] > 0 ? p[4] : Precision::Confusion();
+  mp.InParallel = Standard_True;
+  BRepMesh_IncrementalMesh mesh(work, mp);
+  if (!mesh.IsDone()) throw std::runtime_error("the body could not be faceted at those settings");
+  rust::Vec<double> out;
+  for (TopExp_Explorer ex(work, TopAbs_FACE); ex.More(); ex.Next()) {
+    const TopoDS_Face &f = TopoDS::Face(ex.Current());
+    TopLoc_Location loc;
+    Handle(Poly_Triangulation) t = BRep_Tool::Triangulation(f, loc);
+    if (t.IsNull()) { out.push_back(0); out.push_back(0); continue; }
+    out.push_back(t->NbNodes());
+    out.push_back(t->NbTriangles());
+    gp_Trsf tr = loc.Transformation();
+    for (int i = 1; i <= t->NbNodes(); i++) {
+      gp_Pnt q = t->Node(i).Transformed(tr);
+      out.push_back(q.X()); out.push_back(q.Y()); out.push_back(q.Z());
+    }
+    bool rev = f.Orientation() == TopAbs_REVERSED;
+    for (int i = 1; i <= t->NbTriangles(); i++) {
+      int a, b, c;
+      t->Triangle(i).Get(a, b, c);
+      if (rev) std::swap(b, c);
+      out.push_back(a - 1); out.push_back(b - 1); out.push_back(c - 1);
+    }
+  }
+  return out;
+}
 
 inline rust::Vec<double> w3d_face_poles(const TopoDS_Shape &shape) {
   TopTools_IndexedMapOfShape faces;
