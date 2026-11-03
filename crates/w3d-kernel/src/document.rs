@@ -1754,6 +1754,24 @@ impl<K: Kernel> Document<K> {
         self.kernel.loft_sheet(&paths, looped, simplify)
     }
 
+    /// Loft of curves along guides (Shift+click), without changing the document.
+    pub fn preview_loft_sheet_guided(&self, curves: &[GuideRef], guides: &[GuideRef], simplify: bool) -> Result<K::Solid, KernelError> {
+        if guides.is_empty() { return self.preview_loft_sheet(curves, false, simplify) }
+        if curves.len() < 2 { return Err(KernelError::Invalid("select two curves or more, in order, to loft")) }
+        if guides.iter().any(|g| matches!(g, GuideRef::Drawn(id) if curves.iter().any(|c| matches!(c, GuideRef::Drawn(d) if d == id)))) {
+            return Err(KernelError::Invalid("a curve can't be both a profile and a guide"));
+        }
+        let paths = self.guide_paths(curves).map_err(|_| KernelError::Invalid("that curve no longer exists"))?;
+        let rails = self.guide_paths(guides).map_err(|_| KernelError::Invalid("that guide no longer exists"))?;
+        self.kernel.loft_sheet_guided(&paths, &rails, simplify)
+    }
+
+    /// Loft of curves along guides as one undoable step: the sheet as a new body.
+    pub fn commit_loft_sheet_guided(&mut self, curves: &[GuideRef], guides: &[GuideRef], simplify: bool) -> Result<BodyId, KernelError> {
+        let sheet = self.preview_loft_sheet_guided(curves, guides, simplify)?;
+        Ok(self.add(sheet))
+    }
+
     /// Loft of curves as one undoable step: the sheet as a new body.
     pub fn commit_loft_sheet(&mut self, curves: &[GuideRef], looped: bool, simplify: bool) -> Result<BodyId, KernelError> {
         let sheet = self.preview_loft_sheet(curves, looped, simplify)?;

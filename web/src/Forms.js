@@ -592,10 +592,48 @@ function warpWire(w, at, to) {
  * more), and the regions and cuts lofted. As w3d_loft_guided.
  */
 export function loftGuided(cs, guides) {
-    const o = oc();
     if (cs.length < 2) throw new Error('select two regions or more to loft');
     if (!guides.length) throw new Error('select the guide curves');
-    const profiles = cs.map(c => section(c).wire);
+    const planes = cs.map(planeOf);
+    return loftAlong(cs.map(c => section(c).wire), guides, true, loft(cs), i => planes[i]);
+}
+
+/**
+ * Plasticity's Loft of curves with guides (Shift+click): a sheet through the curves, in order, its
+ * sides running along the guides, as loftGuided does for regions. As w3d_loft_sheet_guided.
+ */
+export function loftSheetGuided(cs, guides, simplify = true) {
+    if (!guides.length) return loftSheet(cs, false, simplify);
+    if (cs.length < 2) throw new Error('select two curves or more, in order, to loft');
+    const ws = cs.map(c => wireOf(geometry(c)).Wire());
+    const sheet = loftAlong(ws, guides, false, loftSheet(cs, false, false), (i, j) => stationOf(ws[i], ws[j]));
+    return simplify ? flatFaces(sheet) : sheet;
+}
+
+/**
+ * A curve's centre and the normal to cut the plain loft square to, beside it (as w3d_station_of): a
+ * flat curve whose plane faces the next one gives that plane, a straight one, or one lying across
+ * the loft, faces the next curve.
+ */
+function stationOf(w, next) {
+    const o = oc(), centre = s => { const g = new o.GProp_GProps(); o.BRepGProp.LinearProperties(s, g, false, false); return V3(g.CentreOfMass()); };
+    const here = centre(w), span = centre(next).sub(here);
+    if (span.length() < 1e-9) throw new Error('two profiles lie on top of each other');
+    span.normalize();
+    // The curve's plane, when it has one: the normal of the best plane through points along it.
+    const a = adaptor(w), pts = Array.from({ length: 33 }, (_, k) => a.at(a.t0 + (a.t1 - a.t0) * k / 32));
+    let n = null;
+    for (let i = 1; i < pts.length && !n; i++) for (let j = i + 1; j < pts.length && !n; j++) {
+        const c = pts[i].clone().sub(pts[0]).cross(pts[j].clone().sub(pts[0]));
+        if (c.length() > 1e-6 * Math.max(1, pts[i].distanceTo(pts[0]) * pts[j].distanceTo(pts[0]))) n = c.normalize();
+    }
+    if (n && pts.every(p => Math.abs(p.clone().sub(pts[0]).dot(n)) < 1e-6) && Math.abs(n.dot(span)) > 0.3) return { centre: here, normal: n };
+    return { centre: here, normal: span };
+}
+
+/** The loft through the wires `profiles` along `guides`: a solid, or a sheet when not `solid`. */
+function loftAlong(profiles, guides, solid, plain, planeAt) {
+    const o = oc();
     const rails = guides.map(g => guideFrom(g, profiles[0]));
     const curves = rails.map(adaptor);
     const touch = rails.map(r => profiles.map(w => {
@@ -603,14 +641,14 @@ export function loftGuided(cs, guides) {
         if (d.gap > 0.01) throw new Error('a guide does not touch every profile; snap it onto each one');
         return d.on2;
     }));
-    const plain = loft(cs), planes = cs.map(planeOf);
     const stations = 16;
-    const mk = new o.BRepOffsetAPI_ThruSections(true, false, 1e-6);
+    const mk = new o.BRepOffsetAPI_ThruSections(solid, false, 1e-6);
     mk.AddWire(profiles[0]);
-    for (let i = 0; i + 1 < cs.length; i++) {
-        const { centre: ca } = planes[i], { centre: cb } = planes[i + 1];
+    for (let i = 0; i + 1 < profiles.length; i++) {
+        const pa = planeAt(i, i + 1), pb = planeAt(i + 1, i);
+        const ca = pa.centre, cb = pb.centre;
         const span = cb.clone().sub(ca);
-        const na = planes[i].normal.clone(), nb = planes[i + 1].normal.clone();
+        const na = pa.normal.clone(), nb = pb.normal.clone();
         if (na.dot(span) < 0) na.negate();
         if (nb.dot(span) < 0) nb.negate();
         for (let k = 1; k < stations; k++) {

@@ -375,6 +375,11 @@ pub trait Kernel {
     fn loft_sheet(&self, _curves: &[Path], _looped: bool, _simplify: bool) -> Result<Self::Solid, KernelError> {
         Err(KernelError::Invalid("this kernel cannot loft curves"))
     }
+    /// Loft of curves with guides (Shift+click): the sheet's sides run along `guides`, each of
+    /// which touches every curve.
+    fn loft_sheet_guided(&self, _curves: &[Path], _guides: &[Path], _simplify: bool) -> Result<Self::Solid, KernelError> {
+        Err(KernelError::Invalid("this kernel cannot loft curves along guides"))
+    }
     /// `profile` swept along `path`; the far end turned by `twist` radians and scaled by `scale`.
     /// Plasticity's Revolve of a curve: the curve turned about the axis into a sheet.
     fn revolve_curve(&self, _curve: &Path, _axis_point: DVec3, _axis_dir: DVec3, _angle: f64) -> Result<Self::Solid, KernelError> {

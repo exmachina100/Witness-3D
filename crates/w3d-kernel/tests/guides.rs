@@ -284,3 +284,24 @@ fn the_document_takes_guides_by_curve() {
     let g: Vec<GuideRef> = serde_json::from_str(r#"[3, {"origin":[0,0,0],"x":[1,0,0],"normal":[0,0,1],"kind":"polyline","points":[[0,0],[1,0]],"closed":false}]"#).unwrap();
     assert!(matches!(g[0], GuideRef::Drawn(3)) && matches!(g[1], GuideRef::Shape(_)));
 }
+
+#[test]
+fn a_sheet_loft_of_curves_bends_out_to_its_guides() {
+    let k = Occt;
+    // Two straight lines 20 apart, lofted into a flat sheet; an arc guide at each end bows it up 5.
+    let (a, b) = (line(DVec3::ZERO, DVec3::new(10.0, 0.0, 0.0)), line(DVec3::new(0.0, 20.0, 0.0), DVec3::new(10.0, 20.0, 0.0)));
+    let plain = k.loft_sheet(&[a.clone(), b.clone()], false, false).unwrap();
+    assert!(bounds(&k, &plain).1.z.abs() < 1e-6);
+    let arc = |x: f64| Path::Arc { start: DVec3::new(x, 0.0, 0.0), mid: DVec3::new(x, 10.0, 5.0), end: DVec3::new(x, 20.0, 0.0) };
+    for guides in [vec![arc(0.0)], vec![arc(0.0), arc(10.0)]] {
+        let s = k.loft_sheet_guided(&[a.clone(), b.clone()], &guides, false).unwrap();
+        assert!(k.is_valid(&s) && k.is_sheet(&s));
+        let (lo, hi) = bounds(&k, &s);
+        assert!((hi.z - 5.0).abs() < 0.01 && lo.z.abs() < 0.01, "bows up to the guide: z {}..{}", lo.z, hi.z);
+        let off = farthest(&k, &s, &arc_points(DVec3::ZERO, DVec3::new(0.0, 10.0, 5.0), DVec3::new(0.0, 20.0, 0.0)));
+        assert!(off < 0.01, "the guide lies on the sheet within {off} mm");
+    }
+    // A guide that misses a curve is refused.
+    let miss = Path::Arc { start: DVec3::new(0.0, 0.0, 3.0), mid: DVec3::new(0.0, 10.0, 5.0), end: DVec3::new(0.0, 20.0, 0.0) };
+    assert!(k.loft_sheet_guided(&[a, b], &[miss], false).is_err());
+}

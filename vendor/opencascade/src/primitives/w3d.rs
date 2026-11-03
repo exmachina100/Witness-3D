@@ -192,6 +192,12 @@ impl Shape {
         Ok(Shape::from_shape(&s))
     }
 
+    /// Loft of curves along guides: a sheet (w3d_loft_sheet_guided).
+    pub fn loft_sheet_guided(sections: &[f64], guides: &[f64], simplify: bool) -> Result<Shape, String> {
+        let s = ffi::w3d::w3d_loft_sheet_guided(sections, guides, simplify).map_err(reason)?;
+        Ok(Shape::from_shape(&s))
+    }
+
     /// The numbered faces moved `distance` along their normals, neighbours following, with history.
     /// The profile extruded along `dir` by `distance`, and `back` the other way; its sides lean in
     /// by `angle` radians and `thickness` leaves walls instead of a filled solid.
