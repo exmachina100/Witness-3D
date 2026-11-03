@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { GeometryFactory, NoOpError, ValidationError } from './GeometryFactory.js';
-import { boolean, booleanWithHistory, count, extrudeFace, makeProfileFace, volume } from './Kernel.js';
+import { boolean, booleanWithHistory, count, extrudeFace, facePlane, makeProfileFace, volume } from './Kernel.js';
 import { faceBase, shapedExtrude } from './Forms.js';
 
 // Push/pull extrude that becomes a boolean when it meets a body, modeled on Plasticity's
@@ -78,7 +78,7 @@ export class ExtrudeFactory extends GeometryFactory {
         if (this.face !== undefined) {
             const faces = [...new Set([this.face, ...this.faces])];
             if (faces.length === 1 && !free) {
-                if (this.plain) return extrudeFace(this.doc.shape(this.target), this.face, this.distance);
+                if (this.plain && facePlane(this.doc.shape(this.target), this.face)) return extrudeFace(this.doc.shape(this.target), this.face, this.distance);
                 const { face, normal } = faceBase(this.doc.shape(this.target), this.face);
                 return shaped(face, normal);
             }
