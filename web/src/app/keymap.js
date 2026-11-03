@@ -71,7 +71,7 @@ export const VIEWPORT = {
     'ctrl-k': 'ask',
     h: 'hide', 'shift-h': 'hide-others', 'alt-h': 'unhide-all', 'ctrl-h': 'invert-hidden',
     // Organising (manual: Outliner; Focus and Isolate). Lock Selected and Unlock All have no key there either.
-    '.': 'isolate', 'alt-.': 'unisolate', 'ctrl-g': 'group', 'ctrl-r': 'isoparam', 'alt-g': 'ungroup',
+    '.': 'isolate', 'alt-.': 'unisolate', 'ctrl-g': 'group', 'ctrl-r': 'isoparam', 'alt-g': 'ungroup', f2: 'rename',
     // Materials (manual: Set Material is M)
     m: 'material:set', 'alt-m': 'material:remove',
     // Construction planes (manual: Construction Plane)
@@ -212,7 +212,7 @@ export const ACTIONS = {
     'select:all': 'Select all', 'select:none': 'Deselect all', 'select:invert': 'Invert selection', 'select:solids': 'Select all solids', 'select:sheets': 'Select all sheets', 'select:curves': 'Select all curves', 'select:measurements': 'Select all measurements', 'select:adjacent': 'Select adjacent', 'sources:back': 'Select sources of last operation', 'sidebar:left': 'Toggle left sidebar', 'grid:inc': 'Grid: increase grid size', 'grid:dec': 'Grid: decrease grid size', 'grid:snap': 'Grid: toggle grid snapping', 'snap:object': 'Toggle object snapping', 'constraints:clear': 'Remove constraints', 'overlays:toggle': 'Toggle overlays', 'sidebar:right': 'Toggle right sidebar', 'sources:forward': 'Select sources of next operation',
     'repeat': 'Repeat last command', 'ask': 'Ask for a command in words', 'delete': 'Delete', 'duplicate': 'Duplicate', 'alt-duplicate': 'Alternative duplicate onto the plane', 'create-outline': 'Create outline', 'toggle-points': 'Toggle points',
     'hide': 'Hide selected', 'hide-others': 'Hide unselected', 'unhide-all': 'Unhide all', 'invert-hidden': 'Invert hidden',
-    'isolate': 'Isolate selected', 'unisolate': 'Unisolate', 'group': 'Group selected', 'ungroup': 'Ungroup',
+    'isolate': 'Isolate selected', 'unisolate': 'Unisolate', 'group': 'Group selected', 'ungroup': 'Ungroup', 'rename': 'Rename selected',
     'lock': 'Lock selected', 'unlock-all': 'Unlock all', 'delete-empty-groups': 'Delete empty groups',
     'material:set': 'Set material', 'material:remove': 'Remove material', 'view:render': 'Toggle render mode',
     'view:edges': 'Viewport: toggle edges', 'view:faces': 'Viewport: toggle faces', 'view:curves': 'Viewport: toggle curves',

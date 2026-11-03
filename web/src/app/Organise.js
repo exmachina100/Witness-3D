@@ -20,6 +20,7 @@ export class Organise {
         this.groups = [];        // { id, name, parent (group id or null), open }
         this.groupOf = new Map(); // body id -> group id
         this.nextGroup = 1;
+        this.names = new Map();   // object key -> the name given in the outliner (none: the default)
     }
 
     /**
@@ -39,6 +40,7 @@ export class Organise {
         this.knownOf[kind] = live;
         for (const s of [this.hidden, this.locked, this.disabled, ...this.layers]) for (const id of [...s]) if (mine(id) && !live.has(id)) s.delete(id);
         for (const id of [...this.groupOf.keys()]) if (mine(id) && !live.has(id)) this.groupOf.delete(id);
+        for (const id of [...this.names.keys()]) if (mine(id) && !live.has(id)) this.names.delete(id);
         while (this.layers.length && !this.layers.at(-1).size) this.layers.pop();
     }
 
@@ -149,14 +151,14 @@ export class Organise {
     }
     /** What is kept in the file: groups, the group of each body, hidden, locked and disabled, and the active collection. Isolation is a view and isn't kept. */
     toJSON() {
-        return { groups: this.groups.map(g => ({ ...g })), groupOf: [...this.groupOf], hidden: [...this.hidden], locked: [...this.locked], disabled: [...this.disabled], active: this.active, nextGroup: this.nextGroup };
+        return { groups: this.groups.map(g => ({ ...g })), groupOf: [...this.groupOf], hidden: [...this.hidden], locked: [...this.locked], disabled: [...this.disabled], active: this.active, nextGroup: this.nextGroup, names: [...this.names] };
     }
     /** Everything an undo step puts back: what toJSON() keeps and the isolation layers. */
     snapshot() { return { ...this.toJSON(), layers: this.layers.map(l => [...l]) }; }
     /** Back to a snapshot() (Ctrl+Z on an organising step). */
     restore(snap) {
         const o = Organise.from(snap);
-        for (const k of ['hidden', 'locked', 'disabled', 'groups', 'groupOf', 'active', 'nextGroup']) this[k] = o[k];
+        for (const k of ['hidden', 'locked', 'disabled', 'groups', 'groupOf', 'active', 'nextGroup', 'names']) this[k] = o[k];
         this.layers = (Array.isArray(snap?.layers) ? snap.layers : []).map(l => new Set(l));
     }
     /** Back from toJSON(); anything missing or malformed is left empty. */
@@ -172,6 +174,7 @@ export class Organise {
         for (const g of o.groups) if (!known.has(g.parent)) g.parent = null;
         o.groupOf = new Map((Array.isArray(data.groupOf) ? data.groupOf : []).filter(([b, g]) => (Number.isInteger(b) || isCurveKey(b)) && known.has(g)));
         o.active = known.has(data.active) ? data.active : null;
+        o.names = new Map((Array.isArray(data.names) ? data.names : []).filter(e => Array.isArray(e) && (Number.isInteger(e[0]) || isCurveKey(e[0])) && typeof e[1] === 'string' && e[1].trim()));
         o.nextGroup = Math.max(Number.isInteger(data.nextGroup) ? data.nextGroup : 1, ...o.groups.map(g => g.id + 1));
         return o;
     }
@@ -185,10 +188,12 @@ export class Organise {
             if (this.disabled.has(id)) continue;
             const path = [];
             for (let g = this.group(this.groupOf.get(id) ?? null); g; g = this.group(g.parent)) path.unshift(g.name);
-            objects[id] = { path, hidden: !this.shows(id) };
+            objects[id] = { path, hidden: !this.shows(id), ...(this.names.has(id) ? { name: this.names.get(id) } : {}) };
         }
         return objects;
     }
 
+    /** Name an object (a body's id or a curve's key); an empty name goes back to the default. */
+    renameObject(key, name) { const t = name.trim().toUpperCase(); t ? this.names.set(key, t) : this.names.delete(key); }
     rename(gid, name) { const g = this.group(gid); if (g && name.trim()) g.name = name.trim().toUpperCase(); }
 }

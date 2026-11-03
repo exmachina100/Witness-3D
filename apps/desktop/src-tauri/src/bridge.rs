@@ -100,7 +100,7 @@ pub fn meshes(bodies: &[Body], outline: &Value) -> String {
         })
         .map(|(b, o)| MeshOut {
             id: b.id,
-            name: format!("Witness Body {:02}", b.id),
+            name: o["name"].as_str().map(String::from).unwrap_or_else(|| format!("Witness Body {:02}", b.id)),
             revision: b.revision,
             positions: b
                 .positions

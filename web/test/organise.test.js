@@ -246,3 +246,22 @@ test('snapshot and restore put back groups, hidden, locked and isolation (undo o
     o.setHidden([3], false);
     assert.deepEqual(after.hidden, [3]);
 });
+
+test('objects take names that save, undo and leave with their object', () => {
+    const o = new Organise();
+    o.prune([1, 2]);
+    o.prune([curveKey(3)], 'curve');
+    o.renameObject(1, ' bracket ');
+    o.renameObject(curveKey(3), 'rail');
+    assert.equal(o.names.get(1), 'BRACKET');
+    const back = Organise.from(JSON.parse(JSON.stringify(o.toJSON())));
+    assert.equal(back.names.get(curveKey(3)), 'RAIL');
+    assert.equal(o.outline([1, 2])[1].name, 'BRACKET');
+    assert.equal(o.outline([1, 2])[2].name, undefined);
+    o.renameObject(1, '  ');
+    assert.ok(!o.names.has(1));
+    o.renameObject(2, 'x');
+    o.prune([1]);
+    assert.ok(!o.names.has(2));
+    assert.equal(o.names.get(curveKey(3)), 'RAIL');
+});

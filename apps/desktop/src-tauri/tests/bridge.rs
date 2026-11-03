@@ -66,9 +66,10 @@ fn refresh_and_live_link_send_z_up_meshes() {
     );
 
     // The outliner: the document's name, each body's groups and whether it is hidden.
-    bridge.set_outline(json!({ "document": "HOUSING", "objects": { "1": { "path": ["PARTS", "LID"], "hidden": true } } }));
+    bridge.set_outline(json!({ "document": "HOUSING", "objects": { "1": { "path": ["PARTS", "LID"], "hidden": true, "name": "LID" } } }));
     bridge.changed();
     let named = read(&mut ws);
+    assert_eq!(named["objects"][0]["name"], "LID", "the outliner's name for the body");
     assert_eq!(named["document"], "HOUSING");
     assert_eq!(named["objects"][0]["path"], json!(["PARTS", "LID"]));
     assert_eq!(named["objects"][0]["hidden"], true);
