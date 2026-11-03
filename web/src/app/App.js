@@ -2362,6 +2362,26 @@ export async function mount(root, backend) {
       renderOutliner();
     } catch (err) { toast(say(err)); }
   }
+  /** Edit an outliner name in place: Enter or leaving the field keeps it, Escape drops it. */
+  function editName(name, keep) {
+    name.contentEditable = 'true';
+    name.focus();
+    getSelection().selectAllChildren(name);
+    const done = ok => { name.onblur = name.onkeydown = null; if (ok) keep(name.textContent); renderOutliner(); };
+    name.onkeydown = k => { k.stopPropagation(); if (k.key === 'Enter') { k.preventDefault(); done(true); } else if (k.key === 'Escape') done(false); };
+    name.onblur = () => done(true);
+  }
+  /** F2: rename the one selected object or group (manual: Outliner, double-click a name). */
+  function renameSelected() {
+    const keys = [...sel.solids, ...selectedCurveKeys()], groups = sel.groups;
+    if (keys.length + groups.length !== 1) return toast('SELECT ONE OBJECT OR GROUP TO RENAME');
+    tab('outliner');
+    const want = groups.length ? `g:${groups[0]}` : String(keys[0]);
+    const row = [...$('outliner').querySelectorAll('[data-okey]')].find(r => r.dataset.okey === want);
+    if (!row) return toast('NOT IN THE OUTLINER');
+    row.scrollIntoView({ block: 'nearest' });
+    row.querySelector('.name').dispatchEvent(new MouseEvent('dblclick', { bubbles: true }));
+  }
   function renderOutliner() {
     const out = $('outliner');
     out.innerHTML = '<div class="group-title">▾ SOLIDS</div>';
@@ -2376,7 +2396,11 @@ export async function mount(root, backend) {
       row.className = 'row-item' + (locked ? ' locked' : '') + (org.shows(b.id) ? '' : ' off') + (off ? ' disabled' : '');
       row.style = indent(depth);
       row.setAttribute('aria-current', sel.has({ kind: 'solid', body: b.id }));
-      row.innerHTML = `<span class="sq"></span><span class="name">${b.sheet ? 'SHEET' : 'BODY'} ${b.id}</span><span class="tag">${label(b.id)}</span>${toggles(shown, locked, off)}`;
+      row.innerHTML = `<span class="sq"></span><span class="name"></span><span class="tag">${label(b.id)}</span>${toggles(shown, locked, off)}`;
+      row.dataset.okey = String(b.id);
+      const bname = row.querySelector('.name');
+      bname.textContent = org.names.get(b.id) ?? `${b.sheet ? 'SHEET' : 'BODY'} ${b.id}`;
+      bname.ondblclick = e => { e.stopPropagation(); editName(bname, t => orgOp('RENAME', () => org.renameObject(b.id, t))); };
       row.onclick = e => {
         if (e.target.closest('.dis')) return setDisabled([b.id], !off);
         if (off) return toast('DISABLED · ENABLE TO SELECT');
@@ -2397,7 +2421,11 @@ export async function mount(root, backend) {
       row.style = indent(depth);
       row.setAttribute('aria-current', sel.has({ kind: 'curve', id: c.id }) || sel.has({ kind: 'region', id: c.id }));
       const look = { circle: 'circle', arc: 'arc3', spline: 'spline', cv: 'cv', ellipse: 'ellipse', contour: 'join', spiral: 'spiral', nurbs: 'project' }[c.kind] ?? (!c.closed ? 'line' : c.points.length === 4 ? 'rect' : 'polygon');
-      row.innerHTML = `${icon(look)}<span class="name">${curveName(c)}</span><span class="tag">${curveLabel(c.id)}</span>${toggles(shown, locked, off)}`;
+      row.innerHTML = `${icon(look)}<span class="name"></span><span class="tag">${curveLabel(c.id)}</span>${toggles(shown, locked, off)}`;
+      row.dataset.okey = k;
+      const cname = row.querySelector('.name');
+      cname.textContent = org.names.get(k) ?? curveName(c);
+      cname.ondblclick = e => { e.stopPropagation(); editName(cname, t => orgOp('RENAME', () => org.renameObject(k, t))); };
       row.onclick = e => {
         if (e.target.closest('.dis')) return setDisabled([k], !off);
         if (off) return toast('DISABLED · ENABLE TO SELECT');
@@ -2439,15 +2467,8 @@ export async function mount(root, backend) {
         } else applySelect({ kind: 'group', id: g.id }, mod);
         selectionChanged();
       };
-      name.ondblclick = e => {
-        e.stopPropagation();
-        name.contentEditable = 'true';
-        name.focus();
-        getSelection().selectAllChildren(name);
-        const done = keep => { name.onblur = name.onkeydown = null; if (keep) orgOp('RENAME GROUP', () => org.rename(g.id, name.textContent)); renderOutliner(); };
-        name.onkeydown = k => { k.stopPropagation(); if (k.key === 'Enter') { k.preventDefault(); done(true); } else if (k.key === 'Escape') done(false); };
-        name.onblur = () => done(true);
-      };
+      row.dataset.okey = `g:${g.id}`;
+      name.ondblclick = e => { e.stopPropagation(); editName(name, t => orgOp('RENAME GROUP', () => org.rename(g.id, t))); };
       // Plasticity: double-clicking a group makes it the active collection (the name renames).
       row.ondblclick = e => { if (e.target.closest('button, .name')) return; org.toggleActive(g.id); renderOutliner(); };
       row.oncontextmenu = e => { e.preventDefault(); groupMenu(e, g); };
@@ -12053,6 +12074,7 @@ export async function mount(root, backend) {
       case 'unisolate': org.unisolate(); organised(); return true;
       case 'group': groupSelected(); return true;
       case 'ungroup': ungroupSelected(); return true;
+      case 'rename': renameSelected(); return true;
       case 'lock': lockSelected(); return true;
       case 'unlock-all': orgOp('UNLOCK ALL', () => org.setLocked([...org.locked], false)); organised(); return true;
       case 'delete-empty-groups': { const n = orgOp('DELETE EMPTY GROUPS', () => org.deleteEmptyGroups(allObjectKeys())); toast(n ? `${n} EMPTY GROUP${n > 1 ? 'S' : ''} DELETED` : 'NO EMPTY GROUPS'); renderOutliner(); return true; }
