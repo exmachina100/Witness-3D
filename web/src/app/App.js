@@ -10539,7 +10539,8 @@ export async function mount(root, backend) {
     if (!regions.length || (id === 'loft' && regions.length < 2)) return toast(id === 'loft' ? 'SELECT TWO REGIONS OR MORE, IN ORDER, TO LOFT' : `SELECT A REGION OR A CURVE TO ${toolInfo(id).label}`);
     const first = curveList.find(c => c.id === regions[0]);
     const target = curveOnly && !isClosed(first) ? null : bodyAt(regionCentre(first), curveFrame(first).n);
-    const c = cmd = { id, regions: id === 'loft' ? regions : regions.slice(0, 1), target, op: 'new', angle: 360, thickness: 0, twist: 0, scale: 1, p1: null, p2: null, path: null, guides: [], method: 'point', align: 'normal', corner: 'mitre', outcome: null, sent: 0, shown: 0, line: null };
+    // Revolve and Sweep take every selected region (each its own shape); an open curve, one at a time.
+    const c = cmd = { id, regions: curveOnly && !isClosed(first) ? regions.slice(0, 1) : regions, target, op: 'new', angle: 360, thickness: 0, twist: 0, scale: 1, p1: null, p2: null, path: null, guides: [], method: 'point', align: 'normal', corner: 'mitre', outcome: null, sent: 0, shown: 0, line: null };
     lastTool = id;
     showTool(id);
     setState('none');

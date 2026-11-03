@@ -574,3 +574,29 @@ fn extrude_draws_curves_out_into_sheets_in_one_step() {
     assert!(doc.ids().is_empty(), "one undo step");
     assert!(matches!(doc.preview_extrude_curves(&ids, DVec3::Z, 0.0, 0.0), Err(KernelError::NoOp)));
 }
+
+#[test]
+fn sweep_takes_every_selected_region_in_one_step() {
+    let mut doc = Document::new(Occt);
+    let a = doc.add(enclosure(&doc.kernel));
+    let square_at = |x: f64| Curve {
+        origin: [x, 30.0, 0.0],
+        x: [1.0, 0.0, 0.0],
+        normal: [0.0, 1.0, 0.0],
+        shape: CurveShape::Polyline { points: vec![[-5.0, -5.0], [5.0, -5.0], [5.0, 5.0], [-5.0, 5.0]], closed: true },
+    };
+    let up = Curve {
+        origin: [0.0, 30.0, 0.0],
+        x: [1.0, 0.0, 0.0],
+        normal: [0.0, 0.0, 1.0],
+        shape: CurveShape::Polyline { points: vec![[0.0, 0.0], [0.0, 20.0]], closed: false },
+    };
+    let ids = doc.commit_curves(vec![square_at(0.0), square_at(30.0), up]).unwrap();
+    let ps: Vec<_> = ids[..2].iter().map(|&r| doc.form_params(&[r], FormRequest::Sweep { path: ids[2], twist: 0.0, scale: 1.0 }, Operation::Union).unwrap()).collect();
+    // Two bosses, each 10 × 10 × 20, joined to the body together.
+    let tool = doc.forms_tool(&ps).unwrap();
+    close(volume(&doc.kernel, &tool), 4_000.0, 1.0);
+    assert_eq!(doc.commit_forms_keeping(Some(a), &ps, false).unwrap(), a);
+    close(volume(&doc.kernel, doc.get(a).unwrap()), 120_000.0 + 4_000.0, 1.0);
+    assert_eq!(doc.ids(), vec![a]);
+}

@@ -59,3 +59,14 @@ test('Shift+Q slices the body with a sweep and T keeps the swept shape too', asy
     await be.undo();
     assert.equal(be.bodies().length, 1);
 });
+
+test('revolve and sweep take every selected region, in one step', async () => {
+    const be = new LocalBackend({ seed: 'enclosure' });
+    const { ids: [a, b, path] } = await be.addCurves([square(10), { ...square(10), origin: [30, 30, 0] }, up]);
+    const p = await be.previewForm({ regions: [a, b], kind: 'sweep', path });
+    close(p.tool.volume, 4000, 1);
+    const { id, scene } = await be.commitForm({ target: 1, regions: [a, b], kind: 'sweep', path, op: 'union' });
+    assert.equal(id, 1);
+    assert.equal(scene.length, 1);
+    close(scene[0].volume, 124000, 1);
+});
