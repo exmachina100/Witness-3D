@@ -2252,7 +2252,7 @@ export async function mount(root, backend) {
   function renderOutliner() {
     const out = $('outliner');
     out.innerHTML = '<div class="group-title">▾ SOLIDS</div>';
-    const ids = current.map(b => b.id);
+    const ids = current.map(b => b.id), keys = [...ids, ...curveList.map(c => curveKey(c.id))];
     const solids = current.filter(b => !b.sheet), sheets = current.filter(b => b.sheet);
     const toggles = (shown, locked, off) => `<button class="dis" aria-pressed="${off}" aria-label="Disable or enable" title="${off ? 'Enable' : 'Disable: off the viewport and out of every command, for heavy scenes'}">${icon('disable')}</button><button class="lk" aria-pressed="${locked}" aria-label="Lock or unlock" title="${locked ? 'Unlock' : 'Lock'}">${icon(locked ? 'padlock' : 'unlock')}</button><button class="eye" aria-pressed="${shown}" aria-label="Show or hide">◉</button>`;
     const setDisabled = (list, off) => { org.setDisabled(list, off); organised(); renderOutliner(); renderTotals(); };
@@ -2275,14 +2275,33 @@ export async function mount(root, backend) {
       };
       out.append(row);
     };
-    // A group is a folder: its own groups, then its bodies. Clicking it selects everything in it.
+    const curveRow = (c, depth) => {
+      const row = document.createElement('div'), k = curveKey(c.id);
+      const locked = org.locked.has(k), shown = !org.hidden.has(k), off = org.disabled.has(k);
+      row.className = 'row-item curve' + (locked ? ' locked' : '') + (org.shows(k) ? '' : ' off') + (off ? ' disabled' : '');
+      row.style = indent(depth);
+      row.setAttribute('aria-current', sel.has({ kind: 'curve', id: c.id }) || sel.has({ kind: 'region', id: c.id }));
+      const look = { circle: 'circle', arc: 'arc3', spline: 'spline', cv: 'cv', ellipse: 'ellipse', contour: 'join', spiral: 'spiral', nurbs: 'project' }[c.kind] ?? (!c.closed ? 'line' : c.points.length === 4 ? 'rect' : 'polygon');
+      row.innerHTML = `${icon(look)}<span class="name">${curveName(c)}</span><span class="tag">${curveLabel(c.id)}</span>${toggles(shown, locked, off)}`;
+      row.onclick = e => {
+        if (e.target.closest('.dis')) return setDisabled([k], !off);
+        if (off) return toast('DISABLED · ENABLE TO SELECT');
+        if (e.target.closest('.eye')) return setHidden([k], shown);
+        if (e.target.closest('.lk')) { org.setLocked([k], !locked); return organised(); }
+        if (!org.picks(k)) return toast(locked ? 'LOCKED · UNLOCK TO SELECT' : 'HIDDEN');
+        applySelect({ kind: 'curve', id: c.id }, modOf(e));
+        selectionChanged();
+      };
+      out.append(row);
+    };
+    // A group is a folder: its own groups, then its bodies and curves. Clicking it selects the group; Alt+click everything in it.
     const folder = (g, depth) => {
-      const all = org.allMembers(g.id, ids), shown = all.some(id => !org.hidden.has(id)), locked = all.length > 0 && all.every(id => org.locked.has(id));
+      const all = org.allMembers(g.id, keys), shown = all.some(id => !org.hidden.has(id)), locked = all.length > 0 && all.every(id => org.locked.has(id));
       const off = all.length > 0 && all.every(id => org.disabled.has(id)), active = org.active === g.id;
       const row = document.createElement('div');
       row.className = 'row-item folder' + (all.length ? '' : ' empty-group') + (off ? ' disabled' : '') + (active ? ' active-collection' : '');
       row.style = indent(depth);
-      row.setAttribute('aria-current', all.length > 0 && all.every(id => sel.has({ kind: 'solid', body: id })));
+      row.setAttribute('aria-current', sel.has({ kind: 'group', id: g.id }));
       row.innerHTML = `<span class="tw">${g.open ? '▾' : '▸'}</span><button class="act" aria-pressed="${active}" aria-label="Toggle active collection" title="${active ? 'The active collection: new bodies go in here. Click or double-click the row to stop' : 'Make this the active collection: new bodies go in here (or double-click the row)'}">${icon('folder')}</button><span class="name" title="Double-click to rename">${g.name}</span><span class="tag">${all.length}</span>${toggles(shown, locked, off)}`;
       const name = row.querySelector('.name');
       row.onclick = e => {
@@ -2293,8 +2312,14 @@ export async function mount(root, backend) {
         if (e.target.closest('.eye')) return setHidden(all, shown);
         if (e.target.closest('.lk')) { org.setLocked(all, !locked); return organised(); }
         const mod = e.shiftKey ? 'add' : (e.ctrlKey || e.metaKey) ? 'remove' : 'replace';
-        if (mod === 'replace') sel.clear();
-        for (const id of all.filter(id => org.picks(id))) mod === 'remove' ? sel.remove({ kind: 'solid', body: id }) : applySelect({ kind: 'solid', body: id }, 'add');
+        if (e.altKey) {
+          // Alt+click a folder: every object in it (manual: Outliner).
+          if (mod === 'replace') sel.clear();
+          for (const id of all.filter(id => org.picks(id))) {
+            const it = typeof id === 'string' ? { kind: 'curve', id: curveKeyId(id) } : { kind: 'solid', body: id };
+            mod === 'remove' ? sel.remove(it) : applySelect(it, 'add');
+          }
+        } else applySelect({ kind: 'group', id: g.id }, mod);
         selectionChanged();
       };
       name.ondblclick = e => {
@@ -2312,6 +2337,7 @@ export async function mount(root, backend) {
       if (!g.open) return;
       for (const c of org.childGroups(g.id)) folder(c, depth + 1);
       for (const id of org.members(g.id, ids)) bodyRow(bodyOf(id), depth + 1);
+      for (const k of org.members(g.id, curveList.map(c => curveKey(c.id)))) curveRow(curveById(curveKeyId(k)), depth + 1);
     };
     for (const g of org.childGroups(null)) folder(g, 0);
     const loose = b => !org.groupOf.has(b.id);
@@ -2320,24 +2346,7 @@ export async function mount(root, backend) {
     if (sheets.some(loose)) out.insertAdjacentHTML('beforeend', '<div class="group-title">▾ SHEETS</div>');
     for (const b of sheets.filter(loose)) bodyRow(b, 0);
     out.insertAdjacentHTML('beforeend', '<div class="group-title">▾ CURVES</div>');
-    for (const c of curveList) {
-      const row = document.createElement('div'), k = curveKey(c.id);
-      const locked = org.locked.has(k), shown = !org.hidden.has(k), off = org.disabled.has(k);
-      row.className = 'row-item curve' + (locked ? ' locked' : '') + (org.shows(k) ? '' : ' off') + (off ? ' disabled' : '');
-      row.setAttribute('aria-current', sel.has({ kind: 'curve', id: c.id }) || sel.has({ kind: 'region', id: c.id }));
-      const look = { circle: 'circle', arc: 'arc3', spline: 'spline', cv: 'cv', ellipse: 'ellipse', contour: 'join', spiral: 'spiral', nurbs: 'project' }[c.kind] ?? (!c.closed ? 'line' : c.points.length === 4 ? 'rect' : 'polygon');
-      row.innerHTML = `${icon(look)}<span class="name">${curveName(c)}</span><span class="tag">${curveLabel(c.id)}</span>${toggles(shown, locked, off)}`;
-      row.onclick = e => {
-        if (e.target.closest('.dis')) return setDisabled([k], !off);
-        if (off) return toast('DISABLED · ENABLE TO SELECT');
-        if (e.target.closest('.eye')) return setHidden([k], shown);
-        if (e.target.closest('.lk')) { org.setLocked([k], !locked); return organised(); }
-        if (!org.picks(k)) return toast(locked ? 'LOCKED · UNLOCK TO SELECT' : 'HIDDEN');
-        applySelect({ kind: 'curve', id: c.id }, modOf(e));
-        selectionChanged();
-      };
-      out.append(row);
-    }
+    for (const c of curveList.filter(c => !org.groupOf.has(curveKey(c.id)))) curveRow(c, 0);
     if (cmd?.id === 'pushpull' && cmd.at) out.insertAdjacentHTML('beforeend', `<div class="row-item curve"><span class="ln"></span><span>${profileKind === 'circle' ? 'CIRCLE' : 'RECT'}.001</span></div>`);
     else if (!curveList.length) out.insertAdjacentHTML('beforeend', '<div class="empty">NO CURVES</div>');
     if (instances.length) out.insertAdjacentHTML('beforeend', '<div class="group-title">▾ INSTANCES</div>');
@@ -11620,6 +11629,8 @@ export async function mount(root, backend) {
   const curvesOfItem = it => it.kind === 'region' && derivedRegions.has(it.id) ? derivedRegions.get(it.id).curves : [it.id];
   /** The selected curves' and regions' organise keys (Plasticity's Hide, Isolate and Lock take them). */
   const selectedCurveKeys = () => [...new Set(sel.list().filter(it => it.kind === 'curve' || it.kind === 'region').flatMap(curvesOfItem).filter(id => curveById(id)).map(curveKey))];
+  /** What a selection organises: the bodies with anything selected, the curves, and what selected groups hold. */
+  const selectedOrgKeys = () => [...new Set([...sel.bodies, ...selectedCurveKeys(), ...sel.groups.flatMap(g => org.allMembers(g, allObjectKeys()))])];
   /** Everything Hide and Invert can reach: the bodies and the curves. */
   const allObjectKeys = () => [...current.map(b => b.id), ...curveList.map(c => curveKey(c.id))];
   /** Curves and regions show as their curves are hidden, locked, disabled or isolated. */
@@ -11637,6 +11648,7 @@ export async function mount(root, backend) {
   function organised() {
     for (const it of sel.list()) if (it.body !== undefined && !org.picks(it.body)) sel.remove(it);
     for (const it of sel.list()) if ((it.kind === 'curve' || it.kind === 'region' || it.kind === 'vertex') && !curvesOfItem(it).every(id => org.picks(curveKey(id)))) sel.remove(it);
+    for (const it of sel.list('group')) if (!org.group(it.id)) sel.remove(it);
     applyCurveOrg();
     for (const m of bodies.children) m.visible = org.shows(m.userData.id);
     renderIsolated();
@@ -11655,23 +11667,29 @@ export async function mount(root, backend) {
     b.querySelector('span').textContent = `${n} ISOLATED`;
   }
   function isolateSelected() {
-    const ids = [...sel.bodies, ...selectedCurveKeys()].filter(id => org.shows(id));
+    const ids = selectedOrgKeys().filter(id => org.shows(id));
     if (!ids.length && !org.layers.length) return toast('SELECT WHAT TO ISOLATE');
     org.isolate(ids);
     organised();
   }
   function groupSelected() {
-    const g = org.makeGroup(sel.bodies);
-    if (!g) return toast('SELECT BODIES TO GROUP');
-    toast(`${g.name} · ${sel.bodies.length} BODIES`);
+    // Ctrl+G groups the selected solids, curves and groups (a selected group nests in the new one).
+    const ids = [...sel.solids, ...selectedCurveKeys()], groups = sel.groups;
+    const g = org.makeGroup(ids, undefined, groups);
+    if (!g) return toast('SELECT SOLIDS, CURVES OR GROUPS TO GROUP');
+    toast(`${g.name} · ${ids.length + groups.length} ITEMS`);
+    sel.clear();
+    sel.add({ kind: 'group', id: g.id });
+    selectionChanged({ quiet: true });
     renderOutliner();
   }
   function ungroupSelected() {
-    if (!org.ungroup(sel.bodies)) return toast('NOTHING SELECTED IS IN A GROUP');
+    // Alt+G: only the selection leaves its group (manual: Outliner).
+    if (!org.removeFromGroup([...sel.solids, ...selectedCurveKeys()], sel.groups)) return toast('NOTHING SELECTED IS IN A GROUP');
     renderOutliner();
   }
   function lockSelected() {
-    const ids = [...sel.bodies, ...selectedCurveKeys()];
+    const ids = selectedOrgKeys();
     if (!ids.length) return toast('SELECT WHAT TO LOCK');
     org.setLocked(ids, true);
     organised();
@@ -11898,8 +11916,8 @@ export async function mount(root, backend) {
       // Plasticity's Slot: Offset Curve with Offset Region's slot on (an open curve closed round its ends).
       case 'slot': await startCurveEdit('offset-curve'); if (cmd?.id === 'offset-curve' && !cmd.slot) cmd.key('slot'); return true;
       case 'insert-knot': if (cmd) await finish(); startInsertKnot(); return true;
-      case 'hide': setHidden([...sel.bodies, ...selectedCurveKeys()], true); return true;
-      case 'hide-others': { const keep = new Set([...sel.bodies, ...selectedCurveKeys()]); setHidden(allObjectKeys().filter(id => !keep.has(id)), true); return true; }
+      case 'hide': setHidden(selectedOrgKeys(), true); return true;
+      case 'hide-others': { const keep = new Set(selectedOrgKeys()); setHidden(allObjectKeys().filter(id => !keep.has(id)), true); return true; }
       case 'unhide-all': setHidden([...org.hidden], false); return true;
       case 'invert-hidden': org.invertHidden(allObjectKeys().filter(id => !org.disabled.has(id))); organised(); return true;
       case 'isolate': isolateSelected(); return true;

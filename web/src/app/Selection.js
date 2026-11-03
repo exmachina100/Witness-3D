@@ -7,10 +7,11 @@
 // region inside a closed one, { kind: 'curve' | 'region', id } (Plasticity's mode 2 picks curves
 // with edges, mode 3 regions with faces), or a curve's vertex, { kind: 'vertex', id, n } (mode 1,
 // points), or a face's control point shown by Toggle Points, { kind: 'pole', body, face, n } (mode 1).
+// A group picked in the outliner is { kind: 'group', id }.
 
 export const KINDS = ['point', 'edge', 'face', 'solid'];
 
-const keyOf = it => it.kind === 'solid' ? `s:${it.body}` : it.kind === 'curve' || it.kind === 'region' ? `${it.kind}:${it.id}`
+const keyOf = it => it.kind === 'solid' ? `s:${it.body}` : it.kind === 'curve' || it.kind === 'region' || it.kind === 'group' ? `${it.kind}:${it.id}`
     : it.kind === 'vertex' ? `vertex:${it.id}:${it.n}` : it.kind === 'pole' ? `pole:${it.body}:${it.face}:${it.n}` : `${it.kind[0]}:${it.body}:${it.n}`;
 const onBody = it => it.body !== undefined;
 
@@ -49,7 +50,9 @@ export class Selection {
     /** Ids of the selected curves, and of the curves whose regions are selected. */
     get curves() { return [...new Set(this.list().filter(it => it.kind === 'curve' || it.kind === 'region').map(it => it.id))] }
     /** Drop curves and regions whose curve is gone; `ids` are the curves that exist. */
-    keepCurves(ids) { for (const it of this.list()) if (!onBody(it) && !ids.includes(it.id)) this.remove(it) }
+    keepCurves(ids) { for (const it of this.list()) if (!onBody(it) && it.kind !== 'group' && !ids.includes(it.id)) this.remove(it) }
+    /** Selected outliner groups' ids (Plasticity: a click on a folder selects the group). */
+    get groups() { return this.list('group').map(it => it.id) }
 
     /**
      * Change every item to `kind` (Plasticity's Ctrl+2, Ctrl+3, Ctrl+4): edges and faces of the

@@ -173,3 +173,32 @@ test('curves hide, isolate, lock and disable beside bodies, and prune apart', ()
     const back = Organise.from(JSON.parse(JSON.stringify(o)));
     assert.ok(back.disabled.has(c2) && back.locked.has(c2));
 });
+
+test('groups nest, and Alt+G takes only the selected items out', () => {
+    const o = new Organise();
+    o.prune([1, 2, 3, 4]);
+    const a = o.makeGroup([1, 2]), b = o.makeGroup([3]);
+    const outer = o.makeGroup([], 'OUTER', [a.id, b.id]);
+    assert.equal(a.parent, outer.id);
+    assert.equal(b.parent, outer.id);
+    assert.deepEqual(o.allMembers(outer.id, [1, 2, 3, 4]), [1, 2, 3]);
+    // Alt+G on body 1: only it leaves; group a and body 2 stay.
+    assert.equal(o.removeFromGroup([1]), 1);
+    assert.ok(!o.groupOf.has(1) && o.groupOf.get(2) === a.id && o.group(a.id));
+    // A group taken out goes to the top with what it holds.
+    o.removeFromGroup([], [a.id]);
+    assert.equal(a.parent, null);
+    assert.deepEqual(o.allMembers(outer.id, [1, 2, 3, 4]), [3]);
+    // Grouping a group with its own parent's member can't put it inside itself.
+    const c = o.makeGroup([4], 'C', [outer.id]);
+    assert.ok(!o.within(c.id, outer.id));
+    assert.equal(outer.parent, c.id);
+});
+
+test('curves group with bodies', () => {
+    const o = new Organise();
+    o.prune([1]);
+    o.prune([curveKey(5)], 'curve');
+    const g = o.makeGroup([1, curveKey(5)]);
+    assert.deepEqual(o.allMembers(g.id, [1, curveKey(5)]), [1, curveKey(5)]);
+});
