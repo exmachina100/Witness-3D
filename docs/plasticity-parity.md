@@ -23,7 +23,7 @@ a flat face imprints that face and is used up (round 10).
 
 | Tool | Manual keys and steps | Status |
 |---|---|---|
-| Line (Shift+A) | points; Tab, K, Ctrl+Z, X/Y/Z | Done |
+| Line (Shift+A) | points; Tab, K, Ctrl+Z, X/Y/Z | Done. Drawing in 3D done in both builds (2026-11-03 audit) for Line, Spline and Control Point Curve: after the first click, points snap anywhere (ends, middles, curve points off the drawing plane) or land on a face standing in front of the plane (ON FACE), and X, Y or Z keeps the next point on that world axis through the last one, Z included; a curve that leaves its plane is made as a NURBS curve (lines through their corners, splines a cubic through the points with a smooth seam when closed, control-point curves the same B-spline lifted) and makes no region. A first click on a curved face draws on the plane touching it there. Three Point Circle, Arc and Rectangle still keep their points in the first plane |
 | Spline Curve | through points; Tab → Control Point Curve, K, Ctrl+Z, X/Y/Z | Done |
 | Control Point Curve | clicked points are control points; Tab → Spline, K, Ctrl+Z, X/Y/Z | Done (exact cubic B-spline in both kernels) |
 | Bridge Curve | | Done |
