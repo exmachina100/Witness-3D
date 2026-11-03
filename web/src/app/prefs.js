@@ -20,12 +20,20 @@ export const PREF_FIELDS = {
         { key: 'fov', label: 'CAMERA FIELD OF VIEW (°)', type: 'number', value: 50, min: 10, max: 120, step: 1 },
     ],
     appearance: [
-        { key: 'accent', label: 'ACCENT', type: 'color', value: '#ff4d00', restart: true },
-        { key: 'background', label: 'VIEWPORT BACKGROUND', type: 'color', value: '#0f0f11' },
+        // Plasticity's Appearance colour groups: Accent, Supporting (secondary text and icons),
+        // Neutral (menus and toolbars), Viewport (with preset swatches), Grid, edges, Measurement.
+        { key: 'accent', label: 'ACCENT', type: 'color', value: '#ff4d00' },
+        { key: 'supporting', label: 'SUPPORTING', type: 'color', value: '#8e949e' },
+        { key: 'neutral', label: 'NEUTRAL (MENUS AND TOOLBARS)', type: 'color', value: '#141416' },
+        { key: 'background', label: 'VIEWPORT BACKGROUND', type: 'color', value: '#0f0f11', presets: ['#0f0f11', '#1b1c20', '#2a2c31', '#3c3f45', '#5a5e66', '#c9c6bd'] },
         { key: 'grid', label: 'GRID', type: 'color', value: '#19191c' },
         { key: 'gridMajor', label: 'GRID MAJOR LINES', type: 'color', value: '#232327' },
         { key: 'edge', label: 'REGULAR EDGE', type: 'color', value: '#efebe0' },
+        { key: 'instanceEdge', label: 'INSTANCE EDGE', type: 'color', value: '#b4b0a6' },
+        { key: 'measurement', label: 'MEASUREMENT', type: 'color', value: '#6cbf5f' },
         { key: 'pointSize', label: 'CONTROL POINT SIZE', type: 'number', value: 5, min: 2, max: 20 },
+        { key: 'vertexSize', label: 'VERTEX SIZE', type: 'number', value: 5, min: 2, max: 20 },
+        { key: 'cubeSize', label: 'VIEWPORT GIZMO SIZE', type: 'number', value: 1, min: 0.5, max: 2 },
         { key: 'uiScale', label: 'ZOOM FACTOR', type: 'number', value: 1, min: 0.5, max: 2 },
     ],
     commands: [
