@@ -15,7 +15,7 @@
 
 export const TOOLS = [
     {
-        id: 'pushpull', label: 'PUSH·PULL', key: 'p', group: 'shape', selects: 'face', toolbar: false,
+        id: 'pushpull', label: 'PUSH·PULL', key: '', group: 'shape', selects: 'face', toolbar: false,
         summary: 'Sketch a square or circle on a flat face or the work plane, then pull it out into a boss or push it in to cut a pocket.',
         params: {
             distance: { type: 'number', unit: 'mm', default: 0, describe: 'how far to pull; positive joins, negative cuts' },
@@ -192,14 +192,14 @@ export const TOOLS = [
     },
     // Round 10: Plasticity's Cut, solids split by curves drawn across them.
     {
-        id: 'cut', label: 'CUT', key: '', group: 'shape', selects: 'curves', toolbar: false,
+        id: 'cut', label: 'CUT', key: 'c', group: 'shape', selects: 'curves', toolbar: false,
         summary: 'Split the selected solids along curves drawn across them, faces (a flat face cuts as its whole plane, a round one as its whole cylinder) or the construction plane; every piece becomes its own body.',
         params: {
             plane: { type: 'boolean', default: false, describe: 'cut with the construction plane as well' },
         },
     },
     {
-        id: 'imprint', label: 'IMPRINT', key: '', group: 'shape', selects: 'curves', toolbar: false,
+        id: 'imprint', label: 'IMPRINT', key: 'shift-i', group: 'shape', selects: 'curves', toolbar: false,
         summary: 'Draw the selected curves, or the outline where other solids meet it, onto faces of a solid, splitting the faces there without cutting the body; each curve is projected along the normal of its plane.',
         params: {},
     },
@@ -241,7 +241,7 @@ export const TOOLS = [
     },
     // Plasticity's Pipe: a tube along curves.
     {
-        id: 'pipe', label: 'PIPE', key: '', group: 'shape', selects: 'curves', toolbar: false,
+        id: 'pipe', label: 'PIPE', key: 'p', group: 'shape', selects: 'curves', toolbar: false,
         summary: 'Run a tube along each selected curve: round or a regular polygon, solid or hollow. Each tube is a body of its own; the curves stay.',
         params: {
             radius: { type: 'number', unit: 'mm', above: 0, default: 1, describe: "the tube's radius (to the corners for a polygon)" },

@@ -35,7 +35,10 @@ export const VIEWPORT = {
     a: 'select:all', escape: 'select:none', 'alt-a': 'select:invert', 'ctrl-shift-=': 'select:adjacent',
     // Commands (manual: Command Bar, General Functions)
     f: 'palette', 'shift-f': 'suggest', 'shift-r': 'repeat',
-    b: 'tool:fillet', g: 'tool:move', r: 'tool:rotate', s: 'tool:scale', p: 'tool:pushpull',
+    // B fillets edges, or curves when only curves are selected (manual: Fillet, Fillet Curve)
+    b: 'tool:fillet', g: 'tool:move', r: 'tool:rotate', s: 'tool:scale',
+    // Pipe (manual: P), Cut (C), Trim (T), Imprint (Shift+I)
+    p: 'tool:pipe', c: 'tool:cut', t: 'trim', 'shift-i': 'tool:imprint',
     e: 'tool:extrude', q: 'tool:boolean', l: 'tool:loft', 'shift-p': 'tool:sweep',
     // Project (manual: I; Curve Body, Body Body or Curve Curve by what is selected)
     i: 'tool:project',
@@ -43,12 +46,15 @@ export const VIEWPORT = {
     o: 'tool:offset-curve',
     // Sketching (manual: Line is Shift+A; 0.6.30 for the rectangle and circle, which 26.1 leaves unbound)
     'shift-q': 'draw:rect', 'shift-w': 'draw:circle', 'shift-a': 'draw:line',
-    'shift-x': 'delete', 'shift-delete': 'delete', 'shift-backspace': 'delete', delete: 'delete', backspace: 'delete',
+    // Delete and Dissolve (manual: X, Backspace, Shift+Backspace)
+    x: 'delete', 'shift-x': 'delete', 'shift-delete': 'delete', 'shift-backspace': 'delete', delete: 'delete', backspace: 'delete',
     'shift-d': 'duplicate', 'alt-d': 'alt-duplicate', 'shift-g': 'slide',
     // Place (manual: Ctrl+D)
     'ctrl-d': 'place',
     // Copy / Paste with Placement (manual: Ctrl+Shift+C, Ctrl+Shift+V)
     'ctrl-shift-c': 'copy-place', 'ctrl-shift-v': 'paste-place',
+    // Copy and Paste in place (manual: General Functions, Ctrl+C / Ctrl+V)
+    'ctrl-c': 'copy', 'ctrl-v': 'paste',
     // Dimension (manual: =)
     '=': 'dimension',
     // Curves (0.6.30's default keymap: J joins curves; 26.1 keeps it)
@@ -59,15 +65,15 @@ export const VIEWPORT = {
     'alt-t': 'untrim',
     // Mirror (manual: Alt+X)
     'alt-x': 'tool:mirror',
-    // Unjoin Curve (manual: Alt+J)
-    'alt-j': 'unjoin:curves',
+    // Unjoin Curve with curves selected, Unjoin Faces with faces (manual: Alt+J)
+    'alt-j': 'unjoin:key',
     // Witness 3D's own: a command asked for in words (ai.js); Plasticity has no equivalent
     'ctrl-k': 'ask',
     h: 'hide', 'shift-h': 'hide-others', 'alt-h': 'unhide-all', 'ctrl-h': 'invert-hidden',
     // Organising (manual: Outliner; Focus and Isolate). Lock Selected and Unlock All have no key there either.
     '.': 'isolate', 'alt-.': 'unisolate', 'ctrl-g': 'group', 'ctrl-r': 'isoparam', 'alt-g': 'ungroup',
     // Materials (manual: Set Material is M)
-    m: 'material:set',
+    m: 'material:set', 'alt-m': 'material:remove',
     // Construction planes (manual: Construction Plane)
     space: 'plane:selection', 'shift-space': 'plane:selection-keep-view', 'ctrl-space': 'plane:view', 'ctrl-shift-space': 'plane:view-at',
     // Files and history
@@ -216,7 +222,7 @@ export const ACTIONS = {
     'draw:center-rect': 'Center rectangle', 'draw:rect3': 'Three point rectangle', 'draw:circle2': 'Two point circle',
     'draw:circle3': 'Three point circle', 'draw:arc3': 'Three point arc', 'draw:arc': 'Center point arc',
     'draw:polygon': 'Regular polygon', 'draw:spline': 'Spline curve', 'draw:ellipse': 'Center ellipse',
-    'draw:ellipse3': 'Three point ellipse', 'draw:tangent-arc': 'Tangent arc', 'draw:spiral': 'Spiral', 'draw:cv': 'Control point curve', 'draw:tangent-circle': 'Tangent circle', 'split': 'Split segment (split curve at point)', 'cut-curve': 'Cut curve', 'bridge-edge': 'Bridge edge', 'align-surface': 'Align surface', 'project-align': 'Project align', 'align-curve': 'Align curve', 'constrained-surface': 'Constrained surface', 'square': 'Square (four-sided surface)', 'xnurbs': 'xNURBS (fill a boundary, quad sided)', 'measure:distance': 'Measure distance', 'measure:radius': 'Measure radius', 'measure:continuity': 'Measure continuity', 'view:curvature': 'Toggle curvature', 'view:surface-curvature': 'Toggle surface curvature', 'view:zebra': 'Shader: vertical zebra', 'view:draft': 'Shader: draft angle', 'join': 'Join curves or sheets', 'unjoin:curves': 'Unjoin curve', 'unjoin:faces': 'Unjoin faces', 'unjoin:pieces': 'Unjoin shells', 'trim': 'Trim curves', 'explode': 'Explode curve', 'reverse': 'Reverse curve', 'rebuild': 'Rebuild curve or face', 'insert-knot': 'Insert knot', 'raise-degree': 'Raise curve or surface degree', 'subdivide': 'Subdivide curve or surface', 'complete-edge': 'Complete edge', 'deform-curve': 'Deform', 'create-instance': 'Create instance', 'realize-instance': 'Realize instance', 'convert-vertex': 'Convert vertex', 'unify': 'Delete redundant topology', 'slot': 'Slot', 'boundary-edges': 'Find boundary edges', 'remove-fillets': 'Remove fillets', 'isoparam': 'Isoparam', 'match-face': 'Match face', 'untrim': 'Untrim', 'unwrap': 'Unwrap face', 'section': 'Section analysis', 'place': 'Place', 'copy-place': 'Copy with placement', 'paste-place': 'Paste with placement', 'dimension': 'Dimension', 'text': 'Text', 'slide': 'Slide curve or surface CV', 'reverse-sheet': 'Reverse sheet', 'align-vertex': 'Align vertex', 'extend': 'Extend curve',
+    'draw:ellipse3': 'Three point ellipse', 'draw:tangent-arc': 'Tangent arc', 'draw:spiral': 'Spiral', 'draw:cv': 'Control point curve', 'draw:tangent-circle': 'Tangent circle', 'split': 'Split segment (split curve at point)', 'cut-curve': 'Cut curve', 'bridge-edge': 'Bridge edge', 'align-surface': 'Align surface', 'project-align': 'Project align', 'align-curve': 'Align curve', 'constrained-surface': 'Constrained surface', 'square': 'Square (four-sided surface)', 'xnurbs': 'xNURBS (fill a boundary, quad sided)', 'measure:distance': 'Measure distance', 'measure:radius': 'Measure radius', 'measure:continuity': 'Measure continuity', 'view:curvature': 'Toggle curvature', 'view:surface-curvature': 'Toggle surface curvature', 'view:zebra': 'Shader: vertical zebra', 'view:draft': 'Shader: draft angle', 'join': 'Join curves or sheets', 'unjoin:curves': 'Unjoin curve', 'unjoin:faces': 'Unjoin faces', 'unjoin:pieces': 'Unjoin shells', 'trim': 'Trim curves', 'explode': 'Explode curve', 'reverse': 'Reverse curve', 'rebuild': 'Rebuild curve or face', 'insert-knot': 'Insert knot', 'raise-degree': 'Raise curve or surface degree', 'subdivide': 'Subdivide curve or surface', 'complete-edge': 'Complete edge', 'deform-curve': 'Deform', 'create-instance': 'Create instance', 'realize-instance': 'Realize instance', 'convert-vertex': 'Convert vertex', 'unify': 'Delete redundant topology', 'slot': 'Slot', 'boundary-edges': 'Find boundary edges', 'remove-fillets': 'Remove fillets', 'isoparam': 'Isoparam', 'match-face': 'Match face', 'untrim': 'Untrim', 'unwrap': 'Unwrap face', 'section': 'Section analysis', 'place': 'Place', 'copy': 'Copy', 'paste': 'Paste in place', 'copy-place': 'Copy with placement', 'paste-place': 'Paste with placement', 'dimension': 'Dimension', 'text': 'Text', 'slide': 'Slide curve or surface CV', 'reverse-sheet': 'Reverse sheet', 'align-vertex': 'Align vertex', 'extend': 'Extend curve',
     'undo': 'Undo', 'redo': 'Redo', 'file:new': 'New', 'file:new-window': 'New window', 'file:open': 'Open…', 'file:save': 'Save',
     'file:save-as': 'Save as…', 'file:save-version': 'Quick save version', 'file:save-startup': 'Save as startup scene', 'file:reset-startup': 'Reset startup scene', 'file:export': 'Export…', 'file:recent': 'Recent files', 'app:quit': 'Quit', 'app:preferences': 'Preferences', 'app:menu': 'File menu (P-Menu)',
     'radial:selection-mode': 'Radial menu: selection mode', 'radial:viewport-settings': 'Radial menu: viewport settings',
