@@ -266,7 +266,45 @@ const SHELL = `
   <main class="view">
     <canvas aria-label="3D modeling viewport"></canvas>
     <span class="corner tl"></span><span class="corner tr"></span><span class="corner bl"></span><span class="corner br"></span>
-    <span class="hud" data-id="hud" data-idle>SELECT · F SEARCH</span>
+    <div class="vtl">
+      <button class="plane-pill" data-action="plane:save" title="Construction plane: click to save it to the list in the Inspector">${icon('plane-world')}<output data-id="plane">XY</output></button>
+      <span class="hud" data-id="hud" data-idle>SELECT · F SEARCH</span>
+    </div>
+    <div class="vhead" role="toolbar" aria-label="View">
+      <button data-id="vh-ortho" aria-pressed="false" aria-label="Orthographic" title="Orthographic (Numpad 5) · right-click: field of view">${icon('nav-ortho')}</button>
+      <button data-id="vh-overlays" aria-pressed="true" aria-label="Overlays" title="Overlays: grid, navigation and key hints (Alt+Shift+Z)">${icon('overlays')}</button>
+
+        <button data-toggle="edges" aria-pressed="true" aria-label="Edges" title="Edges"></button>
+        <button data-toggle="faces" aria-pressed="true" aria-label="Faces" title="Faces"></button>
+        <button data-toggle="xray" aria-pressed="false" aria-label="X-ray" title="X-ray (Alt+Z)"></button>
+        <button data-toggle="curves" aria-pressed="true" aria-label="Curves" title="Curves: show or hide them in the viewport"></button>
+        <button data-toggle="curvature" aria-pressed="false" aria-label="Curvature" title="Curvature combs on curves (Toggle Curvature)"></button>
+        <button data-toggle="render" aria-pressed="false" aria-label="Render" title="Render mode: lit by an environment, with the materials' roughness and metal"></button>
+        <button data-toggle="ao" aria-pressed="false" aria-label="Ambient occlusion" title="Ambient occlusion: darken creases and corners where light reaches less"></button>
+        <button data-id="section-btn" aria-pressed="false" aria-label="Section analysis" title="Section analysis: slice the view through a face or the construction plane; click again to end it"></button>
+            <button data-id="vh-shader" aria-expanded="false" aria-haspopup="dialog" aria-label="Shader" title="Shader, environment, combs and grid · right-click too">${icon('view-shader')}</button>
+    </div>
+    <div class="vpop" data-id="view-pop" role="dialog" aria-label="Shader and view settings" hidden>
+
+      <div class="field"><label for="w3d-comb-scale">COMB SCALE</label><input id="w3d-comb-scale" data-id="comb-scale" type="range" min="0.1" max="4" step="0.1" value="1" title="Length of the curvature combs on curves and edges"></div>
+      <span class="label">SHADER <output data-id="shader-name">CERAMIC DARK</output></span>
+      <div class="swatches" role="group" aria-label="Shader mode">${SHADERS.map(s => `<button data-shader="${s.id}" aria-pressed="${s.id === 'ceramic-dark'}" aria-label="${s.name}" title="${s.name}: ${s.use}" style="background: ${s.swatch}"></button>`).join('')}</div>
+      <div class="chips"><button data-id="matcap-load" title="Load a matcap image (PNG or JPEG) as the shader; it stays for next time">LOAD MATCAP</button><button data-id="matcap-custom" aria-pressed="false" hidden title="Your matcap">MY MATCAP</button></div>
+      <input type="file" data-id="matcap-file" accept=".png,.jpg,.jpeg,image/png,image/jpeg" hidden>
+      <div class="stepper" data-id="shader-option" hidden><span data-id="shader-option-label">STRIPES</span><button data-id="shader-option-dec" aria-label="Less">−</button><output data-id="shader-option-value">24</output><button data-id="shader-option-inc" aria-label="More">+</button></div>
+      <div data-id="render-options" hidden>
+        <span class="label">ENVIRONMENT</span>
+        <div class="chips">${ENVIRONMENTS.map(e => `<button data-env="${e.id}" aria-pressed="${e.id === 'studio'}" title="${e.use}">${e.name.toUpperCase()}</button>`).join('')}<button data-id="hdr-custom" aria-pressed="false" hidden title="Your HDR environment">HDR</button><button data-id="hdr-load" title="Load an HDR or EXR environment image (equirectangular) to light render mode">LOAD HDR</button></div>
+        <input type="file" data-id="hdr-file" accept=".hdr,.exr" hidden>
+        <div class="field"><label for="w3d-env-rot">ROTATION</label><input id="w3d-env-rot" data-id="env-rot" type="range" min="-180" max="180" step="1" value="0"></div>
+        <div class="field"><label for="w3d-env-int">INTENSITY</label><input id="w3d-env-int" data-id="env-int" type="range" min="0" max="10" step="0.1" value="1"></div>
+      </div>
+      <div class="stepper"><span>GRID</span><button data-id="grid-dec" aria-label="Smaller grid step">−</button><output data-id="grid">2.5</output><button data-id="grid-inc" aria-label="Larger grid step">+</button></div>
+        </div>
+    <div class="vpop fov" data-id="fov-pop" role="dialog" aria-label="Field of view" hidden>
+      <div class="field"><label for="w3d-fov">FIELD OF VIEW</label><input id="w3d-fov" data-id="fov" type="range" min="10" max="120" step="1" value="35"></div>
+      <output data-id="fov-value">35°</output>
+    </div>
     <div class="nav" data-id="nav" aria-label="View navigation"></div>
     <div class="modes" role="group" aria-label="Selection mode">
       ${[['point', 'POINTS', '1'], ['edge', 'EDGES', '2'], ['face', 'FACES', '3'], ['solid', 'SOLIDS', '4'], ['all', 'ALL', '5']].map(([m, name, k]) => `<button data-mode="${m}" aria-pressed="true" aria-label="Select ${name.toLowerCase()}" title="${name} (${k}${m === 'all' ? '' : ` · ⇧${k} toggles`})">${icon(`mode-${m}`)}</button>`).join('')}
@@ -988,40 +1026,12 @@ const SHELL = `
         <button data-op="new" aria-pressed="false"><kbd>B</kbd>NEW</button>
       </div>
     </div>
-    <div class="sec">
-      <span class="label">VIEW</span>
-      <div class="chips icons" role="group" aria-label="View">
-        <button data-toggle="edges" aria-pressed="true" aria-label="Edges" title="Edges"></button>
-        <button data-toggle="faces" aria-pressed="true" aria-label="Faces" title="Faces"></button>
-        <button data-toggle="xray" aria-pressed="false" aria-label="X-ray" title="X-ray (Alt+Z)"></button>
-        <button data-toggle="snap" aria-pressed="false" aria-label="Snap" title="Snap without holding Ctrl"></button>
-        <button data-toggle="curves" aria-pressed="true" aria-label="Curves" title="Curves: show or hide them in the viewport"></button>
-        <button data-toggle="curvature" aria-pressed="false" aria-label="Curvature" title="Curvature combs on curves (Toggle Curvature)"></button>
-        <button data-toggle="render" aria-pressed="false" aria-label="Render" title="Render mode: lit by an environment, with the materials' roughness and metal"></button>
-        <button data-toggle="ao" aria-pressed="false" aria-label="Ambient occlusion" title="Ambient occlusion: darken creases and corners where light reaches less"></button>
-        <button data-id="section-btn" aria-pressed="false" aria-label="Section analysis" title="Section analysis: slice the view through a face or the construction plane; click again to end it"></button>
-      </div>
-      <div class="field"><label for="w3d-comb-scale">COMB SCALE</label><input id="w3d-comb-scale" data-id="comb-scale" type="range" min="0.1" max="4" step="0.1" value="1" title="Length of the curvature combs on curves and edges"></div>
-      <span class="label">SHADER <output data-id="shader-name">CERAMIC DARK</output></span>
-      <div class="swatches" role="group" aria-label="Shader mode">${SHADERS.map(s => `<button data-shader="${s.id}" aria-pressed="${s.id === 'ceramic-dark'}" aria-label="${s.name}" title="${s.name}: ${s.use}" style="background: ${s.swatch}"></button>`).join('')}</div>
-      <div class="chips"><button data-id="matcap-load" title="Load a matcap image (PNG or JPEG) as the shader; it stays for next time">LOAD MATCAP</button><button data-id="matcap-custom" aria-pressed="false" hidden title="Your matcap">MY MATCAP</button></div>
-      <input type="file" data-id="matcap-file" accept=".png,.jpg,.jpeg,image/png,image/jpeg" hidden>
-      <div class="stepper" data-id="shader-option" hidden><span data-id="shader-option-label">STRIPES</span><button data-id="shader-option-dec" aria-label="Less">−</button><output data-id="shader-option-value">24</output><button data-id="shader-option-inc" aria-label="More">+</button></div>
-      <div data-id="render-options" hidden>
-        <span class="label">ENVIRONMENT</span>
-        <div class="chips">${ENVIRONMENTS.map(e => `<button data-env="${e.id}" aria-pressed="${e.id === 'studio'}" title="${e.use}">${e.name.toUpperCase()}</button>`).join('')}<button data-id="hdr-custom" aria-pressed="false" hidden title="Your HDR environment">HDR</button><button data-id="hdr-load" title="Load an HDR or EXR environment image (equirectangular) to light render mode">LOAD HDR</button></div>
-        <input type="file" data-id="hdr-file" accept=".hdr,.exr" hidden>
-        <div class="field"><label for="w3d-env-rot">ROTATION</label><input id="w3d-env-rot" data-id="env-rot" type="range" min="-180" max="180" step="1" value="0"></div>
-        <div class="field"><label for="w3d-env-int">INTENSITY</label><input id="w3d-env-int" data-id="env-int" type="range" min="0" max="10" step="0.1" value="1"></div>
-      </div>
-      <div class="stepper"><span>GRID</span><button data-id="grid-dec" aria-label="Smaller grid step">−</button><output data-id="grid">2.5</output><button data-id="grid-inc" aria-label="Larger grid step">+</button></div>
-    </div>
     <div class="sec" data-id="snapping">
       <span class="label">SNAPPING</span>
-      <div class="chips"><button data-id="snap-object" aria-pressed="true" aria-label="Object snapping" title="Object snapping: points on solids, sheets and curves (Ctrl or drawing). Shift+X while a snap shows skips that kind until the command ends">${icon('snap-object')}</button>${SNAP_KINDS.map(k => `<button data-snapkind="${k.id}" aria-pressed="true" aria-label="${k.label} snaps" title="${k.label} snaps">${icon(`snap-${k.id}`)}</button>`).join('')}</div>
+      <div class="chips"><button data-toggle="snap" aria-pressed="false" aria-label="Snap" title="Grid snapping without holding Ctrl"></button><button data-id="snap-object" aria-pressed="true" aria-label="Object snapping" title="Object snapping: points on solids, sheets and curves (Ctrl or drawing). Shift+X while a snap shows skips that kind until the command ends">${icon('snap-object')}</button>${SNAP_KINDS.map(k => `<button data-snapkind="${k.id}" aria-pressed="true" aria-label="${k.label} snaps" title="${k.label} snaps">${icon(`snap-${k.id}`)}</button>`).join('')}</div>
     </div>
     <div class="sec">
-      <span class="label">CONSTRUCTION PLANE <output data-id="plane">XY</output></span>
+      <span class="label">CONSTRUCTION PLANE</span>
       <div class="seg" role="group" aria-label="Construction plane">
         <button data-action="plane:selection" aria-label="From selection" title="From selection (Space): a flat face, a face and an edge, two parallel faces, a planar curve or region, or points; the view turns to face it">${icon('plane-face')}</button>
         <button data-action="plane:view" aria-label="Facing the view" title="Facing the view (Ctrl+Space), through the world origin">${icon('plane-view')}</button>
@@ -1315,6 +1325,7 @@ export async function mount(root, backend) {
     controls.object = camera;
     for (const g of [cmd?.gizmo, cmd?.tc]) if (g) g.camera = camera;
     resize(true);
+    $('vh-ortho')?.setAttribute('aria-pressed', String(on));
   }
   /** Frame the selection, or everything (Plasticity 0.6.30's /). */
   function focus() {
@@ -1552,6 +1563,7 @@ export async function mount(root, backend) {
       m.needsUpdate = true;
     }
     for (const b of $$('[data-toggle]')) b.setAttribute('aria-pressed', view[b.dataset.toggle]);
+    $('vh-ortho')?.setAttribute('aria-pressed', String(camera.isOrthographicCamera));
     for (const b of $$('[data-shader]')) b.setAttribute('aria-pressed', !view.render && b.dataset.shader === sh.id);
     for (const b of $$('[data-env]')) b.setAttribute('aria-pressed', b.dataset.env === view.environment);
     $('matcap-custom').hidden = !matcapUrl;
@@ -10878,6 +10890,7 @@ export async function mount(root, backend) {
         const off = !overlaysOff;
         overlaysOff = off;
         grid.visible = !off;
+        $('vh-overlays').setAttribute('aria-pressed', String(!off));
         for (const id of ['nav', 'keys']) $(id).style.visibility = off ? 'hidden' : '';
         return true;
       }
@@ -11911,6 +11924,34 @@ export async function mount(root, backend) {
   for (const b of $$('[data-drgrow]')) b.onclick = () => cmd?.id === 'draft' && cmd.growTo(b.dataset.drgrow);
   $('ut-keep').onclick = () => cmd?.id === 'untrim' && cmd.setKeep(!cmd.keep);
   $('section-btn').onclick = () => doAction('section');
+  // The viewport header (approved layout plan): Ortho (right-click for the field of view), Overlays,
+  // the view toggles, and Shader, whose settings open in a panel under it (click or right-click).
+  const viewPop = $('view-pop'), fovPop = $('fov-pop');
+  const placePop = (pop, b) => {
+    const v = root.querySelector('main.view').getBoundingClientRect(), r = b.getBoundingClientRect();
+    pop.style.top = `${r.bottom - v.top + 4}px`;
+    pop.style.right = `${Math.max(8, v.right - r.right)}px`;
+  };
+  const togglePop = (pop, b, open = pop.hidden) => {
+    for (const p of [viewPop, fovPop]) if (p !== pop) p.hidden = true;
+    pop.hidden = !open;
+    if (open) placePop(pop, b);
+    $('vh-shader').setAttribute('aria-expanded', String(!viewPop.hidden));
+  };
+  $('vh-ortho').onclick = () => doAction('view:ortho');
+  $('vh-ortho').oncontextmenu = e => {
+    e.preventDefault();
+    $('fov').value = prefs.navigation.fov; $('fov-value').textContent = `${prefs.navigation.fov}°`;
+    togglePop(fovPop, $('vh-ortho'));
+  };
+  $('fov').oninput = () => { prefs = setPref(prefs, 'navigation', 'fov', $('fov').value); keepPrefs('navigation'); $('fov-value').textContent = `${prefs.navigation.fov}°`; };
+  $('vh-overlays').onclick = () => doAction('overlays:toggle');
+  $('vh-shader').onclick = () => togglePop(viewPop, $('vh-shader'));
+  $('vh-shader').oncontextmenu = e => { e.preventDefault(); togglePop(viewPop, $('vh-shader'), true); };
+  addEventListener('pointerdown', e => {
+    if (e.target.closest?.('.vpop, [data-id="vh-shader"], [data-id="vh-ortho"]')) return;
+    if (!viewPop.hidden || !fovPop.hidden) togglePop(viewPop, $('vh-shader'), false);
+  }, true);
   $('pl-flip').onclick = () => cmd?.id === 'place' && cmd.key('flip');
   $('pl-instance').onclick = () => cmd?.id === 'place' && cmd.key('instance');
   for (const id of ['pl-scale', 'pl-angle', 'pl-d']) $(id).oninput = () => cmd?.id === 'place' && cmd.preview();

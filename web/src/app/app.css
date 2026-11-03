@@ -90,13 +90,13 @@ button:focus-visible, input:focus-visible { outline: 1px solid var(--accent); ou
 .corner.tr { right: 10px; top: 10px; border-right-width: 1px; border-top-width: 1px; }
 .corner.bl { left: 10px; bottom: 10px; border-left-width: 1px; border-bottom-width: 1px; }
 .corner.br { right: 10px; bottom: 10px; border-right-width: 1px; border-bottom-width: 1px; }
-.hud { position: absolute; left: 14px; top: 12px; padding: 4px 8px; background: var(--accent); color: var(--on-accent); font-weight: 700; white-space: nowrap; pointer-events: none; }
+.hud { position: relative; padding: 4px 8px; background: var(--accent); color: var(--on-accent); font-weight: 700; white-space: nowrap; pointer-events: none; }
 .hud[data-idle] { background: var(--ground); color: var(--muted); border: 1px solid var(--rule); font-weight: 400; }
 .modes { position: absolute; left: 14px; top: 44px; display: flex; border: 1px solid rgba(239, 235, 224, 0.35); background: var(--ground); }
 .modes button { padding: 5px 10px; color: var(--muted); }
 .modes button[aria-pressed="true"] { background: var(--ink); color: var(--on-accent); }
 .modes button:disabled { color: var(--dim); }
-.keys { position: absolute; right: 118px; top: 44px; display: grid; grid-template-columns: auto auto; gap: 5px 10px; font-size: 10px; pointer-events: none; }
+.keys { position: absolute; right: 118px; top: 52px; display: grid; grid-template-columns: auto auto; gap: 5px 10px; font-size: 10px; pointer-events: none; }
 .keys kbd { font: inherit; text-align: right; padding: 0 5px; border: 1px solid rgba(239, 235, 224, 0.6); }
 .keys span { color: var(--muted); }
 .toast { position: absolute; left: 50%; top: 12px; transform: translateX(-50%); padding: 4px 8px; border: 1px solid var(--accent); color: var(--accent); background: var(--ground); white-space: nowrap; }
@@ -122,14 +122,14 @@ button:focus-visible, input:focus-visible { outline: 1px solid var(--accent); ou
 .row-item.folder.empty-group .name { color: var(--dim); }
 .row-item .name[contenteditable="true"] { user-select: text; -webkit-user-select: text; outline: 1px solid var(--accent); color: var(--ink); }
 .snap-tag { position: absolute; left: 14px; top: 40px; padding: 2px 6px; border: 1px solid var(--ink); color: var(--ink); background: var(--ground); font-size: 10px; pointer-events: none; }
-.sec > .label output { color: var(--accent); margin-left: 6px; }
+.sec > .label output, .vpop > .label output { color: var(--accent); margin-left: 6px; }
 
 /* right: inspector */
 .right { grid-column: 3; grid-row: 2; border-left: 1px solid var(--rule); display: flex; flex-direction: column; min-height: 0; overflow: auto; }
 .right header { display: flex; padding: 12px 14px; border-bottom: 1px solid var(--rule-soft); }
 .right header span:last-child { margin-left: auto; color: var(--muted); }
 .sec { padding: 14px; display: flex; flex-direction: column; gap: 8px; border-bottom: 1px dashed var(--rule-dash); }
-.sec > .label { color: var(--muted); }
+.sec > .label, .vpop > .label { color: var(--muted); }
 .field { display: grid; grid-template-columns: 86px 1fr; align-items: center; gap: 8px; }
 .field.two { grid-template-columns: 86px 1fr 1fr; }
 .field label { color: var(--muted); }
@@ -243,7 +243,7 @@ button:focus-visible, input:focus-visible { outline: 1px solid var(--accent); ou
 .trio { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 4px; min-width: 0; }
 
 /* Navigation gizmo (top right): axis balls that turn with the camera, then a column of view controls. */
-.nav { position: absolute; right: 10px; top: 10px; display: flex; flex-direction: column; align-items: center; gap: 6px; z-index: 3; user-select: none; }
+.nav { position: absolute; right: 10px; top: 48px; display: flex; flex-direction: column; align-items: center; gap: 6px; z-index: 3; user-select: none; }
 .nav-ball { width: 96px; height: 96px; cursor: grab; touch-action: none; }
 .nav-ball:active { cursor: grabbing; }
 .nav-bg { fill: transparent; transition: fill 120ms; }
@@ -358,3 +358,23 @@ input[type="range"] { accent-color: var(--accent); }
 .saved-plane button { flex: 1; text-align: left; padding: 5px 6px; border: 1px solid var(--rule); color: var(--muted); }
 .saved-plane button.icon-btn { flex: none; padding: 3px; }
 .saved-plane .ico { width: 12px; height: 12px; }
+
+/* Viewport header (approved layout plan): the construction plane pill and the hint top left, the view
+   toggles icon-only top right, as Plasticity lays out its viewport. */
+.vtl { position: absolute; left: 14px; top: 12px; display: flex; align-items: center; gap: 8px; max-width: calc(100% - 420px); }
+.vtl .hud { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.plane-pill { display: flex; align-items: center; gap: 6px; padding: 3px 10px 3px 7px; border: 1px solid var(--rule); border-radius: 999px; background: var(--ground); color: var(--muted); font-size: 10px; }
+.plane-pill:hover { color: var(--ink); border-color: var(--ink); }
+.plane-pill .ico { width: 14px; height: 14px; }
+.plane-pill output { color: var(--accent); }
+.vhead { position: absolute; right: 10px; top: 10px; display: flex; border: 1px solid rgba(239, 235, 224, 0.25); background: var(--ground); z-index: 4; }
+.vhead button { width: 30px; height: 28px; display: grid; place-items: center; color: var(--muted); }
+.vhead button + button { border-left: 1px solid var(--rule-soft); }
+.vhead button:hover { color: var(--ink); }
+.vhead button[aria-pressed="true"], .vhead button[aria-expanded="true"] { background: var(--ink); color: var(--on-accent); }
+.vhead .ico { width: 16px; height: 16px; margin: 0; }
+.vpop { position: absolute; z-index: 30; width: 300px; max-height: calc(100% - 60px); overflow: auto; display: flex; flex-direction: column; gap: 12px; padding: 14px; background: var(--raised); border: 1px solid var(--rule); box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5); }
+.vpop[hidden] { display: none; }
+.vpop.fov { width: 260px; flex-direction: row; align-items: center; }
+.vpop.fov .field { flex: 1; }
+@media (max-width: 600px) { .vtl { max-width: calc(100% - 28px); top: 46px; } .vhead { overflow-x: auto; max-width: calc(100% - 20px); } }

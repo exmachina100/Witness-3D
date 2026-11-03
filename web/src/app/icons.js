@@ -127,6 +127,10 @@ const ICONS = {
     'view-xray': `<path d="M4 8l8-4 8 4v9l-8 4-8-4z"/><path ${A} d="M4 17l8-4 8 4M12 4v9" stroke-dasharray="2 2"/>`,
     'view-snap': `<path d="M6 4v8a6 6 0 0 0 12 0V4"/><path d="M6 4h4M14 4h4"/><path ${A} d="M6 8h4M14 8h4"/>`,
     'view-curves': `<path d="M3 17C6 7 10 7 12 12s6 5 9-5"/><circle cx="3" cy="17" r="1.2"/><circle ${A} cx="21" cy="7" r="1.2"/>`,
+    // Overlays: the grid and hints laid over the view, an eye on a grid.
+    overlays: `<path d="M3 18h18M6 14l-3 4M18 14l3 4M9 14l-1 4M15 14l1 4"/><path ${A} d="M5 8c4-4.5 10-4.5 14 0-4 4.5-10 4.5-14 0z"/><circle ${A} cx="12" cy="8" r="1.6"/>`,
+    // Shader: a ball half lit, half in shade.
+    'view-shader': `<circle cx="12" cy="12" r="8"/><path ${A} d="M12 4a8 8 0 0 1 0 16"/><path d="M9 9.5a3.5 3.5 0 0 1 2.5-1.5"/>`,
     'view-render': `<circle cx="12" cy="13" r="7"/><path ${A} d="M8.5 10.5a4 4 0 0 1 3.5-2"/><path d="M12 3v1.5M5 6l1 1M19 6l-1 1"/>`,
     // Section Analysis: a block sliced, its cut face showing.
     'view-section': `<path d="M4 9l6-4 10 4v8l-6 4-10-4z"/><path ${A} d="M12 4v17M8 6.5l8 3.2v8"/>`,
