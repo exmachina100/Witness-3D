@@ -8,6 +8,8 @@ const HEX = /^#[0-9a-f]{6}$/i;
 /** Every setting with its default, by section, in the order the window shows them. */
 export const PREF_FIELDS = {
     navigation: [
+        // Navigation Presets: the same mouse controls as other 3D programs (navPresets.js).
+        { key: 'preset', label: 'NAVIGATION PRESET', type: 'choice', value: 'plasticity', options: ['plasticity', 'blender', 'maya', 'rhino', 'fusion', 'solidworks'] },
         { key: 'zoomToCursor', label: 'ZOOM TO CURSOR', type: 'bool', value: true },
         { key: 'rotateAroundCursor', label: 'ROTATE AROUND CURSOR', type: 'bool', value: true },
         { key: 'arcball', label: 'ARCBALL ROTATION', type: 'bool', value: false },

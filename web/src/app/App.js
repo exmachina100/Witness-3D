@@ -62,6 +62,7 @@ import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
 import { GTAOPass } from 'three/addons/postprocessing/GTAOPass.js';
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 import { gridLines } from '../gridLines.js';
+import { navAction, navHints, orbitMode } from '../navPresets.js';
 import { MagnitudeGizmo, typed } from '../MagnitudeGizmo.js';
 import { TOOLS, check, tool as toolInfo, withDefaults } from './tools.js';
 import { ACTIONS, COMMAND, VIEWPORT, keyFor, keyOf } from './keymap.js';
@@ -1185,19 +1186,25 @@ export async function mount(root, backend) {
   controls.mouseButtons = { LEFT: null, MIDDLE: THREE.MOUSE.ROTATE, RIGHT: THREE.MOUSE.PAN };
   // Rotate around cursor (Preferences): a middle-drag over a body turns the view about the point
   // under the cursor; over empty space it orbits the view's centre as before.
-  let pivotDrag = null;
+  let pivotDrag = null, navPress = null;
   viewEl.addEventListener('pointerdown', e => {
-    if (e.button !== 1) return;
-    // The drag's zoom direction (Invert Zoom), and Ctrl + middle-drag zooms only with Zoom Vertical on.
+    // Navigation presets: which button and modifier orbit, pan and zoom (Preferences › Navigation).
+    const mods = { shift: e.shiftKey, ctrl: e.ctrlKey || e.metaKey, alt: e.altKey }, key = ['LEFT', 'MIDDLE', 'RIGHT'][e.button];
+    let act = navAction(prefs.navigation.preset, e.button, mods);
+    // Ctrl + middle-drag zooms only with Zoom Vertical on.
+    if (act === 'zoom' && e.button === 1 && mods.ctrl && !prefs.navigation.zoomVertical) act = 'orbit';
+    navPress = act;
+    if (!key) return;
+    controls.mouseButtons[key] = orbitMode(act, mods);
+    if (!act) return;
+    // The drag's zoom direction (Invert Zoom).
     controls.zoomSpeed = controlSettings(prefs.navigation).zoomSpeed;
-    const dolly = (e.ctrlKey || e.metaKey) && prefs.navigation.zoomVertical;
-    controls.mouseButtons.MIDDLE = dolly ? THREE.MOUSE.DOLLY : THREE.MOUSE.ROTATE;
     const arcball = prefs.navigation.arcball;
-    if (dolly || e.shiftKey || turning || !(prefs.navigation.rotateAroundCursor || arcball)) return;
+    if (act !== 'orbit' || turning || !(prefs.navigation.rotateAroundCursor || arcball)) return;
     let pivot = null;
     if (prefs.navigation.rotateAroundCursor) { ray(e); pivot = raycaster.intersectObjects(shownMeshes(), false)[0]?.point.clone() ?? null; }
     if (!pivot && !arcball) return;
-    controls.mouseButtons.MIDDLE = null;
+    controls.mouseButtons[key] = null;
     pivotDrag = { pivot: pivot ?? controls.target.clone(), arcball, x: e.clientX, y: e.clientY };
   }, true);
   addEventListener('pointermove', e => {
@@ -1221,7 +1228,7 @@ export async function mount(root, backend) {
     controls.target.copy(r.target);
     camera.lookAt(controls.target);
   });
-  addEventListener('pointerup', e => { if (e.button === 1 && pivotDrag) { pivotDrag = null; controls.mouseButtons.MIDDLE = THREE.MOUSE.ROTATE; } });
+  addEventListener('pointerup', () => { pivotDrag = null; });
   // The wheel's zoom direction has its own switch (Invert Wheel Direction).
   viewEl.addEventListener('wheel', () => { controls.zoomSpeed = wheelSpeed(prefs.navigation); }, { capture: true, passive: true });
   // The selection context menu: the wheel moves down its list instead of zooming; with the left
@@ -12231,6 +12238,9 @@ export async function mount(root, backend) {
       selectionChanged?.({ quiet: true });
     }
     Object.assign(controls, controlSettings(prefs.navigation));
+    // The idle key hints name the preset's orbit and pan.
+    KEYS.idle = [...KEYS.idle.filter(([, v]) => v !== 'ORBIT' && v !== 'PAN').slice(0, -1), ...navHints(prefs.navigation.preset), KEYS.idle.at(-1)];
+    if (!cmd) $('keys').innerHTML = keysHtml('idle');
     const perf = prefs.performance;
     renderer.setPixelRatio(Math.min(devicePixelRatio, perf.renderQuality));
     // Plasticity's camera FOV (Preferences › Navigation, 50° by default).
@@ -12813,7 +12823,8 @@ export async function mount(root, backend) {
     lastPointer = e;
     const g = liveGizmo();
     const grabbed = g?.busy || g?.state === 'hover' || (cmd?.tc?.enabled && cmd.tc.axis !== null);
-    down = { x: e.clientX, y: e.clientY, button: e.button, consumed: grabbed, box: null };
+    // nav: the press navigates (a preset's Alt+left, say); a click without a drag still selects.
+    down = { x: e.clientX, y: e.clientY, button: e.button, consumed: grabbed, box: null, nav: !!navPress };
     if (e.button === 0 && cmd?.follow) { endFollow(true); down.consumed = true; }
   });
   canvas.addEventListener('pointermove', e => {
@@ -12822,7 +12833,7 @@ export async function mount(root, backend) {
     const p = raycaster.ray.intersectPlane(planeOf(), new THREE.Vector3());
     if (p) { const u = toUser(p.toArray()); $('cursor').textContent = `X ${u[0].toFixed(2)} Y ${u[1].toFixed(2)} Z ${u[2].toFixed(2)}`; }
     if (cmd?.follow) return followMove(e);
-    if (down && down.button === 0 && !down.consumed && (e.buttons & 1)) {
+    if (down && down.button === 0 && !down.consumed && !down.nav && (e.buttons & 1)) {
       const a = local({ clientX: down.x, clientY: down.y }), b = local(e);
       if (down.box || Math.hypot(b.x - a.x, b.y - a.y) > 4) {
         down.box = b;
@@ -12859,6 +12870,7 @@ export async function mount(root, backend) {
     if (pickMenu?.held && e.button === 0) return choosePick(pickMenu.at, e.shiftKey);
     if (planeOriginPending && e.button === 0 && Math.hypot(e.clientX - d.x, e.clientY - d.y) < 5) return placeViewPlane(e);
     const moved = Math.hypot(e.clientX - d.x, e.clientY - d.y) > 4;
+    if (d.nav && moved) return;
     if (e.button === 2) { if (!moved && cmd) await finish(); return; } // Plasticity: right-click finishes
     if (e.button !== 0 || d.consumed) return;
     if (d.box) {
