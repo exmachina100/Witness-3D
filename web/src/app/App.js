@@ -9294,7 +9294,8 @@ export async function mount(root, backend) {
     } else {
       const ids = sel.curves.filter(curveById);
       if (!ids.length && sel.list('edge').length === 2) return startBridgeEdge();
-      if (ids.length !== 2) return toast('SELECT TWO OPEN CURVES, TWO END VERTICES OR TWO EDGES TO BRIDGE');
+      // Nothing to bridge selected: Plasticity's flow, the start and end points clicked on curves.
+      if (ids.length !== 2) return startBridgePick();
       [a, b] = ids.map(curveById);
       // The nearest pair of ends, measured in the viewport.
       const endPoint = (cv, w) => { const f = curveFrame(cv), p = curve2d(cv), q = w ? p[p.length - 1] : p[0]; return lift(f, q); };
@@ -9303,9 +9304,69 @@ export async function mount(root, backend) {
         if (!pick || d < pick.d) pick = { d, ea, eb };
       }
     }
+    bridgeWith(a, b, pick);
+  }
+  /**
+   * Bridge Curve started with nothing to bridge selected (manual: Bridge Curve; OSS
+   * BridgeCurvesCommand picks two points with a curve snap): click the start point on a curve, then
+   * the end point on another. Each click sets that side's parameter (where along the curve, by
+   * length); the bridge leaves on the side of the nearer end, so the longer part stays.
+   */
+  function startBridgePick() {
+    const c = cmd = { id: 'bridge', picking: [], out: null };
+    lastTool = 'bridge';
+    showTool('bridge');
+    setState('none');
+    const hint = () => {
+      const t = c.picking.length ? 'CLICK THE END POINT ON ANOTHER CURVE' : 'CLICK THE START POINT ON A CURVE';
+      $('br-hint').textContent = t;
+      setHud(`BRIDGE · ${t}`);
+    };
+    /** The open curve under the pointer and where along it (0 to 1 by length), or null. */
+    const pointOn = e => {
+      ray(e);
+      raycaster.params.Line.threshold = unitsPerPixel(controls.target) * 6;
+      const hit = raycaster.intersectObjects(curveGroup.children.filter(o => o.userData.curve !== undefined), false)[0];
+      const cv = hit && curveById(hit.object.userData.curve);
+      if (!cv) return null;
+      const f = curveFrame(cv), pts = curveSamples(cv, 192).points.map(q => lift(f, { x: q[0], y: q[1], z: q[2] ?? 0 }));
+      // The nearest point on the sampled curve, segment by segment, and the length up to it.
+      const seg = new THREE.Line3(), on = new THREE.Vector3();
+      let run = 0, best = null;
+      for (let i = 1; i < pts.length; i++) {
+        seg.set(pts[i - 1], pts[i]);
+        const k = seg.closestPointToPointParameter(hit.point, true), d = seg.at(k, on).distanceToSquared(hit.point), l = seg.distance();
+        if (!best || d < best.d) best = { d, along: run + k * l, point: on.clone() };
+        run += l;
+      }
+      if (!best || !(run > 0)) return null;
+      const t = best.along / run;
+      return { curve: cv, t: t < 1e-3 ? 0 : t > 1 - 1e-3 ? 1 : t, point: best.point };
+    };
+    c.move = e => { const q = pointOn(e); showSnap(q && { point: q.point, kind: 'ON CURVE' }, e); };
+    c.click = e => {
+      const q = pointOn(e);
+      if (!q) return toast('CLICK ON A CURVE'), true;
+      if (isClosed(q.curve)) return toast('BRIDGE CURVE JOINS OPEN CURVES'), true;
+      if (c.picking[0]?.curve.id === q.curve.id) return toast('CLICK A POINT ON ANOTHER CURVE'), true;
+      c.picking.push(q);
+      if (c.picking.length < 2) { hint(); return true; }
+      showSnap(null);
+      const [p1, p2] = c.picking;
+      cmd = null;
+      bridgeWith(p1.curve, p2.curve, { ea: p1.t >= 0.5 ? 1 : 0, eb: p2.t >= 0.5 ? 1 : 0 }, [p1.t, p2.t]);
+      return true;
+    };
+    c.finish = () => toast(c.picking.length ? 'CLICK THE END POINT ON ANOTHER CURVE' : 'CLICK THE START POINT ON A CURVE');
+    c.abort = () => endCmd('cancelled');
+    c.cleanup = () => showSnap(null);
+    hint();
+  }
+  /** Bridge Curve's dialog between curves a and b, from ends pick.ea and pick.eb (at: the parameters). */
+  function bridgeWith(a, b, pick, at = [pick.ea, pick.eb]) {
     const c = cmd = { id: 'bridge', out: null, continuity: ['G1', 'G1'], axis: '', trim: false, comb: false };
-    $('br-p1').value = pick.ea;
-    $('br-p2').value = pick.eb;
+    $('br-p1').value = +at[0].toFixed(4);
+    $('br-p2').value = +at[1].toFixed(4);
     const cycle = g => BRIDGE_CONTINUITY[(BRIDGE_CONTINUITY.indexOf(g) + 1) % BRIDGE_CONTINUITY.length];
     c.cycleEnd = i => { c.continuity[i] = cycle(c.continuity[i]); c.preview(); };
     lastTool = 'bridge';
@@ -12679,7 +12740,7 @@ export async function mount(root, backend) {
   for (const id of ['oc-d', 'fc-r', 'ov-d', 'fv-r', 'sl-d']) $(id).addEventListener('input', () => ['offset-curve', 'fillet-curve', 'offset-vertex', 'fillet-vertex', 'slide'].includes(cmd?.id) && cmd.preview());
   for (const b of $$('[data-sldir]')) b.onclick = () => cmd?.id === 'slide' && cmd.setDir(b.dataset.sldir);
   $('br-start').onclick = () => cmd?.id === 'bridge' && cmd.cycleEnd(0);
-  for (const id of ['br-p1', 'br-p2']) $(id).addEventListener('input', () => cmd?.id === 'bridge' && cmd.preview());
+  for (const id of ['br-p1', 'br-p2']) $(id).addEventListener('input', () => cmd?.id === 'bridge' && cmd.preview?.());
   $('br-trim').onclick = () => cmd?.id === 'bridge' && cmd.key('trim');
   $('br-constrain').onclick = () => cmd?.id === 'bridge' && cmd.key('constrain');
   $('br-comb').onclick = () => cmd?.id === 'bridge' && cmd.key('comb');
