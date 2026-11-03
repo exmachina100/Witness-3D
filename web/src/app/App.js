@@ -76,6 +76,7 @@ import { ALIGN_CONTINUITY, alignAnalysis, alignRequest, readEdgeFaces, targetFac
 import { PROJECT_CONTINUITY, projectAlignRequest } from '../projectAlign.js';
 import { constrainedSurface, splineSheetData } from '../constrainedSurface.js';
 import { square, squareAnalysis, quadSides } from '../square.js';
+import { nSidedFill } from '../nSided.js';
 import { combTeeth, isoLines, onFace } from '../isoCombs.js';
 import { liftPiece, meshSilhouette, nearestOver } from '../createOutline.js';
 import { FONTS, parseFont, textShapes } from '../text.js';
@@ -5940,11 +5941,13 @@ export async function mount(root, backend) {
     c.preview = async () => {
       const items = picked();
       setTarget(`${items.length} SIDE${items.length === 1 ? '' : 'S'}`);
-      const loose = c.quad ? items.length < 1 : items.length < 2 || items.length > 4;
+      // xNURBS fills five sides or more as one sheet of patches round a centre (nSided.js).
+      const many = c.xnurbs && !c.quad && items.length > 4;
+      const loose = c.quad ? items.length < 1 : items.length < 2 || (items.length > 4 && !many);
       if (loose) {
         c.data = null;
         clearPreview();
-        $('sq-hint').textContent = c.quad ? 'SELECT THE CURVES AND EDGES ROUND ONE CLOSED LOOP' : 'SELECT THREE OR FOUR SIDES MEETING END TO END, OR TWO TO LOFT BETWEEN';
+        $('sq-hint').textContent = c.quad ? 'SELECT THE CURVES AND EDGES ROUND ONE CLOSED LOOP' : c.xnurbs ? 'SELECT THREE SIDES OR MORE MEETING END TO END, OR TWO TO LOFT BETWEEN' : 'SELECT THREE OR FOUR SIDES MEETING END TO END, OR TWO TO LOFT BETWEEN';
         return setState('none');
       }
       let fit;
@@ -5970,6 +5973,18 @@ export async function mount(root, backend) {
         const su = Math.round(num('sq-u')) || 0, sv = Math.round(num('sq-v')) || su;
         const tension = num('sq-t');
         if (!(tension > 0)) throw new Error('the tension must be greater than zero');
+        if (many) {
+          const r = nSidedFill(sides, { degree: Math.round(num('sq-d')), spans: su ? [su, sv] : 0, tolerance: { auto: 0.01, high: 0.001, max: 0.0001 }[c.quality], continuity: c.continuity === 'FREE' ? 'G0' : c.continuity, tension });
+          c.data = splineSheetData(r.patches[0]);
+          c.more = r.patches.slice(1).map(splineSheetData);
+          c.fit = null;
+          c.analyse();
+          $('sq-hint').textContent = `XNURBS · ${items.length} SIDES · ${r.patches.length} PATCHES ROUND A CENTRE · ${r.patches[0].spans.join(' × ')} SPANS EACH · SIDES WITHIN ${r.gap < 1e-4 ? '< 0.0001' : r.gap.toFixed(4)} MM${r.turn ? ` · TANGENT WITHIN ${r.turn.toFixed(2)}° (AWAY FROM CORNERS)` : ''} · PATCHES MEET WITHIN ${r.seam.toFixed(2)}°`;
+          setHud(`XNURBS · ${items.length} SIDES`);
+          livePreview(c, () => backend.previewSplineSheet({ data: c.data, more: c.more }), b => showPreviewBody(b), 'sq-hint');
+          return;
+        }
+        c.more = [];
         fit = square(sides, { degree: Math.round(num('sq-d')), spans: su ? [su, sv] : 0, tolerance: { auto: 0.01, high: 0.001, max: 0.0001 }[c.quality], continuity: c.continuity, tension, flatness: Math.min(1, Math.max(0, num('sq-flat') || 0)), boundary: c.boundary ?? 'natural', weight: Math.min(1, Math.max(0.05, num('sq-w') || 1)) });
         for (const b of $$('[data-sqbound]')) b.setAttribute('aria-pressed', String(b.dataset.sqbound === (c.boundary ?? 'natural')));
       } catch (e) { c.data = null; clearPreview(); $('sq-hint').textContent = say(e); return setState('failed'); }
@@ -6027,7 +6042,7 @@ export async function mount(root, backend) {
     c.finish = async () => {
       if (!c.data) { toast($('sq-hint').textContent); return endCmd('cancelled'); }
       try {
-        const { ids, scene: list } = await backend.commitSplineSheet({ data: c.data });
+        const { ids, scene: list } = await backend.commitSplineSheet({ data: c.data, more: c.more ?? [] });
         endCmd('committed');
         record(c.xnurbs ? 'XNURBS' : 'SQUARE', ids[0], $('sq-hint').textContent);
         await showScene(list);

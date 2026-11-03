@@ -1284,9 +1284,23 @@ impl<K: Kernel> Document<K> {
         self.kernel.spline_sheet(data)
     }
 
+    /// Several B-spline patches (an N-sided fill's) sewn into one sheet, without changing the document.
+    pub fn preview_spline_sheets(&self, data: &[f64], more: &[Vec<f64>]) -> Result<K::Solid, KernelError> {
+        if more.is_empty() { return self.preview_spline_sheet(data) }
+        let mut sheets = vec![self.kernel.spline_sheet(data)?];
+        for d in more { sheets.push(self.kernel.spline_sheet(d)?); }
+        let refs: Vec<&K::Solid> = sheets.iter().collect();
+        self.kernel.join_sheets(&refs)
+    }
+
     /// Constrained Surface as one undoable step: the sheet is a new body.
     pub fn commit_spline_sheet(&mut self, data: &[f64]) -> Result<BodyId, KernelError> {
-        let sheet = self.preview_spline_sheet(data)?;
+        self.commit_spline_sheets(data, &[])
+    }
+
+    /// An N-sided fill's patches sewn into one sheet, a new body, as one undoable step.
+    pub fn commit_spline_sheets(&mut self, data: &[f64], more: &[Vec<f64>]) -> Result<BodyId, KernelError> {
+        let sheet = self.preview_spline_sheets(data, more)?;
         self.checkpoint();
         Ok(self.add_unrecorded(sheet))
     }

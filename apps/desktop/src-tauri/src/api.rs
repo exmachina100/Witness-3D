@@ -1656,18 +1656,21 @@ pub fn edge_curvature(m: &Model, req: EdgeCurvatureRequest) -> Result<Vec<w3d_ke
 #[derive(Deserialize, Debug, Clone)]
 pub struct SplineSheetRequest {
     pub data: Vec<f64>,
+    /// Further patches sewn on into one sheet (an N-sided fill).
+    #[serde(default)]
+    pub more: Vec<Vec<f64>>,
 }
 
 pub fn preview_spline_sheet(m: &Model, req: SplineSheetRequest) -> Option<Result<Body, ApiError>> {
     m.preview(move |doc| {
-        let sheet = doc.preview_spline_sheet(&req.data)?;
+        let sheet = doc.preview_spline_sheets(&req.data, &req.more)?;
         Ok(body(&doc.kernel, 0, &sheet)?)
     })
 }
 
 pub fn commit_spline_sheet(m: &Model, req: SplineSheetRequest) -> Result<Duplicated, ApiError> {
     m.call(move |doc| {
-        let id = doc.commit_spline_sheet(&req.data)?;
+        let id = doc.commit_spline_sheets(&req.data, &req.more)?;
         Ok(Duplicated { ids: vec![id], scene: bodies(doc)? })
     })
 }
