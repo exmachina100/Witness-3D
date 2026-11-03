@@ -227,6 +227,12 @@ button:focus-visible, input:focus-visible { outline: 1px solid var(--accent); ou
 .palette li { display: flex; justify-content: space-between; gap: 12px; padding: 7px 12px; cursor: pointer; }
 .palette li[aria-selected="true"] { background: var(--ink); color: var(--on-accent); }
 .palette li kbd { font: inherit; opacity: 0.6; }
+.palette li kbd.clash { color: var(--axis-x); opacity: 1; }
+.palette-favs { display: flex; flex-wrap: wrap; gap: 4px; padding: 6px 8px; border-bottom: 1px solid var(--rule-soft); }
+.palette-favs[hidden] { display: none; }
+.palette-favs button { display: flex; align-items: center; gap: 6px; font: inherit; font-size: 10px; color: var(--ink); background: var(--ground); border: 1px solid var(--rule); padding: 4px 8px; cursor: pointer; }
+.palette-favs button:hover { border-color: var(--accent); }
+.palette-favs button svg { width: 14px; height: 14px; }
 .palette li.none { color: var(--dim); cursor: default; }
 @media (max-width: 900px) { .cmdbar { display: none; } }
 
