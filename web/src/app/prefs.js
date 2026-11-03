@@ -40,6 +40,10 @@ export const PREF_FIELDS = {
     units: [
         { key: 'length', label: 'LENGTH', type: 'choice', value: 'mm', options: ['mm', 'cm', 'm', 'in', 'ft'] },
         { key: 'mass', label: 'MASS', type: 'choice', value: 'g', options: ['g', 'kg', 'oz', 'lb'] },
+        // Plasticity's Grid and Units: the snap step (typed, not only stepped) and how many steps
+        // apart the major lines are drawn.
+        { key: 'gridSize', label: 'SNAP TO GRID SIZE (MM)', type: 'number', value: 2.5, min: 0.001, max: 1000, step: 0.5 },
+        { key: 'lineEvery', label: 'LINE EVERY', type: 'number', value: 10, min: 1, max: 100, step: 1 },
     ],
     performance: [
         { key: 'renderQuality', label: 'GPU RENDERING QUALITY (PIXEL RATIO)', type: 'number', value: 2, min: 0.5, max: 2 },

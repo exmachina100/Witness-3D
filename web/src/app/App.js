@@ -61,6 +61,7 @@ import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
 import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
 import { GTAOPass } from 'three/addons/postprocessing/GTAOPass.js';
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
+import { gridLines } from '../gridLines.js';
 import { MagnitudeGizmo, typed } from '../MagnitudeGizmo.js';
 import { TOOLS, check, tool as toolInfo, withDefaults } from './tools.js';
 import { ACTIONS, COMMAND, VIEWPORT, keyFor, keyOf } from './keymap.js';
@@ -302,7 +303,7 @@ const SHELL = `
         <div class="field"><label for="w3d-env-rot">ROTATION</label><input id="w3d-env-rot" data-id="env-rot" type="range" min="-180" max="180" step="1" value="0"></div>
         <div class="field"><label for="w3d-env-int">INTENSITY</label><input id="w3d-env-int" data-id="env-int" type="range" min="0" max="10" step="0.1" value="1"></div>
       </div>
-      <div class="stepper"><span>GRID</span><button data-id="grid-dec" aria-label="Smaller grid step">−</button><output data-id="grid">2.5</output><button data-id="grid-inc" aria-label="Larger grid step">+</button></div>
+      <div class="stepper"><span>GRID</span><button data-id="grid-dec" aria-label="Smaller grid step">−</button><input data-id="grid" type="number" min="0.001" max="1000" step="any" value="2.5" title="Snap to grid size, in millimetres (type a size, or step with − and +)" aria-label="Snap to grid size"><button data-id="grid-inc" aria-label="Larger grid step">+</button></div>
         </div>
     <div class="vpop fov" data-id="fov-pop" role="dialog" aria-label="Field of view" hidden>
       <div class="field"><label for="w3d-fov">FIELD OF VIEW</label><input id="w3d-fov" data-id="fov" type="range" min="10" max="120" step="1" value="50"></div>
@@ -1074,7 +1075,7 @@ const SHELL = `
   <footer class="status">
     <span>SYS.1 / <span data-id="status-tool">SELECT</span> / <span data-id="status-target">VOID</span></span>
     <span data-id="kernel"></span>
-    <span data-id="units-label">UNITS MM</span>
+    <button class="status-btn" data-id="units-label" title="Grid and Units: length unit, snap to grid size and major line spacing">UNITS MM</button>
     <span>PLANE <span data-id="status-plane">XY</span></span>
     <span data-id="blender" hidden title="Blender and Cinema 4D bridges">BRIDGE <output data-id="blender-state">—</output></span>
     <span>PREVIEW <output data-id="ms">—</output> MS · COALESCED <output data-id="coalesced">0→0</output></span>
@@ -2614,6 +2615,19 @@ export async function mount(root, backend) {
   const xfPrefs = { orient: 'world', pivot: 'bbox' };
   const grid = new THREE.GridHelper(400, 40, COLORS.gridMajor, COLORS.grid);
   scene.add(grid);
+  // Lines at every snap step with a major line every "Line every" steps (Plasticity: Grid and Units).
+  let gridShape = '';
+  function buildGrid(step, every) {
+    if (gridShape === `${step}/${every}`) return false;
+    gridShape = `${step}/${every}`;
+    const g = gridLines(step, every), geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.BufferAttribute(g.positions, 3));
+    geo.setAttribute('color', new THREE.BufferAttribute(new Float32Array(g.positions.length), 3));
+    grid.geometry.dispose();
+    grid.geometry = geo;
+    grid.userData.major = g.major;
+    return true;
+  }
   const planeOf = () => new THREE.Plane().setFromNormalAndCoplanarPoint(cplane.normal, cplane.origin);
   function setPlane({ origin, normal, name }) {
     cplane.origin.copy(origin);
@@ -12218,6 +12232,12 @@ export async function mount(root, backend) {
     // With Arcball off the view stands upright again.
     if (!prefs.navigation.arcball && camera.up.y !== 1) { camera.up.set(0, 1, 0); camera.lookAt(controls.target); }
     const look = prefs.appearance, c = viewColors(look);
+    // Grid and Units: the snap step and the major lines.
+    const gs = prefs.units.gridSize;
+    if (document.activeElement !== $('grid')) $('grid').value = gs;
+    $('distance').step = gs;
+    if (cmd?.gizmo) cmd.gizmo.step = gs;
+    buildGrid(gs, prefs.units.lineEvery);
     scene.background.setHex(c.ground);
     COLORS.ground = c.ground;
     paintGrid(c.gridMajor, c.grid);
@@ -12230,10 +12250,10 @@ export async function mount(root, backend) {
     shell.style.height = z === 1 ? '' : `${100 / z}vh`;
   }
   function paintGrid(major, minor) {
-    // GridHelper's lines come four points a line pair; the middle pair is the major colour.
-    const col = grid.geometry.getAttribute('color'), half = col.count / 8 - 0.5;
+    // Two points a line; gridLines says which lines are major.
+    const col = grid.geometry.getAttribute('color'), m = grid.userData.major ?? [];
     const a = new THREE.Color(major), b = new THREE.Color(minor);
-    for (let v = 0; v < col.count; v++) (Math.floor(v / 4) === half ? a : b).toArray(col.array, v * 3);
+    for (let v = 0; v < col.count; v++) (m[v >> 1] ? a : b).toArray(col.array, v * 3);
     col.needsUpdate = true;
   }
   let prefsTab = 'navigation';
@@ -12932,14 +12952,23 @@ export async function mount(root, backend) {
   $('off-distance').addEventListener('input', e => { const v = parseFloat(e.target.value); if (!isNaN(v) && cmd?.id === 'offset') { cmd.auto = false; setOffsetDistance(v, false); } });
   for (const k of ['angle', 'thickness', 'twist', 'scale']) $(`form-${k}`).addEventListener('input', e => { const v = parseFloat(e.target.value); if (!isNaN(v) && (k !== 'scale' || v > 0) && (k !== 'angle' || v !== 0) && (k !== 'thickness' || v >= 0)) setForm({ [k]: v }); });
   for (const b of $$('[data-fop]')) b.onclick = () => cmd?.key?.(b.dataset.fop);
+  // − and + step through the usual sizes from wherever the typed size is.
   function setGrid(dir) {
-    const i = Math.max(0, Math.min(GRID_STEPS.length - 1, GRID_STEPS.indexOf(gridStep()) + dir));
-    $('grid').value = GRID_STEPS[i];
-    $('distance').step = GRID_STEPS[i];
-    if (cmd?.gizmo) cmd.gizmo.step = GRID_STEPS[i];
+    const now = prefs.units.gridSize;
+    const next = dir > 0 ? GRID_STEPS.find(v => v > now + 1e-9) ?? now * 2 : [...GRID_STEPS].reverse().find(v => v < now - 1e-9) ?? now / 2;
+    setGridSize(next);
+  }
+  function setGridSize(v) {
+    if (!(v > 0)) return;
+    prefs = setPref(prefs, 'units', 'gridSize', v);
+    keepPrefs('units');
   }
   $('grid-dec').onclick = () => setGrid(-1);
   $('grid-inc').onclick = () => setGrid(1);
+  $('grid').onchange = () => setGridSize(parseFloat($('grid').value));
+  $('grid').onkeydown = e => { e.stopPropagation(); if (e.key === 'Enter' || e.key === 'Escape') { if (e.key === 'Escape') $('grid').value = prefs.units.gridSize; $('grid').blur(); } };
+  $('grid').onblur = () => { $('grid').value = prefs.units.gridSize; };
+  $('units-label').onclick = () => { prefsTab = 'units'; openPrefs(); };
   $('snap-object').onclick = () => doAction('snap:object');
   for (const b of $$('[data-snapkind]')) b.onclick = () => {
     const id = b.dataset.snapkind, off = snapSettings.off.includes(id) ? snapSettings.off.filter(x => x !== id) : [...snapSettings.off, id];
