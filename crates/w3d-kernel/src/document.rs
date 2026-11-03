@@ -15,7 +15,7 @@ use glam::DVec3;
 use serde::{Deserialize, Serialize};
 
 use crate::blend::{blend, BlendParams};
-use crate::extrude::{extrude, ExtrudeParams, ExtrudeResult, Operation};
+use crate::extrude::{extrude, ExtrudeMany, ExtrudeParams, ExtrudeResult, Operation};
 use crate::form::{form, match_faces_grow, offset_faces_grow, FormKind, FormParams, Grow};
 use crate::solids::{ArraySpec, Primitive};
 use crate::{BooleanOp, Material, Materials, FaceRebuild, Frame, History, Kernel, KernelError, Motion, Path, Profile, RebuiltFace, Segment, SheetExtension, Traced};
@@ -660,6 +660,72 @@ impl<K: Kernel> Document<K> {
     /// Compute an extrude without changing the document: what a live preview shows.
     pub fn preview_extrude(&self, target: Option<BodyId>, p: &ExtrudeParams) -> Result<ExtrudeResult<K::Solid>, KernelError> {
         extrude(&self.kernel, target.and_then(|id| self.get(id)), p)
+    }
+
+    /// Plasticity's Extrude with several targets: `target` and the bodies in `more`. A union (or an
+    /// extrude pulled out) joins them all into the first, the others folded in and gone, as
+    /// Plasticity's union folds extra targets in as tools; a cut, intersect or slice works on each
+    /// target the shape reaches, and leaves the ones it misses. Without a document change.
+    pub fn preview_extrude_many(&self, target: Option<BodyId>, more: &[BodyId], p: &ExtrudeParams) -> Result<ExtrudeMany<K::Solid>, KernelError> {
+        let first = self.preview_extrude(target, p);
+        let single = |r: ExtrudeResult<K::Solid>| match r {
+            ExtrudeResult::New(s) => ExtrudeMany { changed: vec![], new: Some(s), folded: vec![] },
+            r => ExtrudeMany { changed: vec![(target.expect("a change has a target"), r)], new: None, folded: vec![] },
+        };
+        let mut rest: Vec<BodyId> = vec![];
+        for id in more { if Some(*id) != target && !rest.contains(id) { rest.push(*id) } }
+        let Some(tid) = target else { return Ok(single(first?)) };
+        if rest.is_empty() || p.operation == Operation::NewBody { return Ok(single(first?)) }
+        let body = |id: BodyId| self.get(id).ok_or(KernelError::Invalid("that body no longer exists"));
+        let k = &self.kernel;
+        let unite = match p.operation { Operation::Union => true, Operation::Auto => crate::extrude::outward(k, Some(body(tid)?), p), _ => false };
+        if unite {
+            let mut out = single(first?);
+            for id in rest {
+                let b = body(id)?;
+                if let Some(s) = out.new.take() {
+                    out.new = Some(k.boolean(&s, b, BooleanOp::Union)?.solid);
+                } else if let Some((_, ExtrudeResult::Replace { solid, history, .. })) = out.changed.first_mut() {
+                    let t = k.boolean(solid, b, BooleanOp::Union)?;
+                    *history = chain(history, &t.history);
+                    *solid = t.solid;
+                }
+                out.folded.push(id);
+            }
+            return Ok(out);
+        }
+        let op = match p.operation { Operation::Intersect => Operation::Intersect, Operation::Slice => Operation::Slice, _ => Operation::Difference };
+        let tool = crate::extrude::tool(k, Some(body(tid)?), p)?;
+        let mut changed = vec![];
+        for id in std::iter::once(tid).chain(rest) {
+            let copy = k.transform(&tool, &Motion::translation(DVec3::ZERO));
+            match crate::extrude::combine(k, Some(body(id)?), copy, op, false, crate::extrude::MISSES[0]) {
+                Ok(ExtrudeResult::New(_)) => {}
+                Ok(r) => changed.push((id, r)),
+                Err(KernelError::Invalid(m)) if crate::extrude::MISSES.contains(&m) => {}
+                Err(e) => return Err(e),
+            }
+        }
+        if changed.is_empty() { return Ok(single(first?)) }
+        Ok(ExtrudeMany { changed, new: None, folded: vec![] })
+    }
+
+    /// Extrude onto several targets as one undoable step. Returns the first body changed or made.
+    pub fn commit_extrude_many(&mut self, target: Option<BodyId>, more: &[BodyId], p: &ExtrudeParams) -> Result<BodyId, KernelError> {
+        let r = self.preview_extrude_many(target, more, p)?;
+        self.checkpoint();
+        let mut first = None;
+        for (id, x) in r.changed {
+            match x {
+                ExtrudeResult::Replace { solid, history, .. } => self.replace_traced(id, Traced { solid, history }),
+                ExtrudeResult::Slice { solid, history, piece } => { self.replace_traced(id, Traced { solid, history }); self.add_unrecorded(piece); }
+                ExtrudeResult::New(_) => {}
+            }
+            first.get_or_insert(id);
+        }
+        if let Some(s) = r.new { let id = self.add_unrecorded(s); first.get_or_insert(id); }
+        for id in r.folded { self.state.bodies.remove(&id); }
+        first.ok_or(KernelError::NoOp)
     }
 
     /// Plasticity's Extrude of curves: each curve drawn out `distance` along `direction` (and `back`

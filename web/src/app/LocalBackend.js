@@ -148,6 +148,44 @@ export class LocalBackend {
         return { f, r, piece, outcome };
     }
 
+    /**
+     * Plasticity's Extrude with several targets (as Document::preview_extrude_many): `req.targets` are
+     * more bodies. A union (or an extrude pulled out) joins them all into the first, the others
+     * folded in; a cut, intersect or slice works on each target the shape reaches and leaves the
+     * rest. Returns null for one target, else { changed: [{ id, shape, history, piece? }], shape (a
+     * new body), folded }.
+     */
+    manyTargets(req, f, r, outcome) {
+        const more = [...new Set(req.targets ?? [])].filter(id => id !== req.target);
+        if (!more.length || req.target === undefined || req.target === null || req.newBody || req.op === 'new') return null;
+        for (const id of more) if (!this.shapes.has(id)) throw new Error('that body no longer exists');
+        const unite = req.op === 'union' || outcome === 'join' || (req.op === 'auto' && outcome === 'new' && req.distance > 0);
+        if (unite) {
+            let shape = r.shape, history = r.history;
+            for (const id of more) {
+                const u = booleanWithHistory(shape, this.shapes.get(id), 'union');
+                history = history && chain(history, u.history);
+                shape = u.shape;
+            }
+            return r.replaces === undefined ? { changed: [], shape, folded: more } : { changed: [{ id: r.replaces, shape, history }], folded: more };
+        }
+        const op = req.op === 'intersect' ? 'intersection' : req.op === 'slice' ? 'slice' : 'difference';
+        const tool = f.tool(), changed = [];
+        for (const id of [req.target, ...more]) {
+            const body = this.shapes.get(id);
+            if (id === req.target && r.replaces === id) { changed.push({ id, shape: r.shape, history: r.history }); continue; }
+            if (op === 'slice') {
+                const rest = booleanWithHistory(body, tool, 'difference'), piece = boolean(body, tool, 'intersection');
+                if (count(rest.shape, 'TopAbs_SOLID') && count(piece, 'TopAbs_SOLID') && count(piece, 'TopAbs_FACE')) changed.push({ id, ...rest, piece });
+                continue;
+            }
+            const u = booleanWithHistory(body, tool, op);
+            const met = op === 'difference' ? u.history.faces[1].length > 0 || count(u.shape, 'TopAbs_FACE') !== count(body, 'TopAbs_FACE') : count(u.shape, 'TopAbs_FACE') > 0;
+            if (met && count(u.shape, 'TopAbs_SOLID')) changed.push({ id, ...u });
+        }
+        return changed.length ? { changed, folded: [] } : null;
+    }
+
     /** Drawn curves, as { id, ...curve }. */
     curves() { return [...this.curveMap].map(([id, c]) => ({ ...structuredClone(c), id, ...((c.kind === 'spline' || c.kind === 'contour') && { samples: splineSamples(c) }) })) }
 
@@ -1449,6 +1487,16 @@ export class LocalBackend {
             }
             try {
                 const { f, r, piece, outcome } = await this.run(req);
+                const many = this.manyTargets(req, f, r, outcome);
+                if (many) {
+                    const [first, ...rest] = many.changed;
+                    const out = many.shape ? { outcome: 'new', tool: this.body(0, many.shape), result: null }
+                        : { outcome: outcome === 'new' ? ({ intersection: 'intersect', slice: 'slice' })[req.op === 'intersect' ? 'intersection' : req.op] ?? (req.op === 'union' ? 'join' : 'cut') : outcome, tool: this.body(0, f.tool()), result: this.body(first.id, first.shape) };
+                    let next = this.nextId;
+                    const pieces = many.changed.filter(c => c.piece).map(c => this.body(next++, c.piece));
+                    if (pieces.length) out.piece = pieces.shift();
+                    return { ...out, others: rest.map(c => this.body(c.id, c.shape)), folded: many.folded, ...(pieces.length && { more: pieces }) };
+                }
                 return { outcome, tool: this.body(0, f.tool()), result: r.replaces === undefined ? null : this.body(r.replaces, r.shape), ...(piece && { piece: this.body(this.nextId, piece.shape) }) };
             } catch (e) {
                 if (e instanceof NoOpError) return { outcome: 'none', tool: null, result: null };
@@ -1611,7 +1659,16 @@ export class LocalBackend {
             for (const s of sheets) { id = this.nextId++; this.put(id, s); }
             return { id, scene: this.bodies() };
         }
-        const { r, piece } = await this.run(req);
+        const { f, r, piece, outcome } = await this.run(req);
+        const many = this.manyTargets(req, f, r, outcome);
+        if (many) {
+            this.checkpoint();
+            for (const c of many.changed) { this.put(c.id, c.shape, c.history); if (c.piece) this.put(this.nextId++, c.piece); }
+            let id = many.changed[0]?.id;
+            if (many.shape) { id = this.nextId++; this.put(id, many.shape); }
+            for (const b of many.folded) { this.shapes.delete(b); this.refs.delete(b); }
+            return { id, scene: this.bodies() };
+        }
         this.checkpoint();
         const id = r.replaces ?? this.nextId++;
         this.put(id, r.shape, r.history);

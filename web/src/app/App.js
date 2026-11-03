@@ -5067,12 +5067,12 @@ export async function mount(root, backend) {
       if (all.length > 1) {
         const { first, more, holes } = regionsToExtrude(all.map(c => { const f = curveFrame(c); return { id: c.id, origin: f.o.toArray(), normal: f.n.toArray(), points: curve2d(c).map(p => lift(f, p).toArray()) }; }));
         const c = curveById(first), at = regionCentre(c), normal = curveFrame(c).n;
-        return { region: first, more, holes, at, normal, target: selectedTarget() ?? bodyAt(at, normal), name: `${all.length} REGIONS${holes.length ? ` · ${holes.length} HOLE${holes.length > 1 ? 'S' : ''}` : ''}` };
+        return { region: first, more, holes, at, normal, target: selectedTarget() ?? bodyAt(at, normal), targets: selectedTargets().slice(1), name: `${all.length} REGIONS${holes.length ? ` · ${holes.length} HOLE${holes.length > 1 ? 'S' : ''}` : ''}` };
       }
       const c = curveList.find(c => c.id === it.id);
       if (!c) return null;
       const at = regionCentre(c), normal = curveFrame(c).n;
-      return { region: c.id, at, normal, target: selectedTarget() ?? bodyAt(at, normal), name: curveLabel(c.id) };
+      return { region: c.id, at, normal, target: selectedTarget() ?? bodyAt(at, normal), targets: selectedTargets().slice(1), name: curveLabel(c.id) };
     }
     const b = bodyOf(it.body), p = b?.facePlanes[it.n];
     if (!b) return null;
@@ -5086,7 +5086,8 @@ export async function mount(root, backend) {
     return near ? { face: it.n, faces, at: near.at, normal: near.normal, direction: near.normal, target: b.id, name } : { curved: true };
   }
   /** A solid selected with the regions: Plasticity takes the selected solids as Extrude's targets. */
-  const selectedTarget = () => sel.solids.find(id => org.shows(id) && !current.find(b => b.id === id)?.sheet) ?? null;
+  const selectedTargets = () => sel.solids.filter(id => org.shows(id) && !current.find(b => b.id === id)?.sheet);
+  const selectedTarget = () => selectedTargets()[0] ?? null;
   /** The body a region lies on: one whose face is under (or over) it. */
   function bodyAt(at, n) {
     for (const s of [1, -1]) {
@@ -5109,10 +5110,10 @@ export async function mount(root, backend) {
     // The target: shown in the panel, and picked again with TARGET (regions only; a face extrudes
     // on its own body, curves make new sheets).
     c.syncTarget = () => {
-      const t = c.src.target;
-      setTarget(t ? label(t) : 'NEW BODY');
-      $('ex-hint').textContent = `${c.src.name}${t ? ` ON ${label(t)}` : ''}`;
-      $('ex-target').textContent = t ? label(t) : 'NEW BODY';
+      const t = c.src.target, all = t ? [t, ...(c.src.targets ?? [])].map(label).join(' ') : 'NEW BODY';
+      setTarget(all);
+      $('ex-hint').textContent = `${c.src.name}${t ? ` ON ${all}` : ''}`;
+      $('ex-target').textContent = all;
       $('ex-pick-target').disabled = c.src.region === undefined;
       $('ex-pick-target').setAttribute('aria-pressed', String(c.picking === 'target'));
     };
@@ -5174,10 +5175,20 @@ export async function mount(root, backend) {
       if (c.picking === 'target') {
         ray(e);
         const hit = raycaster.intersectObjects(shownMeshes().filter(m => !org.locked.has(m.userData.id) && !current.find(b => b.id === m.userData.id)?.sheet), false)[0];
-        c.src.target = hit?.object.userData.id ?? null;
-        c.picking = null;
+        const id = hit?.object.userData.id ?? null;
+        if (e.shiftKey && id !== null && c.src.target !== null) {
+          // Shift+click: more targets (Plasticity's Extrude takes 1..N), again to drop one.
+          const all = [c.src.target, ...(c.src.targets ?? [])];
+          const now = all.includes(id) ? all.filter(x => x !== id) : [...all, id];
+          c.src.target = now[0] ?? null;
+          c.src.targets = now.slice(1);
+        } else {
+          c.src.target = id;
+          c.src.targets = [];
+          c.picking = null;
+        }
         c.syncTarget();
-        setHud(c.src.target ? `TARGET ${label(c.src.target)}` : 'NEW BODY');
+        setHud(c.src.target ? `TARGET ${[c.src.target, ...c.src.targets].map(label).join(' ')}` : 'NEW BODY');
         if (c.distance) previewExtrude();
         return true;
       }
@@ -5241,7 +5252,7 @@ export async function mount(root, backend) {
     curves: c.src.curves, direction: (c.direction ?? c.src.normal).toArray(), distance: c.distance, op: c.op,
     back: c.lock ? Math.abs(c.distance) : 0, angle: c.angle * DEG, thickness: c.thickness,
   } : ({
-    target: c.src.target, ...(c.src.region !== undefined ? { region: c.src.region, moreRegions: c.src.more ?? [], holes: c.src.holes ?? [] } : { face: c.src.face, faces: c.src.faces ?? [], individual: c.individual }), distance: c.distance, op: c.op,
+    target: c.src.target, ...(c.src.targets?.length && c.src.target !== null && { targets: c.src.targets }), ...(c.src.region !== undefined ? { region: c.src.region, moreRegions: c.src.more ?? [], holes: c.src.holes ?? [] } : { face: c.src.face, faces: c.src.faces ?? [], individual: c.individual }), distance: c.distance, op: c.op,
     back: c.lock ? Math.abs(c.distance) : 0, angle: c.angle * DEG, thickness: c.thickness,
     ...((c.direction ?? c.src.direction) && { direction: (c.direction ?? c.src.direction).toArray() }),
   });
@@ -5274,6 +5285,9 @@ export async function mount(root, backend) {
     }
     // A slice's cut-off part shows as the new body it will be.
     if (p.piece) { const m = meshOf(p.piece, phantom.add.face, phantom.add.edge); m.renderOrder = 6; previewGroup.add(m); }
+    // Several targets: each changed one as it would be; those a union folds in are hidden.
+    for (const o of p.others ?? []) showPreviewBody(o);
+    for (const id of p.folded ?? []) { const m = bodyMesh(id); if (m) m.visible = false; }
     // An extrude of several curves: a sheet for each.
     for (const more of p.more ?? []) { const m = meshOf(more, phantom.add.face, phantom.add.edge); m.renderOrder = 5; previewGroup.add(m); }
     $('ex-outcome').textContent = p.outcome.toUpperCase();
@@ -12381,7 +12395,7 @@ export async function mount(root, backend) {
     c.auto = false;
     c.picking = c.picking === 'target' ? null : 'target';
     c.syncTarget();
-    setHud(c.picking ? 'CLICK THE TARGET BODY · EMPTY SPACE FOR A NEW BODY' : 'DRAG THE DOT');
+    setHud(c.picking ? 'CLICK THE TARGET BODY · ⇧ CLICK FOR MORE · EMPTY SPACE FOR A NEW BODY' : 'DRAG THE DOT');
   };
   $('bool-pick-targets').onclick = () => cmd?.id === 'boolean' && cmd.pick('targets');
   $('bool-pick-tools').onclick = () => cmd?.id === 'boolean' && cmd.pick('tools');

@@ -145,6 +145,9 @@ pub enum OpChoice {
 pub struct ExtrudeRequest {
     /// The body to join or cut; none for a separate body.
     pub target: Option<BodyId>,
+    /// More target bodies (Plasticity's Extrude takes every selected solid as a target).
+    #[serde(default)]
+    pub targets: Vec<BodyId>,
     #[serde(default)]
     pub origin: [f64; 3],
     #[serde(default = "up")]
@@ -209,6 +212,12 @@ pub struct Preview {
     /// More new sheets (Extrude of several curves): the tool is the first.
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub more: Vec<Body>,
+    /// Extrude with several targets: the other targets as they would be (each under its own id).
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub others: Vec<Body>,
+    /// Targets a union folds into the first, which go.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub folded: Vec<BodyId>,
 }
 
 #[derive(Serialize, Debug)]
@@ -303,21 +312,36 @@ pub fn preview(m: &Model, req: ExtrudeRequest) -> Option<Result<Preview, String>
     m.preview(move |doc| {
         if !req.curves.is_empty() {
             let sheets = match doc.preview_extrude_curves(&req.curves, req.curve_direction()?, req.distance, req.back) {
-                Err(KernelError::NoOp) => return Ok(Preview { outcome: Outcome::None, tool: None, result: None, piece: None, more: vec![] }),
+                Err(KernelError::NoOp) => return Ok(Preview { outcome: Outcome::None, tool: None, result: None, piece: None, more: vec![], others: vec![], folded: vec![] }),
                 r => r.map_err(|e| e.to_string())?,
             };
             let mut all = sheets.iter().map(|s| body(&doc.kernel, 0, s)).collect::<Result<Vec<_>, _>>()?;
             let tool = Some(all.remove(0));
-            return Ok(Preview { outcome: Outcome::New, tool, result: None, piece: None, more: all });
+            return Ok(Preview { outcome: Outcome::New, tool, result: None, piece: None, more: all, others: vec![], folded: vec![] });
         }
         let p = req.params(doc)?;
-        let result = match doc.preview_extrude(req.target, &p) {
-            Err(KernelError::NoOp) => return Ok(Preview { outcome: Outcome::None, tool: None, result: None, piece: None, more: vec![] }),
+        let many = match doc.preview_extrude_many(req.target, &req.targets, &p) {
+            Err(KernelError::NoOp) => return Ok(Preview { outcome: Outcome::None, tool: None, result: None, piece: None, more: vec![], others: vec![], folded: vec![] }),
             r => r.map_err(|e| e.to_string())?,
         };
         let tool = extrude::tool(&doc.kernel, req.target.and_then(|id| doc.get(id)), &p).map_err(|e| e.to_string())?;
         let tool = Some(body(&doc.kernel, 0, &tool)?);
-        Ok(preview_of(doc, req.target, result, tool)?)
+        let mut changed = many.changed.into_iter();
+        let (target, result) = match (changed.next(), many.new) {
+            (Some((id, r)), _) => (Some(id), r),
+            (None, Some(s)) => (None, ExtrudeResult::New(s)),
+            (None, None) => return Err("nothing to do".to_string()),
+        };
+        let mut out = preview_of(doc, target, result, tool)?;
+        for (id, r) in changed {
+            match r {
+                ExtrudeResult::Replace { solid, .. } => out.others.push(body(&doc.kernel, id, &solid)?),
+                ExtrudeResult::Slice { solid, piece, .. } => { out.others.push(body(&doc.kernel, id, &solid)?); out.more.push(body(&doc.kernel, 0, &piece)?); }
+                ExtrudeResult::New(_) => {}
+            }
+        }
+        out.folded = many.folded;
+        Ok(out)
     })
 }
 
@@ -328,7 +352,7 @@ pub fn commit(m: &Model, req: ExtrudeRequest) -> Result<Committed, String> {
             return Ok(Committed { id: *ids.last().ok_or("nothing to do")?, scene: bodies(doc)? });
         }
         let p = req.params(doc)?;
-        let id = doc.commit_extrude(req.target, &p).map_err(|e| e.to_string())?;
+        let id = doc.commit_extrude_many(req.target, &req.targets, &p).map_err(|e| e.to_string())?;
         Ok(Committed { id, scene: bodies(doc)? })
     })
 }
@@ -439,13 +463,15 @@ impl FormRequest {
 
 fn preview_of(doc: &Document<Occt>, target: Option<BodyId>, result: ExtrudeResult<<Occt as Kernel>::Solid>, tool: Option<Body>) -> Result<Preview, String> {
     Ok(match result {
-        ExtrudeResult::New(solid) => Preview { outcome: Outcome::New, tool: Some(match tool { Some(t) => t, None => body(&doc.kernel, 0, &solid)? }), result: None, piece: None, more: vec![] },
+        ExtrudeResult::New(solid) => Preview { outcome: Outcome::New, tool: Some(match tool { Some(t) => t, None => body(&doc.kernel, 0, &solid)? }), result: None, piece: None, more: vec![], others: vec![], folded: vec![] },
         ExtrudeResult::Replace { solid, op, .. } => Preview {
             outcome: match op { BooleanOp::Union => Outcome::Join, BooleanOp::Difference => Outcome::Cut, BooleanOp::Intersection => Outcome::Intersect },
             result: Some(body(&doc.kernel, target.unwrap(), &solid)?),
             tool,
             piece: None,
             more: vec![],
+            others: vec![],
+            folded: vec![],
         },
         ExtrudeResult::Slice { solid, piece, .. } => Preview {
             outcome: Outcome::Slice,
@@ -453,6 +479,8 @@ fn preview_of(doc: &Document<Occt>, target: Option<BodyId>, result: ExtrudeResul
             piece: Some(body(&doc.kernel, doc.next_id(), &piece)?),
             tool,
             more: vec![],
+            others: vec![],
+            folded: vec![],
         },
     })
 }
@@ -463,7 +491,7 @@ pub fn preview_form(m: &Model, req: FormRequest) -> Option<Result<Preview, ApiEr
         let ps = req.all_params(doc)?;
         let target = req.target.filter(|_| ps[0].operation != Operation::NewBody);
         let result = match doc.preview_forms(target, &ps) {
-            Err(KernelError::NoOp) => return Ok(Preview { outcome: Outcome::None, tool: None, result: None, piece: None, more: vec![] }),
+            Err(KernelError::NoOp) => return Ok(Preview { outcome: Outcome::None, tool: None, result: None, piece: None, more: vec![], others: vec![], folded: vec![] }),
             r => r?,
         };
         let tool = match &result {
