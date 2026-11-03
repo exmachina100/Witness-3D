@@ -1495,9 +1495,9 @@ export class LocalBackend {
                     let next = this.nextId;
                     const pieces = many.changed.filter(c => c.piece).map(c => this.body(next++, c.piece));
                     if (pieces.length) out.piece = pieces.shift();
-                    return { ...out, others: rest.map(c => this.body(c.id, c.shape)), folded: many.folded, ...(pieces.length && { more: pieces }) };
+                    return this.withSheets(req, { ...out, others: rest.map(c => this.body(c.id, c.shape)), folded: many.folded, ...(pieces.length && { more: pieces }) });
                 }
-                return { outcome, tool: this.body(0, f.tool()), result: r.replaces === undefined ? null : this.body(r.replaces, r.shape), ...(piece && { piece: this.body(this.nextId, piece.shape) }) };
+                return this.withSheets(req, { outcome, tool: this.body(0, f.tool()), result: r.replaces === undefined ? null : this.body(r.replaces, r.shape), ...(piece && { piece: this.body(this.nextId, piece.shape) }) });
             } catch (e) {
                 if (e instanceof NoOpError) return { outcome: 'none', tool: null, result: null };
                 throw e;
@@ -1651,7 +1651,26 @@ export class LocalBackend {
         });
     }
 
+    /** A mixed selection's curves (`req.sheets`), drawn out into sheets along `req.sheetDirection`. */
+    sheetsOf(req) {
+        return this.extrudeCurves({ curves: req.sheets, direction: req.sheetDirection, distance: req.distance, back: req.back });
+    }
+
+    /** A preview with the mixed selection's sheets added to `more`. */
+    withSheets(req, p) {
+        if (!req.sheets?.length) return p;
+        return { ...p, more: [...(p.more ?? []), ...this.sheetsOf(req).map(s => this.body(0, s))] };
+    }
+
     async commit(req) {
+        // A mixed selection (Plasticity's Extrude of regions or faces with curves): the curves become
+        // sheets in the same undo step.
+        if (req.sheets?.length && !req.curves?.length) {
+            const sheets = this.sheetsOf(req);
+            const { id } = await this.commit({ ...req, sheets: [] });
+            for (const s of sheets) this.put(this.nextId++, s);
+            return { id, scene: this.bodies() };
+        }
         if (req.curves?.length) {
             const sheets = this.extrudeCurves(req);
             this.checkpoint();

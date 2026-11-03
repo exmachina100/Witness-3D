@@ -167,3 +167,21 @@ fn an_extrude_pulled_out_joins_every_target_into_the_first() {
     assert_eq!(doc.kernel.solid_count(s), 1);
     assert!((volume(&doc.kernel, s) - (16000.0 + 50.0 * 10.0 * 5.0)).abs() < 1e-6, "{}", volume(&doc.kernel, s));
 }
+
+#[test]
+fn a_region_and_a_curve_extrude_together_in_one_step() {
+    // Plasticity's Extrude of a mixed selection: the region makes a solid, the curve a sheet.
+    let mut doc = w3d_kernel::document::Document::new(Occt);
+    let sq = Curve { origin: [0.0, 0.0, 0.0], x: [1.0, 0.0, 0.0], normal: [0.0, 0.0, 1.0], shape: CurveShape::Polyline { points: vec![[-5.0, -5.0], [5.0, -5.0], [5.0, 5.0], [-5.0, 5.0]], closed: true } };
+    let line = Curve { origin: [20.0, 0.0, 0.0], x: [1.0, 0.0, 0.0], normal: [0.0, 0.0, 1.0], shape: CurveShape::Polyline { points: vec![[0.0, 0.0], [10.0, 0.0]], closed: false } };
+    let ids = doc.commit_curves(vec![sq, line]).unwrap();
+    doc.clear_history();
+    let p = doc.regions_params(ids[0], &[], &[], 10.0, Operation::NewBody).unwrap();
+    doc.commit_extrude_mixed(None, &[], &p, &ids[1..], DVec3::Z).unwrap();
+    assert_eq!(doc.ids().len(), 2);
+    let mut kinds: Vec<bool> = doc.ids().iter().map(|id| doc.kernel.is_sheet(doc.get(*id).unwrap())).collect();
+    kinds.sort();
+    assert_eq!(kinds, vec![false, true], "a solid and a sheet");
+    assert!(doc.undo());
+    assert!(doc.ids().is_empty(), "one undo step");
+}

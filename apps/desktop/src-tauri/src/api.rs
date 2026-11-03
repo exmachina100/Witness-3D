@@ -148,6 +148,12 @@ pub struct ExtrudeRequest {
     /// More target bodies (Plasticity's Extrude takes every selected solid as a target).
     #[serde(default)]
     pub targets: Vec<BodyId>,
+    /// A mixed selection: curves selected with the region or faces, drawn out into sheets along
+    /// `sheet_direction` in the same step.
+    #[serde(default)]
+    pub sheets: Vec<CurveId>,
+    #[serde(default)]
+    pub sheet_direction: Option<[f64; 3]>,
     #[serde(default)]
     pub origin: [f64; 3],
     #[serde(default = "up")]
@@ -257,6 +263,11 @@ fn bodies(doc: &Document<Occt>) -> Result<Vec<Body>, String> {
 
 impl ExtrudeRequest {
     /// For an extrude of curves: the direction, after checking the request asks for a new sheet.
+    /// The direction the curves of a mixed selection are drawn out in.
+    fn sheet_dir(&self) -> Result<DVec3, String> {
+        self.sheet_direction.map(DVec3::from_array).ok_or_else(|| "say which way to extrude the curves".to_string())
+    }
+
     fn curve_direction(&self) -> Result<DVec3, String> {
         if !matches!(self.operation(), Operation::Auto | Operation::NewBody) { return Err("a curve makes a sheet, a new body; pick a region or face to join, cut or intersect".into()) }
         if self.angle.abs() > 1e-12 || self.thickness.abs() > 1e-12 { return Err("angle and thickness take a region or face; set them back to 0".into()) }
@@ -341,6 +352,9 @@ pub fn preview(m: &Model, req: ExtrudeRequest) -> Option<Result<Preview, String>
             }
         }
         out.folded = many.folded;
+        if !req.sheets.is_empty() {
+            for s in doc.preview_extrude_curves(&req.sheets, req.sheet_dir()?, req.distance, req.back).map_err(|e| e.to_string())? { out.more.push(body(&doc.kernel, 0, &s)?); }
+        }
         Ok(out)
     })
 }
@@ -352,7 +366,8 @@ pub fn commit(m: &Model, req: ExtrudeRequest) -> Result<Committed, String> {
             return Ok(Committed { id: *ids.last().ok_or("nothing to do")?, scene: bodies(doc)? });
         }
         let p = req.params(doc)?;
-        let id = doc.commit_extrude_many(req.target, &req.targets, &p).map_err(|e| e.to_string())?;
+        let id = if req.sheets.is_empty() { doc.commit_extrude_many(req.target, &req.targets, &p) }
+            else { doc.commit_extrude_mixed(req.target, &req.targets, &p, &req.sheets, req.sheet_dir()?) }.map_err(|e| e.to_string())?;
         Ok(Committed { id, scene: bodies(doc)? })
     })
 }
