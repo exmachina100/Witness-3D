@@ -41,6 +41,7 @@ mod inner {
 
         pub fn w3d_revolve(section: &[f64], axis: &[f64], angle: f64, thickness: f64) -> Result<UniquePtr<TopoDS_Shape>>;
         pub fn w3d_loft(sections: &[f64]) -> Result<UniquePtr<TopoDS_Shape>>;
+        pub fn w3d_extrude_sheet(curve: &[f64], along: &[f64]) -> Result<UniquePtr<TopoDS_Shape>>;
         pub fn w3d_revolve_sheet(curve: &[f64], axis: &[f64], angle: f64) -> Result<UniquePtr<TopoDS_Shape>>;
         pub fn w3d_sweep_sheet(curve: &[f64], path: &[f64]) -> Result<UniquePtr<TopoDS_Shape>>;
         pub fn w3d_loft_sheet(sections: &[f64], looped: bool, simplify: bool) -> Result<UniquePtr<TopoDS_Shape>>;

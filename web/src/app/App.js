@@ -4984,8 +4984,17 @@ export async function mount(root, backend) {
   const XOPS = ['union', 'difference', 'intersect', 'slice', 'new'];
   /** What E acts on: the last selected region or flat face, as { region | face, at, normal, target }. */
   function extrudeSource() {
-    const it = sel.list().filter(i => i.kind === 'region' || i.kind === 'face').at(-1);
+    const it = sel.list().filter(i => i.kind === 'region' || i.kind === 'face' || i.kind === 'curve').at(-1);
     if (!it) return null;
+    if (it.kind === 'curve') {
+      // Plasticity's Extrude of curves: each selected curve drawn out into a sheet of its own,
+      // along the first curve's plane normal (F for another direction).
+      const cs = sel.list('curve').map(r => curveById(r.id)).filter(Boolean);
+      if (!cs.length) return null;
+      const f = curveFrame(cs[0]), pts = curve2d(cs[0]).map(q => lift(f, q));
+      const at = pts.reduce((a, q) => a.add(q), new THREE.Vector3()).divideScalar(Math.max(1, pts.length));
+      return { curves: cs.map(c => c.id), at, normal: f.n, target: null, name: cs.length > 1 ? `${cs.length} CURVES` : curveLabel(cs[0].id) };
+    }
     if (it.kind === 'region') {
       // Every selected region goes together, those inside others cut out as holes.
       const all = sel.list('region').map(r => curveById(r.id)).filter(c => c && isClosed(c));
@@ -5017,7 +5026,7 @@ export async function mount(root, backend) {
   function startExtrude({ auto = false } = {}) {
     const src = extrudeSource();
     if (!src || src.curved) {
-      if (!auto) toast(src?.curved ? 'EXTRUDE A FLAT FACE OR A REGION' : 'SELECT A REGION OR A FLAT FACE TO EXTRUDE');
+      if (!auto) toast(src?.curved ? 'EXTRUDE A FLAT FACE, A REGION OR A CURVE' : 'SELECT A REGION, A FLAT FACE OR A CURVE TO EXTRUDE');
       return;
     }
     const c = cmd = { id: 'extrude', auto, src, distance: 0, angle: 0, thickness: 0, lock: false, op: 'auto', direction: null, individual: false, picking: null, freeStart: null, pivot: src.at.clone(), outcome: null, sent: 0, shown: 0, gizmo: null, entry: null };
@@ -5136,7 +5145,10 @@ export async function mount(root, backend) {
     if (document.activeElement !== $('ex-distance')) $('ex-distance').value = +d.toFixed(3);
     previewExtrude();
   }
-  const extrudeRequest = c => ({
+  const extrudeRequest = c => c.src.curves ? {
+    curves: c.src.curves, direction: (c.direction ?? c.src.normal).toArray(), distance: c.distance, op: c.op,
+    back: c.lock ? Math.abs(c.distance) : 0, angle: c.angle * DEG, thickness: c.thickness,
+  } : ({
     target: c.src.target, ...(c.src.region !== undefined ? { region: c.src.region, moreRegions: c.src.more ?? [], holes: c.src.holes ?? [] } : { face: c.src.face, faces: c.src.faces ?? [], individual: c.individual }), distance: c.distance, op: c.op,
     back: c.lock ? Math.abs(c.distance) : 0, angle: c.angle * DEG, thickness: c.thickness,
     ...(c.direction && { direction: c.direction.toArray() }),
@@ -5170,6 +5182,8 @@ export async function mount(root, backend) {
     }
     // A slice's cut-off part shows as the new body it will be.
     if (p.piece) { const m = meshOf(p.piece, phantom.add.face, phantom.add.edge); m.renderOrder = 6; previewGroup.add(m); }
+    // An extrude of several curves: a sheet for each.
+    for (const more of p.more ?? []) { const m = meshOf(more, phantom.add.face, phantom.add.edge); m.renderOrder = 5; previewGroup.add(m); }
     $('ex-outcome').textContent = p.outcome.toUpperCase();
     setHud(`${fmt(c.distance)} ${p.outcome === 'none' ? '' : p.outcome.toUpperCase()}`.trim());
     if (n === c.sent) setState('updated');
@@ -5178,6 +5192,7 @@ export async function mount(root, backend) {
     const c = cmd;
     if (!c.distance) return endCmd(c.auto ? null : 'cancelled');
     const req = extrudeRequest(c);
+    const before = new Set(current.map(b => b.id));
     try {
       const { id, scene: list } = await backend.commit(req);
       endCmd('committed');
@@ -5185,6 +5200,8 @@ export async function mount(root, backend) {
       record(`EXTRUDE ${fmt(req.distance)}${extra ? ` ${extra}` : ''}${req.op === 'auto' ? '' : ` ${req.op.toUpperCase()}`}`, id);
       await showScene(list);
       sel.replace({ kind: 'solid', body: id });
+      // Curves extruded: every new sheet is selected.
+      if (req.curves) for (const b of list) if (!before.has(b.id) && b.id !== id) sel.add({ kind: 'solid', body: b.id });
       selectionChanged({ quiet: true });
     } catch (e) { setState('failed'); toast(say(e)); }
   }
@@ -11449,7 +11466,7 @@ export async function mount(root, backend) {
     if (kinds.has('curve') || kinds.has('region')) {
       if (kinds.has('solid')) out.push('tool:project', 'tool:cut', 'tool:imprint');
       if (sel.curves.length === 2) out.push('tool:project');
-      out.push('tool:revolve', 'tool:sweep', 'tool:patch', 'tool:pipe', 'alt-duplicate', 'toggle-points', 'create-instance');
+      out.push('tool:extrude', 'tool:revolve', 'tool:sweep', 'tool:patch', 'tool:pipe', 'alt-duplicate', 'toggle-points', 'create-instance');
       if (kinds.has('face')) out.push('tool:imprint');
       if (kinds.has('face')) out.push('tool:draft');
       out.push('trim', 'split', 'cut-curve', 'extend', 'tool:offset-curve', 'slot', 'tool:fillet-curve');

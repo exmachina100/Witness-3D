@@ -185,6 +185,9 @@ pub struct ExtrudeRequest {
     pub more_regions: Vec<CurveId>,
     #[serde(default)]
     pub holes: Vec<CurveId>,
+    /// Plasticity's Extrude of curves: these curves become sheets along `direction` (required).
+    #[serde(default)]
+    pub curves: Vec<CurveId>,
 }
 
 fn east() -> [f64; 3] { [1.0, 0.0, 0.0] }
@@ -203,6 +206,9 @@ pub struct Preview {
     /// For a slice, the part cut off, which becomes a new body.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub piece: Option<Body>,
+    /// More new sheets (Extrude of several curves): the tool is the first.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub more: Vec<Body>,
 }
 
 #[derive(Serialize, Debug)]
@@ -241,6 +247,13 @@ fn bodies(doc: &Document<Occt>) -> Result<Vec<Body>, String> {
 }
 
 impl ExtrudeRequest {
+    /// For an extrude of curves: the direction, after checking the request asks for a new sheet.
+    fn curve_direction(&self) -> Result<DVec3, String> {
+        if !matches!(self.operation(), Operation::Auto | Operation::NewBody) { return Err("a curve makes a sheet, a new body; pick a region or face to join, cut or intersect".into()) }
+        if self.angle.abs() > 1e-12 || self.thickness.abs() > 1e-12 { return Err("angle and thickness take a region or face; set them back to 0".into()) }
+        self.direction.map(DVec3::from_array).ok_or_else(|| "say which way to extrude the curves".to_string())
+    }
+
     fn operation(&self) -> Operation {
         match self.op {
             _ if self.new_body => Operation::NewBody,
@@ -288,9 +301,18 @@ pub fn scene(m: &Model) -> Result<Vec<Body>, String> {
 /// `None` means a newer drag arrived first and this one was skipped.
 pub fn preview(m: &Model, req: ExtrudeRequest) -> Option<Result<Preview, String>> {
     m.preview(move |doc| {
+        if !req.curves.is_empty() {
+            let sheets = match doc.preview_extrude_curves(&req.curves, req.curve_direction()?, req.distance, req.back) {
+                Err(KernelError::NoOp) => return Ok(Preview { outcome: Outcome::None, tool: None, result: None, piece: None, more: vec![] }),
+                r => r.map_err(|e| e.to_string())?,
+            };
+            let mut all = sheets.iter().map(|s| body(&doc.kernel, 0, s)).collect::<Result<Vec<_>, _>>()?;
+            let tool = Some(all.remove(0));
+            return Ok(Preview { outcome: Outcome::New, tool, result: None, piece: None, more: all });
+        }
         let p = req.params(doc)?;
         let result = match doc.preview_extrude(req.target, &p) {
-            Err(KernelError::NoOp) => return Ok(Preview { outcome: Outcome::None, tool: None, result: None, piece: None }),
+            Err(KernelError::NoOp) => return Ok(Preview { outcome: Outcome::None, tool: None, result: None, piece: None, more: vec![] }),
             r => r.map_err(|e| e.to_string())?,
         };
         let tool = extrude::tool(&doc.kernel, req.target.and_then(|id| doc.get(id)), &p).map_err(|e| e.to_string())?;
@@ -301,6 +323,10 @@ pub fn preview(m: &Model, req: ExtrudeRequest) -> Option<Result<Preview, String>
 
 pub fn commit(m: &Model, req: ExtrudeRequest) -> Result<Committed, String> {
     m.call(move |doc| {
+        if !req.curves.is_empty() {
+            let ids = doc.commit_extrude_curves(&req.curves, req.curve_direction()?, req.distance, req.back).map_err(|e| e.to_string())?;
+            return Ok(Committed { id: *ids.last().ok_or("nothing to do")?, scene: bodies(doc)? });
+        }
         let p = req.params(doc)?;
         let id = doc.commit_extrude(req.target, &p).map_err(|e| e.to_string())?;
         Ok(Committed { id, scene: bodies(doc)? })
@@ -406,18 +432,20 @@ impl FormRequest {
 
 fn preview_of(doc: &Document<Occt>, target: Option<BodyId>, result: ExtrudeResult<<Occt as Kernel>::Solid>, tool: Option<Body>) -> Result<Preview, String> {
     Ok(match result {
-        ExtrudeResult::New(solid) => Preview { outcome: Outcome::New, tool: Some(match tool { Some(t) => t, None => body(&doc.kernel, 0, &solid)? }), result: None, piece: None },
+        ExtrudeResult::New(solid) => Preview { outcome: Outcome::New, tool: Some(match tool { Some(t) => t, None => body(&doc.kernel, 0, &solid)? }), result: None, piece: None, more: vec![] },
         ExtrudeResult::Replace { solid, op, .. } => Preview {
             outcome: match op { BooleanOp::Union => Outcome::Join, BooleanOp::Difference => Outcome::Cut, BooleanOp::Intersection => Outcome::Intersect },
             result: Some(body(&doc.kernel, target.unwrap(), &solid)?),
             tool,
             piece: None,
+            more: vec![],
         },
         ExtrudeResult::Slice { solid, piece, .. } => Preview {
             outcome: Outcome::Slice,
             result: Some(body(&doc.kernel, target.unwrap(), &solid)?),
             piece: Some(body(&doc.kernel, doc.next_id(), &piece)?),
             tool,
+            more: vec![],
         },
     })
 }
@@ -428,7 +456,7 @@ pub fn preview_form(m: &Model, req: FormRequest) -> Option<Result<Preview, ApiEr
         let p = req.params(doc)?;
         let target = req.target.filter(|_| p.operation != Operation::NewBody);
         let result = match doc.preview_form(target, &p) {
-            Err(KernelError::NoOp) => return Ok(Preview { outcome: Outcome::None, tool: None, result: None, piece: None }),
+            Err(KernelError::NoOp) => return Ok(Preview { outcome: Outcome::None, tool: None, result: None, piece: None, more: vec![] }),
             r => r?,
         };
         let tool = match &result {

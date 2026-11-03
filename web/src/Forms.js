@@ -182,6 +182,19 @@ export function revolve(c, axisPoint, axisDir, angle, thickness = 0) {
 /** Whether a drawn curve is open (no region): Revolve and Sweep make sheets of those. */
 export function curveIsOpen(c) { const g = geometry(c); return !g.circle && !(g.closed && g.points.length >= 3) }
 
+/** Plasticity's Extrude of a curve: the curve moved by `shift`, then drawn out along `vector` into a sheet (as w3d_extrude_sheet). */
+export function extrudeCurve(c, shift, vector) {
+    const o = oc();
+    const v = new THREE.Vector3(...vector);
+    if (v.length() < 1e-9) throw new Error('the extrude distance must not be zero');
+    const t = new o.gp_Trsf();
+    t.SetTranslation(new o.gp_Vec(...shift));
+    const moved = new o.BRepBuilderAPI_Transform(curveWire(c), t, true, false).Shape();
+    const mk = new o.BRepPrimAPI_MakePrism(moved, new o.gp_Vec(v.x, v.y, v.z), true, true);
+    if (!mk.IsDone()) throw new Error('the curve could not be extruded');
+    return mk.Shape();
+}
+
 /** Plasticity's Revolve of a curve: the curve turned about the axis into a sheet (as w3d_revolve_sheet). */
 export function revolveCurve(c, axisPoint, axisDir, angle) {
     const o = oc();

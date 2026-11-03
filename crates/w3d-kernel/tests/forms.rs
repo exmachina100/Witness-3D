@@ -557,3 +557,20 @@ fn revolve_and_sweep_of_an_open_curve_make_sheets() {
     assert!(k.is_sheet(&swept));
     assert_eq!(k.face_count(&swept), 1);
 }
+
+#[test]
+fn extrude_draws_curves_out_into_sheets_in_one_step() {
+    let mut doc = Document::new(Occt);
+    let a = Curve { origin: [0.0, 0.0, 0.0], x: [1.0, 0.0, 0.0], normal: [0.0, 0.0, 1.0], shape: CurveShape::Polyline { points: vec![[10.0, 0.0], [10.0, 20.0]], closed: false } };
+    let b = Curve { origin: [0.0, 0.0, 0.0], x: [1.0, 0.0, 0.0], normal: [0.0, 0.0, 1.0], shape: CurveShape::Polyline { points: vec![[-5.0, -5.0], [5.0, -5.0], [5.0, 5.0], [-5.0, 5.0]], closed: true } };
+    let ids = doc.commit_curves(vec![a, b]).unwrap();
+    doc.clear_history();
+    let made = doc.commit_extrude_curves(&ids, DVec3::Z, 5.0, 5.0).unwrap();
+    assert_eq!(made.len(), 2);
+    for id in &made { assert!(doc.kernel.is_sheet(doc.get(*id).unwrap())) }
+    assert_eq!(doc.kernel.face_count(doc.get(made[0]).unwrap()), 1);
+    assert_eq!(doc.kernel.face_count(doc.get(made[1]).unwrap()), 4, "a closed curve makes a tube of sheet, not a solid");
+    assert!(doc.undo());
+    assert!(doc.ids().is_empty(), "one undo step");
+    assert!(matches!(doc.preview_extrude_curves(&ids, DVec3::Z, 0.0, 0.0), Err(KernelError::NoOp)));
+}

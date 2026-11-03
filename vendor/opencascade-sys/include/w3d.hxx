@@ -726,6 +726,26 @@ inline std::unique_ptr<TopoDS_Shape> w3d_revolve_sheet(rust::Slice<const double>
   }
 }
 
+// Plasticity's Extrude of a curve: the curve moved by `along[0..3]`, then drawn out by
+// `along[3..6]` into a sheet.
+inline std::unique_ptr<TopoDS_Shape> w3d_extrude_sheet(rust::Slice<const double> curve, rust::Slice<const double> along) {
+  try {
+    if (along.size() != 6) throw std::runtime_error("an extrude of a curve needs a start offset and a vector");
+    gp_Vec v(along[3], along[4], along[5]);
+    if (v.Magnitude() < 1e-9) throw std::runtime_error("the extrude distance must not be zero");
+    TopoDS_Wire w = w3d_one_section(curve);
+    gp_Trsf t;
+    t.SetTranslation(gp_Vec(along[0], along[1], along[2]));
+    TopoDS_Shape moved = BRepBuilderAPI_Transform(w, t, Standard_True).Shape();
+    BRepPrimAPI_MakePrism mk(moved, v, Standard_True);
+    mk.Build();
+    if (!mk.IsDone()) throw std::runtime_error("the curve could not be extruded");
+    return std::unique_ptr<TopoDS_Shape>(new TopoDS_Shape(mk.Shape()));
+  } catch (const Standard_Failure &f) {
+    throw w3d_kernel_error(f);
+  }
+}
+
 // Plasticity's Sweep of a curve: the curve carried along the path into a sheet, mitred at corners.
 inline std::unique_ptr<TopoDS_Shape> w3d_sweep_sheet(rust::Slice<const double> curve, rust::Slice<const double> path) {
   try {
