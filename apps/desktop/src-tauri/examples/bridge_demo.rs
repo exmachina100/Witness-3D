@@ -13,7 +13,7 @@ fn main() {
         .nth(1)
         .and_then(|p| p.parse().ok())
         .unwrap_or(w3d_desktop::bridge::PORT);
-    let model = Arc::new(api::start());
+    let model = Arc::new(api::start_enclosure());
     let m = model.clone();
     let bridge = Bridge::start(port, Arc::new(move || api::scene(&m))).expect("port in use");
     println!("listening {}", bridge.addr);

@@ -4,7 +4,10 @@
 # The demo server serves Witness 3D's model; this script connects as the add-on does, pulls the
 # enclosure, gives it a material and a camera the way a Blender user would, then has Witness 3D
 # round every edge by 4 mm with Live Link on, and checks the mesh changed while the material and
-# camera stayed. With out_dir it also renders a picture before and after.
+# camera stayed. Then the app names the document and groups the body in its outliner, and the
+# script checks Blender mirrors that: a collection per document and group, the outliner name and the
+# hidden state, with another document's objects left alone. With out_dir it also renders a picture
+# before and after.
 
 import math
 import os
@@ -43,6 +46,14 @@ def wait_for(cond, what, timeout=10):
 failures = 0
 
 
+def ours(doc=None):
+    return [o for o in bpy.data.objects if o.get("w3d_id") is not None and (doc is None or o.get("w3d_doc") == doc)]
+
+
+def sub(parent, name):
+    return next((c for c in parent.children if c.get("w3d_name") == name), None)
+
+
 def check(ok, what):
     global failures
     print("PASS" if ok else "FAIL", what)
@@ -72,9 +83,12 @@ try:
     w3d.connect(scene)
     check(w3d.state["link"].hello["app"] == "Witness 3D", "the add-on connects and the bridge says hello")
     w3d.state["link"].send({"type": "refresh"})
-    wait_for(lambda: bpy.data.collections.get(w3d.COLLECTION) and len(bpy.data.collections[w3d.COLLECTION].objects) == 1, "Refresh")
-    body = bpy.data.collections[w3d.COLLECTION].objects[0]
+    wait_for(lambda: len(ours()) == 1, "Refresh")
+    body = ours()[0]
     check(body.name == "Witness Body 01", "Refresh brings in the enclosure as Witness Body 01")
+    root = bpy.data.collections[w3d.COLLECTION]
+    untitled = sub(root, "UNTITLED")
+    check(untitled is not None and body.name in untitled.objects, "it goes in the document's collection under Witness 3D")
     dims = tuple(round(d * 1000, 3) for d in body.dimensions)
     check(dims == (80.0, 50.0, 30.0), "it is 80 × 50 × 30 mm, z up, at scale 0.001 (got %s)" % (dims,))
     before = len(body.data.vertices)
@@ -109,8 +123,29 @@ try:
     check(len(body.data.materials) == 1 and body.data.materials[0] == mat, "the material set in Blender is kept")
     bpy.context.view_layer.update()
     check([list(r) for r in cam.matrix_world] == cam_matrix and scene.camera == cam, "the camera is untouched")
-    check(len(bpy.data.collections[w3d.COLLECTION].objects) == 1, "the object was updated in place, not duplicated")
+    check(len(ours()) == 1, "the object was updated in place, not duplicated")
     render("blender-after.png")
+
+    # The app's outliner: the document is HOUSING.W3D, the body is LID in group PARTS, hidden.
+    rev = body["w3d_revision"]
+    check(say('outline {"document":"HOUSING.W3D","objects":{"1":{"path":["PARTS"],"name":"LID","hidden":true}}}') == "ok", "the app sends its outliner")
+    wait_for(lambda: len(ours("HOUSING")) == 1, "the HOUSING document")
+    lid = ours("HOUSING")[0]
+    housing = sub(root, "HOUSING")
+    parts = housing and sub(housing, "HOUSING/PARTS")
+    check(parts is not None and lid.name in parts.objects and lid.name not in housing.objects, "HOUSING gets a collection with HOUSING/PARTS inside, holding the body")
+    check(lid.name == "LID", "the body has its outliner name (got %s)" % lid.name)
+    check(lid.hide_get() and lid["w3d_hidden"], "hidden in Witness 3D, hidden in Blender")
+    check(body.name in untitled.objects and body.get("w3d_revision") == rev, "the other document's object is left alone")
+    # Shown again and moved out of the group: the empty group collection goes.
+    check(say('outline {"document":"HOUSING.W3D","objects":{"1":{"path":[],"name":"LID","hidden":false}}}') == "ok", "the app shows LID again, out of its group")
+    wait_for(lambda: not lid.hide_get(), "LID to show")
+    check(lid.name in housing.objects and sub(housing, "HOUSING/PARTS") is None, "LID sits in HOUSING and the empty PARTS collection is gone")
+    # Only visible: hidden bodies are left out.
+    scene.w3d_only_visible = True
+    check(say('outline {"document":"HOUSING.W3D","objects":{"1":{"path":[],"name":"LID","hidden":true}}}') == "ok", "the app hides LID again")
+    wait_for(lambda: not ours("HOUSING"), "LID to be left out with Only visible")
+    check(len(ours()) == 1, "with Only visible the hidden body is not in Blender")
 finally:
     w3d.disconnect()
     say("quit")
