@@ -5050,7 +5050,18 @@ export async function mount(root, backend) {
   const XOPS = ['union', 'difference', 'intersect', 'slice', 'new'];
   /** What E acts on: the last selected region or flat face, as { region | face, at, normal, target }. */
   function extrudeSource() {
-    const it = sel.list().filter(i => i.kind === 'region' || i.kind === 'face' || i.kind === 'curve').at(-1);
+    const src = extrudeMain();
+    // A mixed selection (manual solid/extrude: one run mixes regions, faces and curves): the
+    // curves selected with a region or face are drawn out into sheets of their own in the same step.
+    if (!src || src.curves || src.curved) return src;
+    const cs = sel.list('curve').map(r => curveById(r.id)).filter(Boolean);
+    if (!cs.length) return src;
+    return { ...src, sheets: cs.map(c => c.id), sheetNormal: curveFrame(cs[0]).n, name: `${src.name} + ${cs.length === 1 ? curveLabel(cs[0].id) : `${cs.length} CURVES`}` };
+  }
+  function extrudeMain() {
+    const items = sel.list().filter(i => i.kind === 'region' || i.kind === 'face' || i.kind === 'curve');
+    // Regions and faces lead; curves only when nothing else is selected.
+    const it = items.filter(i => i.kind !== 'curve').at(-1) ?? items.at(-1);
     if (!it) return null;
     if (it.kind === 'curve') {
       // Plasticity's Extrude of curves: each selected curve drawn out into a sheet of its own,
@@ -5252,7 +5263,8 @@ export async function mount(root, backend) {
     curves: c.src.curves, direction: (c.direction ?? c.src.normal).toArray(), distance: c.distance, op: c.op,
     back: c.lock ? Math.abs(c.distance) : 0, angle: c.angle * DEG, thickness: c.thickness,
   } : ({
-    target: c.src.target, ...(c.src.targets?.length && c.src.target !== null && { targets: c.src.targets }), ...(c.src.region !== undefined ? { region: c.src.region, moreRegions: c.src.more ?? [], holes: c.src.holes ?? [] } : { face: c.src.face, faces: c.src.faces ?? [], individual: c.individual }), distance: c.distance, op: c.op,
+    target: c.src.target, ...(c.src.targets?.length && c.src.target !== null && { targets: c.src.targets }),
+    ...(c.src.sheets?.length && { sheets: c.src.sheets, sheetDirection: (c.direction ?? c.src.sheetNormal).toArray() }), ...(c.src.region !== undefined ? { region: c.src.region, moreRegions: c.src.more ?? [], holes: c.src.holes ?? [] } : { face: c.src.face, faces: c.src.faces ?? [], individual: c.individual }), distance: c.distance, op: c.op,
     back: c.lock ? Math.abs(c.distance) : 0, angle: c.angle * DEG, thickness: c.thickness,
     ...((c.direction ?? c.src.direction) && { direction: (c.direction ?? c.src.direction).toArray() }),
   });
@@ -5307,7 +5319,7 @@ export async function mount(root, backend) {
       await showScene(list);
       sel.replace({ kind: 'solid', body: id });
       // Curves extruded: every new sheet is selected.
-      if (req.curves) for (const b of list) if (!before.has(b.id) && b.id !== id) sel.add({ kind: 'solid', body: b.id });
+      if (req.curves || req.sheets) for (const b of list) if (!before.has(b.id) && b.id !== id) sel.add({ kind: 'solid', body: b.id });
       selectionChanged({ quiet: true });
     } catch (e) { setState('failed'); toast(say(e)); }
   }

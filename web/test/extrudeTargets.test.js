@@ -42,3 +42,20 @@ test('an extrude pulled out joins every target into the first', async () => {
     assert.equal(count(be.shapes.get(1), 'TopAbs_SOLID'), 1);
     close(volume(be.shapes.get(1)), 16000 + 50 * 10 * 5);
 });
+
+test('a region and a curve extrude together in one step', async () => {
+    const be = new LocalBackend({ seed: 'enclosure' });
+    be.shapes.clear();
+    const { ids: [sq, line] } = await be.addCurves([
+        { origin: [0, 0, 0], x: [1, 0, 0], normal: [0, 0, 1], kind: 'polyline', points: [[-5, -5], [5, -5], [5, 5], [-5, 5]], closed: true },
+        { origin: [20, 0, 0], x: [1, 0, 0], normal: [0, 0, 1], kind: 'polyline', points: [[0, 0], [10, 0]], closed: false },
+    ]);
+    const req = { region: sq, distance: 10, op: 'new', sheets: [line], sheetDirection: [0, 0, 1] };
+    const p = await be.preview(req);
+    assert.equal(p.more.length, 1);
+    await be.commit(req);
+    assert.equal(be.shapes.size, 2);
+    close(Math.max(...[...be.shapes.values()].map(volume)), 1000);
+    be.undo();
+    assert.equal(be.shapes.size, 0);
+});

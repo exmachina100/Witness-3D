@@ -714,6 +714,21 @@ impl<K: Kernel> Document<K> {
     pub fn commit_extrude_many(&mut self, target: Option<BodyId>, more: &[BodyId], p: &ExtrudeParams) -> Result<BodyId, KernelError> {
         let r = self.preview_extrude_many(target, more, p)?;
         self.checkpoint();
+        self.apply_many(r)
+    }
+
+    /// Plasticity's Extrude of a mixed selection: the region or faces as `p` says, onto its targets,
+    /// and the `curves` drawn out along `direction` into sheets of their own, as one undoable step.
+    pub fn commit_extrude_mixed(&mut self, target: Option<BodyId>, more: &[BodyId], p: &ExtrudeParams, curves: &[CurveId], direction: DVec3) -> Result<BodyId, KernelError> {
+        let r = self.preview_extrude_many(target, more, p)?;
+        let sheets = self.preview_extrude_curves(curves, direction, p.distance, p.back)?;
+        self.checkpoint();
+        let id = self.apply_many(r)?;
+        for s in sheets { self.add_unrecorded(s); }
+        Ok(id)
+    }
+
+    fn apply_many(&mut self, r: ExtrudeMany<K::Solid>) -> Result<BodyId, KernelError> {
         let mut first = None;
         for (id, x) in r.changed {
             match x {
