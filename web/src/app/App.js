@@ -3176,6 +3176,8 @@ export async function mount(root, backend) {
     keepSources();
     lastTool = id;
     if (id === 'fillet' && sel.size && sel.list().every(it => it.kind === 'vertex')) return startFilletVertex();
+    // B with only curves selected is Fillet Curve, as in Plasticity.
+    if (id === 'fillet' && sel.size && sel.list().every(it => it.kind === 'curve')) return startCurveEdit('fillet-curve');
     if (id === 'fillet') return startFillet(opts);
     if (id === 'move' || id === 'rotate' || id === 'scale') return startTransform(id, opts);
     if (id === 'pushpull') return startPushPull(opts);
@@ -10682,6 +10684,30 @@ export async function mount(root, backend) {
       selectionChanged({ quiet: true });
     } catch (e) { toast(say(e)); }
   }
+  /** Plasticity's Ctrl+C: the selected solids kept to paste (Ctrl+V in place, Ctrl+Shift+V placed). */
+  async function copySelected() {
+    const ids = targetBodies().filter(b => org.shows(b));
+    if (!ids.length) return toast('SELECT THE SOLIDS TO COPY');
+    if (!backend.copyBodies) return toast('COPY IS NOT IN THIS BUILD YET');
+    try {
+      const count = await backend.copyBodies(ids);
+      placeClipboard = { count, from: { origin: new THREE.Vector3(), up: UP.clone() } };
+      toast(`COPIED ${count === 1 ? label(ids[0]) : `${count} SOLIDS`} · CTRL+V PASTES`);
+    } catch (e) { toast(say(e)); }
+  }
+  /** Plasticity's Ctrl+V: the copied solids pasted where they were copied from, and selected. */
+  async function pasteInPlace() {
+    if (cmd) await finish();
+    if (!placeClipboard) return toast('NOTHING IS COPIED · SELECT SOLIDS AND PRESS CTRL+C');
+    try {
+      const { ids, scene: list } = await backend.commitPlace({ bodies: [], clipboard: true, motion: { offset: [0, 0, 0], pivot: [0, 0, 0], axis: [0, 1, 0], angle: 0, scale: 1 }, target: null, op: 'new' });
+      record('PASTE', ids[0], ids.length > 1 ? `${ids.length} BODIES` : label(ids[0]));
+      await showScene(list);
+      sel.clear();
+      for (const id of ids) sel.add({ kind: 'solid', body: id });
+      selectionChanged({ quiet: true });
+    } catch (e) { toast(say(e)); }
+  }
   /** Plasticity's Shift+D: copy, select the copies, and move them with the cursor. */
   async function duplicateSelected() {
     if (cmd) await finish();
@@ -10954,7 +10980,10 @@ export async function mount(root, backend) {
       case 'import': $('import').hidden ? toast('NOT IN THE BROWSER YET') : $('import').click(); return true;
       // Unjoin Curve (Alt+J), and Unjoin with only curves selected: joined curves back into the
       // curves they were joined from (as Explode does here: a contour's pieces, a polyline's lines).
-      case 'unjoin': await (arg === 'curves' || (!targetBodies().length && sel.curves.some(curveById)) ? explodeSelected('UNJOIN') : unjoinSelected(arg !== 'pieces')); return true;
+      case 'unjoin':
+        // Alt+J: Unjoin Faces with faces selected, else Unjoin Curve.
+        if (arg === 'key') { if (sel.list('face').length && !sel.curves.length) await unjoinSelected(true); else await explodeSelected('UNJOIN'); return true; }
+        await (arg === 'curves' || (!targetBodies().length && sel.curves.some(curveById)) ? explodeSelected('UNJOIN') : unjoinSelected(arg !== 'pieces')); return true;
       case 'material': if (arg === 'remove') removeMaterial(); else await startTool('material'); return true;
     }
     switch (a) {
@@ -10964,6 +10993,8 @@ export async function mount(root, backend) {
       case 'repeat': if (lastTool) await startTool(lastTool); else toast('NO COMMAND TO REPEAT'); return true;
       case 'delete': await deleteSelected(); return true;
       case 'duplicate': await duplicateSelected(); return true;
+      case 'copy': await copySelected(); return true;
+      case 'paste': await pasteInPlace(); return true;
       case 'alt-duplicate': await altDuplicate(); return true;
       case 'create-outline': await createOutline(); return true;
       case 'toggle-points': await togglePoints(); return true;
