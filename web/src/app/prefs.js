@@ -17,7 +17,7 @@ export const PREF_FIELDS = {
         { key: 'zoomSpeed', label: 'ZOOM SPEED', type: 'number', value: 1, min: 0.1, max: 5 },
         { key: 'rotateSpeed', label: 'ROTATE SPEED', type: 'number', value: 1, min: 0.1, max: 5 },
         { key: 'panSpeed', label: 'PAN SPEED', type: 'number', value: 1, min: 0.1, max: 5 },
-        { key: 'fov', label: 'CAMERA FIELD OF VIEW (°)', type: 'number', value: 35, min: 10, max: 120, step: 1 },
+        { key: 'fov', label: 'CAMERA FIELD OF VIEW (°)', type: 'number', value: 50, min: 10, max: 120, step: 1 },
     ],
     appearance: [
         { key: 'accent', label: 'ACCENT', type: 'color', value: '#ff4d00', restart: true },
@@ -45,6 +45,11 @@ export const PREF_FIELDS = {
         { key: 'renderQuality', label: 'GPU RENDERING QUALITY (PIXEL RATIO)', type: 'number', value: 2, min: 0.5, max: 2 },
         { key: 'facetQuality', label: 'CPU FACET QUALITY', type: 'number', value: 1, min: 0.25, max: 4 },
         { key: 'aoShader', label: 'AMBIENT OCCLUSION IN SHADER MODE', type: 'bool', value: false },
+    ],
+    // Plasticity's Backup: open documents are copied for emergencies and offered back after a crash.
+    backup: [
+        { key: 'enabled', label: 'BACK UP OPEN DOCUMENTS', type: 'bool', value: true, desktop: true },
+        { key: 'minutes', label: 'EVERY (MINUTES)', type: 'number', value: 2, min: 1, max: 60, step: 1, desktop: true },
     ],
     network: [
         { key: 'bridge', label: 'BRIDGE ENABLE', type: 'bool', value: true, restart: true, desktop: true },

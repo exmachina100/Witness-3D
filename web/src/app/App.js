@@ -305,8 +305,8 @@ const SHELL = `
       <div class="stepper"><span>GRID</span><button data-id="grid-dec" aria-label="Smaller grid step">−</button><output data-id="grid">2.5</output><button data-id="grid-inc" aria-label="Larger grid step">+</button></div>
         </div>
     <div class="vpop fov" data-id="fov-pop" role="dialog" aria-label="Field of view" hidden>
-      <div class="field"><label for="w3d-fov">FIELD OF VIEW</label><input id="w3d-fov" data-id="fov" type="range" min="10" max="120" step="1" value="35"></div>
-      <output data-id="fov-value">35°</output>
+      <div class="field"><label for="w3d-fov">FIELD OF VIEW</label><input id="w3d-fov" data-id="fov" type="range" min="10" max="120" step="1" value="50"></div>
+      <output data-id="fov-value">50°</output>
     </div>
     <div class="nav" data-id="nav" aria-label="View navigation"></div>
     <div class="modes" role="group" aria-label="Selection mode">
@@ -336,6 +336,7 @@ const SHELL = `
     </div>
     <div class="toast" data-id="toast" hidden></div>
     <div class="loading" data-id="loading">STARTING THE KERNEL…</div>
+    <div class="recover" data-id="recover" role="alertdialog" aria-label="Recover a backup" hidden></div>
   </main>
 
   <aside class="right" aria-label="Inspector">
@@ -2229,6 +2230,7 @@ export async function mount(root, backend) {
   const keepSources = () => { opSources = sel.list().map(it => ({ ...it })); };
   function record(text, id, tag = label(id)) { pushStep({ text, id, tag, sources: opSources ?? [] }); }
   function pushStep(entry) {
+    backupDue = true;
     history.splice(history.length - undone, undone, entry);
     undone = 0;
     sourceAt = null;
@@ -11546,6 +11548,7 @@ export async function mount(root, backend) {
     if (!h.local) await showScene(await backend[dir]());
     if (h.org) restoreOrg(dir === 'undo' ? h.org.before : h.org.after);
     undone += dir === 'undo' ? 1 : -1;
+    backupDue = true;
     renderHistory();
   }
   async function deleteSelected() {
@@ -12153,7 +12156,7 @@ export async function mount(root, backend) {
   }
   // Preferences: Plasticity's window of settings, by section; each change applies and is kept at once.
   // The bridge settings live with the desktop app and take effect the next time it starts.
-  const PREF_SECTIONS = { navigation: 'NAVIGATION', appearance: 'APPEARANCE', commands: 'COMMANDS', units: 'UNITS', performance: 'PERFORMANCE', network: 'NETWORK' };
+  const PREF_SECTIONS = { navigation: 'NAVIGATION', appearance: 'APPEARANCE', commands: 'COMMANDS', units: 'UNITS', performance: 'PERFORMANCE', backup: 'BACKUP', network: 'NETWORK' };
   // Performance: the facets the bodies are drawn with, as last asked of the backend.
   let facetQuality = 1, aoShader = false;
   // Plasticity's Units: the model stays in millimetres; length fields show and take the chosen
@@ -12204,7 +12207,7 @@ export async function mount(root, backend) {
     Object.assign(controls, controlSettings(prefs.navigation));
     const perf = prefs.performance;
     renderer.setPixelRatio(Math.min(devicePixelRatio, perf.renderQuality));
-    // Plasticity's camera FOV (Preferences › Navigation, 35° by default).
+    // Plasticity's camera FOV (Preferences › Navigation, 50° by default).
     if (persp.fov !== prefs.navigation.fov) { persp.fov = prefs.navigation.fov; persp.updateProjectionMatrix(); }
     resize(true);
     if (perf.aoShader !== aoShader) { aoShader = perf.aoShader; view.ao = aoShader; applyView(); }
@@ -12653,6 +12656,40 @@ export async function mount(root, backend) {
     org.prune(current.map(b => b.id));
     materialsChanged();
     organised();
+  }
+  // --- backups (Plasticity: Preferences › Backup) ----------------------------
+  // The desktop app copies the open document to its backup folder every few minutes while it has
+  // changed; a clean exit deletes the copy, so one found at launch was left by a crash and is
+  // offered back here.
+  let backupDue = false, lastBackup = Date.now();
+  setInterval(async () => {
+    const b = prefs.backup;
+    if (!backend.backupSave || !b.enabled || !backupDue || cmd || Date.now() - lastBackup < b.minutes * 60000) return;
+    backupDue = false;
+    lastBackup = Date.now();
+    try { await keepAppState(); await backend.backupSave($('file-name').textContent); } catch (e) { backupDue = true; console.warn('backup failed', e); }
+  }, 15000);
+  async function offerBackups() {
+    if (!backend.backups) return toast('BACKUPS ARE IN THE DESKTOP APP');
+    let list = [];
+    try { list = await backend.backups(); } catch (e) { return toast(say(e)); }
+    const el = $('recover');
+    if (!list.length) { el.hidden = true; return; }
+    const b = list[0], when = new Date(b.modified * 1000);
+    el.innerHTML = `<span>A BACKUP OF <b></b> FROM ${when.toLocaleString().toUpperCase()} WAS LEFT BY A CRASH${list.length > 1 ? ` · ${list.length - 1} MORE` : ''}</span>`
+      + '<button data-rc="open" title="Open the backup as the document (save it to keep it)">RECOVER</button><button data-rc="drop" title="Delete this backup">DISCARD</button><button data-rc="later" title="Keep it for the next launch">LATER</button>';
+    el.querySelector('b').textContent = b.document;
+    el.hidden = false;
+    el.querySelector('[data-rc=open]').onclick = () => fileAction(async () => {
+      if (cmd) abort();
+      newScene(await backend.openBackup(b.path), b.document);
+      await restoreAppState();
+      await backend.discardBackup(b.path);
+      toast(`RECOVERED ${b.document} · SAVE TO KEEP IT`);
+      offerBackups();
+    });
+    el.querySelector('[data-rc=drop]').onclick = () => fileAction(async () => { await backend.discardBackup(b.path); offerBackups(); });
+    el.querySelector('[data-rc=later]').onclick = () => { el.hidden = true; };
   }
   async function fileAction(fn) {
     try { await fn(); } catch (e) { toast(say(e)); }
@@ -13308,6 +13345,8 @@ export async function mount(root, backend) {
   // The startup scene (Save As Startup Scene) carries groups, materials and images too.
   await restoreAppState();
   $('loading').hidden = true;
+  // What a crash left behind is offered back (desktop backups).
+  if (backend.backups) offerBackups();
   // A model the app was started with opens straight away (desktop file association).
   if (typeof backend.startupFile === 'function') {
     const openStartup = async () => { try { const path = await backend.startupFile(); if (path) await openFile(path); } catch (e) { toast(say(e)); } };

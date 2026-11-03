@@ -104,6 +104,11 @@ button:focus-visible, input:focus-visible { outline: 1px solid var(--accent); ou
 .keys { position: absolute; right: 14px; bottom: 72px; display: grid; grid-template-columns: auto auto auto auto; gap: 5px 10px; font-size: 10px; pointer-events: none; max-height: calc(100% - 200px); overflow: hidden; align-content: end; }
 .keys kbd { font: inherit; text-align: right; padding: 0 5px; border: 1px solid rgba(239, 235, 224, 0.6); }
 .keys span { color: var(--muted); }
+.recover { position: absolute; left: 50%; top: 44px; transform: translateX(-50%); z-index: 6; display: flex; align-items: center; gap: 8px; padding: 8px 10px; background: var(--raised); border: 1px solid var(--accent); box-shadow: 0 12px 40px rgba(0, 0, 0, 0.5); font-size: 11px; width: max-content; max-width: calc(100% - 32px); }
+.recover[hidden] { display: none; }
+.recover b { color: var(--accent); font-weight: normal; }
+.recover button { font: inherit; color: var(--ink); background: var(--ground); border: 1px solid var(--rule); padding: 4px 8px; cursor: pointer; }
+.recover button[data-rc="open"] { border-color: var(--accent); color: var(--accent); }
 .toast { position: absolute; left: 50%; top: 12px; transform: translateX(-50%); padding: 4px 8px; border: 1px solid var(--accent); color: var(--accent); background: var(--ground); white-space: nowrap; }
 .loading { position: absolute; inset: 0; display: grid; place-items: center; background: var(--ground); color: var(--muted); }
 .loading[hidden], .toast[hidden], .snap-tag[hidden], .isolated[hidden] { display: none; }
