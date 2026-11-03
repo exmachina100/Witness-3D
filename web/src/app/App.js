@@ -325,6 +325,7 @@ const SHELL = `
     <div class="palette" data-id="palette" hidden>
       <div class="palette-title" data-id="palette-title">SEARCH COMMANDS</div>
       <input data-id="palette-input" placeholder="TYPE A COMMAND" autocomplete="off" spellcheck="false">
+      <div class="palette-favs" data-id="palette-favs"></div>
       <ul data-id="palette-list" role="listbox"></ul>
       <div class="palette-foot">RIGHT-CLICK A COMMAND TO SET ITS KEY</div>
     </div>
@@ -2318,7 +2319,7 @@ export async function mount(root, backend) {
   function openOMenu(e, entries) {
     const m = $('omenu');
     m.innerHTML = entries.map((x, i) => x ? `<button role="menuitem" data-om="${i}" ${x[2] ? 'disabled' : ''}><span>${x[0]}</span></button>` : '<hr>').join('');
-    for (const b of m.querySelectorAll('[data-om]')) b.onclick = () => { m.hidden = true; entries[+b.dataset.om][1](); };
+    for (const b of m.querySelectorAll('[data-om]')) { b.onmousedown = ev => ev.preventDefault(); b.onclick = () => { m.hidden = true; entries[+b.dataset.om][1](); }; }
     m.hidden = false;
     const w = m.offsetWidth, h = m.offsetHeight;
     m.style.left = `${Math.min(e.clientX, innerWidth - w - 4)}px`;
@@ -12443,7 +12444,7 @@ export async function mount(root, backend) {
   let palette = null;
   const fuzzy = (q, s) => { let i = 0; for (const ch of s) if (ch === q[i]) i++; return i === q.length; };
   function openPalette(suggest, query = '') {
-    palette = { suggest, index: 0, items: [], binding: null };
+    palette = { suggest, index: 0, items: [], binding: null, clash: null };
     $('palette').hidden = false;
     $('palette-title').textContent = suggest ? 'SUGGESTED FOR THE SELECTION' : 'SEARCH COMMANDS';
     $('palette-input').value = query;
@@ -12469,13 +12470,44 @@ export async function mount(root, backend) {
       const li = document.createElement('li');
       li.setAttribute('role', 'option');
       li.setAttribute('aria-selected', i === palette.index);
-      li.innerHTML = `<span>${iconFor(e.action)}${e.label}</span><kbd>${palette.binding === e ? 'PRESS A KEY · ⌫ CLEARS' : keyLabel(e.action)}</kbd>`;
+      const clash = palette.binding === e && palette.clash;
+      li.innerHTML = `<span>${iconFor(e.action)}${e.label}</span><kbd class="${clash ? 'clash' : ''}">${palette.binding !== e ? keyLabel(e.action) : clash ? `${showKey(clash)} IS ${labelOf(keys[clash])} · AGAIN TAKES IT` : 'PRESS A KEY'}</kbd>`;
       li.onmousedown = ev => { ev.preventDefault(); if (ev.button === 0) runPalette(i); };
-      // Plasticity: right-click a command in the palette to give it a key of your own.
-      li.oncontextmenu = ev => { ev.preventDefault(); palette.binding = e; palette.index = i; renderPalette(); };
+      // Plasticity (manual: Command Palette): right-click a command for Assign Shortcut, Remove Shortcut and favourites.
+      li.oncontextmenu = ev => {
+        ev.preventDefault();
+        palette.index = i;
+        const fav = favourites.includes(e.action), bound = Object.keys(keys).some(k => keys[k] === e.action);
+        openOMenu(ev, [
+          ['ASSIGN SHORTCUT', () => { palette.binding = e; palette.clash = null; renderPalette(); }],
+          ['REMOVE SHORTCUT', () => { bindKeys(Object.keys(keys).filter(x => keys[x] === e.action), ''); toast(`${e.label} · NO KEY`); renderPalette(); }, !bound],
+          [fav ? 'REMOVE FROM FAVORITES' : 'ADD TO FAVORITES', () => { setFavourite(e.action, !fav); renderPalette(); }],
+        ]);
+      };
       ul.append(li);
     });
     if (!palette.items.length) ul.innerHTML = '<li class="none">NOTHING MATCHES</li>';
+    // Favourites: buttons under the field (manual: Command Palette); a click runs one.
+    const favs = $('palette-favs');
+    favs.innerHTML = '';
+    for (const a of favourites) {
+      const e = ENTRIES.find(x => x.action === a);
+      if (!e) continue;
+      const b = document.createElement('button');
+      b.title = `${e.label}${keyLabel(a) ? ` (${keyLabel(a)})` : ''} · right-click removes it`;
+      b.innerHTML = `${iconFor(a)}<span>${e.label}</span>`;
+      b.onmousedown = ev => ev.preventDefault();
+      b.onclick = () => { closePalette(); doAction(a); };
+      b.oncontextmenu = ev => { ev.preventDefault(); openOMenu(ev, [['REMOVE FROM FAVORITES', () => { setFavourite(a, false); renderPalette(); }]]); };
+      favs.append(b);
+    }
+    favs.hidden = !favs.children.length;
+  }
+  const labelOf = action => ENTRIES.find(x => x.action === action)?.label ?? String(action).toUpperCase();
+  let favourites = store.get('w3d-favourites', []);
+  function setFavourite(action, on) {
+    favourites = on ? [...favourites.filter(a => a !== action), action] : favourites.filter(a => a !== action);
+    store.set('w3d-favourites', favourites);
   }
   function runPalette(i) {
     const e = palette?.items[i];
@@ -12489,7 +12521,10 @@ export async function mount(root, backend) {
       e.stopPropagation();
       const k = keyOf(e), action = palette.binding.action;
       if (['ctrl', 'alt', 'shift'].includes(k)) return;
-      if (e.key === 'Escape') { palette.binding = null; return renderPalette(); }
+      if (e.key === 'Escape') { palette.binding = palette.clash = null; return renderPalette(); }
+      // A key another command has shows in red first; pressing it again takes it (manual: Command Palette).
+      if (e.key !== 'Backspace' && e.key !== 'Delete' && keys[k] && keys[k] !== action && palette.clash !== k) { palette.clash = k; return renderPalette(); }
+      palette.clash = null;
       if (e.key === 'Backspace' || e.key === 'Delete') bindKeys(Object.keys(keys).filter(x => keys[x] === action), '');
       else bindKeys([k], action);
       toast(e.key === 'Backspace' || e.key === 'Delete' ? `${palette.binding.label} · NO KEY` : `${palette.binding.label} · ${showKey(k)}`);
