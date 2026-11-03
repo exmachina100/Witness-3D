@@ -101,19 +101,19 @@ export const COMMAND = {
     loft: { o: 'loop', l: 'limit', tab: 'continuity', d: 'tension' },
     sweep: { m: 'method', n: 'align', d: 'twist', q: 'union', w: 'difference', 'shift-e': 'intersect', 'shift-q': 'slice', b: 'new', t: 'keep' },
     // Drawing (manual: Tab types dimensions, S square and C centre for rectangles, Ctrl+Z drops a line's last point)
-    rect: { tab: 'typed', s: 'square', c: 'centre' },
-    circle: { tab: 'typed', v: 'vertical', x: 'axis-x', y: 'axis-y' },
+    rect: { tab: 'typed', s: 'square', c: 'centre', d: 'size-d', f: 'size-f' },
+    circle: { tab: 'typed', v: 'vertical', x: 'axis-x', y: 'axis-y', d: 'size-d' },
     line: { tab: 'typed', 'ctrl-z': 'back', x: 'axis-x', y: 'axis-y', z: 'axis-z' },
     // The other curve tools (manual: Tab types dimensions; Regular Polygon's arrows and C; Spline
     // Curve's Ctrl+Z). They have no default keys in Plasticity either; F finds them.
-    'center-rect': { tab: 'typed', s: 'square' },
-    rect3: { tab: 'typed', x: 'axis-x', y: 'axis-y', z: 'axis-z' },
-    circle2: { tab: 'typed' },
-    circle3: { tab: 'typed' },
+    'center-rect': { tab: 'typed', s: 'square', d: 'size-d', f: 'size-f' },
+    rect3: { tab: 'typed', x: 'axis-x', y: 'axis-y', z: 'axis-z', d: 'size-d', f: 'size-f' },
+    circle2: { tab: 'typed', d: 'size-d' },
+    circle3: { tab: 'typed', d: 'size-d' },
     arc3: { tab: 'typed' },
     arc: { tab: 'typed' },
     // V stands a circle or polygon up (0.6.30's gizmo:circle:mode and gizmo:polygon:mode).
-    polygon: { tab: 'typed', arrowup: 'more', arrowdown: 'fewer', c: 'circumscribed', v: 'vertical' },
+    polygon: { tab: 'typed', arrowup: 'more', arrowdown: 'fewer', c: 'circumscribed', v: 'vertical', d: 'size-d' },
     // Tab swaps Spline Curve and Control Point Curve, keeping the points (manual: Control / Through-point).
     spline: { 'ctrl-z': 'back', tab: 'switch', x: 'axis-x', y: 'axis-y', z: 'axis-z' },
     cv: { 'ctrl-z': 'back', tab: 'switch', x: 'axis-x', y: 'axis-y', z: 'axis-z' },
@@ -195,8 +195,8 @@ export const COMMAND = {
     dimension: { tab: 'typed' },
     place: { s: 'scale', a: 'angle', d: 'offset', f: 'flip', i: 'instance', x: 'axis-x', y: 'axis-y', z: 'axis-z', q: 'union', w: 'difference', 'shift-e': 'intersect', 'shift-q': 'slice', b: 'new' },
     spiral: { x: 'axis-x', y: 'axis-y', z: 'axis-z', a: 'angle', d: 'length', r: 'radius' },
-    ellipse: {},
-    ellipse3: {},
+    ellipse: { d: 'size-d', f: 'size-f' },
+    ellipse3: { d: 'size-d', f: 'size-f' },
 };
 // Knife (manual: K while drawing): the finished curve imprints the face it was drawn on and is used up.
 for (const id of ['rect', 'circle', 'line', 'center-rect', 'rect3', 'circle2', 'circle3', 'arc3', 'arc', 'polygon', 'spline', 'cv', 'tangent-arc', 'ellipse', 'ellipse3']) COMMAND[id].k ??= 'knife';

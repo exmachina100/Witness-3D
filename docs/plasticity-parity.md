@@ -30,7 +30,7 @@ a flat face imprints that face and is used up (round 10).
 | Split Curve At Point | | Done in both builds for every curve kind (Split Segment): lines and arcs exactly, ellipses, circles, control-point and NURBS curves exactly (a closed one opens at the point), splines and joined curves piece by piece |
 | Insert CV At Point | | Done as Insert Knot (adds a control point without changing the curve) |
 | Trim | | Done in both builds: lines, rectangles, polygons, circles and arcs; ellipses, control-point and NURBS curves cut exactly (as NURBS, by knot insertion); splines and joined curves piece by piece, a spline's kept part refit through its own points and the cut |
-| Center Circle | centre, size; Tab, K, V, X/Y | Done |
+| Center Circle | centre, size; Tab, K, V, X/Y | Done. The manual's confirm step for shapes (circles, ellipses, rectangles, polygons) done in both builds: after the last click the shape stays open with its sizes on yellow dots, D (and F where there are two sizes: width and length, length and width of an ellipse) drags or types that size, and Enter, right-click or OK keeps it; Escape keeps it as placed |
 | Two Point Circle | | Done |
 | Three Point Circle | | Done |
 | Tangent Circle | pick two curves (optional third edge), size; F freeze, Tab radius | Done in both builds: two curves sized by the cursor or a radius, or a third curve clicked for the circle touching all three nearest the cursor (lines, circles and arcs exact, other curves through their samples) |
