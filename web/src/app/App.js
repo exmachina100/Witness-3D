@@ -126,6 +126,7 @@ const KEYS = {
   offset: [['DRAG DOT', 'DISTANCE'], ['D', 'DISTANCE'], ['A', 'ANGLE ADJACENT'], ['TAB', 'GROW MODE'], ['⇧ CLICK', 'FACES'], ['ALT+CLICK', 'A FACE TO MATCH'], ['⏎ / RMB', 'OK']],
   revolve: [['CLICK', 'AXIS START · END'], ['A', 'ANGLE'], ['⇧T', 'THICKNESS'], ['Q', 'UNION'], ['W', 'DIFFERENCE'], ['⇧E', 'INTERSECT'], ['B', 'NEW BODY'], ['⏎ / RMB', 'OK']],
   loft: [['CLICK', 'GUIDES (OPTIONAL)'], ['⏎ / RMB', 'OK'], ['ESC', 'CANCEL']],
+  'loft-faces': [['CLICK', 'ADD / REMOVE A FACE'], ['⏎ / RMB', 'OK'], ['ESC', 'CANCEL']],
   'loft-sheet': [['CLICK', 'ADD / REMOVE A CURVE OR EDGE'], ['⇧ CLICK', 'ADD / REMOVE A GUIDE'], ['O', 'LOOP'], ['L', 'LIMIT POINT'], ['TAB', 'CONTINUITY (EVERY EDGE)'], ['D', 'TENSION'], ['⏎ / RMB', 'OK'], ['ESC', 'CANCEL']],
   sweep: [['CLICK', 'PATH · THEN A GUIDE'], ['M', 'GUIDE METHOD'], ['N', 'ALIGNMENT'], ['D', 'TWIST'], ['Q', 'UNION'], ['W', 'DIFFERENCE'], ['⇧E', 'INTERSECT'], ['B', 'NEW BODY'], ['⏎ / RMB', 'OK']],
   rect: [['CLICK', 'CORNERS'], ['S', 'SQUARE'], ['C', 'FROM CENTRE'], ['TAB', 'TYPE SIZE'], ['ALT', 'NO SNAP'], ['ESC', 'CANCEL']],
@@ -10539,7 +10540,67 @@ export async function mount(root, backend) {
     refresh();
   }
 
+  /**
+   * Plasticity's Loft of faces (manual /solid/loft): two faces or more, in the order picked, and a
+   * solid through their boundaries. Clicking a face adds or drops it.
+   */
+  function startLoftFaces() {
+    if (!backend.previewLoftSheet) return toast('LOFT IS NOT IN THIS BUILD YET');
+    const c = cmd = { id: 'loft', faces: sel.list('face').map(f => ({ body: f.body, n: f.n })), sent: 0, shown: 0 };
+    lastTool = 'loft';
+    showTool('loft');
+    $$('[data-panel="form"]')[0].hidden = true;
+    $$('[data-panel="loft-sheet"]')[0].hidden = false;
+    for (const id of ['ls-loop', 'ls-limit', 'ls-simplify']) $(id).hidden = true;
+    $('ls-edges-row').hidden = true;
+    $('keys').innerHTML = keysHtml('loft-faces');
+    setState('none');
+    setTarget('NEW BODY');
+    const request = () => ({ curves: [], faces: c.faces.map(f => [f.body, f.n]) });
+    const text = () => c.faces.map(f => `${label(f.body)} FACE ${f.n + 1}`).join(' → ');
+    const refresh = () => {
+      $('ls-count').textContent = c.faces.length;
+      if (c.faces.length < 2) { clearPreview(); $('ls-hint').textContent = 'SELECT TWO FACES OR MORE, IN ORDER'; return setState('none'); }
+      livePreview(c, async () => { const b = await backend.previewLoftSheet(request()); return b ? [b] : null; }, list => {
+        for (const b of list) showPreviewBody(b, phantom.add.face, phantom.add.edge).renderOrder = 5;
+        $('ls-hint').textContent = text();
+        setHud('LOFT · FACES');
+      }, 'ls-hint');
+    };
+    c.onSelection = () => {
+      drawOverlays();
+      const now = sel.list('face');
+      const same = (a, b) => a.body === b.body && a.n === b.n;
+      c.faces = [...c.faces.filter(f => now.some(q => same(f, q))), ...now.filter(q => !c.faces.some(f => same(f, q))).map(f => ({ body: f.body, n: f.n }))];
+      refresh();
+    };
+    c.click = e => {
+      const hit = pickAt(e);
+      if (hit?.kind !== 'face') return true;
+      sel.toggle({ kind: 'face', body: hit.body, n: hit.n });
+      selectionChanged();
+      return true;
+    };
+    c.finish = async () => {
+      if (c.faces.length < 2) { setState('failed'); return toast('SELECT TWO FACES OR MORE, IN ORDER, TO LOFT'); }
+      try {
+        const { id, scene } = await backend.commitLoftSheet(request());
+        record(`LOFT ×${c.faces.length} FACES`, id);
+        endCmd('committed');
+        await showScene(scene);
+        sel.clear();
+        sel.add({ kind: 'solid', body: id });
+        selectionChanged({ quiet: true });
+      } catch (e) { setState('failed'); toast(say(e)); }
+    };
+    c.abort = () => endCmd('cancelled');
+    c.cleanup = () => { clearPreview(); for (const id of ['ls-loop', 'ls-limit', 'ls-simplify']) $(id).hidden = false; };
+    refresh();
+  }
+
   function startForm(id) {
+    // Faces selected (no curves or regions): Loft makes a solid between them.
+    if (id === 'loft' && sel.list('face').length && !sel.curves.length && !sel.list('edge').length) return startLoftFaces();
     // Curves or edges (not regions) selected: Loft makes a sheet through them.
     if (id === 'loft' && (sel.list('curve').length || sel.list('edge').length)) {
       startLoftSheet([]);
@@ -11565,6 +11626,7 @@ export async function mount(root, backend) {
     if (sel.solids.length === 2) out.push('tool:project');
     if (kinds.has('solid')) out.push('tool:move', 'tool:rotate', 'tool:scale', 'duplicate', 'create-outline', 'toggle-points', 'place', 'copy-place', 'dimension', 'tool:mirror', 'tool:rect-array', 'tool:radial-array', 'tool:curve-array', 'unify', 'boundary-edges', 'remove-fillets', 'raise-degree', 'deform-curve', 'create-instance', 'delete', 'hide', 'isolate', 'group', 'lock', 'material:set', 'export:step', 'export:mesh', 'export:drawing');
     if (kinds.has('face')) out.push('tool:extrude', 'tool:offset', 'tool:thicken', 'tool:shell', 'tool:hole', 'tool:remove-face', 'remove-fillets', 'isoparam', 'rebuild', 'raise-degree', 'subdivide', 'match-face', 'untrim', 'unwrap', 'toggle-points', 'view:surface-curvature', 'plane:selection', 'plane:selection-keep-view');
+    if (sel.list('face').length >= 2) out.push('tool:loft');
     if (sel.list('edge').length === 1 && sel.list('face').length === 1) out.push('project-align');
     if (kinds.has('edge')) out.push('tool:fillet', 'tool:patch', 'alt-duplicate', 'measure:radius', 'view:surface-curvature', ...(sel.list('edge').length === 2 ? ['bridge-edge', 'align-surface'] : []), ...([2, 3, 4].includes(sel.list('edge').length) ? ['square'] : []));
     if (sel.list('edge').length === 2) out.push('tool:bridge-surface');

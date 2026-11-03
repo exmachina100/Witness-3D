@@ -600,3 +600,15 @@ fn sweep_takes_every_selected_region_in_one_step() {
     close(volume(&doc.kernel, doc.get(a).unwrap()), 120_000.0 + 4_000.0, 1.0);
     assert_eq!(doc.ids(), vec![a]);
 }
+
+#[test]
+fn a_loft_of_two_faces_is_a_solid_between_them() {
+    let mut doc = Document::new(Occt);
+    let a = doc.add(doc.kernel.box_from_corners(DVec3::ZERO, DVec3::splat(10.0)));
+    let b = doc.add(doc.kernel.box_from_corners(DVec3::new(0.0, 0.0, 20.0), DVec3::new(10.0, 10.0, 30.0)));
+    let facing = |id, z: f64| (0..6).find(|&f| doc.kernel.face_normal(doc.get(id).unwrap(), f).is_some_and(|n| (n.z - z).abs() < 1e-9)).unwrap();
+    let (top, bottom) = (facing(a, 1.0), facing(b, -1.0));
+    let solid = doc.preview_loft_faces(&[(a, top), (b, bottom)]).unwrap();
+    close(volume(&doc.kernel, &solid), 1_000.0, 1.0);
+    assert!(doc.preview_loft_faces(&[(a, top)]).is_err());
+}

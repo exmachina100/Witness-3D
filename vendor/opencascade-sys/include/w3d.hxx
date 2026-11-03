@@ -1302,6 +1302,26 @@ inline std::unique_ptr<TopoDS_Shape> w3d_loft_guided(rust::Slice<const double> s
   }
 }
 
+// Plasticity's Loft of faces: a solid through the outer boundaries of the faces, in order (each
+// item of the compound `faces` holds one face).
+inline std::unique_ptr<TopoDS_Shape> w3d_loft_faces(const TopoDS_Shape &faces) {
+  try {
+    BRepOffsetAPI_ThruSections mk(Standard_True, Standard_False, 1e-6);
+    int n = 0;
+    for (TopoDS_Iterator it(faces); it.More(); it.Next(), n++) {
+      TopExp_Explorer ex(it.Value(), TopAbs_FACE);
+      if (!ex.More()) throw std::runtime_error("a loft of faces needs faces");
+      mk.AddWire(BRepTools::OuterWire(TopoDS::Face(ex.Current())));
+    }
+    if (n < 2) throw std::runtime_error("select two faces or more, in order, to loft");
+    mk.Build();
+    if (!mk.IsDone()) throw std::runtime_error("no solid could be lofted between those faces");
+    return std::unique_ptr<TopoDS_Shape>(new TopoDS_Shape(mk.Shape()));
+  } catch (const Standard_Failure &f) {
+    throw w3d_kernel_error(f);
+  }
+}
+
 // Plasticity's Loft of curves with guides (Shift+click): a sheet through the curves, in order, its
 // sides running along the guides, as w3d_loft_guided does for regions.
 inline std::unique_ptr<TopoDS_Shape> w3d_loft_sheet_guided(rust::Slice<const double> sections, rust::Slice<const double> guides, bool simplify) {
