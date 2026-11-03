@@ -82,14 +82,35 @@ export class Organise {
      * Ctrl+G: a new group around these bodies. It goes where they were when they all shared a group,
      * else at the top. Returns the group, or null with nothing to group.
      */
-    makeGroup(ids, name) {
-        if (!ids.length) return null;
-        const parents = new Set(ids.map(id => this.groupOf.get(id) ?? null));
+    makeGroup(ids, name, groupIds = []) {
+        // Selected groups nest in the new one (Plasticity's groups are objects too), with what they hold.
+        const nest = groupIds.filter(gid => this.group(gid));
+        if (!ids.length && !nest.length) return null;
+        const parents = new Set([...ids.map(id => this.groupOf.get(id) ?? null), ...nest.map(gid => this.group(gid).parent)]);
         const g = { id: this.nextGroup++, name: name ?? '', parent: parents.size === 1 ? [...parents][0] : null, open: true };
         g.name ||= `GROUP ${g.id}`;
+        // A group can't go inside one of its own: the new group stands where none of the nested ones holds it.
+        while (g.parent !== null && nest.some(gid => this.within(g.parent, gid))) g.parent = this.group(g.parent)?.parent ?? null;
         this.groups.push(g);
         for (const id of ids) this.groupOf.set(id, g.id);
+        for (const gid of nest) this.group(gid).parent = g.id;
         return g;
+    }
+    /** True when group `gid` is `outer` or lies somewhere inside it. */
+    within(gid, outer) {
+        for (let g = this.group(gid); g; g = this.group(g.parent)) if (g.id === outer) return true;
+        return false;
+    }
+    /**
+     * Alt+G (manual: "removes the selected object from its group"): only these items leave their
+     * groups, for the top (as Plasticity's OSS moves them to root); the groups and what else they
+     * hold stay. Returns how many moved.
+     */
+    removeFromGroup(ids, groupIds = []) {
+        let n = 0;
+        for (const id of ids) if (this.groupOf.delete(id)) n++;
+        for (const gid of groupIds) { const g = this.group(gid); if (g && g.parent !== null) { g.parent = null; n++; } }
+        return n;
     }
     /** Alt+G: the groups holding these bodies dissolve; what they held moves up to their parent. Returns how many went. */
     ungroup(ids) {
