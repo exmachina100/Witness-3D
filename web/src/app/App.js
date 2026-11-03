@@ -2226,11 +2226,32 @@ export async function mount(root, backend) {
   // What was selected when the command now finishing began: its sources, for Ctrl+T.
   let opSources = null, sourceAt = null, sourceSel = null, overlaysOff = false;
   const keepSources = () => { opSources = sel.list().map(it => ({ ...it })); };
-  function record(text, id, tag = label(id)) {
-    history.splice(history.length - undone, undone, { text, id, tag, sources: opSources ?? [] });
+  function record(text, id, tag = label(id)) { pushStep({ text, id, tag, sources: opSources ?? [] }); }
+  function pushStep(entry) {
+    history.splice(history.length - undone, undone, entry);
     undone = 0;
     sourceAt = null;
     renderHistory();
+  }
+  /**
+   * Organising is undoable like any other step (Plasticity keeps Hide, Lock, groups and the rest in
+   * its history): `fn` changes the outliner state, and the change goes in as one step that Ctrl+Z
+   * puts back without touching the model. Nothing changed, nothing is recorded.
+   */
+  function orgOp(text, fn) {
+    const before = org.snapshot();
+    const out = fn();
+    const after = org.snapshot();
+    if (JSON.stringify(before) !== JSON.stringify(after)) pushStep({ text, tag: '', sources: [], local: true, org: { before, after } });
+    return out;
+  }
+  function restoreOrg(snap) {
+    org.restore(snap);
+    org.prune(current.map(b => b.id), 'body');
+    org.prune(curveList.map(c => curveKey(c.id)), 'curve');
+    organised();
+    renderOutliner();
+    renderTotals();
   }
   /**
    * Ctrl+T: select what the last operation was made from (the selection its command began with,
@@ -2274,8 +2295,8 @@ export async function mount(root, backend) {
       const d = dragging;
       dragging = null;
       if (!d) return;
-      if (gid === null) org.removeFromGroup(d.ids, d.groups);
-      else org.addToGroup(gid, d.ids, d.groups);
+      if (gid === null) orgOp('MOVE TO TOP', () => org.removeFromGroup(d.ids, d.groups));
+      else orgOp(`MOVE INTO ${org.group(gid)?.name ?? 'GROUP'}`, () => org.addToGroup(gid, d.ids, d.groups));
       renderOutliner();
     };
   }
@@ -2301,15 +2322,15 @@ export async function mount(root, backend) {
     const picked = () => ({ ids: [...sel.solids, ...selectedCurveKeys()], groups: sel.groups.filter(x => x !== g.id && !org.within(g.id, x)) });
     const some = picked(), none = !some.ids.length && !some.groups.length;
     openOMenu(e, [
-      ['ADD SELECTION TO GROUP', () => { const { ids, groups } = picked(); org.addToGroup(g.id, ids, groups); renderOutliner(); }, none],
-      ['NEW SUBGROUP WITH SELECTION', () => { const { ids, groups } = picked(); const n = org.makeGroup(ids, undefined, groups); if (n) { n.parent = g.id; g.open = true; } renderOutliner(); }, none],
-      ['MOVE SELECTED ITEMS TO ROOT', () => { org.removeFromGroup(some.ids, some.groups); renderOutliner(); }, none],
+      ['ADD SELECTION TO GROUP', () => { const { ids, groups } = picked(); orgOp(`ADD TO ${g.name}`, () => org.addToGroup(g.id, ids, groups)); renderOutliner(); }, none],
+      ['NEW SUBGROUP WITH SELECTION', () => { const { ids, groups } = picked(); orgOp(`SUBGROUP IN ${g.name}`, () => { const n = org.makeGroup(ids, undefined, groups); if (n) { n.parent = g.id; g.open = true; } }); renderOutliner(); }, none],
+      ['MOVE SELECTED ITEMS TO ROOT', () => { orgOp('MOVE TO TOP', () => org.removeFromGroup(some.ids, some.groups)); renderOutliner(); }, none],
       ['SELECT ALL', () => selectKeys(all())],
       null,
       ['EXPAND ALL', () => { for (const x of org.groups) x.open = true; renderOutliner(); }],
       ['COLLAPSE ALL', () => { for (const x of org.groups) x.open = false; renderOutliner(); }],
       null,
-      ['DISSOLVE', () => { org.dissolve(g.id); organised(); renderOutliner(); }],
+      ['DISSOLVE', () => { orgOp(`DISSOLVE ${g.name}`, () => org.dissolve(g.id)); organised(); renderOutliner(); }],
       ['DELETE RECURSIVELY', () => deleteGroup(g.id)],
     ]);
   }
@@ -2317,7 +2338,7 @@ export async function mount(root, backend) {
   function objectMenu(e, key) {
     openOMenu(e, [
       ['ADD TO ISOLATION', () => { org.addToIsolation([key]); organised(); renderOutliner(); }, !org.layers.length],
-      ['REMOVE FROM GROUP', () => { org.removeFromGroup([key]); renderOutliner(); }, !org.groupOf.has(key)],
+      ['REMOVE FROM GROUP', () => { orgOp('REMOVE FROM GROUP', () => org.removeFromGroup([key])); renderOutliner(); }, !org.groupOf.has(key)],
       ['SELECT', () => selectKeys([key])],
     ]);
   }
@@ -2327,6 +2348,7 @@ export async function mount(root, backend) {
     const ids = keys.filter(k => typeof k === 'number'), curves = keys.filter(k => typeof k === 'string').map(curveKeyId);
     try {
       if (ids.length || curves.length) {
+        const before = org.snapshot();
         const list = backend.deleteItems ? await backend.deleteItems(ids, curves) : await backend.deleteBodies(ids);
         const names = [...ids.map(label), ...curves.map(curveLabel)];
         record(`DELETE ${org.group(gid)?.name ?? 'GROUP'} · ${names.join(' ')}`, ids[0] ?? curves[0], names[0]);
@@ -2334,7 +2356,8 @@ export async function mount(root, backend) {
         org.deleteGroup(gid);
         await showScene(list);
         if (curves.length) await loadCurves();
-      } else org.deleteGroup(gid);
+        history[history.length - 1].org = { before, after: org.snapshot() };
+      } else orgOp(`DELETE ${org.group(gid)?.name ?? 'GROUP'}`, () => org.deleteGroup(gid));
       organised();
       renderOutliner();
     } catch (err) { toast(say(err)); }
@@ -2345,7 +2368,7 @@ export async function mount(root, backend) {
     const ids = current.map(b => b.id), keys = [...ids, ...curveList.map(c => curveKey(c.id))];
     const solids = current.filter(b => !b.sheet), sheets = current.filter(b => b.sheet);
     const toggles = (shown, locked, off) => `<button class="dis" aria-pressed="${off}" aria-label="Disable or enable" title="${off ? 'Enable' : 'Disable: off the viewport and out of every command, for heavy scenes'}">${icon('disable')}</button><button class="lk" aria-pressed="${locked}" aria-label="Lock or unlock" title="${locked ? 'Unlock' : 'Lock'}">${icon(locked ? 'padlock' : 'unlock')}</button><button class="eye" aria-pressed="${shown}" aria-label="Show or hide">◉</button>`;
-    const setDisabled = (list, off) => { org.setDisabled(list, off); organised(); renderOutliner(); renderTotals(); };
+    const setDisabled = (list, off) => { orgOp(off ? 'DISABLE' : 'ENABLE', () => org.setDisabled(list, off)); organised(); renderOutliner(); renderTotals(); };
     const indent = depth => `padding-left: ${14 + 14 * depth}px`;
     const bodyRow = (b, depth) => {
       const row = document.createElement('div');
@@ -2358,7 +2381,7 @@ export async function mount(root, backend) {
         if (e.target.closest('.dis')) return setDisabled([b.id], !off);
         if (off) return toast('DISABLED · ENABLE TO SELECT');
         if (e.target.closest('.eye')) return setHidden([b.id], shown);
-        if (e.target.closest('.lk')) { org.setLocked([b.id], !locked); return organised(); }
+        if (e.target.closest('.lk')) { orgOp(`${locked ? 'UNLOCK' : 'LOCK'} ${label(b.id)}`, () => org.setLocked([b.id], !locked)); return organised(); }
         if (!org.picks(b.id)) return toast(locked ? 'LOCKED · UNLOCK TO SELECT' : 'HIDDEN');
         applySelect({ kind: 'solid', body: b.id }, e.shiftKey ? 'add' : (e.ctrlKey || e.metaKey) ? 'remove' : 'replace');
         selectionChanged();
@@ -2379,7 +2402,7 @@ export async function mount(root, backend) {
         if (e.target.closest('.dis')) return setDisabled([k], !off);
         if (off) return toast('DISABLED · ENABLE TO SELECT');
         if (e.target.closest('.eye')) return setHidden([k], shown);
-        if (e.target.closest('.lk')) { org.setLocked([k], !locked); return organised(); }
+        if (e.target.closest('.lk')) { orgOp(`${locked ? 'UNLOCK' : 'LOCK'} ${curveLabel(c.id)}`, () => org.setLocked([k], !locked)); return organised(); }
         if (!org.picks(k)) return toast(locked ? 'LOCKED · UNLOCK TO SELECT' : 'HIDDEN');
         applySelect({ kind: 'curve', id: c.id }, modOf(e));
         selectionChanged();
@@ -2404,7 +2427,7 @@ export async function mount(root, backend) {
         if (e.target.closest('.act')) { org.toggleActive(g.id); return renderOutliner(); }
         if (e.target.closest('.dis')) return setDisabled(all, !off);
         if (e.target.closest('.eye')) return setHidden(all, shown);
-        if (e.target.closest('.lk')) { org.setLocked(all, !locked); return organised(); }
+        if (e.target.closest('.lk')) { orgOp(`${locked ? 'UNLOCK' : 'LOCK'} ${g.name}`, () => org.setLocked(all, !locked)); return organised(); }
         const mod = e.shiftKey ? 'add' : (e.ctrlKey || e.metaKey) ? 'remove' : 'replace';
         if (e.altKey) {
           // Alt+click a folder: every object in it (manual: Outliner).
@@ -2421,7 +2444,7 @@ export async function mount(root, backend) {
         name.contentEditable = 'true';
         name.focus();
         getSelection().selectAllChildren(name);
-        const done = keep => { name.onblur = name.onkeydown = null; if (keep) org.rename(g.id, name.textContent); renderOutliner(); };
+        const done = keep => { name.onblur = name.onkeydown = null; if (keep) orgOp('RENAME GROUP', () => org.rename(g.id, name.textContent)); renderOutliner(); };
         name.onkeydown = k => { k.stopPropagation(); if (k.key === 'Enter') { k.preventDefault(); done(true); } else if (k.key === 'Escape') done(false); };
         name.onblur = () => done(true);
       };
@@ -11470,7 +11493,9 @@ export async function mount(root, backend) {
     if (cmd) abort();
     if (dir === 'undo' && undone >= history.length) return;
     if (dir === 'redo' && undone === 0) return;
-    showScene(await backend[dir]());
+    const h = history[dir === 'undo' ? history.length - undone - 1 : history.length - undone];
+    if (!h.local) await showScene(await backend[dir]());
+    if (h.org) restoreOrg(dir === 'undo' ? h.org.before : h.org.after);
     undone += dir === 'undo' ? 1 : -1;
     renderHistory();
   }
@@ -11726,7 +11751,7 @@ export async function mount(root, backend) {
     } catch (e) { setState('failed'); toast(say(e)); }
   }
   function setHidden(ids, hide) {
-    org.setHidden(ids, hide);
+    orgOp(hide ? 'HIDE' : 'SHOW', () => org.setHidden(ids, hide));
     organised();
   }
   /** The curves a selected curve, region or curve point stands for (a region of crossing curves: all of them). */
@@ -11779,7 +11804,7 @@ export async function mount(root, backend) {
   function groupSelected() {
     // Ctrl+G groups the selected solids, curves and groups (a selected group nests in the new one).
     const ids = [...sel.solids, ...selectedCurveKeys()], groups = sel.groups;
-    const g = org.makeGroup(ids, undefined, groups);
+    const g = orgOp('GROUP', () => org.makeGroup(ids, undefined, groups));
     if (!g) return toast('SELECT SOLIDS, CURVES OR GROUPS TO GROUP');
     toast(`${g.name} · ${ids.length + groups.length} ITEMS`);
     sel.clear();
@@ -11789,13 +11814,13 @@ export async function mount(root, backend) {
   }
   function ungroupSelected() {
     // Alt+G: only the selection leaves its group (manual: Outliner).
-    if (!org.removeFromGroup([...sel.solids, ...selectedCurveKeys()], sel.groups)) return toast('NOTHING SELECTED IS IN A GROUP');
+    if (!orgOp('UNGROUP', () => org.removeFromGroup([...sel.solids, ...selectedCurveKeys()], sel.groups))) return toast('NOTHING SELECTED IS IN A GROUP');
     renderOutliner();
   }
   function lockSelected() {
     const ids = selectedOrgKeys();
     if (!ids.length) return toast('SELECT WHAT TO LOCK');
-    org.setLocked(ids, true);
+    orgOp('LOCK', () => org.setLocked(ids, true));
     organised();
   }
   async function exportSelected() {
@@ -12023,14 +12048,14 @@ export async function mount(root, backend) {
       case 'hide': setHidden(selectedOrgKeys(), true); return true;
       case 'hide-others': { const keep = new Set(selectedOrgKeys()); setHidden(allObjectKeys().filter(id => !keep.has(id)), true); return true; }
       case 'unhide-all': setHidden([...org.hidden], false); return true;
-      case 'invert-hidden': org.invertHidden(allObjectKeys().filter(id => !org.disabled.has(id))); organised(); return true;
+      case 'invert-hidden': orgOp('INVERT HIDDEN', () => org.invertHidden(allObjectKeys().filter(id => !org.disabled.has(id)))); organised(); return true;
       case 'isolate': isolateSelected(); return true;
       case 'unisolate': org.unisolate(); organised(); return true;
       case 'group': groupSelected(); return true;
       case 'ungroup': ungroupSelected(); return true;
       case 'lock': lockSelected(); return true;
-      case 'unlock-all': org.setLocked([...org.locked], false); organised(); return true;
-      case 'delete-empty-groups': { const n = org.deleteEmptyGroups(allObjectKeys()); toast(n ? `${n} EMPTY GROUP${n > 1 ? 'S' : ''} DELETED` : 'NO EMPTY GROUPS'); renderOutliner(); return true; }
+      case 'unlock-all': orgOp('UNLOCK ALL', () => org.setLocked([...org.locked], false)); organised(); return true;
+      case 'delete-empty-groups': { const n = orgOp('DELETE EMPTY GROUPS', () => org.deleteEmptyGroups(allObjectKeys())); toast(n ? `${n} EMPTY GROUP${n > 1 ? 'S' : ''} DELETED` : 'NO EMPTY GROUPS'); renderOutliner(); return true; }
       case 'undo': await step('undo'); return true;
       case 'redo': await step('redo'); return true;
     }

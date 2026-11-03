@@ -151,6 +151,14 @@ export class Organise {
     toJSON() {
         return { groups: this.groups.map(g => ({ ...g })), groupOf: [...this.groupOf], hidden: [...this.hidden], locked: [...this.locked], disabled: [...this.disabled], active: this.active, nextGroup: this.nextGroup };
     }
+    /** Everything an undo step puts back: what toJSON() keeps and the isolation layers. */
+    snapshot() { return { ...this.toJSON(), layers: this.layers.map(l => [...l]) }; }
+    /** Back to a snapshot() (Ctrl+Z on an organising step). */
+    restore(snap) {
+        const o = Organise.from(snap);
+        for (const k of ['hidden', 'locked', 'disabled', 'groups', 'groupOf', 'active', 'nextGroup']) this[k] = o[k];
+        this.layers = (Array.isArray(snap?.layers) ? snap.layers : []).map(l => new Set(l));
+    }
     /** Back from toJSON(); anything missing or malformed is left empty. */
     static from(data) {
         const o = new Organise();
