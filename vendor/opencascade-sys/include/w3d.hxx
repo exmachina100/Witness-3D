@@ -9,6 +9,7 @@
 #include <BRepBuilderAPI_GTransform.hxx>
 #include <gp_GTrsf.hxx>
 #include <BRepBuilderAPI_MakeEdge.hxx>
+#include <BRepBuilderAPI_FindPlane.hxx>
 #include <BRepBuilderAPI_MakeFace.hxx>
 #include <BRepBuilderAPI_MakePolygon.hxx>
 #include <BRepBuilderAPI_MakeWire.hxx>
@@ -1188,11 +1189,29 @@ inline TopoDS_Wire w3d_warp_wire(const TopoDS_Wire &w, const std::vector<gp_Pnt>
   return mk.Wire();
 }
 
-inline std::unique_ptr<TopoDS_Shape> w3d_loft_guided(rust::Slice<const double> sections, rust::Slice<const double> guides) {
-  try {
-    std::vector<TopoDS_Wire> profiles, rails;
-    for (const double *p = sections.data(), *end = p + sections.size(); p < end;) profiles.push_back(w3d_section(p, end));
-    for (const double *p = guides.data(), *end = p + guides.size(); p < end;) rails.push_back(w3d_section(p, end));
+// A section's centre and the normal of its plane, for cutting the plain loft between sections. A
+// solid's sections are regions. A sheet's are curves: a flat curve whose plane faces the next section
+// gives that plane, and a straight one, or one lying across the loft, faces the next section.
+inline std::pair<gp_Pnt, gp_Vec> w3d_station_of(const TopoDS_Wire &w, const TopoDS_Wire &next, bool solid) {
+  if (solid) return w3d_plane_of(w);
+  GProp_GProps here, there;
+  BRepGProp::LinearProperties(w, here);
+  BRepGProp::LinearProperties(next, there);
+  gp_Vec span(here.CentreOfMass(), there.CentreOfMass());
+  if (span.Magnitude() < 1e-9) throw std::runtime_error("two profiles lie on top of each other");
+  span.Normalize();
+  BRepBuilderAPI_FindPlane flat(w, 1e-6);
+  if (flat.Found()) {
+    gp_Vec n(flat.Plane()->Axis().Direction());
+    if (std::abs(n.Dot(span)) > 0.3) return {here.CentreOfMass(), n};
+  }
+  return {here.CentreOfMass(), span};
+}
+
+// The loft through `profiles` along `rails` (see w3d_loft_guided): a solid, or with `solid` false a
+// sheet through open or closed curves.
+inline TopoDS_Shape w3d_loft_along(const std::vector<TopoDS_Wire> &profiles, std::vector<TopoDS_Wire> rails, bool solid) {
+  {
     if (profiles.size() < 2) throw std::runtime_error("a loft needs two profiles or more");
     if (rails.empty()) throw std::runtime_error("select the guide curves");
 
@@ -1208,18 +1227,18 @@ inline std::unique_ptr<TopoDS_Shape> w3d_loft_guided(rust::Slice<const double> s
         touch[j].push_back(d.PointOnShape2(1));
       }
     }
-    BRepOffsetAPI_ThruSections plain_mk(Standard_True, Standard_False);
+    BRepOffsetAPI_ThruSections plain_mk(solid, Standard_False);
     for (const auto &w : profiles) plain_mk.AddWire(w);
     plain_mk.Build();
     if (!plain_mk.IsDone()) throw std::runtime_error("no surface could be lofted through those profiles");
     TopoDS_Shape plain = plain_mk.Shape();
 
     const int stations = 16;
-    BRepOffsetAPI_ThruSections mk(Standard_True, Standard_False, 1e-6);
+    BRepOffsetAPI_ThruSections mk(solid, Standard_False, 1e-6);
     mk.AddWire(profiles[0]);
     for (size_t i = 0; i + 1 < profiles.size(); i++) {
-      auto [ca, na] = w3d_plane_of(profiles[i]);
-      auto [cb, nb] = w3d_plane_of(profiles[i + 1]);
+      auto [ca, na] = w3d_station_of(profiles[i], profiles[i + 1], solid);
+      auto [cb, nb] = w3d_station_of(profiles[i + 1], profiles[i], solid);
       gp_Vec span(ca, cb);
       if (na.Dot(span) < 0) na.Reverse();
       if (nb.Dot(span) < 0) nb.Reverse();
@@ -1268,7 +1287,30 @@ inline std::unique_ptr<TopoDS_Shape> w3d_loft_guided(rust::Slice<const double> s
     }
     mk.Build();
     if (!mk.IsDone()) throw std::runtime_error("no surface could be lofted along those guides; check they run from the first profile to the last");
-    return std::unique_ptr<TopoDS_Shape>(new TopoDS_Shape(mk.Shape()));
+    return mk.Shape();
+  }
+}
+
+inline std::unique_ptr<TopoDS_Shape> w3d_loft_guided(rust::Slice<const double> sections, rust::Slice<const double> guides) {
+  try {
+    std::vector<TopoDS_Wire> profiles, rails;
+    for (const double *p = sections.data(), *end = p + sections.size(); p < end;) profiles.push_back(w3d_section(p, end));
+    for (const double *p = guides.data(), *end = p + guides.size(); p < end;) rails.push_back(w3d_section(p, end));
+    return std::unique_ptr<TopoDS_Shape>(new TopoDS_Shape(w3d_loft_along(profiles, rails, true)));
+  } catch (const Standard_Failure &f) {
+    throw w3d_kernel_error(f);
+  }
+}
+
+// Plasticity's Loft of curves with guides (Shift+click): a sheet through the curves, in order, its
+// sides running along the guides, as w3d_loft_guided does for regions.
+inline std::unique_ptr<TopoDS_Shape> w3d_loft_sheet_guided(rust::Slice<const double> sections, rust::Slice<const double> guides, bool simplify) {
+  try {
+    std::vector<TopoDS_Wire> profiles, rails;
+    for (const double *p = sections.data(), *end = p + sections.size(); p < end;) profiles.push_back(w3d_section(p, end));
+    for (const double *p = guides.data(), *end = p + guides.size(); p < end;) rails.push_back(w3d_section(p, end));
+    TopoDS_Shape sheet = w3d_loft_along(profiles, rails, false);
+    return std::unique_ptr<TopoDS_Shape>(new TopoDS_Shape(simplify ? w3d_flat_faces(sheet) : sheet));
   } catch (const Standard_Failure &f) {
     throw w3d_kernel_error(f);
   }

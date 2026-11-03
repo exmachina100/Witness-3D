@@ -1506,20 +1506,32 @@ pub struct LoftSheetRequest {
     /// Faces lying flat become trimmed planes (Plasticity's Simplify, on to begin with).
     #[serde(default = "yes")]
     pub simplify: bool,
+    /// Guides (Shift+click): drawn curves or body edges the sheet's sides run along.
+    #[serde(default)]
+    pub guides: Vec<GuideRef>,
+}
+
+impl LoftSheetRequest {
+    fn sheet(&self, doc: &Document<Occt>) -> Result<<Occt as Kernel>::Solid, KernelError> {
+        if self.guides.is_empty() { return doc.preview_loft_sheet(&self.curves, self.looped, self.simplify) }
+        if self.looped { return Err(KernelError::Invalid("a loop doesn't go with guides; turn Loop off")) }
+        doc.preview_loft_sheet_guided(&self.curves, &self.guides, self.simplify)
+    }
 }
 
 fn yes() -> bool { true }
 
 pub fn preview_loft_sheet(m: &Model, req: LoftSheetRequest) -> Option<Result<Body, ApiError>> {
     m.preview(move |doc| {
-        let sheet = doc.preview_loft_sheet(&req.curves, req.looped, req.simplify)?;
+        let sheet = req.sheet(doc)?;
         Ok(body(&doc.kernel, 0, &sheet)?)
     })
 }
 
 pub fn commit_loft_sheet(m: &Model, req: LoftSheetRequest) -> Result<Committed, ApiError> {
     m.call(move |doc| {
-        let id = doc.commit_loft_sheet(&req.curves, req.looped, req.simplify)?;
+        let sheet = req.sheet(doc)?;
+        let id = doc.add(sheet);
         Ok(Committed { id, scene: bodies(doc)? })
     })
 }

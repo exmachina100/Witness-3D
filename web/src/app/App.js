@@ -126,7 +126,7 @@ const KEYS = {
   offset: [['DRAG DOT', 'DISTANCE'], ['D', 'DISTANCE'], ['A', 'ANGLE ADJACENT'], ['TAB', 'GROW MODE'], ['⇧ CLICK', 'FACES'], ['ALT+CLICK', 'A FACE TO MATCH'], ['⏎ / RMB', 'OK']],
   revolve: [['CLICK', 'AXIS START · END'], ['A', 'ANGLE'], ['⇧T', 'THICKNESS'], ['Q', 'UNION'], ['W', 'DIFFERENCE'], ['⇧E', 'INTERSECT'], ['B', 'NEW BODY'], ['⏎ / RMB', 'OK']],
   loft: [['CLICK', 'GUIDES (OPTIONAL)'], ['⏎ / RMB', 'OK'], ['ESC', 'CANCEL']],
-  'loft-sheet': [['CLICK', 'ADD / REMOVE A CURVE OR EDGE'], ['O', 'LOOP'], ['L', 'LIMIT POINT'], ['TAB', 'CONTINUITY (EVERY EDGE)'], ['D', 'TENSION'], ['⏎ / RMB', 'OK'], ['ESC', 'CANCEL']],
+  'loft-sheet': [['CLICK', 'ADD / REMOVE A CURVE OR EDGE'], ['⇧ CLICK', 'ADD / REMOVE A GUIDE'], ['O', 'LOOP'], ['L', 'LIMIT POINT'], ['TAB', 'CONTINUITY (EVERY EDGE)'], ['D', 'TENSION'], ['⏎ / RMB', 'OK'], ['ESC', 'CANCEL']],
   sweep: [['CLICK', 'PATH · THEN A GUIDE'], ['M', 'GUIDE METHOD'], ['N', 'ALIGNMENT'], ['D', 'TWIST'], ['Q', 'UNION'], ['W', 'DIFFERENCE'], ['⇧E', 'INTERSECT'], ['B', 'NEW BODY'], ['⏎ / RMB', 'OK']],
   rect: [['CLICK', 'CORNERS'], ['S', 'SQUARE'], ['C', 'FROM CENTRE'], ['TAB', 'TYPE SIZE'], ['ALT', 'NO SNAP'], ['ESC', 'CANCEL']],
   circle: [['CLICK', 'CENTRE · RADIUS'], ['V', 'VERTICAL'], ['TAB', 'TYPE DIAMETER'], ['ALT', 'NO SNAP'], ['ESC', 'CANCEL']],
@@ -957,6 +957,7 @@ const SHELL = `
     <div class="sec" data-panel="loft-sheet" hidden>
       <span class="hint" data-id="ls-hint">—</span>
       <div class="field"><label>CURVES</label><output data-id="ls-count">0</output></div>
+      <div class="field" title="Shift+click curves or edges the sheet's sides run along; Shift+click one again to drop it"><label>GUIDES</label><output data-id="ls-guides">0</output></div>
       <div class="field"><label>LIMIT POINTS</label><output data-id="ls-limits">0</output></div>
       <div data-id="ls-edges-row" hidden>
         <span class="label">CONTINUITY AT EACH EDGE · TAB SETS ALL</span>
@@ -10333,7 +10334,7 @@ export async function mount(root, backend) {
    */
   function startLoftSheet(curves) {
     if (!backend.previewLoftSheet) return toast('LOFT OF CURVES IS NOT IN THIS BUILD YET');
-    const c = cmd = { id: 'loft', sheet: true, curves, loop: false, simplify: true, cont: 'G0', data: null, sent: 0, shown: 0 };
+    const c = cmd = { id: 'loft', sheet: true, curves, guides: [], loop: false, simplify: true, cont: 'G0', data: null, sent: 0, shown: 0 };
     $('ls-t').value = '1';
     lastTool = 'loft';
     showTool('loft');
@@ -10374,8 +10375,10 @@ export async function mount(root, backend) {
       $('ls-limits').textContent = pts.length;
       $('ls-limit').setAttribute('aria-pressed', String(c.picking));
     };
-    const request = async () => ({ curves: await Promise.all(c.curves.map(profile)), loop: c.loop, simplify: c.simplify });
-    const text = () => `${c.curves.map(p => typeof p === 'object' ? `${label(p.body)} EDGE ${p.n + 1}` : curveLabel(p)).join(' → ')}${c.loop ? ' → BACK TO THE FIRST' : ''}`;
+    // Guides (Shift+click, manual /solid/loft): drawn curves or body edges the sheet's sides run along.
+    const request = async () => ({ curves: await Promise.all(c.curves.map(profile)), loop: c.loop, simplify: c.simplify, ...(c.guides.length ? { guides: await Promise.all(c.guides.map(g => typeof g === 'object' ? edgeCurve(g) : g)) } : {}) });
+    const nameOf = p => typeof p === 'object' ? `${label(p.body)} EDGE ${p.n + 1}` : curveLabel(p);
+    const text = () => `${c.curves.map(nameOf).join(' → ')}${c.loop ? ' → BACK TO THE FIRST' : ''}${c.guides.length ? ` · GUIDES ${c.guides.map(nameOf).join(', ')}` : ' · SHIFT+CLICK GUIDES (OPTIONAL)'}`;
     // Per-edge continuity (the manual's circles on the surface): the first and last profiles, when
     // body edges, each with its own continuity, G0 to G2, and one tension (three profiles or more go
     // through the inner ones, square.js loft). G1 and G2 leave each face
@@ -10385,7 +10388,7 @@ export async function mount(root, backend) {
     // The edges that can carry their face on: the first and last profiles' (the inner ones are passed through).
     const edgesOf = () => c.curves.filter((p, i) => typeof p === 'object' && (i === 0 || i === c.curves.length - 1));
     const contOf = p => c.conts.get(p.key) ?? 'G0';
-    const twoEdges = () => !c.loop && c.curves.length >= 2 && edgesOf().length > 0 && c.limits.size === 0 && backend.previewSplineSheet && backend.edgeFaces;
+    const twoEdges = () => !c.loop && c.curves.length >= 2 && edgesOf().length > 0 && c.limits.size === 0 && !c.guides.length && backend.previewSplineSheet && backend.edgeFaces;
     const smooth = () => twoEdges() && edgesOf().some(p => contOf(p) !== 'G0');
     const reader = edgeSideReader(c.sides = c.sides ?? {});
     const RANK = { G0: 0, G1: 1, G2: 2 };
@@ -10426,8 +10429,9 @@ export async function mount(root, backend) {
     }, 'ls-hint');
     const refresh = () => {
       $('ls-count').textContent = c.curves.length;
+      $('ls-guides').textContent = c.guides.length;
       $('ls-loop').setAttribute('aria-pressed', String(c.loop));
-      $('ls-loop').disabled = c.curves.length < 3;
+      $('ls-loop').disabled = c.curves.length < 3 || c.guides.length > 0;
       $('ls-simplify').setAttribute('aria-pressed', String(c.simplify));
       $('ls-edges-row').hidden = !twoEdges();
       // One continuity switch for each edge profile.
@@ -10487,6 +10491,16 @@ export async function mount(root, backend) {
         addLimit(hit.id, curveFrame(curveById(hit.id)), hit.point);
         return true;
       }
+      // Shift+click: a guide curve or edge, added or (clicked again) dropped.
+      if (e.shiftKey && (hit?.kind === 'curve' || hit?.kind === 'region' || hit?.kind === 'edge')) {
+        const g = hit.kind === 'edge' ? { key: `${hit.body}:${hit.n}`, body: hit.body, n: hit.n } : hit.id;
+        const same = q => typeof g === 'object' ? typeof q === 'object' && q.key === g.key : q === g;
+        if (c.curves.some(same)) return toast('THAT IS A PROFILE · SHIFT+CLICK ANOTHER CURVE OR EDGE AS A GUIDE'), true;
+        c.guides = c.guides.some(same) ? c.guides.filter(q => !same(q)) : [...c.guides, g];
+        if (c.guides.length) c.loop = false;
+        refresh();
+        return true;
+      }
       if (hit?.kind === 'curve') sel.toggle({ kind: 'curve', id: hit.id });
       else if (hit?.kind === 'edge') sel.toggle({ kind: 'edge', body: hit.body, n: hit.n });
       else return true;
@@ -10511,7 +10525,7 @@ export async function mount(root, backend) {
         const { id, scene } = smooth()
           ? await (async () => { const { ids, scene } = await backend.commitSplineSheet({ data: c.data ?? splineSheetData(await fitEdges()) }); return { id: ids[0], scene }; })()
           : await backend.commitLoftSheet(await request());
-        record(`LOFT ×${c.curves.length}${c.loop ? ' LOOP' : ''}`, id);
+        record(`LOFT ×${c.curves.length}${c.loop ? ' LOOP' : ''}${c.guides.length ? ` · ${c.guides.length} GUIDE${c.guides.length > 1 ? 'S' : ''}` : ''}`, id);
         endCmd('committed');
         await showScene(scene);
         sel.clear();
