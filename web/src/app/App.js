@@ -11261,6 +11261,7 @@ export async function mount(root, backend) {
     for (let v = 0; v < col.count; v++) (Math.floor(v / 4) === half ? a : b).toArray(col.array, v * 3);
     col.needsUpdate = true;
   }
+  let prefsTab = 'navigation';
   async function openPrefs() {
     closePMenu();
     if (backend.networkPrefs) {
@@ -11276,8 +11277,19 @@ export async function mount(root, backend) {
       const note = off ? 'DESKTOP APP ONLY' : f.restart ? 'AFTER A RESTART' : '';
       return `<label class="pf-row${off ? ' off' : ''}" data-pref="${s}.${f.key}" title="${note ? note.charAt(0) + note.slice(1).toLowerCase() : f.label}"><span>${f.label}${note ? `<small>${note}</small>` : ''}</span>${input.replace('>', off ? ' disabled>' : '>')}</label>`;
     };
+    // Plasticity's Preferences is a window of sections picked from a list on its left; one section
+    // shows at a time, so the window keeps one size that fits the screen.
+    const tab = PREF_SECTIONS[prefsTab] ? prefsTab : 'navigation';
     el.innerHTML = `<div class="pf-head"><span>PREFERENCES</span><button data-id="prefs-reset" title="Put every setting back to its default">RESET</button><button data-id="prefs-close" title="Close (Esc)" aria-label="Close">${icon('close')}</button></div>`
-      + Object.entries(PREF_FIELDS).map(([s, fs]) => `<div class="pf-title">${PREF_SECTIONS[s]}</div>` + fs.map(f => field(s, f)).join('')).join('');
+      + `<div class="pf-body"><nav class="pf-tabs" role="tablist" aria-orientation="vertical">`
+      + Object.keys(PREF_FIELDS).map(s => `<button role="tab" data-pftab="${s}" aria-selected="${s === tab}" title="${PREF_SECTIONS[s].charAt(0) + PREF_SECTIONS[s].slice(1).toLowerCase()} settings">${PREF_SECTIONS[s]}</button>`).join('')
+      + `</nav>` + Object.entries(PREF_FIELDS).map(([s, fs]) => `<section class="pf-page" role="tabpanel" data-pfpage="${s}"${s === tab ? '' : ' hidden'}><div class="pf-title">${PREF_SECTIONS[s]}</div>` + fs.map(f => field(s, f)).join('') + '</section>').join('')
+      + `</div>`;
+    for (const b of el.querySelectorAll('[data-pftab]')) b.onclick = () => {
+      prefsTab = b.dataset.pftab;
+      for (const t of el.querySelectorAll('[data-pftab]')) t.setAttribute('aria-selected', String(t === b));
+      for (const pg of el.querySelectorAll('[data-pfpage]')) pg.hidden = pg.dataset.pfpage !== prefsTab;
+    };
     el.hidden = false;
     for (const row of el.querySelectorAll('[data-pref]')) {
       const [s, key] = row.dataset.pref.split('.'), input = row.querySelector('input, select');

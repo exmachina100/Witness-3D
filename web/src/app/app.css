@@ -318,7 +318,15 @@ input[type="range"] { accent-color: var(--accent); }
 .pmenu kbd { font: inherit; opacity: 0.6; }
 .pmenu .pm-title, .pmenu .pm-none { padding: 8px 14px 4px; color: var(--muted); font-size: 10px; }
 .pmenu hr { border: 0; border-top: 1px solid var(--rule-soft); margin: 4px 0; }
-.prefs { position: fixed; left: 50%; top: 64px; transform: translateX(-50%); width: 380px; max-height: calc(100vh - 120px); overflow-y: auto; z-index: 21; background: var(--raised); border: 1px solid var(--rule); box-shadow: 0 12px 40px rgba(0, 0, 0, 0.5); padding: 0 0 8px; font-size: 11px; }
+.prefs { position: fixed; left: 50%; top: 50%; transform: translate(-50%, -50%); width: min(640px, calc(100vw - 32px)); height: min(460px, calc(100vh - 96px)); display: flex; flex-direction: column; z-index: 21; background: var(--raised); border: 1px solid var(--rule); box-shadow: 0 12px 40px rgba(0, 0, 0, 0.5); font-size: 11px; }
+.prefs .pf-body { flex: 1; min-height: 0; display: flex; }
+.prefs .pf-tabs { flex: none; width: 150px; display: flex; flex-direction: column; padding: 8px 0; border-right: 1px solid var(--rule-soft); overflow-y: auto; }
+.prefs .pf-tabs button { text-align: left; padding: 7px 14px; color: var(--muted); border-left: 2px solid transparent; }
+.prefs .pf-tabs button:hover { color: var(--ink); background: var(--hover); }
+.prefs .pf-tabs button[aria-selected="true"] { color: var(--ink); border-left-color: var(--accent); background: var(--hover); }
+.prefs .pf-page { flex: 1; min-width: 0; overflow-y: auto; padding-bottom: 8px; }
+.prefs .pf-page[hidden] { display: none; }
+@media (max-width: 560px) { .prefs .pf-body { flex-direction: column; } .prefs .pf-tabs { width: auto; flex-direction: row; overflow-x: auto; border-right: 0; border-bottom: 1px solid var(--rule-soft); padding: 0; } .prefs .pf-tabs button { border-left: 0; border-bottom: 2px solid transparent; white-space: nowrap; } .prefs .pf-tabs button[aria-selected="true"] { border-bottom-color: var(--accent); } }
 .prefs[hidden] { display: none; }
 .prefs .pf-head { display: flex; align-items: center; gap: 12px; padding: 10px 14px; border-bottom: 1px solid var(--rule-soft); position: sticky; top: 0; background: var(--raised); }
 .prefs .pf-head span { flex: 1; color: var(--accent); }
