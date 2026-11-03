@@ -5,7 +5,7 @@ import * as THREE from 'three';
 import { ExtrudeFactory } from '../ExtrudeFactory.js';
 import { NoOpError } from '../GeometryFactory.js';
 import { THROAT, arrayMotions, importSTEP, blendEdges, booleanWithHistory, extrudeFace, bounds, box, count, draftFaces, faceSheet, imprintEdgesWithHistory, imprintWithHistory, planeSheet, regions, unifyWithHistory, boundaryEdges, splitWithHistory, draftWithHistory, exportSTEP, facePlane, mirror, mirror as mirrorShape, numberedEdges, oc, primitive, shellFaces, tessellate, transform, volume } from '../Kernel.js';
-import { curveIsOpen, cutSheets, loft, loftGuided, loftSheet, offsetFlatFaces, pipe, regionFace, revolve, revolveCurve, splineSamples, sweep, sweepCurve, sweepGuided } from '../Forms.js';
+import { curveIsOpen, cutSheets, extrudeCurve, loft, loftGuided, loftSheet, offsetFlatFaces, pipe, regionFace, revolve, revolveCurve, splineSamples, sweep, sweepCurve, sweepGuided } from '../Forms.js';
 import { curveFromNurbs, ends, join, loops, MEET, nurbsLoop } from '../curves.js';
 import { isoparam, meetCurves, projectCurveCurve, projectCurves, projectedEdges, sectionCurves } from '../Project.js';
 import { isSheet, patch } from '../Patch.js';
@@ -1411,6 +1411,15 @@ export class LocalBackend {
     /** Only the newest of the requests queued during a computation runs; the others resolve to null. */
     preview(req) {
         return this.latest(async () => {
+            if (req.curves?.length) {
+                try {
+                    const [tool, ...more] = this.extrudeCurves(req).map(s => this.body(0, s));
+                    return { outcome: 'new', tool, result: null, more };
+                } catch (e) {
+                    if (e instanceof NoOpError) return { outcome: 'none', tool: null, result: null };
+                    throw e;
+                }
+            }
             try {
                 const { f, r, piece, outcome } = await this.run(req);
                 return { outcome, tool: this.body(0, f.tool()), result: r.replaces === undefined ? null : this.body(r.replaces, r.shape), ...(piece && { piece: this.body(this.nextId, piece.shape) }) };
@@ -1547,7 +1556,34 @@ export class LocalBackend {
         this.revision++;
     }
 
+    /**
+     * Plasticity's Extrude of curves: each curve drawn out `distance` along `direction` (and `back`
+     * the other way) into a sheet of its own (as Document::preview_extrude_curves).
+     */
+    extrudeCurves({ curves, direction, distance = 0, back = 0, op = 'auto', angle = 0, thickness = 0 }) {
+        if (!['auto', 'new', undefined].includes(op)) throw new Error('a curve makes a sheet, a new body; pick a region or face to join, cut or intersect');
+        if (Math.abs(angle) > 1e-12 || Math.abs(thickness) > 1e-12) throw new Error('angle and thickness take a region or face; set them back to 0');
+        const d = new THREE.Vector3(...(direction ?? []));
+        if (!direction || !(d.length() > 1e-9)) throw new Error('say which way to extrude the curves');
+        if (![distance, back].every(Number.isFinite)) throw new Error('the distance is not a valid number');
+        d.normalize();
+        const [from, to] = distance >= 0 ? [-Math.abs(back), distance] : [distance, Math.abs(back)];
+        if (to - from < 1e-9) throw new NoOpError();
+        return curves.map(id => {
+            const c = this.curveMap.get(id);
+            if (!c) throw new Error('that curve no longer exists');
+            return extrudeCurve(c, d.clone().multiplyScalar(from).toArray(), d.clone().multiplyScalar(to - from).toArray());
+        });
+    }
+
     async commit(req) {
+        if (req.curves?.length) {
+            const sheets = this.extrudeCurves(req);
+            this.checkpoint();
+            let id;
+            for (const s of sheets) { id = this.nextId++; this.put(id, s); }
+            return { id, scene: this.bodies() };
+        }
         const { r, piece } = await this.run(req);
         this.checkpoint();
         const id = r.replaces ?? this.nextId++;

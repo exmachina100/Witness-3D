@@ -141,6 +141,13 @@ impl Shape {
         Ok(Shape::from_shape(&s))
     }
 
+    /// A curve (path numbers) moved by `shift`, then drawn out along `vector` into a sheet.
+    pub fn extrude_sheet(curve: &[f64], shift: [f64; 3], vector: [f64; 3]) -> Result<Shape, String> {
+        let along = [shift[0], shift[1], shift[2], vector[0], vector[1], vector[2]];
+        let s = ffi::w3d::w3d_extrude_sheet(curve, &along).map_err(reason)?;
+        Ok(Shape::from_shape(&s))
+    }
+
     /// A curve (path numbers) turned `angle` radians about `axis` into a sheet.
     pub fn revolve_sheet(curve: &[f64], axis: [f64; 6], angle: f64) -> Result<Shape, String> {
         let s = ffi::w3d::w3d_revolve_sheet(curve, &axis, angle).map_err(reason)?;

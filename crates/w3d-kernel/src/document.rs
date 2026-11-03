@@ -662,6 +662,34 @@ impl<K: Kernel> Document<K> {
         extrude(&self.kernel, target.and_then(|id| self.get(id)), p)
     }
 
+    /// Plasticity's Extrude of curves: each curve drawn out `distance` along `direction` (and `back`
+    /// the other way) into a sheet of its own, without changing the document.
+    pub fn preview_extrude_curves(&self, curves: &[CurveId], direction: DVec3, distance: f64, back: f64) -> Result<Vec<K::Solid>, KernelError> {
+        if curves.is_empty() { return Err(KernelError::Invalid("select a curve first")) }
+        if !direction.is_finite() || direction.length() < 1e-9 { return Err(KernelError::Invalid("the extrude direction is not valid")) }
+        if !distance.is_finite() || !back.is_finite() { return Err(KernelError::Invalid("the distance is not a valid number")) }
+        let d = direction.normalize();
+        let (from, to) = if distance >= 0.0 { (-back.abs(), distance) } else { (distance, back.abs()) };
+        if to - from < 1e-9 { return Err(KernelError::NoOp) }
+        curves.iter().map(|id| {
+            let c = self.curve(*id).ok_or(KernelError::Invalid("that curve no longer exists"))?;
+            self.kernel.extrude_curve(&c.path(), d * from, d * (to - from))
+        }).collect()
+    }
+
+    /// Extrude curves into sheets, one body each, as one undoable step. Returns the new ids.
+    pub fn commit_extrude_curves(&mut self, curves: &[CurveId], direction: DVec3, distance: f64, back: f64) -> Result<Vec<BodyId>, KernelError> {
+        let sheets = self.preview_extrude_curves(curves, direction, distance, back)?;
+        self.checkpoint();
+        Ok(sheets.into_iter().map(|solid| {
+            let id = self.state.next_id;
+            self.state.next_id += 1;
+            let refs = self.new_refs(&solid);
+            self.state.bodies.insert(id, Rc::new(Body { solid, refs }));
+            id
+        }).collect())
+    }
+
     /// Run an extrude and record it as one undoable step. Returns the body it created or changed.
     pub fn commit_extrude(&mut self, target: Option<BodyId>, p: &ExtrudeParams) -> Result<BodyId, KernelError> {
         let r = self.preview_extrude(target, p)?;

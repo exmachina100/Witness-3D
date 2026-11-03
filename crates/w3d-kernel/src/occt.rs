@@ -323,6 +323,10 @@ impl Kernel for Occt {
         Shape::revolve_sheet(&path_numbers(curve)?, axis, angle).map_err(shim)
     }
 
+    fn extrude_curve(&self, curve: &Path, shift: DVec3, vector: DVec3) -> Result<Shape, KernelError> {
+        Shape::extrude_sheet(&path_numbers(curve)?, shift.to_array(), vector.to_array()).map_err(shim)
+    }
+
     fn sweep_curve(&self, curve: &Path, path: &Path) -> Result<Shape, KernelError> {
         Shape::sweep_sheet(&path_numbers(curve)?, &path_numbers(path)?).map_err(shim)
     }
