@@ -223,3 +223,26 @@ test('group menu: add to group, add to isolation, delete recursively and empty g
     assert.equal(o.deleteEmptyGroups([1, 2, 3]), 1);
     assert.equal(o.groups.length, 1);
 });
+
+test('snapshot and restore put back groups, hidden, locked and isolation (undo of organising)', () => {
+    const o = new Organise();
+    o.prune([1, 2, 3]);
+    const before = o.snapshot();
+    const g = o.makeGroup([1, 2]);
+    o.setHidden([3], true);
+    o.setLocked([1], true);
+    o.isolate([1, 2]);
+    const after = o.snapshot();
+    o.restore(before);
+    assert.equal(o.groups.length, 0);
+    assert.equal(o.groupOf.size, 0);
+    assert.ok(!o.hidden.has(3) && !o.locked.has(1) && o.layers.length === 0);
+    o.restore(after);
+    assert.equal(o.group(g.id).name, g.name);
+    assert.equal(o.groupOf.get(2), g.id);
+    assert.ok(o.hidden.has(3) && o.locked.has(1));
+    assert.deepEqual([...o.layers[0]], [1, 2]);
+    // The snapshot is a copy: later changes don't reach it.
+    o.setHidden([3], false);
+    assert.deepEqual(after.hidden, [3]);
+});
