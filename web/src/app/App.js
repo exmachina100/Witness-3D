@@ -2250,6 +2250,35 @@ export async function mount(root, backend) {
     const gone = history[i].sources.length - there.length;
     toast(`SOURCES OF ${history[i].text}${there.length ? ` · ${there.length} SELECTED` : ''}${gone ? ` · ${gone} NO LONGER THERE` : ''}`);
   }
+  // Drag and drop in the outliner (manual: "Drag and drop objects to reorder the Outliner"): a row
+  // dragged onto a folder goes into that group, onto a section title back to the top. A row that is
+  // selected takes the whole selection with it.
+  let dragging = null;
+  function dragRow(row, what) {
+    row.draggable = true;
+    row.ondragstart = e => {
+      dragging = what.selected()
+        ? { ids: [...sel.solids, ...selectedCurveKeys()], groups: sel.groups }
+        : { ids: what.key !== undefined ? [what.key] : [], groups: what.group !== undefined ? [what.group] : [] };
+      e.dataTransfer.effectAllowed = 'move';
+      e.dataTransfer.setData('text/plain', 'w3d-outliner');
+    };
+    row.ondragend = () => { dragging = null; for (const r of $('outliner').querySelectorAll('.drop')) r.classList.remove('drop'); };
+  }
+  function dropOn(el, gid) {
+    el.ondragover = e => { if (!dragging) return; e.preventDefault(); el.classList.add('drop'); };
+    el.ondragleave = () => el.classList.remove('drop');
+    el.ondrop = e => {
+      e.preventDefault();
+      el.classList.remove('drop');
+      const d = dragging;
+      dragging = null;
+      if (!d) return;
+      if (gid === null) org.removeFromGroup(d.ids, d.groups);
+      else org.addToGroup(gid, d.ids, d.groups);
+      renderOutliner();
+    };
+  }
   /** The outliner's right-click menu: [label, run, disabled?] entries, null for a rule. */
   function openOMenu(e, entries) {
     const m = $('omenu');
@@ -2335,6 +2364,7 @@ export async function mount(root, backend) {
         selectionChanged();
       };
       row.oncontextmenu = e => { e.preventDefault(); objectMenu(e, b.id); };
+      dragRow(row, { key: b.id, selected: () => sel.has({ kind: 'solid', body: b.id }) });
       out.append(row);
     };
     const curveRow = (c, depth) => {
@@ -2355,6 +2385,7 @@ export async function mount(root, backend) {
         selectionChanged();
       };
       row.oncontextmenu = e => { e.preventDefault(); objectMenu(e, k); };
+      dragRow(row, { key: k, selected: () => sel.has({ kind: 'curve', id: c.id }) });
       out.append(row);
     };
     // A group is a folder: its own groups, then its bodies and curves. Clicking it selects the group; Alt+click everything in it.
@@ -2397,6 +2428,8 @@ export async function mount(root, backend) {
       // Plasticity: double-clicking a group makes it the active collection (the name renames).
       row.ondblclick = e => { if (e.target.closest('button, .name')) return; org.toggleActive(g.id); renderOutliner(); };
       row.oncontextmenu = e => { e.preventDefault(); groupMenu(e, g); };
+      dragRow(row, { group: g.id, selected: () => sel.has({ kind: 'group', id: g.id }) });
+      dropOn(row, g.id);
       out.append(row);
       if (!g.open) return;
       for (const c of org.childGroups(g.id)) folder(c, depth + 1);
@@ -2414,6 +2447,8 @@ export async function mount(root, backend) {
     if (cmd?.id === 'pushpull' && cmd.at) out.insertAdjacentHTML('beforeend', `<div class="row-item curve"><span class="ln"></span><span>${profileKind === 'circle' ? 'CIRCLE' : 'RECT'}.001</span></div>`);
     else if (!curveList.length) out.insertAdjacentHTML('beforeend', '<div class="empty">NO CURVES</div>');
     // Right-click a section title: Select all in it (manual: Outliner).
+    // Dropped on a section title: out of every group, to the top.
+    for (const t of out.querySelectorAll('.group-title')) dropOn(t, null);
     for (const t of out.querySelectorAll('.group-title')) {
       const what = { '▾ SOLIDS': 'solids', '▾ SHEETS': 'sheets', '▾ CURVES': 'curves' }[t.textContent];
       if (what) t.oncontextmenu = e => { e.preventDefault(); openOMenu(e, [['SELECT ALL', () => doAction(`select:${what}`)]]); };
