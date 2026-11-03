@@ -46,6 +46,11 @@ async fn commit_extrude(
 }
 
 #[tauri::command]
+async fn curve_regions(model: State<'_, Model>, req: api::CurveRegionsRequest) -> Result<Vec<api::Body>, api::ApiError> {
+    on_model(&model, move |m| api::curve_regions(m, req)).await?
+}
+
+#[tauri::command]
 async fn undo(model: State<'_, Model>) -> Result<Vec<api::Body>, String> {
     on_model(&model, api::undo).await?
 }
@@ -1180,6 +1185,7 @@ pub fn run() {
             preview_thicken,
             commit_thicken,
             edge_curvature,
+            curve_regions,
             preview_spline_sheet,
             commit_spline_sheet,
             preview_untrim,

@@ -5,7 +5,7 @@
 
 import * as THREE from 'three';
 import { arcPoints, cvDegree, cvPoints, ellipsePoints, helixPoints, loops, nurbsLoop, nurbsPoints } from './curves.js';
-import { boolean, count, extrudeFace, facePlane, oc } from './Kernel.js';
+import { boolean, bounds, count, extrudeFace, facePlane, oc, planeSheet } from './Kernel.js';
 
 const pnt = v => new (oc().gp_Pnt)(v.x, v.y, v.z);
 const dir = v => new (oc().gp_Dir)(v.x, v.y, v.z);
@@ -154,6 +154,61 @@ function section(c) {
 export function splineSamples(c) {
     const p = plane(c);
     return geometry(c).points.map(q => { const d = q.clone().sub(p.o); return [d.dot(p.x), d.dot(p.y)]; });
+}
+
+/**
+ * Plasticity's regions ("an area enclosed by curves is called a region") from coplanar curves
+ * taken together, as w3d_curve_regions does on the desktop: a large face of the first curve's plane
+ * split by every curve at once, keeping the pieces clear of its rim (a line across a rectangle
+ * gives two, overlapping circles three, an inner loop makes the outer one a ring, lines meeting end
+ * to end close one). Edges left dangling inside a region are dropped. Returns the region faces.
+ */
+export function curveRegions(cs) {
+    const o = oc();
+    if (!cs.length) throw new Error('there are no curves to make regions from');
+    const p = plane(cs[0]), wires = cs.map(curveWire);
+    const all = new THREE.Box3();
+    for (const w of wires) all.union(bounds(w));
+    const size = 10 * all.getSize(new THREE.Vector3()).length() + 10;
+    const big = planeSheet(p.o.toArray(), p.n.toArray(), size);
+    const args = new o.NCollection_List_TopoDS_Shape(), tools = new o.NCollection_List_TopoDS_Shape();
+    args.Append(big);
+    for (const w of wires) tools.Append(w);
+    const sp = new o.BRepAlgoAPI_Splitter();
+    sp.SetArguments(args);
+    sp.SetTools(tools);
+    sp.SetFuzzyValue(1e-6);
+    sp.Build(new o.Message_ProgressRange());
+    if (!sp.IsDone() || sp.HasErrors()) throw new Error('the curves could not be split into regions');
+    const kept = (w) => {
+        const mk = new o.BRepBuilderAPI_MakeWire();
+        let n = 0;
+        for (const ex = new o.TopExp_Explorer(w, o.TopAbs_ShapeEnum.TopAbs_EDGE, o.TopAbs_ShapeEnum.TopAbs_SHAPE); ex.More(); ex.Next()) {
+            const or = ex.Current().Orientation();
+            if (or === o.TopAbs_Orientation.TopAbs_INTERNAL || or === o.TopAbs_Orientation.TopAbs_EXTERNAL) continue;
+            mk.Add(o.TopoDS.Edge(ex.Current()));
+            n++;
+        }
+        return n && mk.IsDone() && o.BRep_Tool.IsClosed(mk.Wire()) ? mk.Wire() : null;
+    };
+    const out = [];
+    for (const fx = new o.TopExp_Explorer(sp.Shape(), o.TopAbs_ShapeEnum.TopAbs_FACE, o.TopAbs_ShapeEnum.TopAbs_SHAPE); fx.More(); fx.Next()) {
+        const f = o.TopoDS.Face(fx.Current());
+        if (bounds(f).getSize(new THREE.Vector3()).length() > size) continue; // reaches the rim
+        const outer = o.BRepTools.OuterWire(f), w = kept(outer);
+        if (!w) continue;
+        const mk = new o.BRepBuilderAPI_MakeFace(w, true);
+        if (!mk.IsDone()) continue;
+        for (const wx = new o.TopExp_Explorer(f, o.TopAbs_ShapeEnum.TopAbs_WIRE, o.TopAbs_ShapeEnum.TopAbs_SHAPE); wx.More(); wx.Next()) {
+            if (wx.Current().IsSame(outer)) continue;
+            const h = kept(o.TopoDS.Wire(wx.Current()));
+            if (h) mk.Add(h);
+        }
+        let face = mk.Face();
+        if (o.ShapeFix_Face) { const fix = new o.ShapeFix_Face(face); fix.Perform(); face = fix.Face(); }
+        out.push(face);
+    }
+    return out;
 }
 
 /** A closed curve's region as an exact face, for Extrude. */

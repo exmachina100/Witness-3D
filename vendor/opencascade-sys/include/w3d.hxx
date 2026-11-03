@@ -6484,3 +6484,72 @@ inline std::unique_ptr<TopoDS_Shape> w3d_patch_trim(const TopoDS_Shape &target, 
     throw w3d_kernel_error(f);
   }
 }
+
+// Plasticity's regions: "an area enclosed by curves is called a region", from every coplanar curve
+// together. `paths` are w3d_section curves on the plane through plane[0..3] square to plane[3..6].
+// A large face of the plane is split by all of them at once; the pieces that stay clear of its rim
+// are the regions (a line across a rectangle gives two, overlapping circles three, an inner loop
+// makes the outer one a ring, lines meeting end to end close one). Edges left dangling inside a
+// region are dropped. Returns a compound of the region faces.
+inline std::unique_ptr<TopoDS_Shape> w3d_curve_regions(rust::Slice<const double> paths, rust::Slice<const double> plane) {
+  try {
+    if (plane.size() != 6) throw std::runtime_error("the regions need a plane");
+    std::vector<TopoDS_Wire> wires;
+    for (const double *p = paths.data(), *end = p + paths.size(); p < end;) wires.push_back(w3d_section(p, end));
+    if (wires.empty()) throw std::runtime_error("there are no curves to make regions from");
+    Bnd_Box all;
+    for (const auto &w : wires) BRepBndLib::Add(w, all);
+    const double size = 10.0 * std::sqrt(all.SquareExtent()) + 10.0;
+    gp_Pln pl(gp_Pnt(plane[0], plane[1], plane[2]), gp_Dir(plane[3], plane[4], plane[5]));
+    TopoDS_Face big = BRepBuilderAPI_MakeFace(pl, -size, size, -size, size).Face();
+    TopTools_ListOfShape args, tools;
+    args.Append(big);
+    for (const auto &w : wires) tools.Append(w);
+    BRepAlgoAPI_Splitter sp;
+    sp.SetArguments(args);
+    sp.SetTools(tools);
+    sp.SetFuzzyValue(1e-6);
+    sp.Build();
+    if (!sp.IsDone()) throw std::runtime_error("the curves could not be split into regions");
+    TopoDS_Compound out;
+    BRep_Builder b;
+    b.MakeCompound(out);
+    for (TopExp_Explorer fx(sp.Shape(), TopAbs_FACE); fx.More(); fx.Next()) {
+      TopoDS_Face f = TopoDS::Face(fx.Current());
+      Bnd_Box fb;
+      BRepBndLib::Add(f, fb);
+      if (std::sqrt(fb.SquareExtent()) > size) continue; // reaches the rim: outside every region
+      // The face again from its wires, without edges left inside it.
+      TopoDS_Wire outer = BRepTools::OuterWire(f);
+      auto clean = [](const TopoDS_Wire &w, bool &ok) {
+        BRepBuilderAPI_MakeWire mw;
+        int n = 0;
+        for (TopExp_Explorer ex(w, TopAbs_EDGE); ex.More(); ex.Next()) {
+          if (ex.Current().Orientation() == TopAbs_INTERNAL || ex.Current().Orientation() == TopAbs_EXTERNAL) continue;
+          mw.Add(TopoDS::Edge(ex.Current()));
+          n++;
+        }
+        ok = n > 0 && mw.IsDone() && BRep_Tool::IsClosed(mw.Wire());
+        return ok ? mw.Wire() : TopoDS_Wire();
+      };
+      bool ok = false;
+      TopoDS_Wire o = clean(outer, ok);
+      if (!ok) continue;
+      BRepBuilderAPI_MakeFace mf(pl, o, Standard_True);
+      if (!mf.IsDone()) continue;
+      for (TopExp_Explorer wx(f, TopAbs_WIRE); wx.More(); wx.Next()) {
+        if (wx.Current().IsSame(outer)) continue;
+        bool hole = false;
+        TopoDS_Wire h = clean(TopoDS::Wire(wx.Current()), hole);
+        if (hole) mf.Add(h);
+      }
+      if (!mf.IsDone()) continue;
+      ShapeFix_Face fix(mf.Face());
+      fix.Perform();
+      b.Add(out, fix.Face());
+    }
+    return std::unique_ptr<TopoDS_Shape>(new TopoDS_Shape(out));
+  } catch (const Standard_Failure &f) {
+    throw w3d_kernel_error(f);
+  }
+}

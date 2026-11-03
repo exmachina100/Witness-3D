@@ -377,6 +377,11 @@ pub trait Kernel {
     }
     /// Plasticity's Loft of faces: a solid through the outer boundaries of `faces` (each a one-face
     /// sheet), in order.
+    /// Plasticity's regions: the areas closed off by `curves` (all on the plane through `origin`
+    /// square to `normal`) taken together, crossings, overlaps and holes included; each a sheet.
+    fn curve_regions(&self, _curves: &[Path], _origin: DVec3, _normal: DVec3) -> Result<Vec<Self::Solid>, KernelError> {
+        Err(KernelError::Invalid("this kernel cannot make regions"))
+    }
     fn loft_faces(&self, _faces: &[&Self::Solid]) -> Result<Self::Solid, KernelError> {
         Err(KernelError::Invalid("this kernel cannot loft faces"))
     }

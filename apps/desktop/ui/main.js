@@ -75,6 +75,7 @@ const rust = {
   previewThicken: req => tauri.core.invoke('preview_thicken', { req }),
   commitThicken: req => tauri.core.invoke('commit_thicken', { req }),
   edgeCurvature: req => tauri.core.invoke('edge_curvature', { req }),
+  curveRegions: req => tauri.core.invoke('curve_regions', { req }),
   previewSplineSheet: req => tauri.core.invoke('preview_spline_sheet', { req }),
   commitSplineSheet: req => tauri.core.invoke('commit_spline_sheet', { req }),
   previewUntrim: req => tauri.core.invoke('preview_untrim', { req }),
