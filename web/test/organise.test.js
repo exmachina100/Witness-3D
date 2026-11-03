@@ -202,3 +202,24 @@ test('curves group with bodies', () => {
     const g = o.makeGroup([1, curveKey(5)]);
     assert.deepEqual(o.allMembers(g.id, [1, curveKey(5)]), [1, curveKey(5)]);
 });
+
+test('group menu: add to group, add to isolation, delete recursively and empty groups', () => {
+    const o = new Organise();
+    o.prune([1, 2, 3]);
+    const a = o.makeGroup([1]), b = o.makeGroup([2]);
+    o.addToGroup(a.id, [3], [b.id]);
+    assert.deepEqual(o.allMembers(a.id, [1, 2, 3]), [1, 2, 3]);
+    o.addToGroup(b.id, [], [a.id]);   // a can't go into its own child
+    assert.equal(a.parent, null);
+    o.isolate([1]);
+    o.addToIsolation([2]);
+    assert.ok(o.shows(2) && !o.shows(3));
+    o.unisolate();
+    o.deleteGroup(a.id);
+    assert.ok(!o.group(a.id) && !o.group(b.id) && !o.groupOf.size);
+    o.makeGroup([1]); o.makeGroup([], 'X', []);
+    const e = { id: o.nextGroup++, name: 'E', parent: null, open: true };
+    o.groups.push(e);
+    assert.equal(o.deleteEmptyGroups([1, 2, 3]), 1);
+    assert.equal(o.groups.length, 1);
+});
