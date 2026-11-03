@@ -228,7 +228,6 @@ const SHELL = `
 <div class="w3d">
   <header class="bar">
     <div class="brand"><button class="pmenu-open" data-id="pmenu-open" aria-haspopup="menu" aria-expanded="false" title="File menu">WITNESS 3D <span class="caret">▾</span></button></div>
-    <nav class="tools" data-id="tools" aria-label="Tools"></nav>
     <span class="spacer"></span>
     <button class="export" data-action="ask" title="Ask for a command in words (Ctrl+K)">${icon('ask')}ASK</button>
     <button class="export" data-id="file-new" hidden>${icon('file-new')}NEW</button>
@@ -243,6 +242,8 @@ const SHELL = `
   <div class="prefs" data-id="prefs" role="dialog" aria-label="Preferences" hidden></div>
 
   <aside class="left" aria-label="Document">
+    <nav class="tools rail" data-id="tools" aria-label="Tools" aria-orientation="vertical"></nav>
+    <div class="doc">
     <div class="tabs" role="tablist">
       <button role="tab" data-id="tab-outliner" aria-selected="true">OUTLINER</button>
       <button role="tab" data-id="tab-history" aria-selected="false">HISTORY <span data-id="history-count">00</span></button>
@@ -258,6 +259,7 @@ const SHELL = `
     <div class="pair">
       <button data-id="undo" title="Undo (Ctrl+Z)">${icon('undo')}UNDO</button>
       <button data-id="redo" title="Redo (Ctrl+Shift+Z)">${icon('redo')}REDO</button>
+    </div>
     </div>
   </aside>
 
@@ -1092,12 +1094,15 @@ export async function mount(root, backend) {
 
   // The toolbar: Plasticity's families of tools, each one button with its variants a click away.
   const NAMES = { rect: 'CORNER RECTANGLE', circle: 'CENTER CIRCLE', line: 'LINE', explode: 'EXPLODE', 'offset-curve': 'OFFSET CURVE', 'fillet-curve': 'FILLET CURVE', bridge: 'BRIDGE CURVES' };
+  // Rail entries that are actions rather than tools (Insert CV, Slot, Toggle Curvature), and their names.
+  const RAIL_ACTIONS = { 'insert-knot': 'insert-knot', slot: 'slot', 'view-curvature': 'view:curvature' };
+  const RAIL_ACTION_NAMES = { 'insert-knot': 'INSERT CV', slot: 'SLOT', 'view-curvature': 'TOGGLE CURVATURE', trim: 'TRIM', split: 'SPLIT CURVE' };
   const ICON_OF = { 'measure-distance': 'measure', 'measure-radius': 'measure', 'measure-continuity': 'measure' };
   const toolbar = new Toolbar(root.querySelector('[data-id="tools"]'), root, id => ({
-    name: NAMES[id] ?? EDITS[id] ?? DRAW[id] ?? toolInfo(id)?.label ?? id.toUpperCase(),
-    key: keyFor(`draw:${id}`) || keyFor(`tool:${id}`) || (toolInfo(id)?.key ?? '').toUpperCase().replaceAll('-', ' '),
+    name: NAMES[id] ?? EDITS[id] ?? DRAW[id] ?? toolInfo(id)?.label ?? RAIL_ACTION_NAMES[id] ?? id.toUpperCase(),
+    key: keyFor(`draw:${id}`) || keyFor(`tool:${id}`) || keyFor(RAIL_ACTIONS[id] ?? id) || (toolInfo(id)?.key ?? '').toUpperCase().replaceAll('-', ' '),
     icon: icon(ICON_OF[id] ?? id),
-  }), id => (id === 'explode' ? explodeSelected() : startTool(id)));
+  }), id => (id === 'explode' ? explodeSelected() : RAIL_ACTIONS[id] ? doAction(RAIL_ACTIONS[id]) : startTool(id)));
   const say = e => String(e?.message ?? e).toUpperCase();
 
   const toast = msg => {

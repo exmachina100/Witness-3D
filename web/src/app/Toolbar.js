@@ -1,26 +1,24 @@
-// The toolbar, grouped the way Plasticity groups its tools: one button per family (Rectangle,
-// Circle, Arc, Box, …) showing the variant used last, with a strip of the family's other variants that
-// opens from the ▾ next to it, by right-clicking the button, or by holding it down. Picking a variant
-// runs it and makes it the family's face; the choice is remembered on this browser.
+// The tool rail, grouped the way Plasticity's manual groups its tools: one button per family (Curves
+// and Lines, Circles, Arcs, …) showing the variant used last. Pressing a button and dragging onto a
+// variant in the strip that opens beside it runs that variant on release; a plain click runs the
+// family's last-used tool; right-click or the corner mark opens the strip too. The choice is
+// remembered on this browser.
 
 /**
- * The families, in toolbar order: the manual's Sketching and Primitive Tools, and nothing else. The
- * common commands live on the Command Bar at the bottom (App.js `BAR`); every other command is
- * reached the way Plasticity reaches it, by its key, the F palette or Shift+F suggestions.
- * `items` are command ids; the first is the default face.
+ * The families, top to bottom: the manual's Sketching tools (Curves and Lines, Circles, Arcs,
+ * Rectangles, Polygon and Spiral), its 3D Primitives and its Measurement tools. The common commands
+ * live on the Command Bar at the bottom (App.js `BAR`); every other command is reached the way
+ * Plasticity reaches it, by its key, the F palette or Shift+F suggestions. `items` are command ids;
+ * the first is the default face.
  */
 export const FAMILIES = [
-    { id: 'line', items: ['line'] },
-    { id: 'curve', label: 'CURVE', items: ['spline', 'cv'] },
-    { id: 'rect', label: 'RECTANGLE', items: ['rect', 'center-rect', 'rect3'] },
-    { id: 'circle', label: 'CIRCLE', items: ['circle', 'circle2', 'circle3', 'tangent-circle'] },
-    { id: 'arc', label: 'ARC', items: ['arc3', 'arc', 'tangent-arc'] },
-    { id: 'ellipse', label: 'ELLIPSE', items: ['ellipse', 'ellipse3'] },
-    { id: 'polygon', label: 'POLYGON · SPIRAL', items: ['polygon', 'spiral'] },
-    { id: 'box', label: 'BOX', items: ['box', 'center-box', 'box3'] },
-    { id: 'cylinder', items: ['cylinder'] },
-    { id: 'sphere', items: ['sphere'] },
-    { id: 'measure', label: 'MEASURE', items: ['measure-distance', 'measure-radius', 'measure-continuity'] },
+    { id: 'curve', label: 'CURVES AND LINES', items: ['line', 'spline', 'cv', 'bridge', 'split', 'insert-knot', 'trim'] },
+    { id: 'circle', label: 'CIRCLES', items: ['circle', 'circle2', 'circle3', 'tangent-circle', 'ellipse', 'ellipse3'] },
+    { id: 'arc', label: 'ARCS', items: ['arc3', 'arc', 'tangent-arc'] },
+    { id: 'rect', label: 'RECTANGLES', items: ['rect', 'center-rect', 'rect3'] },
+    { id: 'polygon', label: 'POLYGON · SPIRAL', items: ['polygon', 'spiral', 'slot'] },
+    { id: 'box', label: '3D PRIMITIVES', items: ['box', 'center-box', 'box3', 'cylinder', 'sphere'] },
+    { id: 'measure', label: 'MEASUREMENT', items: ['measure-distance', 'measure-radius', 'measure-continuity', 'view-curvature'] },
 ];
 
 const HOLD_MS = 350;
@@ -44,7 +42,6 @@ export class Toolbar {
         }
         nav.innerHTML = FAMILIES.map(f => `<div class="family${f.items.length > 1 ? ' multi' : ''}" data-family="${f.id}">`
             + `<button class="tool" data-face aria-pressed="false"></button>`
-            + (f.items.length > 1 ? `<button class="more" data-more aria-label="More ${(f.label ?? '').toLowerCase()} tools" aria-haspopup="menu" aria-expanded="false" title="${f.label}: more ways">▾</button>` : '')
             + '</div>').join('');
         this.strip = document.createElement('div');
         this.strip.className = 'flyout';
@@ -57,14 +54,24 @@ export class Toolbar {
         for (const el of nav.querySelectorAll('.family')) {
             const fam = FAMILIES.find(f => f.id === el.dataset.family), face = el.querySelector('[data-face]');
             let timer = null, held = false;
+            // Press and hold (or press and drag off the button) opens the strip; releasing over one of
+            // its variants runs it, as Plasticity's tool buttons do.
             face.addEventListener('pointerdown', e => {
                 if (e.button !== 0 || fam.items.length < 2) return;
                 held = false;
-                timer = setTimeout(() => { held = true; this.open(fam, el); }, HOLD_MS);
+                const openNow = () => { if (held) return; clearTimeout(timer); held = true; this.open(fam, el); this.dragging = true; };
+                timer = setTimeout(openNow, HOLD_MS);
+                const away = m => { if (Math.hypot(m.clientX - e.clientX, m.clientY - e.clientY) > 6) { removeEventListener('pointermove', away); openNow(); } };
+                addEventListener('pointermove', away);
+                addEventListener('pointerup', u => {
+                    clearTimeout(timer);
+                    removeEventListener('pointermove', away);
+                    if (!this.dragging) return;
+                    this.dragging = false;
+                    const b = document.elementFromPoint(u.clientX, u.clientY)?.closest?.('[data-pick]');
+                    if (b && this.strip.contains(b)) { this.close(); this.pick(fam.id, b.dataset.pick); }
+                }, { once: true });
             });
-            const cancel = () => clearTimeout(timer);
-            face.addEventListener('pointerup', cancel);
-            face.addEventListener('pointerleave', cancel);
             face.addEventListener('click', e => { if (held) { e.preventDefault(); held = false; return; } this.close(); this.run(this.face[fam.id]); });
             face.addEventListener('contextmenu', e => { if (fam.items.length < 2) return; e.preventDefault(); this.open(fam, el); });
             el.querySelector('[data-more]')?.addEventListener('click', () => this.strip.hidden || this.openFor !== fam.id ? this.open(fam, el) : this.close());
@@ -107,8 +114,9 @@ export class Toolbar {
         const r = el.getBoundingClientRect();
         this.strip.hidden = false;
         const w = this.strip.offsetWidth;
-        this.strip.style.left = `${Math.max(8, Math.min(r.left, innerWidth - w - 8))}px`;
-        this.strip.style.top = `${r.bottom + 4}px`;
+        const h = this.strip.offsetHeight;
+        this.strip.style.left = `${Math.max(8, Math.min(r.right + 4, innerWidth - w - 8))}px`;
+        this.strip.style.top = `${Math.max(8, Math.min(r.top, innerHeight - h - 8))}px`;
         el.querySelector('[data-more]')?.setAttribute('aria-expanded', 'true');
         this.strip.querySelector('[aria-current="true"]')?.focus();
     }
