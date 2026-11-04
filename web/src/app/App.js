@@ -68,7 +68,7 @@ import { MagnitudeGizmo, typed } from '../MagnitudeGizmo.js';
 import { TOOLS, check, tool as toolInfo, withDefaults } from './tools.js';
 import { ACTIONS, COMMAND, VIEWPORT, keyFor, keyOf } from './keymap.js';
 import { adjacent, edgeLoop, edgeRing, topology } from './edgeLoops.js';
-import { Selection, faceBoundEdges, faceEdges, faceNeighbours } from './Selection.js';
+import { Selection, faceBoundEdges, faceEdges, faceNeighbours, faceRim } from './Selection.js';
 import { faceProfile } from '../faceProfile.js';
 import { edgeOffsetsBothSides, edgeOffsetsOnFace, facesLoopOffsets } from '../edgeOffset.js';
 import { curveArrayMotions } from '../curveArray.js';
@@ -6917,7 +6917,15 @@ export async function mount(root, backend) {
     const picked = loop ? sel.list('face').map(it => it.n) : sel.list('edge').map(it => it.n);
     const flat = f => body.facePlanes[f] ? f : null;
     if (loop && !picked.length) return toast('PICK FACES OR EDGES TO OFFSET');
-    if (loop && picked.some(f => flat(f) === null)) return toast('OFFSET FACE LOOP WORKS ON FLAT FACES');
+    // A curved face's loop: the kernel offsets its own edges across it, keeping the distance in space.
+    let rim = null;
+    if (loop && picked.some(f => flat(f) === null)) {
+      if (picked.length > 1) return toast('OFFSET FACE LOOP ON A CURVED FACE TAKES ONE FACE AT A TIME');
+      if (!backend.previewOffsetEdges) return toast('OFFSET FACE LOOP ON CURVED FACES IS NOT IN THIS BUILD YET');
+      rim = faceRim(body, picked[0]);
+      if (!rim.length) return toast('NO EDGES FOUND ROUND THAT FACE');
+      if (rim.every(r => r.face === null)) return toast('OFFSET FACE LOOP NEEDS A FACE WITH A NEIGHBOUR');
+    }
     // The flat faces the picked edges all lie on: those an edge offset can run across.
     const sides = loop ? [...picked] : body.facePlanes.map((_, f) => f).filter(f => flat(f) !== null && picked.every(n => faceEdges(body, f).includes(n)));
     if (!sides.length && !backend.previewOffsetEdges) return toast('PICK EDGES THAT ALL BORDER ONE FLAT FACE');
@@ -6940,6 +6948,15 @@ export async function mount(root, backend) {
       c.any = null;
       try {
         if (!Number.isFinite(d) || Math.abs(d) < 1e-9) throw new Error('type a distance');
+        if (rim) {
+          if (d < 0) throw new Error('offset face loop on a curved face goes inward: type a positive distance');
+          c.shapes = null;
+          const edges = rim.filter(r => r.face !== null).map(r => r.edge), away = rim.find(r => r.face !== null).face;
+          c.any = { body: c.body, edges, distance: d, side: 0, away };
+          $('oe-hint').textContent = `${edges.length} EDGE${edges.length > 1 ? 'S' : ''} ROUND CURVED FACE ${picked[0]} · ROUND CORNERS`;
+          livePreview(c, () => backend.previewOffsetEdges(c.any), b => { showPreviewBody(b); setHud(`OFFSET FACE LOOP ${len(d)} ${U()} · CURVED FACE`); }, 'oe-hint');
+          return;
+        }
         if (!loop && (!sides.length || (sides.length === 1 && (d < 0 || c.both)))) {
           // Off the one flat face: the kernel offsets across whichever faces the edges border.
           if (!backend.previewOffsetEdges) throw new Error('offset edges on one flat face in this build');

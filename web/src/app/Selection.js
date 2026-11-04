@@ -184,6 +184,40 @@ export function faceNeighbours(body, face) {
     });
 }
 
+/**
+ * The edges round any face, flat or curved, with the face beside each: [{ edge, face }] (face is
+ * null on a sheet's open edge). An edge belongs to the face when the middle of its middle segment
+ * lies on a side of one of the face's triangles, as the face's mesh is stitched to its edges.
+ */
+export function faceRim(body, face, tol = 1e-3) {
+    const { positions: p, indices: ix, faceIds } = body;
+    const at = i => [p[3 * i], p[3 * i + 1], p[3 * i + 2]];
+    const sides = new Map();
+    for (let t = 0; t < faceIds.length; t++) {
+        const f = faceIds[t], v = [0, 1, 2].map(k => at(ix[3 * t + k]));
+        if (!sides.has(f)) sides.set(f, []);
+        sides.get(f).push([v[0], v[1]], [v[1], v[2]], [v[2], v[0]]);
+    }
+    const near = (q, list) => list?.some(([a, b]) => segmentDistance(q, a, b) <= tol);
+    const out = [];
+    body.edges.forEach((e, n) => {
+        const m = Math.max(0, Math.floor((e.length / 3 - 1) / 2)), m1 = Math.min(m + 1, e.length / 3 - 1);
+        const q = [0, 1, 2].map(k => (e[3 * m + k] + e[3 * m1 + k]) / 2);
+        if (!near(q, sides.get(face))) return;
+        let other = null;
+        for (const [f, list] of sides) if (f !== face && near(q, list)) { other = f; break; }
+        out.push({ edge: n, face: other });
+    });
+    return out;
+}
+
+function segmentDistance(q, a, b) {
+    const ab = [b[0] - a[0], b[1] - a[1], b[2] - a[2]], aq = [q[0] - a[0], q[1] - a[1], q[2] - a[2]];
+    const l = ab[0] * ab[0] + ab[1] * ab[1] + ab[2] * ab[2];
+    const t = l < 1e-24 ? 0 : Math.max(0, Math.min(1, (aq[0] * ab[0] + aq[1] * ab[1] + aq[2] * ab[2]) / l));
+    return Math.hypot(aq[0] - t * ab[0], aq[1] - t * ab[1], aq[2] - t * ab[2]);
+}
+
 /** Whether `q` lies within `tol` of the triangle (in its plane, inside or on its sides). */
 function nearTriangle(q, [a, b, c], tol) {
     const sub = (u, v) => [u[0] - v[0], u[1] - v[1], u[2] - v[2]];
