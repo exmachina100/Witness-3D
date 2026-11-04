@@ -52,6 +52,9 @@ test('a side face stands up and lies flat', () => {
     });
     const flat = unwrapFace(s, side);
     close(extent(flat)[2], 0, 1e-6);
+    // Laid on the world origin, as Plasticity places it.
+    const mid = bounds(flat).getCenter(new THREE.Vector3());
+    close(mid.x, 0, 1e-6); close(mid.z, 0, 1e-6);
     close(area(flat), area(numbered(s, 'TopAbs_FACE')[side]), 1e-6);
 });
 

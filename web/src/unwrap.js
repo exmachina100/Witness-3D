@@ -1,6 +1,6 @@
 // Plasticity's Unwrap Face in the browser build, as w3d_unwrap_face does it on the desktop: a face
-// laid flat on the ground (the user's XY plane, the model's y = 0, as the model is y-up) as a new sheet, its outward side up and its centre under the face's
-// centre. Planes only turn; cylinders and cones unroll exactly (lengths kept); other faces are
+// laid flat on the ground (the user's XY plane, the model's y = 0, as the model is y-up) as a new sheet, its outward side up and its centre on the world
+// origin, where Plasticity places it. Planes only turn; cylinders and cones unroll exactly (lengths kept); other faces are
 // flattened conformally (LSCM: small pieces keep their shape, the whole keeps its area).
 
 import { numbered, oc } from './Kernel.js';
@@ -116,13 +116,13 @@ export function unwrapFace(shape, index) {
     const centre = g.CentreOfMass();
     const type = ad.GetType(), T = o.GeomAbs_SurfaceType;
     if (type === T.GeomAbs_Plane) {
-        // A flat face only turns: outward side up, centre over where it was, curves kept exact.
+        // A flat face only turns: outward side up, centre on the world origin, curves kept exact.
         const pln = ad.Plane();
         const up = pln.Axis().Direction();
         if (reversed) up.Reverse();
         const to = new o.gp_Trsf();
         to.SetDisplacement(new o.gp_Ax3(centre, up, pln.XAxis().Direction()),
-            new o.gp_Ax3(new o.gp_Pnt(centre.X(), 0, centre.Z()), new o.gp_Dir(0, 1, 0), new o.gp_Dir(1, 0, 0)));
+            new o.gp_Ax3(new o.gp_Pnt(0, 0, 0), new o.gp_Dir(0, 1, 0), new o.gp_Dir(1, 0, 0)));
         return new o.BRepBuilderAPI_Transform(face, to, true, false).Shape();
     }
     const value = (u, v) => { const p = ad.Value(u, v); return [p.X(), p.Y(), p.Z()]; };
@@ -164,7 +164,7 @@ export function unwrapFace(shape, index) {
     const place = (u, v) => {
         const p = flat(u, v);
         const x = (p[0] - mid[0]) * (mirror ? -1 : 1), y = p[1] - mid[1];
-        return new o.gp_Pnt(ct * x - st * y + centre.X(), 0, centre.Z() - (st * x + ct * y));
+        return new o.gp_Pnt(ct * x - st * y, 0, -(st * x + ct * y));
     };
     const verts = [];
     const vertexAt = p => {
