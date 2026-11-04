@@ -11609,6 +11609,13 @@ export async function mount(root, backend) {
     c.hint = hint;
     c.onSelection = () => drawOverlays();
     c.key = action => {
+      // A and Shift+T, as in Plasticity: the pointer sets the angle (round the axis) or the wall
+      // thickness (how far it moves from where the key was pressed); a click keeps it. Before the
+      // axis is placed, they type the value instead.
+      if ((action === 'angle' || action === 'thickness') && id === 'revolve' && c.p2 && lastPointer) {
+        const at = formPlanePoint(c, lastPointer, action);
+        if (at) { c.drag = { what: action, from: at, start: c[action] }; setHud(action === 'angle' ? 'MOVE TO SET THE ANGLE · CLICK TO KEEP' : 'MOVE TO SET THE THICKNESS · CLICK TO KEEP'); return true; }
+      }
       if (action === 'angle' && id === 'revolve') {
         c.entry = { label: 'ANGLE °', text: '', apply: v => { if (v !== 0) setForm({ angle: v }); } };
         setHud('ANGLE ° _');
@@ -11644,11 +11651,12 @@ export async function mount(root, backend) {
     };
     c.entryDone = () => { if (!c.entry) previewFormCmd(); };
     c.click = e => {
+      if (c.drag) { c.drag = null; hint(); return true; }
       if (id === 'revolve' && !c.p2) {
         const p = axisPointAt(e);
         if (!p) return true;
         if (!c.p1) { c.p1 = p; c.line = axisLine(); }
-        else if (p.distanceTo(c.p1) > 1e-6) { c.p2 = p; c.move = null; updateAxisLine(c.p2); }
+        else if (p.distanceTo(c.p1) > 1e-6) { c.p2 = p; updateAxisLine(c.p2); }
         hint();
         previewFormCmd();
         return true;
@@ -11680,6 +11688,7 @@ export async function mount(root, backend) {
       return true;
     };
     if (id === 'revolve') c.move = e => {
+      if (c.drag) return dragForm(c, e);
       if (!c.p1 || c.p2) return;
       const p = axisPointAt(e);
       if (!p || p.distanceTo(c.p1) < 1e-6) return;
@@ -11706,6 +11715,36 @@ export async function mount(root, backend) {
     for (const k of ['angle', 'thickness', 'twist', 'scale']) if (document.activeElement !== $(`form-${k}`)) $(`form-${k}`).value = c[k];
     c.hint();
     previewFormCmd();
+  }
+  /**
+   * Where the pointer meets the plane Revolve's cursor handles work in: for the angle, the plane
+   * square to the axis through its start; for the thickness, the profile's own plane.
+   */
+  function formPlanePoint(c, e, what) {
+    const axis = c.p2.clone().sub(c.p1).normalize();
+    const first = curveById(c.regions[0]);
+    const plane = what === 'angle' || !first ? new THREE.Plane().setFromNormalAndCoplanarPoint(axis, c.p1)
+      : new THREE.Plane().setFromNormalAndCoplanarPoint(curveFrame(first).n.clone(), regionCentre(first));
+    return ray(e).intersectPlane(plane, new THREE.Vector3());
+  }
+  function dragForm(c, e) {
+    const at = formPlanePoint(c, e, c.drag.what);
+    if (!at) return;
+    if (c.drag.what === 'thickness') {
+      let t = at.distanceTo(c.drag.from) + c.drag.start;
+      if (snapping(e)) t = Math.round(t / gridStep()) * gridStep();
+      return setForm({ thickness: +t.toFixed(3) });
+    }
+    // The angle from the profile's side of the axis round to the pointer, 0 to 360.
+    const axis = c.p2.clone().sub(c.p1).normalize();
+    const flat = v => v.sub(c.p1).projectOnPlane(axis);
+    const first = curveById(c.regions[0]);
+    const ref = flat(first ? regionCentre(first).clone() : c.drag.from.clone()), to = flat(at.clone());
+    if (ref.lengthSq() < 1e-12 || to.lengthSq() < 1e-12) return;
+    let a = Math.atan2(ref.clone().cross(to).dot(axis), ref.dot(to)) / DEG;
+    if (a <= 0) a += 360;
+    a = snapping(e) ? Math.max(5, Math.round(a / 5) * 5) : Math.round(a * 10) / 10;
+    setForm({ angle: a });
   }
   /** A point for the revolve axis: on a face or the construction plane, snapping like a sketch. */
   function axisPointAt(e) {
