@@ -174,7 +174,7 @@ export const COMMAND = {
     'bridge-surface': { t: 'tension', a: 'add-pair' },
     // Patch: T leaves the edges tangent to their faces.
     patch: { t: 'tangent', i: 'individual', q: 'quad' },
-    thicken: { d: 'front', b: 'back' },
+    thicken: { d: 'front', b: 'back', s: 'lock' },
     // Pipe: R radius, T wall thickness, V sides.
     pipe: { r: 'radius', t: 'thickness', v: 'sides', a: 'angle', s: 'scale', 'shift-1': 'distance1', 'shift-2': 'distance2', c: 'profile', b: 'new', q: 'union', w: 'difference', 'shift-e': 'intersect', 'shift-q': 'slice', 'shift-t': 'keep' },
     'extend-sheet': { d: 'distance', tab: 'shape' },
