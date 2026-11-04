@@ -62,6 +62,7 @@ import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
 import { GTAOPass } from 'three/addons/postprocessing/GTAOPass.js';
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 import { gridLines } from '../gridLines.js';
+import { filterFillets } from '../filletFilter.js';
 import { navAction, navHints, orbitMode } from '../navPresets.js';
 import { MagnitudeGizmo, typed } from '../MagnitudeGizmo.js';
 import { TOOLS, check, tool as toolInfo, withDefaults } from './tools.js';
@@ -223,7 +224,7 @@ const CLICKS = { rect: 2, 'center-rect': 2, rect3: 3, circle: 2, circle2: 2, cir
 const FORMS = { revolve: true, loft: true, sweep: true };
 const PRIMS = { box: true, 'center-box': true, box3: true, cylinder: true, sphere: true };
 // Commands that aren't tools in the registry (they act on a click, not on settings).
-const EDITS = { isoparam: 'ISOPARAM', 'offset-vertex': 'OFFSET VERTEX', slide: 'SLIDE CURVE CV', 'fillet-vertex': 'FILLET VERTEX', 'align-vertex': 'ALIGN VERTEX', 'align-curve': 'ALIGN CURVE', rebuild: 'REBUILD CURVE', 'rebuild-face': 'REBUILD FACE', 'match-face': 'MATCH FACE', 'deform-curve': 'DEFORM', image: 'REFERENCE IMAGE', instance: 'INSTANCE', untrim: 'UNTRIM', unwrap: 'UNWRAP FACE', section: 'SECTION ANALYSIS', place: 'PLACE', dimension: 'DIMENSION', text: 'TEXT', 'insert-knot': 'INSERT KNOT', 'offset-edge': 'OFFSET EDGE', material: 'SET MATERIAL', 'export-mesh': 'EXPORT MESH', 'export-drawing': 'EXPORT DRAWING', 'measure-continuity': 'MEASURE CONTINUITY', trim: 'TRIM', 'cut-curve': 'CUT CURVE', 'bridge-edge': 'BRIDGE EDGE', 'align-surface': 'ALIGN SURFACE', 'project-align': 'PROJECT ALIGN', 'constrained-surface': 'CONSTRAINED SURFACE', square: 'SQUARE', extend: 'EXTEND CURVE', 'tangent-circle': 'TANGENT CIRCLE', split: 'SPLIT CURVE', 'measure-distance': 'MEASURE DISTANCE', 'measure-radius': 'MEASURE RADIUS' };
+const EDITS = { 'remove-fillets': 'REMOVE FILLETS', isoparam: 'ISOPARAM', 'offset-vertex': 'OFFSET VERTEX', slide: 'SLIDE CURVE CV', 'fillet-vertex': 'FILLET VERTEX', 'align-vertex': 'ALIGN VERTEX', 'align-curve': 'ALIGN CURVE', rebuild: 'REBUILD CURVE', 'rebuild-face': 'REBUILD FACE', 'match-face': 'MATCH FACE', 'deform-curve': 'DEFORM', image: 'REFERENCE IMAGE', instance: 'INSTANCE', untrim: 'UNTRIM', unwrap: 'UNWRAP FACE', section: 'SECTION ANALYSIS', place: 'PLACE', dimension: 'DIMENSION', text: 'TEXT', 'insert-knot': 'INSERT KNOT', 'offset-edge': 'OFFSET EDGE', material: 'SET MATERIAL', 'export-mesh': 'EXPORT MESH', 'export-drawing': 'EXPORT DRAWING', 'measure-continuity': 'MEASURE CONTINUITY', trim: 'TRIM', 'cut-curve': 'CUT CURVE', 'bridge-edge': 'BRIDGE EDGE', 'align-surface': 'ALIGN SURFACE', 'project-align': 'PROJECT ALIGN', 'constrained-surface': 'CONSTRAINED SURFACE', square: 'SQUARE', extend: 'EXTEND CURVE', 'tangent-circle': 'TANGENT CIRCLE', split: 'SPLIT CURVE', 'measure-distance': 'MEASURE DISTANCE', 'measure-radius': 'MEASURE RADIUS' };
 const keysHtml = id => KEYS[id].map(([k, v]) => `<kbd>${k}</kbd><span>${v}</span>`).join('');
 // The Command Bar, exactly the manual's list (Plasticity Essentials › Command Bar).
 const BAR = [['palette', 'F', 'SEARCH'], ['tool:move', 'G', 'MOVE'], ['tool:rotate', 'R', 'ROTATE'], ['tool:scale', 'S', 'SCALE'], ['duplicate', '⇧D', 'DUPLICATE'], ['tool:boolean', 'Q', 'BOOLEAN'], ['tool:rect-array', '', 'RECTANGULAR ARRAY'], ['tool:radial-array', '', 'RADIAL ARRAY'], ['suggest', '⇧F', 'SUGGESTED COMMANDS']];
@@ -654,6 +655,11 @@ const SHELL = `
     <div class="sec" data-panel="fillet-curve" hidden>
       <span class="hint" data-id="fc-hint">—</span>
       <div class="field"><label for="w3d-fc-r">RADIUS</label><input id="w3d-fc-r" data-id="fc-r" type="number" step="0.5" min="0.01" value="2"></div>
+    </div>
+    <div class="sec" data-panel="remove-fillets" hidden>
+      <span class="hint" data-id="rfl-hint">—</span>
+      <div class="field"><label for="w3d-rfl-max">MAX RADIUS</label><input id="w3d-rfl-max" data-id="rfl-max" type="number" step="0.5" min="0" value="0" title="Only fillets up to this radius go (0: any size)"></div>
+      <div class="chips" role="group" aria-label="Convexity"><button class="chip" data-rflconv="any" aria-pressed="true" title="Convex and concave fillets">ANY</button><button class="chip" data-rflconv="convex" aria-pressed="false" title="Only rounded-over outside edges">CONVEX</button><button class="chip" data-rflconv="concave" aria-pressed="false" title="Only filled inside corners">CONCAVE</button></div>
     </div>
     <div class="sec" data-panel="remove-face" hidden>
       <span class="hint" data-id="rf-hint">—</span>
@@ -10140,8 +10146,10 @@ export async function mount(root, backend) {
   }
 
   /**
-   * Plasticity's Remove Fillets: the fillets of the selected solid (or the fillet chains holding the
-   * selected faces) are found and handed to Remove Face, which previews the solid without them.
+   * Plasticity's Remove Fillets (from Shell): the fillets of the selected solid or sheet (or the
+   * fillet chains holding the selected faces) go at once, previewed; Max Radius keeps rounds larger
+   * than it and Convexity picks Any, Convex (rounded-over edges) or Concave (filled corners).
+   * Enter or right-click keeps the result.
    */
   async function removeFillets() {
     if (cmd) await finish();
@@ -10153,16 +10161,44 @@ export async function mount(root, backend) {
       if (ids.length !== 1) return toast('SELECT ONE SOLID, OR FACES OF ITS FILLETS');
       body = ids[0];
     }
+    let found, surfaces = null;
     try {
-      const faces = await backend.filletFaces({ body, faces: seeds });
-      sel.clear();
-      for (const n of faces) sel.add({ kind: 'face', body, n });
-      sel.modes.add('face');
-      renderModes();
-      selectionChanged({ quiet: true });
-      await startTool('remove-face');
-      toast(`${faces.length} FILLET FACE${faces.length === 1 ? '' : 'S'} ON ${label(body)}`);
-    } catch (e) { toast(say(e)); }
+      found = await backend.filletFaces({ body, faces: seeds });
+      if (backend.faceSurfaces) surfaces = await backend.faceSurfaces({ body });
+    } catch (e) { return toast(say(e)); }
+    if (!found.length) return toast(`NO FILLETS ON ${label(body)}`);
+    const c = cmd = { id: 'remove-fillets', body, found, surfaces, faces: [], convexity: 'any', sent: 0, shown: 0 };
+    lastRepeat = 'remove-fillets';
+    showTool('remove-fillets');
+    setTarget(label(body));
+    setState('none');
+    $('rfl-max').value = 0;
+    c.request = () => ({ body: c.body, faces: c.faces });
+    c.preview = () => {
+      c.faces = filterFillets(c.found, c.surfaces, { maxRadius: num('rfl-max'), convexity: c.convexity });
+      for (const b of $$('[data-rflconv]')) b.setAttribute('aria-pressed', String(b.dataset.rflconv === c.convexity));
+      const what = `${c.faces.length} OF ${c.found.length} FILLET FACE${c.found.length === 1 ? '' : 'S'} ON ${label(c.body)}`;
+      $('rfl-hint').textContent = what;
+      if (!c.faces.length) { clearPreview(); setState('none'); return setHud('NO FILLETS MATCH'); }
+      livePreview(c, () => backend.previewRemoveFaces(c.request()), b => { showPreviewBody(b); setHud(`REMOVE FILLETS · ${what}`); }, 'rfl-hint');
+    };
+    for (const b of $$('[data-rflconv]')) b.onclick = () => { if (cmd === c) { c.convexity = b.dataset.rflconv; c.preview(); } };
+    $('rfl-max').oninput = () => { if (cmd === c) c.preview(); };
+    c.onSelection = () => drawOverlays();
+    c.finish = async () => {
+      if (!c.faces.length) return abort();
+      try {
+        const { id, scene: list } = await backend.commitRemoveFaces(c.request());
+        endCmd('committed');
+        record(`REMOVE FILLETS ×${c.faces.length}`, id);
+        await showScene(list);
+        sel.replace({ kind: 'solid', body: id });
+        selectionChanged({ quiet: true });
+      } catch (e) { setState('failed'); toast(say(e)); }
+    };
+    c.abort = () => endCmd('cancelled');
+    c.cleanup = () => clearPreview();
+    c.preview();
   }
 
   /** Plasticity's Delete Redundant Topology: faces on one surface and edges on one curve merged, on the selected bodies. */
