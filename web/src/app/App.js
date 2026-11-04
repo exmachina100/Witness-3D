@@ -6910,6 +6910,20 @@ export async function mount(root, backend) {
    * flat face V cycles the gap fill; on curved faces, or a chain running over several faces, the
    * offset keeps the distance from the edges in space and its corners are round.
    */
+  /** How far point q is from a polyline given as flat [x,y,z,...]. */
+  function polylineDistance(q, pl) {
+    let best = Infinity;
+    for (let i = 0; i + 5 < pl.length || (i === 0 && pl.length === 3); i += 3) {
+      const a = [pl[i], pl[i + 1], pl[i + 2]], b = pl.length === 3 ? a : [pl[i + 3], pl[i + 4], pl[i + 5]];
+      const ab = [b[0] - a[0], b[1] - a[1], b[2] - a[2]], aq = [q[0] - a[0], q[1] - a[1], q[2] - a[2]];
+      const l = ab[0] * ab[0] + ab[1] * ab[1] + ab[2] * ab[2];
+      const t = l < 1e-24 ? 0 : Math.max(0, Math.min(1, (aq[0] * ab[0] + aq[1] * ab[1] + aq[2] * ab[2]) / l));
+      best = Math.min(best, Math.hypot(aq[0] - t * ab[0], aq[1] - t * ab[1], aq[2] - t * ab[2]));
+      if (pl.length === 3) break;
+    }
+    return best;
+  }
+
   function startEdgeOffset() {
     if (!backend.previewImprint) return toast('OFFSET EDGE IS NOT IN THIS BUILD YET');
     const eb = edgeBody(), loop = eb === null;
@@ -6985,6 +6999,32 @@ export async function mount(root, backend) {
       livePreview(c, () => backend.previewImprint(c.request()), b => { showPreviewBody(b); showCurvePreview(c.shapes); setHud(`${loop ? 'OFFSET FACE LOOP' : 'OFFSET EDGE'} ${len(d)} ${U()} · ${c.both ? 'BOTH SIDES' : c.corner.toUpperCase()}`); }, 'oe-hint');
     };
     c.request = () => ({ body: c.body, faces: c.faces, curves: [], tools: { shapes: c.shapes } });
+    // As in Plasticity, the pointer sets the distance until one is typed: how far the point under it
+    // is from the offset edges, on the side of the face it is over. A click on the body keeps it.
+    const from = (rim ? rim.map(r => r.edge) : loop ? picked.flatMap(f => faceBoundEdges(body, f)) : picked).map(n => body.edges[n]).filter(Boolean);
+    const under = e => {
+      ray(e);
+      const hit = raycaster.intersectObjects(shownMeshes().filter(m => m.userData.id === c.body), false)[0];
+      return hit ? { face: hit.object.userData.faceIds[hit.faceIndex], point: hit.point.toArray() } : null;
+    };
+    c.move = e => {
+      if (c.typed || c.entry) return;
+      const at = under(e);
+      // A face loop moves in across its faces: off them the pointer leaves the distance be.
+      if (!at || (loop && !picked.includes(at.face)) || (!loop && sides.length && !sides.includes(at.face))) return;
+      let d = Infinity;
+      for (const pl of from) d = Math.min(d, polylineDistance(at.point, pl));
+      if (!Number.isFinite(d) || d < 1e-6) return;
+      const now = num('oe-d');
+      const sign = loop ? 1 : sides.length ? (at.face === sides[0] ? 1 : -1) : Math.sign(now) || 1;
+      $('oe-d').value = +(sign * d).toFixed(3);
+      c.preview();
+    };
+    c.click = e => {
+      if (c.typed || !under(e)) return false;
+      finish();
+      return true;
+    };
     c.setCorner = setCorner;
     c.setBoth = on => {
       c.both = on;
@@ -7002,7 +7042,7 @@ export async function mount(root, backend) {
       if (action === 'both') { c.setBoth(!c.both); return true; }
       if (action === 'individual') { c.setIndividual(!c.individual); return true; }
       if (action !== 'distance') return false;
-      c.entry = { label: 'DISTANCE', text: '', apply: v => { $('oe-d').value = v; c.preview(); } };
+      c.entry = { label: 'DISTANCE', text: '', apply: v => { c.typed = true; $('oe-d').value = v; c.preview(); } };
       setHud('DISTANCE _');
       return true;
     };
@@ -10403,7 +10443,7 @@ export async function mount(root, backend) {
       clearPreview();
       setState('failed');
       if (hintId) $(hintId).textContent = say(e);
-      return setHud(`${toolInfo(c.id).label} FAILED`);
+      return setHud(`${toolInfo(c.id)?.label ?? EDITS[c.id] ?? c.id.toUpperCase()} FAILED`);
     }
     if (r == null || cmd !== c || n < c.shown) return;
     c.shown = n;
@@ -13333,7 +13373,7 @@ export async function mount(root, backend) {
   for (const b of $$('[data-txfont]')) b.onclick = () => cmd?.id === 'text' && cmd.setFont(+b.dataset.txfont);
   for (const b of $$('[data-txalign]')) b.onclick = () => cmd?.id === 'text' && cmd.setAlign(b.dataset.txalign);
   for (const b of $$('[data-saplane]')) b.onclick = () => cmd?.id === 'section' && cmd.setHow(b.dataset.saplane);
-  $('oe-d').addEventListener('input', () => cmd?.id === 'offset-edge' && cmd.preview());
+  $('oe-d').addEventListener('input', () => { if (cmd?.id === 'offset-edge') { cmd.typed = true; cmd.preview(); } });
   for (const b of $$('[data-oecorner]')) b.onclick = () => cmd?.id === 'offset-edge' && cmd.setCorner(b.dataset.oecorner);
   $('oe-both').onclick = () => cmd?.id === 'offset-edge' && cmd.setBoth(!cmd.both);
   $('oe-individual').onclick = () => cmd?.id === 'offset-edge' && cmd.setIndividual(!cmd.individual);
