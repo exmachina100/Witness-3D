@@ -5380,8 +5380,9 @@ export async function mount(root, backend) {
     try {
       const { ids } = await backend.addCurves([curve]);
       record(text, ids[0], curveLabel(ids[0]));
-      if (knife) await knifeCut(knife, ids[0]);
-      await loadCurves();
+      if (knife) { await knifeCut(knife, ids[0]); await loadCurves(); }
+      // As in Plasticity, the new curve is selected (a closed one as its region).
+      else await curvesChanged(ids);
     } catch (e) { setState('failed'); toast(say(e)); }
   }
   /** Knife (K): the curve just drawn imprints the face it was drawn on and is used up; it stays when it cannot. */
