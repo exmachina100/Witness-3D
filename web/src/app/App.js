@@ -10890,14 +10890,31 @@ export async function mount(root, backend) {
     // Faces picked: those are left open. A whole solid picked, no faces: it is hollowed round a closed void.
     const whole = () => sel.list('face').length ? null : sel.solids.filter(id => org.shows(id) && !bodyOf(id)?.sheet);
     const body = faceBody() ?? (whole()?.length === 1 ? whole()[0] : null);
-    if (body === null) return toast(sel.list('face').length ? 'SHELL THE FACES OF ONE SOLID AT A TIME' : 'SELECT THE FACES TO LEAVE OPEN, OR ONE SOLID TO HOLLOW');
-    if (!backend.previewShell) return toast('SHELL IS NOT IN THIS BUILD YET');
-    const c = cmd = { id: 'shell', body, faces: [], sent: 0, shown: 0 };
+    if (body === null) return toast(sel.list('face').length ? 'HOLLOW THE FACES OF ONE SOLID AT A TIME' : 'SELECT THE FACES TO LEAVE OPEN, OR ONE SOLID TO HOLLOW');
+    if (!backend.previewShell) return toast('HOLLOW IS NOT IN THIS BUILD YET');
+    const c = cmd = { id: 'shell', body, faces: [], sent: 0, shown: 0, gizmo: null, at: '' };
     lastTool = 'shell';
     showTool('shell');
     setState('none');
     c.request = () => ({ body: c.body, faces: c.faces, thickness: num('shell-t') });
-    c.preview = () => livePreview(c, () => backend.previewShell(c.request()), b => { showPreviewBody(b); setHud(`SHELL ${len(num('shell-t'))} ${U()}`); }, 'shell-hint');
+    c.preview = () => livePreview(c, () => backend.previewShell(c.request()), b => { showPreviewBody(b); setHud(`HOLLOW ${len(num('shell-t'))} ${U()}`); }, 'shell-hint');
+    // Plasticity's yellow dot for the wall: on the first open face (or the solid's first face),
+    // dragged inward, D grabbing it from the cursor.
+    const setThickness = v => {
+      if (!Number.isFinite(v) || v <= 1e-6) return;
+      $('shell-t').value = +v.toFixed(4);
+      c.gizmo?.render(v);
+      c.preview();
+    };
+    const placeDot = () => {
+      const key = `${c.body}/${c.faces[0] ?? 0}`;
+      if (c.gizmo && c.at === key) return;
+      c.at = key;
+      c.gizmo?.dispose();
+      const f = faceFrame(bodyOf(c.body), c.faces[0] ?? 0);
+      c.gizmo = f && dot(f.at, f.normal.clone().negate(), v => setThickness(snapping(lastPointer) ? Math.round(v / gridStep()) * gridStep() : v));
+      c.gizmo?.render(num('shell-t'));
+    };
     c.onSelection = () => {
       drawOverlays();
       const b = faceBody() ?? (whole()?.length === 1 ? whole()[0] : null);
@@ -10907,10 +10924,13 @@ export async function mount(root, backend) {
       setTarget(label(b));
       $('shell-count').textContent = c.faces.length;
       $('shell-hint').textContent = c.faces.length ? `${c.faces.length} FACE${c.faces.length > 1 ? 'S' : ''} OPEN ON ${label(b)}` : `${label(b)} HOLLOW, CLOSED ALL ROUND`;
+      placeDot();
       c.preview();
     };
     c.key = action => {
       if (action !== 'thickness') return false;
+      // D: the thickness from the cursor, as in Plasticity (typing while the dot is held sets it too).
+      if (c.gizmo) { c.gizmo.activate(lastPointer); return true; }
       c.entry = { label: 'THICKNESS', text: '', apply: v => { $('shell-t').value = v; c.preview(); } };
       setHud('THICKNESS _');
       return true;
@@ -10926,14 +10946,14 @@ export async function mount(root, backend) {
       try {
         const { id, scene: list } = await backend.commitShell(c.request());
         endCmd('committed');
-        record(c.faces.length ? `SHELL ${len(num('shell-t'))} ${U()} ×${c.faces.length}` : `SHELL ${len(num('shell-t'))} ${U()} · HOLLOW`, id);
+        record(c.faces.length ? `HOLLOW ${len(num('shell-t'))} ${U()} ×${c.faces.length}` : `HOLLOW ${len(num('shell-t'))} ${U()} · CLOSED`, id);
         await showScene(list);
         sel.replace({ kind: 'solid', body: id });
         selectionChanged({ quiet: true });
       } catch (e) { setState('failed'); toast(say(e)); }
     };
     c.abort = () => endCmd('cancelled');
-    c.cleanup = () => clearPreview();
+    c.cleanup = () => { clearPreview(); c.gizmo?.dispose(); };
     c.onSelection();
   }
 
