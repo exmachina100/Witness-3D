@@ -93,7 +93,7 @@ export const COMMAND = {
     // Extrude and Boolean (manual: Q union, W difference, Shift+E intersect, B new body, T keep tools)
     // (manual: A angle, Shift+T thickness, S lock both sides, Shift+Q slice)
     extrude: { f: 'freestyle', v: 'pivot', i: 'individual', d: 'distance', a: 'angle', 'shift-t': 'thickness', s: 'lock', q: 'union', w: 'difference', 'shift-e': 'intersect', 'shift-q': 'slice', b: 'new' },
-    boolean: { q: 'union', w: 'difference', 'shift-e': 'intersect', 'shift-q': 'slice', t: 'keep' },
+    boolean: { q: 'union', w: 'difference', 'shift-e': 'intersect', 'shift-q': 'slice', t: 'keep', g: 'move', r: 'rotate', s: 'scale' },
     // Offset Face (manual: D distance, A angle adjacent, Tab grow mode)
     offset: { d: 'distance', a: 'angle', tab: 'grow' },
     // Revolve and Sweep (manual: A angle, Shift+T thickness, D twist, Q W Shift+E B as in Extrude)
