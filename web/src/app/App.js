@@ -174,7 +174,7 @@ const KEYS = {
   project: [['⇧ CLICK', 'SOLID · CURVES'], ['X Y Z', 'VECTOR'], ['S', 'SCREEN SPACE'], ['⏎ / RMB', 'OK']],
   'bridge-surface': [['⇧ CLICK', 'TWO EDGES, OR TWO CROSSING SHEETS'], ['T', 'TENSION'], ['A', 'ADD WALL PAIR'], ['⏎ / RMB', 'OK']],
   'extend-sheet': [['CLICK', "A SHEET'S EDGE"], ['D', 'DISTANCE'], ['CTRL+CLICK', 'A BODY TO REACH'], ['TAB', 'NATURAL · LINEAR · SOFT · REFLECTIVE'], ['⏎ / RMB', 'OK']],
-  thicken: [['CLICK', 'A SHEET'], ['ALT CLICK', 'FACES (THICKEN FACE)'], ['D', 'FRONT'], ['B', 'BACK'], ['⏎ / RMB', 'OK']],
+  thicken: [['CLICK', 'A SHEET'], ['ALT CLICK', 'FACES (THICKEN FACE)'], ['D', 'FRONT FROM CURSOR'], ['B', 'BACK'], ['S', 'LOCK DISTANCES'], ['⏎ / RMB', 'OK']],
   pipe: [['⇧ CLICK', 'CURVES'], ['R', 'RADIUS'], ['T', 'THICKNESS'], ['V', 'SIDES'], ['⇧1 ⇧2', 'DISTANCES'], ['C', 'PROFILE'], ['⏎ / RMB', 'OK']],
   patch: [['⇧ CLICK', 'CURVES · EDGES'], ['T', 'TANGENT TO FACES'], ['Q', 'QUAD-SIDED'], ['⏎ / RMB', 'OK']],
   hole: [['CLICK', 'A FLAT FACE'], ['T', 'THROUGH ALL'], ['TYPE', 'SIZE IN PANEL'], ['⏎ / RMB', 'OK']],
@@ -746,6 +746,7 @@ const SHELL = `
       <span class="hint" data-id="th-hint">—</span>
       <div class="field"><label for="w3d-th-f">FRONT</label><input id="w3d-th-f" data-id="th-f" type="number" step="0.5" min="0" value="1"></div>
       <div class="field"><label for="w3d-th-b">BACK</label><input id="w3d-th-b" data-id="th-b" type="number" step="0.5" min="0" value="0"></div>
+      <div class="chips"><button class="chip" data-id="th-lock" aria-pressed="false" title="Lock distances: the back the same as the front (S)">S LOCK DISTANCES</button></div>
     </div>
     <div class="sec" data-panel="pipe" hidden>
       <span class="hint" data-id="pipe-hint">—</span>
@@ -8475,8 +8476,9 @@ export async function mount(root, backend) {
   }
 
   /**
-   * Plasticity's Thicken: the selected sheet made solid, D typing how far it grows along its faces'
-   * normals and B how far behind them. The sheet body becomes the solid.
+   * Plasticity's Thicken: the selected sheet made solid. The yellow dot on the sheet (or D, from the
+   * cursor, or typed) sets how far it grows along its faces' normals, B types how far behind them,
+   * and S locks the two distances equal. The sheet body becomes the solid.
    */
   function startThicken() {
     if (!backend.previewThicken) return toast('THICKEN IS NOT IN THIS BUILD YET');
@@ -8490,12 +8492,40 @@ export async function mount(root, backend) {
     };
     const wrong = () => faces().length ? 'PICK FACES ON ONE BODY' : sel.solids.length ? 'THICKEN ONE SHEET AT A TIME' : 'SELECT A SHEET OR FACES TO THICKEN';
     if (!target()) return toast(wrong());
-    const c = cmd = { id: 'thicken', ...target(), sent: 0, shown: 0 };
+    const c = cmd = { id: 'thicken', ...target(), sent: 0, shown: 0, gizmo: null, lock: false, at: '' };
     lastTool = 'thicken';
     showTool('thicken');
     setState('none');
     const describe = () => `THICKEN ${c.faces.length ? `${c.faces.length} FACE${c.faces.length > 1 ? 'S' : ''} ` : ''}${len(num('th-f'))}${num('th-b') ? ` + ${len(num('th-b'))} BACK` : ''} ${U()}`;
-    c.request = () => ({ body: c.body, faces: c.faces, front: num('th-f'), back: num('th-b') });
+    c.request = () => ({ body: c.body, faces: c.faces, front: num('th-f'), back: c.lock ? num('th-f') : num('th-b') });
+    // The dot: on the last picked face (or the sheet's first), along its normal; its length is the front.
+    const placeDot = () => {
+      const key = `${c.body}/${c.faces.at(-1) ?? 0}`;
+      if (c.gizmo && c.at === key) return;
+      c.at = key;
+      c.gizmo?.dispose();
+      const f = faceFrame(bodyOf(c.body), c.faces.at(-1) ?? 0);
+      c.gizmo = f && dot(f.at, f.normal, v => setFront(snapping(lastPointer) ? Math.round(v / gridStep()) * gridStep() : v));
+      c.gizmo?.render(num('th-f'));
+    };
+    // Dragged behind the sheet, the dot grows it backwards instead (both ways when locked).
+    const setFront = v => {
+      if (!Number.isFinite(v)) return;
+      const behind = v < 0 && !c.lock;
+      $('th-f').value = behind ? 0 : +Math.abs(v).toFixed(4);
+      if (behind) $('th-b').value = +(-v).toFixed(4);
+      if (c.lock) $('th-b').value = $('th-f').value;
+      c.gizmo?.render(v);
+      c.preview();
+    };
+    const setLock = on => {
+      c.lock = on;
+      $('th-lock').setAttribute('aria-pressed', String(on));
+      if (on) $('th-b').value = $('th-f').value;
+      $('th-b').disabled = on;
+      c.preview();
+    };
+    $('th-lock').onclick = () => setLock(!c.lock);
     c.preview = () => livePreview(c, () => backend.previewThicken(c.request()), b => {
       // Thicken Face's solid is a new body; the one its faces are on stays in view.
       showPreviewBody(c.faces.length ? { ...b, id: -1 } : b);
@@ -8513,11 +8543,15 @@ export async function mount(root, backend) {
       }
       Object.assign(c, t);
       setTarget(label(c.body));
+      placeDot();
       c.preview();
     };
     c.key = action => {
-      const field = { front: ['th-f', 'FRONT'], back: ['th-b', 'BACK'] }[action];
+      if (action === 'front') { c.gizmo?.activate(lastPointer); return true; }
+      if (action === 'lock') { setLock(!c.lock); return true; }
+      const field = { back: ['th-b', 'BACK'] }[action];
       if (!field) return false;
+      if (c.lock) setLock(false);
       c.entry = { label: field[1], text: '', apply: v => { if (v >= 0) { $(field[0]).value = v; c.preview(); } else toast("THE THICKNESS CAN'T BE BELOW ZERO"); } };
       setHud(`${field[1]} _`);
       return true;
@@ -8534,7 +8568,7 @@ export async function mount(root, backend) {
       } catch (e) { setState('failed'); toast(say(e)); }
     };
     c.abort = () => endCmd('cancelled');
-    c.cleanup = () => clearPreview();
+    c.cleanup = () => { clearPreview(); c.gizmo?.dispose(); $('th-b').disabled = false; };
     c.onSelection();
   }
 
