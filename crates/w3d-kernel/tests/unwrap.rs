@@ -29,6 +29,15 @@ fn flat_extent(k: &Occt, s: &Shape) -> (f64, f64) {
     ((hi - lo).x, (hi - lo).z)
 }
 
+/// The middle of the sheet's box across the ground: Plasticity lays the result on the world origin.
+fn flat_mid(k: &Occt, s: &Shape) -> (f64, f64) {
+    let t = k.tessellate(s, 0.01).unwrap();
+    let (mut lo, mut hi) = (DVec3::splat(f64::MAX), DVec3::splat(f64::MIN));
+    for p in &t.positions { lo = lo.min(DVec3::from_array(*p)); hi = hi.max(DVec3::from_array(*p)); }
+    let m = (lo + hi) / 2.0;
+    (m.x, m.z)
+}
+
 fn dimpled(k: &Occt) -> Shape {
     let b = k.box_from_corners(DVec3::ZERO, DVec3::new(100.0, 100.0, 50.0));
     let ball = k.sphere(DVec3::new(50.0, 50.0, 50.0), 20.0).unwrap();
@@ -50,6 +59,8 @@ fn a_round_unrolls_to_its_true_width() {
     // A quarter of a 5 mm circle across, 30 mm along, lying along the edge as seen from above (the
     // edge runs along y, which is up, so it lies along z, the user's y).
     assert!((w - 5.0 * PI / 2.0).abs() < 1e-6 && (h - 30.0).abs() < 1e-6, "{w} x {h}");
+    let (mx, mz) = flat_mid(&k, &flat);
+    assert!(mx.abs() < 1e-6 && mz.abs() < 1e-6, "on the origin: {mx}, {mz}");
     assert!((area(&k, &flat) - 75.0 * PI).abs() < 1e-6);
     let up = k.tessellate(&flat, 0.01).unwrap().face_planes[0].clone().unwrap();
     assert!(up.normal.y > 0.999, "outward side up: {:?}", up.normal);

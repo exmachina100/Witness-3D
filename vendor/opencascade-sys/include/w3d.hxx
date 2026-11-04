@@ -6139,13 +6139,13 @@ inline std::unique_ptr<TopoDS_Shape> w3d_unwrap_face(const TopoDS_Shape &shape, 
     BRepGProp::SurfaceProperties(face, g);
     const gp_Pnt centre = g.CentreOfMass();
     if (ad.GetType() == GeomAbs_Plane) {
-      // A flat face only turns: its outward side up, its centre over where it was, curves kept exact.
+      // A flat face only turns: its outward side up, its centre on the world origin (as Plasticity places it), curves kept exact.
       const gp_Pln pln = ad.Plane();
       gp_Dir up = pln.Axis().Direction();
       if (face.Orientation() == TopAbs_REVERSED) up.Reverse();
       gp_Dir x = pln.XAxis().Direction();
       gp_Trsf to;
-      to.SetDisplacement(gp_Ax3(centre, up, x), gp_Ax3(gp_Pnt(centre.X(), 0.0, centre.Z()), gp::DY(), gp::DX()));
+      to.SetDisplacement(gp_Ax3(centre, up, x), gp_Ax3(gp_Pnt(0.0, 0.0, 0.0), gp::DY(), gp::DX()));
       TopoDS_Shape result = BRepBuilderAPI_Transform(face, to, true).Shape();
       if (!w3d_is_valid(result)) throw std::runtime_error("the unwrapped face is not valid");
       return std::unique_ptr<TopoDS_Shape>(new TopoDS_Shape(result));
@@ -6191,13 +6191,13 @@ inline std::unique_ptr<TopoDS_Shape> w3d_unwrap_face(const TopoDS_Shape &shape, 
     const double turn = seen.Modulus() > 1e-3 * dv.Magnitude() && laid.Modulus() > 1e-12
       ? std::atan2(seen.Y(), seen.X()) - std::atan2(laid.Y(), laid.X()) : 0.0;
     const double ct = std::cos(turn), st = std::sin(turn);
-    // Centred under the face's centre.
+    // Centred on the world origin, as Plasticity places it.
     const gp_XY mid = flat(um, vm);
     auto place = [&](double u, double v) {
       gp_XY p = flat(u, v) - mid;
       if (mirror) p.SetX(-p.X());
       p = gp_XY(ct * p.X() - st * p.Y(), st * p.X() + ct * p.Y());
-      return gp_Pnt(p.X() + centre.X(), 0.0, centre.Z() - p.Y());
+      return gp_Pnt(p.X(), 0.0, -p.Y());
     };
     std::vector<TopoDS_Vertex> verts;
     auto vertexAt = [&](const gp_Pnt &p) {
