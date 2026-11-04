@@ -126,7 +126,7 @@ const KEYS = {
   rotate: [['X Y Z', 'AXIS'], ['R', 'SCREEN'], ['CTRL', '15°'], ['⏎ / RMB', 'OK']],
   scale: [['S', 'UNIFORM'], ['X Y Z', 'ONE AXIS'], ['CTRL', '0.1'], ['⏎ / RMB', 'OK']],
   extrude: [['DRAG DOT', 'DISTANCE'], ['D', 'DISTANCE'], ['F', 'FREESTYLE: CLICK START · END'], ['V', 'PIVOT: CLICK'], ['I', 'INDIVIDUAL'], ['A', 'ANGLE'], ['⇧T', 'THICKNESS'], ['S', 'BOTH SIDES'], ['Q', 'UNION'], ['W', 'DIFFERENCE'], ['⇧E', 'INTERSECT'], ['⇧Q', 'SLICE'], ['B', 'NEW BODY'], ['⏎ / RMB', 'OK']],
-  boolean: [['Q', 'UNION'], ['W', 'DIFFERENCE'], ['⇧E', 'INTERSECT'], ['⇧Q', 'SLICE'], ['T', 'KEEP TOOLS'], ['⏎ / RMB', 'OK']],
+  boolean: [['Q', 'UNION'], ['W', 'DIFFERENCE'], ['⇧E', 'INTERSECT'], ['⇧Q', 'SLICE'], ['T', 'KEEP TOOLS'], ['G R S', 'MOVE THE TOOL'], ['⏎ / RMB', 'OK']],
   offset: [['DRAG DOT', 'DISTANCE'], ['D', 'DISTANCE'], ['A', 'ANGLE ADJACENT'], ['TAB', 'GROW MODE'], ['⇧ CLICK', 'FACES'], ['ALT+CLICK', 'A FACE TO MATCH'], ['⏎ / RMB', 'OK']],
   revolve: [['CLICK', 'AXIS START · END'], ['A', 'ANGLE'], ['⇧T', 'THICKNESS'], ['Q', 'UNION'], ['W', 'DIFFERENCE'], ['⇧E', 'INTERSECT'], ['B', 'NEW BODY'], ['⏎ / RMB', 'OK']],
   loft: [['CLICK', 'GUIDES (OPTIONAL)'], ['⏎ / RMB', 'OK'], ['ESC', 'CANCEL']],
@@ -3549,6 +3549,7 @@ export async function mount(root, backend) {
     const c = cmd;
     cmd = null;
     c?.cleanup?.();
+    if (c?.then) setTimeout(() => { if (!cmd) c.then(); });
     showTool(null);
     setTarget(null);
     setHud(null);
@@ -4092,7 +4093,7 @@ export async function mount(root, backend) {
   // (Plasticity: X/Y/Z an axis, Shift+X/Y/Z a plane, G the screen; R the screen axis; S uniform),
   // and typing while it does sets the value exactly. The meshes follow as the preview, since a
   // rigid motion needs no kernel work; finishing sends one request, one undo step.
-  function startTransform(kind, { follow = null, auto = false } = {}) {
+  function startTransform(kind, { follow = null, auto = false, then = null } = {}) {
     lastRepeat = null;
     // A face's picked control points move on their own, not their body.
     const poles = sel.list('pole').filter(p => poleOf(p));
@@ -4328,6 +4329,9 @@ export async function mount(root, backend) {
     c.onSelection = () => { if (!c.auto || !untouched()) return; endCmd(null); defaultCommand(); };
     c.finish = () => { if (c.free) { c.free.base = null; c.freestyle(false); } return commitTransform(); };
     c.abort = () => c.free ? c.freestyle(false) : endCmd('cancelled');
+    // Started from inside another command (Boolean's G/R/S on its tool): back to it once done,
+    // unless another command was started meanwhile.
+    if (then) c.then = then;
     c.cleanup = () => {
       if (c.free) { c.free.line.removeFromParent(); c.free = null; }
       for (const id of ids) { const m = bodyMesh(id); if (m) { m.matrixAutoUpdate = true; m.position.set(0, 0, 0); m.quaternion.identity(); m.scale.set(1, 1, 1); m.updateMatrix(); } }
@@ -5824,10 +5828,12 @@ export async function mount(root, backend) {
    * Several targets: Union folds the extra targets in as tools; the other operations apply the tools
    * to each target in turn.
    */
-  function startBoolean() {
+  function startBoolean(resume = null) {
     if (!backend.previewBoolean) return toast('BOOLEAN IS NOT IN THIS BUILD YET');
     const ids = sel.solids.filter(id => org.shows(id));
     const c = cmd = { id: 'boolean', targets: ids.slice(0, 1), tools: ids.slice(1), stage: ids.length > 1 ? null : ids.length ? 'tools' : 'targets', op: 'union', keep: false, targetMaterial: 'default', toolMaterial: 'default', sent: 0, shown: 0 };
+    // Back from moving the tool: the same sets and options (the moved tools keep their ids).
+    if (resume) Object.assign(c, resume, { stage: null });
     lastTool = 'boolean';
     showTool('boolean');
     setState('none');
@@ -5864,6 +5870,24 @@ export async function mount(root, backend) {
       else if (c.stage === 'tools') clearPreview();
     };
     c.key = action => {
+      // G / R / S: move, turn or scale the tools with the gizmo, then carry on with the boolean.
+      if (action === 'move' || action === 'rotate' || action === 'scale') {
+        if (!c.tools.length) { setHud('SELECT TOOL BODIES FIRST'); return true; }
+        const resume = { targets: [...c.targets], tools: [...c.tools], op: c.op, keep: c.keep, targetMaterial: c.targetMaterial, toolMaterial: c.toolMaterial };
+        endCmd(null);
+        sel.clear();
+        for (const t of resume.tools) sel.add({ kind: 'solid', body: t });
+        selectionChanged({ quiet: true });
+        startTransform(action, { then: () => {
+          const tools = resume.tools.filter(t => bodyOf(t));
+          if (!tools.length || !resume.targets.every(t => bodyOf(t))) return;
+          sel.clear();
+          for (const t of [...resume.targets, ...tools]) sel.add({ kind: 'solid', body: t });
+          selectionChanged({ quiet: true });
+          startBoolean({ ...resume, tools });
+        } });
+        return true;
+      }
       if (action === 'keep') c.keep = !c.keep;
       else c.op = action;
       if (c.targets.length && c.tools.length) previewBooleanCmd(); else c.sync();
