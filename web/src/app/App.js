@@ -387,6 +387,7 @@ const SHELL = `
     <div class="sec" data-panel="extrude" hidden>
       <span class="hint" data-id="ex-hint">DRAG THE DOT, OR D AND TYPE</span>
       <div class="field"><label for="w3d-ex-distance">DISTANCE</label><input id="w3d-ex-distance" data-id="ex-distance" type="number" step="2.5" value="0"></div>
+      <div class="field"><label for="w3d-ex-back">DISTANCE 2</label><input id="w3d-ex-back" data-id="ex-back" type="number" step="2.5" min="0" value="0" title="How far it also goes the other way (S locks it to the distance)"></div>
       <div class="field"><label for="w3d-ex-angle">ANGLE °</label><input id="w3d-ex-angle" data-id="ex-angle" type="number" step="1" value="0"></div>
       <div class="field"><label for="w3d-ex-thickness">THICKNESS</label><input id="w3d-ex-thickness" data-id="ex-thickness" type="number" step="0.5" min="0" value="0"></div>
       <div class="chips"><button data-id="ex-lock" aria-pressed="false"><kbd>S</kbd>BOTH SIDES</button></div>
@@ -5594,7 +5595,7 @@ export async function mount(root, backend) {
       if (!auto) toast(src?.curved ? 'THAT FACE HAS NO DIRECTION TO EXTRUDE IN' : 'SELECT A REGION, A FACE OR A CURVE TO EXTRUDE');
       return;
     }
-    const c = cmd = { id: 'extrude', auto, src, distance: 0, angle: 0, thickness: 0, lock: false, op: 'auto', direction: null, individual: false, picking: null, freeStart: null, pivot: src.at.clone(), outcome: null, sent: 0, shown: 0, gizmo: null, entry: null };
+    const c = cmd = { id: 'extrude', auto, src, distance: 0, back: 0, angle: 0, thickness: 0, lock: false, op: 'auto', direction: null, individual: false, picking: null, freeStart: null, pivot: src.at.clone(), outcome: null, sent: 0, shown: 0, gizmo: null, entry: null };
     lastTool = 'extrude';
     showTool('extrude');
     setState('none');
@@ -5612,6 +5613,8 @@ export async function mount(root, backend) {
     $('ex-distance').value = 0;
     $('ex-angle').value = 0;
     $('ex-thickness').value = 0;
+    $('ex-back').value = 0;
+    $('ex-back').disabled = false;
     $('ex-outcome').textContent = '—';
     setExtrudeOps();
     c.gizmo = dot(src.at, src.normal, d => setExtrude(snapping(lastPointer) ? Math.round(d / gridStep()) * gridStep() : d));
@@ -5727,6 +5730,8 @@ export async function mount(root, backend) {
     c.auto = false;
     if (document.activeElement !== $('ex-angle')) $('ex-angle').value = c.angle;
     if (document.activeElement !== $('ex-thickness')) $('ex-thickness').value = c.thickness;
+    if (document.activeElement !== $('ex-back')) $('ex-back').value = +(c.lock ? Math.abs(c.distance) : c.back).toFixed(3);
+    $('ex-back').disabled = c.lock;
     setExtrudeOps();
     if (c.distance) previewExtrude();
   }
@@ -5737,16 +5742,17 @@ export async function mount(root, backend) {
     c.auto = c.auto && d === 0;
     if (!fromGizmo) c.gizmo.render(d);
     if (document.activeElement !== $('ex-distance')) $('ex-distance').value = +d.toFixed(3);
+    if (c.lock) $('ex-back').value = +Math.abs(d).toFixed(3);
     previewExtrude();
   }
   const extrudeRequest = c => c.src.curves ? {
     curves: c.src.curves, direction: (c.direction ?? c.src.normal).toArray(), distance: c.distance, op: c.op,
-    back: c.lock ? Math.abs(c.distance) : 0, angle: c.angle * DEG, thickness: c.thickness,
+    back: c.lock ? Math.abs(c.distance) : c.back, angle: c.angle * DEG, thickness: c.thickness,
   } : ({
     target: c.src.target, ...(c.src.targets?.length && c.src.target !== null && { targets: c.src.targets }),
     ...(c.src.arrangement && { arrangement: c.src.arrangement, pieces: c.src.pieces, origin: c.src.at.toArray(), normal: c.src.normal.toArray(), xAxis: c.src.x.toArray() }),
     ...(c.src.sheets?.length && { sheets: c.src.sheets, sheetDirection: (c.direction ?? c.src.sheetNormal).toArray() }), ...(c.src.arrangement ? {} : c.src.region !== undefined ? { region: c.src.region, moreRegions: c.src.more ?? [], holes: c.src.holes ?? [] } : { face: c.src.face, faces: c.src.faces ?? [], individual: c.individual }), distance: c.distance, op: c.op,
-    back: c.lock ? Math.abs(c.distance) : 0, angle: c.angle * DEG, thickness: c.thickness,
+    back: c.lock ? Math.abs(c.distance) : c.back, angle: c.angle * DEG, thickness: c.thickness,
     ...((c.direction ?? c.src.direction) && { direction: (c.direction ?? c.src.direction).toArray() }),
   });
   async function previewExtrude() {
@@ -5795,7 +5801,7 @@ export async function mount(root, backend) {
     try {
       const { id, scene: list } = await backend.commit(req);
       endCmd('committed');
-      const extra = [c.lock && 'BOTH SIDES', c.angle && `${c.angle}°`, c.thickness && `T ${c.thickness}`, c.direction && 'FREESTYLE', c.individual && 'INDIVIDUAL'].filter(Boolean).join(' ');
+      const extra = [c.lock ? 'BOTH SIDES' : c.back > 0 && `−${c.back}`, c.angle && `${c.angle}°`, c.thickness && `T ${c.thickness}`, c.direction && 'FREESTYLE', c.individual && 'INDIVIDUAL'].filter(Boolean).join(' ');
       record(`EXTRUDE ${fmt(req.distance)}${extra ? ` ${extra}` : ''}${req.op === 'auto' ? '' : ` ${req.op.toUpperCase()}`}`, id);
       await showScene(list);
       sel.replace({ kind: 'solid', body: id });
@@ -12387,7 +12393,7 @@ export async function mount(root, backend) {
   // Plasticity's Units: the model stays in millimetres; length fields show and take the chosen
   // unit (with arithmetic and unit suffixes, units.js), so code reading and writing them still
   // sees millimetres.
-  const LENGTH_FIELDS = ['blend-distance', 'spiral-radius', 'spiral-length', 'ex-distance', 'ex-thickness', 'off-distance', 'mx-tol', 'mx-width', 'mx-min', 'mx-small', 'dr-tol',
+  const LENGTH_FIELDS = ['blend-distance', 'spiral-radius', 'spiral-length', 'ex-distance', 'ex-back', 'ex-thickness', 'off-distance', 'mx-tol', 'mx-width', 'mx-min', 'mx-small', 'dr-tol',
     'oc-d', 'oe-d', 'ov-d', 'sl-d', 'cs-tol', 'sa-d', 'tx-size', 'pl-d', 'rf-tol', 'rf-eu', 'rf-ev', 'fv-r', 'fc-r', 'draft-d', 'patch-tol', 'bs-w', 'es-d', 'th-f', 'th-b',
     'pipe-r', 'pipe-t', 'hole-d', 'hole-depth', 'ext-len', 'prim-w', 'prim-d', 'prim-r', 'prim-h', 'shell-t', 'mirror-at', 'form-thickness', 'distance', 'ra-sx', 'ra-sy', 'ra-sz', 'im-w'];
   const rawValue = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value');
@@ -13231,6 +13237,7 @@ export async function mount(root, backend) {
   for (const b of $$('[data-xop]')) b.onclick = () => cmd?.id === 'extrude' && cmd.key(b.dataset.xop);
   $('ex-lock').onclick = () => cmd?.id === 'extrude' && cmd.key('lock');
   $('ex-angle').addEventListener('input', e => { const v = parseFloat(e.target.value); if (!isNaN(v)) setExtrudeShape({ angle: v }); });
+  $('ex-back').addEventListener('input', e => { const v = parseFloat(e.target.value); if (!isNaN(v) && v >= 0) setExtrudeShape({ back: v }); });
   $('ex-thickness').addEventListener('input', e => { const v = parseFloat(e.target.value); if (!isNaN(v) && v >= 0) setExtrudeShape({ thickness: v }); });
   for (const b of $$('[data-bop]')) b.onclick = () => cmd?.id === 'boolean' && cmd.key(b.dataset.bop);
   for (const b of $$('[data-xforient]')) b.onclick = () => cmd?.setOrient?.(b.dataset.xforient);
@@ -14004,7 +14011,7 @@ export async function mount(root, backend) {
       if (c.tc) Object.assign(out, { bodies: c.ids, offset: c.offset ? toUser(c.offset.toArray()) : null, angle: c.quat ? angleAbout(c.quat, c.axis) : 0, axis: c.axis, scale: c.scale, follow: c.follow?.name ?? null });
       if (c.id === 'pushpull') Object.assign(out, { placed: !!c.at, distance: c.distance });
       if (c.dots) out.dots = Object.fromEntries(Object.entries(c.dots).map(([k, g]) => [k, { at: g.position.toArray(), dir: g.direction.toArray(), value: g.value, state: g.state }]));
-      if (c.id === 'extrude') Object.assign(out, { region: c.src.region ?? null, face: c.src.face ?? null, target: c.src.target, distance: c.distance, op: c.op, outcome: c.outcome, angle: c.angle, thickness: c.thickness, lock: c.lock });
+      if (c.id === 'extrude') Object.assign(out, { region: c.src.region ?? null, face: c.src.face ?? null, target: c.src.target, distance: c.distance, op: c.op, outcome: c.outcome, angle: c.angle, thickness: c.thickness, lock: c.lock, back: c.back });
       if (c.id === 'boolean') Object.assign(out, { target: c.target, tools: c.tools, op: c.op, keep: c.keep });
       if (c.id === 'offset') Object.assign(out, { body: c.body, faces: c.faces, distance: c.distance, angle: c.angle });
       if (FORMS[c.id]) Object.assign(out, { regions: c.regions, target: c.target, op: c.op, outcome: c.outcome, axis: c.p1 && c.p2 ? [c.p1.toArray(), c.p2.toArray()] : null, angle: c.angle, thickness: c.thickness, path: c.path, twist: c.twist, scale: c.scale });
