@@ -176,7 +176,7 @@ const KEYS = {
   'bridge-surface': [['⇧ CLICK', 'TWO EDGES, OR TWO CROSSING SHEETS'], ['T', 'TENSION'], ['A', 'ADD WALL PAIR'], ['⏎ / RMB', 'OK']],
   'extend-sheet': [['CLICK', "A SHEET'S EDGE"], ['D', 'DISTANCE'], ['CTRL+CLICK', 'A BODY TO REACH'], ['TAB', 'NATURAL · LINEAR · SOFT · REFLECTIVE'], ['⏎ / RMB', 'OK']],
   thicken: [['CLICK', 'A SHEET'], ['ALT CLICK', 'FACES (THICKEN FACE)'], ['D', 'FRONT FROM CURSOR'], ['B', 'BACK'], ['S', 'LOCK DISTANCES'], ['⏎ / RMB', 'OK']],
-  pipe: [['⇧ CLICK', 'CURVES'], ['R', 'RADIUS'], ['T', 'THICKNESS'], ['V', 'SIDES'], ['⇧1 ⇧2', 'DISTANCES'], ['C', 'PROFILE'], ['⏎ / RMB', 'OK']],
+  pipe: [['⇧ CLICK', 'CURVES'], ['D', 'SIZE (DOT)'], ['⇧T', 'THICKNESS'], ['T', 'KEEP TOOLS'], ['A', 'ANGLE'], ['V', 'SIDES'], ['⇧1 ⇧2', 'DISTANCES'], ['C', 'PROFILE'], ['⏎ / RMB', 'OK']],
   patch: [['⇧ CLICK', 'CURVES · EDGES'], ['T', 'TANGENT TO FACES'], ['Q', 'QUAD-SIDED'], ['⏎ / RMB', 'OK']],
   hole: [['CLICK', 'A FLAT FACE'], ['T', 'THROUGH ALL'], ['TYPE', 'SIZE IN PANEL'], ['⏎ / RMB', 'OK']],
   split: [['CLICK', 'WHERE TO SPLIT'], ['ESC / ⏎', 'DONE']],
@@ -771,7 +771,7 @@ const SHELL = `
         <button data-pipeop="difference" aria-pressed="false" title="Cut the pipes out of the target body"><kbd>W</kbd>DIFF</button>
         <button data-pipeop="intersect" aria-pressed="false" title="Keep only where the pipes and the target overlap"><kbd>⇧E</kbd>INTER</button>
         <button data-pipeop="slice" aria-pressed="false" title="Cut the target where the pipes run, the pieces inside becoming bodies of their own"><kbd>⇧Q</kbd>SLICE</button>
-        <button data-id="pipe-keep" aria-pressed="false" title="Keep the pipes as bodies too after a union, difference or intersect"><kbd>⇧T</kbd>KEEP TOOLS</button>
+        <button data-id="pipe-keep" aria-pressed="false" title="Keep the pipes as bodies too after a union, difference or intersect"><kbd>T</kbd>KEEP TOOLS</button>
       </div>
     </div>
     <div class="sec" data-panel="hole" hidden>
@@ -8731,9 +8731,11 @@ export async function mount(root, backend) {
   function startPipe() {
     if (!backend.previewPipe) return toast('PIPE IS NOT IN THIS BUILD YET');
     // Plasticity's Pipe options: Angle (A) turns a polygon section, Scale (S) sizes the far end, and
-    // B / Q / W / Shift+E make new bodies or union, cut or intersect the target (Shift+T keeps the tubes).
+    // B / Q / W / Shift+E make new bodies or union, cut or intersect the target (T keeps the tubes).
+    // As in Plasticity, a yellow dot at the first curve's start sets the size (D grabs it from the
+    // cursor) and Shift+T types the wall thickness.
     // C picks a closed curve as a custom profile (the next curve clicked); C again goes back to round.
-    const c = cmd = { id: 'pipe', curves: [], op: 'new', keep: false, target: null, profile: null, picking: false, sent: 0, shown: 0 };
+    const c = cmd = { id: 'pipe', curves: [], op: 'new', keep: false, target: null, profile: null, picking: false, sent: 0, shown: 0, gizmo: null, at: '' };
     // The profile is a drawn curve's id, or { curve, label } for a face's outline.
     const profLabel = () => c.profile?.label ?? curveLabel(c.profile);
     lastTool = 'pipe';
@@ -8761,8 +8763,32 @@ export async function mount(root, backend) {
       for (const b of $$('[data-pipeop]')) b.setAttribute('aria-pressed', String(b.dataset.pipeop === c.op));
       $('pipe-keep').setAttribute('aria-pressed', String(c.keep));
     };
+    // The size dot: off the first curve's start, square to it, at the pipe's radius.
+    const placeDot = () => {
+      const src = curveById(c.curves[0]);
+      const key = src ? `${src.id}:${JSON.stringify(src.points ?? src.center ?? '')}` : '';
+      if (key === c.at) return;
+      c.at = key;
+      c.gizmo?.dispose();
+      c.gizmo = null;
+      if (!src) return;
+      const f = curveFrame(src), pts = curve2d(src);
+      if (pts.length < 2) return;
+      const p0 = lift(f, pts[0]), along = lift(f, pts[1]).sub(p0);
+      let dir = f.n.clone().cross(along).normalize();
+      if (dir.lengthSq() < 0.5) dir = f.n.clone();
+      c.gizmo = dot(p0, dir, v => {
+        const r = snapping(lastPointer) ? Math.round(v / gridStep()) * gridStep() : v;
+        if (!(r > 1e-6)) return;
+        $('pipe-r').value = +r.toFixed(4);
+        c.gizmo?.render(r);
+        c.preview();
+      });
+      c.gizmo?.render(num('pipe-r'));
+    };
     c.preview = () => {
       if (!c.curves.length) return;
+      placeDot();
       c.target = c.op === 'new' ? null : findTarget();
       if (c.op !== 'new' && c.target === null) {
         const missing = `NO SOLID FOR THE ${OPS[c.op]}; SELECT ONE WITH THE CURVES`;
@@ -8806,6 +8832,7 @@ export async function mount(root, backend) {
     c.key = action => {
       if (OPS[action]) { c.op = action; syncOps(); c.preview(); return true; }
       if (action === 'keep') { c.keep = !c.keep; syncOps(); c.preview(); return true; }
+      if (action === 'diameter') { if (c.gizmo) { c.gizmo.activate(lastPointer); return true; } action = 'radius'; }
       if (action === 'profile') {
         if (c.profile !== null || c.picking) { c.profile = null; c.picking = false; c.preview(); setHud(describe()); return true; }
         c.picking = true;
@@ -8833,7 +8860,7 @@ export async function mount(root, backend) {
       } catch (e) { setState('failed'); toast(say(e)); }
     };
     c.abort = () => endCmd('cancelled');
-    c.cleanup = () => clearPreview();
+    c.cleanup = () => { clearPreview(); c.gizmo?.dispose(); };
     syncOps();
     c.onSelection();
   }
