@@ -3323,7 +3323,7 @@ export async function mount(root, backend) {
     const on = prefs.commands;
     if (cmd || !on.autoInvoke) return;
     if (sheetEdge() && on.autoExtendSheet && backend.previewExtendSheet) startExtendSheet({ auto: true });
-    else if (edgeBody()) { if (on.autoFillet) startFillet({ auto: true }); }
+    else if (edgeGroups().length) { if (on.autoFillet) startFillet({ auto: true }); }
     else if (regionsOnly()) { if (on.autoExtrude) startExtrude({ auto: true }); }
     else if (faceBody() !== null) { if (on.autoOffset) startOffset({ auto: true }); }
     // 2026.2: Move comes up on selected solids and curves, its handles ready to drag.
@@ -3348,6 +3348,14 @@ export async function mount(root, backend) {
     if (!items.length || items.some(it => it.kind !== 'edge')) return null;
     const ids = new Set(items.map(it => it.body));
     return ids.size === 1 ? [...ids][0] : null;
+  }
+  /** Edges only, on one body or several: [{ body, edges }], the last picked edge's body first. */
+  function edgeGroups() {
+    const items = sel.list();
+    if (!items.length || items.some(it => it.kind !== 'edge')) return [];
+    const by = new Map([[items.at(-1).body, []]]);
+    for (const it of items) { if (!by.has(it.body)) by.set(it.body, []); by.get(it.body).push(it.n); }
+    return [...by].map(([body, edges]) => ({ body, edges: edges.sort((a, b) => a - b) }));
   }
   /** The bodies a transform acts on: the selected solids, else the bodies of whatever is selected. */
   const targetBodies = () => sel.solids.length ? sel.solids : sel.bodies;
@@ -3620,13 +3628,14 @@ export async function mount(root, backend) {
   // Drag the dot out to round, in (negative) to chamfer; D, C and A set the distance, the chamfer
   // and its angle from the cursor or typed numbers. Ctrl+click adds or removes edges. Too large a
   // radius stops at the largest that works. Enter or right-click finishes and selects the solid.
+  // Edges on several solids are filleted together, one size for all (Plasticity groups them by body);
+  // variable and limit points stay on the last picked edge's body.
   function startFillet({ auto = false } = {}) {
-    if (!auto && !edgeBody()) {
-      if (sel.list('edge').length) return toast('FILLET THE EDGES OF ONE SOLID AT A TIME');
+    if (!auto && !edgeGroups().length) {
       if (!sel.allows('edge')) sel.toggleMode('edge'), renderModes();
     }
     const c = cmd = {
-      id: 'fillet', auto, value: 0, angle: 45, shape: 'round', tension: 0.5, sent: 0, shown: 0, good: null, bad: null, body: null, edges: [],
+      id: 'fillet', auto, value: 0, angle: 45, shape: 'round', tension: 0.5, sent: 0, shown: 0, good: null, bad: null, body: null, edges: [], others: [],
       gizmo: null, entry: null, entryDone: () => previewFillet(),
       // Plasticity's variable points (V): { edge, point, scale, gizmo }, the radius there being value × scale.
       vars: [], limits: [], placing: null, tangent: true, extraGizmos() { return this.vars.map(v => v.gizmo) },
@@ -3650,7 +3659,7 @@ export async function mount(root, backend) {
     setState('none');
     c.onSelection = () => {
       drawOverlays();
-      const body = edgeBody();
+      const groups = edgeGroups(), body = groups[0]?.body ?? null;
       // An untouched auto fillet gives way to Extend Sheet when one sheet edge is all that's picked.
       if (c.auto && c.value === 0 && sheetEdge() && prefs.commands.autoExtendSheet) { abortFillet(null); return defaultCommand(); }
       if (!body) {
@@ -3660,7 +3669,7 @@ export async function mount(root, backend) {
         c.limits = [];
         for (const o of [...limitMarks.children]) dispose(o);
         $('blend-limits').textContent = 0;
-        c.body = null; c.edges = [];
+        c.body = null; c.edges = []; c.others = [];
         c.gizmo?.dispose(); c.gizmo = null;
         clearPreview();
         setTarget(null);
@@ -3668,15 +3677,16 @@ export async function mount(root, backend) {
         $('blend-hint').textContent = 'CTRL+CLICK EDGES TO ROUND';
         return setHud('SELECT EDGES');
       }
-      const edges = sel.list('edge').map(it => it.n).sort((a, b) => a - b);
+      const edges = groups[0].edges;
       const moved = c.body !== body || String(edges) !== String(c.edges);
       for (const v of c.vars.filter(v => c.body !== body || !edges.includes(v.edge))) dropVariable(v);
-      c.body = body; c.edges = edges;
+      c.body = body; c.edges = edges; c.others = groups.slice(1);
       c.good = c.bad = null;
       failedEdges = [];
-      setTarget(label(body));
-      $('blend-count').textContent = edges.length;
-      $('blend-hint').textContent = `${edges.length} EDGE${edges.length > 1 ? 'S' : ''} ON ${label(body)}`;
+      const all = groups.reduce((k, g) => k + g.edges.length, 0);
+      setTarget(groups.map(g => label(g.body)).join(' '));
+      $('blend-count').textContent = all;
+      $('blend-hint').textContent = `${all} EDGE${all > 1 ? 'S' : ''} ON ${groups.map(g => label(g.body)).join(' ')}`;
       if (moved || !c.gizmo) placeFilletDot();
       fetchSurfaces(c, body);
       previewFillet();
@@ -3889,6 +3899,10 @@ export async function mount(root, backend) {
     previewFillet();
   }
 
+  /** The same round on the other solids' edges (no variable or limit points there). */
+  const otherFillets = (c, v = c.value) => (c.others ?? []).map(o => ({
+    ...filletRequest(c, v), body: o.body, edges: o.edges, variable: [], limits: v > 0 && !c.tangent ? runEnds(o) : [],
+  }));
   const filletRequest = (c, v = c.value) => ({
     body: c.body, edges: c.edges, size: Math.abs(v), kind: v < 0 ? 'chamfer' : 'fillet', angle: c.angle * DEG,
     variable: v > 0 ? c.vars.map(p => ({ edge: p.edge, point: p.point.toArray(), scale: p.scale })) : [],
@@ -3957,8 +3971,11 @@ export async function mount(root, backend) {
     }
     setState('updating');
     const t0 = performance.now();
-    let body;
-    try { body = await backend.previewBlend(filletRequest(c, v)); }
+    let body, more = [];
+    try {
+      body = await backend.previewBlend(filletRequest(c, v));
+      for (const r of otherFillets(c, v)) more.push(await backend.previewBlend(r));
+    }
     catch (e) {
       if (cmd !== c || n !== c.sent) return;
       if (c.good !== null && Math.sign(c.good) === Math.sign(v) && Math.abs(c.good) < Math.abs(v)) {
@@ -3985,6 +4002,7 @@ export async function mount(root, backend) {
     $('ms').textContent = Math.round(performance.now() - t0);
     clearPreview();
     showPreviewBody(body);
+    for (const b of more) if (b) showPreviewBody(b);
     const at = c.vars.includes(c.dragVar) ? ` · POINT ${c.vars.indexOf(c.dragVar) + 1} R ${(Math.abs(v) * c.dragVar.scale).toFixed(2)}` : '';
     setHud(v > 0 && c.shape === 'full' ? 'FULL ROUND' : `${v < 0 ? 'CHAMFER' : 'R'} ${Math.abs(v).toFixed(2)}${at}`);
     if (n === c.sent) setState('updated');
@@ -3998,12 +4016,18 @@ export async function mount(root, backend) {
     const s = Math.sign(v);
     let lo = 0, hi = Math.abs(v), mid = hi / 2;
     for (let i = 0; i < 8 && !lo; i++, mid /= 2) {
-      try { if (await backend.previewBlend(filletRequest(c, s * mid))) lo = mid; else hi = mid; } catch { hi = mid; }
+      try { if (await fitsAll(c, s * mid)) lo = mid; else hi = mid; } catch { hi = mid; }
       if (cmd !== c || c.value !== v) return true;
     }
     if (!lo) return false;
     c.good = s * lo; c.bad = v;
     await refineFillet();
+    return true;
+  }
+
+  /** Whether that size works on every solid's edges (throws when one fails). */
+  async function fitsAll(c, v) {
+    for (const r of [filletRequest(c, v), ...otherFillets(c, v)]) if (!await backend.previewBlend(r)) return false;
     return true;
   }
 
@@ -4015,7 +4039,7 @@ export async function mount(root, backend) {
     const s = Math.sign(c.bad);
     for (let i = 0; i < 7 && hi - lo > 0.01; i++) {
       const mid = (lo + hi) / 2;
-      try { if (await backend.previewBlend(filletRequest(c, s * mid))) lo = mid; } catch { hi = mid; }
+      try { if (await fitsAll(c, s * mid)) lo = mid; } catch { hi = mid; }
       if (cmd !== c) return;
     }
     c.good = s * lo; c.bad = s * hi;
@@ -4028,17 +4052,26 @@ export async function mount(root, backend) {
     if (c.body === null || c.value === 0) return abortFillet(c.auto ? null : 'cancelled');
     if (c.bad !== null && Math.abs(c.value) >= Math.abs(c.bad)) c.value = c.good;
     const req = filletRequest(c);
-    const text = req.kind === 'fillet' && req.shape === 'full' ? `FILLET FULL ×${req.edges.length}`
-      : `${req.kind === 'chamfer' ? 'CHAMFER' : req.shape === 'round' ? 'FILLET' : `FILLET ${req.shape === 'g2' ? 'G2' : req.shape.toUpperCase()}`} ${req.size.toFixed(2)} ×${req.edges.length}`;
+    const others = otherFillets(c), count = req.edges.length + others.reduce((k, r) => k + r.edges.length, 0);
+    const text = req.kind === 'fillet' && req.shape === 'full' ? `FILLET FULL ×${count}`
+      : `${req.kind === 'chamfer' ? 'CHAMFER' : req.shape === 'round' ? 'FILLET' : `FILLET ${req.shape === 'g2' ? 'G2' : req.shape.toUpperCase()}`} ${req.size.toFixed(2)} ×${count}`;
+    let done = 0;
     try {
-      const { id, scene: list } = await backend.commitBlend(req);
+      let { id, scene: list } = await backend.commitBlend(req);
+      done = 1;
+      const ids = [id];
+      for (const r of others) { const out = await backend.commitBlend(r); ids.push(out.id); list = out.scene; done++; }
       endCmd('committed');
-      record(c.vars.length && req.kind === 'fillet' ? `${text} · ${c.vars.length} VARIABLE` : text, id);
+      // One undo step for all the solids.
+      pushStep({ text: `${c.vars.length && req.kind === 'fillet' ? `${text} · ${c.vars.length} VARIABLE` : text}${others.length ? ` · ${ids.length} SOLIDS` : ''}`, id, tag: label(id), sources: opSources ?? [], steps: ids.length });
       showScene(list);
       // Plasticity selects the result.
       sel.replace({ kind: 'solid', body: id });
+      for (const more of ids.slice(1)) sel.add({ kind: 'solid', body: more });
       selectionChanged({ quiet: true });
     } catch (e) {
+      // A later solid failing takes back the ones already rounded, so nothing is half done.
+      for (let i = 0; i < done; i++) await backend.undo().then(l => showScene(l)).catch(() => {});
       failedEdges = e.edges ?? [];
       drawOverlays();
       setState('failed');
@@ -11602,7 +11635,7 @@ export async function mount(root, backend) {
     if (dir === 'undo' && undone >= history.length) return;
     if (dir === 'redo' && undone === 0) return;
     const h = history[dir === 'undo' ? history.length - undone - 1 : history.length - undone];
-    if (!h.local) await showScene(await backend[dir]());
+    if (!h.local) { let list; for (let i = 0; i < (h.steps ?? 1); i++) list = await backend[dir](); await showScene(list); }
     if (h.org) restoreOrg(dir === 'undo' ? h.org.before : h.org.after);
     undone += dir === 'undo' ? 1 : -1;
     backupDue = true;
