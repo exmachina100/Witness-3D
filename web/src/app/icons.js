@@ -220,6 +220,7 @@ const ICONS = {
     'proj-normal': `<path d="M4 16c4-6 12-6 16 0"/><path ${A} d="M8 12V5M6 7l2-2 2 2M16 12V5M14 7l2-2 2 2"/>`,
     'proj-vector': `<path d="M4 20h16"/><path ${A} d="M7 4v12M5 14l2 2 2-2M12 4v12M10 14l2 2 2-2M17 4v12M15 14l2 2 2-2"/>`,
     'proj-both': `<path d="M4 12h16" stroke-dasharray="2 2"/><path ${A} d="M12 3v18M9.5 5.5L12 3l2.5 2.5M9.5 18.5L12 21l2.5-2.5"/>`,
+    'proj-tool': `<rect x="3" y="8" width="10" height="10"/><circle cx="15" cy="10" r="6" stroke-dasharray="2 2"/><path ${A} d="M10 11.5a6 6 0 0 0 3 6.4"/>`,
     'proj-hide': `<path d="M4 9h16"/><path d="M4 17h16" stroke-dasharray="2 2"/><path ${A} d="M12 2v7M10 7l2 2 2-2"/>`,
     // Completion: the imprinted edge left where it ends, or carried on to the face's edges.
     'completion-none': `<path d="M4 5h16v14H4z"/><path ${A} d="M9 12h6"/>`,

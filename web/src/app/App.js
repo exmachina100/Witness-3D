@@ -171,7 +171,7 @@ const KEYS = {
   'remove-face': [['⇧ CLICK', 'FACES'], ['⏎ / RMB', 'OK']],
   cut: [['⇧ CLICK', 'SOLIDS · CURVES'], ['⇧ ALT CLICK', 'FACES'], ['P', 'CONSTRUCTION PLANE'], ['⏎ / RMB', 'OK']],
   draft: [['A', 'ANGLE'], ['D', 'OFFSET'], ['TAB', 'GROW'], ['⇧ CLICK', 'FACES'], ['CLICK LINE', 'CURVE TAPER'], ['⏎ / RMB', 'OK']],
-  imprint: [['⇧ CLICK', 'FACES · CURVES'], ['⇧ ALT CLICK', 'BODY THAT IMPRINTS'], ['X Y Z', 'VECTOR'], ['S', 'SCREEN SPACE'], ['C', 'COMPLETION'], ['⏎ / RMB', 'OK']],
+  imprint: [['⇧ CLICK', 'FACES · CURVES'], ['⇧ ALT CLICK', 'BODY THAT IMPRINTS'], ['X Y Z', 'VECTOR'], ['S', 'SCREEN SPACE'], ['T', 'IMPRINT TOOL'], ['C', 'COMPLETION'], ['⏎ / RMB', 'OK']],
   project: [['⇧ CLICK', 'SOLID · CURVES'], ['X Y Z', 'VECTOR'], ['S', 'SCREEN SPACE'], ['⏎ / RMB', 'OK']],
   'bridge-surface': [['⇧ CLICK', 'TWO EDGES, OR TWO CROSSING SHEETS'], ['T', 'TENSION'], ['A', 'ADD WALL PAIR'], ['⏎ / RMB', 'OK']],
   'extend-sheet': [['CLICK', "A SHEET'S EDGE"], ['D', 'DISTANCE'], ['CTRL+CLICK', 'A BODY TO REACH'], ['TAB', 'NATURAL · LINEAR · SOFT · REFLECTIVE'], ['⏎ / RMB', 'OK']],
@@ -694,6 +694,7 @@ const SHELL = `
         <button data-imp="both" aria-pressed="true" title="Bidirectional: both ways from the curves">BIDIRECTIONAL</button>
         <button data-imp="hide" aria-pressed="false" title="Hide occlusion: not onto faces hidden behind others">HIDE OCCLUSION</button>
         <button data-imp="screen" aria-pressed="false" title="Screen space: along the view (S)"><kbd>S</kbd>SCREEN SPACE</button>
+        <button data-imp="tool" aria-pressed="false" title="Imprint tool: the other solids are imprinted where they meet the target too (T)"><kbd>T</kbd>IMPRINT TOOL</button>
       </div>
       <div class="chips" data-id="imp-complete">
         <button data-impcomp="none" aria-pressed="true" title="Completion None: edges stay where the curves end (C)">NONE</button>
@@ -8277,7 +8278,7 @@ export async function mount(root, backend) {
    */
   function startImprint() {
     if (!backend.previewImprint) return toast('IMPRINT IS NOT IN THIS BUILD YET');
-    const c = cmd = { id: 'imprint', body: null, faces: [], curves: [], tools: [], method: 'normal', axis: null, flip: false, screen: false, both: true, hide: false, complete: 'none', sent: 0, shown: 0 };
+    const c = cmd = { id: 'imprint', body: null, faces: [], curves: [], tools: [], tool: false, method: 'normal', axis: null, flip: false, screen: false, both: true, hide: false, complete: 'none', sent: 0, shown: 0 };
     lastTool = 'imprint';
     showTool('imprint');
     setState('none');
@@ -8312,16 +8313,29 @@ export async function mount(root, backend) {
         if (action === 'vector' && c.method !== 'vector') c.both = c.hide = true;
         c.method = action;
         c.screen = false;
-      } else if (action === 'both' || action === 'hide') c[action] = !c[action];
+      } else if (action === 'both' || action === 'hide' || action === 'tool') c[action] = !c[action];
       else if (action === 'complete') c.complete = c.complete === 'none' ? 'edge' : 'none';
       else if (action === 'complete-none' || action === 'complete-edge') c.complete = action.slice(9);
       else return false;
       c.onSelection();
       return true;
     };
-    c.preview = () => livePreview(c, () => backend.previewImprint(c.request()), b => {
+    // Imprint Tool (Body Body): each other solid is imprinted by the target as well, in the same step.
+    const toolRequests = () => c.tool ? c.tools.map(t => ({ body: t, faces: [], curves: [], tools: { bodies: [c.body] }, projection: { dir: null, both: true, hide: false, complete: false } })) : [];
+    c.preview = () => livePreview(c, async () => {
+      // One after another: the backend keeps only the newest of overlapping previews.
+      const all = [];
+      for (const r of [c.request(), ...toolRequests()]) {
+        const b = await backend.previewImprint(r);
+        if (b == null) return null;
+        all.push(b);
+      }
+      return all;
+    }, ([b, ...more]) => {
       showPreviewBody(b);
-      setHud(`IMPRINT ${c.curves.length} CURVE${c.curves.length > 1 ? 'S' : ''}${c.curves.length ? ` · ${dirName()}${c.both ? ' · BOTH WAYS' : ''}${c.hide ? ' · SEEN FACES' : ''}${c.complete === 'edge' ? ' · TO EDGES' : ''}` : ''}`);
+      for (const m of more) showPreviewBody(m);
+      const by = [c.curves.length && `${c.curves.length} CURVE${c.curves.length > 1 ? 'S' : ''}`, ...c.tools.map(label)].filter(Boolean).join(' · ');
+      setHud(`IMPRINT ${by}${c.tool && c.tools.length ? ' · TOOL TOO' : ''}${c.curves.length ? ` · ${dirName()}${c.both ? ' · BOTH WAYS' : ''}${c.hide ? ' · SEEN FACES' : ''}${c.complete === 'edge' ? ' · TO EDGES' : ''}` : ''}`);
     }, 'imp-hint');
     c.onSelection = () => {
       drawOverlays();
@@ -8355,9 +8369,17 @@ export async function mount(root, backend) {
     c.finish = async () => {
       if (c.body === null || !(c.curves.length || c.tools.length)) { setState('failed'); return toast($('imp-hint').textContent); }
       try {
-        const { id, scene: list } = await backend.commitImprint(c.request());
+        let { id, scene: list } = await backend.commitImprint(c.request());
+        // The tools after the target: each against the target as it now is, undone with it as one step.
+        const reqs = toolRequests();
+        let steps = 1;
+        for (const r of reqs) {
+          r.tools.bodies = [id];
+          try { ({ scene: list } = await backend.commitImprint(r)); steps++; }
+          catch (e) { toast(`${label(r.body)} NOT IMPRINTED: ${say(e)}`); }
+        }
         endCmd('committed');
-        record(`IMPRINT${c.curves.length ? ` ×${c.curves.length} CURVE` : ''}${c.tools.length ? ` ${c.tools.map(label).join(' ')}` : ''}`, id);
+        pushStep({ text: `IMPRINT${c.curves.length ? ` ×${c.curves.length} CURVE` : ''}${c.tools.length ? ` ${c.tools.map(label).join(' ')}` : ''}${steps > 1 ? ' + TOOL' : ''}`, id, tag: label(id), sources: opSources ?? [], steps });
         await showScene(list);
         sel.replace({ kind: 'solid', body: id });
         selectionChanged({ quiet: true });

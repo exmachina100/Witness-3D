@@ -169,7 +169,7 @@ export const COMMAND = {
     // Project (manual): S projects along the view (screen space); X, Y and Z pick a vector axis, again flips it.
     project: { s: 'screen', x: 'axis-x', y: 'axis-y', z: 'axis-z' },
     // Imprint Curve Body (manual): the same direction keys, and C cycles Completion.
-    imprint: { s: 'screen', x: 'axis-x', y: 'axis-y', z: 'axis-z', c: 'complete' },
+    imprint: { s: 'screen', x: 'axis-x', y: 'axis-y', z: 'axis-z', c: 'complete', t: 'tool' },
     // Bridge Surface: T types the tension.
     'bridge-surface': { t: 'tension', a: 'add-pair' },
     // Patch: T leaves the edges tangent to their faces.
