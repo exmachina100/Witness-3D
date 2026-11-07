@@ -326,3 +326,17 @@ test('a loft of closed splines shells (the arc join steps in where the sharp one
     assert.ok(count(shape, 'TopAbs_FACE') > count(body, 'TopAbs_FACE'));
     assert.ok(volume(shape) < 0.3 * volume(body), `${volume(shape)} of ${volume(body)}`);
 });
+
+test('cut in screen space sweeps the curves along the view, and whole curves (Extend) cut too', async () => {
+    const be = new LocalBackend({ seed: 'enclosure' });
+    const seed = be.scene()[0]; // 80 × 30 × 50 at x −40..40, y 0..30
+    const line = { origin: [0, 0, 0], x: [1, 0, 0], normal: [0, 1, 0], kind: 'polyline', points: [[10, -100], [10, 100]], closed: false };
+    const { ids: [id] } = await be.addCurves([line]);
+    // Seen along (1, 1, 0): the slanted plane x − y = 10 takes off a prism 30 × 30 / 2 × 50.
+    const preview = await be.previewCut({ bodies: [seed.id], curves: [id], tools: { dir: [1, 1, 0] } });
+    const vols = preview.map(b => b.volume).sort((a, b) => a - b);
+    close(vols[0], 0.5 * 30 * 30 * 50, 1e-2);
+    close(vols[0] + vols[1], seed.volume, 1e-2);
+    const shaped = await be.previewCut({ bodies: [seed.id], curves: [], tools: { shapes: [line] } });
+    assert.equal(shaped.length, 2);
+});

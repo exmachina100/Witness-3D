@@ -1159,7 +1159,13 @@ impl<K: Kernel> Document<K> {
     /// Plasticity's Cut, without changing the document: per body, its biggest piece (traced) and the rest.
     pub fn preview_cut(&self, bodies: &[BodyId], curves: &[CurveId], tools: &Tools) -> Result<Vec<(BodyId, Traced<K::Solid>, Vec<K::Solid>)>, KernelError> {
         if bodies.is_empty() { return Err(KernelError::Invalid("select a solid to cut")) }
-        let cutters = self.cutters(curves)?;
+        let mut cutters = self.cutters(curves)?;
+        // Curves given whole (Cut's Extend pieces), then Screen Space's one direction for them all.
+        cutters.extend(tools.shapes.iter().map(|c| (c.path(), c.frame().normal)));
+        if let Some(d) = tools.dir {
+            let d = DVec3::from(d).normalize_or_zero();
+            if d != DVec3::ZERO { for c in &mut cutters { c.1 = d } }
+        }
         let sheets = self.sheets(tools)?;
         if cutters.is_empty() && sheets.is_empty() && tools.bodies.is_empty() { return Err(KernelError::Invalid("select curves, faces or a plane to cut with")) }
         bodies.iter().map(|&id| {
@@ -2378,6 +2384,9 @@ pub struct Tools {
     /// Curves that aren't in the document (Offset Edge's offsets), used by Imprint like its curves.
     #[serde(default)]
     pub shapes: Vec<Curve>,
+    /// Cut's Screen Space: the curves swept along this direction (the view's) instead of their normals.
+    #[serde(default)]
+    pub dir: Option<[f64; 3]>,
 }
 
 #[derive(Clone, Copy, Debug, Serialize, Deserialize)]

@@ -166,8 +166,8 @@ export const COMMAND = {
     // Bridge Curve / Bridge Vertex (manual: Tab continuity, D tension)
     bridge: { t: 'tension', d: 'tension', tab: 'continuity', q: 'trim', x: 'axis-x', y: 'axis-y', z: 'axis-z' },
     hole: { t: 'through' },
-    // Cut: P cuts with the construction plane as well.
-    cut: { p: 'plane', c: 'curve' },
+    // Cut: P cuts with the construction plane as well; S sweeps the curves along the view, E extends them.
+    cut: { p: 'plane', c: 'curve', s: 'screen', e: 'extend' },
     // Project (manual): S projects along the view (screen space); X, Y and Z pick a vector axis, again flips it.
     project: { s: 'screen', x: 'axis-x', y: 'axis-y', z: 'axis-z' },
     // Imprint Curve Body (manual): the same direction keys, and C cycles Completion.

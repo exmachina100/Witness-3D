@@ -169,7 +169,7 @@ const KEYS = {
   'offset-curve': [['DRAG DOT', 'DISTANCE'], ['D', 'DISTANCE'], ['V / C', 'GAP FILL'], ['S', 'BOTH SIDES'], ['F', 'FREESTYLE: CLICK'], ['O', 'SLOT'], ['I', 'COMBINED'], ['⏎ / RMB', 'OK']],
   'fillet-curve': [['DRAG DOT', 'IN ROUND · OUT CHAMFER'], ['D', 'FILLET DISTANCE'], ['C', 'CHAMFER DISTANCE'], ['⏎ / RMB', 'OK']],
   'remove-face': [['⇧ CLICK', 'FACES'], ['⏎ / RMB', 'OK']],
-  cut: [['⇧ CLICK', 'SOLIDS · CURVES'], ['⇧ ALT CLICK', 'FACES'], ['P', 'CONSTRUCTION PLANE'], ['C', 'CUT CURVE'], ['⏎ / RMB', 'OK']],
+  cut: [['⇧ CLICK', 'SOLIDS · CURVES'], ['⇧ ALT CLICK', 'FACES'], ['P', 'CONSTRUCTION PLANE'], ['S', 'SCREEN SPACE'], ['E', 'EXTEND'], ['C', 'CUT CURVE'], ['⏎ / RMB', 'OK']],
   draft: [['A', 'ANGLE'], ['D', 'OFFSET'], ['TAB', 'GROW'], ['⇧ CLICK', 'FACES'], ['CLICK LINE', 'CURVE TAPER'], ['⏎ / RMB', 'OK']],
   imprint: [['⇧ CLICK', 'FACES · CURVES'], ['⇧ ALT CLICK', 'BODY THAT IMPRINTS'], ['X Y Z', 'VECTOR'], ['S', 'SCREEN SPACE'], ['T', 'IMPRINT TOOL'], ['C', 'COMPLETION'], ['⏎ / RMB', 'OK']],
   project: [['⇧ CLICK', 'SOLID · CURVES'], ['X Y Z', 'VECTOR'], ['S', 'SCREEN SPACE'], ['⏎ / RMB', 'OK']],
@@ -680,7 +680,7 @@ const SHELL = `
       <div class="field"><label>SOLIDS</label><output data-id="cut-solids">0</output></div>
       <div class="field"><label>CURVES</label><output data-id="cut-curves">0</output></div>
       <div class="field"><label>FACES</label><output data-id="cut-faces">0</output></div>
-      <div class="chips"><button data-id="cut-plane" aria-pressed="false"><kbd>P</kbd>PLANE</button></div>
+      <div class="chips"><button data-id="cut-plane" aria-pressed="false"><kbd>P</kbd>PLANE</button><button data-id="cut-screen" aria-pressed="false" title="Screen space: the curves cut straight into the view (S)"><kbd>S</kbd>SCREEN SPACE</button><button data-id="cut-extend" aria-pressed="false" title="Extend: open curves carry straight on past their ends, so a short one cuts right through (E)"><kbd>E</kbd>EXTEND</button></div>
       <div class="field"><label>PIECES</label><output data-id="cut-pieces">—</output></div>
     </div>
     <div class="sec" data-panel="draft" hidden>
@@ -1138,11 +1138,11 @@ const VIEWS = {
 export async function mount(root, backend) {
   root.innerHTML = SHELL;
   // Panel options carry their icon ahead of the key and name.
-  for (const b of root.querySelectorAll('[data-proj],[data-imp],[data-impcomp],[data-draw],[data-bop],[data-btmat],[data-bumat],[data-xop],[data-fop],[data-spiral],[data-toggle],[data-gmethod],[data-galign],[data-gcorner],[data-grow],[data-mfgrow],[data-drgrow],[data-eslimit],[data-flshape],[data-chshape],[data-drtaper],[data-avaxis],[data-extshape],[data-esshape],[data-isodir],[data-id="oe-both"],[data-id="iso-subdivide"],[data-id="oe-individual"],[data-id="blend-tangent"],[data-id="ex-lock"],[data-id="ex-keep"],[data-id="bool-keep"],[data-id="prim-keep"],[data-id="form-keep"],[data-pipeop],[data-id="pipe-keep"],[data-id="ex-free"],[data-id="ex-pivot"],[data-id="ex-individual"],[data-id="patch-individual"],[data-id="patch-quad"],[data-id="as-symmetric"],[data-id="as-analysis"],[data-id="sq-analysis"],[data-id="dr-hidden"],[data-id="dr-curves"],[data-id="oc-lock"],[data-id="oc-free"],[data-id="oc-slot"],[data-id="oc-combine"],[data-id="es-unlimit"],[data-rbmethod],[data-rcmethod],[data-id="rb-corners"],[data-oecorner],[data-saplane],[data-plaxis],[data-plop],[data-id="pl-flip"],[data-id="pl-instance"],[data-id="mirror-instance"],[data-id="mirror-neg"],[data-id="mirror-free"],[data-id="mirror-cut"],[data-id="ra-instance"],[data-id="ra-spacing"],[data-id="ra-extent"],[data-id="rr-total"],[data-id="rr-spacing"],[data-id="rr-instance"],[data-id="ca-instance"],[data-caalign],[data-camethod],[data-id="br-trim"],[data-id="br-comb"],[data-id="br-constrain"],[data-id="ac-constrain"],[data-id="ac-comb"],[data-id="dc-reblend"],[data-id="section-btn"],[data-id="sa-flip"],[data-id="rf-shrink"],[data-id="ut-keep"],[data-txfont],[data-id="tx-load"],[data-id="tx-system"],[data-txalign],[data-sldir],[data-dcflip],[data-id="dc-keep"],[data-imdepth],[data-imcull],[data-id="im-delete"],[data-id="cc-extend"],[data-id="cc-screen"],[data-inmode],[data-pfmode],[data-pfmirror],[data-xforient],[data-xfpivot],[data-id="xf-pick"],[data-id="xf-unpivot"],[data-id="xf-free"],[data-id="ls-loop"],[data-id="ls-limit"],[data-id="ls-simplify"],[data-pmethod],[data-mxtopo],[data-id="mx-convex"],[data-sqbound],[data-asbound],[data-bsshape],[data-bstrim],[data-id="bs-add"],[data-id="bs-s1"],[data-id="bs-s2"],[data-id="in-realize"],[data-id="in-dup"],[data-id="in-delete"],[data-id="matcap-load"],[data-id="matcap-custom"],[data-id="hdr-load"],[data-id="hdr-custom"]')) {
+  for (const b of root.querySelectorAll('[data-proj],[data-imp],[data-impcomp],[data-draw],[data-bop],[data-btmat],[data-bumat],[data-xop],[data-fop],[data-spiral],[data-toggle],[data-gmethod],[data-galign],[data-gcorner],[data-grow],[data-mfgrow],[data-drgrow],[data-eslimit],[data-flshape],[data-chshape],[data-drtaper],[data-avaxis],[data-extshape],[data-esshape],[data-isodir],[data-id="oe-both"],[data-id="iso-subdivide"],[data-id="oe-individual"],[data-id="blend-tangent"],[data-id="ex-lock"],[data-id="ex-keep"],[data-id="bool-keep"],[data-id="prim-keep"],[data-id="form-keep"],[data-pipeop],[data-id="pipe-keep"],[data-id="ex-free"],[data-id="ex-pivot"],[data-id="ex-individual"],[data-id="patch-individual"],[data-id="patch-quad"],[data-id="as-symmetric"],[data-id="as-analysis"],[data-id="sq-analysis"],[data-id="dr-hidden"],[data-id="dr-curves"],[data-id="oc-lock"],[data-id="oc-free"],[data-id="oc-slot"],[data-id="oc-combine"],[data-id="es-unlimit"],[data-rbmethod],[data-rcmethod],[data-id="rb-corners"],[data-oecorner],[data-saplane],[data-plaxis],[data-plop],[data-id="pl-flip"],[data-id="pl-instance"],[data-id="mirror-instance"],[data-id="mirror-neg"],[data-id="mirror-free"],[data-id="mirror-cut"],[data-id="ra-instance"],[data-id="ra-spacing"],[data-id="ra-extent"],[data-id="rr-total"],[data-id="rr-spacing"],[data-id="rr-instance"],[data-id="ca-instance"],[data-caalign],[data-camethod],[data-id="br-trim"],[data-id="br-comb"],[data-id="br-constrain"],[data-id="ac-constrain"],[data-id="ac-comb"],[data-id="dc-reblend"],[data-id="section-btn"],[data-id="sa-flip"],[data-id="rf-shrink"],[data-id="ut-keep"],[data-txfont],[data-id="tx-load"],[data-id="tx-system"],[data-txalign],[data-sldir],[data-dcflip],[data-id="dc-keep"],[data-imdepth],[data-imcull],[data-id="im-delete"],[data-id="cc-extend"],[data-id="cc-screen"],[data-id="cut-extend"],[data-id="cut-screen"],[data-inmode],[data-pfmode],[data-pfmirror],[data-xforient],[data-xfpivot],[data-id="xf-pick"],[data-id="xf-unpivot"],[data-id="xf-free"],[data-id="ls-loop"],[data-id="ls-limit"],[data-id="ls-simplify"],[data-pmethod],[data-mxtopo],[data-id="mx-convex"],[data-sqbound],[data-asbound],[data-bsshape],[data-bstrim],[data-id="bs-add"],[data-id="bs-s1"],[data-id="bs-s2"],[data-id="in-realize"],[data-id="in-dup"],[data-id="in-delete"],[data-id="matcap-load"],[data-id="matcap-custom"],[data-id="hdr-load"],[data-id="hdr-custom"]')) {
     const name = (b.dataset.proj && (b.dataset.proj === 'screen' ? 'view-screen' : `proj-${b.dataset.proj}`)) ?? (b.dataset.imp && (b.dataset.imp === 'screen' ? 'view-screen' : `proj-${b.dataset.imp}`)) ?? (b.dataset.impcomp && `completion-${b.dataset.impcomp}`) ?? b.dataset.draw ?? b.dataset.bop ?? (b.dataset.xforient && `orient-${b.dataset.xforient}`) ?? (b.dataset.xfpivot && `pivot-${b.dataset.xfpivot}`) ?? (b.dataset.btmat && `mat-${b.dataset.btmat}`) ?? (b.dataset.bumat && `mat-${b.dataset.bumat}`) ?? b.dataset.xop ?? b.dataset.fop ?? b.dataset.spiral ?? (b.dataset.toggle && `view-${b.dataset.toggle}`)
       ?? (b.dataset.gmethod && `guide-${b.dataset.gmethod}`) ?? (b.dataset.galign && `align-${b.dataset.galign}`) ?? (b.dataset.caalign && `align-${b.dataset.caalign}`) ?? (b.dataset.camethod && `array-${b.dataset.camethod}`) ?? (b.dataset.gcorner && (b.dataset.gcorner === 'round' ? 'corner-round' : 'corner-linear')) ?? (b.dataset.grow && `grow-${b.dataset.grow}`) ?? (b.dataset.mfgrow && `grow-${b.dataset.mfgrow}`) ?? (b.dataset.drgrow && `grow-${b.dataset.drgrow}`) ?? (b.dataset.eslimit && `limit-${b.dataset.eslimit}`) ?? (b.dataset.flshape && `fillet-${b.dataset.flshape}`) ?? (b.dataset.chshape && `chamfer-${b.dataset.chshape}`) ?? (b.dataset.drtaper && `taper-${b.dataset.drtaper}`) ?? (b.dataset.avaxis && `axis-${b.dataset.avaxis}`) ?? (b.dataset.extshape && `extend-${b.dataset.extshape}`) ?? (b.dataset.esshape && `extend-${b.dataset.esshape}`) ?? (b.dataset.isodir && `iso-${b.dataset.isodir}`) ?? (b.dataset.rbmethod && `rebuild-${b.dataset.rbmethod}`) ?? (b.dataset.rcmethod && `rebuild-${b.dataset.rcmethod}`) ?? (b.dataset.oecorner && `corner-${b.dataset.oecorner}`) ?? (b.dataset.saplane && `section-${b.dataset.saplane}`) ?? (b.dataset.plaxis && (b.dataset.plaxis === 'normal' ? 'place-normal' : `axis-${b.dataset.plaxis}`)) ?? b.dataset.plop ?? b.dataset.pipeop
       ?? (b.dataset.txfont && `font-${b.dataset.txfont}`) ?? (b.dataset.txalign && `txalign-${b.dataset.txalign}`) ?? (b.dataset.sldir && { u: 'slide-u', '-u': 'slide-back', v: 'slide-v', '-v': 'slide-vback', n: 'slide-n' }[b.dataset.sldir]) ?? (b.dataset.dcflip && { mirror: 'mirror', swap: 'swap-uv', normal: 'reverse-sheet' }[b.dataset.dcflip]) ?? (b.dataset.imdepth && `depth-${b.dataset.imdepth}`) ?? (b.dataset.imcull && `cull-${b.dataset.imcull}`) ?? b.dataset.inmode ?? (b.dataset.bsshape && `bridge-${b.dataset.bsshape}`) ?? (b.dataset.bstrim && `trimwall-${b.dataset.bstrim}`) ?? (b.dataset.mxtopo && `topo-${b.dataset.mxtopo}`) ?? (b.dataset.pmethod && (b.dataset.pmethod === 'fill' ? 'patch-fill' : `trim-${b.dataset.pmethod}`)) ?? (b.dataset.pfmode && `falloff-${b.dataset.pfmode}`) ?? ((b.dataset.sqbound ?? b.dataset.asbound) && `bound-${b.dataset.sqbound ?? b.dataset.asbound}`) ?? (b.dataset.pfmirror && `mirror-${b.dataset.pfmirror}`)
-      ?? { 'matcap-load': 'matcap-load', 'matcap-custom': 'matcap', 'tx-load': 'font-load', 'tx-system': 'font-system', 'hdr-load': 'hdr-load', 'hdr-custom': 'hdr', 'ex-lock': 'lock', 'rb-corners': 'corner-linear', 'bool-keep': 'keep', 'ex-keep': 'keep', 'prim-keep': 'keep', 'form-keep': 'keep', 'pipe-keep': 'keep', 'ex-free': 'freestyle', 'ex-pivot': 'pivot', 'ex-individual': 'individual', 'patch-individual': 'individual', 'mx-convex': 'convex', 'patch-quad': 'square', 'as-symmetric': 'symmetric', 'as-analysis': 'analysis', 'sq-analysis': 'analysis', 'bs-add': 'wall-pair', 'bs-s1': 'flip', 'bs-s2': 'flip', 'dr-hidden': 'hidden-lines', 'dr-curves': 'drawing-curves', 'oc-lock': 'lock', 'oc-free': 'freestyle', 'oc-slot': 'slot', 'oc-combine': 'combine', 'oe-both': 'both-sides', 'xf-pick': 'pivot', 'xf-unpivot': 'pivot-remove', 'xf-free': 'freestyle', 'ls-loop': 'loft-loop', 'ls-limit': 'limit-point', 'ls-simplify': 'simplify', 'iso-subdivide': 'subdivide', 'oe-individual': 'individual', 'blend-tangent': 'tangent-chain', 'es-unlimit': 'unlimit', 'rf-shrink': 'shrink', 'ut-keep': 'keep-edges', 'section-btn': 'view-section', 'sa-flip': 'flip', 'pl-flip': 'flip', 'pl-instance': 'instance', 'mirror-instance': 'instance', 'mirror-neg': 'mirror-neg', 'mirror-free': 'freestyle', 'mirror-cut': 'mirror-cut', 'ra-instance': 'instance', 'ra-spacing': 'array-spacing', 'ra-extent': 'array-extent', 'rr-total': 'array-total', 'rr-spacing': 'array-angle-step', 'rr-instance': 'instance', 'ca-instance': 'instance', 'br-trim': 'trim', 'br-comb': 'view-curvature', 'br-constrain': 'constrain', 'ac-constrain': 'constrain', 'ac-comb': 'view-curvature', 'dc-reblend': 'reblend', 'dc-keep': 'keep', 'im-delete': 'delete', 'in-realize': 'realize-instance', 'cc-extend': 'extend', 'cc-screen': 'view-screen', 'in-dup': 'duplicate', 'in-delete': 'delete' }[b.dataset.id];
+      ?? { 'matcap-load': 'matcap-load', 'matcap-custom': 'matcap', 'tx-load': 'font-load', 'tx-system': 'font-system', 'hdr-load': 'hdr-load', 'hdr-custom': 'hdr', 'ex-lock': 'lock', 'rb-corners': 'corner-linear', 'bool-keep': 'keep', 'ex-keep': 'keep', 'prim-keep': 'keep', 'form-keep': 'keep', 'pipe-keep': 'keep', 'ex-free': 'freestyle', 'ex-pivot': 'pivot', 'ex-individual': 'individual', 'patch-individual': 'individual', 'mx-convex': 'convex', 'patch-quad': 'square', 'as-symmetric': 'symmetric', 'as-analysis': 'analysis', 'sq-analysis': 'analysis', 'bs-add': 'wall-pair', 'bs-s1': 'flip', 'bs-s2': 'flip', 'dr-hidden': 'hidden-lines', 'dr-curves': 'drawing-curves', 'oc-lock': 'lock', 'oc-free': 'freestyle', 'oc-slot': 'slot', 'oc-combine': 'combine', 'oe-both': 'both-sides', 'xf-pick': 'pivot', 'xf-unpivot': 'pivot-remove', 'xf-free': 'freestyle', 'ls-loop': 'loft-loop', 'ls-limit': 'limit-point', 'ls-simplify': 'simplify', 'iso-subdivide': 'subdivide', 'oe-individual': 'individual', 'blend-tangent': 'tangent-chain', 'es-unlimit': 'unlimit', 'rf-shrink': 'shrink', 'ut-keep': 'keep-edges', 'section-btn': 'view-section', 'sa-flip': 'flip', 'pl-flip': 'flip', 'pl-instance': 'instance', 'mirror-instance': 'instance', 'mirror-neg': 'mirror-neg', 'mirror-free': 'freestyle', 'mirror-cut': 'mirror-cut', 'ra-instance': 'instance', 'ra-spacing': 'array-spacing', 'ra-extent': 'array-extent', 'rr-total': 'array-total', 'rr-spacing': 'array-angle-step', 'rr-instance': 'instance', 'ca-instance': 'instance', 'br-trim': 'trim', 'br-comb': 'view-curvature', 'br-constrain': 'constrain', 'ac-constrain': 'constrain', 'ac-comb': 'view-curvature', 'dc-reblend': 'reblend', 'dc-keep': 'keep', 'im-delete': 'delete', 'in-realize': 'realize-instance', 'cc-extend': 'extend', 'cc-screen': 'view-screen', 'cut-extend': 'extend', 'cut-screen': 'view-screen', 'in-dup': 'duplicate', 'in-delete': 'delete' }[b.dataset.id];
     b.insertAdjacentHTML('afterbegin', icon(name));
   }
   const $ = id => root.querySelector(`[data-id="${id}"]`);
@@ -8632,18 +8632,19 @@ export async function mount(root, backend) {
    */
   function startCut() {
     if (!backend.previewCut) return toast('CUT IS NOT IN THIS BUILD YET');
-    const c = cmd = { id: 'cut', bodies: [], curves: [], faces: [], plane: false, sent: 0, shown: 0 };
+    const c = cmd = { id: 'cut', bodies: [], curves: [], faces: [], plane: false, screen: false, extend: false, sent: 0, shown: 0 };
     lastTool = 'cut';
     showTool('cut');
     setState('none');
-    $('cut-plane').setAttribute('aria-pressed', 'false');
-    c.request = () => ({ bodies: c.bodies, curves: c.curves, tools: { faces: c.faces, plane: c.plane ? { origin: cplane.origin.toArray(), normal: cplane.normal.toArray() } : null } });
+    for (const k of ['plane', 'screen', 'extend']) $(`cut-${k}`).setAttribute('aria-pressed', 'false');
+    // Screen Space (S): the curves swept along the view, as it is when the cut is made.
+    c.request = () => ({ bodies: c.bodies, curves: c.curves, tools: { faces: c.faces, plane: c.plane ? { origin: cplane.origin.toArray(), normal: cplane.normal.toArray() } : null, shapes: c.extend ? cutExtensions(c.curves) : [], ...(c.screen && { dir: camera.getWorldDirection(new THREE.Vector3()).toArray() }) } });
     c.key = action => {
       // C again: Cut Curve, as in Plasticity (C, C), on the selected curves.
       if (action === 'curve') { endCmd(null); startCutCurve(); return true; }
-      if (action !== 'plane') return false;
-      c.plane = !c.plane;
-      $('cut-plane').setAttribute('aria-pressed', c.plane);
+      if (action !== 'plane' && action !== 'screen' && action !== 'extend') return false;
+      c[action] = !c[action];
+      $(`cut-${action}`).setAttribute('aria-pressed', c[action]);
       c.onSelection();
       return true;
     };
@@ -8662,7 +8663,7 @@ export async function mount(root, backend) {
       $('cut-faces').textContent = c.faces.length;
       $('cut-pieces').textContent = '—';
       setTarget(c.bodies.length === 1 ? label(c.bodies[0]) : c.bodies.length ? `${c.bodies.length} SOLIDS` : '—');
-      const by = [c.curves.length && `${c.curves.length} CURVE${c.curves.length > 1 ? 'S' : ''}`, c.faces.length && `${c.faces.length} FACE${c.faces.length > 1 ? 'S' : ''}`, c.plane && `PLANE ${cplane.name}`].filter(Boolean);
+      const by = [c.curves.length && `${c.curves.length} CURVE${c.curves.length > 1 ? 'S' : ''}${c.screen ? ' ALONG THE VIEW' : ''}${c.extend ? ' EXTENDED' : ''}`, c.faces.length && `${c.faces.length} FACE${c.faces.length > 1 ? 'S' : ''}`, c.plane && `PLANE ${cplane.name}`].filter(Boolean);
       const missing = !c.bodies.length ? 'SELECT THE SOLIDS TO CUT' : !by.length ? 'SELECT CURVES OR FACES, OR P FOR THE PLANE' : null;
       $('cut-hint').textContent = missing ?? `${c.bodies.length} SOLID${c.bodies.length > 1 ? 'S' : ''} · ${by.join(' · ')}`;
       if (missing) { clearPreview(); return setHud(missing); }
@@ -8683,7 +8684,7 @@ export async function mount(root, backend) {
       try {
         const { ids, scene: list } = await backend.commitCut(c.request());
         endCmd('committed');
-        record(`CUT${c.plane ? ` BY PLANE ${cplane.name}` : ''}${c.curves.length ? ` ×${c.curves.length} CURVE` : ''}${c.faces.length ? ` ×${c.faces.length} FACE` : ''}`, ids[0], `${ids.length} PIECES`);
+        record(`CUT${c.plane ? ` BY PLANE ${cplane.name}` : ''}${c.curves.length ? ` ×${c.curves.length} CURVE${c.screen ? ' SCREEN' : ''}${c.extend ? ' EXTENDED' : ''}` : ''}${c.faces.length ? ` ×${c.faces.length} FACE` : ''}`, ids[0], `${ids.length} PIECES`);
         await showScene(list);
         sel.clear();
         for (const b of ids) sel.add({ kind: 'solid', body: b });
@@ -8693,6 +8694,30 @@ export async function mount(root, backend) {
     c.abort = () => endCmd('cancelled');
     c.cleanup = () => clearPreview();
     c.onSelection();
+  }
+
+  /**
+   * Cut's Extend (E): for each open curve, a straight line on from each end along its tangent there
+   * (in its plane), long enough to run out of everything, cutting along with the curve itself.
+   */
+  function cutExtensions(ids) {
+    const out = [];
+    for (const id of ids) {
+      const c = curveById(id);
+      if (!c || isClosed(c)) continue;
+      const f = curveFrame(c), pts = curve2d(c);
+      if (pts.length < 2) continue;
+      const far = 1e4;
+      for (const [a, b] of [[pts[0], pts[1]], [pts.at(-1), pts.at(-2)]]) {
+        const dx = a.x - b.x, dy = a.y - b.y, l = Math.hypot(dx, dy);
+        if (l < 1e-12) continue;
+        const p = lift(f, a), q = lift(f, { x: a.x + dx / l * far, y: a.y + dy / l * far });
+        // A two-point polyline in the curve's own plane.
+        const local = v => [v.clone().sub(f.o).dot(f.x), v.clone().sub(f.o).dot(f.y)];
+        out.push({ origin: f.o.toArray(), x: f.x.toArray(), normal: f.n.toArray(), kind: 'polyline', points: [local(p), local(q)], closed: false });
+      }
+    }
+    return out;
   }
 
   /**
@@ -14441,6 +14466,8 @@ export async function mount(root, backend) {
   for (const b of $$('[data-camethod]')) b.onclick = () => cmd?.id === 'curve-array' && cmd.key(b.dataset.camethod);
   for (const id of ['mirror-instance', 'ra-instance', 'rr-instance', 'ca-instance']) $(id).onclick = () => cmd?.key?.('instance');
   $('cut-plane').onclick = () => cmd?.id === 'cut' && cmd.key('plane');
+  $('cut-screen').onclick = () => cmd?.id === 'cut' && cmd.key('screen');
+  $('cut-extend').onclick = () => cmd?.id === 'cut' && cmd.key('extend');
   $('bs-t').addEventListener('input', () => cmd?.id === 'bridge-surface' && cmd.preview());
   $('bs-w').addEventListener('input', () => cmd?.id === 'bridge-surface' && cmd.preview());
   for (const b of $$('[data-bsshape]')) b.onclick = () => cmd?.id === 'bridge-surface' && cmd.set('shape', b.dataset.bsshape);
