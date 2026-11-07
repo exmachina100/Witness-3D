@@ -5541,13 +5541,27 @@ export async function mount(root, backend) {
       else await curvesChanged(ids);
     } catch (e) { setState('failed'); toast(say(e)); }
   }
-  /** Knife (K): the curve just drawn imprints the face it was drawn on and is used up; it stays when it cannot. */
+  /** The flat faces of `body` in face `face`'s plane (just that face when it is curved). */
+  function knifeFaces(body, face) {
+    const b = bodyOf(body), p = b?.facePlanes[face];
+    if (!p) return [face];
+    const n = new THREE.Vector3(...p.normal), o = new THREE.Vector3(...p.origin);
+    const out = [];
+    b.facePlanes.forEach((q, i) => {
+      if (q && Math.abs(new THREE.Vector3(...q.normal).dot(n)) > 1 - 1e-9 && Math.abs(new THREE.Vector3(...q.origin).sub(o).dot(n)) < 1e-4) out.push(i);
+    });
+    return out.length ? out : [face];
+  }
+  /** Knife (K): the curve just drawn imprints the faces it was drawn on and is used up; it stays when it cannot. */
   async function knifeCut(plane, curve) {
     if (plane.target == null || plane.face == null) return toast('KNIFE CUTS FACES; THAT CURVE WAS DRAWN ON THE CONSTRUCTION PLANE');
     if (!backend.commitImprint) return toast('KNIFE IS NOT IN THIS BUILD YET');
     try {
-      const { id, scene: list } = await backend.commitImprint({ body: plane.target, faces: [plane.face], curves: [curve], consume: true });
-      record('KNIFE', id);
+      // Every face of the body in the clicked face's plane: a knife line drawn across several flat
+      // faces (manual: "cuts one or more Faces") cuts each of them.
+      const faces = knifeFaces(plane.target, plane.face);
+      const { id, scene: list } = await backend.commitImprint({ body: plane.target, faces, curves: [curve], consume: true });
+      record(faces.length > 1 ? `KNIFE ${faces.length} FACES` : 'KNIFE', id);
       await showScene(list);
     } catch (e) { toast(`KNIFE: ${say(e)}`); }
   }
