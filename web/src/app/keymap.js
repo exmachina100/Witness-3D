@@ -152,7 +152,8 @@ export const COMMAND = {
     section: { d: 'distance', f: 'flip' },
     'match-face': { tab: 'grow' },
     'deform-curve': { m: 'mirror', u: 'u', n: 'normal', k: 'keep', r: 'reblend' },
-    image: { delete: 'delete', backspace: 'delete' },
+    // Reference image: moved, turned and scaled like an object (Plasticity selects images as objects).
+    image: { g: 'move', r: 'rotate', s: 'scale', 'shift-d': 'duplicate', delete: 'delete', backspace: 'delete' },
     // Cut Curve (manual: Tab extends the cutters, S cuts along the view)
     'cut-curve': { tab: 'extend', s: 'screen' },
     // Bridge Edge (manual: Tab continuity, D tension)
