@@ -41,3 +41,13 @@ test('proportional: All moves the neighbours less the further they are, Selected
     const sel = slideCurveCVs(line, [1, 2, 3], 2, 'u', { mode: 'selected', falloff: 2 });
     assert.ok(sel.points[2][0] - 20 > sel.points[1][0] - 10);
 });
+
+test('mirror: the point as far from the other end slides the mirror way', () => {
+    // A symmetric cage about x = 20.
+    const sym = { ...cv, points: [[0, 0], [10, 10], [20, 12], [30, 10], [40, 0]] };
+    const m = slideCurveCVs(sym, [1], 2, 'u', { mirror: true });
+    near([40 - m.points[3][0], m.points[3][1]], m.points[1]);
+    const across = slideCurveCVs(sym, [1], 2, 'n', { mirror: true });
+    near([40 - across.points[3][0], across.points[3][1]], across.points[1]);
+    assert.deepEqual(slideCurveCVs(sym, [2], 2, 'u', { mirror: true }).points[1], [10, 10]);
+});

@@ -6501,9 +6501,10 @@ export async function mount(root, backend) {
     const curves = [...new Set(picked.map(v => v.id))];
     setTarget(curves.length === 1 ? curveLabel(curves[0]) : `${curves.length} CURVES`);
     // Proportional and its falloff (points along the curve) from the shared control-point options.
-    c.compute = () => curves.map(id => slideCurveCVs(curveById(id), picked.filter(v => v.id === id).map(v => v.n), num('sl-d'), c.dir, { mode: poleOpts.mode, falloff: poleOpts.fu }));
+    c.compute = () => curves.map(id => slideCurveCVs(curveById(id), picked.filter(v => v.id === id).map(v => v.n), num('sl-d'), c.dir, { mode: poleOpts.mode, falloff: poleOpts.fu, mirror: poleOpts.mirror === 'u' }));
     $$('[data-panel="pole-opts"]')[0].hidden = false;
-    for (const el of [$('pf-v').closest('.field'), ...$$('[data-pfmirror]').map(b => b.parentElement), ...$$('[data-panel="pole-opts"] .label').slice(1)]) el.hidden = true;
+    // A curve has one direction: no Falloff V, and Mirror U only (the point as far from the other end).
+    for (const el of [$('pf-v').closest('.field'), ...$$('[data-pfmirror="v"]')]) el.hidden = true;
     const buttons = () => { for (const b of $$('[data-sldir]')) b.setAttribute('aria-pressed', String(b.dataset.sldir === c.dir)); };
     // The dot sits on the first point and points the way it slides.
     const place = () => {
@@ -6549,7 +6550,7 @@ export async function mount(root, backend) {
       c.gizmo?.dispose();
       clearPreview();
       $$('[data-panel="pole-opts"]')[0].hidden = true;
-      for (const el of [$('pf-v').closest('.field'), ...$$('[data-pfmirror]').map(b => b.parentElement), ...$$('[data-panel="pole-opts"] .label')]) el.hidden = false;
+      for (const el of [$('pf-v').closest('.field'), ...$$('[data-pfmirror="v"]')]) el.hidden = false;
     };
     $('sl-d').value = 0;
     buttons();

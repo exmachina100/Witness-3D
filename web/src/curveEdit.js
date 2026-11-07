@@ -2287,7 +2287,7 @@ export function offsetVertex(c, n, d) {
  * point after; 'u', or '-u' the other way) or across it in the curve's plane ('n'). Every point
  * slides along the cage as it was before the move.
  */
-export function slideCurveCVs(c, picked, d, dir = 'u', { mode = 'none', falloff = 2 } = {}) {
+export function slideCurveCVs(c, picked, d, dir = 'u', { mode = 'none', falloff = 2, mirror = false } = {}) {
     if (!['cv', 'spline', 'nurbs'].includes(c.kind)) throw new Error('only spline and control point curves have control points to slide');
     if (!Number.isFinite(d)) throw new Error('the distance is not a number');
     const vs = curveVertices(c), n = vs.length, closed = c.kind === 'nurbs' ? nurbsLoop(c) : !!c.closed;
@@ -2300,6 +2300,16 @@ export function slideCurveCVs(c, picked, d, dir = 'u', { mode = 'none', falloff 
         const u = [t[0] / l, t[1] / l], way = dir === 'n' ? [-u[1], u[0]] : dir === '-u' ? [-u[0], -u[1]] : u;
         moves.set(i, [way[0] * d, way[1] * d]);
     }
+    // Mirror (an open curve): the point as far from the other end moves too, the mirror image of
+    // the slide; along the cage that is the other way along its own cage, across it the same side.
+    if (mirror && !closed) {
+        for (const i of [...moves.keys()]) {
+            const m = n - 1 - i;
+            if (m === i || moves.has(m)) continue;
+            const back = dir === 'n' ? 'n' : dir === '-u' ? 'u' : '-u';
+            moves.set(m, slideWay(vs, m, closed, back, d));
+        }
+    }
     // Proportional (Plasticity's Slide Curve CV, Advanced): the points round the picked ones follow
     // by the same move, less the further along the curve they are (`falloff` points away: not at
     // all), or the picked points move most in the middle of the selection (Selected).
@@ -2311,6 +2321,15 @@ export function slideCurveCVs(c, picked, d, dir = 'u', { mode = 'none', falloff 
         out.set(k, [vs[k][0] + m[0] * w, vs[k][1] + m[1] * w]);
     }
     return moveVertices(c, out);
+}
+
+/** The move of control point `i` by `d` along its cage ('u', '-u') or across it ('n'). */
+function slideWay(vs, i, closed, dir, d) {
+    const n = vs.length, prev = vs[i - 1] ?? (closed ? vs[n - 1] : vs[i]), next = vs[i + 1] ?? (closed ? vs[0] : vs[i]);
+    const t = [next[0] - prev[0], next[1] - prev[1]], l = Math.hypot(t[0], t[1]);
+    if (!(l > EPS)) return [0, 0];
+    const u = [t[0] / l, t[1] / l], way = dir === 'n' ? [-u[1], u[0]] : dir === '-u' ? [-u[0], -u[1]] : u;
+    return [way[0] * d, way[1] * d];
 }
 
 /**
