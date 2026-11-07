@@ -160,7 +160,7 @@ export const COMMAND = {
     // Instance (manual: Create Solid and Sheet Instance; moved, turned and scaled like a body)
     instance: { g: 'move', r: 'rotate', s: 'scale', 'shift-d': 'duplicate', delete: 'delete', backspace: 'delete' },
     'rebuild-face': { m: 'method', t: 'tolerance', d: 'degree', s: 'spans', e: 'extend', h: 'shrink' },
-    'fillet-curve': { d: 'radius' },
+    'fillet-curve': { d: 'radius', c: 'chamfer' },
     // Bridge Curve / Bridge Vertex (manual: Tab continuity, D tension)
     bridge: { t: 'tension', d: 'tension', tab: 'continuity', q: 'trim', x: 'axis-x', y: 'axis-y', z: 'axis-z' },
     hole: { t: 'through' },
