@@ -1963,6 +1963,9 @@ pub fn commit_unwrap(m: &Model, req: UnwrapRequest) -> Result<Duplicated, ApiErr
 pub struct ExtendSheetRequest {
     pub body: BodyId,
     pub edge: u32,
+    /// More open edges of the same sheet, extended after `edge` in one step.
+    #[serde(default)]
+    pub more: Vec<u32>,
     pub distance: f64,
     /// Natural (follow the curvature) rather than Linear (straight on), when `shape` is not given.
     #[serde(default)]
@@ -1979,6 +1982,11 @@ pub struct ExtendSheetRequest {
 }
 
 impl ExtendSheetRequest {
+    fn edges(&self) -> Vec<u32> {
+        let mut v = vec![self.edge];
+        for &e in &self.more { if !v.contains(&e) { v.push(e) } }
+        v
+    }
     fn shape(&self) -> SheetExtension {
         self.shape.unwrap_or(if self.natural { SheetExtension::Natural } else { SheetExtension::Linear })
     }
@@ -2157,14 +2165,14 @@ pub fn commit_rebuild_faces(m: &Model, req: RebuildFacesRequest) -> Result<Rebui
 
 pub fn preview_extend_sheet(m: &Model, req: ExtendSheetRequest) -> Option<Result<Body, ApiError>> {
     m.preview(move |doc| {
-        let sheet = doc.preview_extend_sheet(req.body, req.edge, req.distance, req.shape(), req.limit, req.outside)?;
+        let sheet = doc.preview_extend_sheet_edges(req.body, &req.edges(), req.distance, req.shape(), req.limit, req.outside)?;
         Ok(body(&doc.kernel, req.body, &sheet)?)
     })
 }
 
 pub fn commit_extend_sheet(m: &Model, req: ExtendSheetRequest) -> Result<Committed, ApiError> {
     m.call(move |doc| {
-        let id = doc.commit_extend_sheet(req.body, req.edge, req.distance, req.shape(), req.limit, req.outside)?;
+        let id = doc.commit_extend_sheet_edges(req.body, &req.edges(), req.distance, req.shape(), req.limit, req.outside)?;
         Ok(Committed { id, scene: bodies(doc)? })
     })
 }

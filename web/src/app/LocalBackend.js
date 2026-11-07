@@ -33,6 +33,27 @@ import { compound, untrimFace } from '../untrim.js';
 import { splineSheet } from '../splineSheet.js';
 import { unwrapFace } from '../unwrap.js';
 import { edgeCurvature } from '../edgeCurvature.js';
+
+/** The point halfway along edge `e` of `shape`. */
+function edgeMiddle(shape, e) { return edgeCurvature(shape, e, 2)[1].at; }
+
+/** The edge of `shape` passing nearest `p` (sampled), for finding an edge again after a change. */
+function edgeThrough(shape, p) {
+    let best = Infinity, out = -1;
+    const n = numberedEdges(shape).length;
+    for (let e = 0; e < n; e++) {
+        let t;
+        try { t = edgeCurvature(shape, e, 64); } catch { continue; }
+        for (let i = 1; i < t.length; i++) {
+            const a = t[i - 1].at, b = t[i].at, ab = b.map((v, k) => v - a[k]), l2 = ab.reduce((x, v) => x + v * v, 0);
+            const f = l2 > 0 ? Math.min(1, Math.max(0, ab.reduce((x, v, k) => x + v * (p[k] - a[k]), 0) / l2)) : 0;
+            const d = Math.hypot(...a.map((v, k) => v + ab[k] * f - p[k]));
+            if (d < best) { best = d; out = e; }
+        }
+    }
+    if (out < 0) throw new Error('an edge to extend was lost on the way');
+    return out;
+}
 import { edgeFaces } from '../edgeFaces.js';
 import { copyFaces, joinSheets, unjoin, unjoinFaces } from '../Join.js';
 import { hiddenLines } from '../Drawing.js';
@@ -1382,16 +1403,21 @@ export class LocalBackend {
         return { id: req.body, scene: this.bodies(), rebuilt };
     }
 
-    extendSheetResult({ body, edge, distance, natural = false, shape, limit, outside = false }) {
+    extendSheetResult({ body, edge, more = [], distance, natural = false, shape, limit, outside = false }) {
         const s = this.shapes.get(body);
         if (!s) throw new Error('that body no longer exists');
+        let grow = (x, e) => extendSheet(x, e, distance, shape ?? natural);
         if (limit != null) {
             if (limit === body) throw new Error('limit the sheet by another body, not itself');
             const t = this.shapes.get(limit);
             if (!t) throw new Error('the limiting body no longer exists');
-            return extendSheetTo(s, edge, t, shape ?? (natural ? 'natural' : 'linear'), outside);
+            grow = (x, e) => extendSheetTo(x, e, t, shape ?? (natural ? 'natural' : 'linear'), outside);
         }
-        return extendSheet(s, edge, distance, shape ?? natural);
+        // More edges: each found again in the grown sheet by its old middle, as on the desktop.
+        const mids = [...new Set(more)].filter(e => e !== edge).map(e => edgeMiddle(s, e));
+        let out = grow(s, edge);
+        for (const m of mids) out = grow(out, edgeThrough(out, m));
+        return out;
     }
 
     previewExtendSheet(req) { return this.latest(async () => this.body(req.body, this.extendSheetResult(req))) }
