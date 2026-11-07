@@ -132,7 +132,7 @@ const KEYS = {
   loft: [['CLICK', 'GUIDES (OPTIONAL)'], ['⏎ / RMB', 'OK'], ['ESC', 'CANCEL']],
   'loft-faces': [['CLICK', 'ADD / REMOVE A FACE'], ['⏎ / RMB', 'OK'], ['ESC', 'CANCEL']],
   'loft-sheet': [['CLICK', 'ADD / REMOVE A CURVE OR EDGE'], ['⇧ CLICK', 'ADD / REMOVE A GUIDE'], ['O', 'LOOP'], ['L', 'LIMIT POINT'], ['TAB', 'CONTINUITY (EVERY EDGE)'], ['D', 'TENSION'], ['⏎ / RMB', 'OK'], ['ESC', 'CANCEL']],
-  sweep: [['CLICK', 'PATH · THEN A GUIDE'], ['M', 'GUIDE METHOD'], ['N', 'ALIGNMENT'], ['D', 'TWIST'], ['Q', 'UNION'], ['W', 'DIFFERENCE'], ['⇧E', 'INTERSECT'], ['B', 'NEW BODY'], ['⏎ / RMB', 'OK']],
+  sweep: [['CLICK', 'PATH · THEN A GUIDE'], ['M', 'GUIDE METHOD'], ['N', 'ALIGNMENT'], ['D', 'TWIST (MOUSE · CTRL 5°)'], ['Q', 'UNION'], ['W', 'DIFFERENCE'], ['⇧E', 'INTERSECT'], ['B', 'NEW BODY'], ['⏎ / RMB', 'OK']],
   rect: [['CLICK', 'CORNERS'], ['S', 'SQUARE'], ['C', 'FROM CENTRE'], ['TAB', 'TYPE SIZE'], ['ALT', 'NO SNAP'], ['ESC', 'CANCEL']],
   circle: [['CLICK', 'CENTRE · RADIUS'], ['V', 'VERTICAL'], ['TAB', 'TYPE DIAMETER'], ['ALT', 'NO SNAP'], ['ESC', 'CANCEL']],
   line: [['CLICK', 'POINTS'], ['CLICK START', 'CLOSE'], ['X Y Z', 'AXIS'], ['CTRL Z', 'BACK'], ['TAB', 'TYPE LENGTH'], ['⏎ / RMB', 'DONE']],
@@ -12105,6 +12105,17 @@ export async function mount(root, backend) {
         setGuideChips(c);
         return true;
       }
+      // D in Sweep, as in Plasticity: the pointer turns the twist round the profile's centre (Ctrl
+      // in 5° steps), a click keeps it; numbers typed meanwhile set it outright.
+      if (action === 'twist' && id === 'sweep' && lastPointer && curveById(c.regions[0])) {
+        const at = formPlanePoint(c, lastPointer, 'twist');
+        if (at) {
+          c.drag = { what: 'twist', from: at, start: c.twist, turned: 0 };
+          c.entry = { label: 'TWIST °', text: '', apply: v => { c.drag = null; setForm({ twist: v }); } };
+          setHud('MOVE TO SET THE TWIST · CLICK TO KEEP');
+          return true;
+        }
+      }
       if (action === 'twist' && id === 'sweep') {
         c.entry = { label: 'TWIST °', text: '', apply: v => setForm({ twist: v }) };
         setHud('TWIST ° _');
@@ -12117,9 +12128,13 @@ export async function mount(root, backend) {
       previewFormCmd();
       return true;
     };
-    c.entryDone = () => { if (!c.entry) previewFormCmd(); };
+    c.entryDone = () => {
+      // Escape while the pointer turns the twist puts it back.
+      if (c.drag?.what === 'twist' && !c.entry) { const t = c.drag.start; c.drag = null; return setForm({ twist: t }); }
+      if (!c.entry) previewFormCmd();
+    };
     c.click = e => {
-      if (c.drag) { c.drag = null; hint(); return true; }
+      if (c.drag) { c.drag = null; c.entry = null; hint(); return true; }
       if (id === 'revolve' && !c.p2) {
         const p = axisPointAt(e);
         if (!p) return true;
@@ -12155,6 +12170,7 @@ export async function mount(root, backend) {
       previewFormCmd();
       return true;
     };
+    if (id === 'sweep') c.move = e => { if (c.drag) return dragForm(c, e); };
     if (id === 'revolve') c.move = e => {
       if (c.drag) return dragForm(c, e);
       if (!c.p1 || c.p2) return;
@@ -12189,8 +12205,9 @@ export async function mount(root, backend) {
    * square to the axis through its start; for the thickness, the profile's own plane.
    */
   function formPlanePoint(c, e, what) {
-    const axis = c.p2.clone().sub(c.p1).normalize();
     const first = curveById(c.regions[0]);
+    if (what === 'twist') return ray(e).intersectPlane(new THREE.Plane().setFromNormalAndCoplanarPoint(curveFrame(first).n.clone(), regionCentre(first)), new THREE.Vector3());
+    const axis = c.p2.clone().sub(c.p1).normalize();
     const plane = what === 'angle' || !first ? new THREE.Plane().setFromNormalAndCoplanarPoint(axis, c.p1)
       : new THREE.Plane().setFromNormalAndCoplanarPoint(curveFrame(first).n.clone(), regionCentre(first));
     return ray(e).intersectPlane(plane, new THREE.Vector3());
@@ -12198,6 +12215,20 @@ export async function mount(root, backend) {
   function dragForm(c, e) {
     const at = formPlanePoint(c, e, c.drag.what);
     if (!at) return;
+    if (c.drag.what === 'twist') {
+      // Turned round the profile's centre since D, unwrapped so it can go past a full turn.
+      const first = curveById(c.regions[0]), o = regionCentre(first), n = curveFrame(first).n;
+      const a = c.drag.from.clone().sub(o), b = at.clone().sub(o);
+      if (a.lengthSq() < 1e-12 || b.lengthSq() < 1e-12) return;
+      const now = Math.atan2(a.clone().cross(b).dot(n), a.dot(b)) / DEG;
+      let step = now - (c.drag.last ?? 0);
+      if (step > 180) step -= 360; else if (step < -180) step += 360;
+      c.drag.turned += step;
+      c.drag.last = now;
+      let t = c.drag.start + c.drag.turned;
+      t = snapping(e) ? Math.round(t / 5) * 5 : Math.round(t * 10) / 10;
+      return setForm({ twist: t });
+    }
     if (c.drag.what === 'thickness') {
       let t = at.distanceTo(c.drag.from) + c.drag.start;
       if (snapping(e)) t = Math.round(t / gridStep()) * gridStep();
