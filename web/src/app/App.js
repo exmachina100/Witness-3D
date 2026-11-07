@@ -147,7 +147,7 @@ const KEYS = {
   ellipse3: [['CLICK', 'AXIS ENDS · WIDTH'], ['ALT', 'NO SNAP'], ['ESC', 'CANCEL']],
   cv: [['CLICK', 'CONTROL POINTS'], ['CLICK START', 'CLOSE'], ['TAB', 'THROUGH POINTS'], ['X Y Z', 'AXIS'], ['CTRL Z', 'BACK'], ['⏎ / RMB', 'DONE']],
   spline: [['CLICK', 'POINTS'], ['CLICK START', 'CLOSE'], ['TAB', 'CONTROL POINTS'], ['X Y Z', 'AXIS'], ['CTRL Z', 'BACK'], ['⏎ / RMB', 'DONE']],
-  'tangent-arc': [['CLICK', 'CURVE END · SIZE'], ['D', 'FLIP'], ['ALT', 'NO SNAP'], ['ESC', 'CANCEL']],
+  'tangent-arc': [['CLICK', 'CURVE (END OR ANYWHERE) · SIZE'], ['D', 'FLIP'], ['ALT', 'NO SNAP'], ['ESC', 'CANCEL']],
   spiral: [['CLICK', 'AXIS START · END · RADIUS'], ['X Y Z', 'AXIS'], ['A', 'ANGLE'], ['D', 'LENGTH'], ['R', 'RADIUS'], ['⏎ / RMB', 'OK']],
   'offset-vertex': [['DRAG DOT', 'DISTANCE'], ['D', 'DISTANCE'], ['⏎ / RMB', 'OK']],
   slide: [['DRAG DOT', 'DISTANCE'], ['D', 'DISTANCE'], ['U', 'POSITIVE U'], ['⇧U', 'NEGATIVE U'], ['V', 'POSITIVE V (SURFACE)'], ['⇧V', 'NEGATIVE V (SURFACE)'], ['N', 'NORMAL'], ['⏎ / RMB', 'OK']],
@@ -5064,11 +5064,28 @@ export async function mount(root, backend) {
     raycaster.params.Line.threshold = unitsPerPixel(controls.target) * 6;
     const hit = raycaster.intersectObjects(curveGroup.children.filter(o => o.userData.curve !== undefined), false)[0];
     const src = hit && curveList.find(k => k.id === hit.object.userData.curve);
-    const ends = src ? [endTangent(src, false), endTangent(src, true)].filter(Boolean) : [];
-    if (!ends.length) return toast(src ? 'PICK AN OPEN CURVE NEAR ONE OF ITS ENDS' : 'CLICK NEAR THE END OF A CURVE');
+    if (!src) return toast('CLICK A CURVE FOR THE ARC TO BE TANGENT TO');
+    const ends = [endTangent(src, false), endTangent(src, true)].filter(Boolean);
     const f = curveFrame(src), q = local(e);
     const far = ([p]) => { const s = screenOf(lift(f, { x: p[0], y: p[1] })); return Math.hypot(s.x - q.x, s.y - q.y); };
-    const [p, dir] = ends.reduce((a, b) => far(b) < far(a) ? b : a);
+    let [p, dir] = ends.length ? ends.reduce((a, b) => far(b) < far(a) ? b : a) : [null, null];
+    // Away from the ends (manual: click the curve the arc will be tangent to), the arc starts where
+    // the curve was clicked, along it there (D flips the way).
+    if (!p || far([p]) > 15) {
+      const at = hit.point.clone().sub(f.o), u = [at.dot(f.x), at.dot(f.y)];
+      const pts = curve2d(src).map(v => [v.x, v.y]);
+      if (isClosed(src)) pts.push(pts[0]);
+      let best = null;
+      for (let i = 0; i + 1 < pts.length; i++) {
+        const a0 = pts[i], d = [pts[i + 1][0] - a0[0], pts[i + 1][1] - a0[1]], l2 = d[0] * d[0] + d[1] * d[1];
+        if (!(l2 > 0)) continue;
+        const t = Math.max(0, Math.min(1, ((u[0] - a0[0]) * d[0] + (u[1] - a0[1]) * d[1]) / l2));
+        const foot = [a0[0] + d[0] * t, a0[1] + d[1] * t], dist = Math.hypot(foot[0] - u[0], foot[1] - u[1]);
+        if (!best || dist < best.dist) best = { dist, foot, d };
+      }
+      if (!best) return toast('THAT CURVE HAS NO LENGTH');
+      [p, dir] = [best.foot, best.d];
+    }
     c.plane = { o: f.o, n: f.n, x: f.x, y: f.y, target: null };
     c.pts = [new THREE.Vector2(...p)];
     c.tangent = dir;
@@ -5192,7 +5209,7 @@ export async function mount(root, backend) {
     const c = cmd, f = c.plane;
     $('draw-points').textContent = c.pts.length;
     const need = CLICKS[c.id], left = need ? need - c.pts.length : 0;
-    $('draw-hint').textContent = c.id === 'tangent-arc' ? (!f ? 'CLICK NEAR THE END OF A CURVE' : `CLICK FOR THE SIZE · D FLIPS${c.flip ? ' (FLIPPED)' : ''}`)
+    $('draw-hint').textContent = c.id === 'tangent-arc' ? (!f ? 'CLICK A CURVE, AT AN END OR ANYWHERE ALONG IT' : `CLICK FOR THE SIZE · D FLIPS${c.flip ? ' (FLIPPED)' : ''}`)
       : !f ? 'CLICK A FACE OR THE CONSTRUCTION PLANE'
       : c.axis ? `CLICK THE NEXT POINT · ALONG ${c.axis.toUpperCase()} (${c.axis.toUpperCase()} AGAIN FREES IT)`
       : c.id === 'rect' || c.id === 'center-rect' ? 'CLICK THE OTHER CORNER · TAB TYPES'
@@ -5204,7 +5221,7 @@ export async function mount(root, backend) {
       : c.id === 'ellipse3' ? (left === 2 ? 'CLICK THE OTHER END OF THE AXIS' : 'CLICK FOR THE WIDTH')
       : need ? `CLICK ${left} MORE`
       : 'CLICK THE NEXT POINT · CLICK THE FIRST TO CLOSE';
-    if (!f || !c.cursor?.uv) { drawPreview.visible = false; $('draw-size').textContent = '—'; return setHud(`${DRAW[c.id]} · ${c.id === 'tangent-arc' ? 'CLICK A CURVE END' : 'CLICK TO START'}`); }
+    if (!f || !c.cursor?.uv) { drawPreview.visible = false; $('draw-size').textContent = '—'; return setHud(`${DRAW[c.id]} · ${c.id === 'tangent-arc' ? 'CLICK A CURVE' : 'CLICK TO START'}`); }
     setTarget(f.target ? label(f.target) : cplane.name);
     trackSweep(c);
     const { show, size, frame } = drawn(c, [...c.pts, c.cursor.uv]);

@@ -37,7 +37,7 @@ Every drawing tool leaves the curve it made selected, as in Plasticity (a closed
 | Three Point Circle | X/Y/Z | Done (X/Y/Z, both builds) |
 | Tangent Circle | pick two curves (optional third edge), size; F freeze, Tab radius | Done in both builds: two curves sized by the cursor or a radius, or a third curve clicked for the circle touching all three nearest the cursor (lines, circles and arcs exact, other curves through their samples) |
 | Ellipse (centre, three point) | Tab, K, X/Y | Done (Tab types the Centre Ellipse's length, then its width; X/Y hold the next point on that axis; both builds) |
-| Center Point Arc · Three Point Arc · Tangent Arc | X/Y/Z; Tangent Arc D flip | Done (X/Y/Z on all three, both builds) |
+| Center Point Arc · Three Point Arc · Tangent Arc | X/Y/Z; Tangent Arc D flip | Done (X/Y/Z on all three, both builds; Tangent Arc starts at a clicked curve end, or anywhere along any curve, closed ones too, tangent there; ending tangent to a second curve not done) |
 | Regular Polygon | Tab, C, V, X/Y, arrows | Done (X/Y, both builds) |
 | Spiral | X/Y/Z, A, D, R, L | Done (after the radius click two yellow dots drag the length and the radius; A, D and R make the angle, length or radius follow the pointer until a click, or take a typed value; both builds) |
 | Corner Rectangle | corner, corner; Tab, K, C → centre, S square | Done |
