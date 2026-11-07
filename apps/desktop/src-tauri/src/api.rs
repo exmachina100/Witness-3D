@@ -487,6 +487,9 @@ pub struct FormRequest {
     /// Sweep: the curve to follow.
     #[serde(default)]
     pub path: Option<CurveId>,
+    /// Sweep Distance under 1: the part of `path` to follow, given whole in its place.
+    #[serde(default)]
+    pub path_curve: Option<Curve>,
     /// Sweep: the far end's turn in radians and scale.
     #[serde(default)]
     pub twist: f64,
@@ -557,7 +560,15 @@ impl FormRequest {
             OpChoice::Slice => Operation::Slice,
             OpChoice::New | OpChoice::Auto => Operation::NewBody,
         };
-        Ok(doc.form_params(&self.regions, kind, operation)?)
+        let mut p = doc.form_params(&self.regions, kind, operation)?;
+        // Sweep Distance: the shortened path in place of the whole one.
+        if let Some(c) = &self.path_curve {
+            match &mut p.kind {
+                form::FormKind::Sweep { path, .. } | form::FormKind::SweepCurve { path, .. } => *path = c.path(),
+                _ => {}
+            }
+        }
+        Ok(p)
     }
 
     /// Revolve and Sweep take every selected region (closed curves), each its own shape; Loft takes

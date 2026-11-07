@@ -105,7 +105,7 @@ import { flatten, toDxf, toSvg } from '../drawingExport.js';
 import { readDxf } from '../dxf.js';
 import { distanceToFace } from '../dependentOffset.js';
 import { pipePath, untrimmed } from '../pipePath.js';
-import { ALIGN_CURVE_CONTINUITY, mirrorCurve, alignCurveEnd, BRIDGE_CONTINUITY, bridgeContinuous, bridgeEnd, continuity, curvatureComb, curveVertices, deleteVertices, explode, EXTEND_SHAPES, extendCurve, extendStart, filletCurve, nearestEnd, OFFSET_CORNERS, offsetCurve, offsetSlot, offsetThrough, unionLoops, moveVertices, alignedInPlane, offsetVertex, rebuildCurve, rebuildCurveExplicit, refitCurve, subdivideCurve, completeCurve, convertVertices, insertKnotAt, raiseDegree, reverseCurve, transformCurve, moveVerticesTo, slideCurveCVs, splitCurve, tangentCircle, tangentCircle3, trim, cutCurve, cuttersFor, samples as curveSamples } from '../curveEdit.js';
+import { ALIGN_CURVE_CONTINUITY, curvePart, mirrorCurve, alignCurveEnd, BRIDGE_CONTINUITY, bridgeContinuous, bridgeEnd, continuity, curvatureComb, curveVertices, deleteVertices, explode, EXTEND_SHAPES, extendCurve, extendStart, filletCurve, nearestEnd, OFFSET_CORNERS, offsetCurve, offsetSlot, offsetThrough, unionLoops, moveVertices, alignedInPlane, offsetVertex, rebuildCurve, rebuildCurveExplicit, refitCurve, subdivideCurve, completeCurve, convertVertices, insertKnotAt, raiseDegree, reverseCurve, transformCurve, moveVerticesTo, slideCurveCVs, splitCurve, tangentCircle, tangentCircle3, trim, cutCurve, cuttersFor, samples as curveSamples } from '../curveEdit.js';
 import { ViewGizmo } from './ViewGizmo.js';
 import { Toolbar } from './Toolbar.js';
 import { arcballAbout, dragAngles, orbitAbout } from './orbit.js';
@@ -954,6 +954,7 @@ const SHELL = `
       <div class="field" data-id="form-thickness-row"><label for="w3d-form-thickness">THICKNESS</label><input id="w3d-form-thickness" data-id="form-thickness" type="number" step="0.5" min="0" value="0"></div>
       <div class="field" data-id="form-twist-row"><label for="w3d-form-twist">TWIST °</label><input id="w3d-form-twist" data-id="form-twist" type="number" step="15" value="0"></div>
       <div class="field" data-id="form-scale-row"><label for="w3d-form-scale">SCALE</label><input id="w3d-form-scale" data-id="form-scale" type="number" step="0.1" min="0.01" value="1"></div>
+      <div class="field" data-id="form-distance-row"><label for="w3d-form-distance">DISTANCE</label><input id="w3d-form-distance" data-id="form-distance" type="number" step="0.05" min="0.01" max="1" value="1" title="How much of the path the sweep follows, from its start: 1 the whole path"></div>
       <div class="field" data-id="form-guides-row"><label>GUIDES</label><output data-id="form-guides">0</output></div>
       <div data-id="form-method-row">
         <span class="label">GUIDE METHOD</span>
@@ -11975,18 +11976,18 @@ export async function mount(root, backend) {
     const first = curveList.find(c => c.id === regions[0]);
     const target = curveOnly && !isClosed(first) ? null : bodyAt(regionCentre(first), curveFrame(first).n);
     // Revolve and Sweep take every selected region (each its own shape); an open curve, one at a time.
-    const c = cmd = { id, regions: curveOnly && !isClosed(first) ? regions.slice(0, 1) : regions, target, op: 'new', angle: 360, thickness: 0, twist: 0, scale: 1, p1: null, p2: null, path: null, guides: [], method: 'point', align: 'normal', corner: 'mitre', outcome: null, sent: 0, shown: 0, line: null };
+    const c = cmd = { id, regions: curveOnly && !isClosed(first) ? regions.slice(0, 1) : regions, target, op: 'new', angle: 360, thickness: 0, twist: 0, scale: 1, distance: 1, p1: null, p2: null, path: null, guides: [], method: 'point', align: 'normal', corner: 'mitre', outcome: null, sent: 0, shown: 0, line: null };
     lastTool = id;
     showTool(id);
     setState('none');
     setTarget(target ? label(target) : 'NEW BODY');
     $('form-angle-row').hidden = $('form-thickness-row').hidden = id !== 'revolve';
-    $('form-twist-row').hidden = $('form-scale-row').hidden = id !== 'sweep';
+    $('form-twist-row').hidden = $('form-scale-row').hidden = $('form-distance-row').hidden = id !== 'sweep';
     $('form-ops').hidden = id === 'loft';
     $('form-guides-row').hidden = id === 'revolve';
     $('form-method-row').hidden = $('form-align-row').hidden = $('form-corner-row').hidden = id !== 'sweep';
     setGuideChips(c);
-    $('form-angle').value = c.angle; $('form-thickness').value = c.thickness; $('form-twist').value = c.twist; $('form-scale').value = c.scale;
+    $('form-angle').value = c.angle; $('form-thickness').value = c.thickness; $('form-twist').value = c.twist; $('form-scale').value = c.scale; $('form-distance').value = c.distance;
     $('form-outcome').textContent = '—';
     setFormOps();
     const hint = () => {
@@ -12104,7 +12105,7 @@ export async function mount(root, backend) {
     const c = cmd;
     if (!FORMS[c?.id]) return;
     Object.assign(c, values);
-    for (const k of ['angle', 'thickness', 'twist', 'scale']) if (document.activeElement !== $(`form-${k}`)) $(`form-${k}`).value = c[k];
+    for (const k of ['angle', 'thickness', 'twist', 'scale', 'distance']) if (document.activeElement !== $(`form-${k}`)) $(`form-${k}`).value = c[k];
     c.hint();
     previewFormCmd();
   }
@@ -12177,6 +12178,8 @@ export async function mount(root, backend) {
     if (c.id === 'sweep') {
       if (c.path === null) return null;
       Object.assign(req, { path: c.path, twist: c.twist * DEG, scale: c.scale, guides: guideRequest(c), method: c.method, align: c.align, corner: c.corner });
+      // Distance (0 to 1): the sweep follows that much of the path from its start.
+      if (c.distance < 1 - 1e-9) { try { req.pathCurve = curvePart(curveById(c.path), c.distance); } catch { return null; } }
     }
     if (c.id === 'loft') req.guides = guideRequest(c);
     return req;
@@ -13798,7 +13801,7 @@ export async function mount(root, backend) {
   for (const b of $$('[data-spiral]')) b.onclick = () => cmd?.id === 'spiral' && cmd.key(b.dataset.spiral);
   $('off-angle').addEventListener('input', e => { const v = parseFloat(e.target.value); if (!isNaN(v) && cmd?.id === 'offset') { cmd.auto = false; setOffsetAngle(v); } });
   $('off-distance').addEventListener('input', e => { const v = parseFloat(e.target.value); if (!isNaN(v) && cmd?.id === 'offset') { cmd.auto = false; setOffsetDistance(v, false); } });
-  for (const k of ['angle', 'thickness', 'twist', 'scale']) $(`form-${k}`).addEventListener('input', e => { const v = parseFloat(e.target.value); if (!isNaN(v) && (k !== 'scale' || v > 0) && (k !== 'angle' || v !== 0) && (k !== 'thickness' || v >= 0)) setForm({ [k]: v }); });
+  for (const k of ['angle', 'thickness', 'twist', 'scale', 'distance']) $(`form-${k}`).addEventListener('input', e => { const v = parseFloat(e.target.value); if (!isNaN(v) && (k !== 'scale' || v > 0) && (k !== 'angle' || v !== 0) && (k !== 'thickness' || v >= 0) && (k !== 'distance' || (v > 0 && v <= 1))) setForm({ [k]: v }); });
   for (const b of $$('[data-fop]')) b.onclick = () => cmd?.key?.(b.dataset.fop);
   // − and + step through the usual sizes from wherever the typed size is.
   function setGrid(dir) {

@@ -335,3 +335,15 @@ fn extrude_keep_tools_leaves_the_shape_as_a_body_in_the_same_step() {
     alone.keep = true;
     assert_eq!(api::commit(&m, alone).unwrap().scene.len(), 2);
 }
+
+#[test]
+fn sweep_distance_follows_the_shortened_path_given_whole() {
+    let m = api::start_enclosure();
+    let curve = |v: serde_json::Value| serde_json::from_value(v).unwrap();
+    let square = serde_json::json!({ "origin": [0.0, 30.0, 0.0], "x": [1.0, 0.0, 0.0], "normal": [0.0, 1.0, 0.0], "kind": "polyline", "points": [[-5.0, -5.0], [5.0, -5.0], [5.0, 5.0], [-5.0, 5.0]], "closed": true });
+    let up = |len: f64| serde_json::json!({ "origin": [0.0, 30.0, 0.0], "x": [1.0, 0.0, 0.0], "normal": [0.0, 0.0, 1.0], "kind": "polyline", "points": [[0.0, 0.0], [0.0, len]], "closed": false });
+    let ids = api::add_curves(&m, vec![curve(square), curve(up(20.0))]).unwrap().ids;
+    let req = serde_json::from_value(serde_json::json!({ "regions": [ids[0]], "kind": "sweep", "path": ids[1], "op": "new", "pathCurve": up(10.0) })).unwrap();
+    let c = api::commit_form(&m, req).unwrap();
+    close(c.scene.iter().find(|b| b.id == c.id).unwrap().volume, 1000.0);
+}

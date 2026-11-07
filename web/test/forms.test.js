@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { before, test } from 'node:test';
 import { loadKernel } from '../src/Kernel.js';
 import { LocalBackend } from '../src/app/LocalBackend.js';
+import { curvePart } from '../src/curveEdit.js';
 
 before(async () => { await loadKernel() });
 
@@ -23,6 +24,21 @@ test('sweep joins a boss along a path, and is a new body unless asked', async ()
     close((await be.previewForm({ regions: [sq], kind: 'sweep', path, twist: Math.PI / 4 })).tool.volume, 2000, 20);
     close((await be.previewForm({ regions: [sq], kind: 'sweep', path, scale: 0.5 })).tool.volume, 20 / 3 * (100 + 25 + 50), 2);
     await assert.rejects(be.previewForm({ regions: [sq], kind: 'sweep', path: sq }), /other than the profile/);
+});
+
+test('sweep Distance follows only that much of the path from its start', async () => {
+    const be = new LocalBackend({ seed: 'enclosure' });
+    const { ids: [sq, path] } = await be.addCurves([square(10), up]);
+    const half = curvePart(up, 0.5);
+    close((await be.previewForm({ regions: [sq], kind: 'sweep', path, pathCurve: half })).tool.volume, 1000, 0.5);
+    close((await be.previewForm({ regions: [sq], kind: 'sweep', path, pathCurve: curvePart(up, 0.25) })).tool.volume, 500, 0.5);
+    assert.equal(curvePart(up, 1), up);
+    // A closed path opens at its start: a quarter of a circle is a quarter of its length.
+    const ring = { origin: [0, 0, 0], x: [1, 0, 0], normal: [0, 1, 0], kind: 'circle', center: [0, 0], radius: 10 };
+    const q = curvePart(ring, 0.25);
+    assert.equal(q.closed ?? false, false);
+    const pts = q.kind === 'arc' ? [q.start, q.end] : null;
+    if (pts) close(Math.hypot(pts[0][0] - pts[1][0], pts[0][1] - pts[1][1]), 10 * Math.SQRT2, 0.05);
 });
 
 test('revolve cuts a half drum and loft builds a frustum', async () => {
