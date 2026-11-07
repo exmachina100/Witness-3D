@@ -631,6 +631,10 @@ impl<K: Kernel> Document<K> {
         Ok(regions.into_iter().map(|solid| self.add_unrecorded(solid)).collect())
     }
 
+    /// Add `solid` as a body within the last undo step (Plasticity's T keep tools: the extruded
+    /// shape kept beside the boolean it took part in).
+    pub fn keep_in_last_step(&mut self, solid: K::Solid) -> BodyId { self.add_unrecorded(solid) }
+
     fn add_unrecorded(&mut self, solid: K::Solid) -> BodyId {
         let id = self.state.next_id;
         self.state.next_id += 1;

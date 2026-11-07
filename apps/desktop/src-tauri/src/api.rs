@@ -198,6 +198,9 @@ pub struct ExtrudeRequest {
     /// More regions extruded with `region`, and the regions inside them cut out as holes.
     #[serde(default)]
     pub more_regions: Vec<CurveId>,
+    /// T: after a union, difference, intersect or slice, keep the extruded shape as a body too.
+    #[serde(default)]
+    pub keep: bool,
     #[serde(default)]
     pub holes: Vec<CurveId>,
     /// Plasticity's Extrude of curves: these curves become sheets along `direction` (required).
@@ -445,9 +448,18 @@ pub fn commit(m: &Model, req: ExtrudeRequest) -> Result<Committed, String> {
             return Ok(Committed { id: *ids.last().ok_or("nothing to do")?, scene: bodies(doc)? });
         }
         let p = req.params(doc)?;
+        // T keep tools: the extruded shape on its own, read before the boolean changes the target.
+        let tool = if req.keep && req.target.is_some() {
+            let alone = ExtrudeParams { operation: Operation::NewBody, ..p.clone() };
+            let r = if !req.arrangement.is_empty() { doc.preview_extrude_pieces(req.target, &[], &alone, &req.arrangement, &req.pieces) }
+                else { doc.preview_extrude_many(req.target, &[], &alone) };
+            r.ok().and_then(|r| r.new)
+        } else { None };
         let id = if !req.arrangement.is_empty() { doc.commit_extrude_pieces(req.target, &req.targets, &p, &req.arrangement, &req.pieces) }
             else if req.sheets.is_empty() { doc.commit_extrude_many(req.target, &req.targets, &p) }
             else { doc.commit_extrude_mixed(req.target, &req.targets, &p, &req.sheets, req.sheet_dir()?) }.map_err(|e| e.to_string())?;
+        // Kept only when the extrude changed a target rather than making a body of its own.
+        if let Some(t) = tool { if Some(id) == req.target || req.targets.contains(&id) { doc.keep_in_last_step(t); } }
         Ok(Committed { id, scene: bodies(doc)? })
     })
 }
