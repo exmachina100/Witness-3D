@@ -155,7 +155,7 @@ const KEYS = {
   'align-curve': [['TAB', 'CONTINUITY G0 G1 G2'], ['D', 'TENSION'], ['CHIP', 'CONSTRAIN'], ['⏎ / RMB', 'OK']],
   rebuild: [['C', 'CONTROL POINTS'], ['D', 'DEGREE'], ['⏎ / RMB', 'OK']],
   'match-face': [['CLICK', 'TARGET FACE'], ['⇧ CLICK', 'FACES'], ['TAB', 'GROW'], ['⏎ / RMB', 'OK']],
-  image: [['DEL', 'REMOVE'], ['⏎ / RMB', 'OK'], ['ESC', 'CANCEL']],
+  image: [['G R S', 'MOVE ROTATE SCALE'], ['⇧D', 'DUPLICATE'], ['DEL', 'REMOVE'], ['⏎ / RMB', 'OK'], ['ESC', 'CANCEL']],
   instance: [['G R S', 'MOVE ROTATE SCALE'], ['⇧D', 'DUPLICATE'], ['DEL', 'REMOVE'], ['⏎ / RMB', 'OK'], ['ESC', 'CANCEL']],
   'deform-curve': [['CLICK', 'REFERENCE, THEN TARGET FACE OR CURVE'], ['M U N', 'FLIP'], ['K', 'KEEP'], ['R', 'REBLEND SOLIDS'], ['⏎ / RMB', 'OK']],
   untrim: [['TAB', 'KEEP EDGES'], ['⇧ CLICK', 'FACES'], ['⏎ / RMB', 'OK']],
@@ -572,7 +572,8 @@ const SHELL = `
       <div class="seg" role="group" aria-label="Image depth"><button data-imdepth="normal" aria-pressed="true" title="Hidden by what stands in front of it, and hides what stands behind it">NORMAL</button><button data-imdepth="front" aria-pressed="false" title="Always seen, over the model (see-through)">FRONT</button><button data-imdepth="behind" aria-pressed="false" title="Always behind the model, wherever it stands">BEHIND</button></div>
       <span class="label">CULLING</span>
       <div class="seg" role="group" aria-label="Image culling"><button data-imcull="front" aria-pressed="false" title="Seen from the front only">FRONT ONLY</button><button data-imcull="double" aria-pressed="true" title="Seen from both sides">DOUBLE SIDED</button></div>
-      <div class="chips"><button data-id="im-delete" title="Remove the image (Delete)"><kbd>DEL</kbd>REMOVE</button></div>
+      <div class="seg" role="group" aria-label="Handle"><button data-inmode="move" aria-pressed="true" title="Move the image (G)">MOVE</button><button data-inmode="rotate" aria-pressed="false" title="Turn the image (R)">ROTATE</button><button data-inmode="scale" aria-pressed="false" title="Scale the image (S); its width follows">SCALE</button></div>
+      <div class="chips"><button data-id="im-dup" title="A copy of the image (Shift+D)"><kbd>⇧D</kbd>DUPLICATE</button><button data-id="im-delete" title="Remove the image (Delete)"><kbd>DEL</kbd>REMOVE</button></div>
     </div>
     <div class="sec" data-panel="instance" hidden>
       <span class="hint" data-id="in-hint">—</span>
@@ -1140,11 +1141,11 @@ const VIEWS = {
 export async function mount(root, backend) {
   root.innerHTML = SHELL;
   // Panel options carry their icon ahead of the key and name.
-  for (const b of root.querySelectorAll('[data-proj],[data-imp],[data-impcomp],[data-draw],[data-bop],[data-btmat],[data-bumat],[data-xop],[data-fop],[data-spiral],[data-toggle],[data-gmethod],[data-galign],[data-gcorner],[data-grow],[data-mfgrow],[data-drgrow],[data-eslimit],[data-flshape],[data-chshape],[data-drtaper],[data-avaxis],[data-extshape],[data-esshape],[data-isodir],[data-id="oe-both"],[data-id="iso-subdivide"],[data-id="oe-individual"],[data-id="blend-tangent"],[data-id="ex-lock"],[data-id="ex-keep"],[data-id="bool-keep"],[data-id="prim-keep"],[data-id="form-keep"],[data-pipeop],[data-id="pipe-keep"],[data-id="ex-free"],[data-id="ex-pivot"],[data-id="ex-individual"],[data-id="patch-individual"],[data-id="patch-quad"],[data-id="as-symmetric"],[data-id="as-analysis"],[data-id="sq-analysis"],[data-id="dr-hidden"],[data-id="dr-curves"],[data-id="oc-lock"],[data-id="oc-free"],[data-id="oc-slot"],[data-id="oc-combine"],[data-id="es-unlimit"],[data-rbmethod],[data-rcmethod],[data-id="rb-corners"],[data-oecorner],[data-saplane],[data-plaxis],[data-plop],[data-id="pl-flip"],[data-id="pl-instance"],[data-id="mirror-instance"],[data-id="mirror-neg"],[data-id="mirror-free"],[data-id="mirror-cut"],[data-id="ra-instance"],[data-id="ra-spacing"],[data-id="ra-extent"],[data-id="rr-total"],[data-id="rr-spacing"],[data-id="rr-instance"],[data-id="ca-instance"],[data-caalign],[data-camethod],[data-id="br-trim"],[data-id="br-comb"],[data-id="br-constrain"],[data-id="ac-constrain"],[data-id="ac-comb"],[data-id="dc-reblend"],[data-id="section-btn"],[data-id="sa-flip"],[data-id="rf-shrink"],[data-id="ut-keep"],[data-txfont],[data-id="tx-load"],[data-id="tx-system"],[data-txalign],[data-sldir],[data-dcflip],[data-id="dc-keep"],[data-imdepth],[data-imcull],[data-id="im-delete"],[data-id="cc-extend"],[data-id="cc-screen"],[data-id="cut-extend"],[data-id="cut-screen"],[data-inmode],[data-pfmode],[data-pfmirror],[data-xforient],[data-xfpivot],[data-id="xf-pick"],[data-id="xf-unpivot"],[data-id="xf-free"],[data-id="ls-loop"],[data-id="ls-limit"],[data-id="ls-simplify"],[data-pmethod],[data-mxtopo],[data-id="mx-convex"],[data-sqbound],[data-asbound],[data-bsshape],[data-bstrim],[data-id="bs-add"],[data-id="bs-s1"],[data-id="bs-s2"],[data-id="in-realize"],[data-id="in-dup"],[data-id="in-delete"],[data-id="matcap-load"],[data-id="matcap-custom"],[data-id="hdr-load"],[data-id="hdr-custom"]')) {
+  for (const b of root.querySelectorAll('[data-proj],[data-imp],[data-impcomp],[data-draw],[data-bop],[data-btmat],[data-bumat],[data-xop],[data-fop],[data-spiral],[data-toggle],[data-gmethod],[data-galign],[data-gcorner],[data-grow],[data-mfgrow],[data-drgrow],[data-eslimit],[data-flshape],[data-chshape],[data-drtaper],[data-avaxis],[data-extshape],[data-esshape],[data-isodir],[data-id="oe-both"],[data-id="iso-subdivide"],[data-id="oe-individual"],[data-id="blend-tangent"],[data-id="ex-lock"],[data-id="ex-keep"],[data-id="bool-keep"],[data-id="prim-keep"],[data-id="form-keep"],[data-pipeop],[data-id="pipe-keep"],[data-id="ex-free"],[data-id="ex-pivot"],[data-id="ex-individual"],[data-id="patch-individual"],[data-id="patch-quad"],[data-id="as-symmetric"],[data-id="as-analysis"],[data-id="sq-analysis"],[data-id="dr-hidden"],[data-id="dr-curves"],[data-id="oc-lock"],[data-id="oc-free"],[data-id="oc-slot"],[data-id="oc-combine"],[data-id="es-unlimit"],[data-rbmethod],[data-rcmethod],[data-id="rb-corners"],[data-oecorner],[data-saplane],[data-plaxis],[data-plop],[data-id="pl-flip"],[data-id="pl-instance"],[data-id="mirror-instance"],[data-id="mirror-neg"],[data-id="mirror-free"],[data-id="mirror-cut"],[data-id="ra-instance"],[data-id="ra-spacing"],[data-id="ra-extent"],[data-id="rr-total"],[data-id="rr-spacing"],[data-id="rr-instance"],[data-id="ca-instance"],[data-caalign],[data-camethod],[data-id="br-trim"],[data-id="br-comb"],[data-id="br-constrain"],[data-id="ac-constrain"],[data-id="ac-comb"],[data-id="dc-reblend"],[data-id="section-btn"],[data-id="sa-flip"],[data-id="rf-shrink"],[data-id="ut-keep"],[data-txfont],[data-id="tx-load"],[data-id="tx-system"],[data-txalign],[data-sldir],[data-dcflip],[data-id="dc-keep"],[data-imdepth],[data-imcull],[data-id="im-delete"],[data-id="im-dup"],[data-id="cc-extend"],[data-id="cc-screen"],[data-id="cut-extend"],[data-id="cut-screen"],[data-inmode],[data-pfmode],[data-pfmirror],[data-xforient],[data-xfpivot],[data-id="xf-pick"],[data-id="xf-unpivot"],[data-id="xf-free"],[data-id="ls-loop"],[data-id="ls-limit"],[data-id="ls-simplify"],[data-pmethod],[data-mxtopo],[data-id="mx-convex"],[data-sqbound],[data-asbound],[data-bsshape],[data-bstrim],[data-id="bs-add"],[data-id="bs-s1"],[data-id="bs-s2"],[data-id="in-realize"],[data-id="in-dup"],[data-id="in-delete"],[data-id="matcap-load"],[data-id="matcap-custom"],[data-id="hdr-load"],[data-id="hdr-custom"]')) {
     const name = (b.dataset.proj && (b.dataset.proj === 'screen' ? 'view-screen' : `proj-${b.dataset.proj}`)) ?? (b.dataset.imp && (b.dataset.imp === 'screen' ? 'view-screen' : `proj-${b.dataset.imp}`)) ?? (b.dataset.impcomp && `completion-${b.dataset.impcomp}`) ?? b.dataset.draw ?? b.dataset.bop ?? (b.dataset.xforient && `orient-${b.dataset.xforient}`) ?? (b.dataset.xfpivot && `pivot-${b.dataset.xfpivot}`) ?? (b.dataset.btmat && `mat-${b.dataset.btmat}`) ?? (b.dataset.bumat && `mat-${b.dataset.bumat}`) ?? b.dataset.xop ?? b.dataset.fop ?? b.dataset.spiral ?? (b.dataset.toggle && `view-${b.dataset.toggle}`)
       ?? (b.dataset.gmethod && `guide-${b.dataset.gmethod}`) ?? (b.dataset.galign && `align-${b.dataset.galign}`) ?? (b.dataset.caalign && `align-${b.dataset.caalign}`) ?? (b.dataset.camethod && `array-${b.dataset.camethod}`) ?? (b.dataset.gcorner && (b.dataset.gcorner === 'round' ? 'corner-round' : 'corner-linear')) ?? (b.dataset.grow && `grow-${b.dataset.grow}`) ?? (b.dataset.mfgrow && `grow-${b.dataset.mfgrow}`) ?? (b.dataset.drgrow && `grow-${b.dataset.drgrow}`) ?? (b.dataset.eslimit && `limit-${b.dataset.eslimit}`) ?? (b.dataset.flshape && `fillet-${b.dataset.flshape}`) ?? (b.dataset.chshape && `chamfer-${b.dataset.chshape}`) ?? (b.dataset.drtaper && `taper-${b.dataset.drtaper}`) ?? (b.dataset.avaxis && `axis-${b.dataset.avaxis}`) ?? (b.dataset.extshape && `extend-${b.dataset.extshape}`) ?? (b.dataset.esshape && `extend-${b.dataset.esshape}`) ?? (b.dataset.isodir && `iso-${b.dataset.isodir}`) ?? (b.dataset.rbmethod && `rebuild-${b.dataset.rbmethod}`) ?? (b.dataset.rcmethod && `rebuild-${b.dataset.rcmethod}`) ?? (b.dataset.oecorner && `corner-${b.dataset.oecorner}`) ?? (b.dataset.saplane && `section-${b.dataset.saplane}`) ?? (b.dataset.plaxis && (b.dataset.plaxis === 'normal' ? 'place-normal' : `axis-${b.dataset.plaxis}`)) ?? b.dataset.plop ?? b.dataset.pipeop
       ?? (b.dataset.txfont && `font-${b.dataset.txfont}`) ?? (b.dataset.txalign && `txalign-${b.dataset.txalign}`) ?? (b.dataset.sldir && { u: 'slide-u', '-u': 'slide-back', v: 'slide-v', '-v': 'slide-vback', n: 'slide-n' }[b.dataset.sldir]) ?? (b.dataset.dcflip && { mirror: 'mirror', swap: 'swap-uv', normal: 'reverse-sheet' }[b.dataset.dcflip]) ?? (b.dataset.imdepth && `depth-${b.dataset.imdepth}`) ?? (b.dataset.imcull && `cull-${b.dataset.imcull}`) ?? b.dataset.inmode ?? (b.dataset.bsshape && `bridge-${b.dataset.bsshape}`) ?? (b.dataset.bstrim && `trimwall-${b.dataset.bstrim}`) ?? (b.dataset.mxtopo && `topo-${b.dataset.mxtopo}`) ?? (b.dataset.pmethod && (b.dataset.pmethod === 'fill' ? 'patch-fill' : `trim-${b.dataset.pmethod}`)) ?? (b.dataset.pfmode && `falloff-${b.dataset.pfmode}`) ?? ((b.dataset.sqbound ?? b.dataset.asbound) && `bound-${b.dataset.sqbound ?? b.dataset.asbound}`) ?? (b.dataset.pfmirror && `mirror-${b.dataset.pfmirror}`)
-      ?? { 'matcap-load': 'matcap-load', 'matcap-custom': 'matcap', 'tx-load': 'font-load', 'tx-system': 'font-system', 'hdr-load': 'hdr-load', 'hdr-custom': 'hdr', 'ex-lock': 'lock', 'rb-corners': 'corner-linear', 'bool-keep': 'keep', 'ex-keep': 'keep', 'prim-keep': 'keep', 'form-keep': 'keep', 'pipe-keep': 'keep', 'ex-free': 'freestyle', 'ex-pivot': 'pivot', 'ex-individual': 'individual', 'patch-individual': 'individual', 'mx-convex': 'convex', 'patch-quad': 'square', 'as-symmetric': 'symmetric', 'as-analysis': 'analysis', 'sq-analysis': 'analysis', 'bs-add': 'wall-pair', 'bs-s1': 'flip', 'bs-s2': 'flip', 'dr-hidden': 'hidden-lines', 'dr-curves': 'drawing-curves', 'oc-lock': 'lock', 'oc-free': 'freestyle', 'oc-slot': 'slot', 'oc-combine': 'combine', 'oe-both': 'both-sides', 'xf-pick': 'pivot', 'xf-unpivot': 'pivot-remove', 'xf-free': 'freestyle', 'ls-loop': 'loft-loop', 'ls-limit': 'limit-point', 'ls-simplify': 'simplify', 'iso-subdivide': 'subdivide', 'oe-individual': 'individual', 'blend-tangent': 'tangent-chain', 'es-unlimit': 'unlimit', 'rf-shrink': 'shrink', 'ut-keep': 'keep-edges', 'section-btn': 'view-section', 'sa-flip': 'flip', 'pl-flip': 'flip', 'pl-instance': 'instance', 'mirror-instance': 'instance', 'mirror-neg': 'mirror-neg', 'mirror-free': 'freestyle', 'mirror-cut': 'mirror-cut', 'ra-instance': 'instance', 'ra-spacing': 'array-spacing', 'ra-extent': 'array-extent', 'rr-total': 'array-total', 'rr-spacing': 'array-angle-step', 'rr-instance': 'instance', 'ca-instance': 'instance', 'br-trim': 'trim', 'br-comb': 'view-curvature', 'br-constrain': 'constrain', 'ac-constrain': 'constrain', 'ac-comb': 'view-curvature', 'dc-reblend': 'reblend', 'dc-keep': 'keep', 'im-delete': 'delete', 'in-realize': 'realize-instance', 'cc-extend': 'extend', 'cc-screen': 'view-screen', 'cut-extend': 'extend', 'cut-screen': 'view-screen', 'in-dup': 'duplicate', 'in-delete': 'delete' }[b.dataset.id];
+      ?? { 'matcap-load': 'matcap-load', 'matcap-custom': 'matcap', 'tx-load': 'font-load', 'tx-system': 'font-system', 'hdr-load': 'hdr-load', 'hdr-custom': 'hdr', 'ex-lock': 'lock', 'rb-corners': 'corner-linear', 'bool-keep': 'keep', 'ex-keep': 'keep', 'prim-keep': 'keep', 'form-keep': 'keep', 'pipe-keep': 'keep', 'ex-free': 'freestyle', 'ex-pivot': 'pivot', 'ex-individual': 'individual', 'patch-individual': 'individual', 'mx-convex': 'convex', 'patch-quad': 'square', 'as-symmetric': 'symmetric', 'as-analysis': 'analysis', 'sq-analysis': 'analysis', 'bs-add': 'wall-pair', 'bs-s1': 'flip', 'bs-s2': 'flip', 'dr-hidden': 'hidden-lines', 'dr-curves': 'drawing-curves', 'oc-lock': 'lock', 'oc-free': 'freestyle', 'oc-slot': 'slot', 'oc-combine': 'combine', 'oe-both': 'both-sides', 'xf-pick': 'pivot', 'xf-unpivot': 'pivot-remove', 'xf-free': 'freestyle', 'ls-loop': 'loft-loop', 'ls-limit': 'limit-point', 'ls-simplify': 'simplify', 'iso-subdivide': 'subdivide', 'oe-individual': 'individual', 'blend-tangent': 'tangent-chain', 'es-unlimit': 'unlimit', 'rf-shrink': 'shrink', 'ut-keep': 'keep-edges', 'section-btn': 'view-section', 'sa-flip': 'flip', 'pl-flip': 'flip', 'pl-instance': 'instance', 'mirror-instance': 'instance', 'mirror-neg': 'mirror-neg', 'mirror-free': 'freestyle', 'mirror-cut': 'mirror-cut', 'ra-instance': 'instance', 'ra-spacing': 'array-spacing', 'ra-extent': 'array-extent', 'rr-total': 'array-total', 'rr-spacing': 'array-angle-step', 'rr-instance': 'instance', 'ca-instance': 'instance', 'br-trim': 'trim', 'br-comb': 'view-curvature', 'br-constrain': 'constrain', 'ac-constrain': 'constrain', 'ac-comb': 'view-curvature', 'dc-reblend': 'reblend', 'dc-keep': 'keep', 'im-delete': 'delete', 'im-dup': 'duplicate', 'in-realize': 'realize-instance', 'cc-extend': 'extend', 'cc-screen': 'view-screen', 'cut-extend': 'extend', 'cut-screen': 'view-screen', 'in-dup': 'duplicate', 'in-delete': 'delete' }[b.dataset.id];
     b.insertAdjacentHTML('afterbegin', icon(name));
   }
   const $ = id => root.querySelector(`[data-id="${id}"]`);
@@ -2702,6 +2703,7 @@ export async function mount(root, backend) {
       // The picture lies flat in the plane: x along the plane's x, up the picture along its -z.
       const geo = new THREE.PlaneGeometry(im.width, im.width * im.aspect).rotateX(-Math.PI / 2);
       const mesh = new THREE.Mesh(geo, mat);
+      mesh.userData.image = im.id;
       mesh.position.fromArray(im.origin);
       mesh.quaternion.fromArray(im.quaternion);
       mesh.renderOrder = look.order;
@@ -2722,23 +2724,86 @@ export async function mount(root, backend) {
     renderOutliner();
     toast(`IMAGE ${name.toUpperCase()} ON ${cplane.name} · SAVED WITH THE FILE`);
   }
-  /** Plasticity's image appearance (M on an image): width, opacity, depth and culling, live. */
-  function startImage(id) {
+  /** The reference image under the pointer, unless `hit` lies in front of it. */
+  function imageAt(e, hit) {
+    ray(e);
+    const h = raycaster.intersectObjects(imageGroup.children, false)[0];
+    if (!h) return null;
+    if (hit?.point && camera.position.distanceTo(hit.point) < h.distance) return null;
+    return h.object.userData.image ?? null;
+  }
+  /**
+   * Plasticity's image appearance (M on an image): width, opacity, depth and culling, live. A click
+   * on an image opens it too; G R S switch the handle between move, turn and scale (its width).
+   */
+  function startImage(id, { fresh = false } = {}) {
     const im = images.find(m => m.id === id);
     if (!im) return;
     const before = { ...im };
-    const c = cmd = { id: 'image', image: id };
+    const handle = new THREE.Object3D();
+    let base = im.width;
+    const place = () => {
+      handle.position.fromArray(im.origin);
+      handle.quaternion.fromArray(im.quaternion);
+      base = im.width;
+      handle.scale.setScalar(1);
+    };
+    place();
+    scene.add(handle);
+    const tc = new TransformControls(camera, canvas);
+    tc.setSpace('world');
+    tc.attach(handle);
+    tc.addEventListener('dragging-changed', e => { controls.enabled = !e.value; if (!e.value) place(); });
+    tc.addEventListener('objectChange', () => {
+      im.origin = handle.position.toArray();
+      im.quaternion = handle.quaternion.clone().normalize().toArray();
+      // Uniform only: whichever component the drag changed scales the width.
+      const k = handle.scale.toArray().reduce((a, b) => Math.abs(b - 1) > Math.abs(a - 1) ? b : a, 1);
+      im.width = Math.max(0.1, base * Math.abs(k));
+      $('im-w').value = Math.round(im.width * 100) / 100;
+      show(false);
+    });
+    scene.add(tc.getHelper());
+    const c = cmd = { id: 'image', image: id, tc };
     lastTool = 'image';
     showTool('image');
     setState('none');
     setTarget(imageLabel(id));
-    const show = () => {
+    c.mode = m => {
+      tc.setMode({ move: 'translate', rotate: 'rotate', scale: 'scale' }[m]);
+      for (const b of $$('[data-inmode]')) b.setAttribute('aria-pressed', String(b.dataset.inmode === m));
+    };
+    c.cleanup = () => {
+      tc.detach();
+      tc.getHelper().removeFromParent();
+      tc.dispose();
+      handle.removeFromParent();
+      controls.enabled = true;
+    };
+    c.click = e => {
+      // Another image opens in its place; other clicks don't change the selection.
+      const other = imageAt(e, null);
+      if (other !== null && other !== id) { endCmd('committed'); startImage(other); renderOutliner(); }
+      return true;
+    };
+    c.duplicate = () => {
+      const copy = { ...JSON.parse(JSON.stringify(im)), id: nextImage++, name: im.name };
+      images.push(copy);
+      endCmd('committed');
+      drawImages();
+      renderOutliner();
+      startImage(copy.id, { fresh: true });
+      toast(`${imageLabel(copy.id)} · A COPY OF ${imageLabel(id)} · DRAG THE HANDLE TO PLACE IT`);
+    };
+    const show = (sync = true) => {
+      if (sync && !tc.dragging) place();
       $('im-hint').textContent = `${im.name.toUpperCase()} · ${Math.round(im.width * 10) / 10} × ${len(Math.round(im.width * im.aspect * 10) / 10)} ${U()}`;
       for (const b of $$('[data-imdepth]')) b.setAttribute('aria-pressed', String(b.dataset.imdepth === im.depth));
       for (const b of $$('[data-imcull]')) b.setAttribute('aria-pressed', String(b.dataset.imcull === im.culling));
       drawImages();
       setState('updated');
     };
+    c.fresh = fresh;
     c.set = (key, v) => { im[key] = v; show(); };
     c.input = () => {
       const w = num('im-w'), o = num('im-o');
@@ -2755,11 +2820,23 @@ export async function mount(root, backend) {
       renderOutliner();
       toast(`REMOVED ${imageLabel(id)}`);
     };
-    c.key = action => (action === 'delete' ? (c.remove(), true) : false);
+    c.key = action => {
+      if (action === 'delete') { c.remove(); return true; }
+      if (['move', 'rotate', 'scale'].includes(action)) { c.mode(action); return true; }
+      if (action === 'duplicate') { c.duplicate(); return true; }
+      return false;
+    };
     c.finish = async () => { endCmd('committed'); renderOutliner(); };
-    c.abort = () => { Object.assign(im, before); drawImages(); endCmd('cancelled'); };
+    c.abort = () => {
+      // A fresh copy goes again; otherwise the image is put back as it was.
+      if (fresh) { images = images.filter(m => m.id !== id); textures.get(id)?.dispose(); textures.delete(id); renderOutliner(); }
+      else Object.assign(im, before);
+      drawImages();
+      endCmd('cancelled');
+    };
     $('im-w').value = im.width;
     $('im-o').value = im.opacity;
+    c.mode('move');
     show();
   }
 
@@ -14113,6 +14190,9 @@ export async function mount(root, backend) {
     if (cmd && !cmd.auto) return;
     const picked = pickAt(e), inst = instanceAt(e, picked);
     if (inst) { if (cmd) await finish(); startInstance(inst); return; }
+    // A reference image with nothing in front of it opens to move, turn, scale or change.
+    const img = !picked && imageAt(e, null);
+    if (img) { if (cmd) await finish(); startImage(img); renderOutliner(); return; }
     applySelect(clickTarget(picked, modOf(e)), modOf(e));
     hover = null;
     selectionChanged();
@@ -14337,7 +14417,8 @@ export async function mount(root, backend) {
   for (const b of $$('[data-imdepth]')) b.onclick = () => cmd?.id === 'image' && cmd.set('depth', b.dataset.imdepth);
   for (const b of $$('[data-imcull]')) b.onclick = () => cmd?.id === 'image' && cmd.set('culling', b.dataset.imcull);
   $('im-delete').onclick = () => cmd?.id === 'image' && cmd.remove();
-  for (const b of $$('[data-inmode]')) b.onclick = () => cmd?.id === 'instance' && cmd.mode(b.dataset.inmode);
+  for (const b of $$('[data-inmode]')) b.onclick = () => (cmd?.id === 'instance' || cmd?.id === 'image') && cmd.mode(b.dataset.inmode);
+  $('im-dup').onclick = () => cmd?.id === 'image' && cmd.duplicate();
   $('cc-extend').onclick = () => cmd?.id === 'cut-curve' && cmd.key('extend');
   $('cc-screen').onclick = () => cmd?.id === 'cut-curve' && cmd.key('screen');
   $('in-realize').onclick = () => cmd?.id === 'instance' && cmd.realize();
