@@ -167,7 +167,7 @@ const KEYS = {
   'rebuild-face': [['M', 'METHOD'], ['T', 'TOLERANCE'], ['D', 'DEGREE'], ['S', 'SPANS'], ['E', 'EXTEND'], ['H', 'SHRINK'], ['⇧ CLICK', 'FACES'], ['⏎ / RMB', 'OK']],
   'fillet-vertex': [['DRAG DOT', 'IN ROUND · OUT CHAMFER'], ['D', 'FILLET DISTANCE'], ['C', 'CHAMFER DISTANCE'], ['⏎ / RMB', 'OK']],
   'offset-curve': [['DRAG DOT', 'DISTANCE'], ['D', 'DISTANCE'], ['V / C', 'GAP FILL'], ['S', 'BOTH SIDES'], ['F', 'FREESTYLE: CLICK'], ['O', 'SLOT'], ['I', 'COMBINED'], ['⏎ / RMB', 'OK']],
-  'fillet-curve': [['D', 'RADIUS'], ['TYPE', 'IN PANEL'], ['⏎ / RMB', 'OK']],
+  'fillet-curve': [['DRAG DOT', 'IN ROUND · OUT CHAMFER'], ['D', 'FILLET DISTANCE'], ['C', 'CHAMFER DISTANCE'], ['⏎ / RMB', 'OK']],
   'remove-face': [['⇧ CLICK', 'FACES'], ['⏎ / RMB', 'OK']],
   cut: [['⇧ CLICK', 'SOLIDS · CURVES'], ['⇧ ALT CLICK', 'FACES'], ['P', 'CONSTRUCTION PLANE'], ['C', 'CUT CURVE'], ['⏎ / RMB', 'OK']],
   draft: [['A', 'ANGLE'], ['D', 'OFFSET'], ['TAB', 'GROW'], ['⇧ CLICK', 'FACES'], ['CLICK LINE', 'CURVE TAPER'], ['⏎ / RMB', 'OK']],
@@ -655,7 +655,8 @@ const SHELL = `
     </div>
     <div class="sec" data-panel="fillet-curve" hidden>
       <span class="hint" data-id="fc-hint">—</span>
-      <div class="field"><label for="w3d-fc-r">RADIUS</label><input id="w3d-fc-r" data-id="fc-r" type="number" step="0.5" min="0.01" value="2"></div>
+      <div class="field"><label for="w3d-fc-r">RADIUS</label><input id="w3d-fc-r" data-id="fc-r" type="number" step="0.5" value="2" title="Below zero: a chamfer of that distance"></div>
+      <div class="field"><label>SHAPE</label><output data-id="fc-shape">ROUND</output></div>
     </div>
     <div class="sec" data-panel="remove-fillets" hidden>
       <span class="hint" data-id="rfl-hint">—</span>
@@ -6200,7 +6201,8 @@ export async function mount(root, backend) {
     };
     c.each = () => ids.flatMap(cid => {
       const src = curveById(cid), d = num(field);
-      if (!offset) return [filletCurve(src, d)];
+      // Fillet Curve: a negative distance (the dot dragged out of the corner, or C) chamfers.
+      if (!offset) return [filletCurve(src, Math.abs(d), null, d < 0)];
       // Offset Region O: an open curve becomes a slot round it, closed by half circles.
       if (c.slot && !isClosed(src)) return [offsetSlot(src, Math.abs(d), corner())];
       return c.both ? [offsetCurve(src, d, corner()), offsetCurve(src, -d, corner())] : [offsetCurve(src, d, corner())];
@@ -6213,7 +6215,8 @@ export async function mount(root, backend) {
         c.out = c.compute();
         showCurvePreview(c.out);
         $(hint).textContent = `${ids.length} CURVE${ids.length > 1 ? 'S' : ''}`;
-        setHud(c.placing ? 'CLICK WHERE THE OFFSET GOES' : `${toolInfo(id).label} ${len(num(field))} ${U()}${offset ? ` · ${corner().toUpperCase()}${c.both ? ' · BOTH SIDES' : ''}${c.slot ? ' · SLOT' : ''}${c.combined ? ' · COMBINED' : ''}` : ''}`);
+        if (!offset) $('fc-shape').textContent = num(field) < 0 ? 'CHAMFER' : 'ROUND';
+        setHud(c.placing ? 'CLICK WHERE THE OFFSET GOES' : !offset ? `${num(field) < 0 ? 'CHAMFER' : 'FILLET'} ${len(Math.abs(num(field)))} ${U()}` : `${toolInfo(id).label} ${len(num(field))} ${U()}${offset ? ` · ${corner().toUpperCase()}${c.both ? ' · BOTH SIDES' : ''}${c.slot ? ' · SLOT' : ''}${c.combined ? ' · COMBINED' : ''}` : ''}`);
         setState('updated');
       } catch (e) { c.out = null; $(hint).textContent = say(e); setHud(`${toolInfo(id).label} FAILED`); setState('failed'); }
     };
@@ -6226,6 +6229,18 @@ export async function mount(root, backend) {
         const dir = lift(f, near).sub(lift(f, mid)).normalize();
         c.gizmo = dot(lift(f, mid), dir, v => { $(field).value = +v.toFixed(3); c.preview(); });
       } catch { c.gizmo = null; }
+    } else {
+      // Plasticity's yellow dot on the first corner, pointing into it along the bisector:
+      // dragged in it rounds, dragged out it chamfers (as Fillet Vertex).
+      const src = curveById(ids[0]), f = curveFrame(src), vs = curveVertices(src), k = vs.length, closed = isClosed(src);
+      for (let n = closed ? 0 : 1; n < (closed ? k : k - 1) && !c.gizmo; n++) {
+        const here = vs[n], prev = vs[n - 1] ?? vs[k - 1], next = vs[n + 1] ?? vs[0];
+        const at = lift(f, { x: here[0], y: here[1] });
+        const u = lift(f, { x: prev[0], y: prev[1] }).sub(at), w = lift(f, { x: next[0], y: next[1] }).sub(at);
+        if (u.length() < 1e-9 || w.length() < 1e-9) continue;
+        const dir = u.normalize().add(w.normalize());
+        if (dir.length() > 1e-6) c.gizmo = dot(at, dir.normalize(), v => { $(field).value = +v.toFixed(3); c.preview(); });
+      }
     }
     c.click = e => {
       if (!c.placing) return false;
@@ -6251,6 +6266,13 @@ export async function mount(root, backend) {
       if (offset && action === 'combine') { c.combined = !c.combined; c.preview(); return true; }
       if (offset && action === 'slot') { c.slot = !c.slot; c.preview(); return true; }
       if (offset && action === 'freestyle') { c.placing = !c.placing; c.preview(); return true; }
+      if (!offset && (action === 'radius' || action === 'chamfer')) {
+        // D types the fillet distance, C the chamfer distance (manual: Fillet Curve).
+        const chamfer = action === 'chamfer';
+        c.entry = { label: chamfer ? 'CHAMFER DISTANCE' : 'FILLET DISTANCE', text: '', apply: v => { $(field).value = chamfer ? -Math.abs(v) : Math.abs(v); c.preview(); } };
+        setHud(`${chamfer ? 'CHAMFER' : 'FILLET'} DISTANCE _`);
+        return true;
+      }
       if (action !== 'distance' && action !== 'radius') return false;
       c.entry = { label: action.toUpperCase(), text: '', apply: v => { $(field).value = v; c.preview(); } };
       setHud(`${action.toUpperCase()} _`);
@@ -6261,7 +6283,7 @@ export async function mount(root, backend) {
       try {
         const { ids: made } = offset ? await backend.addCurves(c.out) : await backend.replaceCurves(ids, c.out);
         endCmd('committed');
-        record(`${toolInfo(id).label} ${len(num(field))} ${U()}`, made[0], curveLabel(made[0]));
+        record(offset ? `${toolInfo(id).label} ${len(num(field))} ${U()}` : `FILLET CURVE ${num(field) < 0 ? 'CHAMFER' : 'R'} ${len(Math.abs(num(field)))} ${U()}`, made[0], curveLabel(made[0]));
         await curvesChanged(made);
       } catch (e) { setState('failed'); toast(say(e)); }
     };
