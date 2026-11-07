@@ -2216,6 +2216,39 @@ inline std::unique_ptr<W3dResult> w3d_unify(const TopoDS_Shape &shape) {
   }
 }
 
+// Plasticity's Dissolve (Backspace) on edges: the numbered edges go and the faces either side of
+// each merge into one, as Delete Redundant Topology does but only across these edges (every other
+// edge and vertex kept). Throws when nothing merges: the faces don't lie on one surface.
+inline std::unique_ptr<W3dResult> w3d_dissolve_edges(const TopoDS_Shape &shape, rust::Slice<const int32_t> ids) {
+  try {
+    TopTools_IndexedMapOfShape edges, verts;
+    TopExp::MapShapes(shape, TopAbs_EDGE, edges);
+    TopTools_MapOfShape picked, loose;
+    for (int32_t i : ids) {
+      if (i < 0 || i >= edges.Extent()) throw std::out_of_range("no such edge");
+      picked.Add(edges(i + 1));
+      for (TopExp_Explorer v(edges(i + 1), TopAbs_VERTEX); v.More(); v.Next()) loose.Add(v.Current());
+    }
+    ShapeUpgrade_UnifySameDomain unify(shape, Standard_True, Standard_True, Standard_True);
+    unify.AllowInternalEdges(Standard_False);
+    for (int i = 1; i <= edges.Extent(); i++) if (!picked.Contains(edges(i))) unify.KeepShape(edges(i));
+    TopExp::MapShapes(shape, TopAbs_VERTEX, verts);
+    for (int i = 1; i <= verts.Extent(); i++) if (!loose.Contains(verts(i))) unify.KeepShape(verts(i));
+    unify.Build();
+    std::unique_ptr<W3dResult> r(new W3dResult());
+    r->shape = unify.Shape();
+    TopTools_IndexedMapOfShape before, after;
+    TopExp::MapShapes(shape, TopAbs_FACE, before);
+    TopExp::MapShapes(r->shape, TopAbs_FACE, after);
+    if (after.Extent() >= before.Extent()) throw std::runtime_error("the faces either side of those edges don't lie on one surface");
+    if (!w3d_is_valid(r->shape)) throw std::runtime_error("dissolving those edges breaks the body");
+    w3d_record(*r, 0, shape, {w3d_step(unify.History())});
+    return r;
+  } catch (const Standard_Failure &f) {
+    throw w3d_kernel_error(f);
+  }
+}
+
 // Plasticity's Reverse Sheet: the same faces facing the other way. Faces and edges keep their numbers.
 inline std::unique_ptr<TopoDS_Shape> w3d_reversed(const TopoDS_Shape &shape) {
   return std::unique_ptr<TopoDS_Shape>(new TopoDS_Shape(shape.Reversed()));

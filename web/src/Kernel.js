@@ -108,6 +108,26 @@ export function unifyWithHistory(shape) {
     return { shape: result, history: trace([shape], result, s => [s]) };
 }
 
+/**
+ * Plasticity's Dissolve (Backspace) on edges: the numbered edges (numberedEdges order) go and the
+ * faces either side merge, as unifyWithHistory but only across them. As w3d_dissolve_edges.
+ */
+export function dissolveEdgesWithHistory(shape, ids) {
+    const o = oc();
+    const edges = numberedEdges(shape);
+    const picked = ids.map(i => { if (!edges[i]) throw new Error('no such edge'); return edges[i]; });
+    const loose = picked.flatMap(e => numbered(e, 'TopAbs_VERTEX'));
+    const unify = new o.ShapeUpgrade_UnifySameDomain(shape, true, true, true);
+    unify.AllowInternalEdges(false);
+    for (const e of edges) if (!picked.some(p => p.IsSame(e))) unify.KeepShape(e);
+    for (const v of numbered(shape, 'TopAbs_VERTEX')) if (!loose.some(l => l.IsSame(v))) unify.KeepShape(v);
+    unify.Build();
+    const result = unify.Shape();
+    if (numbered(result, 'TopAbs_FACE').length >= numbered(shape, 'TopAbs_FACE').length) throw new Error("the faces either side of those edges don't lie on one surface");
+    if (!new o.BRepCheck_Analyzer(result, true, false, false).IsValid()) throw new Error('dissolving those edges breaks the body');
+    return { shape: result, history: trace([shape], result, s => [s]) };
+}
+
 const KINDS = { faces: 'TopAbs_FACE', edges: 'TopAbs_EDGE' };
 
 /** The shape's faces or edges, each once, in TopExp::MapShapes order (see numberedEdges). */

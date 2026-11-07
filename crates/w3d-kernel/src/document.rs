@@ -1114,6 +1114,18 @@ impl<K: Kernel> Document<K> {
         Ok((faces, edges))
     }
 
+    /// Plasticity's Dissolve on edges, as one undoable step: the faces either side of each edge
+    /// merged into one. Returns how many faces went.
+    pub fn commit_dissolve_edges(&mut self, body: BodyId, edges: &[u32]) -> Result<usize, KernelError> {
+        if edges.is_empty() { return Err(KernelError::Invalid("select the edges to dissolve")) }
+        let solid = self.get(body).ok_or(KernelError::Invalid("that body no longer exists"))?;
+        let t = self.kernel.dissolve_edges(solid, edges)?;
+        let faces = self.kernel.face_count(solid).saturating_sub(self.kernel.face_count(&t.solid));
+        self.checkpoint();
+        self.replace_traced(body, t);
+        Ok(faces)
+    }
+
     /// Compute a Remove Face without changing the document.
     pub fn preview_remove_faces(&self, body: BodyId, faces: &[u32]) -> Result<K::Solid, KernelError> {
         let solid = self.get(body).ok_or(KernelError::Invalid("that body no longer exists"))?;

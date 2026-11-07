@@ -47,7 +47,7 @@ export const VIEWPORT = {
     // Sketching (manual: Line is Shift+A; 0.6.30 for the rectangle and circle, which 26.1 leaves unbound)
     'shift-q': 'draw:rect', 'shift-w': 'draw:circle', 'shift-a': 'draw:line',
     // Delete and Dissolve (manual: X, Backspace, Shift+Backspace)
-    x: 'delete', 'shift-x': 'delete', 'shift-delete': 'delete', 'shift-backspace': 'delete', delete: 'delete', backspace: 'delete',
+    x: 'dissolve', 'shift-x': 'delete', 'shift-delete': 'delete', 'shift-backspace': 'delete', delete: 'delete', backspace: 'dissolve',
     'shift-d': 'duplicate', 'alt-d': 'alt-duplicate', 'shift-g': 'slide',
     // Place (manual: Ctrl+D)
     'ctrl-d': 'place',
@@ -212,7 +212,7 @@ export const ACTIONS = {
     'mode:solid': 'Selection mode: solids', 'mode:all': 'Selection mode: all',
     'convert:point': 'Convert selection to points', 'convert:group': 'Convert selection to groups', 'convert:edge': 'Convert selection to edges', 'convert:face': 'Convert selection to faces', 'convert:solid': 'Convert selection to solids',
     'select:all': 'Select all', 'select:none': 'Deselect all', 'select:invert': 'Invert selection', 'select:solids': 'Select all solids', 'select:sheets': 'Select all sheets', 'select:curves': 'Select all curves', 'select:measurements': 'Select all measurements', 'select:adjacent': 'Select adjacent', 'sources:back': 'Select sources of last operation', 'sidebar:left': 'Toggle left sidebar', 'grid:inc': 'Grid: increase grid size', 'grid:dec': 'Grid: decrease grid size', 'grid:snap': 'Grid: toggle grid snapping', 'snap:object': 'Toggle object snapping', 'constraints:clear': 'Remove constraints', 'overlays:toggle': 'Toggle overlays', 'sidebar:right': 'Toggle right sidebar', 'sources:forward': 'Select sources of next operation',
-    'repeat': 'Repeat last command', 'ask': 'Ask for a command in words', 'delete': 'Delete', 'duplicate': 'Duplicate', 'alt-duplicate': 'Alternative duplicate onto the plane', 'create-outline': 'Create outline', 'toggle-points': 'Toggle points',
+    'repeat': 'Repeat last command', 'ask': 'Ask for a command in words', 'delete': 'Delete', 'dissolve': 'Dissolve (edges merge their faces; else Delete)', 'duplicate': 'Duplicate', 'alt-duplicate': 'Alternative duplicate onto the plane', 'create-outline': 'Create outline', 'toggle-points': 'Toggle points',
     'hide': 'Hide selected', 'hide-others': 'Hide unselected', 'unhide-all': 'Unhide all', 'invert-hidden': 'Invert hidden',
     'isolate': 'Isolate selected', 'unisolate': 'Unisolate', 'group': 'Group selected', 'ungroup': 'Ungroup', 'rename': 'Rename selected',
     'lock': 'Lock selected', 'unlock-all': 'Unlock all', 'delete-empty-groups': 'Delete empty groups',

@@ -10660,6 +10660,32 @@ export async function mount(root, backend) {
     } catch (e) { toast(say(e)); }
   }
 
+  /**
+   * Plasticity's Dissolve (Backspace, X): selected edges go and the faces either side of each merge
+   * into one (one undo step per body); anything else selected is deleted as Delete does.
+   */
+  async function dissolveSelected() {
+    if (cmd) await finish();
+    const edges = sel.list('edge');
+    if (!edges.length || sel.solids.length || sel.curves.length || sel.list('face').length) return deleteSelected();
+    if (!backend.commitUnify) return toast('DISSOLVE IS NOT IN THIS BUILD YET');
+    let gone = 0, list = null;
+    for (const body of new Set(edges.map(e => e.body))) {
+      try {
+        const ns = edges.filter(e => e.body === body).map(e => e.n);
+        const r = await backend.commitUnify({ bodies: [body], edges: ns });
+        list = r.scene;
+        gone += ns.length;
+        record(`DISSOLVE ${ns.length} EDGE${ns.length > 1 ? 'S' : ''}`, body, `−${r.faces} FACE${r.faces === 1 ? '' : 'S'}`);
+      } catch (e) { toast(say(e)); }
+    }
+    if (!list) return;
+    sel.clear();
+    await showScene(list);
+    selectionChanged({ quiet: true });
+    toast(`DISSOLVED ${gone} EDGE${gone === 1 ? '' : 'S'}`);
+  }
+
   /** Plasticity's Convert Vertex: picked corners of lines become control vertices, one undo step. */
   async function convertSelected(picked = sel.list('vertex').filter(v => curveById(v.id))) {
     if (cmd) await finish();
@@ -12837,6 +12863,7 @@ export async function mount(root, backend) {
         return true;
       }
       case 'delete': await deleteSelected(); return true;
+      case 'dissolve': await dissolveSelected(); return true;
       case 'duplicate': await duplicateSelected(); return true;
       case 'copy': await copySelected(); return true;
       case 'paste': await pasteInPlace(); return true;

@@ -46,6 +46,7 @@ test('keys set by the user sit over the defaults', () => {
     assert.equal(showKey('ctrl-shift-s'), 'CTRL SHIFT S');
 });
 
-test('Delete, Backspace and Shift+X all delete (manual: Delete Face)', () => {
-    for (const k of ['delete', 'backspace', 'shift-x']) assert.equal(VIEWPORT[k], 'delete', k);
+test('Delete and Shift+X delete; Backspace and X dissolve, which deletes faces and objects too (manual: Delete Face, Dissolve)', () => {
+    for (const k of ['delete', 'shift-x', 'shift-backspace']) assert.equal(VIEWPORT[k], 'delete', k);
+    for (const k of ['backspace', 'x']) assert.equal(VIEWPORT[k], 'dissolve', k);
 });

@@ -303,6 +303,28 @@ fn imprint_splits_faces_and_keeps_the_body_whole() {
 }
 
 #[test]
+fn dissolve_merges_the_faces_either_side_of_one_edge_only() {
+    let mut doc = Document::new(Occt);
+    let block = doc.add(doc.kernel.box_from_corners(DVec3::new(-40.0, 0.0, -25.0), DVec3::new(40.0, 30.0, 25.0)));
+    doc.clear_history();
+    let line = doc.commit_curves(vec![Curve { origin: [0.0, 0.0, 0.0], x: [1.0, 0.0, 0.0], normal: [0.0, 1.0, 0.0], shape: CurveShape::Polyline { points: vec![[10.0, -100.0], [10.0, 100.0]], closed: false } }]).unwrap()[0];
+    doc.commit_imprint(block, &[], &[line], &Tools::default(), false).unwrap();
+    let edges = doc.kernel.edge_count(doc.get(block).unwrap()) as u32;
+    // Only the 4 imprinted edges part faces on one surface; each dissolves alone.
+    let mut dissolved = 0;
+    for n in 0..edges {
+        if let Ok(faces) = doc.commit_dissolve_edges(block, &[n]) {
+            assert_eq!(faces, 1);
+            assert_eq!(doc.kernel.face_count(doc.get(block).unwrap()), 9);
+            close(volume(&doc.kernel, doc.get(block).unwrap()), 80.0 * 30.0 * 50.0, 1e-6);
+            assert!(doc.undo());
+            dissolved += 1;
+        }
+    }
+    assert_eq!(dissolved, 4);
+}
+
+#[test]
 fn delete_redundant_topology_merges_faces_an_imprint_split() {
     let mut doc = Document::new(Occt);
     let block = doc.add(doc.kernel.box_from_corners(DVec3::new(-40.0, 0.0, -25.0), DVec3::new(40.0, 30.0, 25.0)));

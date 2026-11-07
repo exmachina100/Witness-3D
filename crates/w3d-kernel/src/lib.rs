@@ -644,6 +644,10 @@ pub trait Kernel {
     fn unify(&self, _s: &Self::Solid) -> Result<Traced<Self::Solid>, KernelError> {
         Err(KernelError::Invalid("this kernel cannot merge faces"))
     }
+    /// The numbered edges dissolved, the faces either side merged into one (Dissolve, Backspace).
+    fn dissolve_edges(&self, _s: &Self::Solid, _edges: &[u32]) -> Result<Traced<Self::Solid>, KernelError> {
+        Err(KernelError::Invalid("this kernel cannot dissolve edges"))
+    }
     /// The same faces facing the other way (Reverse Sheet). Faces and edges keep their numbers.
     fn reversed(&self, _s: &Self::Solid) -> Result<Self::Solid, KernelError> {
         Err(KernelError::Invalid("this kernel cannot reverse sheets"))

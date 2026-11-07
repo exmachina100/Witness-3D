@@ -1258,6 +1258,9 @@ pub fn preview_remove_faces(m: &Model, req: RemoveFacesRequest) -> Option<Result
 #[derive(Deserialize, Debug, Clone)]
 pub struct UnifyRequest {
     pub bodies: Vec<BodyId>,
+    /// Dissolve (Backspace): only these edges of the first body go, the faces either side merged.
+    #[serde(default)]
+    pub edges: Vec<u32>,
 }
 
 #[derive(Serialize, Debug)]
@@ -1293,6 +1296,12 @@ pub fn fillet_faces(m: &Model, req: RemoveFacesRequest) -> Result<Vec<u32>, ApiE
 
 pub fn commit_unify(m: &Model, req: UnifyRequest) -> Result<Unified, ApiError> {
     m.call(move |doc| {
+        // Dissolve: only across the picked edges of the one body.
+        if !req.edges.is_empty() {
+            let body = *req.bodies.first().ok_or_else(|| ApiError::from("select the edges to dissolve".to_string()))?;
+            let faces = doc.commit_dissolve_edges(body, &req.edges)?;
+            return Ok(Unified { faces, edges: req.edges.len(), scene: bodies(doc)? });
+        }
         let (faces, edges) = doc.commit_unify(&req.bodies)?;
         Ok(Unified { faces, edges, scene: bodies(doc)? })
     })

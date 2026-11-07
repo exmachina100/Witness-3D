@@ -201,6 +201,29 @@ test('delete redundant topology merges the faces an imprint split, in one undo s
     assert.equal(be.scene()[0].faceRefs.length, faces + 4);
 });
 
+test('dissolve merges the faces either side of the picked edges only', async () => {
+    const be = new LocalBackend({ seed: 'enclosure' });
+    const seed = be.scene()[0];
+    const faces = seed.faceRefs.length;
+    const { ids: [line] } = await be.addCurves([{ origin: [0, 0, 0], x: [1, 0, 0], normal: [0, 1, 0], kind: 'polyline', points: [[10, -100], [10, 100]], closed: false }]);
+    await be.commitImprint({ body: seed.id, curves: [line] });
+    const body = be.scene()[0];
+    // The imprinted edges: straight runs at x = 10. Take the one along the top (highest y).
+    const at10 = body.edges.map((e, n) => ({ e, n })).filter(({ e }) => { for (let i = 0; i < e.length; i += 3) if (Math.abs(e[i] - 10) > 1e-6) return false; return true; });
+    assert.equal(at10.length, 4);
+    const top = at10.reduce((a, b) => (Math.min(...b.e.filter((_, i) => i % 3 === 1)) > Math.min(...a.e.filter((_, i) => i % 3 === 1)) ? b : a));
+    const r = await be.commitUnify({ bodies: [body.id], edges: [top.n] });
+    assert.equal(r.faces, 1);
+    assert.equal(be.scene()[0].faceRefs.length, faces + 3);
+    close(be.scene()[0].volume, seed.volume, 1e-3);
+    // An outer edge between faces at a corner: nothing to merge.
+    const after = be.scene()[0];
+    const corner = after.edges.findIndex(e => { for (let i = 0; i < e.length; i += 3) if (Math.abs(e[i] - 10) < 1e-6) return false; return true; });
+    await assert.rejects(() => be.commitUnify({ bodies: [after.id], edges: [corner] }), /one surface/);
+    be.undo();
+    assert.equal(be.scene()[0].faceRefs.length, faces + 4);
+});
+
 test('cut with a plane or another body\'s face, and imprint one body on another', async () => {
     const be = new LocalBackend({ seed: 'enclosure' });
     const seed = be.scene()[0]; // 80 × 30 × 50, x −40..40, y 0..30
