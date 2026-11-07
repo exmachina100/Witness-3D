@@ -1981,7 +1981,7 @@ export async function mount(root, backend) {
   }
   /** Colour curves and regions for hover and selection. */
   function paintCurves() {
-    const is = (kind, id) => sel.has({ kind, id }) ? 'selected' : hover?.kind === kind && hover.id === id ? 'hover' : 'normal';
+    const is = (kind, id) => sel.has({ kind, id }) ? 'selected' : hovered({ kind, id }) ? 'hover' : 'normal';
     for (const o of curveGroup.children) {
       if (o.userData.curve !== undefined) {
         const state = is('curve', o.userData.curve) === 'normal' && sel.has({ kind: 'region', id: o.userData.curve }) ? 'selected' : is('curve', o.userData.curve);
@@ -2190,7 +2190,7 @@ export async function mount(root, backend) {
     for (const o of [...vertexDots.children]) dispose(o);
     if (shownPoints.faces.size) paintShownPoints();
     if (!sel.allows('point')) return;
-    const look = v => sel.has({ kind: 'vertex', id: v.id, n: v.n }) ? 'selected' : hover?.kind === 'vertex' && hover.id === v.id && hover.n === v.n ? 'hover' : 'normal';
+    const look = v => sel.has({ kind: 'vertex', id: v.id, n: v.n }) ? 'selected' : hovered({ kind: 'vertex', id: v.id, n: v.n }) ? 'hover' : 'normal';
     // Grey dots only on curves in play (selected, hovered or with a vertex picked), so drawings stay clean.
     const live = new Set([...sel.list().filter(it => it.id !== undefined).map(it => it.id), ...(hover?.id !== undefined ? [hover.id] : [])]);
     const groups = { normal: [], hover: [], selected: [] };
@@ -3216,6 +3216,19 @@ export async function mount(root, backend) {
 
   // Box select (Plasticity: right-to-left takes what the box touches, left-to-right what it holds).
   function boxSelect(a, b, mod) {
+    const found = boxItems(a, b);
+    boxHover = [];
+    if (mod === 'replace') sel.clear();
+    for (const it of found) applySelect(it, mod === 'remove' ? 'remove' : 'add');
+    selectionChanged();
+  }
+  /**
+   * What a box from `a` to `b` takes (Plasticity's box select): left to right only what lies wholly
+   * inside, right to left whatever it touches. Solids, or their faces or edges once drilled into;
+   * curves; regions in face mode; curve points in point mode, of the selected curves, or of every
+   * curve when curve picking (edge mode) is off.
+   */
+  function boxItems(a, b) {
     const r = { x0: Math.min(a.x, b.x), x1: Math.max(a.x, b.x), y0: Math.min(a.y, b.y), y1: Math.max(a.y, b.y) };
     const touch = b.x < a.x;
     const inside = p => !p.behind && p.x >= r.x0 && p.x <= r.x1 && p.y >= r.y0 && p.y <= r.y1;
@@ -3267,9 +3280,30 @@ export async function mount(root, backend) {
       const f = curveFrame(c);
       if (polyHit(curve2d(c).map(p => screenOf(lift(f, p))), isClosed(c))) found.push({ kind: 'curve', id: c.id });
     }
-    if (mod === 'replace') sel.clear();
-    for (const it of found) applySelect(it, mod === 'remove' ? 'remove' : 'add');
-    selectionChanged();
+    // Regions (face mode), by their filled triangles; a curve already taken keeps its place.
+    if (sel.allows('face') && curveGroup.visible) for (const o of curveGroup.children) {
+      const id = o.userData.region;
+      if (id === undefined || !o.visible || !curvesOfItem({ kind: 'region', id }).every(c => org.picks(curveKey(c))) || found.some(it => it.kind === 'curve' && it.id === id)) continue;
+      const pos = o.geometry.attributes.position, ix = o.geometry.index;
+      o.updateMatrixWorld();
+      const pt = k => screenOf(v.fromBufferAttribute(pos, k).applyMatrix4(o.matrixWorld));
+      const n = ix ? ix.count : pos.count, tri = t => [0, 1, 2].map(j => pt(ix ? ix.getX(3 * t + j) : 3 * t + j));
+      const ts = Array.from({ length: n / 3 }, (_, t) => tri(t));
+      if (ts.length && (touch ? ts.some(t => polyHit(t, true)) : ts.every(t => polyHit(t, true)))) found.push({ kind: 'region', id });
+    }
+    // Curve points (point mode): of the curves in the selection, or of all curves when curves
+    // themselves can't be picked. A point is taken when it lies inside the box either way.
+    if (sel.allows('point') && curveGroup.visible) {
+      const chosen = new Set(sel.list().flatMap(it => (it.kind === 'region' ? curvesOfItem(it) : (it.kind === 'curve' || it.kind === 'vertex') ? [it.id] : [])));
+      const all = !sel.allows('edge');
+      for (const p of vertexList()) {
+        if (!(all || chosen.has(p.id)) || !org.picks(curveKey(p.id))) continue;
+        if (inside(screenOf(p.at))) found.push({ kind: 'vertex', id: p.id, n: p.n });
+      }
+      // Drilled into a curve's points: the curve itself is not taken again.
+      for (let i = found.length - 1; i >= 0; i--) if ((found[i].kind === 'curve' || found[i].kind === 'region') && curvesOfItem(found[i]).some(c => chosen.has(c))) found.splice(i, 1);
+    }
+    return found;
   }
 
   // Overlays live on each body's mesh, so they move with it during a move preview.
@@ -3281,6 +3315,10 @@ export async function mount(root, backend) {
     face: new THREE.MeshBasicMaterial({ color: COLORS.accent, transparent: true, opacity: 0.28, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -1 }),
   };
   let hover = null, failedEdges = [];
+  // What the box being dragged would take, lit as hover while it is dragged.
+  let boxHover = [];
+  const sameItem = (a, b) => a.kind === b.kind && a.id === b.id && a.body === b.body && a.n === b.n;
+  const hovered = it => (hover && sameItem(hover, it)) || boxHover.some(h => sameItem(h, it));
   function edgeLines(body, numbers, material) {
     const pts = [];
     for (const n of numbers) {
@@ -3316,11 +3354,12 @@ export async function mount(root, backend) {
       if (failedEdges.length && edges.length) put(id, edgeLines(b, failedEdges, overlayMat.failed));
     }
     paintCurves();
-    if (hover && !sel.has(hover) && hover.body !== undefined) {
-      const b = bodyOf(hover.body);
+    for (const h of [hover, ...boxHover]) {
+      if (!h || sel.has(h) || h.body === undefined) continue;
+      const b = bodyOf(h.body);
       if (b) {
-        if (hover.kind === 'edge') put(b.id, edgeLines(b, [hover.n], overlayMat.hover));
-        else if (hover.kind === 'face') put(b.id, faceMesh(b, [hover.n], overlayMat.hoverFace));
+        if (h.kind === 'edge') put(b.id, edgeLines(b, [h.n], overlayMat.hover));
+        else if (h.kind === 'face') put(b.id, faceMesh(b, [h.n], overlayMat.hoverFace));
         else put(b.id, edgeLines(b, b.edges.map((_, n) => n), overlayMat.hover));
       }
     }
@@ -13503,6 +13542,8 @@ export async function mount(root, backend) {
         el.hidden = false;
         el.dataset.touch = b.x < a.x;
         Object.assign(el.style, { left: `${Math.min(a.x, b.x)}px`, top: `${Math.min(a.y, b.y)}px`, width: `${Math.abs(b.x - a.x)}px`, height: `${Math.abs(b.y - a.y)}px` });
+        // Live preview: what the box would take is lit as it is dragged.
+        if (!cmd || cmd.auto) scheduleBoxHover(a, b);
       }
       return;
     }
@@ -13511,6 +13552,19 @@ export async function mount(root, backend) {
     if (cmd && !cmd.auto && cmd.id !== 'fillet') return;
     scheduleHover(e);
   });
+  let boxQueued = null;
+  function scheduleBoxHover(a, b) {
+    const queued = boxQueued;
+    boxQueued = [a, b];
+    if (queued) return;
+    requestAnimationFrame(() => {
+      const q = boxQueued;
+      boxQueued = null;
+      if (!down?.box) return;
+      const items = boxItems(...q);
+      if (JSON.stringify(items) !== JSON.stringify(boxHover)) { boxHover = items; drawOverlays(); }
+    });
+  }
   let hoverQueued = null;
   function scheduleHover(e) {
     if (hoverQueued) { hoverQueued = e; return; }
@@ -13537,6 +13591,7 @@ export async function mount(root, backend) {
     if (e.button !== 0 || d.consumed) return;
     if (d.box) {
       $('boxsel').hidden = true;
+      if (boxHover.length) { boxHover = []; drawOverlays(); }
       if (cmd && !cmd.auto) return;
       return boxSelect(local({ clientX: d.x, clientY: d.y }), local(e), modOf(e));
     }
