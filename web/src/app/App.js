@@ -12327,6 +12327,30 @@ export async function mount(root, backend) {
    */
   async function altDuplicate() {
     if (cmd) await finish();
+    // Faces (manual solid/alternative-duplicate: "Create a Solid from selected Faces and then
+    // reposition it"): the faces copied into a body of their own (touching faces sewn, a closed set
+    // a solid), the originals kept, then the Move gizmo.
+    const faces = sel.list('face');
+    if (faces.length && !sel.curves.length && !sel.list('edge').length) {
+      if (!backend.commitUnjoin) return toast('ALTERNATIVE DUPLICATE OF FACES IS NOT IN THIS BUILD YET');
+      try {
+        const made = [];
+        let list = null;
+        for (const body of new Set(faces.map(f => f.body))) {
+          const r = await backend.commitUnjoin({ body, faces: true, picked: faces.filter(f => f.body === body).map(f => f.n), copy: true });
+          list = r.scene;
+          made.push(...r.ids);
+        }
+        record(`ALTERNATIVE DUPLICATE ${faces.length} FACE${faces.length > 1 ? 'S' : ''}`, made[0]);
+        await showScene(list);
+        sel.clear();
+        if (!sel.allows('solid')) sel.toggleMode('solid'), renderModes();
+        for (const id of made) sel.add({ kind: 'solid', body: id });
+        selectionChanged({ quiet: true });
+        startTransform('move');
+      } catch (e) { setState('failed'); toast(say(e)); }
+      return;
+    }
     if (!backend.addCurves) return toast('DRAWING IS NOT IN THIS BUILD YET');
     const plane = { origin: cplane.origin.toArray(), x: frameFor(cplane.normal).toArray(), normal: cplane.normal.toArray() };
     const out = [];
@@ -13053,7 +13077,7 @@ export async function mount(root, backend) {
     if (sel.solids.length > 1) out.push('tool:boolean');
     if (sel.solids.length === 2) out.push('tool:project');
     if (kinds.has('solid')) out.push('tool:move', 'tool:rotate', 'tool:scale', 'duplicate', 'create-outline', 'toggle-points', 'place', 'copy-place', 'dimension', 'tool:mirror', 'tool:rect-array', 'tool:radial-array', 'tool:curve-array', 'unify', 'boundary-edges', 'remove-fillets', 'raise-degree', 'deform-curve', 'create-instance', 'delete', 'hide', 'isolate', 'group', 'lock', 'material:set', 'export:step', 'export:mesh', 'export:drawing');
-    if (kinds.has('face')) out.push('tool:extrude', 'tool:offset', 'tool:thicken', 'tool:shell', 'tool:hole', 'tool:remove-face', 'remove-fillets', 'isoparam', 'rebuild', 'raise-degree', 'subdivide', 'match-face', 'untrim', 'unwrap', 'toggle-points', 'view:surface-curvature', 'plane:selection', 'plane:selection-keep-view');
+    if (kinds.has('face')) out.push('tool:extrude', 'tool:offset', 'tool:thicken', 'tool:shell', 'tool:hole', 'tool:remove-face', 'alt-duplicate', 'remove-fillets', 'isoparam', 'rebuild', 'raise-degree', 'subdivide', 'match-face', 'untrim', 'unwrap', 'toggle-points', 'view:surface-curvature', 'plane:selection', 'plane:selection-keep-view');
     if (sel.list('face').length >= 2) out.push('tool:loft');
     if (sel.list('edge').length === 1 && sel.list('face').length === 1) out.push('project-align');
     if (kinds.has('edge')) out.push('tool:fillet', 'tool:patch', 'alt-duplicate', 'measure:radius', 'view:surface-curvature', ...(sel.list('edge').length === 2 ? ['bridge-edge', 'align-surface'] : []), ...([2, 3, 4].includes(sel.list('edge').length) ? ['square'] : []));
