@@ -5,6 +5,7 @@
 // A curve is { origin, x, normal, kind, ... } with points in its plane's coordinates (see
 // LocalBackend.checkCurve). Lengths are millimetres.
 
+import { weights } from './poleFalloff.js';
 import { arcPoints, circleThrough, cvDegree, cvPoints, ellipsePoints, loops, nurbsLoop, nurbsPoints } from './curves.js';
 import { BRIDGE_AXES, bridgeSide, endTensions, onAxis } from './bridgeEdge.js';
 
@@ -2192,7 +2193,7 @@ export function offsetVertex(c, n, d) {
  * point after; 'u', or '-u' the other way) or across it in the curve's plane ('n'). Every point
  * slides along the cage as it was before the move.
  */
-export function slideCurveCVs(c, picked, d, dir = 'u') {
+export function slideCurveCVs(c, picked, d, dir = 'u', { mode = 'none', falloff = 2 } = {}) {
     if (!['cv', 'spline', 'nurbs'].includes(c.kind)) throw new Error('only spline and control point curves have control points to slide');
     if (!Number.isFinite(d)) throw new Error('the distance is not a number');
     const vs = curveVertices(c), n = vs.length, closed = c.kind === 'nurbs' ? nurbsLoop(c) : !!c.closed;
@@ -2203,9 +2204,19 @@ export function slideCurveCVs(c, picked, d, dir = 'u') {
         const t = [next[0] - prev[0], next[1] - prev[1]], l = Math.hypot(t[0], t[1]);
         if (!(l > EPS)) throw new Error('that control point has no cage direction to slide along');
         const u = [t[0] / l, t[1] / l], way = dir === 'n' ? [-u[1], u[0]] : dir === '-u' ? [-u[0], -u[1]] : u;
-        moves.set(i, [vs[i][0] + way[0] * d, vs[i][1] + way[1] * d]);
+        moves.set(i, [way[0] * d, way[1] * d]);
     }
-    return moveVertices(c, moves);
+    // Proportional (Plasticity's Slide Curve CV, Advanced): the points round the picked ones follow
+    // by the same move, less the further along the curve they are (`falloff` points away: not at
+    // all), or the picked points move most in the middle of the selection (Selected).
+    const picks = [...moves.keys()];
+    const out = new Map();
+    for (const { n: k, w } of weights({ 0: [vs] }, picks.map(n => ({ face: 0, n })), { mode, fu: 1, fv: falloff })) {
+        const near = picks.reduce((a, b) => (Math.abs(b - k) < Math.abs(a - k) ? b : a));
+        const m = moves.get(near);
+        out.set(k, [vs[k][0] + m[0] * w, vs[k][1] + m[1] * w]);
+    }
+    return moveVertices(c, out);
 }
 
 /**

@@ -6395,7 +6395,10 @@ export async function mount(root, backend) {
     setState('none');
     const curves = [...new Set(picked.map(v => v.id))];
     setTarget(curves.length === 1 ? curveLabel(curves[0]) : `${curves.length} CURVES`);
-    c.compute = () => curves.map(id => slideCurveCVs(curveById(id), picked.filter(v => v.id === id).map(v => v.n), num('sl-d'), c.dir));
+    // Proportional and its falloff (points along the curve) from the shared control-point options.
+    c.compute = () => curves.map(id => slideCurveCVs(curveById(id), picked.filter(v => v.id === id).map(v => v.n), num('sl-d'), c.dir, { mode: poleOpts.mode, falloff: poleOpts.fu }));
+    $$('[data-panel="pole-opts"]')[0].hidden = false;
+    for (const el of [$('pf-v').closest('.field'), ...$$('[data-pfmirror]').map(b => b.parentElement), ...$$('[data-panel="pole-opts"] .label').slice(1)]) el.hidden = true;
     const buttons = () => { for (const b of $$('[data-sldir]')) b.setAttribute('aria-pressed', String(b.dataset.sldir === c.dir)); };
     // The dot sits on the first point and points the way it slides.
     const place = () => {
@@ -6437,7 +6440,12 @@ export async function mount(root, backend) {
       } catch (e) { setState('failed'); toast(say(e)); }
     };
     c.abort = () => endCmd('cancelled');
-    c.cleanup = () => { c.gizmo?.dispose(); clearPreview(); };
+    c.cleanup = () => {
+      c.gizmo?.dispose();
+      clearPreview();
+      $$('[data-panel="pole-opts"]')[0].hidden = true;
+      for (const el of [$('pf-v').closest('.field'), ...$$('[data-pfmirror]').map(b => b.parentElement), ...$$('[data-panel="pole-opts"] .label')]) el.hidden = false;
+    };
     $('sl-d').value = 0;
     buttons();
     try { place(); } catch { /* the preview says why */ }
@@ -13639,6 +13647,7 @@ export async function mount(root, backend) {
     for (const b of $$('[data-pfmode]')) b.setAttribute('aria-pressed', b.dataset.pfmode === poleOpts.mode);
     for (const b of $$('[data-pfmirror]')) b.setAttribute('aria-pressed', b.dataset.pfmirror === poleOpts.mirror);
     if (cmd?.poles?.length) apply();
+    else if (cmd?.id === 'slide') cmd.preview();
   };
   for (const b of $$('[data-pfmode]')) b.onclick = () => setPoleOpt('mode', b.dataset.pfmode);
   for (const b of $$('[data-pfmirror]')) b.onclick = () => setPoleOpt('mirror', b.dataset.pfmirror);

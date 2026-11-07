@@ -27,3 +27,17 @@ test('several points slide along the cage as it was, and a closed NURBS keeps it
     assert.deepEqual(moved.poles.at(-1), moved.poles[0]);
     assert.throws(() => slideCurveCVs({ ...cv, kind: 'polyline' }, [1], 1), /control points/);
 });
+
+test('proportional: All moves the neighbours less the further they are, Selected eases the ends', () => {
+    const line = { ...cv, points: [[0, 0], [10, 0], [20, 0], [30, 0], [40, 0]] };
+    const all = slideCurveCVs(line, [2], 2, 'u', { mode: 'all', falloff: 2 });
+    near(all.points[2], [22, 0]);
+    assert.ok(all.points[1][0] > 10 && all.points[1][0] < 12, `${all.points[1]}`);
+    assert.ok(Math.abs((all.points[3][0] - 30) - (all.points[1][0] - 10)) < 1e-9);
+    assert.deepEqual(all.points[0], [0, 0]);
+    // None leaves the neighbours alone.
+    assert.deepEqual(slideCurveCVs(line, [2], 2, 'u', { mode: 'none' }).points[1], [10, 0]);
+    // Selected: the middle pick moves most.
+    const sel = slideCurveCVs(line, [1, 2, 3], 2, 'u', { mode: 'selected', falloff: 2 });
+    assert.ok(sel.points[2][0] - 20 > sel.points[1][0] - 10);
+});
