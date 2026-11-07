@@ -228,3 +228,18 @@ fn tolerance_says_how_far_apart_the_loop_may_be_and_still_close() {
     let closed = area(&k.tessellate(&k.patch(&saddle(2.0), &[]).unwrap(), 0.01).unwrap());
     assert!((loose - closed).abs() < 0.01 * closed, "{loose} against {closed}");
 }
+
+#[test]
+fn a_guide_curve_lifts_the_patch_through_it() {
+    let k = Occt;
+    let c = [DVec3::new(0.0, 0.0, 0.0), DVec3::new(10.0, 0.0, 0.0), DVec3::new(10.0, 10.0, 0.0), DVec3::new(0.0, 10.0, 0.0)];
+    let sides: Vec<Path> = (0..4).map(|i| line(c[i], c[(i + 1) % 4])).collect();
+    // An arc across the middle, 3 mm up at its top.
+    let guide = Path::Arc { start: DVec3::new(0.0, 5.0, 0.0), mid: DVec3::new(5.0, 5.0, 3.0), end: DVec3::new(10.0, 5.0, 0.0) };
+    let flat = k.tessellate(&k.patch_guided(&sides, &[], 0.0, &[]).unwrap(), 0.01).unwrap();
+    assert!(flat.positions.iter().all(|p| p[2].abs() < 1e-6));
+    let t = k.tessellate(&k.patch_guided(&sides, &[], 0.0, &[guide]).unwrap(), 0.01).unwrap();
+    let top = t.positions.iter().map(|p| p[2]).fold(f64::MIN, f64::max);
+    assert!((top - 3.0).abs() < 0.1, "the sheet reaches the guide's top: {top}");
+    assert!(t.positions.iter().all(|p| p[2] > -0.05), "nothing dips below the loop");
+}

@@ -508,10 +508,15 @@ impl Kernel for Occt {
     }
 
     fn patch_within(&self, curves: &[Path], edges: &[(&Shape, Vec<(u32, u32)>)], tolerance: f64) -> Result<Shape, KernelError> {
+        self.patch_guided(curves, edges, tolerance, &[])
+    }
+
+    fn patch_guided(&self, curves: &[Path], edges: &[(&Shape, Vec<(u32, u32)>)], tolerance: f64, guides: &[Path]) -> Result<Shape, KernelError> {
         let curves: Vec<(Path, DVec3)> = curves.iter().map(|c| (c.clone(), DVec3::Z)).collect();
+        let guides: Vec<(Path, DVec3)> = guides.iter().map(|c| (c.clone(), DVec3::Z)).collect();
         let edges: Vec<(&Shape, Vec<(usize, u32)>)> = edges.iter().map(|(s, e)| (*s, e.iter().map(|&(i, t)| (i as usize, t)).collect())).collect();
         let tol = if tolerance > 0.0 { tolerance } else { PATCH_TOLERANCE };
-        Shape::patch(&cutter_numbers(&curves)?, &edges, tol).map_err(shim)
+        Shape::patch(&cutter_numbers(&curves)?, &edges, &cutter_numbers(&guides)?, tol).map_err(shim)
     }
 
     fn patch_trim(&self, target: &Shape, base: &Shape, edges: &[u32], hole: bool) -> Result<Shape, KernelError> {

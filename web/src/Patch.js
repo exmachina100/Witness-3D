@@ -65,7 +65,7 @@ export function faceBeside(shape, edge, why = 'a tangent edge needs a face besid
  * `tolerance` (Plasticity's Tolerance, mm) is how far apart the pieces may be and still join and
  * how far the sheet may stray from them. Throws when the loop does not close or the sheet cannot meet it.
  */
-export function patch(curves, edges, tolerance = TOL_DEFAULT) {
+export function patch(curves, edges, tolerance = TOL_DEFAULT, guides = []) {
     const o = oc();
     const TOL = tolerance > 0 ? tolerance : TOL_DEFAULT;
     const pieces = [];
@@ -81,7 +81,9 @@ export function patch(curves, edges, tolerance = TOL_DEFAULT) {
     const ordered = loop(pieces, TOL);
 
     const smooth = pieces.some(p => p.face);
-    if (!smooth && flat(pieces.flatMap(p => p.points), TOL)) {
+    // Guide curves: the sheet passes through them inside the loop (no flat shortcut then).
+    const through = guides.flatMap(c => numberedEdges(curveWire(c)));
+    if (!smooth && !through.length && flat(pieces.flatMap(p => p.points), TOL)) {
         const mk = new o.BRepBuilderAPI_MakeWire();
         for (const p of ordered) mk.Add(p.edge);
         if (mk.IsDone()) {
@@ -98,6 +100,7 @@ export function patch(curves, edges, tolerance = TOL_DEFAULT) {
             if (p.face) fill.Add(p.edge, p.face, p.level >= 2 ? o.GeomAbs_Shape.GeomAbs_G2 : o.GeomAbs_Shape.GeomAbs_G1, true);
             else fill.Add(p.edge, o.GeomAbs_Shape.GeomAbs_C0, true);
         }
+        for (const e of through) fill.Add(e, o.GeomAbs_Shape.GeomAbs_C0, false);
         fill.Build(new o.Message_ProgressRange());
     } catch {
         throw new Error(asked >= 2

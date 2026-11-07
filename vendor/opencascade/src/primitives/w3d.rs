@@ -431,7 +431,7 @@ impl Shape {
     /// A sheet filling one closed loop of drawn curves and edges of `bodies`, each edge with its
     /// continuity with the body along it (0 none, 1 tangent, 2 curvature; see `w3d_patch`). Edges
     /// are numbered within their own body.
-    pub fn patch(data: &[f64], bodies: &[(&Shape, Vec<(usize, u32)>)], tol: f64) -> Result<Shape, String> {
+    pub fn patch(data: &[f64], bodies: &[(&Shape, Vec<(usize, u32)>)], guides: &[f64], tol: f64) -> Result<Shape, String> {
         let all = Shape::from(crate::primitives::Compound::from_shapes(bodies.iter().map(|(s, _)| *s)));
         let (mut edges, mut tangent, mut offset) = (vec![], vec![], 0);
         for (s, picked) in bodies {
@@ -441,7 +441,7 @@ impl Shape {
             }
             offset += ffi::w3d::w3d_count(&s.inner, false) as usize;
         }
-        let sheet = ffi::w3d::w3d_patch(data, &all.inner, &edges, &tangent, tol).map_err(reason)?;
+        let sheet = ffi::w3d::w3d_patch(data, &all.inner, &edges, &tangent, guides, tol).map_err(reason)?;
         Ok(Shape::from_shape(&sheet))
     }
 

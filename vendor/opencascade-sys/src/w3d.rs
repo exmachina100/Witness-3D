@@ -129,6 +129,6 @@ mod inner {
         pub fn w3d_child_at(shape: &TopoDS_Shape, index: i32) -> Result<UniquePtr<TopoDS_Shape>>;
         pub fn w3d_join_sheets(all: &TopoDS_Shape, tol: f64) -> Result<UniquePtr<TopoDS_Shape>>;
         pub fn w3d_unjoin(shape: &TopoDS_Shape, faces: bool) -> Result<UniquePtr<TopoDS_Shape>>;
-        pub fn w3d_patch(data: &[f64], shape: &TopoDS_Shape, edges: &[i32], tangent: &[i32], tol: f64) -> Result<UniquePtr<TopoDS_Shape>>;
+        pub fn w3d_patch(data: &[f64], shape: &TopoDS_Shape, edges: &[i32], tangent: &[i32], guides: &[f64], tol: f64) -> Result<UniquePtr<TopoDS_Shape>>;
     }
 }

@@ -4224,10 +4224,11 @@ inline rust::Vec<double> w3d_project_curve_curve(rust::Slice<const double> data,
 // reads them, their directions unused) and edges of `shape`. `tangent[i]` is edge `edges[i]`'s
 // continuity with the body's face along it: 0 none, 1 tangent (G1), 2 its curvature too (G2). A flat loop with no tangency gives
 // the exact plane; anything else is filled with an energy-minimising plate (GeomPlate), within
-// `tol` of the boundary. Returns the face, or says why the loop does not close.
+// `tol` of the boundary. `guides` (curves read like `data`) are Plasticity's guide curves: the
+// sheet passes through them inside the loop. Returns the face, or says why the loop does not close.
 inline std::unique_ptr<TopoDS_Shape> w3d_patch(rust::Slice<const double> data, const TopoDS_Shape &shape,
                                               rust::Slice<const int32_t> edges, rust::Slice<const int32_t> tangent,
-                                              double tol) {
+                                              rust::Slice<const double> guides, double tol) {
   if (edges.size() != tangent.size()) throw std::runtime_error("each edge needs its continuity");
   try {
     // C++11: no default member initialiser, so this stays an aggregate for brace initialisation.
@@ -4257,6 +4258,17 @@ inline std::unique_ptr<TopoDS_Shape> w3d_patch(rust::Slice<const double> data, c
       bounds.push_back({e, f, tangent[i]});
     }
     if (bounds.empty()) throw std::runtime_error("select a closed loop of curves or edges to patch");
+    std::vector<TopoDS_Edge> through;
+    {
+      const double *g = guides.data(), *gend = g + guides.size();
+      int k = g < gend ? int(*g++) : 0;
+      for (int i = 0; i < k; i++) {
+        if (g + 3 > gend) throw std::runtime_error("a guide curve is cut short");
+        g += 3;
+        TopoDS_Wire w = w3d_section(g, gend);
+        for (TopExp_Explorer ex(w, TopAbs_EDGE); ex.More(); ex.Next()) through.push_back(TopoDS::Edge(ex.Current()));
+      }
+    }
 
     // One closed loop, or say what is wrong with it.
     Handle(TopTools_HSequenceOfShape) loose = new TopTools_HSequenceOfShape, wires;
@@ -4273,7 +4285,7 @@ inline std::unique_ptr<TopoDS_Shape> w3d_patch(rust::Slice<const double> data, c
 
     bool smooth = false;
     for (auto &b : bounds) smooth = smooth || !b.second.IsNull();
-    if (!smooth) {
+    if (!smooth && through.empty()) {
       BRepLib_FindSurface flat(loop, tol, Standard_True);
       if (flat.Found()) {
         BRepBuilderAPI_MakeFace mk(loop, Standard_True);
@@ -4290,6 +4302,8 @@ inline std::unique_ptr<TopoDS_Shape> w3d_patch(rust::Slice<const double> data, c
         if (b.second.IsNull()) fill.Add(b.first, GeomAbs_C0, Standard_True);
         else fill.Add(b.first, b.second, b.level >= 2 ? GeomAbs_G2 : GeomAbs_G1, Standard_True);
       }
+      // Guides: inside the loop, not part of its boundary.
+      for (auto &e : through) fill.Add(e, GeomAbs_C0, Standard_False);
       fill.Build();
     } catch (const Standard_Failure &) {
       if (asked < 2) throw;
