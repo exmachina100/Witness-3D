@@ -3090,7 +3090,7 @@ export async function mount(root, backend) {
     raycaster.params.Line.threshold = unitsPerPixel(faceHit?.point ?? controls.target) * 6;
     // Curves pick with edges or solids (Plasticity picks a curve whole), regions with faces.
     // Hidden curves (View › Curves off, or hidden in the outliner) can't be picked.
-    const curveHit = (sel.allows('edge') || sel.allows('solid')) && curveGroup.visible
+    const curveHit = sel.allows('edge') && curveGroup.visible
       && raycaster.intersectObjects(curveGroup.children.filter(o => o.visible && o.userData.curve !== undefined), false).find(h => h.distance <= reach);
     let edgeHit = null;
     if (sel.allows('edge')) {
@@ -3123,7 +3123,7 @@ export async function mount(root, backend) {
     const meshes = shownMeshes().filter(m => !org.locked.has(m.userData.id));
     const faces = raycaster.intersectObjects(meshes, false);
     raycaster.params.Line.threshold = unitsPerPixel(faces[0]?.point ?? controls.target) * 6;
-    if ((sel.allows('edge') || sel.allows('solid')) && curveGroup.visible)
+    if (sel.allows('edge') && curveGroup.visible)
       for (const h of raycaster.intersectObjects(curveGroup.children.filter(o => o.visible && o.userData.curve !== undefined), false)) put({ kind: 'curve', id: h.object.userData.curve, point: h.point }, h.distance);
     if (sel.allows('edge'))
       for (const h of raycaster.intersectObjects(meshes.map(m => m.userData.lines), false)) put({ kind: 'edge', body: h.object.parent.userData.id, n: h.object.userData.segEdge[h.index / 2], point: h.point }, h.distance);
@@ -3275,7 +3275,7 @@ export async function mount(root, backend) {
         });
       }
     }
-    if ((sel.allows('edge') || sel.allows('solid')) && curveGroup.visible) for (const c of curveList) {
+    if (sel.allows('edge') && curveGroup.visible) for (const c of curveList) {
       if (!org.picks(curveKey(c.id))) continue;
       const f = curveFrame(c);
       if (polyHit(curve2d(c).map(p => screenOf(lift(f, p))), isClosed(c))) found.push({ kind: 'curve', id: c.id });
@@ -12668,7 +12668,7 @@ export async function mount(root, backend) {
         else if (arg === 'all') {
           // Plasticity's A selects all objects: curves too, where the mode picks them (solids or edges).
           sel.selectAll(current.filter(b => org.picks(b.id)));
-          if ((sel.allows('solid') || sel.allows('edge')) && curveGroup.visible) for (const o of curveGroup.children) if (o.visible && o.layers.isEnabled(0) && o.userData.curve !== undefined && !org.locked.has(curveKey(o.userData.curve))) sel.add({ kind: 'curve', id: o.userData.curve });
+          if (sel.allows('edge') && curveGroup.visible) for (const o of curveGroup.children) if (o.visible && o.layers.isEnabled(0) && o.userData.curve !== undefined && !org.locked.has(curveKey(o.userData.curve))) sel.add({ kind: 'curve', id: o.userData.curve });
         }
         // Plasticity's Select All Solids / Sheets / Measurements: every visible one, in groups too.
         else if (arg === 'solids' || arg === 'sheets') {
