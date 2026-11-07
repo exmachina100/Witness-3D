@@ -12529,7 +12529,11 @@ export async function mount(root, backend) {
       case 'convert': sel.convert(arg, current); renderModes(); selectionChanged({ quiet: true }); return true;
       case 'select':
         if (arg === 'none') { if (cmd) abort(); sel.clear(); }
-        else if (arg === 'all') sel.selectAll(current.filter(b => org.picks(b.id)));
+        else if (arg === 'all') {
+          // Plasticity's A selects all objects: curves too, where the mode picks them (solids or edges).
+          sel.selectAll(current.filter(b => org.picks(b.id)));
+          if ((sel.allows('solid') || sel.allows('edge')) && curveGroup.visible) for (const o of curveGroup.children) if (o.visible && o.layers.isEnabled(0) && o.userData.curve !== undefined && !org.locked.has(curveKey(o.userData.curve))) sel.add({ kind: 'curve', id: o.userData.curve });
+        }
         // Plasticity's Select All Solids / Sheets / Measurements: every visible one, in groups too.
         else if (arg === 'solids' || arg === 'sheets') {
           sel.clear();
