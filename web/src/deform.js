@@ -100,3 +100,58 @@ export function smoothThrough(points, closed, corner = Math.PI / 6) {
     }
     return { degree: 3, poles, weights: poles.map(() => 1), knots };
 }
+
+const dot = (a, b) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
+const cross = (a, b) => [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]];
+
+/**
+ * Deform Curve with a curve as the reference or target: a frame along a curve (`points` along it in
+ * model space, `up` its plane's normal). `project` gives a point's (s, t, n): s how far along the
+ * curve its foot is (0 to 1, past the ends along the end tangents), t its distance across the curve
+ * in its plane, n its height off the plane. `place` turns (s, t, n) back into a point.
+ */
+export function curveFrameAlong(points, closed, up) {
+    const pts = closed ? [...points, points[0]] : [...points];
+    if (pts.length < 2) throw new Error('that curve has no length');
+    const acc = [0];
+    for (let i = 1; i < pts.length; i++) acc.push(acc[i - 1] + len(sub(pts[i], pts[i - 1])));
+    const L = acc.at(-1);
+    if (!(L > 1e-12)) throw new Error('that curve has no length');
+    const B = unit(up), m = pts.length - 1;
+    const segT = i => unit(sub(pts[i + 1], pts[i]));
+    // Tangents at the points, the mean of the spans either side, so the frame turns smoothly.
+    const tan = pts.map((_, i) => {
+        const a = i > 0 ? segT(i - 1) : closed ? segT(m - 1) : null, b = i < m ? segT(i) : closed ? segT(0) : null;
+        return unit(a && b ? [a[0] + b[0], a[1] + b[1], a[2] + b[2]] : a ?? b);
+    });
+    const frame = (i, u) => {
+        const T = unit(tan[i].map((v, k) => v * (1 - u) + tan[i + 1][k] * u));
+        return { T, N: unit(cross(B, T)) };
+    };
+    const at = s => {
+        const d = s * L;
+        if (!closed && d <= 0) return { p: along(pts[0], tan[0], d), ...frame(0, 0) };
+        if (!closed && d >= L) return { p: along(pts[m], tan[m], d - L), ...frame(m - 1, 1) };
+        const dd = closed ? ((d % L) + L) % L : d;
+        let i = 0;
+        while (i < m - 1 && acc[i + 1] < dd) i++;
+        const span = acc[i + 1] - acc[i], u = span > 0 ? (dd - acc[i]) / span : 0;
+        return { p: along(pts[i], sub(pts[i + 1], pts[i]), u), ...frame(i, u) };
+    };
+    const project = q => {
+        let best = null;
+        for (let i = 0; i < m; i++) {
+            const ab = sub(pts[i + 1], pts[i]), l2 = dot(ab, ab);
+            let u = l2 > 0 ? dot(sub(q, pts[i]), ab) / l2 : 0;
+            // Past an open curve's ends the foot runs on along the end spans.
+            if (!(closed || (i === 0 && u < 0) || (i === m - 1 && u > 1))) u = Math.max(0, Math.min(1, u));
+            else if (closed) u = Math.max(0, Math.min(1, u));
+            const foot = along(pts[i], ab, u), d = len(sub(q, foot));
+            if (!best || d < best.d - 1e-12) best = { d, s: (acc[i] + u * Math.sqrt(l2)) / L };
+        }
+        const f = at(best.s), r = sub(q, f.p);
+        return [best.s, dot(r, f.N), dot(r, B)];
+    };
+    const place = ([s, t, n]) => { const f = at(s); return along(along(f.p, f.N, t), B, n); };
+    return { length: L, project, place };
+}

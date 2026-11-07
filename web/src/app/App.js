@@ -86,7 +86,7 @@ import { FONTS, parseFont, textShapes } from '../text.js';
 import { closesUp, groupLoops } from '../loopGroups.js';
 import { regionsToExtrude } from '../regions.js';
 import { slidePoles } from '../polesEdit.js';
-import { densify, placeOnFace, smoothThrough } from '../deform.js';
+import { curveFrameAlong, densify, placeOnFace, smoothThrough } from '../deform.js';
 import { limitCurve } from '../loftLimits.js';
 import { CULLING, DEPTHS, checkImage, imageLook, newImage } from './images.js';
 import { newInstance, checkInstance, matrixOf, motionOf, instanceFromMotion, mirroredInstance } from './instances.js';
@@ -157,7 +157,7 @@ const KEYS = {
   'match-face': [['CLICK', 'TARGET FACE'], ['⇧ CLICK', 'FACES'], ['TAB', 'GROW'], ['⏎ / RMB', 'OK']],
   image: [['DEL', 'REMOVE'], ['⏎ / RMB', 'OK'], ['ESC', 'CANCEL']],
   instance: [['G R S', 'MOVE ROTATE SCALE'], ['⇧D', 'DUPLICATE'], ['DEL', 'REMOVE'], ['⏎ / RMB', 'OK'], ['ESC', 'CANCEL']],
-  'deform-curve': [['CLICK', 'REFERENCE, THEN TARGET FACE'], ['M U N', 'FLIP'], ['K', 'KEEP'], ['R', 'REBLEND SOLIDS'], ['⏎ / RMB', 'OK']],
+  'deform-curve': [['CLICK', 'REFERENCE, THEN TARGET FACE OR CURVE'], ['M U N', 'FLIP'], ['K', 'KEEP'], ['R', 'REBLEND SOLIDS'], ['⏎ / RMB', 'OK']],
   untrim: [['TAB', 'KEEP EDGES'], ['⇧ CLICK', 'FACES'], ['⏎ / RMB', 'OK']],
   unwrap: [['⇧ CLICK', 'FACES'], ['⏎ / RMB', 'OK']],
   section: [['D', 'DISTANCE'], ['F', 'FLIP'], ['⏎ / RMB', 'OK']],
@@ -579,8 +579,8 @@ const SHELL = `
     </div>
     <div class="sec" data-panel="deform-curve" hidden>
       <span class="hint" data-id="dc-hint">—</span>
-      <div class="field"><label>REFERENCE</label><output data-id="dc-ref" title="The face the curves lie on now">—</output></div>
-      <div class="field"><label>TARGET</label><output data-id="dc-target" title="The face to wrap the curves onto">—</output></div>
+      <div class="field"><label>REFERENCE</label><output data-id="dc-ref" title="The face or curve the curves follow now">—</output></div>
+      <div class="field"><label>TARGET</label><output data-id="dc-target" title="The face or curve to wrap the curves onto">—</output></div>
       <span class="label">SCALE</span>
       <div class="field"><label for="w3d-dc-su">U</label><input id="w3d-dc-su" data-id="dc-su" type="number" step="0.1" value="1" title="Scale along U"></div>
       <div class="field"><label for="w3d-dc-sv">V</label><input id="w3d-dc-sv" data-id="dc-sv" type="number" step="0.1" value="1" title="Scale along V"></div>
@@ -7360,7 +7360,7 @@ export async function mount(root, backend) {
     const ids = sel.curves.filter(curveById);
     const solids = ids.length ? [] : sel.list('solid').map(it => it.body);
     if (!ids.length && !solids.length) return toast('SELECT THE CURVES, SOLIDS OR SHEETS TO DEFORM');
-    if (ids.length && (!backend.faceUvn || !backend.replaceCurves)) return toast('DEFORM CURVE IS NOT IN THIS BUILD YET');
+    if (ids.length && !backend.replaceCurves) return toast('DEFORM CURVE IS NOT IN THIS BUILD YET');
     if (solids.length && !backend.previewDeform) return toast('DEFORM OF SOLIDS AND SHEETS IS ONLY IN THE DESKTOP APP SO FAR');
     const c = cmd = { id: 'deform-curve', ids, solids, ref: null, target: null, flips: { mirror: false, swap: false, normal: false }, keep: false, reblend: false, from: null, out: null, sent: 0 };
     lastTool = 'deform-curve';
@@ -7368,11 +7368,12 @@ export async function mount(root, backend) {
     setState('none');
     const what = ids.length ? `${ids.length} CURVE${ids.length > 1 ? 'S' : ''}` : `${solids.length} BOD${solids.length > 1 ? 'IES' : 'Y'}`;
     setTarget(what);
-    const where = f => f ? `${label(f.body)} · FACE ${f.n + 1}` : '—';
+    // The reference is a face or (for curves) a curve; a curve reference takes a curve target.
+    const where = f => !f ? '—' : f.curve != null ? curveLabel(f.curve) : `${label(f.body)} · FACE ${f.n + 1}`;
     const ask = () => {
       $('dc-ref').textContent = where(c.ref);
       $('dc-target').textContent = where(c.target);
-      const say = !c.ref ? 'CLICK THE REFERENCE FACE' : !c.target ? 'CLICK THE TARGET FACE' : null;
+      const say = !c.ref ? (ids.length ? 'CLICK THE REFERENCE FACE OR CURVE' : 'CLICK THE REFERENCE FACE') : !c.target ? (c.ref.curve != null ? 'CLICK THE TARGET CURVE' : 'CLICK THE TARGET FACE') : null;
       if (say) { $('dc-hint').textContent = say; setHud(say); }
     };
     // Each curve's points, along it in model space.
@@ -7383,8 +7384,23 @@ export async function mount(root, backend) {
       ...c.flips,
     });
     c.request = () => ({ bodies: c.solids, reference: c.ref.body, rface: c.ref.n, target: c.target.body, tface: c.target.n, ...c.options(), reblend: c.reblend, keep: c.keep });
+    // A curve as a frame: along it, across it in its plane, and up its plane's normal.
+    const alongCurve = id => {
+      const curve = curveById(id);
+      if (!curve) throw new Error('that curve is gone');
+      const f = curveFrame(curve);
+      return curveFrameAlong(densify(curve2d(curve).map(p => lift(f, p).toArray()), isClosed(curve), 256), isClosed(curve), f.n.toArray());
+    };
     c.compute = async () => {
       if (c.solids.length) return backend.previewDeform(c.request());
+      if (c.ref.curve != null) {
+        const from = alongCurve(c.ref.curve), to = alongCurve(c.target.curve), curves = c.ids.map(curveById);
+        const uvn = curves.map(cv => worldPoints(cv).map(p => from.project(p)));
+        // U offsets are mm along the target; V across it and N up its plane, in mm.
+        const placed = placeOnFace(uvn, [to.length, 1], { ...c.options(), swap: false });
+        return placed.map((p, i) => curveFromNurbs(smoothThrough(p.map(to.place), isClosed(curves[i])), [0, -1, 0]));
+      }
+      if (!backend.faceUvn) throw new Error('DEFORM ONTO FACES IS NOT IN THIS BUILD YET');
       // The curves on the reference face only change with the reference.
       if (!c.from || c.from.face !== c.ref) {
         const curves = c.ids.map(curveById), pts = curves.map(worldPoints);
@@ -7447,7 +7463,15 @@ export async function mount(root, backend) {
     };
     c.click = e => {
       const hit = pickAt(e);
+      const curveHit = ['curve', 'region', 'vertex'].includes(hit?.kind) && hit.id != null && c.ids.length && !c.ids.includes(hit.id) && curveById(hit.id);
+      if (curveHit) {
+        if (c.ref && c.ref.curve == null) { toast('A FACE REFERENCE TAKES A TARGET FACE'); return true; }
+        if (!c.ref) c.ref = { curve: hit.id }; else if (hit.id !== c.ref.curve) c.target = { curve: hit.id };
+        c.preview();
+        return true;
+      }
       if (hit?.kind !== 'face') return true;
+      if (c.ref && c.ref.curve != null) { toast('A CURVE REFERENCE TAKES A TARGET CURVE'); return true; }
       const f = { body: hit.body, n: hit.n };
       // The first face clicked is the reference; after that, clicks pick the target.
       if (!c.ref) c.ref = f; else c.target = f;
@@ -7455,7 +7479,7 @@ export async function mount(root, backend) {
       return true;
     };
     c.finish = async () => {
-      if (!c.ref || !c.target) return toast(c.ref ? 'CLICK THE TARGET FACE' : 'CLICK THE REFERENCE FACE');
+      if (!c.ref || !c.target) return toast($('dc-hint').textContent);
       try {
         if (c.solids.length) {
           const { ids: made, scene: list } = await backend.commitDeform(c.request());

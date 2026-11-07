@@ -64,3 +64,19 @@ test('a ball maps heights along its outward normal', () => {
     assert.ok(Math.abs(Math.hypot(...p) - 11) < 1e-6, JSON.stringify(p));
     assert.throws(() => faceUvn(s, 7, false, [[0, 0, 0]]), /no longer exists/);
 });
+
+test('a curve frame carries points from one curve to another by length along, across and up', async () => {
+    const { curveFrameAlong, densify } = await import('../src/deform.js');
+    const ref = curveFrameAlong(densify([[0, 0, 0], [100, 0, 0]], false, 200), false, [0, 1, 0]);
+    const arc = Array.from({ length: 201 }, (_, i) => { const a = Math.PI * i / 200; return [50 - 50 * Math.cos(a), 0, 50 * Math.sin(a)]; });
+    const to = curveFrameAlong(arc, false, [0, 1, 0]);
+    const near = (a, b, tol = 0.05) => assert.ok(a.every((v, i) => Math.abs(v - b[i]) < tol), `${a} != ${b}`);
+    // The middle of the line goes to the top of the arc, 10 above it to 10 further out.
+    near(to.place(ref.project([50, 0, 10])), [50, 0, 60]);
+    near(to.place(ref.project([0, 0, 0])), [0, 0, 0]);
+    near(to.place(ref.project([100, 0, 0])), [100, 0, 0]);
+    // Off the plane stays off it; past the end runs on along the end tangent.
+    near(to.place(ref.project([50, 4, 0])), [50, 4, 50]);
+    near(ref.project([110, 0, 0]), [1.1, 0, 0], 1e-9);
+    assert.ok(Math.abs(to.length - 50 * Math.PI) < 0.01);
+});
