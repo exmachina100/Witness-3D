@@ -12503,7 +12503,6 @@ export async function mount(root, backend) {
       selectionChanged({ quiet: true });
     } catch (e) { toast(say(e)); }
   }
-  /** Plasticity's Shift+D: copy, select the copies, and move them with the cursor. */
   /**
    * Plasticity's Duplicate (Shift+D): copies of the selected solids, curves and regions, edges (as
    * curves) and faces (as sheets), selected, then the Move gizmo to place them. Shift+R repeats
@@ -12548,7 +12547,7 @@ export async function mount(root, backend) {
       sel.clear();
       for (const it of made) sel.add(it.kind === 'curve' && curveList.some(c => c.id === it.id && isClosed(c)) ? { kind: 'region', id: it.id } : it);
       selectionChanged({ quiet: true });
-      startTransform('move', { follow: 'screen' });
+      startTransform('move');
       lastRepeat = 'duplicate';
     } catch (e) { toast(say(e)); }
   }
@@ -12610,7 +12609,7 @@ export async function mount(root, backend) {
         else { const id = curveKeyId(c); sel.add(curveList.some(x => x.id === id && isClosed(x)) ? { kind: 'region', id } : { kind: 'curve', id }); }
       }
       selectionChanged({ quiet: true });
-      if (all.length) startTransform('move', { follow: 'screen' });
+      if (all.length) startTransform('move');
       lastRepeat = 'duplicate';
     } catch (e) { toast(say(e)); }
     function depth(gid) { let d = 0; for (let g = org.group(gid); g; g = org.group(g.parent)) d++; return d; }
