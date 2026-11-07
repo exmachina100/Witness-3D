@@ -105,7 +105,7 @@ import { flatten, toDxf, toSvg } from '../drawingExport.js';
 import { readDxf } from '../dxf.js';
 import { distanceToFace } from '../dependentOffset.js';
 import { pipePath, untrimmed } from '../pipePath.js';
-import { ALIGN_CURVE_CONTINUITY, mirrorCurve, alignCurveEnd, BRIDGE_CONTINUITY, bridgeContinuous, bridgeEnd, continuity, curvatureComb, curveVertices, deleteVertices, explode, EXTEND_SHAPES, extendCurve, extendStart, filletCurve, nearestEnd, OFFSET_CORNERS, offsetCurve, offsetSlot, offsetThrough, unionLoops, moveVertices, alignedInPlane, offsetVertex, rebuildCurve, subdivideCurve, completeCurve, convertVertices, insertKnotAt, raiseDegree, reverseCurve, transformCurve, moveVerticesTo, slideCurveCVs, splitCurve, tangentCircle, tangentCircle3, trim, cutCurve, cuttersFor, samples as curveSamples } from '../curveEdit.js';
+import { ALIGN_CURVE_CONTINUITY, mirrorCurve, alignCurveEnd, BRIDGE_CONTINUITY, bridgeContinuous, bridgeEnd, continuity, curvatureComb, curveVertices, deleteVertices, explode, EXTEND_SHAPES, extendCurve, extendStart, filletCurve, nearestEnd, OFFSET_CORNERS, offsetCurve, offsetSlot, offsetThrough, unionLoops, moveVertices, alignedInPlane, offsetVertex, rebuildCurve, rebuildCurveExplicit, refitCurve, subdivideCurve, completeCurve, convertVertices, insertKnotAt, raiseDegree, reverseCurve, transformCurve, moveVerticesTo, slideCurveCVs, splitCurve, tangentCircle, tangentCircle3, trim, cutCurve, cuttersFor, samples as curveSamples } from '../curveEdit.js';
 import { ViewGizmo } from './ViewGizmo.js';
 import { Toolbar } from './Toolbar.js';
 import { arcballAbout, dragAngles, orbitAbout } from './orbit.js';
@@ -546,8 +546,14 @@ const SHELL = `
     </div>
     <div class="sec" data-panel="rebuild" hidden>
       <span class="hint" data-id="rb-hint">—</span>
-      <div class="field"><label for="w3d-rb-n">CONTROL POINTS</label><input id="w3d-rb-n" data-id="rb-n" type="number" step="1" min="2" max="64" value="8"></div>
+      <span class="label">METHOD</span>
+      <div class="chips"><button data-rcmethod="tolerance" aria-pressed="false" title="Refit: as few control points as keep the curve within the tolerance (M)"><kbd>M</kbd>REFIT</button><button data-rcmethod="points" aria-pressed="true" title="Points: a set number of control points (M)">POINTS</button><button data-rcmethod="explicit" aria-pressed="false" title="Explicit Control: set the degree and spans, and how loosely the curve follows (M)">EXPLICIT</button></div>
+      <div class="field" data-rc="tolerance" hidden><label for="w3d-rb-tol">TOLERANCE</label><input id="w3d-rb-tol" data-id="rb-tol" type="number" step="0.001" min="0.000001" value="0.01" title="The furthest the new curve may stray from the old, in mm"></div>
+      <div class="chips" data-rc="tolerance" hidden><button data-id="rb-corners" aria-pressed="true" title="Keep corners: the curve's corners stay sharp and in place (K)"><kbd>K</kbd>KEEP CORNERS</button></div>
+      <div class="field" data-rc="points"><label for="w3d-rb-n">CONTROL POINTS</label><input id="w3d-rb-n" data-id="rb-n" type="number" step="1" min="2" max="64" value="8"></div>
       <div class="field"><label for="w3d-rb-p">DEGREE</label><input id="w3d-rb-p" data-id="rb-p" type="number" step="1" min="1" max="7" value="3"></div>
+      <div class="field" data-rc="explicit" hidden><label for="w3d-rb-s">SPANS</label><input id="w3d-rb-s" data-id="rb-s" type="number" step="1" min="1" max="60" value="4"></div>
+      <div class="field" data-rc="explicit" hidden><label for="w3d-rb-w">WEIGHT</label><input id="w3d-rb-w" data-id="rb-w" type="number" step="0.05" min="0" max="1" value="0.5" title="Lower loosens the curve's shape for smoother control points; higher keeps it closer to the original"></div>
     </div>
     <div class="sec" data-panel="match-face" hidden>
       <span class="hint" data-id="mf-hint">—</span>
@@ -1122,11 +1128,11 @@ const VIEWS = {
 export async function mount(root, backend) {
   root.innerHTML = SHELL;
   // Panel options carry their icon ahead of the key and name.
-  for (const b of root.querySelectorAll('[data-proj],[data-imp],[data-impcomp],[data-draw],[data-bop],[data-btmat],[data-bumat],[data-xop],[data-fop],[data-spiral],[data-toggle],[data-gmethod],[data-galign],[data-gcorner],[data-grow],[data-mfgrow],[data-drgrow],[data-eslimit],[data-flshape],[data-chshape],[data-drtaper],[data-avaxis],[data-extshape],[data-esshape],[data-isodir],[data-id="oe-both"],[data-id="iso-subdivide"],[data-id="oe-individual"],[data-id="blend-tangent"],[data-id="ex-lock"],[data-id="bool-keep"],[data-id="prim-keep"],[data-id="form-keep"],[data-pipeop],[data-id="pipe-keep"],[data-id="ex-free"],[data-id="ex-pivot"],[data-id="ex-individual"],[data-id="patch-individual"],[data-id="patch-quad"],[data-id="as-symmetric"],[data-id="as-analysis"],[data-id="sq-analysis"],[data-id="dr-hidden"],[data-id="dr-curves"],[data-id="oc-lock"],[data-id="oc-free"],[data-id="oc-slot"],[data-id="oc-combine"],[data-id="es-unlimit"],[data-rbmethod],[data-oecorner],[data-saplane],[data-plaxis],[data-plop],[data-id="pl-flip"],[data-id="pl-instance"],[data-id="mirror-instance"],[data-id="mirror-neg"],[data-id="mirror-free"],[data-id="mirror-cut"],[data-id="ra-instance"],[data-id="ra-spacing"],[data-id="ra-extent"],[data-id="rr-total"],[data-id="rr-spacing"],[data-id="rr-instance"],[data-id="ca-instance"],[data-id="br-trim"],[data-id="br-comb"],[data-id="br-constrain"],[data-id="ac-constrain"],[data-id="ac-comb"],[data-id="dc-reblend"],[data-id="section-btn"],[data-id="sa-flip"],[data-id="rf-shrink"],[data-id="ut-keep"],[data-txfont],[data-id="tx-load"],[data-id="tx-system"],[data-txalign],[data-sldir],[data-dcflip],[data-id="dc-keep"],[data-imdepth],[data-imcull],[data-id="im-delete"],[data-id="cc-extend"],[data-id="cc-screen"],[data-inmode],[data-pfmode],[data-pfmirror],[data-xforient],[data-xfpivot],[data-id="xf-pick"],[data-id="xf-unpivot"],[data-id="xf-free"],[data-id="ls-loop"],[data-id="ls-limit"],[data-id="ls-simplify"],[data-pmethod],[data-mxtopo],[data-id="mx-convex"],[data-sqbound],[data-asbound],[data-bsshape],[data-bstrim],[data-id="bs-add"],[data-id="bs-s1"],[data-id="bs-s2"],[data-id="in-realize"],[data-id="in-dup"],[data-id="in-delete"],[data-id="matcap-load"],[data-id="matcap-custom"],[data-id="hdr-load"],[data-id="hdr-custom"]')) {
+  for (const b of root.querySelectorAll('[data-proj],[data-imp],[data-impcomp],[data-draw],[data-bop],[data-btmat],[data-bumat],[data-xop],[data-fop],[data-spiral],[data-toggle],[data-gmethod],[data-galign],[data-gcorner],[data-grow],[data-mfgrow],[data-drgrow],[data-eslimit],[data-flshape],[data-chshape],[data-drtaper],[data-avaxis],[data-extshape],[data-esshape],[data-isodir],[data-id="oe-both"],[data-id="iso-subdivide"],[data-id="oe-individual"],[data-id="blend-tangent"],[data-id="ex-lock"],[data-id="bool-keep"],[data-id="prim-keep"],[data-id="form-keep"],[data-pipeop],[data-id="pipe-keep"],[data-id="ex-free"],[data-id="ex-pivot"],[data-id="ex-individual"],[data-id="patch-individual"],[data-id="patch-quad"],[data-id="as-symmetric"],[data-id="as-analysis"],[data-id="sq-analysis"],[data-id="dr-hidden"],[data-id="dr-curves"],[data-id="oc-lock"],[data-id="oc-free"],[data-id="oc-slot"],[data-id="oc-combine"],[data-id="es-unlimit"],[data-rbmethod],[data-rcmethod],[data-id="rb-corners"],[data-oecorner],[data-saplane],[data-plaxis],[data-plop],[data-id="pl-flip"],[data-id="pl-instance"],[data-id="mirror-instance"],[data-id="mirror-neg"],[data-id="mirror-free"],[data-id="mirror-cut"],[data-id="ra-instance"],[data-id="ra-spacing"],[data-id="ra-extent"],[data-id="rr-total"],[data-id="rr-spacing"],[data-id="rr-instance"],[data-id="ca-instance"],[data-id="br-trim"],[data-id="br-comb"],[data-id="br-constrain"],[data-id="ac-constrain"],[data-id="ac-comb"],[data-id="dc-reblend"],[data-id="section-btn"],[data-id="sa-flip"],[data-id="rf-shrink"],[data-id="ut-keep"],[data-txfont],[data-id="tx-load"],[data-id="tx-system"],[data-txalign],[data-sldir],[data-dcflip],[data-id="dc-keep"],[data-imdepth],[data-imcull],[data-id="im-delete"],[data-id="cc-extend"],[data-id="cc-screen"],[data-inmode],[data-pfmode],[data-pfmirror],[data-xforient],[data-xfpivot],[data-id="xf-pick"],[data-id="xf-unpivot"],[data-id="xf-free"],[data-id="ls-loop"],[data-id="ls-limit"],[data-id="ls-simplify"],[data-pmethod],[data-mxtopo],[data-id="mx-convex"],[data-sqbound],[data-asbound],[data-bsshape],[data-bstrim],[data-id="bs-add"],[data-id="bs-s1"],[data-id="bs-s2"],[data-id="in-realize"],[data-id="in-dup"],[data-id="in-delete"],[data-id="matcap-load"],[data-id="matcap-custom"],[data-id="hdr-load"],[data-id="hdr-custom"]')) {
     const name = (b.dataset.proj && (b.dataset.proj === 'screen' ? 'view-screen' : `proj-${b.dataset.proj}`)) ?? (b.dataset.imp && (b.dataset.imp === 'screen' ? 'view-screen' : `proj-${b.dataset.imp}`)) ?? (b.dataset.impcomp && `completion-${b.dataset.impcomp}`) ?? b.dataset.draw ?? b.dataset.bop ?? (b.dataset.xforient && `orient-${b.dataset.xforient}`) ?? (b.dataset.xfpivot && `pivot-${b.dataset.xfpivot}`) ?? (b.dataset.btmat && `mat-${b.dataset.btmat}`) ?? (b.dataset.bumat && `mat-${b.dataset.bumat}`) ?? b.dataset.xop ?? b.dataset.fop ?? b.dataset.spiral ?? (b.dataset.toggle && `view-${b.dataset.toggle}`)
-      ?? (b.dataset.gmethod && `guide-${b.dataset.gmethod}`) ?? (b.dataset.galign && `align-${b.dataset.galign}`) ?? (b.dataset.gcorner && (b.dataset.gcorner === 'round' ? 'corner-round' : 'corner-linear')) ?? (b.dataset.grow && `grow-${b.dataset.grow}`) ?? (b.dataset.mfgrow && `grow-${b.dataset.mfgrow}`) ?? (b.dataset.drgrow && `grow-${b.dataset.drgrow}`) ?? (b.dataset.eslimit && `limit-${b.dataset.eslimit}`) ?? (b.dataset.flshape && `fillet-${b.dataset.flshape}`) ?? (b.dataset.chshape && `chamfer-${b.dataset.chshape}`) ?? (b.dataset.drtaper && `taper-${b.dataset.drtaper}`) ?? (b.dataset.avaxis && `axis-${b.dataset.avaxis}`) ?? (b.dataset.extshape && `extend-${b.dataset.extshape}`) ?? (b.dataset.esshape && `extend-${b.dataset.esshape}`) ?? (b.dataset.isodir && `iso-${b.dataset.isodir}`) ?? (b.dataset.rbmethod && `rebuild-${b.dataset.rbmethod}`) ?? (b.dataset.oecorner && `corner-${b.dataset.oecorner}`) ?? (b.dataset.saplane && `section-${b.dataset.saplane}`) ?? (b.dataset.plaxis && (b.dataset.plaxis === 'normal' ? 'place-normal' : `axis-${b.dataset.plaxis}`)) ?? b.dataset.plop ?? b.dataset.pipeop
+      ?? (b.dataset.gmethod && `guide-${b.dataset.gmethod}`) ?? (b.dataset.galign && `align-${b.dataset.galign}`) ?? (b.dataset.gcorner && (b.dataset.gcorner === 'round' ? 'corner-round' : 'corner-linear')) ?? (b.dataset.grow && `grow-${b.dataset.grow}`) ?? (b.dataset.mfgrow && `grow-${b.dataset.mfgrow}`) ?? (b.dataset.drgrow && `grow-${b.dataset.drgrow}`) ?? (b.dataset.eslimit && `limit-${b.dataset.eslimit}`) ?? (b.dataset.flshape && `fillet-${b.dataset.flshape}`) ?? (b.dataset.chshape && `chamfer-${b.dataset.chshape}`) ?? (b.dataset.drtaper && `taper-${b.dataset.drtaper}`) ?? (b.dataset.avaxis && `axis-${b.dataset.avaxis}`) ?? (b.dataset.extshape && `extend-${b.dataset.extshape}`) ?? (b.dataset.esshape && `extend-${b.dataset.esshape}`) ?? (b.dataset.isodir && `iso-${b.dataset.isodir}`) ?? (b.dataset.rbmethod && `rebuild-${b.dataset.rbmethod}`) ?? (b.dataset.rcmethod && `rebuild-${b.dataset.rcmethod}`) ?? (b.dataset.oecorner && `corner-${b.dataset.oecorner}`) ?? (b.dataset.saplane && `section-${b.dataset.saplane}`) ?? (b.dataset.plaxis && (b.dataset.plaxis === 'normal' ? 'place-normal' : `axis-${b.dataset.plaxis}`)) ?? b.dataset.plop ?? b.dataset.pipeop
       ?? (b.dataset.txfont && `font-${b.dataset.txfont}`) ?? (b.dataset.txalign && `txalign-${b.dataset.txalign}`) ?? (b.dataset.sldir && { u: 'slide-u', '-u': 'slide-back', v: 'slide-v', '-v': 'slide-vback', n: 'slide-n' }[b.dataset.sldir]) ?? (b.dataset.dcflip && { mirror: 'mirror', swap: 'swap-uv', normal: 'reverse-sheet' }[b.dataset.dcflip]) ?? (b.dataset.imdepth && `depth-${b.dataset.imdepth}`) ?? (b.dataset.imcull && `cull-${b.dataset.imcull}`) ?? b.dataset.inmode ?? (b.dataset.bsshape && `bridge-${b.dataset.bsshape}`) ?? (b.dataset.bstrim && `trimwall-${b.dataset.bstrim}`) ?? (b.dataset.mxtopo && `topo-${b.dataset.mxtopo}`) ?? (b.dataset.pmethod && (b.dataset.pmethod === 'fill' ? 'patch-fill' : `trim-${b.dataset.pmethod}`)) ?? (b.dataset.pfmode && `falloff-${b.dataset.pfmode}`) ?? ((b.dataset.sqbound ?? b.dataset.asbound) && `bound-${b.dataset.sqbound ?? b.dataset.asbound}`) ?? (b.dataset.pfmirror && `mirror-${b.dataset.pfmirror}`)
-      ?? { 'matcap-load': 'matcap-load', 'matcap-custom': 'matcap', 'tx-load': 'font-load', 'tx-system': 'font-system', 'hdr-load': 'hdr-load', 'hdr-custom': 'hdr', 'ex-lock': 'lock', 'bool-keep': 'keep', 'prim-keep': 'keep', 'form-keep': 'keep', 'pipe-keep': 'keep', 'ex-free': 'freestyle', 'ex-pivot': 'pivot', 'ex-individual': 'individual', 'patch-individual': 'individual', 'mx-convex': 'convex', 'patch-quad': 'square', 'as-symmetric': 'symmetric', 'as-analysis': 'analysis', 'sq-analysis': 'analysis', 'bs-add': 'wall-pair', 'bs-s1': 'flip', 'bs-s2': 'flip', 'dr-hidden': 'hidden-lines', 'dr-curves': 'drawing-curves', 'oc-lock': 'lock', 'oc-free': 'freestyle', 'oc-slot': 'slot', 'oc-combine': 'combine', 'oe-both': 'both-sides', 'xf-pick': 'pivot', 'xf-unpivot': 'pivot-remove', 'xf-free': 'freestyle', 'ls-loop': 'loft-loop', 'ls-limit': 'limit-point', 'ls-simplify': 'simplify', 'iso-subdivide': 'subdivide', 'oe-individual': 'individual', 'blend-tangent': 'tangent-chain', 'es-unlimit': 'unlimit', 'rf-shrink': 'shrink', 'ut-keep': 'keep-edges', 'section-btn': 'view-section', 'sa-flip': 'flip', 'pl-flip': 'flip', 'pl-instance': 'instance', 'mirror-instance': 'instance', 'mirror-neg': 'mirror-neg', 'mirror-free': 'freestyle', 'mirror-cut': 'mirror-cut', 'ra-instance': 'instance', 'ra-spacing': 'array-spacing', 'ra-extent': 'array-extent', 'rr-total': 'array-total', 'rr-spacing': 'array-angle-step', 'rr-instance': 'instance', 'ca-instance': 'instance', 'br-trim': 'trim', 'br-comb': 'view-curvature', 'br-constrain': 'constrain', 'ac-constrain': 'constrain', 'ac-comb': 'view-curvature', 'dc-reblend': 'reblend', 'dc-keep': 'keep', 'im-delete': 'delete', 'in-realize': 'realize-instance', 'cc-extend': 'extend', 'cc-screen': 'view-screen', 'in-dup': 'duplicate', 'in-delete': 'delete' }[b.dataset.id];
+      ?? { 'matcap-load': 'matcap-load', 'matcap-custom': 'matcap', 'tx-load': 'font-load', 'tx-system': 'font-system', 'hdr-load': 'hdr-load', 'hdr-custom': 'hdr', 'ex-lock': 'lock', 'rb-corners': 'corner-linear', 'bool-keep': 'keep', 'prim-keep': 'keep', 'form-keep': 'keep', 'pipe-keep': 'keep', 'ex-free': 'freestyle', 'ex-pivot': 'pivot', 'ex-individual': 'individual', 'patch-individual': 'individual', 'mx-convex': 'convex', 'patch-quad': 'square', 'as-symmetric': 'symmetric', 'as-analysis': 'analysis', 'sq-analysis': 'analysis', 'bs-add': 'wall-pair', 'bs-s1': 'flip', 'bs-s2': 'flip', 'dr-hidden': 'hidden-lines', 'dr-curves': 'drawing-curves', 'oc-lock': 'lock', 'oc-free': 'freestyle', 'oc-slot': 'slot', 'oc-combine': 'combine', 'oe-both': 'both-sides', 'xf-pick': 'pivot', 'xf-unpivot': 'pivot-remove', 'xf-free': 'freestyle', 'ls-loop': 'loft-loop', 'ls-limit': 'limit-point', 'ls-simplify': 'simplify', 'iso-subdivide': 'subdivide', 'oe-individual': 'individual', 'blend-tangent': 'tangent-chain', 'es-unlimit': 'unlimit', 'rf-shrink': 'shrink', 'ut-keep': 'keep-edges', 'section-btn': 'view-section', 'sa-flip': 'flip', 'pl-flip': 'flip', 'pl-instance': 'instance', 'mirror-instance': 'instance', 'mirror-neg': 'mirror-neg', 'mirror-free': 'freestyle', 'mirror-cut': 'mirror-cut', 'ra-instance': 'instance', 'ra-spacing': 'array-spacing', 'ra-extent': 'array-extent', 'rr-total': 'array-total', 'rr-spacing': 'array-angle-step', 'rr-instance': 'instance', 'ca-instance': 'instance', 'br-trim': 'trim', 'br-comb': 'view-curvature', 'br-constrain': 'constrain', 'ac-constrain': 'constrain', 'ac-comb': 'view-curvature', 'dc-reblend': 'reblend', 'dc-keep': 'keep', 'im-delete': 'delete', 'in-realize': 'realize-instance', 'cc-extend': 'extend', 'cc-screen': 'view-screen', 'in-dup': 'duplicate', 'in-delete': 'delete' }[b.dataset.id];
     b.insertAdjacentHTML('afterbegin', icon(name));
   }
   const $ = id => root.querySelector(`[data-id="${id}"]`);
@@ -8093,12 +8099,26 @@ export async function mount(root, backend) {
     const first = curveById(ids[0]);
     $('rb-n').value = first.kind === 'nurbs' ? first.poles.length - (isClosed(first) ? 1 : 0) : first.kind === 'cv' ? first.points.length : 8;
     $('rb-p').value = first.kind === 'nurbs' ? first.degree : 3;
+    // Plasticity's three methods: Refit (tolerance, keep corners), Points, Explicit Control.
+    c.method = 'points';
+    c.setMethod = m => {
+      c.method = m;
+      for (const b of $$('[data-rcmethod]')) b.setAttribute('aria-pressed', String(b.dataset.rcmethod === m));
+      for (const el of $$('[data-rc]')) el.hidden = el.dataset.rc !== m;
+      c.preview?.();
+    };
+    c.setMethod('points');
+    const what = () => (c.method === 'tolerance' ? `TOLERANCE ${num('rb-tol')}` : c.method === 'explicit' ? `${num('rb-s')} SPANS · WEIGHT ${num('rb-w')}` : `${num('rb-n')} POINTS`) + ` · DEGREE ${num('rb-p')}`;
     c.preview = () => {
       clearPreview();
-      const n = num('rb-n'), p = num('rb-p');
+      const n = num('rb-n'), p = num('rb-p'), s = num('rb-s');
       try {
-        if (!Number.isInteger(n) || !Number.isInteger(p)) throw new Error('type whole numbers');
-        const made = ids.map(id => rebuildCurve(curveById(id), n, p));
+        if (!Number.isInteger(p) || (c.method === 'points' && !Number.isInteger(n)) || (c.method === 'explicit' && !Number.isInteger(s))) throw new Error('type whole numbers');
+        if (c.method === 'tolerance' && !(num('rb-tol') > 0)) throw new Error('the tolerance is above zero');
+        const keep = $('rb-corners').getAttribute('aria-pressed') === 'true';
+        const made = ids.map(id => (c.method === 'tolerance' ? refitCurve(curveById(id), num('rb-tol'), p, keep)
+          : c.method === 'explicit' ? rebuildCurveExplicit(curveById(id), s, p, Math.min(1, Math.max(0, num('rb-w'))))
+            : rebuildCurve(curveById(id), n, p)));
         c.out = made.map(m => m.curve);
         showCurvePreview(c.out);
         for (const r of c.out) {
@@ -8107,15 +8127,19 @@ export async function mount(root, backend) {
           previewGroup.add(new THREE.Points(new THREE.BufferGeometry().setFromPoints(hull), hullDots));
         }
         const dev = Math.max(...made.map(m => m.deviation));
-        $('rb-hint').textContent = `MAX DEVIATION ${dev < 0.001 ? dev.toExponential(1) : dev.toFixed(3)} MM`;
-        setHud(`REBUILD ${n} POINTS · DEGREE ${p}`);
+        const pts = c.out.reduce((t, r) => t + r.poles.length, 0);
+        const missed = c.method === 'tolerance' && dev > num('rb-tol') ? ' · TOLERANCE NOT MET (AT MOST 96 POINTS A RUN)' : '';
+        $('rb-hint').textContent = `MAX DEVIATION ${dev < 0.001 ? dev.toExponential(1) : dev.toFixed(3)} MM · ${pts} CONTROL POINTS${missed}`;
+        setHud(`REBUILD ${what()}`);
         setState('updated');
       } catch (e) { c.out = null; $('rb-hint').textContent = say(e); setHud('REBUILD FAILED'); setState('failed'); }
     };
     c.key = action => {
-      const field = action === 'count' ? 'rb-n' : action === 'degree' ? 'rb-p' : null;
+      if (action === 'method') { const ms = ['tolerance', 'points', 'explicit']; c.setMethod(ms[(ms.indexOf(c.method) + 1) % 3]); return true; }
+      if (action === 'corners') { c.toggleCorners(); return true; }
+      const field = { count: 'rb-n', degree: 'rb-p', spans: 'rb-s', weight: 'rb-w', tolerance: 'rb-tol' }[action];
       if (!field) return false;
-      const label = action === 'count' ? 'CONTROL POINTS' : 'DEGREE';
+      const label = { count: 'CONTROL POINTS', degree: 'DEGREE', spans: 'SPANS', weight: 'WEIGHT', tolerance: 'TOLERANCE' }[action];
       c.entry = { label, text: '', apply: v => { $(field).value = v; c.preview(); } };
       setHud(`${label} _`);
       return true;
@@ -8125,9 +8149,14 @@ export async function mount(root, backend) {
       try {
         const { ids: made } = await backend.replaceCurves(ids, c.out);
         endCmd('committed');
-        record(`REBUILD ${ids.map(curveLabel).join(' ')}`, made[0], `${num('rb-n')} POINTS · DEGREE ${num('rb-p')}`);
+        record(`REBUILD ${ids.map(curveLabel).join(' ')}`, made[0], what());
         await curvesChanged(made);
       } catch (e) { setState('failed'); toast(say(e)); }
+    };
+    c.toggleCorners = () => {
+      const b = $('rb-corners');
+      b.setAttribute('aria-pressed', String(b.getAttribute('aria-pressed') !== 'true'));
+      c.preview();
     };
     c.abort = () => endCmd('cancelled');
     c.cleanup = () => clearPreview();
@@ -13523,6 +13552,8 @@ export async function mount(root, backend) {
   $('dc-reblend').onclick = () => cmd?.id === 'deform-curve' && cmd.setReblend(!cmd.reblend);
   for (const id of ['rf-tol', 'rf-du', 'rf-dv', 'rf-su', 'rf-sv', 'rf-eu', 'rf-ev']) $(id).addEventListener('input', () => cmd?.id === 'rebuild-face' && cmd.preview());
   for (const b of $$('[data-rbmethod]')) b.onclick = () => cmd?.id === 'rebuild-face' && cmd.setMethod(b.dataset.rbmethod);
+  for (const b of $$('[data-rcmethod]')) b.onclick = () => cmd?.id === 'rebuild' && cmd.setMethod(b.dataset.rcmethod);
+  $('rb-corners').onclick = () => cmd?.id === 'rebuild' && cmd.toggleCorners();
   $('rf-shrink').onclick = () => cmd?.id === 'rebuild-face' && cmd.setShrink(!cmd.shrink);
   for (const b of $$('[data-mfgrow]')) b.onclick = () => cmd?.id === 'match-face' && cmd.setGrow(b.dataset.mfgrow);
   for (const b of $$('[data-drtaper]')) b.onclick = () => cmd?.id === 'draft' && cmd.taperTo(b.dataset.drtaper);
