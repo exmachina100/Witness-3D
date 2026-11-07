@@ -17,7 +17,7 @@ and solid commands, then display and files.
 Every creation tool shares the manual's Sketching Essentials keys: **Tab** typed dimensions,
 **X/Y/Z** axis constraint, **K** knife mode (cut faces with the drawn curve), Ctrl to snap while
 moving, Shift for snap reference lines. Knife mode (K) is in every drawing tool: a curve drawn on
-a flat face imprints that face and is used up (round 10).
+a flat face imprints that face, and every other face of the body in its plane it crosses, and is used up (round 10; several faces 2026-11-07).
 
 ## 1. Sketching and primitive tools
 
