@@ -58,7 +58,8 @@ export function arrayMotions(spec) {
 export function rectangularSpec(steps, counts, mode = 'spacing') {
     return { kind: 'rectangular', counts, steps: mode === 'extent' ? steps.map((s, i) => s.map(v => counts[i] > 1 ? v / (counts[i] - 1) : v)) : steps };
 }
-export function radialSpec(pivot, axis, angle, count, mode = 'total') {
+export function radialSpec(pivot, axis, angle, count, mode = 'total', rings = null) {
+    if (rings && rings.count > 1) return ringsSpec(pivot, axis, angle, count, mode, rings);
     if (mode !== 'spacing') return { kind: 'radial', pivot, axis, angle, count };
     if (![pivot, axis].every(v => Array.isArray(v) && v.length === 3 && finite(v)) || !Number.isFinite(angle)) throw new Error("the array's axis or angle is not a number");
     const len = Math.hypot(...axis);
@@ -66,4 +67,42 @@ export function radialSpec(pivot, axis, angle, count, mode = 'total') {
     if (!Number.isInteger(count) || count < 1) throw new Error('the array count must be at least 1');
     const unit = axis.map(c => c / len);
     return { kind: 'motions', motions: Array.from({ length: Math.abs(angle) < 1e-9 ? 0 : count - 1 }, (_, i) => ({ offset: [0, 0, 0], pivot, axis: unit, angle: angle * (i + 1) })) };
+}
+
+/**
+ * Plasticity's radial array rings (Number 1, Step 1): `rings.count` rings of the radial array, each
+ * `rings.step` further out from the centre along `rings.out` (square to the axis, toward the
+ * solids), every ring with the same copies round it. Motions turn about the centre, then move out.
+ */
+function ringsSpec(pivot, axis, angle, count, mode, { count: rn, step, out }) {
+    if (!Number.isInteger(rn) || rn < 1) throw new Error('the ring count must be at least 1');
+    if (!Number.isFinite(step)) throw new Error('the ring step must be a number');
+    if (!Array.isArray(out) || out.length !== 3 || !finite(out)) throw new Error("the rings' direction is not a number");
+    if (!Number.isInteger(count) || count < 1) throw new Error('the array count must be at least 1');
+    if (count * rn > 1000) throw new Error('that array makes more than 1000 bodies');
+    const len = Math.hypot(...axis);
+    if (len < 1e-9) throw new Error("the array's axis has no direction");
+    const k = axis.map(c => c / len);
+    // `out` made square to the axis and of unit length.
+    const along = out[0] * k[0] + out[1] * k[1] + out[2] * k[2];
+    let o = out.map((v, i) => v - along * k[i]);
+    const ol = Math.hypot(...o);
+    if (ol < 1e-9) throw new Error("the rings need a direction out from the centre");
+    o = o.map(v => v / ol);
+    const full = Math.abs(Math.abs(angle) - 2 * Math.PI) < 1e-9;
+    const turn = i => (mode === 'spacing' ? angle * i : count < 2 ? 0 : full ? angle / count * i : angle / (count - 1) * i);
+    // Rodrigues: v turned by `a` about the unit axis k.
+    const rot = (v, a) => {
+        const c = Math.cos(a), s = Math.sin(a), d = k[0] * v[0] + k[1] * v[1] + k[2] * v[2];
+        const x = [k[1] * v[2] - k[2] * v[1], k[2] * v[0] - k[0] * v[2], k[0] * v[1] - k[1] * v[0]];
+        return [0, 1, 2].map(i => v[i] * c + x[i] * s + k[i] * d * (1 - c));
+    };
+    const motions = [];
+    for (let r = 0; r < rn; r++) for (let i = 0; i < count; i++) {
+        if (r === 0 && i === 0) continue;
+        if (Math.abs(angle) < 1e-9 && i > 0) continue;
+        const a = turn(i), off = rot(o.map(v => v * step * r), a);
+        motions.push({ offset: off, pivot, axis: k, angle: a });
+    }
+    return { kind: 'motions', motions };
 }
