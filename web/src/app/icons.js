@@ -259,6 +259,7 @@ const ICONS = {
     'rebuild-face': `<path d="M3 17c4-6 14-6 18 0M3 9c4-6 14-6 18 0M3 9v8M21 9v8"/><path ${A} d="M3 13h18M12 5v12M7.5 6.5v10M16.5 6.5v10" stroke-dasharray="2 2"/>`,
     // Tolerance: the fitted curve held inside a band; Explicit: a set count of spans marked off.
     'rebuild-tolerance': `<path d="M3 9c5-5 13-5 18 0M3 17c5-5 13-5 18 0" stroke-dasharray="2 2"/><path ${A} d="M3 13c5-5 13-5 18 0"/>`,
+    'rebuild-points': `<path d="M3 16c5-7 13-7 18 0"/><path ${A} d="M3 16h0M7 11.5h0M12 9.6h0M17 11.5h0M21 16h0" stroke-width="3" stroke-linecap="round"/>`,
     'rebuild-explicit': `<path d="M3 16c5-7 13-7 18 0"/><path ${A} d="M3 16h0M9 11h0M15 11h0M21 16h0" stroke-width="3" stroke-linecap="round"/>`,
     // Shrink: the outer net pulled in to the face's own edges.
     shrink: `<path d="M3 3h18v18H3z" stroke-dasharray="2 2"/><path ${A} d="M8 8h8v8H8z"/><path d="M4 4l3 3M20 4l-3 3M4 20l3-3M20 20l-3-3"/>`,

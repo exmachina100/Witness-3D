@@ -145,7 +145,7 @@ export const COMMAND = {
     'constrained-surface': { 'ctrl-z': 'back', tab: 'optimize' },
     square: { d: 'degree', tab: 'continuity', t: 'tension', q: 'quad' },
     extend: { s: 'shape', d: 'length' },
-    rebuild: { c: 'count', d: 'degree' },
+    rebuild: { c: 'count', d: 'degree', m: 'method', k: 'corners', s: 'spans', w: 'weight', t: 'tolerance' },
     // Rebuild Face: M method, T tolerance, D degree, S spans, E extend, H shrink.
     untrim: { tab: 'keep-edges' },
     // Section Analysis (manual): D distance, F flip.

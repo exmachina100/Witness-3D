@@ -695,7 +695,7 @@ function solveN(A, B) {
 }
 
 /** Least-squares poles for basis rows `rows` (one per sample) against samples `Q`, with poles in `fixed` held. */
-function fitPoles(rows, Q, count, fixed) {
+function fitPoles(rows, Q, count, fixed, { fair = 0, wrap = false } = {}) {
     const free = [...Array(count).keys()].filter(i => !fixed.has(i));
     const at = new Map(free.map((i, j) => [i, j]));
     const A = free.map(() => new Array(free.length).fill(0)), B = free.map(() => [0, 0]);
@@ -709,6 +709,22 @@ function fitPoles(rows, Q, count, fixed) {
             for (const j of free) if (N[j]) A[a][at.get(j)] += N[i] * N[j];
         }
     });
+    // Fairing: `fair` times the squared second differences of the poles, so a looser fit evens
+    // out the control polygon (Rebuild Curve's Explicit Control Weight).
+    if (fair > 0) {
+        const last = wrap ? count : count - 2;
+        for (let k = wrap ? 0 : 1; k <= last; k++) {
+            const tri = [[(k - 1 + count) % count, 1], [k % count, -2], [(k + 1) % count, 1]];
+            for (const [i, ci] of tri) {
+                if (fixed.has(i)) continue;
+                const a = at.get(i);
+                for (const [j, cj] of tri) {
+                    if (fixed.has(j)) { const P = fixed.get(j); B[a][0] -= fair * ci * cj * P[0]; B[a][1] -= fair * ci * cj * P[1]; }
+                    else A[a][at.get(j)] += fair * ci * cj;
+                }
+            }
+        }
+    }
     const x = free.length ? solveN(A, B) : [];
     return [...Array(count).keys()].map(i => fixed.get(i) ?? x[at.get(i)]);
 }
@@ -889,7 +905,7 @@ export function raiseDegree(c) {
  * closed curve comes back closed and smooth all round (a periodic fit, then clamped at its start).
  * Returns the curve and `deviation`, the furthest the new curve strays from the old, in mm.
  */
-export function rebuildCurve(c, count = 8, degree = 3) {
+export function rebuildCurve(c, count = 8, degree = 3, { weight = 1 } = {}) {
     const p = Math.round(degree), n = Math.round(count);
     if (!(p >= 1 && p <= 7)) throw new Error('the degree is from 1 to 7');
     const { points, closed } = samples(c, 256);
@@ -917,7 +933,7 @@ export function rebuildCurve(c, count = 8, degree = 3) {
         for (let j = 1; j < n - p; j++) { const i = Math.floor(j * d), a = j * d - i; inner.push((1 - a) * t[i - 1 < 0 ? 0 : i - 1] + a * t[i]); }
         const knots = [...Array(p + 1).fill(0), ...inner, ...Array(p + 1).fill(1)];
         const rows = t.map(u => basisAll(knots, p, n, u));
-        const P = fitPoles(rows, Q, n, new Map([[0, Q[0]], [n - 1, Q.at(-1)]]));
+        const P = fitPoles(rows, Q, n, new Map([[0, Q[0]], [n - 1, Q.at(-1)]]), { fair: fairing(weight, rows.length, n) });
         shape = { kind: 'nurbs', degree: p, poles: P.map(([x, y]) => [x, y, 0]), weights: P.map(() => 1), knots };
     } else {
         if (n < p + 1 || n < 3) throw new Error(`a closed degree ${p} curve needs at least ${Math.max(3, p + 1)} control points`);
@@ -928,7 +944,7 @@ export function rebuildCurve(c, count = 8, degree = 3) {
             N.forEach((v, i) => { w[i % n] += v; });
             return w;
         });
-        const P = fitPoles(rows, Q.slice(0, -1), n, new Map());
+        const P = fitPoles(rows, Q.slice(0, -1), n, new Map(), { fair: fairing(weight, rows.length, n), wrap: true });
         shape = clampPeriodic({ kind: 'nurbs', degree: p, poles: [...P, ...P.slice(0, p)].map(([x, y]) => [x, y, 0]), weights: new Array(n + p).fill(1), knots });
     }
     const fitted = nurbsPoints(shape, 32).map(([x, y]) => [x, y]);
@@ -940,6 +956,84 @@ export function rebuildCurve(c, count = 8, degree = 3) {
     }
     return { curve: withShape(c, shape), deviation };
 }
+/**
+ * How hard the fit evens out its control polygon for Explicit Control's Weight (0 to 1, 0.5 the
+ * default): 1 follows the curve as closely as the spans allow, lower values loosen it.
+ */
+function fairing(weight, samples, count) {
+    const w = Math.min(1, Math.max(0.01, weight));
+    return w >= 1 ? 0 : 0.005 * (samples / count) * ((1 - w) / w) ** 2;
+}
+
+/**
+ * Rebuild Curve's Explicit Control: a curve of `degree` with `spans` spans (spans + degree control
+ * points, or `spans` round a closed curve), its control points eased by `weight`.
+ */
+export function rebuildCurveExplicit(c, spans = 4, degree = 3, weight = 0.5) {
+    const s = Math.round(spans);
+    if (!(s >= 1)) throw new Error('at least one span');
+    const closed = samples(c, 16).closed;
+    return rebuildCurve(c, closed ? Math.max(s, 3) : s + Math.round(degree), degree, { weight });
+}
+
+/**
+ * Rebuild Curve's Refit: as few control points as keep the curve within `tolerance` mm. With
+ * `keepCorners`, the curve is cut at its corners, each run refitted, and the runs joined into one
+ * NURBS curve whose knots there are full, so the corners stay sharp and in place.
+ */
+export function refitCurve(c, tolerance = 0.01, degree = 3, keepCorners = true) {
+    const tol = Math.max(1e-6, tolerance), p = Math.round(degree);
+    // Doubling, then halving between the last miss and the first hit: few fits even for long curves.
+    const fit = piece => {
+        let lo = p, hi = p + 1, best = rebuildCurve(piece, hi, p);
+        while (best.deviation > tol && hi < 96) { lo = hi; hi = Math.min(96, hi * 2); best = rebuildCurve(piece, hi, p); }
+        while (best.deviation <= tol && hi - lo > 1) {
+            const mid = (lo + hi) >> 1, r = rebuildCurve(piece, mid, p);
+            if (r.deviation <= tol) { hi = mid; best = r; } else lo = mid;
+        }
+        return best;
+    };
+    const { points, closed } = samples(c, 256);
+    const runs = keepCorners ? cornerRuns(dedupe(points), closed) : null;
+    if (!runs) return fit(c);
+    const frame = frameOf(c), parts = runs.map(run => fit({ ...frame, kind: 'polyline', points: run, closed: false }));
+    // Join the runs: each clamped run takes the knot span [i, i + 1]; a joint knot repeats `p` times.
+    const knots = [], poles = [];
+    parts.forEach(({ curve }, i) => {
+        const k = curve.knots, inner = k.slice(p + 1, k.length - p - 1).map(u => u + i);
+        if (i === 0) knots.push(...Array(p + 1).fill(0));
+        knots.push(...inner, ...Array(i === parts.length - 1 ? p + 1 : p).fill(i + 1));
+        poles.push(...(i === 0 ? curve.poles : curve.poles.slice(1)));
+    });
+    if (closed) poles[poles.length - 1] = [...poles[0]];
+    const m = parts.length;
+    const shape = { kind: 'nurbs', degree: p, poles, weights: poles.map(() => 1), knots: knots.map(u => u / m) };
+    return { curve: withShape(c, shape), deviation: Math.max(...parts.map(r => r.deviation)), corners: closed ? m : m - 1 };
+}
+
+/** The polyline cut at corners sharper than 20°, or null when it has none. A loop starts at a corner. */
+function cornerRuns(pts, closed) {
+    const n = pts.length, corner = [];
+    const turn = (a, b, q) => {
+        const u = sub(b, a), v = sub(q, b), lu = Math.hypot(...u), lv = Math.hypot(...v);
+        return lu > EPS && lv > EPS ? Math.acos(Math.max(-1, Math.min(1, dot2(u, v) / (lu * lv)))) : 0;
+    };
+    for (let i = closed ? 0 : 1; i < (closed ? n : n - 1); i++) if (turn(pts[(i - 1 + n) % n], pts[i], pts[(i + 1) % n]) > 20 * Math.PI / 180) corner.push(i);
+    if (!corner.length) return null;
+    const runs = [];
+    if (closed) {
+        for (let k = 0; k < corner.length; k++) {
+            const a = corner[k], b = corner[(k + 1) % corner.length], run = [];
+            for (let i = a; ; i = (i + 1) % n) { run.push(pts[i]); if (i === b && run.length > 1) break; }
+            runs.push(run);
+        }
+    } else {
+        const cuts = [0, ...corner, n - 1];
+        for (let k = 0; k < cuts.length - 1; k++) runs.push(pts.slice(cuts[k], cuts[k + 1] + 1));
+    }
+    return runs;
+}
+
 /** `count` points evenly spaced along the polyline, its ends kept, so every span has samples. */
 function resample(pts, count) {
     if (pts.length < 2) throw new Error('that curve has no length');

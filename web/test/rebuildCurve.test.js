@@ -57,3 +57,20 @@ test('a NURBS curve rebuilt with its own count and degree comes back unchanged',
     assert.ok(deviation < 1e-6, `deviation ${deviation}`);
     curve.poles.forEach((q, i) => close(q, c.poles[i]));
 });
+
+test('Refit keeps corners sharp and meets the tolerance; Explicit gives spans + degree points', async () => {
+    const { refitCurve, rebuildCurveExplicit } = await import('../src/curveEdit.js');
+    const f = { origin: [0, 0, 0], x: [1, 0, 0], normal: [0, 1, 0] };
+    const L = { ...f, kind: 'polyline', points: [[0, 0], [10, 0], [10, 10], [20, 10]] };
+    const kept = refitCurve(L, 0.01, 3, true);
+    assert.equal(kept.corners, 2);
+    assert.ok(kept.deviation < 0.01);
+    assert.ok(kept.curve.poles.some(p => Math.hypot(p[0] - 10, p[1]) < 1e-9), 'the corner stays a control point');
+    const circle = refitCurve({ ...f, kind: 'circle', center: [0, 0], radius: 10 }, 0.01, 3, true);
+    assert.ok(circle.deviation <= 0.01);
+    assert.deepEqual(circle.curve.poles[0], circle.curve.poles.at(-1));
+    const arc = { ...f, kind: 'arc', start: [10, 0], mid: [0, 10], end: [-10, 0] };
+    const tight = rebuildCurveExplicit(arc, 4, 3, 1), loose = rebuildCurveExplicit(arc, 4, 3, 0.2);
+    assert.equal(tight.curve.poles.length, 7);
+    assert.ok(loose.deviation > tight.deviation);
+});
