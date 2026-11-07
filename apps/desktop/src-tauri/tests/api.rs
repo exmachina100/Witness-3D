@@ -317,3 +317,21 @@ fn offset_face_takes_an_adjacent_angle_and_spirals_round_trip_as_json() {
     let s = json.as_array().unwrap().iter().find(|c| c["id"] == ids[0]).unwrap();
     assert_eq!((s["kind"].as_str(), s["turns"].as_f64(), s["left"].as_bool()), (Some("spiral"), Some(2.0), Some(false)));
 }
+
+#[test]
+fn extrude_keep_tools_leaves_the_shape_as_a_body_in_the_same_step() {
+    let m = api::start_enclosure();
+    let id = api::scene(&m).unwrap()[0].id;
+    let mut req = on_top(Some(id), -10.0);
+    req.keep = true;
+    let c = api::commit(&m, req).unwrap();
+    assert_eq!(c.id, id);
+    assert_eq!(c.scene.len(), 2);
+    close(c.scene.iter().find(|b| b.id == id).unwrap().volume, 119_000.0);
+    close(c.scene.iter().find(|b| b.id != id).unwrap().volume, 1_000.0);
+    assert_eq!(api::undo(&m).unwrap().len(), 1);
+    // A new body has no tool to keep.
+    let mut alone = on_top(None, 10.0);
+    alone.keep = true;
+    assert_eq!(api::commit(&m, alone).unwrap().scene.len(), 2);
+}

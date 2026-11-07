@@ -1700,6 +1700,8 @@ export class LocalBackend {
             for (const s of sheets) { id = this.nextId++; this.put(id, s); }
             return { id, scene: this.bodies() };
         }
+        // T keep tools: the extruded shape on its own, read before the boolean changes the target.
+        const tool = req.keep && req.target != null && req.op !== 'new' ? (await this.run({ ...req, op: 'new', targets: [] }).catch(() => null))?.r.shape : null;
         const { f, r, piece, outcome } = await this.run(req);
         const many = this.manyTargets(req, f, r, outcome);
         if (many) {
@@ -1707,6 +1709,7 @@ export class LocalBackend {
             for (const c of many.changed) { this.put(c.id, c.shape, c.history); if (c.piece) this.put(this.nextId++, c.piece); }
             let id = many.changed[0]?.id;
             if (many.shape) { id = this.nextId++; this.put(id, many.shape); }
+            else if (tool) this.put(this.nextId++, tool);
             for (const b of many.folded) { this.shapes.delete(b); this.refs.delete(b); }
             return { id, scene: this.bodies() };
         }
@@ -1714,6 +1717,7 @@ export class LocalBackend {
         const id = r.replaces ?? this.nextId++;
         this.put(id, r.shape, r.history);
         if (piece) this.put(this.nextId++, piece.shape);
+        if (tool && r.replaces !== undefined) this.put(this.nextId++, tool);
         return { id, scene: this.bodies() };
     }
 
