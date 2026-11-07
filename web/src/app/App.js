@@ -930,6 +930,8 @@ const SHELL = `
       <span class="label">MODE</span>
       <div class="seg" role="group" aria-label="Radial array mode"><button data-id="rr-total" aria-pressed="true" title="Total (Tab): the copies spread evenly over the angle">TOTAL</button><button data-id="rr-spacing" aria-pressed="false" title="Spacing (Tab): the angle between neighbouring copies">SPACING</button></div>
       <div class="field"><label for="w3d-rr-angle" data-id="rr-alabel">ANGLE °</label><input id="w3d-rr-angle" data-id="rr-angle" type="number" step="15" value="360"></div>
+      <div class="field"><label for="w3d-rr-rings">RINGS</label><input id="w3d-rr-rings" data-id="rr-rings" type="number" step="1" min="1" value="1" title="Rings of copies, each further out from the centre (Number 1)"></div>
+      <div class="field"><label for="w3d-rr-rstep">RING STEP</label><input id="w3d-rr-rstep" data-id="rr-rstep" type="number" step="1" value="10" title="How far out each ring is from the one inside it, in mm (Step 1)"></div>
       <span class="label">AXIS</span>
       <div class="seg" role="group" aria-label="Radial array axis"><button data-rx="x" aria-pressed="false"><kbd>X</kbd>X</button><button data-rx="y" aria-pressed="false"><kbd>Y</kbd>Y</button><button data-rx="z" aria-pressed="true"><kbd>Z</kbd>Z</button></div>
       <div class="chips"><button data-id="rr-join" aria-pressed="false"><kbd>J</kbd>JOIN</button><button data-id="rr-instance" aria-pressed="false" title="Make instances of the solids, sharing their geometry, rather than copies (I)"><kbd>I</kbd>INSTANCE</button></div>
@@ -11493,10 +11495,23 @@ export async function mount(root, backend) {
   // along the axes until then.
   function startArray(id) {
     const radial = id === 'radial-array';
+    // Rings (Number 1, Step 1): out from the centre toward the middle of the solids.
+    const ringsOf = c => {
+      const n = Math.round(num('rr-rings'));
+      if (!(n > 1)) return null;
+      const box = new THREE.Box3();
+      for (const b of c.ids) { const m = bodyMesh(b); if (m) box.expandByObject(m); }
+      const mid = box.isEmpty() ? null : box.getCenter(new THREE.Vector3());
+      const axis = toWorld(userAxis(c.axis));
+      let out = mid ? mid.sub(c.centre) : null;
+      if (out) { const a = new THREE.Vector3(...axis).normalize(); out.addScaledVector(a, -out.dot(a)); }
+      if (!out || out.length() < 1e-6) out = new THREE.Vector3(...toWorld(userAxis(c.axis === 'x' ? 'y' : 'x')));
+      return { count: n, step: num('rr-rstep'), out: out.toArray() };
+    };
     // A clicked direction, scaled by its spacing (or extent) field.
     const along = (c, i, a) => c.dirs[i] ? c.dirs[i].toArray().map(v => v * num(`ra-s${a}`)) : toWorld(userAxis(a).map(v => v * num(`ra-s${a}`)));
     const c = startCopies(id, c => radial
-      ? (c.centre ? { spec: radialSpec(c.centre.toArray(), toWorld(userAxis(c.axis)), num('rr-angle') * DEG, Math.round(num('rr-count')), c.mode) } : null)
+      ? (c.centre ? { spec: radialSpec(c.centre.toArray(), toWorld(userAxis(c.axis)), num('rr-angle') * DEG, Math.round(num('rr-count')), c.mode, ringsOf(c)) } : null)
       : { spec: rectangularSpec(['x', 'y', 'z'].map((a, i) => along(c, i, a)), ['x', 'y', 'z'].map(a => Math.round(num(`ra-c${a}`))), c.mode) },
     (c, n) => radial && !c.centre ? 'RADIAL ARRAY · CLICK THE CENTRE POINT'
       : `${n} ${n === 1 ? 'COPY' : 'COPIES'}${c.mode === 'extent' ? ' · EXTENT' : radial && c.mode === 'spacing' ? ' · SPACING' : ''}${!radial && c.dirs.length < 2 ? ` · CLICK ${c.dirs.length ? 'A SECOND DIRECTION (OPTIONAL)' : 'THE DIRECTION'}` : ''}`);
@@ -13934,7 +13949,7 @@ export async function mount(root, backend) {
   $('shell-t').addEventListener('input', () => cmd?.id === 'shell' && cmd.preview());
   $('draft-a').addEventListener('input', () => cmd?.id === 'draft' && cmd.preview());
   $('draft-d').addEventListener('input', () => cmd?.id === 'draft' && cmd.preview());
-  for (const id of ['mirror-at', 'ra-cx', 'ra-cy', 'ra-cz', 'ra-sx', 'ra-sy', 'ra-sz', 'rr-count', 'rr-angle', 'ca-count', 'ca-twist', 'ca-scale', 'ca-extent']) $(id).addEventListener('input', () => cmd?.preview?.());
+  for (const id of ['mirror-at', 'ra-cx', 'ra-cy', 'ra-cz', 'ra-sx', 'ra-sy', 'ra-sz', 'rr-count', 'rr-angle', 'rr-rings', 'rr-rstep', 'ca-count', 'ca-twist', 'ca-scale', 'ca-extent']) $(id).addEventListener('input', () => cmd?.preview?.());
   for (const b of $$('[data-mx], [data-rx]')) b.onclick = () => cmd?.key?.(b.dataset.mx ?? b.dataset.rx);
   $('mirror-neg').onclick = () => cmd?.id === 'mirror' && cmd.key('negative');
   $('mirror-cut').onclick = () => cmd?.id === 'mirror' && cmd.key('cut');
