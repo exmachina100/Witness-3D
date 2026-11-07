@@ -5455,7 +5455,8 @@ export async function mount(root, backend) {
     showTool('spiral');
     setState('none');
     const hint = () => {
-      $('spiral-hint').textContent = ['CLICK THE START OF THE AXIS', `CLICK THE END OF THE AXIS · X Y Z${c.axis ? ` (ALONG ${c.axis.toUpperCase()})` : ''}`, 'CLICK FOR THE RADIUS', 'A ANGLE · D LENGTH · R RADIUS · ⏎ OK'][c.step];
+      $('spiral-hint').textContent = c.chase ? `MOVE FOR THE ${c.chase.toUpperCase()} · CLICK TO SET, OR TYPE IT`
+        : ['CLICK THE START OF THE AXIS', `CLICK THE END OF THE AXIS · X Y Z${c.axis ? ` (ALONG ${c.axis.toUpperCase()})` : ''}`, 'CLICK FOR THE RADIUS', 'DRAG THE DOTS · A ANGLE · D LENGTH · R RADIUS · ⏎ OK'][c.step];
       for (const k of ['turns', 'radius', 'length']) if (document.activeElement !== $(`spiral-${k}`)) $(`spiral-${k}`).value = +c[k].toFixed(3);
       if (document.activeElement !== $('spiral-angle')) $('spiral-angle').value = c.length && c.radius ? +(spiralAngle(c) / DEG).toFixed(2) : 0;
       $$('[data-spiral="left"]')[0].setAttribute('aria-pressed', c.left);
@@ -5496,9 +5497,49 @@ export async function mount(root, backend) {
       drawPreview.geometry.dispose();
       drawPreview.geometry = new THREE.BufferGeometry().setFromPoints(pts);
       drawPreview.visible = pts.length > 1;
-      setHud(c.step >= 2 ? `R ${c.radius.toFixed(2)} · L ${c.length.toFixed(2)} · ×${+c.turns.toFixed(3)}` : c.step === 1 && c.at ? `L ${c.at.origin.distanceTo(c.p1).toFixed(2)}` : 'SPIRAL · CLICK TO START');
+      setHud(c.step >= 2 ? `R ${c.radius.toFixed(2)} · L ${c.length.toFixed(2)} · ×${+c.turns.toFixed(3)}${c.radius > 1e-9 && c.length > 1e-9 ? ` · ${(spiralAngle(c) / DEG).toFixed(1)}°` : ''}` : c.step === 1 && c.at ? `L ${c.at.origin.distanceTo(c.p1).toFixed(2)}` : 'SPIRAL · CLICK TO START');
+      // The finished spiral's handles (manual: adjust the shape by moving the dots): length up the
+      // axis from its start, radius out along the start direction.
+      if (c.step >= 3 && c.x) {
+        const n = c.p2.clone().sub(c.p1).normalize();
+        if (!c.gizmos) {
+          const lengthDot = dot(c.p1, n, v => { if (v > 1e-6) set('length', snap(v)); });
+          const radiusDot = dot(c.p1, c.x, v => { if (v > 1e-6) set('radius', snap(v)); });
+          c.gizmos = { length: lengthDot, radius: radiusDot };
+        }
+        c.gizmos.length.setFrame(c.p1, n); c.gizmos.length.render(c.length);
+        c.gizmos.radius.setFrame(c.p1, c.x); c.gizmos.radius.render(c.radius);
+      }
+    };
+    const snap = v => (snapping(lastPointer) ? Math.max(gridStep(), Math.round(v / gridStep()) * gridStep()) : v);
+    c.extraGizmos = () => (c.gizmos ? [c.gizmos.length, c.gizmos.radius] : []);
+    /**
+     * A, D, R after the radius click: the value follows the pointer (manual: "by moving the mouse")
+     * until a click sets it; typing a number instead sets it exactly.
+     */
+    const followAt = e => {
+      ray(e);
+      const n = c.p2.clone().sub(c.p1).normalize();
+      if (c.chase === 'length') {
+        const w = c.p1.clone().sub(raycaster.ray.origin), r = raycaster.ray.direction, b = n.dot(r), den = 1 - b * b;
+        if (den < 1e-9) return;
+        const t = (b * w.dot(r) - w.dot(n)) / den;
+        if (t > 1e-6) set('length', snap(t));
+        return;
+      }
+      // Radius and angle read the pointer on the plane through the axis facing the camera.
+      const side = new THREE.Vector3().crossVectors(n, camera.getWorldDirection(new THREE.Vector3()));
+      const facing = side.lengthSq() > 1e-9 ? new THREE.Vector3().crossVectors(side, n).normalize() : c.x.clone().cross(n);
+      const at = raycaster.ray.intersectPlane(new THREE.Plane().setFromNormalAndCoplanarPoint(facing, c.p1), new THREE.Vector3());
+      if (!at) return;
+      const off = at.sub(c.p1), h = off.dot(n), out = off.addScaledVector(n, -h).length();
+      if (c.chase === 'radius') { if (out > 1e-6) set('radius', snap(out)); return; }
+      // The climb angle of the line from the axis's start to the pointer.
+      const deg = Math.min(89, Math.max(1, Math.atan2(Math.abs(h), out) / DEG));
+      set('turns', c.length / (2 * Math.PI * c.radius * Math.tan(deg * DEG)));
     };
     c.move = e => {
+      if (c.chase && c.step === 3) { if (!c.entry?.text) followAt(e); return; }
       if (c.step > 2) return;
       const p = pointAt(e);
       if (!p || p.curved) return;
@@ -5507,6 +5548,7 @@ export async function mount(root, backend) {
       show();
     };
     c.click = e => {
+      if (c.chase) { c.chase = null; c.entry = null; show(); return true; }
       const p = pointAt(e);
       if (c.step > 2) return true;
       if (!p || p.curved) { toast('START ON A FLAT FACE OR THE CONSTRUCTION PLANE'); return true; }
@@ -5552,21 +5594,23 @@ export async function mount(root, backend) {
       if (['angle', 'length', 'radius'].includes(action)) {
         if (c.step < 3) { toast('CLICK THE AXIS AND THE RADIUS FIRST'); return true; }
         const name = { angle: 'ANGLE °', length: 'LENGTH', radius: 'RADIUS' }[action];
-        c.entry = { label: name, text: '', apply: v => c.set(action, Math.abs(v)) };
+        c.chase = action;
+        c.entry = { label: name, text: '', apply: v => { c.chase = null; c.set(action, Math.abs(v)); } };
+        hint();
         setHud(`${name} _`);
         return true;
       }
       if (action === 'left') { c.left = !c.left; show(); return true; }
       return false;
     };
-    c.entryDone = () => { if (!c.entry) show(); };
+    c.entryDone = () => { if (!c.entry) { c.chase = null; show(); } };
     c.finish = () => {
       if (c.step < 3) return endCmd(c.step ? 'cancelled' : null);
       const n = c.p2.clone().sub(c.p1).normalize();
       return commitCurve({ origin: c.p1.toArray(), x: c.x.toArray(), normal: n.toArray(), kind: 'spiral', radius: c.radius, length: c.length, turns: c.turns, left: c.left }, `SPIRAL R ${c.radius.toFixed(2)} L ${c.length.toFixed(2)} ×${+c.turns.toFixed(3)}`);
     };
     c.abort = () => endCmd('cancelled');
-    c.cleanup = () => { drawPreview.visible = false; };
+    c.cleanup = () => { drawPreview.visible = false; c.gizmos?.length.dispose(); c.gizmos?.radius.dispose(); };
     show();
   }
 
