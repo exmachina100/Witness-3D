@@ -88,7 +88,7 @@ export const COMMAND = {
     fillet: { d: 'distance', c: 'chamfer', a: 'angle', v: 'variable', l: 'limit', t: 'tangent' },
     move: { x: 'x', y: 'y', z: 'z', 'shift-x': 'yz', 'shift-y': 'xz', 'shift-z': 'xy', g: 'screen', w: 'orient', v: 'pivot', 'alt-v': 'unpivot', f: 'freestyle' },
     rotate: { x: 'x', y: 'y', z: 'z', r: 'screen', w: 'orient', v: 'pivot', 'alt-v': 'unpivot', f: 'freestyle' },
-    scale: { s: 'uniform', x: 'x', y: 'y', z: 'z', w: 'orient', v: 'pivot', 'alt-v': 'unpivot', f: 'freestyle' },
+    scale: { s: 'uniform', x: 'x', y: 'y', z: 'z', 'shift-x': 'yz', 'shift-y': 'xz', 'shift-z': 'xy', w: 'orient', v: 'pivot', 'alt-v': 'unpivot', f: 'freestyle' },
     pushpull: { d: 'distance', q: 'join', w: 'cut', b: 'new', r: 'rect', c: 'circle' },
     // Extrude and Boolean (manual: Q union, W difference, Shift+E intersect, B new body, T keep tools)
     // (manual: A angle, Shift+T thickness, S lock both sides, Shift+Q slice)
