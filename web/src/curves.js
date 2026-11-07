@@ -170,6 +170,45 @@ export function tangentArc(a, t, q) {
 }
 
 /**
+ * Tangent Arc ending tangent to a second curve: the points of `poly` (a polyline in the same plane,
+ * `closed` or not) where a circle leaving `a` along `t` touches it, nearest `near` first. Each is
+ * { end, radius }; the arc from `a` along `t` to `end` is tangent to the polyline there.
+ */
+export function tangentArcEnds(a, t, poly, closed, near) {
+    const l = Math.hypot(...t), N = [-t[1] / l, t[0] / l];
+    const pts = closed ? [...poly, poly[0]] : poly;
+    if (pts.length < 2) return [];
+    const nearest = p => {
+        let best = null;
+        for (let i = 0; i + 1 < pts.length; i++) {
+            const s = pts[i], d = [pts[i + 1][0] - s[0], pts[i + 1][1] - s[1]], l2 = d[0] * d[0] + d[1] * d[1];
+            const u = l2 > 0 ? Math.max(0, Math.min(1, ((p[0] - s[0]) * d[0] + (p[1] - s[1]) * d[1]) / l2)) : 0;
+            const f = [s[0] + d[0] * u, s[1] + d[1] * u], dist = Math.hypot(f[0] - p[0], f[1] - p[1]);
+            if (!best || dist < best.dist) best = { dist, f };
+        }
+        return best;
+    };
+    const centre = k => [a[0] + N[0] * k, a[1] + N[1] * k];
+    const gap = k => nearest(centre(k)).dist - Math.abs(k);
+    const reach = Math.max(...pts.map(p => Math.hypot(p[0] - a[0], p[1] - a[1])));
+    // Signed radii from tiny to large on both sides; a sign change of the gap is a touch.
+    const ks = [];
+    for (let i = 0; i <= 400; i++) { const k = reach * 1e-3 * Math.pow(4000, i / 400); ks.push(k, -k); }
+    const out = [];
+    for (const side of [1, -1]) {
+        const run = ks.filter(k => Math.sign(k) === side).sort((x, y) => Math.abs(x) - Math.abs(y));
+        for (let i = 0; i + 1 < run.length; i++) {
+            let lo = run[i], hi = run[i + 1], glo = gap(lo);
+            if (glo === 0 || Math.sign(glo) === Math.sign(gap(hi))) continue;
+            for (let j = 0; j < 60; j++) { const m = (lo + hi) / 2, gm = gap(m); if (Math.sign(gm) === Math.sign(glo)) { lo = m; glo = gm; } else hi = m; }
+            const k = (lo + hi) / 2, end = nearest(centre(k)).f;
+            if (Math.hypot(end[0] - a[0], end[1] - a[1]) > 1e-6) out.push({ end, radius: Math.abs(k) });
+        }
+    }
+    return out.sort((x, y) => Math.hypot(x.end[0] - near[0], x.end[1] - near[1]) - Math.hypot(y.end[0] - near[0], y.end[1] - near[1]));
+}
+
+/**
  * Where an open curve ends and the way it leaves there, in its plane: `[point, direction]` for the
  * first end (`last` false, heading back out of the curve) or the last. Null for closed curves.
  */

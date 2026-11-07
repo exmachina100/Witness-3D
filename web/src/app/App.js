@@ -116,7 +116,7 @@ import { parallelCylinders, parallelFlatFaces, relatedFaces, samePlane } from '.
 import { circleTangents, closestOnScreen, commonTangents, curvePointSnaps, intersections, perpendicularFeet, tangentPoints } from '../curveSnaps.js';
 import { PREF_FIELDS, changedPrefs, controlSettings, readPrefs, setPref, viewColors, wheelSpeed } from './prefs.js';
 import { drawnCurve3d, isFlat as flat3d, cv3d, spline3d } from '../draw3d.js';
-import { arcPoints, circleThrough, curveFromNurbs, cvPoints, ellipsePoints, endTangent, helixPoints, loops, nurbsLoop, nurbsPoints, polygonCorners, spiralAngle, tangentArc } from '../curves.js';
+import { arcPoints, circleThrough, curveFromNurbs, cvPoints, ellipsePoints, endTangent, helixPoints, loops, nurbsLoop, nurbsPoints, polygonCorners, spiralAngle, tangentArc, tangentArcEnds } from '../curves.js';
 
 const KEYS = {
   material: [['FORK', 'OWN COPY'], ['⏎ / RMB', 'OK'], ['ESC', 'CANCEL']],
@@ -5103,8 +5103,22 @@ export async function mount(root, backend) {
     c.plane = { o: f.o, n: f.n, x: f.x, y: f.y, target: null };
     c.pts = [new THREE.Vector2(...p)];
     c.tangent = dir;
+    // The other curves in this plane, for ending the arc tangent to one (manual: optionally click a
+    // second curve using a tangent snap).
+    c.others = curveList.filter(k => k.id !== src.id).flatMap(k => {
+      const g = curveFrame(k), world = curve2d(k).map(v => lift(g, v));
+      if (world.some(w => Math.abs(w.clone().sub(f.o).dot(f.n)) > 1e-3)) return [];
+      return [{ id: k.id, closed: isClosed(k), poly: world.map(w => { const d = w.sub(f.o); return [d.dot(f.x), d.dot(f.y)]; }) }];
+    });
     c.cursor = { uv: c.pts[0].clone() };
     drawShape();
+  }
+
+  /** The distance from 2D point `p` to the segment a–b. */
+  function segDist2(p, a, b) {
+    const d = [b[0] - a[0], b[1] - a[1]], l2 = d[0] * d[0] + d[1] * d[1];
+    const u = l2 > 0 ? Math.max(0, Math.min(1, ((p[0] - a[0]) * d[0] + (p[1] - a[1]) * d[1]) / l2)) : 0;
+    return Math.hypot(a[0] + d[0] * u - p[0], a[1] + d[1] * u - p[1]);
   }
 
   /** A rectangle's corners from its first click and the cursor, with S and C applied. */
@@ -5181,9 +5195,19 @@ export async function mount(root, backend) {
       }
       case 'tangent-arc': {
         if (n < 2) return line();
-        const t = c.flip ? [-c.tangent[0], -c.tangent[1]] : c.tangent, arc = tangentArc(a, t, b);
+        const t = c.flip ? [-c.tangent[0], -c.tangent[1]] : c.tangent;
+        // Near another curve in the plane, the end goes where the arc touches it tangentially.
+        let end = b, onto = null;
+        const reach = unitsPerPixel(controls.target) * 12;
+        for (const o of c.others ?? []) {
+          if (!o.poly.some((p0, i) => i + 1 < o.poly.length && segDist2(b, p0, o.poly[i + 1]) < reach)) continue;
+          const hit = tangentArcEnds(a, t, o.poly, o.closed, b)[0];
+          if (hit) { end = hit.end; onto = o.id; break; }
+        }
+        const arc = tangentArc(a, t, end);
         if (!arc) return { show: P, size: '—', curve: 'THE END CANNOT BE STRAIGHT AHEAD OF THE CURVE' };
-        return { show: arcPoints(arc.start, arc.mid, arc.end, 48), size: `R ${arc.radius.toFixed(2)}`, curve: { kind: 'arc', start: arc.start, mid: arc.mid, end: arc.end }, text: `TANGENT ARC R ${arc.radius.toFixed(2)}` };
+        const to = onto != null ? ` · TANGENT TO ${curveLabel(onto)}` : '';
+        return { show: arcPoints(arc.start, arc.mid, arc.end, 48), size: `R ${arc.radius.toFixed(2)}${to}`, curve: { kind: 'arc', start: arc.start, mid: arc.mid, end: arc.end }, text: `TANGENT ARC R ${arc.radius.toFixed(2)}${to}` };
       }
       case 'spline':
         return { show: splinePreview(P, false), size: `×${c.pts.length}` };
