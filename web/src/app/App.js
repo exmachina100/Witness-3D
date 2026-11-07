@@ -174,7 +174,7 @@ const KEYS = {
   imprint: [['⇧ CLICK', 'FACES · CURVES'], ['⇧ ALT CLICK', 'BODY THAT IMPRINTS'], ['X Y Z', 'VECTOR'], ['S', 'SCREEN SPACE'], ['T', 'IMPRINT TOOL'], ['C', 'COMPLETION'], ['⏎ / RMB', 'OK']],
   project: [['⇧ CLICK', 'SOLID · CURVES'], ['X Y Z', 'VECTOR'], ['S', 'SCREEN SPACE'], ['⏎ / RMB', 'OK']],
   'bridge-surface': [['⇧ CLICK', 'TWO EDGES, OR TWO CROSSING SHEETS'], ['T', 'TENSION'], ['A', 'ADD WALL PAIR'], ['⏎ / RMB', 'OK']],
-  'extend-sheet': [['CLICK', "A SHEET'S EDGES"], ['D', 'DISTANCE'], ['CTRL+CLICK', 'A BODY TO REACH'], ['TAB', 'NATURAL · LINEAR · SOFT · REFLECTIVE'], ['⏎ / RMB', 'OK']],
+  'extend-sheet': [['CLICK', "A SHEET'S EDGES"], ['DRAG', 'THE DOT'], ['D', 'DISTANCE'], ['CTRL+CLICK', 'A BODY TO REACH'], ['TAB', 'NATURAL · LINEAR · SOFT · REFLECTIVE'], ['⏎ / RMB', 'OK']],
   thicken: [['CLICK', 'A SHEET'], ['ALT CLICK', 'FACES (THICKEN FACE)'], ['D', 'FRONT FROM CURSOR'], ['B', 'BACK'], ['S', 'LOCK DISTANCES'], ['⏎ / RMB', 'OK']],
   pipe: [['⇧ CLICK', 'CURVES'], ['D', 'SIZE (DOT)'], ['⇧T', 'THICKNESS'], ['T', 'KEEP TOOLS'], ['A', 'ANGLE'], ['V', 'SIDES'], ['⇧1 ⇧2', 'DISTANCES'], ['C', 'PROFILE'], ['⏎ / RMB', 'OK']],
   patch: [['⇧ CLICK', 'CURVES · EDGES'], ['T', 'TANGENT TO FACES'], ['Q', 'QUAD-SIDED'], ['⏎ / RMB', 'OK']],
@@ -3622,6 +3622,8 @@ export async function mount(root, backend) {
 
   async function startTool(id, opts = {}) {
     if (cmd && cmd.id === id && !cmd.auto) return;
+    // The same tool auto-invoked but not yet given a value starts over in earnest, committing nothing.
+    if (cmd && cmd.id === id && cmd.armed === false) endCmd(null);
     if (cmd) await finish();
     keepSources();
     lastTool = id;
@@ -8876,6 +8878,7 @@ export async function mount(root, backend) {
       $('es-unlimit').hidden = id == null;
       $('es-limit-how').hidden = id == null;
       $('es-d').disabled = id != null;
+      c.placeDot();
       c.preview();
     };
     c.click = e => {
@@ -8884,6 +8887,29 @@ export async function mount(root, backend) {
       if (hit?.body === undefined || hit.body === c.edge?.body) return false;
       c.setLimit(c.limit === hit.body ? null : hit.body);
       return true;
+    };
+    // The yellow dot (Plasticity's): at the middle of the last picked edge, pointing out of the
+    // sheet; dragging it sets the distance. Hidden while a limiting body sets how far it goes.
+    c.placeDot = () => {
+      const last = sel.list('edge').at(-1);
+      const key = last && c.limit == null ? `${last.body}/${last.n}` : '';
+      if (key === c.dotKey) return c.gizmo?.render(c.armed ? num('es-d') : 0);
+      c.dotKey = key;
+      c.gizmo?.dispose();
+      c.gizmo = null;
+      const b = key && bodyOf(last.body), e = b?.edges[last.n];
+      if (!e || e.length < 6) return;
+      const n = e.length / 3, mid = Math.floor((n - 1) / 2);
+      const a = new THREE.Vector3().fromArray(e, mid * 3), d = new THREE.Vector3().fromArray(e, (mid + 1) * 3);
+      const at = a.clone().lerp(d, 0.5), out = sheetOut(b, at, d.clone().sub(a).normalize());
+      if (!out) return;
+      c.gizmo = dot(at, out, v => {
+        v = snapping(lastPointer) ? Math.round(v / gridStep()) * gridStep() : v;
+        if (!(v > 0)) return;
+        $('es-d').value = +v.toFixed(4);
+        c.preview();
+      });
+      c.gizmo.render(c.armed ? num('es-d') : 0);
     };
     c.setShape = k => {
       c.shape = k;
@@ -8896,6 +8922,7 @@ export async function mount(root, backend) {
       const how = c.limit != null ? `${c.outside ? 'THROUGH' : 'UP TO'} ${label(c.limit)}` : `${len(num('es-d'))} ${U()}`;
       $('es-hint').textContent = `${label(c.edge.body)}${edgesText()} · ${c.limit != null ? how : `${how} PAST THE EDGE${more().length ? 'S' : ''}`}`;
       setHud(`EXTEND SHEET ${how} · ${c.shape.toUpperCase()}`);
+      c.gizmo?.render(num('es-d'));
     }, 'es-hint');
     c.onSelection = () => {
       drawOverlays();
@@ -8905,9 +8932,11 @@ export async function mount(root, backend) {
         const missing = 'SELECT EDGES OF ONE SHEET';
         $('es-hint').textContent = missing;
         clearPreview();
+        c.placeDot();
         return setHud(missing);
       }
       c.edge = e;
+      c.placeDot();
       setTarget(label(e.body));
       if (!c.armed) {
         $('es-hint').textContent = `${label(e.body)} · TYPE A DISTANCE (D) OR ENTER FOR ${len(num('es-d'))} ${U()}`;
@@ -8934,8 +8963,32 @@ export async function mount(root, backend) {
       } catch (e) { setState('failed'); toast(say(e)); }
     };
     c.abort = () => endCmd('cancelled');
-    c.cleanup = () => clearPreview();
+    c.cleanup = () => { c.gizmo?.dispose(); clearPreview(); };
     c.onSelection();
+  }
+
+  /**
+   * Which way a sheet goes on past its edge at `at` (unit, square to the edge's `tangent`): away
+   * from the middle of the nearest facet, in that facet's plane.
+   */
+  function sheetOut(b, at, tangent) {
+    const P = b.positions, I = b.indices;
+    let best = Infinity, out = null;
+    const v = k => new THREE.Vector3(P[3 * k], P[3 * k + 1], P[3 * k + 2]);
+    for (let i = 0; I && i + 2 < I.length; i += 3) {
+      const [p, q, r] = [v(I[i]), v(I[i + 1]), v(I[i + 2])];
+      const mid = p.clone().add(q).add(r).multiplyScalar(1 / 3), dd = mid.distanceToSquared(at);
+      if (dd >= best) continue;
+      const nrm = q.clone().sub(p).cross(r.clone().sub(p));
+      if (nrm.lengthSq() < 1e-18) continue;
+      nrm.normalize();
+      const o = at.clone().sub(mid);
+      o.addScaledVector(nrm, -o.dot(nrm)).addScaledVector(tangent, -o.dot(tangent));
+      if (o.lengthSq() < 1e-18) continue;
+      best = dd;
+      out = o.normalize();
+    }
+    return out;
   }
 
   /**

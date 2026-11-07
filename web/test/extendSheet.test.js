@@ -183,3 +183,13 @@ test('several edges of one sheet grow in one undo step, each found again after t
     await be.undo();
     close(range(points(be.shapes.get(sheet)), 'x')[1], 10);
 });
+
+test('every edge of a face taken off a box extends, whichever way the face and edge run', () => {
+    const o = oc();
+    const b = box({ x: 0, y: 0, z: 0 }, { x: 10, y: 10, z: 10 });
+    const area = s => { const g = new o.GProp_GProps(); o.BRepGProp.SurfaceProperties(s, g, false, false); return g.Mass(); };
+    for (const f of numbered(b, 'TopAbs_FACE')) {
+        const face = o.TopoDS.Face(f);
+        numberedEdges(face).forEach((_, n) => close(area(extendSheet(face, n, 3, 'linear')), 130));
+    }
+});

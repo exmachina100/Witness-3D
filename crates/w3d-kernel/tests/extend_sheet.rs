@@ -260,3 +260,16 @@ fn several_edges_grow_in_one_undo_step() {
     let t = doc.kernel.tessellate(doc.get(sheet).unwrap(), 0.001).unwrap();
     assert!((area(&t) - 100.0).abs() < 1e-6);
 }
+
+#[test]
+fn every_edge_of_a_face_unjoined_from_a_box_extends() {
+    let k = Occt;
+    let b = k.box_from_corners(DVec3::ZERO, DVec3::splat(10.0));
+    for s in k.unjoin(&b, true).unwrap() {
+        for e in 0..k.edge_count(&s) as u32 {
+            let g = k.extend_sheet(&s, e, 3.0, SheetExtension::Linear).unwrap_or_else(|err| panic!("edge {e}: {err:?}"));
+            let t = k.tessellate(&g, 0.001).unwrap();
+            assert!((area(&t) - 130.0).abs() < 1e-6, "edge {e}: area {}", area(&t));
+        }
+    }
+}
