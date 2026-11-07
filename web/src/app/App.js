@@ -1368,7 +1368,7 @@ export async function mount(root, backend) {
     }
     camera = next;
     controls.object = camera;
-    for (const g of [cmd?.gizmo, cmd?.tc]) if (g) g.camera = camera;
+    for (const g of [cmd?.gizmo, cmd?.tc, ...(cmd?.extraGizmos?.() ?? [])]) if (g) g.camera = camera;
     resize(true);
     $('vh-ortho')?.setAttribute('aria-pressed', String(on));
   }
@@ -5771,6 +5771,36 @@ export async function mount(root, backend) {
     setExtrudeOps();
     c.gizmo = dot(src.at, src.normal, d => setExtrude(snapping(lastPointer) ? Math.round(d / gridStep()) * gridStep() : d));
     c.gizmo.onStart = () => { controls.enabled = false; c.auto = false; c.dragVar = null; };
+    // The angle (race) dot on the tip and the thickness dot at the base, both across the extrude
+    // direction. The angle dot's offset is how far the side leans over the distance; typed digits
+    // while it follows (A) are degrees.
+    const snapTo = (v, s) => (snapping(lastPointer) ? Math.round(v / s) * s : v);
+    c.angleDot = dot(src.at, src.normal, v => {
+      const d = Math.abs(c.distance);
+      if (!(d > 1e-9)) return;
+      const typedDeg = c.angleDot.text && v !== c.angleDot.original;
+      const deg = typedDeg ? v : Math.atan2(v, d) / DEG;
+      setExtrudeShape({ angle: +Math.max(-89, Math.min(89, snapTo(deg, 1))).toFixed(2) });
+    });
+    c.angleDot.onText = t => setHud(`ANGLE ° ${t}_`);
+    c.thickDot = dot(src.at, src.normal, v => setExtrudeShape({ thickness: Math.abs(snapTo(v, gridStep())) }));
+    c.thickDot.onText = t => setHud(`THICKNESS ${t}_`);
+    for (const g of [c.angleDot, c.thickDot]) g.onStart = () => { controls.enabled = false; c.auto = false; };
+    c.extraGizmos = () => [c.angleDot, c.thickDot];
+    c.placeShapeDots = () => {
+      const dir = (c.direction ?? c.src.normal).clone().normalize();
+      const pick = c.src.x ?? (Math.abs(dir.y) < 0.9 ? new THREE.Vector3(0, 1, 0) : new THREE.Vector3(1, 0, 0));
+      const side = pick.clone().addScaledVector(dir, -pick.dot(dir));
+      if (side.lengthSq() < 1e-12) side.set(1, 0, 0).addScaledVector(dir, -dir.x);
+      side.normalize();
+      const across = new THREE.Vector3().crossVectors(dir, side).normalize();
+      const tip = c.pivot.clone().addScaledVector(dir, c.distance);
+      c.angleDot.visible = c.distance !== 0;
+      if (!c.angleDot.busy) { c.angleDot.setFrame(tip, side); c.angleDot.render(Math.abs(c.distance) * Math.tan(c.angle * DEG)); }
+      else c.angleDot.position.copy(tip);
+      if (!c.thickDot.busy) { c.thickDot.setFrame(c.pivot, across); c.thickDot.render(c.thickness); }
+    };
+    c.placeShapeDots();
     c.onSelection = () => {
       drawOverlays();
       // The default command goes when the selection changes; a new region brings its own.
@@ -5780,16 +5810,14 @@ export async function mount(root, backend) {
     };
     c.key = action => {
       if (action === 'distance') { c.auto = false; c.gizmo.activate(lastPointer); return true; }
-      // A and Shift+T take a typed value, as the dialog's Degrees and Thickness do.
+      // A and Shift+T: the angle or thickness dot follows the cursor until a click; typing sets it
+      // exactly (degrees for the angle). Before any distance the angle is typed only.
+      if (action === 'angle' && c.distance !== 0) { c.auto = false; c.angleDot.activate(lastPointer); setHud('MOVE FOR THE ANGLE · CLICK TO SET, OR TYPE IT'); return true; }
+      if (action === 'thickness') { c.auto = false; c.thickDot.activate(lastPointer); setHud('MOVE FOR THE THICKNESS · CLICK TO SET, OR TYPE IT'); return true; }
       if (action === 'angle') {
         c.auto = false;
         c.entry = { label: 'ANGLE °', text: '', apply: v => setExtrudeShape({ angle: v }) };
         setHud('ANGLE ° _');
-        return true;
-      }
-      if (action === 'thickness') {
-        c.entry = { label: 'THICKNESS', text: '', apply: v => setExtrudeShape({ thickness: Math.abs(v) }) };
-        setHud('THICKNESS _');
         return true;
       }
       if (action === 'lock') { setExtrudeShape({ lock: !c.lock }); return true; }
@@ -5844,6 +5872,7 @@ export async function mount(root, backend) {
         c.pivot = p;
         c.picking = null;
         c.gizmo.setFrame(c.pivot, c.direction ?? c.src.normal);
+        c.placeShapeDots();
       } else if (c.picking === 'freestyle') {
         c.freeStart = p;
         c.picking = 'freestyle-end';
@@ -5862,7 +5891,7 @@ export async function mount(root, backend) {
     };
     c.finish = () => commitExtrude();
     c.abort = () => endCmd('cancelled');
-    c.cleanup = () => { c.gizmo?.dispose(); clearPreview(); };
+    c.cleanup = () => { c.gizmo?.dispose(); c.angleDot?.dispose(); c.thickDot?.dispose(); clearPreview(); };
     setHud(auto ? 'DRAG THE DOT · E EXTRUDE' : 'DRAG THE DOT · D · A ⇧T S · Q W ⇧E ⇧Q B');
   }
   function setExtrudeOps() {
@@ -5885,6 +5914,7 @@ export async function mount(root, backend) {
     if (document.activeElement !== $('ex-back')) $('ex-back').value = +(c.lock ? Math.abs(c.distance) : c.back).toFixed(3);
     $('ex-back').disabled = c.lock;
     setExtrudeOps();
+    c.placeShapeDots?.();
     if (c.distance) previewExtrude();
   }
   function setExtrude(d, fromGizmo = true) {
@@ -5895,6 +5925,7 @@ export async function mount(root, backend) {
     if (!fromGizmo) c.gizmo.render(d);
     if (document.activeElement !== $('ex-distance')) $('ex-distance').value = +d.toFixed(3);
     if (c.lock) $('ex-back').value = +Math.abs(d).toFixed(3);
+    c.placeShapeDots?.();
     previewExtrude();
   }
   const extrudeRequest = c => c.src.curves ? {
@@ -13970,7 +14001,7 @@ export async function mount(root, backend) {
     if (!turning) controls.update();
     nav.update(camera, camera.isOrthographicCamera);
     if (cmd?.gizmo) cmd.gizmo.render(cmd.gizmo.value);
-    for (const g of Object.values(cmd?.dots ?? {})) g.render(g.value);
+    for (const g of [...Object.values(cmd?.dots ?? {}), ...(cmd?.extraGizmos?.() ?? [])]) if (g?.visible !== false) g.render(g.value);
     if (view.ao) renderAO(); else renderer.render(scene, camera);
   });
 
