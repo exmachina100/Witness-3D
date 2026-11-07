@@ -169,7 +169,7 @@ const KEYS = {
   'offset-curve': [['DRAG DOT', 'DISTANCE'], ['D', 'DISTANCE'], ['V / C', 'GAP FILL'], ['S', 'BOTH SIDES'], ['F', 'FREESTYLE: CLICK'], ['O', 'SLOT'], ['I', 'COMBINED'], ['⏎ / RMB', 'OK']],
   'fillet-curve': [['DRAG DOT', 'IN ROUND · OUT CHAMFER'], ['D', 'FILLET DISTANCE'], ['C', 'CHAMFER DISTANCE'], ['⏎ / RMB', 'OK']],
   'remove-face': [['⇧ CLICK', 'FACES'], ['⏎ / RMB', 'OK']],
-  cut: [['⇧ CLICK', 'SOLIDS · CURVES'], ['⇧ ALT CLICK', 'FACES'], ['P', 'CONSTRUCTION PLANE'], ['S', 'SCREEN SPACE'], ['E', 'EXTEND'], ['C', 'CUT CURVE'], ['⏎ / RMB', 'OK']],
+  cut: [['CLICK', 'TARGETS, THEN CUTTERS'], ['⇧ CLICK', 'MORE TARGETS'], ['P', 'CONSTRUCTION PLANE'], ['S', 'SCREEN SPACE'], ['E', 'EXTEND'], ['C', 'CUT CURVE'], ['⏎ / RMB', 'OK']],
   draft: [['A', 'ANGLE'], ['D', 'OFFSET'], ['TAB', 'GROW'], ['⇧ CLICK', 'FACES'], ['CLICK LINE', 'CURVE TAPER'], ['⏎ / RMB', 'OK']],
   imprint: [['⇧ CLICK', 'FACES · CURVES'], ['⇧ ALT CLICK', 'BODY THAT IMPRINTS'], ['X Y Z', 'VECTOR'], ['S', 'SCREEN SPACE'], ['T', 'IMPRINT TOOL'], ['C', 'COMPLETION'], ['⏎ / RMB', 'OK']],
   project: [['⇧ CLICK', 'SOLID · CURVES'], ['X Y Z', 'VECTOR'], ['S', 'SCREEN SPACE'], ['⏎ / RMB', 'OK']],
@@ -677,7 +677,8 @@ const SHELL = `
     </div>
     <div class="sec" data-panel="cut" hidden>
       <span class="hint" data-id="cut-hint">—</span>
-      <div class="field"><label>SOLIDS</label><output data-id="cut-solids">0</output></div>
+      <div class="field"><button class="pick" data-id="cut-pick-targets" aria-pressed="false" title="Pick the target bodies: click solids or sheets, then Enter or right-click">TARGETS</button><output data-id="cut-solids">0</output></div>
+      <div class="field"><button class="pick" data-id="cut-pick-cutters" aria-pressed="false" title="Pick the cutters: click curves or faces">CUTTERS</button><output data-id="cut-cutters">—</output></div>
       <div class="field"><label>CURVES</label><output data-id="cut-curves">0</output></div>
       <div class="field"><label>FACES</label><output data-id="cut-faces">0</output></div>
       <div class="chips"><button data-id="cut-plane" aria-pressed="false"><kbd>P</kbd>PLANE</button><button data-id="cut-screen" aria-pressed="false" title="Screen space: the curves cut straight into the view (S)"><kbd>S</kbd>SCREEN SPACE</button><button data-id="cut-extend" aria-pressed="false" title="Extend: open curves carry straight on past their ends, so a short one cuts right through (E)"><kbd>E</kbd>EXTEND</button></div>
@@ -8632,7 +8633,9 @@ export async function mount(root, backend) {
    */
   function startCut() {
     if (!backend.previewCut) return toast('CUT IS NOT IN THIS BUILD YET');
-    const c = cmd = { id: 'cut', bodies: [], curves: [], faces: [], plane: false, screen: false, extend: false, sent: 0, shown: 0 };
+    // Plasticity's two prompts: the target bodies, then (Enter or right-click) the cutters. With
+    // solids already selected it goes straight to the cutters; TARGETS and CUTTERS pick again.
+    const c = cmd = { id: 'cut', bodies: [], curves: [], faces: [], plane: false, screen: false, extend: false, sent: 0, shown: 0, stage: sel.solids.some(b => org.shows(b)) ? 'cutters' : 'targets' };
     lastTool = 'cut';
     showTool('cut');
     setState('none');
@@ -8661,25 +8664,39 @@ export async function mount(root, backend) {
       $('cut-solids').textContent = c.bodies.length;
       $('cut-curves').textContent = c.curves.length;
       $('cut-faces').textContent = c.faces.length;
+      $('cut-cutters').textContent = c.curves.length + c.faces.length + (c.plane ? 1 : 0) || '—';
+      $('cut-pick-targets').setAttribute('aria-pressed', String(c.stage === 'targets'));
+      $('cut-pick-cutters').setAttribute('aria-pressed', String(c.stage === 'cutters'));
       $('cut-pieces').textContent = '—';
       setTarget(c.bodies.length === 1 ? label(c.bodies[0]) : c.bodies.length ? `${c.bodies.length} SOLIDS` : '—');
       const by = [c.curves.length && `${c.curves.length} CURVE${c.curves.length > 1 ? 'S' : ''}${c.screen ? ' ALONG THE VIEW' : ''}${c.extend ? ' EXTENDED' : ''}`, c.faces.length && `${c.faces.length} FACE${c.faces.length > 1 ? 'S' : ''}`, c.plane && `PLANE ${cplane.name}`].filter(Boolean);
-      const missing = !c.bodies.length ? 'SELECT THE SOLIDS TO CUT' : !by.length ? 'SELECT CURVES OR FACES, OR P FOR THE PLANE' : null;
+      const missing = c.stage === 'targets' ? (c.bodies.length ? `${c.bodies.length} TARGET${c.bodies.length > 1 ? 'S' : ''} · ⏎ OR RMB FOR THE CUTTERS` : 'SELECT TARGET BODIES · ⏎ OR RMB FOR THE CUTTERS')
+        : !c.bodies.length ? 'SELECT TARGET BODIES FIRST' : !by.length ? 'SELECT CUTTERS: CURVES OR FACES, OR P FOR THE PLANE' : null;
       $('cut-hint').textContent = missing ?? `${c.bodies.length} SOLID${c.bodies.length > 1 ? 'S' : ''} · ${by.join(' · ')}`;
       if (missing) { clearPreview(); return setHud(missing); }
       c.preview();
     };
+    c.pick = stage => { c.stage = stage; c.onSelection(); };
+    // A click picks for the stage: target bodies, or cutters (curves and faces); Shift adds targets.
     c.click = e => {
-      if (!(e.ctrlKey || e.metaKey || e.shiftKey)) return true;
       const hit = pickAt(e);
-      if (hit?.kind === 'curve') sel.toggle({ kind: 'curve', id: hit.id });
-      else if (hit?.kind === 'face' && e.altKey) sel.toggle({ kind: 'face', body: hit.body, n: hit.n });
-      else if (hit?.body !== undefined) sel.toggle({ kind: 'solid', body: hit.body });
-      else return true;
+      if (c.stage === 'targets' || (e.shiftKey && hit?.kind !== 'curve' && !e.altKey)) {
+        if (hit?.body === undefined) return true;
+        sel.toggle({ kind: 'solid', body: hit.body });
+      } else if (hit?.kind === 'curve') sel.toggle({ kind: 'curve', id: hit.id });
+      else if (hit?.kind === 'face') sel.toggle({ kind: 'face', body: hit.body, n: hit.n });
+      else {
+        // Faces are cutters whatever the selection mode allows.
+        ray(e);
+        const h = raycaster.intersectObjects(shownMeshes().filter(m => !org.locked.has(m.userData.id)), false)[0];
+        if (!h) return true;
+        sel.toggle({ kind: 'face', body: h.object.userData.id, n: h.object.userData.faceIds[h.faceIndex] });
+      }
       selectionChanged();
       return true;
     };
     c.finish = async () => {
+      if (c.stage === 'targets') { if (!c.bodies.length) return setHud('SELECT TARGET BODIES FIRST'); return c.pick('cutters'); }
       if (!c.bodies.length || !(c.curves.length || c.faces.length || c.plane)) { setState('failed'); return toast($('cut-hint').textContent); }
       try {
         const { ids, scene: list } = await backend.commitCut(c.request());
@@ -14466,6 +14483,8 @@ export async function mount(root, backend) {
   for (const b of $$('[data-camethod]')) b.onclick = () => cmd?.id === 'curve-array' && cmd.key(b.dataset.camethod);
   for (const id of ['mirror-instance', 'ra-instance', 'rr-instance', 'ca-instance']) $(id).onclick = () => cmd?.key?.('instance');
   $('cut-plane').onclick = () => cmd?.id === 'cut' && cmd.key('plane');
+  $('cut-pick-targets').onclick = () => cmd?.id === 'cut' && cmd.pick('targets');
+  $('cut-pick-cutters').onclick = () => cmd?.id === 'cut' && cmd.pick('cutters');
   $('cut-screen').onclick = () => cmd?.id === 'cut' && cmd.key('screen');
   $('cut-extend').onclick = () => cmd?.id === 'cut' && cmd.key('extend');
   $('bs-t').addEventListener('input', () => cmd?.id === 'bridge-surface' && cmd.preview());
