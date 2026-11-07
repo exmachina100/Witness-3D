@@ -975,11 +975,12 @@ function curvedNormal(f) {
  * Plasticity's Cut with curves: each curve as a cutting sheet, its wire extruded `length` mm both
  * ways along its plane's normal, so it passes right through whatever it is drawn over.
  */
-export function cutSheets(curves, length) {
+export function cutSheets(curves, length, dir = null) {
     const o = oc();
     if (!(length > 0)) throw new Error('nothing to cut');
     return curves.map(c => {
-        const n = plane(c).n, wire = wireOf(geometry(c)).Wire();
+        // Screen Space: swept along the view instead of the curve's normal.
+        const n = dir ? new THREE.Vector3(...dir).normalize() : plane(c).n, wire = wireOf(geometry(c)).Wire();
         const back = new o.gp_Trsf();
         back.SetTranslation(new o.gp_Vec(-n.x * length, -n.y * length, -n.z * length));
         const start = new o.BRepBuilderAPI_Transform(wire, back, true, false).Shape();

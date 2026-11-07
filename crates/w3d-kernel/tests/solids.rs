@@ -457,3 +457,22 @@ fn a_cleared_mesh_can_be_made_coarser() {
 }
 
 
+
+#[test]
+fn cut_screen_space_sweeps_along_the_view_and_shapes_cut_too() {
+    let mut doc = Document::new(Occt);
+    let block = doc.add(doc.kernel.box_from_corners(DVec3::new(-40.0, 0.0, -25.0), DVec3::new(40.0, 30.0, 25.0)));
+    doc.clear_history();
+    let ground = [0.0, 0.0, 0.0];
+    let line = doc.commit_curves(vec![Curve { origin: ground, x: [1.0, 0.0, 0.0], normal: [0.0, 1.0, 0.0], shape: CurveShape::Polyline { points: vec![[10.0, -100.0], [10.0, 100.0]], closed: false } }]).unwrap()[0];
+    // Seen along (1, 1, 0) the line cuts the slanted plane x − y = 10: a prism 30 deep, 30 wide, 50 long.
+    let slanted = Tools { dir: Some([1.0, 1.0, 0.0]), ..Tools::default() };
+    let r = doc.preview_cut(&[block], &[line], &slanted).unwrap();
+    let mut vols: Vec<f64> = std::iter::once(&r[0].1.solid).chain(r[0].2.iter()).map(|s| volume(&doc.kernel, s)).collect();
+    vols.sort_by(f64::total_cmp);
+    close(vols[0], 0.5 * 30.0 * 30.0 * 50.0, 1e-6);
+    // A curve given whole (Extend's pieces) cuts like a drawn one.
+    let shape = Curve { origin: ground, x: [1.0, 0.0, 0.0], normal: [0.0, 1.0, 0.0], shape: CurveShape::Polyline { points: vec![[10.0, -100.0], [10.0, 100.0]], closed: false } };
+    let ids = doc.commit_cut(&[block], &[], &Tools { shapes: vec![shape], ..Tools::default() }).unwrap();
+    assert_eq!(ids.len(), 2);
+}
