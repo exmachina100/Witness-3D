@@ -254,6 +254,7 @@ const SHELL = `
       <button role="tab" data-id="tab-outliner" aria-selected="true">OUTLINER</button>
       <button role="tab" data-id="tab-history" aria-selected="false">HISTORY <span data-id="history-count">00</span></button>
     </div>
+    <input class="outliner-search" data-id="outliner-search" type="search" placeholder="SEARCH" aria-label="Search the outliner" title="Show only the rows whose name has this (Ctrl+F over the outliner; Escape clears)" hidden>
     <div class="list" data-id="outliner"></div>
     <div class="list" data-id="history" hidden></div>
     <dl class="stats">
@@ -2618,6 +2619,7 @@ export async function mount(root, backend) {
       el.title = folded ? 'Open this section' : 'Fold this section';
       el.onclick = () => { closedSections.has(sec) ? closedSections.delete(sec) : closedSections.add(sec); renderOutliner(); };
     }
+    if ($('outliner-search').value) filterOutliner();
   }
   function renderHistory() {
     const live = history.length - undone;
@@ -3369,6 +3371,7 @@ export async function mount(root, backend) {
   /** After any change of selection: redraw, update the panels, and start or stop the default command. */
   function selectionChanged({ quiet = false } = {}) {
     drawOverlays();
+    openToSelection();
     renderOutliner();
     renderContext();
     const n = sel.size;
@@ -13189,6 +13192,79 @@ export async function mount(root, backend) {
   addEventListener('keydown', e => { if (radial && e.key === 'Escape') { e.stopImmediatePropagation(); closeRadial(); } }, true);
   addEventListener('keydown', e => { if (!$('prefs').hidden && e.key === 'Escape') { e.stopImmediatePropagation(); closePrefs(); } }, true);
   addEventListener('keydown', e => { if (planeOriginPending && e.key === 'Escape') { e.stopImmediatePropagation(); planeOriginPending = false; setHud(''); } }, true);
+  // Keys over the outliner (manual: Outliner): / scrolls to the selection, . folds every group but
+  // those holding the selection, C folds them all, Ctrl+F searches the rows.
+  let overOutliner = false;
+  addEventListener('keydown', e => {
+    if (!overOutliner || palette || asking || (cmd && !cmd.auto) || e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA' || e.target.isContentEditable) return;
+    const k = keyOf(e);
+    const done = () => { e.preventDefault(); e.stopImmediatePropagation(); };
+    if (k === '/') {
+      done();
+      const keys = new Set([...sel.solids.map(String), ...selectedCurveKeys(), ...sel.groups.map(g => `g:${g}`)]);
+      openToSelection();
+      const row = [...$('outliner').querySelectorAll('[data-okey]')].find(r => keys.has(r.dataset.okey));
+      return row ? row.scrollIntoView({ block: 'center' }) : toast('NOTHING SELECTED');
+    }
+    if (k === '.' || k === 'c') {
+      done();
+      const keep = k === '.' ? groupsHoldingSelection() : new Set();
+      for (const g of org.groups) g.open = keep.has(g.id);
+      if (k === '.') for (const t of ['SOLIDS', 'SHEETS', 'CURVES', 'INSTANCES', 'MEASUREMENTS', 'IMAGES']) if (!sectionHasSelection(t)) closedSections.add(t); else closedSections.delete(t);
+      return renderOutliner();
+    }
+    if (k === 'ctrl-f') { done(); const s = $('outliner-search'); s.hidden = false; s.focus(); s.select(); }
+  }, true);
+  /** The groups (and the groups around them) that hold anything selected. */
+  function groupsHoldingSelection() {
+    const out = new Set();
+    const keys = [...sel.bodies, ...selectedCurveKeys()];
+    const up = gid => { for (let g = org.group(gid); g; g = org.group(g.parent)) out.add(g.id); };
+    for (const k of keys) up(org.groupOf.get(k));
+    for (const g of sel.groups) up(org.group(g)?.parent);
+    return out;
+  }
+  /** Selecting in the viewport opens the groups around what is selected (Plasticity's outliner). */
+  function openToSelection() {
+    let opened = false;
+    for (const gid of groupsHoldingSelection()) { const g = org.group(gid); if (g && !g.open) { g.open = true; opened = true; } }
+    return opened;
+  }
+  const sectionHasSelection = t => (t === 'SOLIDS' ? sel.bodies.some(id => !bodyOf(id)?.sheet) : t === 'SHEETS' ? sel.bodies.some(id => bodyOf(id)?.sheet) : t === 'CURVES' ? sel.curves.length > 0 : false);
+  {
+    const out = $('outliner'), search = $('outliner-search');
+    out.addEventListener('pointerenter', () => { overOutliner = true; });
+    out.addEventListener('pointerleave', () => { overOutliner = false; if (boxHover.length) { boxHover = []; drawOverlays(); } });
+    // Hovering a row lights its object (or everything in its group) in the viewport.
+    out.addEventListener('pointerover', e => {
+      const k = e.target.closest('[data-okey]')?.dataset.okey;
+      const keys = !k ? [] : k.startsWith('g:') ? org.allMembers(Number(k.slice(2)), allObjectKeys()) : [isCurveOKey(k) ? k : Number(k)];
+      const items = keys.filter(x => org.shows(x)).map(x => (typeof x === 'string' ? { kind: 'curve', id: curveKeyId(x) } : { kind: 'solid', body: x }));
+      if (JSON.stringify(items) !== JSON.stringify(boxHover)) { boxHover = items; drawOverlays(); }
+    });
+    search.addEventListener('input', () => filterOutliner());
+    search.addEventListener('keydown', e => { if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); search.value = ''; search.hidden = true; filterOutliner(); search.blur(); } });
+  }
+  const isCurveOKey = k => /^c:/.test(k);
+  /** Ctrl+F: only rows whose name or tag has the text; folders stay when anything inside does. */
+  function filterOutliner() {
+    const q = $('outliner-search').value.trim().toUpperCase();
+    const rows = [...$('outliner').querySelectorAll('.row-item')];
+    for (const r of rows) r.classList.toggle('filtered', !!q && !r.classList.contains('folder') && !(r.textContent.toUpperCase().includes(q)));
+    if (!q) return;
+    // A folder stays when its name matches or a row below it (deeper) does.
+    for (let i = 0; i < rows.length; i++) {
+      const r = rows[i];
+      if (!r.classList.contains('folder')) continue;
+      const depth = parseFloat(r.style.paddingLeft) || 0;
+      let keep = r.querySelector('.name')?.textContent.toUpperCase().includes(q);
+      for (let j = i + 1; j < rows.length && !keep; j++) {
+        if ((parseFloat(rows[j].style.paddingLeft) || 0) <= depth) break;
+        if (!rows[j].classList.contains('folder') && !rows[j].classList.contains('filtered')) keep = true;
+      }
+      r.classList.toggle('filtered', !keep);
+    }
+  }
   addEventListener('keyup', e => {
     // Let go of the key that opened the menu: run what the pointer is on, or leave it open to click.
     if (radial?.key && e.code === radial.key) { radial.key = null; if (radial.hot >= 0) runRadial(radial.hot); }
