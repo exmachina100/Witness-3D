@@ -71,7 +71,7 @@ import { adjacent, edgeLoop, edgeRing, topology } from './edgeLoops.js';
 import { Selection, faceBoundEdges, faceEdges, faceNeighbours, faceRim } from './Selection.js';
 import { faceProfile } from '../faceProfile.js';
 import { edgeOffsetsBothSides, edgeOffsetsOnFace, facesLoopOffsets } from '../edgeOffset.js';
-import { curveArrayMotions } from '../curveArray.js';
+import { curveArrayMotions, curveLength } from '../curveArray.js';
 import { chamferDimensions, curveDimensions, faceDimensions, filletDimensions, solidDimensions } from '../dimension.js';
 import { edgeCurve, flattenCurve } from '../altDuplicate.js';
 import { EDGE_CONTINUITY, bridgeCurve, bridgePoles, edgePoint } from '../bridgeEdge.js';
@@ -939,7 +939,12 @@ const SHELL = `
       <div class="field"><label for="w3d-ca-count">COUNT</label><input id="w3d-ca-count" data-id="ca-count" type="number" step="1" min="1" value="5"></div>
       <div class="field"><label for="w3d-ca-twist">TWIST</label><input id="w3d-ca-twist" data-id="ca-twist" type="number" step="15" value="0" title="Degrees the last copy turns about the curve; the copies between turn in proportion"></div>
       <div class="field"><label for="w3d-ca-scale">SCALE</label><input id="w3d-ca-scale" data-id="ca-scale" type="number" step="0.1" min="0.01" value="1" title="The last copy's size; the copies between grow or shrink evenly"></div>
-      <div class="chips"><button data-id="ca-align" aria-pressed="true" title="Turn each copy with the curve (A)"><kbd>A</kbd>ALIGN</button><button data-id="ca-join" aria-pressed="false"><kbd>J</kbd>JOIN</button><button data-id="ca-instance" aria-pressed="false" title="Make instances of the solids, sharing their geometry, rather than copies (I)"><kbd>I</kbd>INSTANCE</button></div>
+      <span class="label">ALIGNMENT</span>
+      <div class="chips"><button data-caalign="normal" aria-pressed="false" title="Normal: each copy follows the curve's own frame, turning over where the curve bends the other way (A cycles)"><kbd>A</kbd>NORMAL</button><button data-caalign="parallel" aria-pressed="false" title="Parallel: every copy keeps the original's orientation (A cycles)">PARALLEL</button><button data-caalign="transport" aria-pressed="true" title="Transport: each copy turns with the curve without twisting or flipping (A cycles)">TRANSPORT</button></div>
+      <span class="label">METHOD</span>
+      <div class="chips"><button data-camethod="ratio" aria-pressed="true" title="Ratio: the extent is a share of the curve's length, 0 to 1 (M)"><kbd>M</kbd>RATIO</button><button data-camethod="distance" aria-pressed="false" title="Distance: the extent is a length along the curve in mm (M)">DISTANCE</button></div>
+      <div class="field"><label for="w3d-ca-extent">EXTENT</label><input id="w3d-ca-extent" data-id="ca-extent" type="number" step="0.1" min="0" value="1" title="How far along the curve the copies reach from its start"></div>
+      <div class="chips"><button data-id="ca-join" aria-pressed="false"><kbd>J</kbd>JOIN</button><button data-id="ca-instance" aria-pressed="false" title="Make instances of the solids, sharing their geometry, rather than copies (I)"><kbd>I</kbd>INSTANCE</button></div>
     </div>
     <div class="sec" data-panel="form" hidden>
       <span class="hint" data-id="form-hint">—</span>
@@ -1129,9 +1134,9 @@ const VIEWS = {
 export async function mount(root, backend) {
   root.innerHTML = SHELL;
   // Panel options carry their icon ahead of the key and name.
-  for (const b of root.querySelectorAll('[data-proj],[data-imp],[data-impcomp],[data-draw],[data-bop],[data-btmat],[data-bumat],[data-xop],[data-fop],[data-spiral],[data-toggle],[data-gmethod],[data-galign],[data-gcorner],[data-grow],[data-mfgrow],[data-drgrow],[data-eslimit],[data-flshape],[data-chshape],[data-drtaper],[data-avaxis],[data-extshape],[data-esshape],[data-isodir],[data-id="oe-both"],[data-id="iso-subdivide"],[data-id="oe-individual"],[data-id="blend-tangent"],[data-id="ex-lock"],[data-id="ex-keep"],[data-id="bool-keep"],[data-id="prim-keep"],[data-id="form-keep"],[data-pipeop],[data-id="pipe-keep"],[data-id="ex-free"],[data-id="ex-pivot"],[data-id="ex-individual"],[data-id="patch-individual"],[data-id="patch-quad"],[data-id="as-symmetric"],[data-id="as-analysis"],[data-id="sq-analysis"],[data-id="dr-hidden"],[data-id="dr-curves"],[data-id="oc-lock"],[data-id="oc-free"],[data-id="oc-slot"],[data-id="oc-combine"],[data-id="es-unlimit"],[data-rbmethod],[data-rcmethod],[data-id="rb-corners"],[data-oecorner],[data-saplane],[data-plaxis],[data-plop],[data-id="pl-flip"],[data-id="pl-instance"],[data-id="mirror-instance"],[data-id="mirror-neg"],[data-id="mirror-free"],[data-id="mirror-cut"],[data-id="ra-instance"],[data-id="ra-spacing"],[data-id="ra-extent"],[data-id="rr-total"],[data-id="rr-spacing"],[data-id="rr-instance"],[data-id="ca-instance"],[data-id="br-trim"],[data-id="br-comb"],[data-id="br-constrain"],[data-id="ac-constrain"],[data-id="ac-comb"],[data-id="dc-reblend"],[data-id="section-btn"],[data-id="sa-flip"],[data-id="rf-shrink"],[data-id="ut-keep"],[data-txfont],[data-id="tx-load"],[data-id="tx-system"],[data-txalign],[data-sldir],[data-dcflip],[data-id="dc-keep"],[data-imdepth],[data-imcull],[data-id="im-delete"],[data-id="cc-extend"],[data-id="cc-screen"],[data-inmode],[data-pfmode],[data-pfmirror],[data-xforient],[data-xfpivot],[data-id="xf-pick"],[data-id="xf-unpivot"],[data-id="xf-free"],[data-id="ls-loop"],[data-id="ls-limit"],[data-id="ls-simplify"],[data-pmethod],[data-mxtopo],[data-id="mx-convex"],[data-sqbound],[data-asbound],[data-bsshape],[data-bstrim],[data-id="bs-add"],[data-id="bs-s1"],[data-id="bs-s2"],[data-id="in-realize"],[data-id="in-dup"],[data-id="in-delete"],[data-id="matcap-load"],[data-id="matcap-custom"],[data-id="hdr-load"],[data-id="hdr-custom"]')) {
+  for (const b of root.querySelectorAll('[data-proj],[data-imp],[data-impcomp],[data-draw],[data-bop],[data-btmat],[data-bumat],[data-xop],[data-fop],[data-spiral],[data-toggle],[data-gmethod],[data-galign],[data-gcorner],[data-grow],[data-mfgrow],[data-drgrow],[data-eslimit],[data-flshape],[data-chshape],[data-drtaper],[data-avaxis],[data-extshape],[data-esshape],[data-isodir],[data-id="oe-both"],[data-id="iso-subdivide"],[data-id="oe-individual"],[data-id="blend-tangent"],[data-id="ex-lock"],[data-id="ex-keep"],[data-id="bool-keep"],[data-id="prim-keep"],[data-id="form-keep"],[data-pipeop],[data-id="pipe-keep"],[data-id="ex-free"],[data-id="ex-pivot"],[data-id="ex-individual"],[data-id="patch-individual"],[data-id="patch-quad"],[data-id="as-symmetric"],[data-id="as-analysis"],[data-id="sq-analysis"],[data-id="dr-hidden"],[data-id="dr-curves"],[data-id="oc-lock"],[data-id="oc-free"],[data-id="oc-slot"],[data-id="oc-combine"],[data-id="es-unlimit"],[data-rbmethod],[data-rcmethod],[data-id="rb-corners"],[data-oecorner],[data-saplane],[data-plaxis],[data-plop],[data-id="pl-flip"],[data-id="pl-instance"],[data-id="mirror-instance"],[data-id="mirror-neg"],[data-id="mirror-free"],[data-id="mirror-cut"],[data-id="ra-instance"],[data-id="ra-spacing"],[data-id="ra-extent"],[data-id="rr-total"],[data-id="rr-spacing"],[data-id="rr-instance"],[data-id="ca-instance"],[data-caalign],[data-camethod],[data-id="br-trim"],[data-id="br-comb"],[data-id="br-constrain"],[data-id="ac-constrain"],[data-id="ac-comb"],[data-id="dc-reblend"],[data-id="section-btn"],[data-id="sa-flip"],[data-id="rf-shrink"],[data-id="ut-keep"],[data-txfont],[data-id="tx-load"],[data-id="tx-system"],[data-txalign],[data-sldir],[data-dcflip],[data-id="dc-keep"],[data-imdepth],[data-imcull],[data-id="im-delete"],[data-id="cc-extend"],[data-id="cc-screen"],[data-inmode],[data-pfmode],[data-pfmirror],[data-xforient],[data-xfpivot],[data-id="xf-pick"],[data-id="xf-unpivot"],[data-id="xf-free"],[data-id="ls-loop"],[data-id="ls-limit"],[data-id="ls-simplify"],[data-pmethod],[data-mxtopo],[data-id="mx-convex"],[data-sqbound],[data-asbound],[data-bsshape],[data-bstrim],[data-id="bs-add"],[data-id="bs-s1"],[data-id="bs-s2"],[data-id="in-realize"],[data-id="in-dup"],[data-id="in-delete"],[data-id="matcap-load"],[data-id="matcap-custom"],[data-id="hdr-load"],[data-id="hdr-custom"]')) {
     const name = (b.dataset.proj && (b.dataset.proj === 'screen' ? 'view-screen' : `proj-${b.dataset.proj}`)) ?? (b.dataset.imp && (b.dataset.imp === 'screen' ? 'view-screen' : `proj-${b.dataset.imp}`)) ?? (b.dataset.impcomp && `completion-${b.dataset.impcomp}`) ?? b.dataset.draw ?? b.dataset.bop ?? (b.dataset.xforient && `orient-${b.dataset.xforient}`) ?? (b.dataset.xfpivot && `pivot-${b.dataset.xfpivot}`) ?? (b.dataset.btmat && `mat-${b.dataset.btmat}`) ?? (b.dataset.bumat && `mat-${b.dataset.bumat}`) ?? b.dataset.xop ?? b.dataset.fop ?? b.dataset.spiral ?? (b.dataset.toggle && `view-${b.dataset.toggle}`)
-      ?? (b.dataset.gmethod && `guide-${b.dataset.gmethod}`) ?? (b.dataset.galign && `align-${b.dataset.galign}`) ?? (b.dataset.gcorner && (b.dataset.gcorner === 'round' ? 'corner-round' : 'corner-linear')) ?? (b.dataset.grow && `grow-${b.dataset.grow}`) ?? (b.dataset.mfgrow && `grow-${b.dataset.mfgrow}`) ?? (b.dataset.drgrow && `grow-${b.dataset.drgrow}`) ?? (b.dataset.eslimit && `limit-${b.dataset.eslimit}`) ?? (b.dataset.flshape && `fillet-${b.dataset.flshape}`) ?? (b.dataset.chshape && `chamfer-${b.dataset.chshape}`) ?? (b.dataset.drtaper && `taper-${b.dataset.drtaper}`) ?? (b.dataset.avaxis && `axis-${b.dataset.avaxis}`) ?? (b.dataset.extshape && `extend-${b.dataset.extshape}`) ?? (b.dataset.esshape && `extend-${b.dataset.esshape}`) ?? (b.dataset.isodir && `iso-${b.dataset.isodir}`) ?? (b.dataset.rbmethod && `rebuild-${b.dataset.rbmethod}`) ?? (b.dataset.rcmethod && `rebuild-${b.dataset.rcmethod}`) ?? (b.dataset.oecorner && `corner-${b.dataset.oecorner}`) ?? (b.dataset.saplane && `section-${b.dataset.saplane}`) ?? (b.dataset.plaxis && (b.dataset.plaxis === 'normal' ? 'place-normal' : `axis-${b.dataset.plaxis}`)) ?? b.dataset.plop ?? b.dataset.pipeop
+      ?? (b.dataset.gmethod && `guide-${b.dataset.gmethod}`) ?? (b.dataset.galign && `align-${b.dataset.galign}`) ?? (b.dataset.caalign && `align-${b.dataset.caalign}`) ?? (b.dataset.camethod && `array-${b.dataset.camethod}`) ?? (b.dataset.gcorner && (b.dataset.gcorner === 'round' ? 'corner-round' : 'corner-linear')) ?? (b.dataset.grow && `grow-${b.dataset.grow}`) ?? (b.dataset.mfgrow && `grow-${b.dataset.mfgrow}`) ?? (b.dataset.drgrow && `grow-${b.dataset.drgrow}`) ?? (b.dataset.eslimit && `limit-${b.dataset.eslimit}`) ?? (b.dataset.flshape && `fillet-${b.dataset.flshape}`) ?? (b.dataset.chshape && `chamfer-${b.dataset.chshape}`) ?? (b.dataset.drtaper && `taper-${b.dataset.drtaper}`) ?? (b.dataset.avaxis && `axis-${b.dataset.avaxis}`) ?? (b.dataset.extshape && `extend-${b.dataset.extshape}`) ?? (b.dataset.esshape && `extend-${b.dataset.esshape}`) ?? (b.dataset.isodir && `iso-${b.dataset.isodir}`) ?? (b.dataset.rbmethod && `rebuild-${b.dataset.rbmethod}`) ?? (b.dataset.rcmethod && `rebuild-${b.dataset.rcmethod}`) ?? (b.dataset.oecorner && `corner-${b.dataset.oecorner}`) ?? (b.dataset.saplane && `section-${b.dataset.saplane}`) ?? (b.dataset.plaxis && (b.dataset.plaxis === 'normal' ? 'place-normal' : `axis-${b.dataset.plaxis}`)) ?? b.dataset.plop ?? b.dataset.pipeop
       ?? (b.dataset.txfont && `font-${b.dataset.txfont}`) ?? (b.dataset.txalign && `txalign-${b.dataset.txalign}`) ?? (b.dataset.sldir && { u: 'slide-u', '-u': 'slide-back', v: 'slide-v', '-v': 'slide-vback', n: 'slide-n' }[b.dataset.sldir]) ?? (b.dataset.dcflip && { mirror: 'mirror', swap: 'swap-uv', normal: 'reverse-sheet' }[b.dataset.dcflip]) ?? (b.dataset.imdepth && `depth-${b.dataset.imdepth}`) ?? (b.dataset.imcull && `cull-${b.dataset.imcull}`) ?? b.dataset.inmode ?? (b.dataset.bsshape && `bridge-${b.dataset.bsshape}`) ?? (b.dataset.bstrim && `trimwall-${b.dataset.bstrim}`) ?? (b.dataset.mxtopo && `topo-${b.dataset.mxtopo}`) ?? (b.dataset.pmethod && (b.dataset.pmethod === 'fill' ? 'patch-fill' : `trim-${b.dataset.pmethod}`)) ?? (b.dataset.pfmode && `falloff-${b.dataset.pfmode}`) ?? ((b.dataset.sqbound ?? b.dataset.asbound) && `bound-${b.dataset.sqbound ?? b.dataset.asbound}`) ?? (b.dataset.pfmirror && `mirror-${b.dataset.pfmirror}`)
       ?? { 'matcap-load': 'matcap-load', 'matcap-custom': 'matcap', 'tx-load': 'font-load', 'tx-system': 'font-system', 'hdr-load': 'hdr-load', 'hdr-custom': 'hdr', 'ex-lock': 'lock', 'rb-corners': 'corner-linear', 'bool-keep': 'keep', 'ex-keep': 'keep', 'prim-keep': 'keep', 'form-keep': 'keep', 'pipe-keep': 'keep', 'ex-free': 'freestyle', 'ex-pivot': 'pivot', 'ex-individual': 'individual', 'patch-individual': 'individual', 'mx-convex': 'convex', 'patch-quad': 'square', 'as-symmetric': 'symmetric', 'as-analysis': 'analysis', 'sq-analysis': 'analysis', 'bs-add': 'wall-pair', 'bs-s1': 'flip', 'bs-s2': 'flip', 'dr-hidden': 'hidden-lines', 'dr-curves': 'drawing-curves', 'oc-lock': 'lock', 'oc-free': 'freestyle', 'oc-slot': 'slot', 'oc-combine': 'combine', 'oe-both': 'both-sides', 'xf-pick': 'pivot', 'xf-unpivot': 'pivot-remove', 'xf-free': 'freestyle', 'ls-loop': 'loft-loop', 'ls-limit': 'limit-point', 'ls-simplify': 'simplify', 'iso-subdivide': 'subdivide', 'oe-individual': 'individual', 'blend-tangent': 'tangent-chain', 'es-unlimit': 'unlimit', 'rf-shrink': 'shrink', 'ut-keep': 'keep-edges', 'section-btn': 'view-section', 'sa-flip': 'flip', 'pl-flip': 'flip', 'pl-instance': 'instance', 'mirror-instance': 'instance', 'mirror-neg': 'mirror-neg', 'mirror-free': 'freestyle', 'mirror-cut': 'mirror-cut', 'ra-instance': 'instance', 'ra-spacing': 'array-spacing', 'ra-extent': 'array-extent', 'rr-total': 'array-total', 'rr-spacing': 'array-angle-step', 'rr-instance': 'instance', 'ca-instance': 'instance', 'br-trim': 'trim', 'br-comb': 'view-curvature', 'br-constrain': 'constrain', 'ac-constrain': 'constrain', 'ac-comb': 'view-curvature', 'dc-reblend': 'reblend', 'dc-keep': 'keep', 'im-delete': 'delete', 'in-realize': 'realize-instance', 'cc-extend': 'extend', 'cc-screen': 'view-screen', 'in-dup': 'duplicate', 'in-delete': 'delete' }[b.dataset.id];
     b.insertAdjacentHTML('afterbegin', icon(name));
@@ -11549,12 +11554,21 @@ export async function mount(root, backend) {
    * with the curve or keeps them square, J joins them.
    */
   function startCurveArray() {
-    const c = startCopies('curve-array', c => ({ spec: { kind: 'motions', motions: curveArrayMotions(curveById(c.curve), Math.round(num('ca-count')), c.align, { twist: num('ca-twist'), scale: num('ca-scale') || 1 }) } }),
-      (c, n) => `${n} ${n === 1 ? 'COPY' : 'COPIES'} ALONG ${curveLabel(c.curve)}${c.align ? '' : ' · NOT ALIGNED'}${num('ca-twist') ? ` · TWIST ${num('ca-twist')}°` : ''}${(num('ca-scale') || 1) !== 1 ? ` · SCALE ×${num('ca-scale')}` : ''}`);
+    const c = startCopies('curve-array', c => ({ spec: { kind: 'motions', motions: curveArrayMotions(curveById(c.curve), Math.round(num('ca-count')), c.align, { twist: num('ca-twist'), scale: num('ca-scale') || 1, extent: num('ca-extent'), method: c.method }) } }),
+      (c, n) => `${n} ${n === 1 ? 'COPY' : 'COPIES'} ALONG ${curveLabel(c.curve)} · ${c.align.toUpperCase()}${(c.method === 'ratio' ? num('ca-extent') !== 1 : true) ? ` · EXTENT ${num('ca-extent')}${c.method === 'distance' ? ' MM' : ''}` : ''}${num('ca-twist') ? ` · TWIST ${num('ca-twist')}°` : ''}${(num('ca-scale') || 1) !== 1 ? ` · SCALE ×${num('ca-scale')}` : ''}`);
     if (!c) return;
     c.curve = sel.curves.find(curveById) ?? null;
-    c.align = true;
-    $('ca-align').setAttribute('aria-pressed', 'true');
+    // Plasticity's Alignment and Method (Extent as a share of the length, or a length).
+    c.align = 'transport';
+    c.method = 'ratio';
+    $('ca-extent').value = '1';
+    c.sync = () => {
+      for (const b of $$('[data-caalign]')) b.setAttribute('aria-pressed', String(b.dataset.caalign === c.align));
+      for (const b of $$('[data-camethod]')) b.setAttribute('aria-pressed', String(b.dataset.camethod === c.method));
+    };
+    c.sync();
+    // Shift+wheel adds or takes away a copy.
+    c.wheel = d => { $('ca-count').value = String(Math.max(1, Math.min(1000, Math.round(num('ca-count')) + d))); c.preview(); };
     const preview = c.preview;
     c.preview = () => {
       if (c.curve === null) { clearPreview(); return setHud('CLICK THE CURVE TO ARRAY ALONG'); }
@@ -11562,7 +11576,18 @@ export async function mount(root, backend) {
     };
     const key = c.key;
     c.key = action => {
-      if (action === 'align') { c.align = !c.align; $('ca-align').setAttribute('aria-pressed', c.align); c.preview(); return true; }
+      if (action === 'align') { const all = ['normal', 'parallel', 'transport']; c.align = all[(all.indexOf(c.align) + 1) % 3]; c.sync(); c.preview(); return true; }
+      if (['normal', 'parallel', 'transport'].includes(action)) { c.align = action; c.sync(); c.preview(); return true; }
+      if (action === 'method' || action === 'ratio' || action === 'distance') {
+        const was = c.method, curve = curveById(c.curve);
+        c.method = action === 'method' ? (c.method === 'ratio' ? 'distance' : 'ratio') : action;
+        // Keep the reach: a ratio becomes the same length in mm and back.
+        if (curve && was !== c.method) {
+          const total = curveLength(curve);
+          if (total > 0) $('ca-extent').value = String(+(c.method === 'distance' ? num('ca-extent') * total : num('ca-extent') / total).toFixed(3));
+        }
+        c.sync(); c.preview(); return true;
+      }
       return key(action);
     };
     c.click = e => {
@@ -13909,14 +13934,15 @@ export async function mount(root, backend) {
   $('shell-t').addEventListener('input', () => cmd?.id === 'shell' && cmd.preview());
   $('draft-a').addEventListener('input', () => cmd?.id === 'draft' && cmd.preview());
   $('draft-d').addEventListener('input', () => cmd?.id === 'draft' && cmd.preview());
-  for (const id of ['mirror-at', 'ra-cx', 'ra-cy', 'ra-cz', 'ra-sx', 'ra-sy', 'ra-sz', 'rr-count', 'rr-angle', 'ca-count', 'ca-twist', 'ca-scale']) $(id).addEventListener('input', () => cmd?.preview?.());
+  for (const id of ['mirror-at', 'ra-cx', 'ra-cy', 'ra-cz', 'ra-sx', 'ra-sy', 'ra-sz', 'rr-count', 'rr-angle', 'ca-count', 'ca-twist', 'ca-scale', 'ca-extent']) $(id).addEventListener('input', () => cmd?.preview?.());
   for (const b of $$('[data-mx], [data-rx]')) b.onclick = () => cmd?.key?.(b.dataset.mx ?? b.dataset.rx);
   $('mirror-neg').onclick = () => cmd?.id === 'mirror' && cmd.key('negative');
   $('mirror-cut').onclick = () => cmd?.id === 'mirror' && cmd.key('cut');
   $('mirror-free').onclick = () => cmd?.id === 'mirror' && cmd.key('freestyle');
   for (const id of ['mirror-join', 'ra-join', 'rr-join', 'ca-join']) $(id).onclick = () => cmd?.key?.('join');
   for (const [id, m] of [['ra-spacing', 'spacing'], ['ra-extent', 'extent'], ['rr-total', 'total'], ['rr-spacing', 'spacing']]) $(id).onclick = () => cmd?.key?.(m);
-  $('ca-align').onclick = () => cmd?.id === 'curve-array' && cmd.key('align');
+  for (const b of $$('[data-caalign]')) b.onclick = () => cmd?.id === 'curve-array' && cmd.key(b.dataset.caalign);
+  for (const b of $$('[data-camethod]')) b.onclick = () => cmd?.id === 'curve-array' && cmd.key(b.dataset.camethod);
   for (const id of ['mirror-instance', 'ra-instance', 'rr-instance', 'ca-instance']) $(id).onclick = () => cmd?.key?.('instance');
   $('cut-plane').onclick = () => cmd?.id === 'cut' && cmd.key('plane');
   $('bs-t').addEventListener('input', () => cmd?.id === 'bridge-surface' && cmd.preview());

@@ -191,7 +191,7 @@ export const COMMAND = {
     mirror: { x: 'x', y: 'y', z: 'z', 'shift-x': '-x', 'shift-y': '-y', 'shift-z': '-z', q: 'join', j: 'join', i: 'instance', f: 'freestyle' },
     'rect-array': { x: 'x', y: 'y', z: 'z', tab: 'mode', j: 'join', i: 'instance' },
     'radial-array': { x: 'x', y: 'y', z: 'z', tab: 'mode', j: 'join', i: 'instance' },
-    'curve-array': { a: 'align', j: 'join', i: 'instance' },
+    'curve-array': { a: 'align', m: 'method', j: 'join', i: 'instance' },
     // Place (manual: S scale, A angle, D offset, F flip, X/Y/Z axis, Q W Shift+E Shift+Q B boolean)
     // Dimension (manual: Tab types the next size)
     dimension: { tab: 'typed' },

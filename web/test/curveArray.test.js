@@ -63,3 +63,20 @@ test('a scaled curve array makes copies of the right size', async () => {
     for (let i = 1; i < b.positions.length; i += 3) { lo = Math.min(lo, b.positions[i]); hi = Math.max(hi, b.positions[i]); }
     close(hi - lo, 2 * 30, 1e-3);
 });
+
+test('extent limits the range by ratio or by distance, and alignment has three modes', () => {
+    const line = { ...ground, kind: 'polyline', points: [[0, 0], [100, 0]], closed: false };
+    close(placesAlong(line, 3, { extent: 0.5 }).at(-1).at[0], 50);
+    close(placesAlong(line, 3, { extent: 30, method: 'distance' }).at(-1).at[0], 30);
+    close(placesAlong(line, 3, { extent: 500, method: 'distance' }).at(-1).at[0], 100);
+    // Half a ring ends on its last copy rather than short of its start.
+    const ring = { ...ground, kind: 'circle', center: [0, 0], radius: 10 };
+    const half = placesAlong(ring, 3, { extent: 0.5 });
+    close(Math.hypot(half[2].at[0] - half[0].at[0], half[2].at[1] - half[0].at[1]), 20, 0.01);
+    assert.ok(curveArrayMotions(ring, 4, 'parallel').every(q => q.angle === 0));
+    // An S bend: Normal turns the copy past the inflection over the curve; Transport does not.
+    const s = { ...ground, kind: 'cv', points: [[0, 0], [10, 10], [20, -10], [30, 0]], closed: false };
+    const tr = curveArrayMotions(s, 2, 'transport')[0], nm = curveArrayMotions(s, 2, 'normal')[0];
+    assert.ok(Math.abs(tr.axis[1]) > 0.99 || tr.angle < 1e-6);
+    assert.ok(Math.abs(nm.axis[1]) < 0.99 && nm.angle > 1);
+});

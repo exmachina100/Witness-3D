@@ -8,15 +8,24 @@ import { samples } from './curveEdit.js';
 const sub = (a, b) => [a[0] - b[0], a[1] - b[1]];
 const cross3 = (a, b) => [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]];
 
-/** `count` places along the curve (start included): { at: plane point, tangent: plane direction }. */
-export function placesAlong(c, count) {
+/**
+ * `count` places along the curve (start included): { at: plane point, tangent: plane direction,
+ * bend: which way the curve turns there, 1, -1 or 0 }. `extent` limits the range from the start
+ * (Plasticity's Extent): with `method` 'ratio' a fraction of the length (1 the whole curve), with
+ * 'distance' a length in mm.
+ */
+export function placesAlong(c, count, { extent = 1, method = 'ratio' } = {}) {
     const { points, closed } = samples(c, 256);
     const pts = closed ? [...points, points[0]] : points;
     const lengths = [0];
     for (let i = 1; i < pts.length; i++) lengths.push(lengths[i - 1] + Math.hypot(...sub(pts[i], pts[i - 1])));
     const total = lengths.at(-1);
     if (!(total > 1e-9)) throw new Error('the curve has no length');
-    const gaps = closed ? count : count - 1;
+    if (!Number.isFinite(extent) || extent < 0) throw new Error('the extent must be zero or more');
+    const span = method === 'distance' ? Math.min(extent, total) : Math.min(extent, 1) * total;
+    const full = span >= total - 1e-9;
+    // A closed curve taken whole stops short of its start; a part of it ends on its last copy.
+    const gaps = closed && full ? count : count - 1;
     // The point at length s along the samples (clamped on open curves, wrapped on closed ones).
     const pointAt = s => {
         if (closed) s = ((s % total) + total) % total;
@@ -26,13 +35,27 @@ export function placesAlong(c, count) {
         const d = sub(pts[k], pts[k - 1]), len = Math.hypot(...d) || 1, t = (s - lengths[k - 1]) / len;
         return [pts[k - 1][0] + d[0] * t, pts[k - 1][1] + d[1] * t];
     };
-    const h = total / 2048;
+    const h = total / 2048, H = total / 128;
     return Array.from({ length: count }, (_, i) => {
-        const s = gaps ? total * i / gaps : 0;
+        const s = gaps ? span * i / gaps : 0;
         // Central difference, one-sided at an open curve's ends.
         const d = sub(pointAt(s + h), pointAt(s - h)), len = Math.hypot(...d) || 1;
-        return { at: pointAt(s), tangent: [d[0] / len, d[1] / len] };
+        // Which way it bends: three points 2H apart, kept on an open curve near its ends.
+        let lo = s - H, hi = s + H;
+        if (!closed) { if (lo < 0) { hi -= lo; lo = 0; } if (hi > total) { lo -= hi - total; hi = total; lo = Math.max(lo, 0); } }
+        const p = pointAt(s), m = pointAt((lo + hi) / 2), a = sub(m, pointAt(lo)), b = sub(pointAt(hi), m), turn = a[0] * b[1] - a[1] * b[0];
+        const bend = Math.abs(turn) < 1e-9 * H * H ? 0 : Math.sign(turn);
+        return { at: p, tangent: [d[0] / len, d[1] / len], bend };
     });
+}
+
+/** The curve's length in mm, as the array measures it. */
+export function curveLength(c) {
+    const { points, closed } = samples(c, 256);
+    const pts = closed ? [...points, points[0]] : points;
+    let total = 0;
+    for (let i = 1; i < pts.length; i++) total += Math.hypot(...sub(pts[i], pts[i - 1]));
+    return total;
 }
 
 // Quaternions as [x, y, z, w].
@@ -51,9 +74,15 @@ function axisAngle(q) {
  * places in all, spaced evenly by length (a closed curve's last place stops short of its start).
  * Options (Plasticity's Curve Array dialog): `twist`, degrees the last copy turns about the curve
  * (the copies between in proportion), and `scale`, the last copy's size (the copies between
- * growing evenly from 1). How Plasticity spreads them is not documented; even steps are inferred.
+ * growing evenly from 1); `extent` and `method` as placesAlong. How Plasticity spreads them is not
+ * documented; even steps are inferred.
+ * `align` (Plasticity's Alignment): 'transport' (or true) turns each copy with the curve without
+ * flipping; 'parallel' (or false) keeps the original's orientation; 'normal' follows the curve's
+ * own normal frame, so a copy past a change of bend is also turned over about the curve (the
+ * manual's "may twist on complex curvature").
  */
-export function curveArrayMotions(c, count, align = true, { twist = 0, scale = 1 } = {}) {
+export function curveArrayMotions(c, count, align = true, { twist = 0, scale = 1, extent = 1, method = 'ratio' } = {}) {
+    const mode = align === true ? 'transport' : align === false ? 'parallel' : align;
     if (!Number.isFinite(twist)) throw new Error('the twist must be a number');
     if (!(scale > 0)) throw new Error('the scale must be above zero');
     if (!Number.isInteger(count) || count < 1) throw new Error('the array count must be at least 1');
@@ -61,16 +90,26 @@ export function curveArrayMotions(c, count, align = true, { twist = 0, scale = 1
     if (count < 2) return [];
     const y = cross3(c.normal, c.x);
     const model = ([u, v]) => [0, 1, 2].map(k => c.origin[k] + u * c.x[k] + v * y[k]);
-    const places = placesAlong(c, count), p0 = model(places[0].at), t0 = places[0].tangent;
+    const places = placesAlong(c, count, { extent, method }), p0 = model(places[0].at), t0 = places[0].tangent;
+    // The normal frame's side at the start: the first place's bend, or the first bend along.
+    let side = places.find(p => p.bend)?.bend ?? 0;
+    const sides = places.map(p => (p.bend ? (side = p.bend) : side));
+    const side0 = sides[0];
     const last = places.length - 1;
     return places.slice(1).map(({ at, tangent }, k) => {
         const p = model(at), f = (k + 1) / last;
-        const turn = align ? Math.atan2(t0[0] * tangent[1] - t0[1] * tangent[0], t0[0] * tangent[0] + t0[1] * tangent[1]) : 0;
+        const turns = mode !== 'parallel';
+        const turn = turns ? Math.atan2(t0[0] * tangent[1] - t0[1] * tangent[0], t0[0] * tangent[0] + t0[1] * tangent[1]) : 0;
         let q = quat(c.normal, turn);
+        // Normal: the frame flips over the curve where it bends the other way from the start.
+        if (mode === 'normal' && sides[k + 1] && side0 && sides[k + 1] !== side0) {
+            const t = [0, 1, 2].map(i => tangent[0] * c.x[i] + tangent[1] * y[i]);
+            q = qmul(quat(t, Math.PI), q);
+        }
         // The twist turns the copy about the curve where it stands, after the turn with the curve.
         if (twist) {
             const t = [0, 1, 2].map(i => tangent[0] * c.x[i] + tangent[1] * y[i]);
-            q = qmul(quat(align ? t : qrot(q, [0, 1, 2].map(i => t0[0] * c.x[i] + t0[1] * y[i])), twist * f * Math.PI / 180), q);
+            q = qmul(quat(turns ? t : qrot(q, [0, 1, 2].map(i => t0[0] * c.x[i] + t0[1] * y[i])), twist * f * Math.PI / 180), q);
         }
         const { axis, angle } = axisAngle(q);
         return { offset: sub3(p, p0), pivot: p0, axis, angle, scale: 1 + (scale - 1) * f };

@@ -177,6 +177,9 @@ const ICONS = {
     'guide-curve': `<path d="M4 20C8 12 14 8 20 4"/><path ${A} d="M4 16C7 10 12 6 17 3"/>`,
     // Alignment: the section turning with the path, or keeping its angle.
     'align-normal': `<path d="M4 20C4 10 10 4 20 4" stroke-dasharray="1.5 1.5"/><path ${A} d="M1 14h6M10 5l4 4"/>`,
+    'align-transport': `<path d="M4 20C4 10 10 4 20 4" stroke-dasharray="1.5 1.5"/><path ${A} d="M4 15l3-3M11 6l3 3M17 3l3 3"/>`,
+    'array-ratio': `<path d="M3 18h18"/><path ${A} d="M3 18v-4M10 18v-4M17 18v-4"/><path d="M15 6l-6 6"/><circle cx="9" cy="6" r="1.2"/><circle cx="15" cy="12" r="1.2"/>`,
+    'array-distance': `<path d="M3 12h18M3 8v8M21 8v8"/><path ${A} d="M7 10l-2 2 2 2M17 10l2 2-2 2"/>`,
     'align-parallel': `<path d="M4 20C4 10 10 4 20 4" stroke-dasharray="1.5 1.5"/><path ${A} d="M1 14h6M9 7h6"/>`,
     left: `<path d="M6 19c0 1.5 12 1.5 12 0s-12-2-12-4 12-2.5 12-4"/><path ${A} d="M10 6l-4 3 4 3"/>`,
     // Organising: a folder for groups, a padlock for locked bodies (shut and open), isolation as one
