@@ -4,7 +4,7 @@
 import * as THREE from 'three';
 import { ExtrudeFactory } from '../ExtrudeFactory.js';
 import { NoOpError } from '../GeometryFactory.js';
-import { THROAT, arrayMotions, importSTEP, blendEdges, boolean, booleanWithHistory, extrudeFace, bounds, box, count, draftFaces, faceSheet, imprintEdgesWithHistory, imprintWithHistory, planeSheet, regions, unifyWithHistory, boundaryEdges, splitWithHistory, draftWithHistory, exportSTEP, facePlane, mirror, mirror as mirrorShape, numbered, numberedEdges, oc, primitive, shellFaces, tessellate, transform, volume } from '../Kernel.js';
+import { THROAT, arrayMotions, importSTEP, blendEdges, boolean, booleanWithHistory, extrudeFace, bounds, box, count, draftFaces, faceSheet, imprintEdgesWithHistory, imprintWithHistory, planeSheet, regions, unifyWithHistory, dissolveEdgesWithHistory, boundaryEdges, splitWithHistory, draftWithHistory, exportSTEP, facePlane, mirror, mirror as mirrorShape, numbered, numberedEdges, oc, primitive, shellFaces, tessellate, transform, volume } from '../Kernel.js';
 import { curveIsOpen, curveRegions, cutSheets, extrudeCurve, loft, loftFaces, loftGuided, loftSheet, loftSheetGuided, offsetFlatFaces, pipe, regionFace, revolve, revolveCurve, splineSamples, sweep, sweepCurve, sweepGuided } from '../Forms.js';
 import { curveFromNurbs, ends, join, loops, MEET, nurbsLoop } from '../curves.js';
 import { isoparam, meetCurves, projectCurveCurve, projectCurves, projectedEdges, sectionCurves } from '../Project.js';
@@ -973,8 +973,18 @@ export class LocalBackend {
     }
 
     /** Plasticity's Delete Redundant Topology on the bodies, as one undo step; says how many faces and edges went. */
-    async commitUnify({ bodies }) {
+    async commitUnify({ bodies, edges: picked }) {
         if (!bodies?.length) throw new Error('select the bodies to clean up');
+        // Dissolve (Backspace): only across the picked edges of the first body.
+        if (picked?.length) {
+            const s = this.shapes.get(bodies[0]);
+            if (!s) throw new Error('that body no longer exists');
+            const r = dissolveEdgesWithHistory(s, picked);
+            const faces = count(s, 'TopAbs_FACE') - count(r.shape, 'TopAbs_FACE');
+            this.checkpoint();
+            this.put(bodies[0], r.shape, r.history);
+            return { faces, edges: picked.length, scene: this.bodies() };
+        }
         let faces = 0, edges = 0;
         const done = bodies.map(id => {
             const s = this.shapes.get(id);

@@ -621,6 +621,12 @@ impl Kernel for Occt {
         Ok(Traced { solid, history: history(h) })
     }
 
+    fn dissolve_edges(&self, s: &Shape, edges: &[u32]) -> Result<Traced<Shape>, KernelError> {
+        let ids: Vec<usize> = edges.iter().map(|&e| e as usize).collect();
+        let (solid, h) = s.dissolve_edges_with_history(&ids).map_err(shim)?;
+        Ok(Traced { solid, history: history(h) })
+    }
+
     fn reversed(&self, s: &Shape) -> Result<Shape, KernelError> { Ok(s.reversed()) }
 
     fn stretch(&self, s: &Shape, pivot: DVec3, m: glam::DMat3) -> Result<Shape, KernelError> {
