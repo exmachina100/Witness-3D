@@ -12526,7 +12526,24 @@ export async function mount(root, backend) {
         return true;
       case 'mode': sel.setMode(arg); renderModes(); hover = null; drawOverlays(); return true;
       case 'mode-toggle': sel.toggleMode(arg); renderModes(); return true;
-      case 'convert': sel.convert(arg, current); renderModes(); selectionChanged({ quiet: true }); return true;
+      case 'convert':
+        // Ctrl+1: the points of the selected curves. Ctrl+5: everything in the selection's groups.
+        if (arg === 'point') {
+          const ids = new Set(sel.curves);
+          if (!ids.size) { toast('SELECT CURVES FIRST'); return true; }
+          sel.clear();
+          if (!sel.allows('point')) sel.toggleMode('point');
+          for (const v of vertexList()) if (ids.has(v.id)) sel.add({ kind: 'vertex', id: v.id, n: v.n });
+        } else if (arg === 'group') {
+          const keys = [...current.map(b => b.id), ...curveList.map(c => curveKey(c.id))];
+          const groups = new Set([...sel.groups, ...sel.list().map(it => it.kind === 'curve' || it.kind === 'region' ? curveKey(it.id) : it.body).filter(k => k !== undefined).map(k => org.groupOf.get(k)).filter(g => g !== undefined && g !== null)]);
+          if (!groups.size) { toast('NOTHING SELECTED IS IN A GROUP'); return true; }
+          const keep = new Set([...groups].flatMap(g => org.allMembers(g, keys)));
+          sel.clear();
+          if (!sel.allows('solid')) sel.toggleMode('solid');
+          for (const k of keep) if (org.picks(k)) sel.add(typeof k === 'string' ? { kind: 'curve', id: curveKeyId(k) } : { kind: 'solid', body: k });
+        } else sel.convert(arg, current);
+        renderModes(); selectionChanged({ quiet: true }); return true;
       case 'select':
         if (arg === 'none') { if (cmd) abort(); sel.clear(); }
         else if (arg === 'all') {
