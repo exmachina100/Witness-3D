@@ -12376,6 +12376,7 @@ export async function mount(root, backend) {
    */
   async function duplicateSelected() {
     if (cmd) await finish();
+    if (sel.groups.some(g => org.group(g))) return duplicateGroups();
     const faces = sel.list('face'), edges = sel.list('edge'), curves = sel.curves.filter(curveById);
     const ids = faces.length || edges.length || curves.length ? sel.solids : targetBodies();
     if (!ids.length && !faces.length && !edges.length && !curves.length) return toast('SELECT WHAT TO DUPLICATE');
@@ -12415,6 +12416,69 @@ export async function mount(root, backend) {
       startTransform('move', { follow: 'screen' });
       lastRepeat = 'duplicate';
     } catch (e) { toast(say(e)); }
+  }
+  /**
+   * Shift+D with groups selected (manual: "Shift+D duplicates a group along with its contents"):
+   * each selected group copied with the groups inside it and every solid, sheet and curve they hold,
+   * the copies beside the originals (in the same parent group); other selected solids and curves
+   * are copied too. One undo step takes the copies and the new groups away. Then the Move gizmo.
+   */
+  async function duplicateGroups() {
+    const keys = allObjectKeys();
+    const roots = sel.groups.filter(g => org.group(g) && !sel.groups.some(o => o !== g && org.within(g, o)));
+    const inGroups = new Set(roots.flatMap(g => org.allMembers(g, keys)));
+    const extra = [...sel.solids, ...selectedCurveKeys()].filter(k => !inGroups.has(k));
+    const all = [...inGroups, ...extra];
+    const bodiesOf = all.filter(k => typeof k === 'number'), curvesOf = all.filter(k => typeof k === 'string');
+    try {
+      const before = org.snapshot();
+      const copy = new Map();
+      let list = null, steps = 0;
+      if (bodiesOf.length) {
+        const r = await backend.duplicateBodies(bodiesOf);
+        list = r.scene;
+        steps++;
+        bodiesOf.forEach((k, i) => copy.set(k, r.ids[i]));
+      }
+      if (curvesOf.length) {
+        if (!backend.addCurves) throw new Error('drawing is not in this build yet');
+        const drawn = curvesOf.map(k => { const { id: _, ...c } = curveById(curveKeyId(k)); return c; });
+        const { ids } = await backend.addCurves(drawn);
+        steps++;
+        curvesOf.forEach((k, i) => copy.set(k, curveKey(ids[i])));
+      }
+      // The groups, inside out from each selected one: same names, the copy of each parent.
+      const gcopy = new Map();
+      const sub = org.groups.filter(g => roots.some(r => org.within(g.id, r)));
+      for (const g of [...sub].sort((a, b) => depth(a.id) - depth(b.id))) {
+        const parent = gcopy.has(g.parent) ? gcopy.get(g.parent) : g.parent;
+        const n = { id: org.nextGroup++, name: g.name, parent, open: g.open };
+        org.groups.push(n);
+        gcopy.set(g.id, n.id);
+      }
+      for (const k of inGroups) org.groupOf.set(copy.get(k), gcopy.get(org.groupOf.get(k)));
+      const names = roots.map(g => org.group(g).name);
+      if (steps) {
+        record(`DUPLICATE ${names.join(' ')}${all.length ? ` ×${all.length}` : ''}`, copy.get(bodiesOf[0]));
+        history[history.length - 1].steps = steps;
+      }
+      if (list) await showScene(list);
+      if (curvesOf.length) await loadCurves();
+      if (steps) history[history.length - 1].org = { before, after: org.snapshot() };
+      else pushStep({ text: `DUPLICATE ${names.join(' ')}`, tag: '', sources: [], local: true, org: { before, after: org.snapshot() } });
+      organised();
+      renderOutliner();
+      sel.clear();
+      for (const k of all) {
+        const c = copy.get(k);
+        if (typeof c === 'number') sel.add({ kind: 'solid', body: c });
+        else { const id = curveKeyId(c); sel.add(curveList.some(x => x.id === id && isClosed(x)) ? { kind: 'region', id } : { kind: 'curve', id }); }
+      }
+      selectionChanged({ quiet: true });
+      if (all.length) startTransform('move', { follow: 'screen' });
+      lastRepeat = 'duplicate';
+    } catch (e) { toast(say(e)); }
+    function depth(gid) { let d = 0; for (let g = org.group(gid); g; g = org.group(g.parent)) d++; return d; }
   }
   /**
    * Plasticity's Alternative Duplicate / Duplicate Curve and Project (Alt+D): the selected curves and
