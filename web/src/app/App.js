@@ -174,7 +174,7 @@ const KEYS = {
   imprint: [['⇧ CLICK', 'FACES · CURVES'], ['⇧ ALT CLICK', 'BODY THAT IMPRINTS'], ['X Y Z', 'VECTOR'], ['S', 'SCREEN SPACE'], ['T', 'IMPRINT TOOL'], ['C', 'COMPLETION'], ['⏎ / RMB', 'OK']],
   project: [['⇧ CLICK', 'SOLID · CURVES'], ['X Y Z', 'VECTOR'], ['S', 'SCREEN SPACE'], ['⏎ / RMB', 'OK']],
   'bridge-surface': [['⇧ CLICK', 'TWO EDGES, OR TWO CROSSING SHEETS'], ['T', 'TENSION'], ['A', 'ADD WALL PAIR'], ['⏎ / RMB', 'OK']],
-  'extend-sheet': [['CLICK', "A SHEET'S EDGE"], ['D', 'DISTANCE'], ['CTRL+CLICK', 'A BODY TO REACH'], ['TAB', 'NATURAL · LINEAR · SOFT · REFLECTIVE'], ['⏎ / RMB', 'OK']],
+  'extend-sheet': [['CLICK', "A SHEET'S EDGES"], ['D', 'DISTANCE'], ['CTRL+CLICK', 'A BODY TO REACH'], ['TAB', 'NATURAL · LINEAR · SOFT · REFLECTIVE'], ['⏎ / RMB', 'OK']],
   thicken: [['CLICK', 'A SHEET'], ['ALT CLICK', 'FACES (THICKEN FACE)'], ['D', 'FRONT FROM CURSOR'], ['B', 'BACK'], ['S', 'LOCK DISTANCES'], ['⏎ / RMB', 'OK']],
   pipe: [['⇧ CLICK', 'CURVES'], ['D', 'SIZE (DOT)'], ['⇧T', 'THICKNESS'], ['T', 'KEEP TOOLS'], ['A', 'ANGLE'], ['V', 'SIDES'], ['⇧1 ⇧2', 'DISTANCES'], ['C', 'PROFILE'], ['⏎ / RMB', 'OK']],
   patch: [['⇧ CLICK', 'CURVES · EDGES'], ['T', 'TANGENT TO FACES'], ['Q', 'QUAD-SIDED'], ['⏎ / RMB', 'OK']],
@@ -3384,7 +3384,7 @@ export async function mount(root, backend) {
   }
   /**
    * Plasticity's auto-invoked commands (Preferences › Commands, each its own switch): the fillet's
-   * dot with edges selected, Extend Sheet with one edge of a sheet, the extrude's with regions,
+   * dot with edges selected, Extend Sheet with edges of a sheet, the extrude's with regions,
    * Offset Face's (push face) with faces, and Move's handles with solids or curves.
    */
   function defaultCommand() {
@@ -3400,7 +3400,7 @@ export async function mount(root, backend) {
   /** The one selected edge, when it is an edge of a sheet and nothing else is selected. */
   function sheetEdge() {
     const items = sel.list();
-    return items.length === 1 && items[0].kind === 'edge' && current.find(b => b.id === items[0].body)?.sheet ? items[0] : null;
+    return items.length && items.every(it => it.kind === 'edge' && it.body === items[0].body) && current.find(b => b.id === items[0].body)?.sheet ? items[0] : null;
   }
   /** The one body all selected faces are on, and only faces are selected; else null. */
   function faceBody() {
@@ -8840,15 +8840,17 @@ export async function mount(root, backend) {
   }
 
   /**
-   * Plasticity's Extend on a sheet's edge: the sheet grown past the selected open edge, following its
-   * curvature (Natural) or straight on from its face (Linear); Tab cycles them, D types the distance.
-   * The sheet keeps its body.
+   * Plasticity's Extend on a sheet's edges: the sheet grown past each selected open edge (one or
+   * more, of one sheet), following its curvature (Natural) or straight on from its face (Linear);
+   * Tab cycles them, D types the distance. The sheet keeps its body; one undo step.
    */
   function startExtendSheet({ auto = false } = {}) {
     if (!backend.previewExtendSheet) return toast('EXTEND SHEET IS NOT IN THIS BUILD YET');
     const isSheetBody = id => !!current.find(b => b.id === id)?.sheet;
-    const picked = () => { const es = sel.list('edge'); return es.length === 1 && isSheetBody(es[0].body) ? es[0] : null; };
-    if (!picked()) return toast('SELECT ONE EDGE OF A SHEET');
+    const picked = () => { const es = sel.list('edge'); return es.length && es.every(e => e.body === es[0].body) && isSheetBody(es[0].body) ? es[0] : null; };
+    const more = () => sel.list('edge').slice(1).map(e => e.n);
+    const edgesText = () => { const k = 1 + more().length; return k > 1 ? ` · ${k} EDGES` : ''; };
+    if (!picked()) return toast('SELECT EDGES OF ONE SHEET');
     // Auto-invoked, it waits for a distance (typed, D, or Enter for the one shown) before previewing,
     // and goes when the selection stops being one sheet edge, as the auto fillet does.
     const c = cmd = { id: 'extend-sheet', auto, armed: !auto, edge: picked(), shape: 'natural', limit: null, sent: 0, shown: 0 };
@@ -8860,7 +8862,7 @@ export async function mount(root, backend) {
     $('es-d').disabled = false;
     setState('none');
     c.outside = false;
-    c.request = () => ({ body: c.edge.body, edge: c.edge.n, distance: num('es-d'), natural: c.shape === 'natural', shape: c.shape, ...(c.limit != null && { limit: c.limit, outside: c.outside }) });
+    c.request = () => ({ body: c.edge.body, edge: c.edge.n, more: more(), distance: num('es-d'), natural: c.shape === 'natural', shape: c.shape, ...(c.limit != null && { limit: c.limit, outside: c.outside }) });
     c.setOutside = on => {
       c.outside = on;
       for (const b of $$('[data-eslimit]')) b.setAttribute('aria-pressed', String((b.dataset.eslimit === 'outside') === on));
@@ -8892,7 +8894,7 @@ export async function mount(root, backend) {
       const m = showPreviewBody(b, phantom.add.face, phantom.add.edge);
       m.renderOrder = 5;
       const how = c.limit != null ? `${c.outside ? 'THROUGH' : 'UP TO'} ${label(c.limit)}` : `${len(num('es-d'))} ${U()}`;
-      $('es-hint').textContent = `${label(c.edge.body)} · ${c.limit != null ? how : `${how} PAST THE EDGE`}`;
+      $('es-hint').textContent = `${label(c.edge.body)}${edgesText()} · ${c.limit != null ? how : `${how} PAST THE EDGE${more().length ? 'S' : ''}`}`;
       setHud(`EXTEND SHEET ${how} · ${c.shape.toUpperCase()}`);
     }, 'es-hint');
     c.onSelection = () => {
@@ -8900,7 +8902,7 @@ export async function mount(root, backend) {
       const e = picked();
       if (!e && c.auto && !c.armed) { endCmd(null); return defaultCommand(); }
       if (!e) {
-        const missing = 'SELECT ONE EDGE OF A SHEET';
+        const missing = 'SELECT EDGES OF ONE SHEET';
         $('es-hint').textContent = missing;
         clearPreview();
         return setHud(missing);

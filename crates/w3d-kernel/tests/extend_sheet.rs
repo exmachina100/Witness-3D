@@ -238,3 +238,25 @@ fn a_sheet_already_crossing_the_body_keeps_all_of_itself() {
     assert!(lo.abs() < 1e-9 && (hi - 15.0).abs() < 1e-6, "x {lo}..{hi}");
     assert!((area(&t) - 150.0).abs() < 1e-6, "area {}", area(&t));
 }
+
+#[test]
+fn several_edges_grow_in_one_undo_step() {
+    use w3d_kernel::document::{Curve, CurveShape, Document};
+    let mut doc = Document::new(Occt);
+    let rect = Curve { origin: [0.0, 0.0, 0.0], x: [1.0, 0.0, 0.0], normal: [0.0, 0.0, 1.0], shape: CurveShape::Polyline { points: vec![[0.0, 0.0], [10.0, 0.0], [10.0, 10.0], [0.0, 10.0]], closed: true } };
+    let id = doc.commit_curves(vec![rect]).unwrap()[0];
+    let sheet = doc.commit_patch(&[id], &[], 0.0).unwrap();
+    doc.clear_history();
+    let s = doc.get(sheet).unwrap();
+    let right = edge_where(&doc.kernel, s, |p| (p[0] - 10.0).abs() < 1e-9);
+    let top = edge_where(&doc.kernel, s, |p| (p[1] - 10.0).abs() < 1e-9);
+    let left = edge_where(&doc.kernel, s, |p| p[0].abs() < 1e-9);
+    doc.commit_extend_sheet_edges(sheet, &[right, top, left], 3.0, SheetExtension::Linear, None, false).unwrap();
+    let t = doc.kernel.tessellate(doc.get(sheet).unwrap(), 0.001).unwrap();
+    assert!((range(&t, 0).0 + 3.0).abs() < 1e-6 && (range(&t, 0).1 - 13.0).abs() < 1e-6, "x {:?}", range(&t, 0));
+    assert!((range(&t, 1).1 - 13.0).abs() < 1e-6, "y {:?}", range(&t, 1));
+    assert!((area(&t) - 16.0 * 13.0).abs() < 1e-6, "area {}", area(&t));
+    assert!(doc.undo());
+    let t = doc.kernel.tessellate(doc.get(sheet).unwrap(), 0.001).unwrap();
+    assert!((area(&t) - 100.0).abs() < 1e-6);
+}

@@ -1649,17 +1649,63 @@ impl<K: Kernel> Document<K> {
     /// Plasticity's Extend Sheet, without changing the document: sheet `body` grown past its open `edge`,
     /// by `distance` or, with `limit`, until it meets that body (on through it with `outside`).
     pub fn preview_extend_sheet(&self, body: BodyId, edge: u32, distance: f64, shape: SheetExtension, limit: Option<BodyId>, outside: bool) -> Result<K::Solid, KernelError> {
+        self.preview_extend_sheet_edges(body, &[edge], distance, shape, limit, outside)
+    }
+
+    /// Extend Sheet on one or more open edges of the sheet, one after another: each later edge is
+    /// found again in the grown sheet as the edge through its old middle (extending one side only
+    /// lengthens the sides beside it, so the old stretch stays on them).
+    pub fn preview_extend_sheet_edges(&self, body: BodyId, edges: &[u32], distance: f64, shape: SheetExtension, limit: Option<BodyId>, outside: bool) -> Result<K::Solid, KernelError> {
         let sheet = self.get(body).ok_or(KernelError::Invalid("that body no longer exists"))?;
-        match limit {
-            Some(t) if t == body => Err(KernelError::Invalid("limit the sheet by another body, not itself")),
-            Some(t) => self.kernel.extend_sheet_to(sheet, edge, self.get(t).ok_or(KernelError::Invalid("the limiting body no longer exists"))?, shape, outside),
-            None => self.kernel.extend_sheet(sheet, edge, distance, shape),
+        let target = match limit {
+            Some(t) if t == body => return Err(KernelError::Invalid("limit the sheet by another body, not itself")),
+            Some(t) => Some(self.get(t).ok_or(KernelError::Invalid("the limiting body no longer exists"))?),
+            None => None,
+        };
+        let grow = |s: &K::Solid, e: u32| match target {
+            Some(t) => self.kernel.extend_sheet_to(s, e, t, shape, outside),
+            None => self.kernel.extend_sheet(s, e, distance, shape),
+        };
+        let (&first, rest) = edges.split_first().ok_or(KernelError::Invalid("select the sheet's edges to extend"))?;
+        let mids = rest.iter().map(|&e| self.edge_middle(sheet, e)).collect::<Result<Vec<_>, _>>()?;
+        let mut out = grow(sheet, first)?;
+        for m in mids {
+            let e = self.edge_through(&out, m)?;
+            out = grow(&out, e)?;
         }
+        Ok(out)
+    }
+
+    /// The point halfway along edge `e` of `s`.
+    fn edge_middle(&self, s: &K::Solid, e: u32) -> Result<DVec3, KernelError> {
+        let t = self.kernel.edge_curvature(s, e, 2)?;
+        Ok(DVec3::from(t.get(1).ok_or(KernelError::Invalid("that edge is a single point"))?.at))
+    }
+
+    /// The edge of `s` that passes through (nearest) `p`.
+    fn edge_through(&self, s: &K::Solid, p: DVec3) -> Result<u32, KernelError> {
+        let mut best = (f64::MAX, None);
+        for e in 0..self.kernel.edge_count(s) as u32 {
+            let Ok(t) = self.kernel.edge_curvature(s, e, 64) else { continue };
+            for w in t.windows(2) {
+                let (a, b) = (DVec3::from(w[0].at), DVec3::from(w[1].at));
+                let ab = b - a;
+                let f = if ab.length_squared() > 0.0 { ((p - a).dot(ab) / ab.length_squared()).clamp(0.0, 1.0) } else { 0.0 };
+                let d = (a + ab * f).distance(p);
+                if d < best.0 { best = (d, Some(e)) }
+            }
+        }
+        best.1.ok_or(KernelError::Invalid("an edge to extend was lost on the way"))
     }
 
     /// Extend Sheet as one undoable step: the sheet keeps its body.
     pub fn commit_extend_sheet(&mut self, body: BodyId, edge: u32, distance: f64, shape: SheetExtension, limit: Option<BodyId>, outside: bool) -> Result<BodyId, KernelError> {
-        let sheet = self.preview_extend_sheet(body, edge, distance, shape, limit, outside)?;
+        self.commit_extend_sheet_edges(body, &[edge], distance, shape, limit, outside)
+    }
+
+    /// Extend Sheet on several edges as one undoable step.
+    pub fn commit_extend_sheet_edges(&mut self, body: BodyId, edges: &[u32], distance: f64, shape: SheetExtension, limit: Option<BodyId>, outside: bool) -> Result<BodyId, KernelError> {
+        let sheet = self.preview_extend_sheet_edges(body, edges, distance, shape, limit, outside)?;
         self.checkpoint();
         self.replace_traced(body, Traced { solid: sheet, history: History::default() });
         Ok(body)

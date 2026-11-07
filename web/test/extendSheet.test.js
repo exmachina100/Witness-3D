@@ -169,3 +169,17 @@ test('outside carries the sheet on through the body, and a sheet already crossin
     close(range(points(m), 'x')[1], 15, 1e-6);
     close(meshArea(m), 150, 1e-6);
 });
+
+test('several edges of one sheet grow in one undo step, each found again after the last', async () => {
+    const be = new LocalBackend({ seed: 'enclosure' });
+    const { ids: [rect] } = await be.addCurves([polyline([[0, 0], [10, 0], [10, 10], [0, 10]])]);
+    const { id: sheet } = await be.commitPatch({ curves: [rect], edges: [] });
+    const s0 = be.shapes.get(sheet);
+    const right = edgeWhere(s0, p => Math.abs(p.x - 10) < 1e-9), top = edgeWhere(s0, p => Math.abs(p.y - 10) < 1e-9), left = edgeWhere(s0, p => Math.abs(p.x) < 1e-9);
+    await be.commitExtendSheet({ body: sheet, edge: right, more: [top, left], distance: 3, shape: 'linear' });
+    const pts = points(be.shapes.get(sheet));
+    close(range(pts, 'x')[0], -3); close(range(pts, 'x')[1], 13);
+    close(range(pts, 'y')[0], 0); close(range(pts, 'y')[1], 13);
+    await be.undo();
+    close(range(points(be.shapes.get(sheet)), 'x')[1], 10);
+});
