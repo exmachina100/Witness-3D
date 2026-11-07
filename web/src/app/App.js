@@ -11355,10 +11355,22 @@ export async function mount(root, backend) {
 
   /** The commands that copy the selected solids: Mirror and the two arrays. */
   function startCopies(id, request, describe) {
-    // Mirror takes curves and regions too (manual common/mirror); the arrays solids.
-    const curves = id === 'mirror' ? sel.curves.filter(curveById) : [];
+    // Mirror and the arrays take curves and regions too (manual common/mirror, the array pages).
+    const curves = sel.curves.filter(curveById);
     const ids = (curves.length ? sel.solids : targetBodies()).filter(b => org.shows(b));
-    if (!ids.length && !curves.length) { toast(`SELECT ${id === 'mirror' ? 'SOLIDS OR CURVES' : 'A SOLID'} TO ${toolInfo(id).label}`); return null; }
+    if (!ids.length && !curves.length) { toast(`SELECT SOLIDS OR CURVES TO ${toolInfo(id).label}`); return null; }
+    // The curves' copies: mirrored, or moved by each of the array's motions (the path of a Curve Array left out).
+    const curveCopies = (c, req) => {
+      const list = c.curves.filter(cid => cid !== c.curve && curveById(cid));
+      if (!list.length) return [];
+      if (id === 'mirror') return list.map(cid => mirrorCurve(curveById(cid), req.origin, req.normal));
+      const motions = req.spec.kind === 'motions' ? req.spec.motions : arrayMotions(req.spec);
+      return motions.flatMap(m => {
+        const axis = new THREE.Vector3(...(m.axis ?? [0, 1, 0])), angle = m.angle ?? 0;
+        const rotate = v => new THREE.Vector3(...v).applyAxisAngle(axis, angle).toArray();
+        return list.map(cid => transformCurve(curveById(cid), { pivot: m.pivot ?? [0, 0, 0], offset: m.offset ?? [0, 0, 0], rotate, scale: m.scale ?? 1 }));
+      });
+    };
     const preview = id === 'mirror' ? 'previewMirror' : 'previewArray', commit = id === 'mirror' ? 'commitMirror' : 'commitArray';
     if (!backend[preview]) { toast(`${toolInfo(id).label} IS NOT IN THIS BUILD YET`); return null; }
     const hint = { mirror: 'mirror-hint', 'rect-array': 'ra-hint', 'radial-array': 'rr-hint', 'curve-array': 'ca-hint' }[id];
@@ -11379,8 +11391,10 @@ export async function mount(root, backend) {
       if (!req) { clearPreview(); setState('none'); return setHud(describe(c, 0)); }
       livePreview(c, async () => c.ids.length ? backend[preview]({ bodies: c.ids, ...req }) : [], list => {
         showCopies(list);
-        if (c.curves.length) showCurvePreview(c.curves.map(cid => mirrorCurve(curveById(cid), req.origin, req.normal)));
-        setHud(describe(c, list.length + c.curves.length));
+        let drawn = [];
+        try { drawn = curveCopies(c, req); } catch { drawn = []; }
+        if (drawn.length) showCurvePreview(drawn);
+        setHud(describe(c, list.length + drawn.length));
       }, hint);
     };
     c.key = action => {
@@ -11428,10 +11442,13 @@ export async function mount(root, backend) {
       if (!req) return toast(id === 'mirror' ? 'PICK THE MIRROR PLANE: X, Y OR Z, OR CLICK A FACE' : 'CLICK THE CENTRE POINT');
       try {
         const { ids: made, scene: list } = c.ids.length ? await backend[commit]({ bodies: c.ids, ...req, join: c.join }) : { ids: [], scene: null };
-        // Curves: their mirror images as new curves.
-        const { ids: drawn } = c.curves.length ? await backend.addCurves(c.curves.map(cid => { const { id: _, ...m } = mirrorCurve(curveById(cid), req.origin, req.normal); return m; })) : { ids: [] };
+        // Curves: their mirror images or array copies as new curves.
+        const copies = curveCopies(c, req);
+        const { ids: drawn } = copies.length ? await backend.addCurves(copies.map(({ id: _, ...m }) => m)) : { ids: [] };
         endCmd('committed');
         record(`${toolInfo(id).label}${c.join ? ' · JOINED' : ''}`, made[0], made.length ? (c.join ? label(made[0]) : `${made.length} NEW`) : `${drawn.length} CURVE${drawn.length > 1 ? 'S' : ''}`);
+        // Solids and curves together are two steps in the backend, one in the history.
+        if (c.ids.length && copies.length) history[history.length - 1].steps = 2;
         if (list) await showScene(list);
         if (drawn.length) await loadCurves();
         sel.clear();
