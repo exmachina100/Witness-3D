@@ -9404,6 +9404,8 @@ export async function mount(root, backend) {
         return [{ ...request([], c.edges), target: c.target, method: c.method }];
       }
       const groups = patchLoops(c.curves, c.edges);
+      // Sheets selected on their own: a sheet through every hole (Individual always).
+      if (c.fill) return groups.filter(g => g.closed).map(g => request(g.curves, g.edges));
       if (!c.individual) {
         if (groups.length > 1 && groups.every(g => g.closed)) throw new Error(`those make ${groups.length} loops; press I for a sheet in each`);
         return [request(c.curves, c.edges)];
@@ -9447,6 +9449,10 @@ export async function mount(root, backend) {
         $('patch-hint').textContent = c.method === 'hole' ? 'THE TARGET SHEET TRIMMED TO THE HOLE' : 'THE TARGET SHEET TRIMMED WHERE THE BASE SHEET ENDS';
         return setHud(`PATCH · TRIM TO ${c.method.toUpperCase()}`);
       }
+      if (c.fill) {
+        $('patch-hint').textContent = `${list.length} HOLE${list.length === 1 ? '' : 'S'} FILLED, JOINED INTO ${c.fill.length === 1 ? 'THE SHEET' : 'EACH SHEET'}`;
+        return setHud(`PATCH ${list.length} HOLE${list.length === 1 ? '' : 'S'}`);
+      }
       $('patch-hint').textContent = c.quad ? c.quadText : (smooth ?? (list.length > 1 ? `A ${c.cont === 'planar' ? 'FLAT ' : ''}SHEET THROUGH EACH LOOP` : `${c.cont === 'planar' ? 'A FLAT' : ''} SHEET THROUGH THE LOOP`.trim())) + (list.length > 1 ? ` · ${list.length} SHEETS` : '');
       setHud(c.quad ? 'PATCH · QUAD-SIDED' : list.length > 1 ? `PATCH ×${list.length}` : 'PATCH');
     }, 'patch-hint');
@@ -9454,9 +9460,27 @@ export async function mount(root, backend) {
       drawOverlays();
       c.curves = sel.curves.filter(curveById);
       c.edges = sel.list('edge');
+      // Sheets alone (manual: "select sheets with holes and run Patch"): their open edges, one
+      // patch per hole, then each sheet joined with its patches into a solid when it closes up.
+      const sheets = sel.solids.filter(id => bodyOf(id)?.sheet);
+      c.fill = !c.curves.length && !c.edges.length && sheets.length && sheets.length === sel.solids.length ? sheets : null;
+      if (c.fill) {
+        const key = c.fill.join(',');
+        if (c.holesKey !== key && backend.boundaryEdges) {
+          c.holesKey = key;
+          c.holes = null;
+          backend.boundaryEdges({ bodies: c.fill }).then(found => {
+            if (cmd !== c || c.holesKey !== key) return;
+            c.holes = found.flatMap(({ body, edges }) => edges.map(n => ({ kind: 'edge', body, n })));
+            c.onSelection();
+          }, e => toast(say(e)));
+        }
+        c.edges = c.holes ?? [];
+        if (c.method !== 'fill') c.method = 'fill';
+      }
       // The target: a sheet body selected along with the edges, other than the one they are on.
       const bases = new Set(c.edges.map(e => e.body));
-      c.target = sel.solids.find(id => !bases.has(id) && bodyOf(id)?.sheet) ?? null;
+      c.target = c.fill ? null : sel.solids.find(id => !bases.has(id) && bodyOf(id)?.sheet) ?? null;
       if (c.target !== null && !c.methodSet && c.method === 'fill') c.method = 'hole';
       $('patch-target').textContent = c.target === null ? '—' : `SHEET ${c.target}`;
       for (const b of $$('[data-pmethod]')) b.setAttribute('aria-pressed', String(b.dataset.pmethod === c.method));
@@ -9471,6 +9495,12 @@ export async function mount(root, backend) {
       $('patch-quad').setAttribute('aria-pressed', String(c.quad));
       $('patch-quad').disabled = !backend.previewSplineSheet;
       setTarget(c.curves.length + c.edges.length ? `${c.curves.length + c.edges.length} PIECES` : '—');
+      if (c.fill && !c.edges.length) {
+        const missing = c.holes ? 'THOSE SHEETS HAVE NO HOLES: EVERY EDGE IS SHARED' : 'FINDING THE HOLES';
+        $('patch-hint').textContent = missing;
+        clearPreview();
+        return setHud(missing);
+      }
       if (!c.curves.length && !c.edges.length) {
         const missing = 'SELECT CURVES OR EDGES THAT MAKE ONE CLOSED LOOP';
         $('patch-hint').textContent = missing;
@@ -9518,6 +9548,42 @@ export async function mount(root, backend) {
         await showScene(list);
         sel.clear();
         sel.add({ kind: 'solid', body: made[0] });
+        return selectionChanged({ quiet: true });
+      }
+      if (c.fill) {
+        // Every hole patched, then each sheet joined with its patches: one undo step for it all.
+        let steps = 0;
+        try {
+          const by = new Map();
+          for (const r of c.requests()) {
+            const { id, scene } = await backend.commitPatch(r);
+            steps++;
+            list = scene;
+            const sheet = r.edges[0].body;
+            by.set(sheet, [...(by.get(sheet) ?? []), id]);
+          }
+          for (const [sheet, ids] of by) {
+            const r = await backend.commitJoinSheets({ bodies: [sheet, ...ids] });
+            steps++;
+            list = r.scene;
+            made.push(r.id);
+          }
+          if (steps) {
+            record(`PATCH ${[...by.values()].flat().length} HOLES`, made[0], made.length && list.filter(b => made.includes(b.id)).every(b => !b.sheet) ? 'SOLID' : '');
+            history[history.length - 1].steps = steps;
+          }
+          endCmd('committed');
+        } catch (e) {
+          // Take back what went in before the failure, so the model is as it was.
+          for (let i = 0; i < steps; i++) list = await backend.undo();
+          setState('failed');
+          toast(say(e));
+          if (steps) await showScene(list);
+          return;
+        }
+        await showScene(list);
+        sel.clear();
+        for (const id of made) sel.add({ kind: 'solid', body: id });
         return selectionChanged({ quiet: true });
       }
       try {
