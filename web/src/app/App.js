@@ -12249,27 +12249,43 @@ export async function mount(root, backend) {
       selectionChanged({ quiet: true });
     } catch (e) { toast(say(e)); }
   }
-  /** Plasticity's Ctrl+C: the selected solids kept to paste (Ctrl+V in place, Ctrl+Shift+V placed). */
+  /** Plasticity's Ctrl+C: the selected solids and curves kept to paste (Ctrl+V in place, Ctrl+Shift+V placed: solids). */
+  let curveClipboard = [];
   async function copySelected() {
-    const ids = targetBodies().filter(b => org.shows(b));
-    if (!ids.length) return toast('SELECT THE SOLIDS TO COPY');
-    if (!backend.copyBodies) return toast('COPY IS NOT IN THIS BUILD YET');
+    const ids = targetBodies().filter(b => org.shows(b)), curves = sel.curves.filter(curveById);
+    if (!ids.length && !curves.length) return toast('SELECT THE SOLIDS OR CURVES TO COPY');
     try {
-      const count = await backend.copyBodies(ids);
-      placeClipboard = { count, from: { origin: new THREE.Vector3(), up: UP.clone() } };
-      toast(`COPIED ${count === 1 ? label(ids[0]) : `${count} SOLIDS`} · CTRL+V PASTES`);
+      let count = 0;
+      if (ids.length) {
+        if (!backend.copyBodies) return toast('COPY IS NOT IN THIS BUILD YET');
+        count = await backend.copyBodies(ids);
+        placeClipboard = { count, from: { origin: new THREE.Vector3(), up: UP.clone() } };
+      } else placeClipboard = null;
+      curveClipboard = curves.map(id => { const { id: _, ...c } = curveById(id); return structuredClone(c); });
+      const what = [count && (count === 1 ? label(ids[0]) : `${count} SOLIDS`), curves.length && (curves.length === 1 ? curveLabel(curves[0]) : `${curves.length} CURVES`)].filter(Boolean).join(' AND ');
+      toast(`COPIED ${what} · CTRL+V PASTES`);
     } catch (e) { toast(say(e)); }
   }
-  /** Plasticity's Ctrl+V: the copied solids pasted where they were copied from, and selected. */
+  /** Plasticity's Ctrl+V: the copied solids and curves pasted where they were copied from, and selected. */
   async function pasteInPlace() {
     if (cmd) await finish();
-    if (!placeClipboard) return toast('NOTHING IS COPIED · SELECT SOLIDS AND PRESS CTRL+C');
+    if (!placeClipboard && !curveClipboard.length) return toast('NOTHING IS COPIED · SELECT SOLIDS OR CURVES AND PRESS CTRL+C');
     try {
-      const { ids, scene: list } = await backend.commitPlace({ bodies: [], clipboard: true, motion: { offset: [0, 0, 0], pivot: [0, 0, 0], axis: [0, 1, 0], angle: 0, scale: 1 }, target: null, op: 'new' });
-      record('PASTE', ids[0], ids.length > 1 ? `${ids.length} BODIES` : label(ids[0]));
-      await showScene(list);
+      const made = [];
+      if (placeClipboard) {
+        const { ids, scene: list } = await backend.commitPlace({ bodies: [], clipboard: true, motion: { offset: [0, 0, 0], pivot: [0, 0, 0], axis: [0, 1, 0], angle: 0, scale: 1 }, target: null, op: 'new' });
+        await showScene(list);
+        made.push(...ids.map(id => ({ kind: 'solid', body: id })));
+      }
+      if (curveClipboard.length) {
+        if (!backend.addCurves) throw new Error('drawing is not in this build yet');
+        const { ids } = await backend.addCurves(curveClipboard.map(c => structuredClone(c)));
+        await loadCurves();
+        made.push(...ids.map(id => ({ kind: curveList.some(c => c.id === id && isClosed(c)) ? 'region' : 'curve', id })));
+      }
+      record('PASTE', made.find(m => m.kind === 'solid')?.body, `${made.length} ITEM${made.length > 1 ? 'S' : ''}`);
       sel.clear();
-      for (const id of ids) sel.add({ kind: 'solid', body: id });
+      for (const it of made) sel.add(it);
       selectionChanged({ quiet: true });
     } catch (e) { toast(say(e)); }
   }
