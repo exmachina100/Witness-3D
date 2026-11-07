@@ -4142,7 +4142,21 @@ export async function mount(root, backend) {
     tc.setSpace('local');
     tc.attach(handle);
     tc.addEventListener('dragging-changed', e => { controls.enabled = !e.value; if (e.value) { c.follow = null; c.auto = false; } });
-    tc.addEventListener('objectChange', () => fromHandle());
+    // Ctrl while dragging a move arrow or plane: the pivot goes to the object snap point under the
+    // pointer, as far as the handle allows (Plasticity: snap points projected on the axis or plane).
+    const objectSnap = () => {
+      const e = lastPointer;
+      if (kind !== 'move' || !tc.dragging || !tc.axis || !(e?.ctrlKey || e?.metaKey)) return showSnap(null);
+      const s = snapNear(e, shownMeshes().filter(m => !ids.includes(m.userData.id)));
+      if (!s) return showSnap(null);
+      const d = s.point.clone().sub(c.pivot), along = 'XYZ'.split('').filter(k => tc.axis.includes(k));
+      const unit = k => new THREE.Vector3(k === 'X' ? 1 : 0, k === 'Y' ? 1 : 0, k === 'Z' ? 1 : 0).applyQuaternion(handle.quaternion);
+      const step = along.length === 3 ? d : along.reduce((v, k) => v.addScaledVector(unit(k), d.dot(unit(k))), new THREE.Vector3());
+      handle.position.copy(c.pivot).add(step);
+      showSnap(s, e);
+    };
+    tc.addEventListener('objectChange', () => { objectSnap(); fromHandle(); });
+    tc.addEventListener('mouseUp', () => showSnap(null));
     scene.add(tc.getHelper());
     const c = cmd = { id: kind, auto, ids, curves, verts, poles, faceMove, vertexAt, curveOut: null, poleMoves: null, poleRows: null, sent: 0, shown: 0, pivot, handle, tc, offset: new THREE.Vector3(), quat: new THREE.Quaternion(), scale: 1, stretch: new THREE.Vector3(1, 1, 1), axis: 'z', follow: null,
       frame: new THREE.Quaternion(), orient: xfPrefs.orient, pivotMode: xfPrefs.pivot, pivotAt: null, picking: false };
@@ -4400,7 +4414,7 @@ export async function mount(root, backend) {
     const c = cmd;
     if (!c?.tc) return;
     c.tc.setTranslationSnap(on ? gridStep() : null);
-    c.tc.setRotationSnap(on ? 15 * DEG : null);
+    c.tc.setRotationSnap(on ? 5 * DEG : null); // Plasticity: Ctrl rotates in 5° steps
     c.tc.setScaleSnap(on ? 0.1 : null);
   }
 
