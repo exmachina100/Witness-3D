@@ -106,19 +106,21 @@ export const COMMAND = {
     line: { tab: 'typed', 'ctrl-z': 'back', x: 'axis-x', y: 'axis-y', z: 'axis-z' },
     // The other curve tools (manual: Tab types dimensions; Regular Polygon's arrows and C; Spline
     // Curve's Ctrl+Z). They have no default keys in Plasticity either; F finds them.
-    'center-rect': { tab: 'typed', s: 'square', d: 'size-d', f: 'size-f' },
+    // C on Center Rectangle switches to Corner Rectangle (manual: Center Rectangle).
+    'center-rect': { tab: 'typed', s: 'square', c: 'centre', d: 'size-d', f: 'size-f' },
     rect3: { tab: 'typed', x: 'axis-x', y: 'axis-y', z: 'axis-z', d: 'size-d', f: 'size-f' },
-    circle2: { tab: 'typed', d: 'size-d' },
-    circle3: { tab: 'typed', d: 'size-d' },
-    arc3: { tab: 'typed' },
-    arc: { tab: 'typed' },
+    // X/Y/Z hold the next point on that axis (manual: Two/Three Point Circle, Arcs, Polygon, Ellipse, Tangent Arc).
+    circle2: { tab: 'typed', x: 'axis-x', y: 'axis-y', z: 'axis-z', d: 'size-d' },
+    circle3: { tab: 'typed', x: 'axis-x', y: 'axis-y', z: 'axis-z', d: 'size-d' },
+    arc3: { tab: 'typed', x: 'axis-x', y: 'axis-y', z: 'axis-z' },
+    arc: { tab: 'typed', x: 'axis-x', y: 'axis-y', z: 'axis-z' },
     // V stands a circle or polygon up (0.6.30's gizmo:circle:mode and gizmo:polygon:mode).
-    polygon: { tab: 'typed', arrowup: 'more', arrowdown: 'fewer', c: 'circumscribed', v: 'vertical', d: 'size-d' },
+    polygon: { tab: 'typed', arrowup: 'more', arrowdown: 'fewer', c: 'circumscribed', v: 'vertical', x: 'axis-x', y: 'axis-y', d: 'size-d' },
     // Tab swaps Spline Curve and Control Point Curve, keeping the points (manual: Control / Through-point).
     spline: { 'ctrl-z': 'back', tab: 'switch', x: 'axis-x', y: 'axis-y', z: 'axis-z' },
     cv: { 'ctrl-z': 'back', tab: 'switch', x: 'axis-x', y: 'axis-y', z: 'axis-z' },
     // Tangent Arc's D flips it; Spiral's A, D and R (manual), X/Y/Z while placing the axis end.
-    'tangent-arc': { d: 'flip' },
+    'tangent-arc': { d: 'flip', x: 'axis-x', y: 'axis-y', z: 'axis-z' },
     // Primitives (manual: Corner / Center / Three Point Box, Cylinder, Sphere). Tab types sizes; C and S
     // shape a box's base; H, F and D hand the cursor to the height, radius or diameter; V stands a
     // cylinder up; X, Y and Z hold the base to an axis; Q W Shift+E Shift+Q B pick the boolean.
@@ -195,7 +197,7 @@ export const COMMAND = {
     dimension: { tab: 'typed' },
     place: { s: 'scale', a: 'angle', d: 'offset', f: 'flip', i: 'instance', x: 'axis-x', y: 'axis-y', z: 'axis-z', q: 'union', w: 'difference', 'shift-e': 'intersect', 'shift-q': 'slice', b: 'new' },
     spiral: { x: 'axis-x', y: 'axis-y', z: 'axis-z', a: 'angle', d: 'length', r: 'radius' },
-    ellipse: { d: 'size-d', f: 'size-f' },
+    ellipse: { tab: 'typed', x: 'axis-x', y: 'axis-y', d: 'size-d', f: 'size-f' },
     ellipse3: { d: 'size-d', f: 'size-f' },
 };
 // Knife (manual: K while drawing): the finished curve imprints the face it was drawn on and is used up.

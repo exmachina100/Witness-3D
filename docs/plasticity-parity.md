@@ -33,15 +33,15 @@ Every drawing tool leaves the curve it made selected, as in Plasticity (a closed
 | Insert CV At Point | | Done as Insert Knot (adds a control point without changing the curve) |
 | Trim | | Done in both builds: lines, rectangles, polygons, circles and arcs; ellipses, control-point and NURBS curves cut exactly (as NURBS, by knot insertion); splines and joined curves piece by piece, a spline's kept part refit through its own points and the cut |
 | Center Circle | centre, size; Tab, K, V, X/Y | Done. The manual's confirm step for shapes (circles, ellipses, rectangles, polygons) done in both builds: after the last click the shape stays open with its sizes on yellow dots, D (and F where there are two sizes: width and length, length and width of an ellipse) drags or types that size, and Enter, right-click or OK keeps it; Escape keeps it as placed |
-| Two Point Circle | | Done |
-| Three Point Circle | | Done |
+| Two Point Circle | Tab, V, K, X/Y/Z | Done (X/Y/Z hold the next point on that axis, both builds) |
+| Three Point Circle | X/Y/Z | Done (X/Y/Z, both builds) |
 | Tangent Circle | pick two curves (optional third edge), size; F freeze, Tab radius | Done in both builds: two curves sized by the cursor or a radius, or a third curve clicked for the circle touching all three nearest the cursor (lines, circles and arcs exact, other curves through their samples) |
-| Ellipse (centre, three point) | | Done |
-| Center Point Arc · Three Point Arc · Tangent Arc | | Done |
-| Regular Polygon | | Done |
+| Ellipse (centre, three point) | Tab, K, X/Y | Done (Tab types the Centre Ellipse's length, then its width; X/Y hold the next point on that axis; both builds) |
+| Center Point Arc · Three Point Arc · Tangent Arc | X/Y/Z; Tangent Arc D flip | Done (X/Y/Z on all three, both builds) |
+| Regular Polygon | Tab, C, V, X/Y, arrows | Done (X/Y, both builds) |
 | Spiral | | Done |
 | Corner Rectangle | corner, corner; Tab, K, C → centre, S square | Done |
-| Center Rectangle | centre, corner; Tab, K, C → corner, S square | Done |
+| Center Rectangle | centre, corner; Tab, K, C → corner, S square | Done (C switches to a corner rectangle, both builds) |
 | Three Point Rectangle | corner, edge point, size; Tab, K, X/Y/Z | Done |
 | Corner Box | corner, corner, drag height; C → centre, S square, Tab; height step: Q W Shift+E B Shift+Q T (boolean with target bodies), H height; yellow dots; Width/Length/Height | Done (T keeps the primitive as a body of its own after a union, difference, intersect or slice) |
 | Center Box | as Corner Box from the centre | Done (T keeps the primitive as a body of its own after a union, difference, intersect or slice) |

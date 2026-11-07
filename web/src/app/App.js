@@ -136,7 +136,7 @@ const KEYS = {
   rect: [['CLICK', 'CORNERS'], ['S', 'SQUARE'], ['C', 'FROM CENTRE'], ['TAB', 'TYPE SIZE'], ['ALT', 'NO SNAP'], ['ESC', 'CANCEL']],
   circle: [['CLICK', 'CENTRE · RADIUS'], ['V', 'VERTICAL'], ['TAB', 'TYPE DIAMETER'], ['ALT', 'NO SNAP'], ['ESC', 'CANCEL']],
   line: [['CLICK', 'POINTS'], ['CLICK START', 'CLOSE'], ['X Y Z', 'AXIS'], ['CTRL Z', 'BACK'], ['TAB', 'TYPE LENGTH'], ['⏎ / RMB', 'DONE']],
-  'center-rect': [['CLICK', 'CENTRE · CORNER'], ['S', 'SQUARE'], ['TAB', 'TYPE SIZE'], ['ALT', 'NO SNAP'], ['ESC', 'CANCEL']],
+  'center-rect': [['CLICK', 'CENTRE · CORNER'], ['S', 'SQUARE'], ['C', 'CORNER RECTANGLE'], ['TAB', 'TYPE SIZE'], ['ALT', 'NO SNAP'], ['ESC', 'CANCEL']],
   rect3: [['CLICK', 'SIDE · WIDTH'], ['TAB', 'TYPE SIZE'], ['ALT', 'NO SNAP'], ['ESC', 'CANCEL']],
   circle2: [['CLICK', 'TWO ENDS'], ['TAB', 'TYPE DIAMETER'], ['ALT', 'NO SNAP'], ['ESC', 'CANCEL']],
   circle3: [['CLICK', 'THREE POINTS'], ['ALT', 'NO SNAP'], ['ESC', 'CANCEL']],
@@ -4845,7 +4845,7 @@ export async function mount(root, backend) {
     $('draw-rect').hidden = kind !== 'rect' && kind !== 'center-rect';
     $('draw-polygon').hidden = kind !== 'polygon';
     $('draw-vertical').hidden = kind !== 'polygon' && kind !== 'circle';
-    for (const b of $$('[data-draw]')) b.setAttribute('aria-pressed', false);
+    for (const b of $$('[data-draw]')) b.setAttribute('aria-pressed', b.dataset.draw === 'centre' && c.centre);
     c.knife = false;
     c.move = e => {
       if (c.adjust) return;
@@ -5263,6 +5263,15 @@ export async function mount(root, backend) {
         commitDrawn([p, q, q.clone().add(new THREE.Vector2(-side.y, side.x).multiplyScalar(s * Math.abs(w)))]);
       } }; };
       if (c.pts.length === 1) c.entry = { label: 'LENGTH', text: '', apply: l => { c.pts.push(along(Math.abs(l))); width(); } };
+      else width();
+    } else if (c.id === 'ellipse') {
+      // Centre Ellipse: the length along the cursor's way, then the width square to it.
+      const width = () => { c.entry = { label: 'WIDTH', text: '', apply: w => {
+        const [o, p] = c.pts, side = p.clone().sub(o).normalize();
+        const cur = c.cursor?.uv ?? p, s = Math.sign((cur.x - o.x) * -side.y + (cur.y - o.y) * side.x) || 1;
+        commitDrawn([o, p, o.clone().add(new THREE.Vector2(-side.y, side.x).multiplyScalar(s * Math.abs(w) / 2))]);
+      } }; };
+      if (c.pts.length === 1) c.entry = { label: 'LENGTH', text: '', apply: l => { c.pts.push(along(Math.abs(l) / 2)); width(); } };
       else width();
     } else if (c.id === 'arc') {
       if (c.pts.length === 1) c.entry = { label: 'RADIUS', text: '', apply: r => { c.pts.push(along(Math.abs(r))); c.sweep = 0; c.turn = null; } };
