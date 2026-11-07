@@ -270,7 +270,11 @@ export function extendSheet(shape, n, distance, natural = false) {
         const normal = new THREE.Vector3(ax.X(), ax.Y(), ax.Z());
         if (face.Orientation() === o.TopAbs_Orientation.TopAbs_REVERSED) normal.negate();
         const out = d.cross(normal).normalize().multiplyScalar(distance);
-        const strip = new o.BRepPrimAPI_MakePrism(edge, new o.gp_Vec(out.x, out.y, out.z), false, true).Shape();
+        // The swept strip's plane can face the other way from the sheet's, and faces on opposite
+        // planes won't merge: the strip is remade on the sheet's own plane first.
+        const swept = new o.BRepPrimAPI_MakePrism(edge, new o.gp_Vec(out.x, out.y, out.z), false, true).Shape();
+        let strip = new o.BRepBuilderAPI_MakeFace(ad.Plane(), o.BRepTools.OuterWire(o.TopoDS.Face(swept)), true).Face();
+        if (face.Orientation() === o.TopAbs_Orientation.TopAbs_REVERSED) strip = strip.Reversed();
         const fuse = new o.BRepAlgoAPI_Fuse(face, strip, new o.Message_ProgressRange());
         if (!fuse.IsDone()) throw new Error('the strip could not be joined to the sheet');
         const unify = new o.ShapeUpgrade_UnifySameDomain(fuse.Shape(), true, true, false);
