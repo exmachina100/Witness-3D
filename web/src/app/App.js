@@ -4219,18 +4219,22 @@ export async function mount(root, backend) {
       if (action === 'unpivot') { c.removePivot(); return true; }
       if (action === 'freestyle') { c.freestyle(!c.free); return true; }
       if (kind === 'move') {
-        if ('xyz'.includes(action)) beginFollow({ type: 'axis', dir: frameAxis(c, action), name: action.toUpperCase() }, p);
+        if (['x', 'y', 'z'].includes(action)) beginFollow({ type: 'axis', dir: frameAxis(c, action), name: action.toUpperCase() }, p);
         else if (['yz', 'xz', 'xy'].includes(action)) beginFollow({ type: 'plane', normal: frameAxis(c, 'xyz'.replace(action[0], '').replace(action[1], '')), name: action.toUpperCase() }, p);
         else if (action === 'screen') beginFollow({ type: 'plane', normal: null, name: 'SCREEN' }, p);
         else return false;
       } else if (kind === 'rotate') {
-        if ('xyz'.includes(action)) { setAxis(action); beginFollow({ type: 'rotate', dir: frameAxis(c, action), name: action.toUpperCase() }, p); }
+        if (['x', 'y', 'z'].includes(action)) { setAxis(action); beginFollow({ type: 'rotate', dir: frameAxis(c, action), name: action.toUpperCase() }, p); }
         else if (action === 'screen') beginFollow({ type: 'rotate', dir: null, name: 'SCREEN' }, p);
         else return false;
       } else if (action === 'uniform') beginFollow({ type: 'scale', name: 'UNIFORM' }, p);
-      else if ('xyz'.includes(action)) {
+      else if (['x', 'y', 'z'].includes(action)) {
         if (!stretchable(c)) { toast('SCALE ALONG ONE AXIS WORKS ON SOLIDS AND SHEETS; CURVES AND POINTS SCALE UNIFORMLY (S)'); return true; }
         beginFollow({ type: 'scale', axis: 'xyz'.indexOf(action), name: action.toUpperCase() }, p);
+      } else if (['yz', 'xz', 'xy'].includes(action)) {
+        // Shift+X/Y/Z (manual: Scale): scale in the plane square to that axis, the axis itself kept.
+        if (!stretchable(c)) { toast('SCALE IN A PLANE WORKS ON SOLIDS AND SHEETS; CURVES AND POINTS SCALE UNIFORMLY (S)'); return true; }
+        beginFollow({ type: 'scale', axes: [...action].map(a => 'xyz'.indexOf(a)), name: action.toUpperCase() }, p);
       } else return false;
       return true;
     };
@@ -4540,11 +4544,18 @@ export async function mount(root, backend) {
       c.quat.setFromAxisAngle(f.dir, deg * DEG).multiply(f.base.quat);
     } else if (f.type === 'scale') {
       const d0 = Math.hypot(f.start.x - f.centre.x, f.start.y - f.centre.y) || 1, d1 = Math.hypot(p.x - f.centre.x, p.y - f.centre.y);
-      const from = f.axis === undefined ? f.base.scale : f.base.stretch.getComponent(f.axis);
-      let s = from * d1 / d0;
-      if (snap) s = Math.max(0.1, Math.round(s * 10) / 10);
-      if (f.axis === undefined) c.scale = Math.max(0.001, s);
-      else c.stretch.setComponent(f.axis, Math.max(0.001, s));
+      if (f.axes) {
+        // A plane: both axes by the same factor, from where each began.
+        let r = d1 / d0;
+        if (snap) r = Math.max(0.1, Math.round(r * 10) / 10);
+        for (const i of f.axes) c.stretch.setComponent(i, Math.max(0.001, f.base.stretch.getComponent(i) * r));
+      } else {
+        const from = f.axis === undefined ? f.base.scale : f.base.stretch.getComponent(f.axis);
+        let s = from * d1 / d0;
+        if (snap) s = Math.max(0.1, Math.round(s * 10) / 10);
+        if (f.axis === undefined) c.scale = Math.max(0.001, s);
+        else c.stretch.setComponent(f.axis, Math.max(0.001, s));
+      }
     }
     apply();
   }
@@ -4553,7 +4564,7 @@ export async function mount(root, backend) {
     if (v === undefined) return apply();
     if (f.type === 'axis') c.offset.copy(f.base.offset).addScaledVector(f.dir, fromUnit(v, lengthUnit));
     else if (f.type === 'rotate') c.quat.setFromAxisAngle(f.dir, v * DEG).multiply(f.base.quat);
-    else if (f.type === 'scale') { if (v > 0) { if (f.axis === undefined) c.scale = v; else c.stretch.setComponent(f.axis, v); } }
+    else if (f.type === 'scale') { if (v > 0) { if (f.axes) f.axes.forEach(i => c.stretch.setComponent(i, v)); else if (f.axis === undefined) c.scale = v; else c.stretch.setComponent(f.axis, v); } }
     apply();
   }
   function endFollow(keep) {
