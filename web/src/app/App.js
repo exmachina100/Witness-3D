@@ -2765,6 +2765,8 @@ export async function mount(root, backend) {
     });
     scene.add(tc.getHelper());
     const c = cmd = { id: 'image', image: id, tc };
+    // The image is the selection now, so a Rectangular, Radial or Curve Array started next takes it.
+    sel.replace({ kind: 'image', id });
     lastTool = 'image';
     showTool('image');
     setState('none');
@@ -11687,8 +11689,24 @@ export async function mount(root, backend) {
   function startCopies(id, request, describe) {
     // Mirror and the arrays take curves and regions too (manual common/mirror, the array pages).
     const curves = sel.curves.filter(curveById);
-    const ids = (curves.length ? sel.solids : targetBodies()).filter(b => org.shows(b));
-    if (!ids.length && !curves.length) { toast(`SELECT SOLIDS OR CURVES TO ${toolInfo(id).label}`); return null; }
+    // Reference images go in the arrays too (not Mirror: a picture has no mirror image here).
+    const pics = id === 'mirror' ? [] : sel.list('image').map(it => it.id).filter(i => images.some(m => m.id === i));
+    const ids = (curves.length || pics.length ? sel.solids : targetBodies()).filter(b => org.shows(b));
+    if (!ids.length && !curves.length && !pics.length) { toast(`SELECT SOLIDS OR CURVES TO ${toolInfo(id).label}`); return null; }
+    // The images' copies, moved, turned and scaled by each of the array's motions.
+    const imageCopies = req => {
+      if (!pics.length) return [];
+      const motions = req.spec.kind === 'motions' ? req.spec.motions : arrayMotions(req.spec);
+      return motions.flatMap(m => {
+        const axis = new THREE.Vector3(...(m.axis ?? [0, 1, 0])).normalize(), angle = m.angle ?? 0, s = m.scale ?? 1;
+        const pivot = new THREE.Vector3(...(m.pivot ?? [0, 0, 0])), turn = new THREE.Quaternion().setFromAxisAngle(axis, angle);
+        return pics.map(pid => {
+          const im = images.find(x => x.id === pid);
+          const o = new THREE.Vector3(...im.origin).sub(pivot).multiplyScalar(s).applyQuaternion(turn).add(pivot).add(new THREE.Vector3(...(m.offset ?? [0, 0, 0])));
+          return { ...im, origin: o.toArray(), quaternion: turn.clone().multiply(new THREE.Quaternion(...im.quaternion)).normalize().toArray(), width: im.width * s };
+        });
+      });
+    };
     // The curves' copies: mirrored, or moved by each of the array's motions (the path of a Curve Array left out).
     const curveCopies = (c, req) => {
       const list = c.curves.filter(cid => cid !== c.curve && curveById(cid));
@@ -11706,11 +11724,11 @@ export async function mount(root, backend) {
     const hint = { mirror: 'mirror-hint', 'rect-array': 'ra-hint', 'radial-array': 'rr-hint', 'curve-array': 'ca-hint' }[id];
     const joinBtn = { mirror: 'mirror-join', 'rect-array': 'ra-join', 'radial-array': 'rr-join', 'curve-array': 'ca-join' }[id];
     const instanceBtn = { mirror: 'mirror-instance', 'rect-array': 'ra-instance', 'radial-array': 'rr-instance', 'curve-array': 'ca-instance' }[id];
-    const c = cmd = { id, ids, curves, join: false, instance: false, sent: 0, shown: 0 };
+    const c = cmd = { id, ids, curves, pics, join: false, instance: false, sent: 0, shown: 0 };
     lastTool = id;
     showTool(id);
     setState('none');
-    const what = [ids.length ? (ids.length === 1 ? label(ids[0]) : `${ids.length} SOLIDS`) : '', curves.length ? (curves.length === 1 ? curveLabel(curves[0]) : `${curves.length} CURVES`) : ''].filter(Boolean).join(' · ');
+    const what = [ids.length ? (ids.length === 1 ? label(ids[0]) : `${ids.length} SOLIDS`) : '', curves.length ? (curves.length === 1 ? curveLabel(curves[0]) : `${curves.length} CURVES`) : '', pics.length ? (pics.length === 1 ? imageLabel(pics[0]) : `${pics.length} IMAGES`) : ''].filter(Boolean).join(' · ');
     setTarget(what);
     $(hint).textContent = what;
     $(joinBtn).setAttribute('aria-pressed', 'false');
@@ -11721,10 +11739,12 @@ export async function mount(root, backend) {
       if (!req) { clearPreview(); setState('none'); return setHud(describe(c, 0)); }
       livePreview(c, async () => c.ids.length ? backend[preview]({ bodies: c.ids, ...req }) : [], list => {
         showCopies(list);
-        let drawn = [];
+        let drawn = [], pictures = [];
         try { drawn = curveCopies(c, req); } catch { drawn = []; }
+        try { pictures = imageCopies(req); } catch { pictures = []; }
         if (drawn.length) showCurvePreview(drawn);
-        setHud(describe(c, list.length + drawn.length));
+        showImageCopies(pictures);
+        setHud(describe(c, list.length + drawn.length + pictures.length));
       }, hint);
     };
     c.key = action => {
@@ -11775,6 +11795,13 @@ export async function mount(root, backend) {
         // Curves: their mirror images or array copies as new curves.
         const copies = curveCopies(c, req);
         const { ids: drawn } = copies.length ? await backend.addCurves(copies.map(({ id: _, ...m }) => m)) : { ids: [] };
+        // Images: each copy a new reference image (kept with the file, outside the undo history).
+        const pictures = imageCopies(req).map(m => ({ ...m, id: nextImage++ }));
+        if (pictures.length) { images.push(...pictures); drawImages(); renderOutliner(); }
+        if (!made.length && !drawn.length) {
+          endCmd('committed');
+          return toast(`${pictures.length} IMAGE${pictures.length === 1 ? '' : 'S'} · ${toolInfo(id).label}`);
+        }
         endCmd('committed');
         record(`${toolInfo(id).label}${c.join ? ' · JOINED' : ''}`, made[0], made.length ? (c.join ? label(made[0]) : `${made.length} NEW`) : `${drawn.length} CURVE${drawn.length > 1 ? 'S' : ''}`);
         // Solids and curves together are two steps in the backend, one in the history.
@@ -11788,8 +11815,22 @@ export async function mount(root, backend) {
       } catch (e) { setState('failed'); toast(say(e)); }
     };
     c.abort = () => endCmd('cancelled');
-    c.cleanup = () => clearPreview();
+    c.cleanup = () => { clearPreview(); showImageCopies([]); };
     return c;
+  }
+  /** Where an array's image copies would go: see-through pictures, until the command ends. */
+  const imagePreview = new THREE.Group();
+  scene.add(imagePreview);
+  function showImageCopies(list) {
+    for (const m of imagePreview.children) { m.geometry.dispose(); m.material.dispose(); }
+    imagePreview.clear();
+    for (const im of list) {
+      const mesh = new THREE.Mesh(new THREE.PlaneGeometry(im.width, im.width * im.aspect).rotateX(-Math.PI / 2), new THREE.MeshBasicMaterial({ map: textures.get(im.id) ?? null, transparent: true, opacity: 0.45, depthWrite: false, side: THREE.DoubleSide, toneMapped: false }));
+      mesh.position.fromArray(im.origin);
+      mesh.quaternion.fromArray(im.quaternion);
+      mesh.renderOrder = 6;
+      imagePreview.add(mesh);
+    }
   }
   function syncAxis(c) {
     const attr = c.id === 'mirror' ? 'mx' : 'rx';
