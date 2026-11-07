@@ -3531,6 +3531,53 @@ export async function mount(root, backend) {
     }
     return out.map(x => ({ point: new THREE.Vector3(...x.point), kind: x.kind }));
   }
+  // Plasticity's snap reference lines: point at something that snaps and tap Shift, and lines
+  // through that point along the axes stay while the command runs, snapping themselves (and where
+  // two of them cross).
+  const refPoints = [];
+  const refGroup = new THREE.Group();
+  refGroup.renderOrder = 15;
+  scene.add(refGroup);
+  /** The reference lines to snap to: through each point along the axes lying in `plane` (all three without one). */
+  function refLines(plane) {
+    const axes = [new THREE.Vector3(1, 0, 0), new THREE.Vector3(0, 1, 0), new THREE.Vector3(0, 0, 1)];
+    let dirs = plane ? axes.filter(a => Math.abs(a.dot(plane.normal)) < 1e-6) : axes;
+    if (plane && !dirs.length) { const x = frameFor(plane.normal); dirs = [x, plane.normal.clone().cross(x).normalize()]; }
+    return refPoints.flatMap(p => {
+      const o = plane ? p.clone().addScaledVector(plane.normal, -plane.distanceToPoint(p)) : p.clone();
+      return dirs.map(d => ({ o, d }));
+    });
+  }
+  function addRefPoint(p) {
+    if (refPoints.some(q => q.distanceTo(p) < 1e-6)) return;
+    refPoints.push(p.clone());
+    const mat = new THREE.LineDashedMaterial({ color: COLORS.accent, dashSize: 1.5, gapSize: 1.5, depthTest: false, transparent: true, opacity: 0.7 });
+    for (const d of [[1, 0, 0], [0, 1, 0], [0, 0, 1]]) {
+      const v = new THREE.Vector3(...d).multiplyScalar(5000);
+      const l = new THREE.Line(new THREE.BufferGeometry().setFromPoints([p.clone().sub(v), p.clone().add(v)]), mat);
+      l.computeLineDistances();
+      l.renderOrder = 15;
+      refGroup.add(l);
+    }
+    toast('REFERENCE LINES · THEY GO WHEN THE COMMAND ENDS');
+  }
+  function clearRefPoints() {
+    refPoints.length = 0;
+    for (const o of [...refGroup.children]) { refGroup.remove(o); o.geometry.dispose(); }
+  }
+  /** Where the reference lines cross each other (in `plane`). */
+  function refCrossings(lines) {
+    const out = [];
+    for (let i = 0; i < lines.length; i++) for (let j = i + 1; j < lines.length; j++) {
+      const a = lines[i], b = lines[j], n = a.d.clone().cross(b.d);
+      if (n.lengthSq() < 1e-12) continue;
+      const w = b.o.clone().sub(a.o);
+      if (Math.abs(w.dot(n)) > 1e-6 * Math.max(1, w.length())) continue;
+      const t = w.clone().cross(b.d).dot(n) / n.lengthSq();
+      out.push({ point: a.o.clone().addScaledVector(a.d, t), kind: 'REFERENCE CROSS' });
+    }
+    return out;
+  }
   function snapNear(e, meshes, plane = null, from = null, normal = null) {
     if (!snapSettings.on) return null;
     const ok = s => snapAllowed(s.kind, snapSettings, cmd?.snapSkip);
@@ -3539,7 +3586,8 @@ export async function mount(root, backend) {
     // 2026.2: instances snap as their masters do, where they stand.
     const placed = instanceGroup.children.filter(o => o.isMesh && o.visible).flatMap(o => instanceSnaps(o));
     const curves = curvePolys();
-    const all = [...meshes.flatMap(m => [...snapCandidates(m), ...sectionSnaps(m)]), ...placed, ...curves.snaps, ...(from ? fromSnaps(from, plane?.normal ?? normal) : [])];
+    const refs = refPoints.length ? refLines(plane) : [];
+    const all = [...meshes.flatMap(m => [...snapCandidates(m), ...sectionSnaps(m)]), ...placed, ...curves.snaps, ...(from ? fromSnaps(from, plane?.normal ?? normal) : []), ...refCrossings(refs)];
     for (const s of all) {
       if (!ok(s) || (plane && Math.abs(plane.distanceToPoint(s.point)) > 1e-3)) continue;
       const p = screenOf(s.point);
@@ -3557,6 +3605,22 @@ export async function mount(root, backend) {
         if (hit && hit.d < SNAP_PX * 0.7 && (!near || hit.d < near.d)) near = hit;
       }
       if (near) return { point: new THREE.Vector3(...near.point), kind: 'ON CURVE' };
+    }
+    if (!best && refs.length && ok({ kind: 'REFERENCE' })) {
+      // On a reference line: the point of the line nearest the pointer's ray, when close on screen.
+      ray(e);
+      const r = raycaster.ray;
+      let near = null, nd = SNAP_PX * 0.7;
+      for (const { o, d } of refs) {
+        const w = o.clone().sub(r.origin), b = d.dot(r.direction), den = 1 - b * b;
+        if (den < 1e-9) continue;
+        const t = (b * w.dot(r.direction) - w.dot(d)) / den;
+        const q = o.clone().addScaledVector(d, t), sp = screenOf(q);
+        if (sp.behind) continue;
+        const dd = Math.hypot(sp.x - c.x, sp.y - c.y);
+        if (dd < nd) { nd = dd; near = q; }
+      }
+      if (near) return { point: near, kind: 'REFERENCE' };
     }
     return best && { point: best.point.clone(), kind: best.kind };
   }
@@ -3614,6 +3678,7 @@ export async function mount(root, backend) {
     setTarget(null);
     setHud(null);
     showSnap(null);
+    clearRefPoints();
     if (state) setState(state);
     renderOutliner();
   }
@@ -13447,6 +13512,15 @@ export async function mount(root, backend) {
       r.classList.toggle('filtered', !keep);
     }
   }
+  // A tap of Shift on its own (no other key or click while it was down) over a snapped point.
+  let shiftTap = false;
+  addEventListener('keydown', e => { shiftTap = e.key === 'Shift' && !e.repeat ? true : e.key === 'Shift' ? shiftTap : false; }, true);
+  addEventListener('pointerdown', () => { shiftTap = false; }, true);
+  addEventListener('keyup', e => {
+    if (e.key !== 'Shift' || !shiftTap) return;
+    shiftTap = false;
+    if (cmd && shownSnap && snapDot.visible) addRefPoint(snapDot.position);
+  });
   addEventListener('keyup', e => {
     // Let go of the key that opened the menu: run what the pointer is on, or leave it open to click.
     if (radial?.key && e.code === radial.key) { radial.key = null; if (radial.hot >= 0) runRadial(radial.hot); }
