@@ -35,21 +35,45 @@ export function placesAlong(c, count) {
     });
 }
 
+// Quaternions as [x, y, z, w].
+const quat = (axis, angle) => { const l = Math.hypot(...axis) || 1, s = Math.sin(angle / 2); return [axis[0] / l * s, axis[1] / l * s, axis[2] / l * s, Math.cos(angle / 2)]; };
+const qmul = ([ax, ay, az, aw], [bx, by, bz, bw]) => [aw * bx + ax * bw + ay * bz - az * by, aw * by - ax * bz + ay * bw + az * bx, aw * bz + ax * by - ay * bx + az * bw, aw * bw - ax * bx - ay * by - az * bz];
+const qrot = (q, v) => { const [x, y, z, w] = qmul(qmul(q, [...v, 0]), [-q[0], -q[1], -q[2], q[3]]); return [x, y, z]; };
+/** A quaternion as an axis and an angle in radians. */
+function axisAngle(q) {
+    if (q[3] < 0) q = q.map(v => -v);
+    const s = Math.sqrt(Math.max(0, 1 - q[3] * q[3]));
+    return s < 1e-12 ? { axis: [0, 0, 1], angle: 0 } : { axis: [q[0] / s, q[1] / s, q[2] / s], angle: 2 * Math.acos(Math.min(1, q[3])) };
+}
+
 /**
  * The motion of every copy (the original excluded) for an array spec of kind 'motions': `count`
  * places in all, spaced evenly by length (a closed curve's last place stops short of its start).
+ * Options (Plasticity's Curve Array dialog): `twist`, degrees the last copy turns about the curve
+ * (the copies between in proportion), and `scale`, the last copy's size (the copies between
+ * growing evenly from 1). How Plasticity spreads them is not documented; even steps are inferred.
  */
-export function curveArrayMotions(c, count, align = true) {
+export function curveArrayMotions(c, count, align = true, { twist = 0, scale = 1 } = {}) {
+    if (!Number.isFinite(twist)) throw new Error('the twist must be a number');
+    if (!(scale > 0)) throw new Error('the scale must be above zero');
     if (!Number.isInteger(count) || count < 1) throw new Error('the array count must be at least 1');
     if (count > 1000) throw new Error('that array makes more than 1000 bodies');
     if (count < 2) return [];
     const y = cross3(c.normal, c.x);
     const model = ([u, v]) => [0, 1, 2].map(k => c.origin[k] + u * c.x[k] + v * y[k]);
     const places = placesAlong(c, count), p0 = model(places[0].at), t0 = places[0].tangent;
-    return places.slice(1).map(({ at, tangent }) => {
-        const p = model(at);
-        const angle = align ? Math.atan2(t0[0] * tangent[1] - t0[1] * tangent[0], t0[0] * tangent[0] + t0[1] * tangent[1]) : 0;
-        return { offset: sub3(p, p0), pivot: p0, axis: [...c.normal], angle };
+    const last = places.length - 1;
+    return places.slice(1).map(({ at, tangent }, k) => {
+        const p = model(at), f = (k + 1) / last;
+        const turn = align ? Math.atan2(t0[0] * tangent[1] - t0[1] * tangent[0], t0[0] * tangent[0] + t0[1] * tangent[1]) : 0;
+        let q = quat(c.normal, turn);
+        // The twist turns the copy about the curve where it stands, after the turn with the curve.
+        if (twist) {
+            const t = [0, 1, 2].map(i => tangent[0] * c.x[i] + tangent[1] * y[i]);
+            q = qmul(quat(align ? t : qrot(q, [0, 1, 2].map(i => t0[0] * c.x[i] + t0[1] * y[i])), twist * f * Math.PI / 180), q);
+        }
+        const { axis, angle } = axisAngle(q);
+        return { offset: sub3(p, p0), pivot: p0, axis, angle, scale: 1 + (scale - 1) * f };
     });
 }
 const sub3 = (a, b) => [a[0] - b[0], a[1] - b[1], a[2] - b[2]];

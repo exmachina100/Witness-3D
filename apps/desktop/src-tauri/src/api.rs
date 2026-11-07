@@ -1187,6 +1187,9 @@ pub struct ArrayMotionIn {
     pub pivot: [f64; 3],
     pub axis: [f64; 3],
     pub angle: f64,
+    /// Curve Array's Scale: the copy's size (1 when left out).
+    #[serde(default = "one")]
+    pub scale: f64,
 }
 
 impl From<ArraySpecIn> for ArraySpec {
@@ -1195,7 +1198,7 @@ impl From<ArraySpecIn> for ArraySpec {
             ArraySpecIn::Rectangular { steps, counts } => ArraySpec::Rectangular { steps: steps.map(DVec3::from_array), counts },
             ArraySpecIn::Radial { pivot, axis, angle, count } => ArraySpec::Radial { pivot: DVec3::from_array(pivot), axis: DVec3::from_array(axis), angle, count },
             ArraySpecIn::Motions { motions } => ArraySpec::Motions(motions.into_iter().map(|m| Motion {
-                offset: DVec3::from_array(m.offset), pivot: DVec3::from_array(m.pivot), axis: DVec3::from_array(m.axis), angle: m.angle, scale: 1.0,
+                offset: DVec3::from_array(m.offset), pivot: DVec3::from_array(m.pivot), axis: DVec3::from_array(m.axis), angle: m.angle, scale: m.scale,
             }).collect()),
         }
     }

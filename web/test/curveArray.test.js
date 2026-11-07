@@ -40,3 +40,26 @@ test('the browser build places a copy of a body at each spot along the curve', a
     const xs = made.map(id => { const b = scene.find(s => s.id === id); let lo = Infinity; for (let i = 0; i < b.positions.length; i += 3) lo = Math.min(lo, b.positions[i]); return lo; });
     xs.forEach((x, i) => close(x, -40 + 100 * (i + 1), 1e-6));
 });
+
+test('twist turns the copies about the curve and scale sizes them, both evenly up to the last', () => {
+    const line = { ...ground, kind: 'polyline', points: [[0, 0], [30, 0]], closed: false };
+    const m = curveArrayMotions(line, 4, true, { twist: 90, scale: 2 });
+    m.forEach((q, i) => {
+        close(q.scale, 1 + (i + 1) / 3);
+        close(q.angle, Math.PI / 2 * (i + 1) / 3);
+        // The straight line runs along x: the twist is about x.
+        close(Math.abs(q.axis[0]), 1);
+    });
+    assert.throws(() => curveArrayMotions(line, 3, true, { scale: 0 }), /scale/);
+});
+
+test('a scaled curve array makes copies of the right size', async () => {
+    const be = new LocalBackend({ seed: 'enclosure' });
+    const seed = be.scene()[0]; // 80 × 30 × 50
+    const line = { ...ground, kind: 'polyline', points: [[0, 0], [300, 0]], closed: false };
+    const { ids: made, scene } = await be.commitArray({ bodies: [seed.id], spec: { kind: 'motions', motions: curveArrayMotions(line, 2, true, { scale: 2 }) } });
+    const b = scene.find(s => s.id === made[0]);
+    let lo = Infinity, hi = -Infinity;
+    for (let i = 1; i < b.positions.length; i += 3) { lo = Math.min(lo, b.positions[i]); hi = Math.max(hi, b.positions[i]); }
+    close(hi - lo, 2 * 30, 1e-3);
+});

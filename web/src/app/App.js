@@ -930,6 +930,8 @@ const SHELL = `
     <div class="sec" data-panel="curve-array" hidden>
       <span class="hint" data-id="ca-hint">—</span>
       <div class="field"><label for="w3d-ca-count">COUNT</label><input id="w3d-ca-count" data-id="ca-count" type="number" step="1" min="1" value="5"></div>
+      <div class="field"><label for="w3d-ca-twist">TWIST</label><input id="w3d-ca-twist" data-id="ca-twist" type="number" step="15" value="0" title="Degrees the last copy turns about the curve; the copies between turn in proportion"></div>
+      <div class="field"><label for="w3d-ca-scale">SCALE</label><input id="w3d-ca-scale" data-id="ca-scale" type="number" step="0.1" min="0.01" value="1" title="The last copy's size; the copies between grow or shrink evenly"></div>
       <div class="chips"><button data-id="ca-align" aria-pressed="true" title="Turn each copy with the curve (A)"><kbd>A</kbd>ALIGN</button><button data-id="ca-join" aria-pressed="false"><kbd>J</kbd>JOIN</button><button data-id="ca-instance" aria-pressed="false" title="Make instances of the solids, sharing their geometry, rather than copies (I)"><kbd>I</kbd>INSTANCE</button></div>
     </div>
     <div class="sec" data-panel="form" hidden>
@@ -11322,8 +11324,8 @@ export async function mount(root, backend) {
    * with the curve or keeps them square, J joins them.
    */
   function startCurveArray() {
-    const c = startCopies('curve-array', c => ({ spec: { kind: 'motions', motions: curveArrayMotions(curveById(c.curve), Math.round(num('ca-count')), c.align) } }),
-      (c, n) => `${n} ${n === 1 ? 'COPY' : 'COPIES'} ALONG ${curveLabel(c.curve)}${c.align ? '' : ' · NOT ALIGNED'}`);
+    const c = startCopies('curve-array', c => ({ spec: { kind: 'motions', motions: curveArrayMotions(curveById(c.curve), Math.round(num('ca-count')), c.align, { twist: num('ca-twist'), scale: num('ca-scale') || 1 }) } }),
+      (c, n) => `${n} ${n === 1 ? 'COPY' : 'COPIES'} ALONG ${curveLabel(c.curve)}${c.align ? '' : ' · NOT ALIGNED'}${num('ca-twist') ? ` · TWIST ${num('ca-twist')}°` : ''}${(num('ca-scale') || 1) !== 1 ? ` · SCALE ×${num('ca-scale')}` : ''}`);
     if (!c) return;
     c.curve = sel.curves.find(curveById) ?? null;
     c.align = true;
@@ -13617,7 +13619,7 @@ export async function mount(root, backend) {
   $('shell-t').addEventListener('input', () => cmd?.id === 'shell' && cmd.preview());
   $('draft-a').addEventListener('input', () => cmd?.id === 'draft' && cmd.preview());
   $('draft-d').addEventListener('input', () => cmd?.id === 'draft' && cmd.preview());
-  for (const id of ['mirror-at', 'ra-cx', 'ra-cy', 'ra-cz', 'ra-sx', 'ra-sy', 'ra-sz', 'rr-count', 'rr-angle', 'ca-count']) $(id).addEventListener('input', () => cmd?.preview?.());
+  for (const id of ['mirror-at', 'ra-cx', 'ra-cy', 'ra-cz', 'ra-sx', 'ra-sy', 'ra-sz', 'rr-count', 'rr-angle', 'ca-count', 'ca-twist', 'ca-scale']) $(id).addEventListener('input', () => cmd?.preview?.());
   for (const b of $$('[data-mx], [data-rx]')) b.onclick = () => cmd?.key?.(b.dataset.mx ?? b.dataset.rx);
   $('mirror-neg').onclick = () => cmd?.id === 'mirror' && cmd.key('negative');
   $('mirror-cut').onclick = () => cmd?.id === 'mirror' && cmd.key('cut');

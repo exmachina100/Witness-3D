@@ -110,9 +110,10 @@ impl ArraySpec {
                 if motions.is_empty() { return Err(KernelError::NoOp) }
                 for m in motions {
                     if !finite(&m.offset.to_array()) || !finite(&m.pivot.to_array()) || !finite(&m.axis.to_array()) || !m.angle.is_finite() { return Err(KernelError::Invalid("an array copy is not placed at a number")) }
+                    if !(m.scale > 0.0 && m.scale.is_finite()) { return Err(KernelError::Invalid("an array copy has no size")) }
                     if m.angle.abs() > 1e-12 && m.axis.length() < 1e-9 { return Err(KernelError::Invalid("the array's axis has no direction")) }
                 }
-                Ok(motions.iter().map(|m| Motion { axis: if m.axis.length() < 1e-9 { DVec3::Y } else { m.axis.normalize() }, scale: 1.0, ..*m }).collect())
+                Ok(motions.iter().map(|m| Motion { axis: if m.axis.length() < 1e-9 { DVec3::Y } else { m.axis.normalize() }, ..*m }).collect())
             }
             ArraySpec::Rectangular { steps, counts } => {
                 if steps.iter().any(|s| !finite(&s.to_array())) { return Err(KernelError::Invalid("an array step is not a number")) }

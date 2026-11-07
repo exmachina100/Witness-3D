@@ -77,5 +77,5 @@ export function instanceFromMotion(id, master, motion, centre) {
     const q = motion.axis && motion.angle
         ? new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(...motion.axis).normalize(), motion.angle)
         : new THREE.Quaternion();
-    return { ...newInstance(id, master, pivot), position: pivot.map((v, i) => v + (motion.offset?.[i] ?? 0)), quaternion: q.toArray() };
+    return { ...newInstance(id, master, pivot), position: pivot.map((v, i) => v + (motion.offset?.[i] ?? 0)), quaternion: q.toArray(), ...(motion.scale && motion.scale !== 1 && { scale: motion.scale }) };
 }
