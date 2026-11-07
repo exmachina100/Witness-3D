@@ -735,6 +735,7 @@ const SHELL = `
       <div class="seg" role="group" aria-label="Method"><button data-pmethod="fill" aria-pressed="true" title="Fill the loop with a new sheet">FILL</button><button data-pmethod="hole" aria-pressed="false" title="Trim to hole: trim the selected target sheet to the hole the base sheet's edges make">HOLE</button><button data-pmethod="sheet" aria-pressed="false" title="Trim to sheet: trim the selected target sheet where the base sheet ends">SHEET</button></div>
       <div class="field"><label>CURVES</label><output data-id="patch-curves">0</output></div>
       <div class="field"><label>EDGES</label><output data-id="patch-edges">0</output></div>
+      <div class="field" title="Open curves selected with one closed loop: the sheet passes through them"><label>GUIDES</label><output data-id="patch-guides">0</output></div>
       <div class="field" title="The sheet the Trim methods cut: select it in body mode with the base sheet's edges"><label>TARGET</label><output data-id="patch-target">—</output></div>
       <div class="field" title="How far the sheet may stray from its loop, and how far apart the loop's pieces may be and still join (mm)"><label for="w3d-patch-tol">TOLERANCE</label><input id="w3d-patch-tol" data-id="patch-tol" type="number" step="0.001" min="0.0001" value="0.001"></div>
     </div>
@@ -9527,8 +9528,16 @@ export async function mount(root, backend) {
       const groups = patchLoops(c.curves, c.edges);
       // Sheets selected on their own: a sheet through every hole (Individual always).
       if (c.fill) return groups.filter(g => g.closed).map(g => request(g.curves, g.edges));
+      c.guides = [];
       if (!c.individual) {
         if (groups.length > 1 && groups.every(g => g.closed)) throw new Error(`those make ${groups.length} loops; press I for a sheet in each`);
+        // Guide curves (manual: select the guides with the loop): open curves left over beside one
+        // closed loop; the sheet passes through them.
+        const closed = groups.filter(g => g.closed), open = groups.filter(g => !g.closed);
+        if (closed.length === 1 && open.length && open.every(g => !g.edges.length)) {
+          c.guides = open.flatMap(g => g.curves);
+          return [{ ...request(closed[0].curves, closed[0].edges), guides: c.guides }];
+        }
         return [request(c.curves, c.edges)];
       }
       if (groups.some(g => !g.closed)) throw new Error('some of the selection does not close into a loop');
@@ -9574,7 +9583,9 @@ export async function mount(root, backend) {
         $('patch-hint').textContent = `${list.length} HOLE${list.length === 1 ? '' : 'S'} FILLED, JOINED INTO ${c.fill.length === 1 ? 'THE SHEET' : 'EACH SHEET'}`;
         return setHud(`PATCH ${list.length} HOLE${list.length === 1 ? '' : 'S'}`);
       }
-      $('patch-hint').textContent = c.quad ? c.quadText : (smooth ?? (list.length > 1 ? `A ${c.cont === 'planar' ? 'FLAT ' : ''}SHEET THROUGH EACH LOOP` : `${c.cont === 'planar' ? 'A FLAT' : ''} SHEET THROUGH THE LOOP`.trim())) + (list.length > 1 ? ` · ${list.length} SHEETS` : '');
+      const guided = !c.quad && c.guides?.length ? ` · ${c.guides.length} GUIDE${c.guides.length > 1 ? 'S' : ''}` : '';
+      $('patch-guides').textContent = c.quad ? 0 : c.guides?.length ?? 0;
+      $('patch-hint').textContent = c.quad ? c.quadText : (smooth ?? (list.length > 1 ? `A ${c.cont === 'planar' ? 'FLAT ' : ''}SHEET THROUGH EACH LOOP` : `${c.cont === 'planar' ? 'A FLAT' : ''} SHEET THROUGH THE LOOP`.trim())) + guided + (list.length > 1 ? ` · ${list.length} SHEETS` : '');
       setHud(c.quad ? 'PATCH · QUAD-SIDED' : list.length > 1 ? `PATCH ×${list.length}` : 'PATCH');
     }, 'patch-hint');
     c.onSelection = () => {

@@ -94,3 +94,19 @@ test("Tolerance says how far apart the loop's pieces may be and still close", as
     const whole = await be.previewPatch({ curves: closed });
     close(area(loose), area(whole), 0.01 * area(whole));
 });
+
+test('a guide curve lifts the patch through it inside the loop', async () => {
+    const be = new LocalBackend({ seed: 'enclosure' });
+    const c = [[0, 60, 0], [10, 60, 0], [10, 60, 10], [0, 60, 10]];
+    const { ids } = await be.addCurves(c.map((p, i) => line(p, c[(i + 1) % 4])));
+    // An arc across the middle, 3 mm up at its top.
+    const { ids: [guide] } = await be.addCurves([{ origin: [0, 60, 5], x: [1, 0, 0], normal: [0, 0, 1], kind: 'arc', start: [0, 0], mid: [5, 3], end: [10, 0] }]);
+    const flatLid = await be.previewPatch({ curves: ids });
+    for (const p of pts(flatLid)) close(p.y, 60, 1e-6);
+    const sheet = await be.previewPatch({ curves: ids, guides: [guide] });
+    const top = Math.max(...pts(sheet).map(p => p.y));
+    close(top, 63, 0.1);
+    for (const p of pts(sheet)) assert.ok(p.y > 60 - 0.05, `${p.y} dips below the loop`);
+    const { id } = await be.commitPatch({ curves: ids, guides: [guide] });
+    assert.ok(be.scene().find(b => b.id === id).sheet);
+});

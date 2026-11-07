@@ -1935,6 +1935,11 @@ impl<K: Kernel> Document<K> {
     /// 2 curvature too). `tolerance` is how far the sheet may stray from the loop (mm; 0 keeps the
     /// kernel's own).
     pub fn preview_patch(&self, curves: &[CurveId], edges: &[(BodyId, u32, u32)], tolerance: f64) -> Result<K::Solid, KernelError> {
+        self.preview_patch_guided(curves, edges, tolerance, &[])
+    }
+
+    /// Patch passing through the `guides` curves inside the loop (Plasticity's guide curves).
+    pub fn preview_patch_guided(&self, curves: &[CurveId], edges: &[(BodyId, u32, u32)], tolerance: f64, guides: &[CurveId]) -> Result<K::Solid, KernelError> {
         if curves.is_empty() && edges.is_empty() { return Err(KernelError::Invalid("select a closed loop of curves or edges to patch")) }
         let paths: Vec<Path> = self.cutters(curves)?.into_iter().map(|(p, _)| p).collect();
         let mut bodies: Vec<(BodyId, Vec<(u32, u32)>)> = vec![];
@@ -1948,12 +1953,18 @@ impl<K: Kernel> Document<K> {
         for (b, list) in bodies {
             picked.push((self.get(b).ok_or(KernelError::Invalid("that body no longer exists"))?, list));
         }
-        self.kernel.patch_within(&paths, &picked, tolerance)
+        let guides: Vec<Path> = self.cutters(guides)?.into_iter().map(|(p, _)| p).collect();
+        self.kernel.patch_guided(&paths, &picked, tolerance, &guides)
     }
 
     /// Patch as one undoable step: the sheet becomes a body of its own, and the loop stays.
     pub fn commit_patch(&mut self, curves: &[CurveId], edges: &[(BodyId, u32, u32)], tolerance: f64) -> Result<BodyId, KernelError> {
-        let sheet = self.preview_patch(curves, edges, tolerance)?;
+        self.commit_patch_guided(curves, edges, tolerance, &[])
+    }
+
+    /// Patch through guide curves as one undoable step.
+    pub fn commit_patch_guided(&mut self, curves: &[CurveId], edges: &[(BodyId, u32, u32)], tolerance: f64, guides: &[CurveId]) -> Result<BodyId, KernelError> {
+        let sheet = self.preview_patch_guided(curves, edges, tolerance, guides)?;
         Ok(self.add(sheet))
     }
 

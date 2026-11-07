@@ -1614,6 +1614,9 @@ pub struct PatchRequest {
     /// "hole" (Trim to hole) or "sheet" (Trim to sheet), with `target`.
     #[serde(default)]
     pub method: String,
+    /// Guide curves the sheet passes through inside the loop.
+    #[serde(default)]
+    pub guides: Vec<CurveId>,
 }
 
 #[derive(Deserialize, Debug, Clone)]
@@ -1638,7 +1641,7 @@ pub fn preview_patch(m: &Model, req: PatchRequest) -> Option<Result<Body, ApiErr
     m.preview(move |doc| {
         let sheet = match req.target {
             Some(t) => doc.preview_patch_trim(t, &req.edges(), req.method != "sheet")?,
-            None => doc.preview_patch(&req.curves, &req.edges(), req.tolerance)?,
+            None => doc.preview_patch_guided(&req.curves, &req.edges(), req.tolerance, &req.guides)?,
         };
         Ok(body(&doc.kernel, 0, &sheet)?)
     })
@@ -1648,7 +1651,7 @@ pub fn commit_patch(m: &Model, req: PatchRequest) -> Result<Committed, ApiError>
     m.call(move |doc| {
         let id = match req.target {
             Some(t) => doc.commit_patch_trim(t, &req.edges(), req.method != "sheet")?,
-            None => doc.commit_patch(&req.curves, &req.edges(), req.tolerance)?,
+            None => doc.commit_patch_guided(&req.curves, &req.edges(), req.tolerance, &req.guides)?,
         };
         Ok(Committed { id, scene: bodies(doc)? })
     })

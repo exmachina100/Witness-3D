@@ -538,6 +538,11 @@ pub trait Kernel {
     fn patch_within(&self, _curves: &[Path], _edges: &[(&Self::Solid, Vec<(u32, u32)>)], _tolerance: f64) -> Result<Self::Solid, KernelError> {
         Err(KernelError::Invalid("this kernel cannot patch"))
     }
+    /// Patch through Plasticity's guide curves: the sheet passes through `guides` inside the loop.
+    fn patch_guided(&self, curves: &[Path], edges: &[(&Self::Solid, Vec<(u32, u32)>)], tolerance: f64, guides: &[Path]) -> Result<Self::Solid, KernelError> {
+        if guides.is_empty() { return self.patch_within(curves, edges, tolerance) }
+        Err(KernelError::Invalid("this kernel cannot patch through guide curves"))
+    }
     /// Plasticity's Patch › Method: the `target` sheet trimmed by `edges` of the `base` sheet, to the
     /// hole they close round (`hole`) or where the base sheet ends.
     fn patch_trim(&self, _target: &Self::Solid, _base: &Self::Solid, _edges: &[u32], _hole: bool) -> Result<Self::Solid, KernelError> {
