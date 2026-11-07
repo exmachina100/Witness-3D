@@ -1927,6 +1927,62 @@ export function splitCurve(c, at) {
     return piecesApart(n.pieces, n.closed, [s]).map(sh => withShape(c, sh));
 }
 
+/**
+ * Sweep's Distance: the first `f` (0 to 1) of the curve by length from its start, as a curve of its
+ * own; the whole curve at 1. A closed curve opens at its start first.
+ */
+export function curvePart(c, f) {
+    if (!(f < 1 - 1e-6)) return c;
+    if (!(f > 1e-6)) throw new Error('the distance must be more than 0');
+    const { points, closed } = samples(c, 512);
+    const pts = closed ? [...points, points[0]] : points;
+    const lens = [0];
+    for (let i = 1; i < pts.length; i++) lens.push(lens[i - 1] + dist(pts[i - 1], pts[i]));
+    const want = f * lens.at(-1);
+    let i = 1;
+    while (i < pts.length - 1 && lens[i] < want) i++;
+    const t = (want - lens[i - 1]) / Math.max(1e-12, lens[i] - lens[i - 1]);
+    const at = add(pts[i - 1], mul(sub(pts[i], pts[i - 1]), t));
+    // A closed NURBS curve (control point curves, ellipses): the stretch from the start to the end point.
+    const pn = closed && ['cv', 'nurbs', 'ellipse'].includes(c.kind) ? asPiecesOrNurbs(c) : null;
+    if (pn?.nurbs && nurbsLoop(pn.nurbs)) {
+        const n = pn.nurbs, k0 = n.knots[n.degree], k1 = n.knots[n.poles.length];
+        let u0 = nearestParam(n, pts[0]);
+        if (k1 - u0 < 1e-9 * (k1 - k0)) u0 = k0;
+        const u1 = nearestParam(n, at);
+        return nurbsShape(c, u1 > u0 ? nurbsBetween(n, u0, u1) : joinNurbs(nurbsBetween(n, u0, k1), nurbsBetween(n, k0, u1)));
+    }
+    // A spline: its samples up to the end point, and the through-points that come before it.
+    if (c.kind === 'spline') {
+        const place = p => { let j = 0; pts.forEach((q, k) => { if (dist(q, p) < dist(pts[j], p)) j = k; }); return j; };
+        const through = c.points.map(p => ({ p, at: place(p) }));
+        if (closed) through.push({ p: c.points[0], at: pts.length - 1 });
+        const head = dedupe([...through.filter(t => t.at < i).map(t => t.p), at]);
+        return withShape(c, { kind: head.length > 2 ? 'spline' : 'polyline', points: head, closed: false, ...(c.samples && head.length > 2 ? { samples: dedupe([...pts.slice(0, i), at]) } : {}) });
+    }
+    const open = closed ? splitCurve(c, pts[0])[0] : c;
+    // An opened circle or closed contour is still a loop of pieces: walk them to the one holding the end.
+    if (open.kind === 'contour') {
+        const kept = [];
+        let run = 0;
+        for (const piece of open.pieces) {
+            const sp = samples(piece, 256).points;
+            let len = 0;
+            for (let k = 1; k < sp.length; k++) len += dist(sp[k - 1], sp[k]);
+            if (run + len >= want - 1e-9) {
+                if (want - run > 1e-3 * len && run + len - want > 1e-3 * len) kept.push(splitCurve(piece, at)[0]);
+                else if (want - run > 1e-3 * len) kept.push(piece);
+                break;
+            }
+            kept.push(piece);
+            run += len;
+        }
+        const bare = ({ kind, ...rest }) => ({ kind, ...Object.fromEntries(Object.entries(rest).filter(([k]) => !['origin', 'x', 'normal', 'id', 'name'].includes(k))) });
+        return kept.length === 1 ? withShape(c, bare(kept[0])) : withShape(c, { kind: 'contour', pieces: kept.map(bare) });
+    }
+    return splitCurve(open, at)[0];
+}
+
 /** The curve as pieces (lines, arcs, splines) or as one NURBS curve, for splitting and cutting. */
 function asPiecesOrNurbs(c) {
     switch (c.kind) {

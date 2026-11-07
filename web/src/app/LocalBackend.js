@@ -332,6 +332,8 @@ export class LocalBackend {
         const c = id => { const x = this.curveMap.get(id); if (!x) throw new Error('that curve no longer exists'); return x; };
         // A guide is a drawn curve's id, or a curve given whole (a body edge picked as a guide).
         const guide = g => typeof g === 'object' && g ? g : c(g);
+        // Sweep Distance: the shortened path, given whole, in place of the drawn one.
+        const path = () => req.pathCurve ?? c(req.path);
         if (!req.regions?.length) throw new Error('select a region first');
         // An open curve revolves or sweeps into a sheet, a new body (manual: a curve makes a sheet).
         if ((req.kind === 'revolve' || req.kind === 'sweep') && curveIsOpen(c(req.regions[0]))) {
@@ -342,7 +344,7 @@ export class LocalBackend {
                 if (req.path === undefined || req.path === null) throw new Error('pick the path to sweep along');
                 if (req.regions.includes(req.path)) throw new Error('pick a path other than the profile');
                 if (Math.abs(req.twist ?? 0) > 1e-12 || Math.abs((req.scale ?? 1) - 1) > 1e-12) throw new Error('twist and scale take a region; set them back to 0 and 1');
-                sheet = sweepCurve(c(req.regions[0]), c(req.path));
+                sheet = sweepCurve(c(req.regions[0]), path());
             }
             return sheet ? { tool: sheet, outcome: 'new' } : null;
         }
@@ -361,11 +363,11 @@ export class LocalBackend {
             if (req.path === undefined || req.path === null) throw new Error('pick the path to sweep along');
             if (req.regions.includes(req.path)) throw new Error('pick a path other than the profile');
             const guides = req.guides ?? [], align = req.align ?? 'normal', corner = req.corner ?? 'mitre';
-            if (!guides.length && align === 'normal' && corner !== 'round') tool = sweep(c(req.regions[0]), c(req.path), req.twist ?? 0, req.scale ?? 1);
+            if (!guides.length && align === 'normal' && corner !== 'round') tool = sweep(c(req.regions[0]), path(), req.twist ?? 0, req.scale ?? 1);
             else {
                 if (Math.abs(req.twist ?? 0) > 1e-12 || Math.abs((req.scale ?? 1) - 1) > 1e-12) throw new Error("twist and scale don't go with a guide, Parallel alignment or Round corners; set them back to 0 and 1");
                 if (guides.some(g => g === req.path || req.regions.includes(g))) throw new Error('pick a guide other than the path and the profile');
-                tool = sweepGuided(c(req.regions[0]), c(req.path), guides.map(guide), req.method ?? 'point', align, corner);
+                tool = sweepGuided(c(req.regions[0]), path(), guides.map(guide), req.method ?? 'point', align, corner);
             }
         } else throw new Error('a form is a revolve, a loft or a sweep');
         if (!tool) return null;
