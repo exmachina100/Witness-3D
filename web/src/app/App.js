@@ -5282,7 +5282,26 @@ export async function mount(root, backend) {
       const last = c.pts.at(-1), dir = b.clone().sub(last);
       if (dir.lengthSq() < 1e-12) dir.set(1, 0);
       dir.normalize();
-      c.entry = { label: 'LENGTH', text: '', apply: l => { c.pts.push(last.clone().addScaledVector(dir, l)); c.cursor = { uv: c.pts.at(-1).clone() }; } };
+      // Tab after the length types the angle too (manual: "enter the sketch's dimensions and angles
+      // numerically"), in degrees from the drawing plane's X, counter-clockwise.
+      let length = b.clone().sub(last).length(), placed = false;
+      const put = d => {
+        const p = last.clone().addScaledVector(d, length);
+        if (placed) c.pts[c.pts.length - 1] = p; else c.pts.push(p);
+        placed = true;
+        c.cursor = { uv: c.pts.at(-1).clone() };
+      };
+      c.entry = { label: 'LENGTH', text: '', apply: l => { length = l; put(dir); },
+        next: () => {
+          const now = Math.atan2(dir.y, dir.x) / DEG;
+          c.entry = { label: `ANGLE ° (${now.toFixed(1)})`, text: '', apply: v => {
+            const d = dir.clone();
+            d.x = Math.cos(v * DEG); d.y = Math.sin(v * DEG);
+            if (d.isVector3) d.z = 0;
+            put(d);
+          } };
+          c.entryDone();
+        } };
     }
     c.entryDone();
   }
