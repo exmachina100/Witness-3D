@@ -3,6 +3,8 @@
 // app has. The pure part lives here so it can be tested: defaults, reading a stored copy safely and
 // what the viewport needs from them.
 
+import { LANGUAGES } from './i18n.js';
+
 const HEX = /^#[0-9a-f]{6}$/i;
 
 /** Every setting with its default, by section, in the order the window shows them. */
@@ -22,6 +24,8 @@ export const PREF_FIELDS = {
         { key: 'fov', label: 'CAMERA FIELD OF VIEW (°)', type: 'number', value: 50, min: 10, max: 120, step: 1 },
     ],
     appearance: [
+        // Plasticity's Language: the app's words laid over in that language (i18n.js).
+        { key: 'language', label: 'LANGUAGE', type: 'choice', value: 'en', options: LANGUAGES },
         // Plasticity's Appearance colour groups: Accent, Supporting (secondary text and icons),
         // Neutral (menus and toolbars), Viewport (with preset swatches), Grid, edges, Measurement.
         { key: 'accent', label: 'ACCENT', type: 'color', value: '#ff4d00' },

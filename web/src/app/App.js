@@ -63,6 +63,7 @@ import { GTAOPass } from 'three/addons/postprocessing/GTAOPass.js';
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 import { gridLines } from '../gridLines.js';
 import { thickness, updateThickLines } from './fatLines.js';
+import { setLanguage } from './i18n.js';
 import { filterFillets } from '../filletFilter.js';
 import { navAction, navHints, orbitMode } from '../navPresets.js';
 import { MagnitudeGizmo, typed } from '../MagnitudeGizmo.js';
@@ -13532,6 +13533,7 @@ export async function mount(root, backend) {
     for (const m of mats) if (m?.color?.getHex() === was) m.color.setHex(next);
     COLORS.accent = next;
   }
+  let language = 'en';
   function applyPrefs() {
     if (prefs.units.length !== lengthUnit) {
       lengthUnit = prefs.units.length;
@@ -13557,6 +13559,7 @@ export async function mount(root, backend) {
     // With Arcball off the view stands upright again.
     if (!prefs.navigation.arcball && camera.up.y !== 1) { camera.up.set(0, 1, 0); camera.lookAt(controls.target); }
     const look = prefs.appearance, c = viewColors(look);
+    if (look.language !== language) { language = look.language; setLanguage(document.body, language); }
     // Grid and Units: the snap step and the major lines.
     const gs = prefs.units.gridSize;
     if (document.activeElement !== $('grid')) $('grid').value = gs;
