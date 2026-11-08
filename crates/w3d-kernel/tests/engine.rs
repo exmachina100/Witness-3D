@@ -109,3 +109,22 @@ fn native_files_carry_the_apps_own_state() {
     file::read(&mut other, &plain).unwrap();
     assert!(other.app_state.is_none(), "a file without it clears it");
 }
+
+#[test]
+fn a_preview_picture_goes_near_the_top_of_the_file() {
+    use w3d_kernel::document::Document;
+    let mut doc = Document::new(NoKernel);
+    doc.add(());
+    doc.app_state = Some(serde_json::json!({ "preview": "data:image/png;base64,iVBORw0KGgo=", "planes": [] }));
+    let text = file::write(&doc).unwrap();
+    assert!(text.starts_with("{\"format\":\"witness3d\",\"version\":1,\"preview\":\"data:image/png;base64,"), "{}", &text[..80]);
+    assert_eq!(file::preview_base64(&text[..100]), Some("iVBORw0KGgo="));
+    let mut other = Document::new(NoKernel);
+    file::read(&mut other, &text).unwrap();
+    assert!(other.app_state.as_ref().unwrap().get("preview").is_none(), "kept once, at the top");
+    // Anything but a PNG data URL is left out.
+    doc.app_state = Some(serde_json::json!({ "preview": "javascript:1" }));
+    let odd = file::write(&doc).unwrap();
+    assert!(!odd.contains("preview"));
+    assert_eq!(file::preview_base64(&odd), None);
+}

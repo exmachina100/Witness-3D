@@ -14,11 +14,26 @@ use crate::{Kernel, KernelError};
 pub const FORMAT: &str = "witness3d";
 /// Bump when the layout changes, and teach [`read`] to migrate the older ones.
 pub const VERSION: u32 = 1;
+/// How a file's preview starts: a base64 PNG data URL.
+pub const PREVIEW_PREFIX: &str = "data:image/png;base64,";
+
+/// The preview PNG's base64 text from the start of a file, without reading the rest: what a
+/// thumbnail handler needs. `None` when the file has none (older files, or saved headless).
+pub fn preview_base64(head: &str) -> Option<&str> {
+    let key = format!("\"preview\":\"{PREVIEW_PREFIX}");
+    let at = head.find(&key)? + key.len();
+    let end = head[at..].find('"')?;
+    Some(&head[at..at + end])
+}
 
 #[derive(Serialize, Deserialize)]
 struct File {
     format: String,
     version: u32,
+    /// A small PNG of the model as last seen (a data URL), near the top so Explorer's thumbnail
+    /// handler finds it without reading the bodies. Taken out of the app's state on write.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    preview: Option<String>,
     units: String,
     tolerance: f64,
     next_id: BodyId,
@@ -68,7 +83,10 @@ pub fn write<K: Kernel>(doc: &Document<K>) -> Result<String, KernelError> {
         edge_refs: doc.refs(id).map(|r| r.edges.clone()),
     })).collect::<Result<_, KernelError>>()?;
     let curves = doc.curve_ids().into_iter().map(|id| FileCurve { id, curve: doc.curve(id).unwrap().clone() }).collect();
-    let file = File { format: FORMAT.into(), version: VERSION, units: UNITS.into(), tolerance: TOLERANCE, next_id: doc.next_id(), next_ref: doc.next_ref(), bodies, curves, next_curve: doc.next_curve(), app: doc.app_state.clone() };
+    let mut app = doc.app_state.clone();
+    let preview = app.as_mut().and_then(|a| a.as_object_mut()).and_then(|a| a.remove("preview"))
+        .and_then(|p| p.as_str().map(String::from)).filter(|p| p.starts_with(PREVIEW_PREFIX));
+    let file = File { format: FORMAT.into(), version: VERSION, preview, units: UNITS.into(), tolerance: TOLERANCE, next_id: doc.next_id(), next_ref: doc.next_ref(), bodies, curves, next_curve: doc.next_curve(), app };
     serde_json::to_string(&file).map_err(err)
 }
 
