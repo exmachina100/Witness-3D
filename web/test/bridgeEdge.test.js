@@ -130,3 +130,22 @@ test('X, Y or Z makes the bridge leave both ends along that axis', () => {
     // An axis across the gap cannot be left along.
     assert.throws(() => bridgePoles(a, b, { axis: 'z' }), /cannot leave along it/);
 });
+
+test('a face point leaves tangent to the face, toward the other point', async () => {
+    const { facePoint, sampledEnd, bridgePoles } = await import('../src/bridgeEdge.js');
+    const A = facePoint([0, 0, 0], [0, 0, 1], [10, 0, 5]);
+    assert.deepEqual(A.along, [1, 0, 0]);
+    assert.throws(() => facePoint([0, 0, 0], [0, 0, 1], [0, 0, 5]), /straight off the face/);
+    // A quarter circle of radius 10 ending at (10, 0, 0), heading -y there: K points at the centre.
+    const arc = Array.from({ length: 65 }, (_, i) => { const t = Math.PI / 2 * (1 - i / 64); return [10 * Math.cos(t), 10 * Math.sin(t), 0]; });
+    const E = sampledEnd(arc);
+    assert.ok(Math.hypot(E.at[0] - 10, E.at[1], E.at[2]) < 1e-9);
+    assert.ok(E.along[1] < -0.99);
+    assert.ok(Math.abs(Math.hypot(...E.K) - 0.1) < 1e-3 && E.K[0] < 0);
+    // Bridge from the arc's end up to a point on a tilted face: tangent at both ends.
+    const B = facePoint([20, -10, 10], [0, 0, 1], E.at);
+    const poles = bridgePoles(E, B, { continuity: ['G2', 'G1'] });
+    const d0 = poles[1].map((v, i) => v - poles[0][i]), d1 = poles.at(-2).map((v, i) => v - poles.at(-1)[i]);
+    assert.ok(Math.abs(d0[0]) < 1e-3 * Math.hypot(...d0) && d0[1] < 0, 'leaves the arc along it');
+    assert.ok(Math.abs(d1[2]) < 1e-9, 'meets the face in its plane');
+});

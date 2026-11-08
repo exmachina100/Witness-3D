@@ -75,7 +75,7 @@ import { edgeOffsetsBothSides, edgeOffsetsOnFace, facesLoopOffsets } from '../ed
 import { curveArrayMotions, curveLength } from '../curveArray.js';
 import { chamferDimensions, curveDimensions, faceDimensions, filletDimensions, solidDimensions } from '../dimension.js';
 import { edgeCurve, flattenCurve } from '../altDuplicate.js';
-import { EDGE_CONTINUITY, bridgeCurve, bridgePoles, edgePoint } from '../bridgeEdge.js';
+import { EDGE_CONTINUITY, bridgeCurve, bridgePoles, edgePoint, facePoint, sampledEnd } from '../bridgeEdge.js';
 import { ALIGN_CONTINUITY, alignAnalysis, alignRequest, readEdgeFaces, targetFace } from '../alignSurface.js';
 import { PROJECT_CONTINUITY, projectAlignRequest } from '../projectAlign.js';
 import { constrainedSurface, splineSheetData } from '../constrainedSurface.js';
@@ -10518,7 +10518,7 @@ export async function mount(root, backend) {
     showTool('bridge');
     setState('none');
     const hint = () => {
-      const t = c.picking.length ? 'CLICK THE END POINT ON ANOTHER CURVE' : 'CLICK THE START POINT ON A CURVE';
+      const t = c.picking.length ? 'CLICK THE END POINT ON ANOTHER CURVE OR A FACE' : 'CLICK THE START POINT ON A CURVE OR A FACE';
       $('br-hint').textContent = t;
       setHud(`BRIDGE · ${t}`);
     };
@@ -10528,7 +10528,14 @@ export async function mount(root, backend) {
       raycaster.params.Line.threshold = unitsPerPixel(controls.target) * 6;
       const hit = raycaster.intersectObjects(curveGroup.children.filter(o => o.userData.curve !== undefined), false)[0];
       const cv = hit && curveById(hit.object.userData.curve);
-      if (!cv) return null;
+      if (!cv) {
+        // A point on a face: the bridge leaves it tangent to the face.
+        const h = raycaster.intersectObjects(shownMeshes(), false)[0];
+        if (!h) return null;
+        const normal = (h.normal ?? h.face.normal).clone().transformDirection(h.object.matrixWorld);
+        if (camera.position.clone().sub(h.point).dot(normal) < 0) normal.negate();
+        return { face: h.object.userData.faceIds[h.faceIndex], body: h.object.userData.id, point: h.point.clone(), normal };
+      }
       const f = curveFrame(cv), pts = curveSamples(cv, 192).points.map(q => lift(f, { x: q[0], y: q[1], z: q[2] ?? 0 }));
       // The nearest point on the sampled curve, segment by segment, and the length up to it.
       const seg = new THREE.Line3(), on = new THREE.Vector3();
@@ -10543,24 +10550,97 @@ export async function mount(root, backend) {
       const t = best.along / run;
       return { curve: cv, t: t < 1e-3 ? 0 : t > 1 - 1e-3 ? 1 : t, point: best.point };
     };
-    c.move = e => { const q = pointOn(e); showSnap(q && { point: q.point, kind: 'ON CURVE' }, e); };
+    c.move = e => { const q = pointOn(e); showSnap(q && { point: q.point, kind: q.curve ? 'ON CURVE' : 'ON FACE' }, e); };
     c.click = e => {
       const q = pointOn(e);
-      if (!q) return toast('CLICK ON A CURVE'), true;
-      if (isClosed(q.curve)) return toast('BRIDGE CURVE JOINS OPEN CURVES'), true;
-      if (c.picking[0]?.curve.id === q.curve.id) return toast('CLICK A POINT ON ANOTHER CURVE'), true;
+      if (!q) return toast('CLICK ON A CURVE OR A FACE'), true;
+      if (q.curve && isClosed(q.curve)) return toast('BRIDGE CURVE JOINS OPEN CURVES'), true;
+      if (q.curve && c.picking[0]?.curve?.id === q.curve.id) return toast('CLICK A POINT ON ANOTHER CURVE'), true;
+      if (!q.curve && c.picking[0] && !c.picking[0].curve && c.picking[0].point.distanceTo(q.point) < 1e-6) return toast('CLICK ANOTHER POINT'), true;
       c.picking.push(q);
       if (c.picking.length < 2) { hint(); return true; }
       showSnap(null);
       const [p1, p2] = c.picking;
       cmd = null;
-      bridgeWith(p1.curve, p2.curve, { ea: p1.t >= 0.5 ? 1 : 0, eb: p2.t >= 0.5 ? 1 : 0 }, [p1.t, p2.t]);
+      if (p1.curve && p2.curve) bridgeWith(p1.curve, p2.curve, { ea: p1.t >= 0.5 ? 1 : 0, eb: p2.t >= 0.5 ? 1 : 0 }, [p1.t, p2.t]);
+      else bridgeFaces(p1, p2);
       return true;
     };
     c.finish = () => toast(c.picking.length ? 'CLICK THE END POINT ON ANOTHER CURVE' : 'CLICK THE START POINT ON A CURVE');
     c.abort = () => endCmd('cancelled');
     c.cleanup = () => showSnap(null);
     hint();
+  }
+  /**
+   * Bridge Curve from or to a point on a face (picks from startBridgePick, one or both on faces): a
+   * curve in space that leaves a face point tangent to the face, heading the way of the other end
+   * as seen in the face's tangent plane, and a curve point as Bridge Curve does (its parameter, G0
+   * to G3). A face end holds G0 or G1 only. The manual says only that points on faces can be
+   * clicked; the tangent-to-the-face start is inferred.
+   */
+  function bridgeFaces(p1, p2) {
+    const c = cmd = { id: 'bridge', out: null, continuity: ['G1', 'G1'], axis: '', trim: false, comb: false };
+    const ends = [p1, p2].map(p => p.curve ? { ...p, end: p.t >= 0.5 ? 1 : 0 } : p);
+    $('br-p1').value = p1.curve ? +p1.t.toFixed(4) : 0;
+    $('br-p2').value = p2.curve ? +p2.t.toFixed(4) : 0;
+    const cycle = g => BRIDGE_CONTINUITY[(BRIDGE_CONTINUITY.indexOf(g) + 1) % BRIDGE_CONTINUITY.length];
+    c.cycleEnd = i => { c.continuity[i] = cycle(c.continuity[i]); c.preview(); };
+    lastTool = 'bridge';
+    showTool('bridge');
+    setState('none');
+    const name = p => p.curve ? curveLabel(p.curve.id) : `${label(p.body)} FACE ${p.face}`;
+    setTarget(`${name(p1)} · ${name(p2)}`);
+    /** A curve pick's bridge end in model space: what stays of the curve up to its parameter, off that end. */
+    const curveEnd = (p, t) => {
+      const kept = bridgeEnd(p.curve, p.end, t).kept, f = curveFrame(kept);
+      const pts = curveSamples(kept, 192).points.map(q => lift(f, { x: q[0], y: q[1], z: q[2] ?? 0 }).toArray());
+      return sampledEnd(p.end ? pts : pts.reverse());
+    };
+    c.preview = () => {
+      clearPreview();
+      try {
+        // A face end holds position and direction only.
+        const g = c.continuity.map((x, i) => ends[i].curve || x === 'G0' ? x : 'G1');
+        $('br-start').textContent = `START ${g[0]}`;
+        $('br-end').textContent = `END ${g[1]}`;
+        $('br-trim').setAttribute('aria-pressed', 'false');
+        $('br-comb').setAttribute('aria-pressed', String(c.comb));
+        for (const b2 of $$('[data-braxis]')) b2.setAttribute('aria-pressed', String(b2.dataset.braxis === c.axis));
+        const at = [num('br-p1'), num('br-p2')];
+        const fromCurve = ends.map((p, i) => p.curve ? curveEnd(p, at[i]) : null);
+        const toward = i => fromCurve[i]?.at ?? ends[i].point.toArray();
+        const E = ends.map((p, i) => fromCurve[i] ?? facePoint(p.point.toArray(), p.normal.toArray(), toward(1 - i)));
+        c.out = bridgeCurve(bridgePoles(E[0], E[1], { ...bridgeTensions('br'), continuity: g, axis: c.axis ? toWorld(AXES[c.axis]) : null }));
+        showCurvePreview([c.out]);
+        if (c.comb) showCombPreview([c.out]);
+        $('br-hint').textContent = `${name(p1)} TO ${name(p2)}${ends.some(p => !p.curve) ? ' · TANGENT TO THE FACE' : ''}`;
+        setHud(`BRIDGE · ${g.join(' / ')} · TENSION ${num('br-t1a')} / ${num('br-t1b')}${c.axis ? ` · ${c.axis.toUpperCase()} AXIS` : ''}`);
+        setState('updated');
+      } catch (e) { c.out = null; $('br-hint').textContent = say(e); setHud('BRIDGE FAILED'); setState('failed'); }
+    };
+    c.key = action => {
+      if (action === 'continuity') { const next = cycle(c.continuity[0]); c.continuity = [next, next]; c.preview(); return true; }
+      if (action === 'trim') { toast('TRIM TAKES TWO CURVES'); return true; }
+      if (action === 'comb') { c.comb = !c.comb; c.preview(); return true; }
+      if (action?.startsWith('axis-')) { c.setAxis(action.slice(5)); return true; }
+      if (action !== 'tension') return false;
+      c.entry = { label: 'TENSION', text: '', apply: v => { if (v > 0) { $('br-t1a').value = $('br-t1b').value = v; c.preview(); } else toast('THE TENSION MUST BE ABOVE ZERO'); } };
+      setHud('TENSION _');
+      return true;
+    };
+    c.finish = async () => {
+      if (!c.out) return toast($('br-hint').textContent);
+      try {
+        const { ids: made } = await backend.addCurves([c.out]);
+        endCmd('committed');
+        record('BRIDGE CURVES', made[0], curveLabel(made[0]));
+        await curvesChanged(made);
+      } catch (e) { setState('failed'); toast(say(e)); }
+    };
+    c.setAxis = a => { c.axis = c.axis === a ? '' : a; c.preview(); };
+    c.abort = () => endCmd('cancelled');
+    c.cleanup = () => clearPreview();
+    c.preview();
   }
   /** Bridge Curve's dialog between curves a and b, from ends pick.ea and pick.eb (at: the parameters). */
   function bridgeWith(a, b, pick, at = [pick.ea, pick.eb]) {
