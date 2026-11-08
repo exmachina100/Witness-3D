@@ -26,7 +26,7 @@ import { bridgeSurface } from '../BridgeSurface.js';
 import { sheetFillet, trimWalls } from '../sheetFillet.js';
 import { projectOutline } from '../Outline.js';
 import { thicken, thickenFaces } from '../Thicken.js';
-import { extendSheet, extendSheetTo } from '../ExtendSheet.js';
+import { extendSheet, extendSheetTo, extensionOnly } from '../ExtendSheet.js';
 import { raiseFaces, rebuildFaces } from '../rebuildFace.js';
 import { matchFacesGrow, wideSurface } from '../matchFace.js';
 import { compound, untrimFace } from '../untrim.js';
@@ -1406,7 +1406,7 @@ export class LocalBackend {
         return { id: req.body, scene: this.bodies(), rebuilt };
     }
 
-    extendSheetResult({ body, edge, more = [], distance, natural = false, shape, limit, outside = false }) {
+    extendSheetResult({ body, edge, more = [], distance, natural = false, shape, limit, outside = false, modify = true }) {
         const s = this.shapes.get(body);
         if (!s) throw new Error('that body no longer exists');
         let grow = (x, e) => extendSheet(x, e, distance, shape ?? natural);
@@ -1420,15 +1420,21 @@ export class LocalBackend {
         const mids = [...new Set(more)].filter(e => e !== edge).map(e => edgeMiddle(s, e));
         let out = grow(s, edge);
         for (const m of mids) out = grow(out, edgeThrough(out, m));
-        return out;
+        // Modify off: the extension alone, a sheet of its own (inferred).
+        return modify ? out : extensionOnly(s, out);
     }
 
-    previewExtendSheet(req) { return this.latest(async () => this.body(req.body, this.extendSheetResult(req))) }
+    previewExtendSheet(req) { return this.latest(async () => this.body(req.modify === false ? this.nextId : req.body, this.extendSheetResult(req))) }
 
     /** Extend Sheet as one undo step: the sheet keeps its body. */
     async commitExtendSheet(req) {
         const sheet = this.extendSheetResult(req);
         this.checkpoint();
+        if (req.modify === false) {
+            const id = this.nextId++;
+            this.put(id, sheet);
+            return { id, scene: this.bodies() };
+        }
         this.put(req.body, sheet);
         return { id: req.body, scene: this.bodies() };
     }

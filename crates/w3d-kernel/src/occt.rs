@@ -597,6 +597,10 @@ impl Kernel for Occt {
         Ok((made, info))
     }
 
+    fn extension_only(&self, s: &Shape, grown: &Shape) -> Result<Shape, KernelError> {
+        s.extension_only(grown).map_err(shim)
+    }
+
     fn extend_sheet_to(&self, s: &Shape, edge: u32, target: &Shape, shape: SheetExtension, outside: bool) -> Result<Shape, KernelError> {
         s.extend_sheet_to(edge as usize, target, shape as i32, outside).map_err(shim)
     }

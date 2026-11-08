@@ -7,7 +7,7 @@
 // extended here, exactly: a straight run off the side, C1 with the surface, joined into its knots.
 
 import * as THREE from 'three';
-import { numbered, numberedEdges, oc } from './Kernel.js';
+import { innerPoint, numbered, numberedEdges, oc } from './Kernel.js';
 import { isSheet } from './Patch.js';
 import { insertKnot } from './curveEdit.js';
 
@@ -374,4 +374,39 @@ export function extendSheetTo(shape, n, target, kind = 'natural', outside = fals
     const result = sew.SewedShape();
     if (!new o.BRepCheck_Analyzer(result, true, false, false).IsValid()) throw new Error('the extended sheet is not valid');
     return result;
+}
+
+/**
+ * Extend Sheet with Modify off (inferred: the manual says only that Modify makes the result a
+ * single sheet): just what the extension added, as a sheet of its own, the original left as it is.
+ * `grown` is the extended sheet; it is split along the original's edges (lying on it) and the
+ * pieces off the original kept.
+ */
+export function extensionOnly(original, grown) {
+    const o = oc();
+    const args = new o.NCollection_List_TopoDS_Shape(), tools = new o.NCollection_List_TopoDS_Shape();
+    args.Append(grown);
+    // The original's edges, a closed outline lying on the grown sheet (its faces alone don't always
+    // split a re-knotted surface).
+    for (const e of numberedEdges(original)) tools.Append(e);
+    const split = new o.BRepAlgoAPI_Splitter();
+    split.SetArguments(args);
+    split.SetTools(tools);
+    split.Build(new o.Message_ProgressRange());
+    if (!split.IsDone() || split.HasErrors()) throw new Error('the extension could not be told apart from the sheet');
+    // A point inside each piece (not its centre, which an L-shaped piece can lie outside of).
+    const off = numbered(split.Shape(), 'TopAbs_FACE').map(f => o.TopoDS.Face(f)).filter(f => {
+        const p = innerPoint(f);
+        if (!p) return false;
+        // The point is on a triangle, a little off a curved piece: measure against the piece too.
+        const v = new o.BRepBuilderAPI_MakeVertex(p).Shape();
+        const d = new o.BRepExtrema_DistShapeShape(v, original), own = new o.BRepExtrema_DistShapeShape(v, f);
+        return !(d.IsDone() && own.IsDone() && d.Value() < own.Value() + 1e-6);
+    });
+    if (!off.length) throw new Error('the extension could not be told apart from the sheet');
+    if (off.length === 1) return off[0];
+    const sew = new o.BRepBuilderAPI_Sewing(1e-6, true, true, true, false);
+    for (const f of off) sew.Add(f);
+    sew.Perform(new o.Message_ProgressRange());
+    return sew.SewedShape();
 }

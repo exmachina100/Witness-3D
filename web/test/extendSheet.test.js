@@ -6,7 +6,7 @@ import * as THREE from 'three';
 import { LocalBackend } from '../src/app/LocalBackend.js';
 import { box, count, loadKernel, numbered, numberedEdges, oc, primitive, tessellate } from '../src/Kernel.js';
 import { bridgeSurface } from '../src/BridgeSurface.js';
-import { extendSheet, extendSheetTo } from '../src/ExtendSheet.js';
+import { extendSheet, extendSheetTo, extensionOnly } from '../src/ExtendSheet.js';
 import { patch } from '../src/Patch.js';
 
 before(async () => { await loadKernel() });
@@ -192,4 +192,25 @@ test('every edge of a face taken off a box extends, whichever way the face and e
         const face = o.TopoDS.Face(f);
         numberedEdges(face).forEach((_, n) => close(area(extendSheet(face, n, 3, 'linear')), 130));
     }
+});
+
+test('modify off makes the extension a sheet of its own and leaves the sheet as it was', async () => {
+    const be = new LocalBackend({ seed: 'enclosure' });
+    const { ids: [rect] } = await be.addCurves([polyline([[0, 0], [10, 0], [10, 10], [0, 10]])]);
+    const { id: sheet } = await be.commitPatch({ curves: [rect], edges: [] });
+    const s = be.shapes.get(sheet);
+    const right = edgeWhere(s, p => Math.abs(p.x - 10) < 1e-9), top = edgeWhere(s, p => Math.abs(p.y - 10) < 1e-9);
+    const { id } = await be.commitExtendSheet({ body: sheet, edge: right, more: [top], distance: 3, shape: 'linear', modify: false });
+    assert.notEqual(id, sheet);
+    close(meshArea(be.shapes.get(sheet)), 100, 1e-6);
+    close(meshArea(be.shapes.get(id)), 13 * 13 - 100, 1e-6);
+    assert.ok(be.scene().find(b => b.id === id).sheet);
+    // A curved sheet's natural extension, alone.
+    const a = square(0, 0), b = square(20, 5);
+    const c = bridgeSurface({ shape: a, n: edgeWhere(a, p => Math.abs(p.x - 10) < 1e-9) }, { shape: b, n: edgeWhere(b, p => Math.abs(p.x - 20) < 1e-9) }, 1);
+    const low = edgeWhere(c, p => Math.abs(p.x - 10) < 1e-6 && Math.abs(p.z) < 1e-6);
+    const grown = extendSheet(c, low, 3, 'natural');
+    close(meshArea(extensionOnly(c, grown)), meshArea(grown) - meshArea(c), 0.05);
+    await be.undo();
+    assert.equal(be.shapes.get(id), undefined);
 });
