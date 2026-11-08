@@ -207,7 +207,7 @@ export function normalCurvature(f, n, e) {
  * alignPoints, `frames` the reference face's frames at those points. Returns [[pole, [dx, dy, dz]]]
  * with poles in the face's own numbering.
  */
-export function alignMoves(side, { greville, points }, frames, { continuity = 'G1', tension = 1, blend = 0, influence = 0, partial = [0, 1], boundary = 'natural' } = {}) {
+export function alignMoves(side, { greville, points }, frames, { continuity = 'G1', tension = 1, blend = 0, influence = 0, partial = [0, 1], boundary = 'natural', matchRatio = false } = {}) {
     // Perpendicular (Project Align): the sheet leaves its side square to the reference, as fast as now.
     const perpendicular = continuity === 'PERP';
     const order = perpendicular ? 1 : ALIGN_CONTINUITY.indexOf(continuity);
@@ -228,13 +228,29 @@ export function alignMoves(side, { greville, points }, frames, { continuity = 'G
     out[0] = solve(B, points);
     if (order >= 1) {
         const a = p / (A[p + 1] - A[1]);
+        // Match tangent length ratio (inferred: the manual names it only): the sheet's speed off
+        // its side follows the reference's across its edge, point to point, in the same ratio;
+        // the sheet's mean speed is kept, so the reference's parametrisation scale doesn't matter.
+        let speed = null;
+        if (matchRatio && frames.every(Boolean)) {
+            const ref = greville.map((_, j) => {
+                const f = frames[j], t = unit(sub(points[Math.min(j + 1, points.length - 1)], points[Math.max(j - 1, 0)]));
+                const across = s => len(sub(s, mul(t, dot(s, t))));
+                const u = across(f.su), v = across(f.sv);
+                // The parameter running across the edge: the derivative more square to it.
+                return len(f.su) && u / len(f.su) >= (len(f.sv) ? v / len(f.sv) : 0) ? u : v;
+            });
+            const own = greville.map((_, j) => len(mul(sub(at(rows[1], j), at(rows[0], j)), a)));
+            const mr = ref.reduce((s, x) => s + x, 0) / ref.length, mo = own.reduce((s, x) => s + x, 0) / own.length;
+            if (mr > 1e-12) speed = ref.map(x => mo * x / mr);
+        }
         const want = greville.map((_, j) => {
             const f = frames[j], n = unit(cross(f.su, f.sv));
             const c = mul(sub(at(rows[1], j), at(rows[0], j)), a);
             if (perpendicular) return { n, d: mul(n, (dot(c, n) < 0 ? -1 : 1) * len(c) * tension) };
             let d = sub(c, mul(n, dot(c, n)));
             if (len(d) < 1e-9 * (len(c) + 1)) throw new Error('the sheet leaves its side square to the reference there; G1 cannot lay it flat');
-            d = mul(unit(d), len(c) * tension);
+            d = mul(unit(d), (speed ? speed[j] : len(c)) * tension);
             return { n, d };
         });
         const D = solve(B, want.map(w => mul(w.d, 1 / a)));
@@ -338,7 +354,7 @@ function meanFrame(f, g) {
  * { body, edge }. Returns { body, moves } for previewMoveFacePoles / commitMoveFacePoles, moves as
  * [[face, pole, [dx, dy, dz]]].
  */
-export async function alignRequest(backend, { target, reference, continuity = 'G1', tension = 1, blend = 0, influence = 0, partial = [0, 1], symmetric = false, boundary = 'natural' }) {
+export async function alignRequest(backend, { target, reference, continuity = 'G1', tension = 1, blend = 0, influence = 0, partial = [0, 1], symmetric = false, boundary = 'natural', matchRatio = false }) {
     if (target.body === reference.body && target.edge === reference.edge) throw new Error('pick two different edges: the one to move, then the one to meet');
     if (symmetric) return symmetricRequest(backend, { target, reference, continuity, tension, blend, influence, partial, boundary });
     const [tTeeth, rTeeth] = await Promise.all([target, reference].map(e => backend.edgeCurvature({ body: e.body, edge: e.edge, n: 400 })));
@@ -349,7 +365,7 @@ export async function alignRequest(backend, { target, reference, continuity = 'G
     const plan = alignPoints(side, rAlong);
     const rFaces = readEdgeFaces(await backend.edgeFaces({ body: reference.body, edge: reference.edge, points: plan.points }), plan.points.length);
     const rFace = pickFace(rFaces, middle(tAlong), false);
-    const moves = alignMoves(side, plan, rFace.frames, { continuity, tension, blend, influence, partial, boundary });
+    const moves = alignMoves(side, plan, rFace.frames, { continuity, tension, blend, influence, partial, boundary, matchRatio });
     // What Analysis needs to check the result: the side, and the reference edge and face.
     const check = { side, reference, face: rFace.face, target: tFace.face, moves };
     return { body: target.body, moves: moves.map(([pole, by]) => [tFace.face, pole, by]), check };
