@@ -513,6 +513,9 @@ pub struct FormRequest {
     /// Sweep: corners of the path mitred (the default) or rounded.
     #[serde(default)]
     pub corner: CornerName,
+    /// Sweep's Simplify: faces of the sweep lying flat become trimmed planes.
+    #[serde(default)]
+    pub simplify: bool,
 }
 
 #[derive(Deserialize, Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -567,6 +570,9 @@ impl FormRequest {
                 form::FormKind::Sweep { path, .. } | form::FormKind::SweepCurve { path, .. } => *path = c.path(),
                 _ => {}
             }
+        }
+        if self.simplify && self.kind == FormName::Sweep {
+            p.kind = form::FormKind::Simplified(Box::new(p.kind));
         }
         Ok(p)
     }

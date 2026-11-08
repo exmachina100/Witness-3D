@@ -323,6 +323,23 @@ export function flatFaces(shape) {
     return sew.SewedShape();
 }
 
+/**
+ * Sweep's Simplify (inferred from Loft's; the manual does not say): flatFaces on a sweep, made a
+ * solid again when it was one. The shape as it was when nothing lies flat or the planes don't
+ * close up. As w3d_simplify_flat on the desktop.
+ */
+export function simplifyFlat(shape) {
+    const o = oc(), out = flatFaces(shape);
+    if (out === shape || count(shape, 'TopAbs_SOLID') === 0) return out;
+    const ex = new o.TopExp_Explorer(out, o.TopAbs_ShapeEnum.TopAbs_SHELL, o.TopAbs_ShapeEnum.TopAbs_SHAPE);
+    if (!ex.More()) return shape;
+    const mk = new o.BRepBuilderAPI_MakeSolid(o.TopoDS.Shell(ex.Current()));
+    if (!mk.IsDone()) return shape;
+    const solid = mk.Solid();
+    o.BRepLib.OrientClosedSolid(solid);
+    return new o.BRepCheck_Analyzer(solid, true, false, false).IsValid() ? solid : shape;
+}
+
 /** A trimmed plane on the face's edges when the face lies flat (to 1e-7 of its size), else null. */
 function flatFace(f) {
     const o = oc(), s = new o.BRepAdaptor_Surface(f, true);

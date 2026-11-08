@@ -108,6 +108,7 @@
 #include <BRepTools_History.hxx>
 #include <ShapeUpgrade_UnifySameDomain.hxx>
 #include <ShapeFix_Shape.hxx>
+#include <ShapeFix_Solid.hxx>
 #include <TopTools_ListOfShape.hxx>
 #include <functional>
 #include <vector>
@@ -827,6 +828,27 @@ inline TopoDS_Shape w3d_flat_faces(const TopoDS_Shape &shape) {
   for (auto &f : faces) sew.Add(f);
   sew.Perform();
   return sew.SewedShape();
+}
+
+// Sweep's Simplify (inferred from Loft's): w3d_flat_faces on a sweep, made a solid again when it
+// was one, so its booleans still take it. The shape as it was when nothing lies flat or the
+// planes don't close up.
+inline std::unique_ptr<TopoDS_Shape> w3d_simplify_flat(const TopoDS_Shape &shape) {
+  TopoDS_Shape out = w3d_flat_faces(shape);
+  if (out.IsSame(shape)) return std::unique_ptr<TopoDS_Shape>(new TopoDS_Shape(shape));
+  TopExp_Explorer solids(shape, TopAbs_SOLID);
+  if (solids.More()) {
+    TopExp_Explorer shells(out, TopAbs_SHELL);
+    if (!shells.More()) return std::unique_ptr<TopoDS_Shape>(new TopoDS_Shape(shape));
+    BRepBuilderAPI_MakeSolid mk(TopoDS::Shell(shells.Current()));
+    if (!mk.IsDone()) return std::unique_ptr<TopoDS_Shape>(new TopoDS_Shape(shape));
+    ShapeFix_Solid fix(mk.Solid());
+    fix.Perform();
+    out = fix.Solid();
+    BRepCheck_Analyzer check(out);
+    if (!check.IsValid()) return std::unique_ptr<TopoDS_Shape>(new TopoDS_Shape(shape));
+  }
+  return std::unique_ptr<TopoDS_Shape>(new TopoDS_Shape(out));
 }
 
 inline std::unique_ptr<TopoDS_Shape> w3d_loft_sheet(rust::Slice<const double> sections, bool loop, bool simplify) {

@@ -62,6 +62,12 @@ impl Shape {
         Ok(Shape::from_shape(&s))
     }
 
+    /// Faces lying flat made trimmed planes (Loft's and Sweep's Simplify), still a solid when it was one.
+    pub fn simplified_flat(&self) -> Result<Shape, String> {
+        let s = ffi::w3d::w3d_simplify_flat(&self.inner).map_err(|e| e.what().to_string())?;
+        Ok(Shape::from_shape(&s))
+    }
+
     /// The exact shape as OpenCascade BREP text.
     pub fn to_brep_text(&self) -> Result<String, crate::Error> {
         ffi::w3d::w3d_write_brep(&self.inner).map_err(|_| crate::Error::BrepWriteFailed)

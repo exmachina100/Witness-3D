@@ -612,3 +612,23 @@ fn a_loft_of_two_faces_is_a_solid_between_them() {
     close(volume(&doc.kernel, &solid), 1_000.0, 1.0);
     assert!(doc.preview_loft_faces(&[(a, top)]).is_err());
 }
+
+#[test]
+fn sweep_simplify_makes_flat_sides_planes() {
+    let k = Occt;
+    let f = Frame::new(DVec3::ZERO, DVec3::Y, DVec3::X);
+    // Following a straight guide that rises, the square grows evenly: its sides lie flat but are
+    // swept spline surfaces.
+    let path = Path::Polyline { points: vec![DVec3::ZERO, DVec3::new(50.0, 0.0, 0.0)], closed: false };
+    let guide = Path::Polyline { points: vec![DVec3::new(0.0, 0.0, 5.0), DVec3::new(50.0, 0.0, 8.0)], closed: false };
+    let kind = FormKind::Sweep { path, twist: 0.0, scale: 1.0, guides: vec![guide], method: Default::default(), align: Default::default(), round: false };
+    let plain = form::tool(&Occt, &FormParams { profile: square(10.0), frame: f, kind: kind.clone(), operation: Operation::NewBody }).unwrap();
+    let simple = form::tool(&Occt, &FormParams { profile: square(10.0), frame: f, kind: FormKind::Simplified(Box::new(kind)), operation: Operation::NewBody }).unwrap();
+    let planes = |s: &Shape| k.face_surfaces(s).iter().filter(|x| matches!(x, FaceSurface::Plane { .. })).count();
+    let faces = k.face_surfaces(&simple).len();
+    assert!(k.is_valid(&simple) && k.solid_count(&simple) == 1);
+    assert_eq!(planes(&simple), faces, "every face is a plane now");
+    assert!(planes(&plain) < faces, "the sweep's own sides are not planes ({} of {faces})", planes(&plain));
+    close(volume(&k, &simple), volume(&k, &plain), 0.5);
+}
+

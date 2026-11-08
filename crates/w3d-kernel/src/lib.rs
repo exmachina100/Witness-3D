@@ -382,6 +382,10 @@ pub trait Kernel {
     fn curve_regions(&self, _curves: &[Path], _origin: DVec3, _normal: DVec3) -> Result<Vec<Self::Solid>, KernelError> {
         Err(KernelError::Invalid("this kernel cannot make regions"))
     }
+    /// Faces of the shape lying flat made trimmed planes (Sweep's Simplify), a solid staying a solid.
+    fn simplify_flat(&self, _shape: &Self::Solid) -> Result<Self::Solid, KernelError> {
+        Err(KernelError::Invalid("this kernel cannot simplify faces"))
+    }
     fn loft_faces(&self, _faces: &[&Self::Solid]) -> Result<Self::Solid, KernelError> {
         Err(KernelError::Invalid("this kernel cannot loft faces"))
     }
