@@ -13594,6 +13594,8 @@ export async function mount(root, backend) {
     const shell = root.querySelector('.w3d'), z = look.uiScale;
     shell.style.zoom = z === 1 ? '' : String(z);
     shell.style.height = z === 1 ? '' : `${100 / z}vh`;
+    // UI standard spacing: the padding and gaps of rows, panel sections and option buttons.
+    root.style.setProperty('--space', String(look.spacing ?? 1));
   }
   function paintGrid(major, minor) {
     // Two points a line; gridLines says which lines are major.
