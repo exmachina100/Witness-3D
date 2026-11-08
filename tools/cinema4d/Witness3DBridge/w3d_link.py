@@ -130,13 +130,22 @@ def to_c4d(p):
     return (p[0], p[2], p[1])
 
 
+def face_groups(face_ids):
+    """Triangle indices grouped by the B-rep face each came from: [(face, [triangles])], by face."""
+    groups = {}
+    for t, f in enumerate(face_ids):
+        groups.setdefault(f, []).append(t)
+    return sorted(groups.items())
+
+
 def plan(msg, only_visible=False):
     """
     A "meshes" message as what Cinema 4D should hold under the document's root null: the group
     paths (each a tuple of names from the top, parents first) and each body's mesh in Cinema 4D's
     axes. Mirroring the axes turns the triangles over, so each is wound the other way round to
     keep its normal pointing out. Hidden bodies are left out when `only_visible` is on, and are
-    marked hidden otherwise.
+    marked hidden otherwise. `faces` groups each body's polygons by the B-rep face they came from
+    (face number to polygon indices, in face order), for a selection tag per face.
     """
     meshes, groups = [], set()
     for o in msg.get("objects", []):
@@ -148,6 +157,7 @@ def plan(msg, only_visible=False):
             groups.add(path[:i])
         p, ix = o["positions"], o["indices"]
         meshes.append({
+            "faces": face_groups(o.get("faceIds") or []),
             "id": o["id"],
             "name": o["name"],
             "revision": o["revision"],
