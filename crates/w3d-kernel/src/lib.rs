@@ -610,6 +610,10 @@ pub trait Kernel {
     }
     /// Extend Sheet's Limit: the sheet carried on past its open `edge` until it first meets `target`
     /// (Minimal) or, with `outside`, on through a solid target until it comes out of the far side.
+    /// Extend Sheet with Modify off: what `grown` (sheet `s` extended) added, alone.
+    fn extension_only(&self, _s: &Self::Solid, _grown: &Self::Solid) -> Result<Self::Solid, KernelError> {
+        Err(KernelError::Invalid("this kernel cannot keep an extension apart"))
+    }
     fn extend_sheet_to(&self, _s: &Self::Solid, _edge: u32, _target: &Self::Solid, _shape: SheetExtension, _outside: bool) -> Result<Self::Solid, KernelError> {
         Err(KernelError::Invalid("this kernel cannot extend sheets to a body"))
     }

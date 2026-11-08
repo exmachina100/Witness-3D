@@ -1988,6 +1988,9 @@ pub struct ExtendSheetRequest {
     /// Limit Outside: on through the body until the sheet comes out of its far side.
     #[serde(default)]
     pub outside: bool,
+    /// Modify (on unless turned off): the sheet itself grows; off, the extension is a sheet of its own.
+    #[serde(default = "yes")]
+    pub modify: bool,
 }
 
 impl ExtendSheetRequest {
@@ -2174,6 +2177,10 @@ pub fn commit_rebuild_faces(m: &Model, req: RebuildFacesRequest) -> Result<Rebui
 
 pub fn preview_extend_sheet(m: &Model, req: ExtendSheetRequest) -> Option<Result<Body, ApiError>> {
     m.preview(move |doc| {
+        if !req.modify {
+            let piece = doc.preview_extension_edges(req.body, &req.edges(), req.distance, req.shape(), req.limit, req.outside)?;
+            return Ok(body(&doc.kernel, doc.next_id(), &piece)?);
+        }
         let sheet = doc.preview_extend_sheet_edges(req.body, &req.edges(), req.distance, req.shape(), req.limit, req.outside)?;
         Ok(body(&doc.kernel, req.body, &sheet)?)
     })
@@ -2181,7 +2188,11 @@ pub fn preview_extend_sheet(m: &Model, req: ExtendSheetRequest) -> Option<Result
 
 pub fn commit_extend_sheet(m: &Model, req: ExtendSheetRequest) -> Result<Committed, ApiError> {
     m.call(move |doc| {
-        let id = doc.commit_extend_sheet_edges(req.body, &req.edges(), req.distance, req.shape(), req.limit, req.outside)?;
+        let id = if req.modify {
+            doc.commit_extend_sheet_edges(req.body, &req.edges(), req.distance, req.shape(), req.limit, req.outside)?
+        } else {
+            doc.commit_extension_edges(req.body, &req.edges(), req.distance, req.shape(), req.limit, req.outside)?
+        };
         Ok(Committed { id, scene: bodies(doc)? })
     })
 }

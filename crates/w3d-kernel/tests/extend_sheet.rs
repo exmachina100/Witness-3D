@@ -273,3 +273,35 @@ fn every_edge_of_a_face_unjoined_from_a_box_extends() {
         }
     }
 }
+
+#[test]
+fn modify_off_makes_the_extension_a_sheet_of_its_own() {
+    use w3d_kernel::document::{Curve, CurveShape, Document};
+    let mut doc = Document::new(Occt);
+    let rect = Curve { origin: [0.0, 0.0, 0.0], x: [1.0, 0.0, 0.0], normal: [0.0, 0.0, 1.0], shape: CurveShape::Polyline { points: vec![[0.0, 0.0], [10.0, 0.0], [10.0, 10.0], [0.0, 10.0]], closed: true } };
+    let id = doc.commit_curves(vec![rect]).unwrap()[0];
+    let sheet = doc.commit_patch(&[id], &[], 0.0).unwrap();
+    doc.clear_history();
+    let s = doc.get(sheet).unwrap();
+    let right = edge_where(&doc.kernel, s, |p| (p[0] - 10.0).abs() < 1e-9);
+    let top = edge_where(&doc.kernel, s, |p| (p[1] - 10.0).abs() < 1e-9);
+    let piece = doc.commit_extension_edges(sheet, &[right, top], 3.0, SheetExtension::Linear, None, false).unwrap();
+    assert_ne!(piece, sheet);
+    let t = doc.kernel.tessellate(doc.get(sheet).unwrap(), 0.001).unwrap();
+    assert!((area(&t) - 100.0).abs() < 1e-6, "the sheet is left as it was: {}", area(&t));
+    let p = doc.get(piece).unwrap();
+    assert!(doc.kernel.is_sheet(p));
+    let t = doc.kernel.tessellate(p, 0.001).unwrap();
+    assert!((area(&t) - (13.0 * 13.0 - 100.0)).abs() < 1e-6, "the extension alone: {}", area(&t));
+    assert!(range(&t, 0).0 > -1e-9 && (range(&t, 0).1 - 13.0).abs() < 1e-6);
+    // A curved sheet's extension too.
+    let k = Occt;
+    let (s, low) = bridge(&k);
+    let grown = k.extend_sheet(&s, low, 3.0, SheetExtension::Natural).unwrap();
+    let only = k.extension_only(&s, &grown).unwrap();
+    let whole = area(&k.tessellate(&grown, 0.001).unwrap()) - area(&k.tessellate(&s, 0.001).unwrap());
+    assert!((area(&k.tessellate(&only, 0.001).unwrap()) - whole).abs() < 0.05, "{} vs {whole}", area(&k.tessellate(&only, 0.001).unwrap()));
+    assert!(doc.undo());
+    assert!(doc.get(piece).is_none());
+}
+

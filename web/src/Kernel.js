@@ -175,7 +175,7 @@ export function successors(mk, s) {
 }
 
 /** A point strictly inside a face or edge, for finding what it was merged into. */
-function innerPoint(s) {
+export function innerPoint(s) {
     const o = oc();
     if (s.ShapeType() === o.TopAbs_ShapeEnum.TopAbs_EDGE) {
         const c = new o.BRepAdaptor_Curve(o.TopoDS.Edge(s));

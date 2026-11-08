@@ -6665,3 +6665,43 @@ inline std::unique_ptr<TopoDS_Shape> w3d_curve_regions(rust::Slice<const double>
     throw w3d_kernel_error(f);
   }
 }
+
+// Extend Sheet with Modify off (inferred; the manual says only that Modify makes the result a single
+// sheet): just what the extension added to `original`, a sheet of its own. `grown` is split along the
+// original's edges (lying on it) and the faces off the original kept.
+inline std::unique_ptr<TopoDS_Shape> w3d_extension_only(const TopoDS_Shape &original, const TopoDS_Shape &grown) {
+  BRepAlgoAPI_Splitter split;
+  TopTools_ListOfShape args, tools;
+  args.Append(grown);
+  // The original's edges, a closed outline lying on the grown sheet (its faces alone don't always
+  // split a re-knotted surface).
+  for (TopExp_Explorer ex(original, TopAbs_EDGE); ex.More(); ex.Next()) tools.Append(ex.Current());
+  split.SetArguments(args);
+  split.SetTools(tools);
+  split.Build();
+  if (!split.IsDone() || split.HasErrors()) throw std::runtime_error("the extension could not be told apart from the sheet");
+  std::vector<TopoDS_Face> off;
+  for (TopExp_Explorer ex(split.Shape(), TopAbs_FACE); ex.More(); ex.Next()) {
+    // A point inside the piece (a triangle's middle; an L-shaped piece's centre can lie off it).
+    const TopoDS_Face f = TopoDS::Face(ex.Current());
+    BRepMesh_IncrementalMesh(f, 0.01, Standard_False, 0.25, Standard_False);
+    TopLoc_Location loc;
+    Handle(Poly_Triangulation) tri = BRep_Tool::Triangulation(f, loc);
+    if (tri.IsNull() || tri->NbTriangles() == 0) continue;
+    int a, b, c;
+    tri->Triangle(1).Get(a, b, c);
+    const gp_Trsf t = loc.Transformation();
+    const gp_Pnt pa = tri->Node(a).Transformed(t), pb = tri->Node(b).Transformed(t), pc = tri->Node(c).Transformed(t);
+    const gp_Pnt mid((pa.XYZ() + pb.XYZ() + pc.XYZ()) / 3.0);
+    // The point is on a triangle, a little off a curved piece: measure against the piece too.
+    const TopoDS_Vertex v = BRepBuilderAPI_MakeVertex(mid).Vertex();
+    BRepExtrema_DistShapeShape d(v, original), own(v, f);
+    if (!(d.IsDone() && own.IsDone() && d.Value() < own.Value() + 1e-6)) off.push_back(f);
+  }
+  if (off.empty()) throw std::runtime_error("the extension could not be told apart from the sheet");
+  if (off.size() == 1) return std::unique_ptr<TopoDS_Shape>(new TopoDS_Shape(off[0]));
+  BRepBuilderAPI_Sewing sew(1e-6);
+  for (auto &f : off) sew.Add(f);
+  sew.Perform();
+  return std::unique_ptr<TopoDS_Shape>(new TopoDS_Shape(sew.SewedShape()));
+}

@@ -1704,6 +1704,20 @@ impl<K: Kernel> Document<K> {
         best.1.ok_or(KernelError::Invalid("an edge to extend was lost on the way"))
     }
 
+    /// Extend Sheet with Modify off (inferred), without changing the document: only what the
+    /// extension adds, a sheet of its own; the original is left as it is.
+    pub fn preview_extension_edges(&self, body: BodyId, edges: &[u32], distance: f64, shape: SheetExtension, limit: Option<BodyId>, outside: bool) -> Result<K::Solid, KernelError> {
+        let grown = self.preview_extend_sheet_edges(body, edges, distance, shape, limit, outside)?;
+        let sheet = self.get(body).ok_or(KernelError::Invalid("that body no longer exists"))?;
+        self.kernel.extension_only(sheet, &grown)
+    }
+
+    /// Extend Sheet with Modify off as one undoable step: the extension a new body.
+    pub fn commit_extension_edges(&mut self, body: BodyId, edges: &[u32], distance: f64, shape: SheetExtension, limit: Option<BodyId>, outside: bool) -> Result<BodyId, KernelError> {
+        let piece = self.preview_extension_edges(body, edges, distance, shape, limit, outside)?;
+        Ok(self.add(piece))
+    }
+
     /// Extend Sheet as one undoable step: the sheet keeps its body.
     pub fn commit_extend_sheet(&mut self, body: BodyId, edge: u32, distance: f64, shape: SheetExtension, limit: Option<BodyId>, outside: bool) -> Result<BodyId, KernelError> {
         self.commit_extend_sheet_edges(body, &[edge], distance, shape, limit, outside)
