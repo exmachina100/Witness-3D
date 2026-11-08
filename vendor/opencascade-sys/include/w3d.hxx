@@ -5414,6 +5414,7 @@ inline std::unique_ptr<TopoDS_Shape> w3d_rebuild_faces(const TopoDS_Shape &shape
 // a parabola, nearer 1 tighter into the corner); the G2 section is a quintic Bézier with three
 // control points on each side's line, so it leaves both faces with no curvature.
 inline gp_XYZ w3d_round_section(const gp_XYZ &p0, const gp_XYZ &c, const gp_XYZ &p1, int kind, double tension, double s) {
+  if (kind == 1) return p0 * (1 - s) + p1 * s; // flat: a chamfer between the same spring lines
   if (kind == 2) {
     const double w = tension / (1.0 - tension), b0 = (1 - s) * (1 - s), b1 = 2 * s * (1 - s) * w, b2 = s * s;
     return (p0 * b0 + c * b1 + p1 * b2) / (b0 + b1 + b2);
@@ -5439,8 +5440,8 @@ inline gp_Vec w3d_face_normal_at(const TopoDS_Face &f, const Handle(Geom_Surface
 // tangent to them. Faces and edges keep their numbers. kind is 2 (Conic) or 3 (G2). The ends of a
 // round must be square to its edge (as on a block) or run into another of `faces`.
 inline std::unique_ptr<TopoDS_Shape> w3d_reshape_fillets(const TopoDS_Shape &shape, rust::Slice<const int32_t> faces, int32_t kind, double tension) {
-  if (kind != 2 && kind != 3) throw std::runtime_error("a fillet shape is conic or G2");
-  if (!(tension >= 0.05 && tension <= 0.95)) throw std::runtime_error("the tension must be between 0.05 and 0.95");
+  if (kind != 1 && kind != 2 && kind != 3) throw std::runtime_error("a fillet shape is conic or G2");
+  if (kind != 1 && !(tension >= 0.05 && tension <= 0.95)) throw std::runtime_error("the tension must be between 0.05 and 0.95");
   if (faces.empty()) throw std::runtime_error("no rounds to shape");
   const char *corner = "conic and G2 rounds don't go round corners yet; round those edges with the round shape";
   try {

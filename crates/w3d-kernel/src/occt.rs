@@ -577,6 +577,11 @@ impl Kernel for Occt {
         s.reshape_fillets(&faces, if g2 { 3 } else { 2 }, tension).map_err(shim)
     }
 
+    fn flatten_fillets(&self, s: &Shape, faces: &[u32]) -> Result<Shape, KernelError> {
+        let faces: Vec<usize> = faces.iter().map(|&f| f as usize).collect();
+        s.reshape_fillets(&faces, 1, 0.5).map_err(shim)
+    }
+
     fn unwrap_face(&self, s: &Shape, face: u32) -> Result<Shape, KernelError> {
         s.unwrap_face(face as usize).map_err(shim)
     }

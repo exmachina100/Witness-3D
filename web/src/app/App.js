@@ -4033,13 +4033,13 @@ export async function mount(root, backend) {
     const v = { edge: n, point: at, scale: 1, gizmo: null };
     v.gizmo = dot(at, out, r => {
       r = Math.max(Math.abs(r), 1e-3);
-      v.scale = r / c.value;
+      v.scale = r / Math.abs(c.value);
       c.dragVar = v;
       $('blend-vars').textContent = c.vars.length;
       previewFillet();
     });
     v.gizmo.onStart = () => { controls.enabled = false; };
-    v.gizmo.render(c.value);
+    v.gizmo.render(Math.abs(c.value));
     c.vars.push(v);
     $('blend-vars').textContent = c.vars.length;
     setHud(`VARIABLE POINT ${c.vars.length} · DRAG ITS DOT`);
@@ -4115,8 +4115,9 @@ export async function mount(root, backend) {
     c.value = v;
     c.auto = c.auto && v === 0;
     if (!fromGizmo) c.gizmo?.render(v);
-    // Variable points keep their share of the radius; a chamfer has none.
-    for (const p of c.vars) { p.gizmo.visible = v > 0; if (v > 0) p.gizmo.render(v * p.scale); }
+    // Variable points keep their share of the radius, or of an equal chamfer's distance.
+    const varied = v > 0 || (v < 0 && c.chamferShape !== 'apex');
+    for (const p of c.vars) { p.gizmo.visible = varied; if (varied) p.gizmo.render(Math.abs(v) * p.scale); }
     if (document.activeElement !== $('blend-distance')) $('blend-distance').value = +v.toFixed(3);
     $('blend-kind').textContent = v < 0 ? (c.chamferShape === 'apex' ? 'APEX CHAMFER' : 'CHAMFER') : (c.shape === 'g2' ? 'G2' : c.shape.toUpperCase());
     $('blend-chamfer-row').hidden = !(v < 0);
@@ -4129,7 +4130,7 @@ export async function mount(root, backend) {
   }));
   const filletRequest = (c, v = c.value) => ({
     body: c.body, edges: c.edges, size: Math.abs(v), kind: v < 0 ? 'chamfer' : 'fillet', angle: c.angle * DEG,
-    variable: v > 0 ? c.vars.map(p => ({ edge: p.edge, point: p.point.toArray(), scale: p.scale })) : [],
+    variable: v > 0 || (v < 0 && c.chamferShape !== 'apex') ? c.vars.map(p => ({ edge: p.edge, point: p.point.toArray(), scale: p.scale })) : [],
     shape: v < 0 ? (c.chamferShape === 'apex' ? 'apex' : 'offset') : c.shape, tension: c.tension,
     limits: v > 0 && c.limits.length === 2 ? c.limits.map(l => l.point.toArray()) : v > 0 && !c.tangent ? runEnds(c) : [],
   });
@@ -4227,7 +4228,7 @@ export async function mount(root, backend) {
     clearPreview();
     showPreviewBody(body);
     for (const b of more) if (b) showPreviewBody(b);
-    const at = c.vars.includes(c.dragVar) ? ` · POINT ${c.vars.indexOf(c.dragVar) + 1} R ${(Math.abs(v) * c.dragVar.scale).toFixed(2)}` : '';
+    const at = c.vars.includes(c.dragVar) ? ` · POINT ${c.vars.indexOf(c.dragVar) + 1} ${v < 0 ? 'D' : 'R'} ${(Math.abs(v) * c.dragVar.scale).toFixed(2)}` : '';
     setHud(v > 0 && c.shape === 'full' ? 'FULL ROUND' : `${v < 0 ? 'CHAMFER' : 'R'} ${Math.abs(v).toFixed(2)}${at}`);
     if (n === c.sent) setState('updated');
   }
@@ -4287,7 +4288,7 @@ export async function mount(root, backend) {
       for (const r of others) { const out = await backend.commitBlend(r); ids.push(out.id); list = out.scene; done++; }
       endCmd('committed');
       // One undo step for all the solids.
-      pushStep({ text: `${c.vars.length && req.kind === 'fillet' ? `${text} · ${c.vars.length} VARIABLE` : text}${others.length ? ` · ${ids.length} SOLIDS` : ''}`, id, tag: label(id), sources: opSources ?? [], steps: ids.length });
+      pushStep({ text: `${c.vars.length && req.variable?.length ? `${text} · ${c.vars.length} VARIABLE` : text}${others.length ? ` · ${ids.length} SOLIDS` : ''}`, id, tag: label(id), sources: opSources ?? [], steps: ids.length });
       showScene(list);
       // Plasticity selects the result.
       sel.replace({ kind: 'solid', body: id });

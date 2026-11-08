@@ -32,3 +32,21 @@ test('variable points are checked', () => {
     // A chamfer ignores them.
     assert.ok(blendEdges(s, [e], 3, true, false, Math.PI / 4, [{ edge: e, point: [0, 15, 0], scale: 2 }]));
 });
+
+test('a variable chamfer is flat between setbacks that vary as the variable round\'s, the same as on the desktop', async () => {
+    const { LocalBackend } = await import('../src/app/LocalBackend.js');
+    const be = new LocalBackend({ seed: 'enclosure' });
+    const s = block(), e = upright(s);
+    be.shapes.set(901, s);
+    const mid = [{ edge: e, point: [0, 15, 0], scale: 2 }];
+    const constant = FULL - volume(be.blendWhole({ body: 901, edges: [e], size: 3, kind: 'chamfer' }));
+    assert.ok(Math.abs(constant - 4.5 * 30) < 0.5, String(constant));
+    const r = be.blendWhole({ body: 901, edges: [e], size: 3, kind: 'chamfer', variable: mid });
+    const taken = FULL - volume(r);
+    assert.ok(taken > constant * 1.5 && taken < constant * 4, `${taken} vs ${constant}`);
+    assert.ok(Math.abs(half(r, true) - half(r, false)) < 1);
+    const round = FULL - volume(blendEdges(s, [e], 3, false, false, Math.PI / 4, mid));
+    assert.ok(Math.abs(taken / round - 0.5 / (1 - Math.PI / 4)) < 0.1, String(taken / round));
+    // Apex chamfers take one distance.
+    assert.ok(Math.abs(FULL - volume(be.blendWhole({ body: 901, edges: [e], size: 3, kind: 'chamfer', shape: 'apex', variable: mid })) - FULL + volume(be.blendWhole({ body: 901, edges: [e], size: 3, kind: 'chamfer', shape: 'apex' }))) < 1e-6);
+});

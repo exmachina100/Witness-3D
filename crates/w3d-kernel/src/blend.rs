@@ -110,7 +110,10 @@ pub fn blend<K: Kernel>(k: &K, body: &K::Solid, p: &BlendParams) -> Result<Trace
     if p.kind == Blend::Chamfer && !(p.angle > 0.0 && p.angle < std::f64::consts::FRAC_PI_2) {
         return Err(KernelError::Invalid("the chamfer angle must be between 0 and 90 degrees"));
     }
-    let variable: &[VariablePoint] = if p.kind == Blend::Fillet { &p.variable } else { &[] };
+    // Variable chamfers (an equal chamfer only): the variable round whose spring lines sit at the
+    // chamfer's setbacks, then made flat between them.
+    let variable_chamfer = p.kind == Blend::Chamfer && !p.variable.is_empty() && p.shape != FilletShape::Apex;
+    let variable: &[VariablePoint] = if p.kind == Blend::Fillet || variable_chamfer { &p.variable } else { &[] };
     for v in variable {
         if !edges.contains(&v.edge) {
             return Err(KernelError::Invalid("a variable point is on an edge that isn't being rounded"));
@@ -147,6 +150,27 @@ pub fn blend<K: Kernel>(k: &K, body: &K::Solid, p: &BlendParams) -> Result<Trace
         }
     }
     let variable = if chordal.is_empty() { variable } else { &chordal[..] };
+    if variable_chamfer {
+        // A round of radius r between faces turning through t sets back r·tan(t/2) on each.
+        let angles = k.edge_angles(body);
+        let turns: Vec<f64> = edges.iter().map(|&e| angles.get(e as usize).copied().unwrap_or(-1.0).to_radians()).collect();
+        if turns.iter().any(|&t| !(t > 1e-6 && t < std::f64::consts::PI - 1e-6)) {
+            return Err(KernelError::Invalid("a variable chamfer needs faces that meet at an angle"));
+        }
+        if turns.iter().any(|t| (t - turns[0]).abs() > 1e-6) {
+            return Err(KernelError::Invalid("a variable chamfer's edges must all join their faces at the same angle"));
+        }
+        let radius = p.size / (turns[0] / 2.0).tan();
+        let mut traced = k.blend(body, &edges, radius, Blend::Fillet, p.angle, variable)?;
+        let mut rounds: Vec<u32> = traced.history.generated_faces.iter().map(|&(_, f)| f).collect();
+        rounds.sort_unstable();
+        rounds.dedup();
+        traced.solid = k.flatten_fillets(&traced.solid, &rounds)?;
+        if !k.is_valid(&traced.solid) {
+            return Err(KernelError::Blend { edges, reason: "the kernel built a variable chamfer but the solid it produced is invalid; try a smaller chamfer".into() });
+        }
+        return Ok(traced);
+    }
     let angle = if p.kind == Blend::Chamfer && p.shape == FilletShape::Apex { THROAT } else { p.angle };
     let mut traced = k.blend(body, &edges, size, p.kind, angle, variable)?;
     if matches!(shape, FilletShape::Conic | FilletShape::G2) {

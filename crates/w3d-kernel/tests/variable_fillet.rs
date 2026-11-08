@@ -107,3 +107,26 @@ fn an_apex_chamfer_takes_its_distance_as_the_throat() {
     let apex = full - volume(&k, &blend(&k, &b, &p).unwrap().solid);
     assert!((apex - 9.0 * 30.0).abs() < 1e-3, "apex chamfer took {apex}");
 }
+
+#[test]
+fn a_variable_chamfer_is_flat_between_the_varying_setbacks() {
+    let _turn = turn();
+    let k = Occt;
+    let (b, e) = block(&k);
+    let full = 40.0 * 30.0 * 20.0;
+    let chamfer = |variable| BlendParams { kind: Blend::Chamfer, ..params(e, variable) };
+    // An equal 3 mm chamfer takes d²/2 per unit length.
+    let constant = full - volume(&k, &blend(&k, &b, &chamfer(vec![])).unwrap().solid);
+    assert!((constant - 4.5 * 30.0).abs() < 0.5, "{constant}");
+    let mid = VariablePoint { edge: e, point: DVec3::new(0.0, 15.0, 0.0), scale: 2.0 };
+    let r = blend(&k, &b, &chamfer(vec![mid])).unwrap().solid;
+    assert!(k.is_valid(&r));
+    let taken = full - volume(&k, &r);
+    assert!(taken > constant * 1.5 && taken < constant * 4.0, "{taken} vs {constant}");
+    assert!((half(&k, &r, true) - half(&k, &r, false)).abs() < 1.0);
+    // Flat across, so it takes more than the variable round between the same spring lines,
+    // in the ratio of their sections: (1/2) / (1 − π/4).
+    let round = full - volume(&k, &blend(&k, &b, &params(e, vec![mid])).unwrap().solid);
+    let ratio = taken / round;
+    assert!((ratio - 0.5 / (1.0 - PI / 4.0)).abs() < 0.1, "{ratio}");
+}

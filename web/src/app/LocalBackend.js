@@ -21,7 +21,7 @@ import { offsetCurvedFaces } from '../offsetCurved.js';
 import { moveFacePoles, subdivideFaces } from '../movePoles.js';
 import { isoparamSplit } from '../isoparamSplit.js';
 import { endless, withMaterial } from '../material.js';
-import { chordal, fullRound, limitRound, reshapeRounds } from '../filletShape.js';
+import { chordal, edgeTurn, fullRound, limitRound, reshapeRounds } from '../filletShape.js';
 import { bridgeSurface } from '../BridgeSurface.js';
 import { sheetFillet, trimWalls } from '../sheetFillet.js';
 import { projectOutline } from '../Outline.js';
@@ -1611,6 +1611,17 @@ export class LocalBackend {
             if (variable.length) throw new Error('a chordal round takes one distance; remove the variable points');
             const c = chordal(shape, unique, size);
             return blendEdges(shape, unique, c.size, false, withHistory, angle, c.variable);
+        }
+        // Variable chamfer (equal ones only): the variable round whose spring lines sit at the
+        // chamfer's setbacks (r·tan(t/2) between faces turning through t), made flat between them.
+        if (kind === 'chamfer' && variable.length && section !== 'apex') {
+            const turns = unique.map(e => edgeTurn(shape, e));
+            if (turns.some(t => !(t > 1e-6 && t < Math.PI - 1e-6))) throw new Error('a variable chamfer needs faces that meet at an angle');
+            if (turns.some(t => Math.abs(t - turns[0]) > 1e-6)) throw new Error("a variable chamfer's edges must all join their faces at the same angle");
+            const r = blendEdges(shape, unique, size / Math.tan(turns[0] / 2), false, true, angle, variable);
+            const rounds = [...new Set(r.history.generatedFaces.map(([, f]) => f))];
+            const out = reshapeRounds(r.shape, rounds, 'chamfer', 0.5);
+            return withHistory ? { shape: out, history: undefined } : out;
         }
         // Apex chamfer: the distance is the throat (see Kernel.js blendEdges, THROAT).
         return blendEdges(shape, unique, size, kind === 'chamfer', withHistory, kind === 'chamfer' && section === 'apex' ? THROAT : angle, variable);
