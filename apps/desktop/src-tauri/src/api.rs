@@ -274,6 +274,9 @@ pub struct Refacet {
     pub tolerance: f64,
     pub angle: f64,
     pub min_width: f64,
+    /// No facet edge longer than this (mm; 0: no limit). OpenCascade's mesher has no maximum facet
+    /// size, so longer triangles are split afterwards.
+    pub max_width: f64,
     pub edge_chord_tolerance: Option<f64>,
     pub edge_angle_tolerance: Option<f64>,
     pub face_plane_tolerance: Option<f64>,
@@ -284,7 +287,7 @@ pub struct Refacet {
 
 impl Default for Refacet {
     fn default() -> Self {
-        Refacet { tolerance: 0.01, angle: 0.45, min_width: 0.0, edge_chord_tolerance: None, edge_angle_tolerance: None, face_plane_tolerance: None, face_angle_tolerance: None, ngon: false }
+        Refacet { tolerance: 0.01, angle: 0.45, min_width: 0.0, max_width: 0.0, edge_chord_tolerance: None, edge_angle_tolerance: None, face_plane_tolerance: None, face_angle_tolerance: None, ngon: false }
     }
 }
 
@@ -305,6 +308,35 @@ impl Refacet {
     }
 }
 
+/// Triangles split, longest side first, until no side is longer than `max` (Refacet's Max Width);
+/// each half keeps its face and winding. A side shared by two triangles is split at the same
+/// points from both, so the facets stay joined.
+pub fn limit_edges(positions: &mut Vec<[f64; 3]>, indices: &[u32], face_ids: &[u32], max: f64) -> (Vec<u32>, Vec<u32>) {
+    if !(max > 0.0) || !max.is_finite() { return (indices.to_vec(), face_ids.to_vec()) }
+    let mut mids = std::collections::HashMap::new();
+    let (mut out, mut faces) = (vec![], vec![]);
+    let mut stack: Vec<([u32; 3], u32)> = indices.chunks_exact(3).zip(face_ids).map(|(t, &f)| ([t[0], t[1], t[2]], f)).collect();
+    let len = |p: &Vec<[f64; 3]>, a: u32, b: u32| { let (a, b) = (p[a as usize], p[b as usize]); ((a[0] - b[0]).powi(2) + (a[1] - b[1]).powi(2) + (a[2] - b[2]).powi(2)).sqrt() };
+    let mut guard = 0usize;
+    while let Some(([a, b, c], f)) = stack.pop() {
+        let e = [len(positions, a, b), len(positions, b, c), len(positions, c, a)];
+        let m = e[0].max(e[1]).max(e[2]);
+        guard += 1;
+        if m <= max || guard > 2_000_000 { out.extend([a, b, c]); faces.push(f); continue }
+        let mut mid = |x: u32, y: u32| -> u32 {
+            *mids.entry((x.min(y), x.max(y))).or_insert_with(|| {
+                let (p, q) = (positions[x as usize], positions[y as usize]);
+                positions.push([(p[0] + q[0]) / 2.0, (p[1] + q[1]) / 2.0, (p[2] + q[2]) / 2.0]);
+                positions.len() as u32 - 1
+            })
+        };
+        if m == e[0] { let d = mid(a, b); stack.push(([a, d, c], f)); stack.push(([d, b, c], f)); }
+        else if m == e[1] { let d = mid(b, c); stack.push(([a, b, d], f)); stack.push(([a, d, c], f)); }
+        else { let d = mid(c, a); stack.push(([a, b, d], f)); stack.push(([d, b, c], f)); }
+    }
+    (out, faces)
+}
+
 /// The bridge's Refacet answer, reading the request's settings.
 pub fn bridge_refacet(m: std::sync::Arc<Model>) -> crate::bridge::RefacetFn {
     std::sync::Arc::new(move |ids, req| {
@@ -320,7 +352,8 @@ pub fn refacet(m: &Model, ids: Vec<BodyId>, r: Refacet) -> Result<Vec<Body>, Str
         let mut out = vec![];
         for id in ids {
             let Some(solid) = doc.get(id) else { continue };
-            let t = doc.kernel.refacet(solid, p).map_err(|e| e.to_string())?;
+            let mut t = doc.kernel.refacet(solid, p).map_err(|e| e.to_string())?;
+            (t.indices, t.face_ids) = limit_edges(&mut t.positions, &t.indices, &t.face_ids, r.max_width);
             out.push(Body {
                 id,
                 volume: 0.0,

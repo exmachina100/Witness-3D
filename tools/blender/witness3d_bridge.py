@@ -312,7 +312,7 @@ def refacet_settings(scene):
     """The panel's Refacet settings as the bridge takes them (bridge.rs)."""
     r = {"ngon": scene.w3d_facet_type == "NGON", "tolerance": scene.w3d_tolerance, "angle": scene.w3d_angle}
     if scene.w3d_advanced:
-        r.update(min_width=scene.w3d_min_width,
+        r.update(min_width=scene.w3d_min_width, max_width=scene.w3d_max_width,
                  edge_chord_tolerance=scene.w3d_edge_chord_tolerance, edge_angle_tolerance=scene.w3d_edge_angle_tolerance,
                  face_plane_tolerance=scene.w3d_face_plane_tolerance, face_angle_tolerance=scene.w3d_face_angle_tolerance)
     return r
@@ -488,7 +488,7 @@ if bpy is not None:
             box.prop(s, "w3d_angle")
             box.prop(s, "w3d_advanced")
             if s.w3d_advanced:
-                for p in ("w3d_min_width", "w3d_edge_chord_tolerance", "w3d_edge_angle_tolerance",
+                for p in ("w3d_min_width", "w3d_max_width", "w3d_edge_chord_tolerance", "w3d_edge_angle_tolerance",
                           "w3d_face_plane_tolerance", "w3d_face_angle_tolerance"):
                     box.prop(s, p)
             row = box.row()
@@ -499,7 +499,7 @@ if bpy is not None:
 
     CLASSES = (W3D_OT_connect, W3D_OT_disconnect, W3D_OT_refresh, W3D_OT_refacet, W3D_PT_panel)
 
-REFACET_PROPS = ("w3d_facet_type", "w3d_tolerance", "w3d_angle", "w3d_advanced", "w3d_min_width",
+REFACET_PROPS = ("w3d_facet_type", "w3d_tolerance", "w3d_angle", "w3d_advanced", "w3d_min_width", "w3d_max_width",
                  "w3d_edge_chord_tolerance", "w3d_edge_angle_tolerance", "w3d_face_plane_tolerance",
                  "w3d_face_angle_tolerance")
 
@@ -524,6 +524,8 @@ def register():
     S.w3d_advanced = P.BoolProperty(name="Advanced", default=False, description="Set edge and face tolerances apart")
     S.w3d_min_width = P.FloatProperty(name="Min Width", default=0.0, min=0.0, max=100.0,
                                       description="No facet edge shorter than this, in millimetres (0: no limit)")
+    S.w3d_max_width = P.FloatProperty(name="Max Width", default=0.0, min=0.0, max=10000.0,
+                                      description="No facet edge longer than this, in millimetres (0: no limit)")
     S.w3d_edge_chord_tolerance = P.FloatProperty(name="Edge chord tolerance", default=0.01, min=0.0001, max=1.0, precision=4)
     S.w3d_edge_angle_tolerance = P.FloatProperty(name="Edge angle tolerance", default=0.45, min=0.01, max=1.5)
     S.w3d_face_plane_tolerance = P.FloatProperty(name="Face plane tolerance", default=0.01, min=0.0001, max=1.0, precision=4)
