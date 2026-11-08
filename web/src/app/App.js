@@ -62,6 +62,7 @@ import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
 import { GTAOPass } from 'three/addons/postprocessing/GTAOPass.js';
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 import { gridLines } from '../gridLines.js';
+import { thickness, updateThickLines } from './fatLines.js';
 import { filterFillets } from '../filletFilter.js';
 import { navAction, navHints, orbitMode } from '../navPresets.js';
 import { MagnitudeGizmo, typed } from '../MagnitudeGizmo.js';
@@ -1411,7 +1412,7 @@ export async function mount(root, backend) {
   shadeU.matcap.value.needsUpdate = true;
   const shaderOpts = Object.fromEntries(Object.entries(SHADER_OPTIONS).map(([k, o]) => [k, o.value]));
   const faceMat = new THREE.MeshStandardMaterial({ color: COLORS.face, roughness: 0.85, metalness: 0, side: THREE.DoubleSide, polygonOffset: true, polygonOffsetFactor: 1, polygonOffsetUnits: 1 });
-  const edgeMat = new THREE.LineBasicMaterial({ color: COLORS.ink, transparent: true, opacity: 0.8 });
+  const edgeMat = thickness(new THREE.LineBasicMaterial({ color: COLORS.ink, transparent: true, opacity: 0.8 }), 'edge');
   const phantom = {
     add: { face: new THREE.MeshBasicMaterial({ color: COLORS.ink, transparent: true, opacity: 0.1, depthWrite: false }), edge: new THREE.LineBasicMaterial({ color: COLORS.ink }) },
     cut: { face: new THREE.MeshBasicMaterial({ color: COLORS.accent, transparent: true, opacity: 0.16, depthWrite: false }), edge: new THREE.LineBasicMaterial({ color: COLORS.accent }) },
@@ -1772,9 +1773,9 @@ export async function mount(root, backend) {
     return [...groups.values()].filter(g => g.length > 1);
   }
   const curveMat = {
-    normal: new THREE.LineBasicMaterial({ color: 0x9a968c }),
-    hover: new THREE.LineBasicMaterial({ color: 0xffffff }),
-    selected: new THREE.LineBasicMaterial({ color: COLORS.accent }),
+    normal: thickness(new THREE.LineBasicMaterial({ color: 0x9a968c }), 'curve'),
+    hover: thickness(new THREE.LineBasicMaterial({ color: 0xffffff }), 'curve'),
+    selected: thickness(new THREE.LineBasicMaterial({ color: COLORS.accent }), 'curve'),
   };
   const regionLook = opacity => new THREE.MeshBasicMaterial({ color: COLORS.ink, transparent: true, opacity, depthWrite: false, side: THREE.DoubleSide, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 });
   const regionMat = { normal: regionLook(0.04), hover: regionLook(0.12), selected: Object.assign(regionLook(0.3), { color: new THREE.Color(COLORS.accent) }) };
@@ -1980,7 +1981,7 @@ export async function mount(root, backend) {
     const m = materials.get(materialOf.get(curveKey(id)));
     if (!m) return curveMat.normal;
     let mat = curveLineMats.get(m.id);
-    if (!mat) curveLineMats.set(m.id, mat = new THREE.LineBasicMaterial());
+    if (!mat) curveLineMats.set(m.id, mat = thickness(new THREE.LineBasicMaterial(), 'curve'));
     mat.color.set(m.color);
     return mat;
   }
@@ -2852,7 +2853,7 @@ export async function mount(root, backend) {
   let instances = [], nextInstance = 1;
   const instanceGroup = new THREE.Group();
   scene.add(instanceGroup);
-  const instanceEdgeMat = new THREE.LineBasicMaterial({ color: 0xb4b0a6, transparent: true, opacity: 0.85 });
+  const instanceEdgeMat = thickness(new THREE.LineBasicMaterial({ color: 0xb4b0a6, transparent: true, opacity: 0.85 }), 'edge');
   const instanceLabel = id => `N-${String(id).padStart(2, '0')}`;
   const masterOf = n => n.curve ? curveById(n.master) : bodyOf(n.master);
   const masterLabel = n => n.curve ? curveLabel(n.master) : label(n.master);
@@ -3392,9 +3393,9 @@ export async function mount(root, backend) {
 
   // Overlays live on each body's mesh, so they move with it during a move preview.
   const overlayMat = {
-    hover: new THREE.LineBasicMaterial({ color: 0xffffff }),
-    selected: new THREE.LineBasicMaterial({ color: COLORS.accent }),
-    failed: new THREE.LineBasicMaterial({ color: DANGER, depthTest: false }),
+    hover: thickness(new THREE.LineBasicMaterial({ color: 0xffffff }), 'edge'),
+    selected: thickness(new THREE.LineBasicMaterial({ color: COLORS.accent }), 'edge'),
+    failed: thickness(new THREE.LineBasicMaterial({ color: DANGER, depthTest: false }), 'edge'),
     hoverFace: new THREE.MeshBasicMaterial({ color: COLORS.ink, transparent: true, opacity: 0.08, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -1 }),
     face: new THREE.MeshBasicMaterial({ color: COLORS.accent, transparent: true, opacity: 0.28, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -1 }),
   };
@@ -13999,6 +14000,7 @@ export async function mount(root, backend) {
    * thumbnails. Drawn straight after a render, as the canvas keeps no buffer between frames.
    */
   function previewPng(size = 256) {
+    thickLines();
     renderer.render(scene, camera);
     const src = renderer.domElement, k = Math.min(1, size / Math.max(src.width, src.height));
     const out = document.createElement('canvas');
@@ -14785,8 +14787,15 @@ export async function mount(root, backend) {
     nav.update(camera, camera.isOrthographicCamera);
     if (cmd?.gizmo) cmd.gizmo.render(cmd.gizmo.value);
     for (const g of [...Object.values(cmd?.dots ?? {}), ...(cmd?.extraGizmos?.() ?? [])]) if (g?.visible !== false) g.render(g.value);
+    thickLines();
     if (view.ao) renderAO(); else renderer.render(scene, camera);
   });
+  /** Edge and curve thickness (Preferences › Appearance): thick copies of the lines past 1 px. */
+  const drawSize = new THREE.Vector2();
+  function thickLines() {
+    const look = prefs.appearance;
+    updateThickLines(scene, { edge: look.edgeThickness, curve: look.curveThickness }, renderer.getSize(drawSize));
+  }
 
   /** Select by refs or numbers for `run`: edges of one body. */
   function selectEdgeRefs(refs) {
