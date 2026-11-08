@@ -130,3 +130,40 @@ export function bridgeCurve(poles) {
     const local = poles.map(p => { const d = sub(p, O); const w = dot(d, N); return [dot(d, X), dot(d, Y), Math.abs(w) < 1e-9 ? 0 : w]; });
     return { origin: [...O], x: X, normal: N, kind: 'nurbs', degree: poles.length - 1, poles: local, weights: local.map(() => 1), knots };
 }
+
+/**
+ * The end of a sampled curve at its last point, as edgePoint gives an edge's end: where it is, the
+ * way it runs off that end, its curvature vector K (from the circle through the last three samples)
+ * and how K changes per unit length going off the end. For Bridge Curve from a curve to a point on
+ * a face, where the bridge leaves the plane of the curve.
+ */
+export function sampledEnd(points) {
+    const n = points.length;
+    if (n < 2) throw new Error('that curve is too short to bridge from');
+    const r = points[n - 1], q = points[n - 2];
+    if (len(sub(r, q)) < 1e-12) throw new Error('that curve is a single point there');
+    const curv = (a, b, c) => {
+        // The circle through a, b, c: K points from c to its centre, 1 / radius long.
+        const u = sub(a, c), v = sub(b, c), w = cross(u, v), ww = dot(w, w);
+        if (ww < 1e-18) return [0, 0, 0];
+        const centre = mul(add(mul(cross(w, u), dot(v, v)), mul(cross(v, w), dot(u, u))), 1 / (2 * ww));
+        const rr = dot(centre, centre);
+        return rr > 0 ? mul(centre, 1 / rr) : [0, 0, 0];
+    };
+    const K = n > 2 ? curv(points[n - 3], q, r) : [0, 0, 0];
+    const Kq = n > 3 ? curv(points[n - 4], points[n - 3], q) : K;
+    // A second-order one-sided difference for the direction, as edgePoint takes at an edge's end.
+    const d = n > 2 ? add(mul(sub(r, q), 2), mul(sub(points[n - 3], r), 0.5)) : sub(r, q);
+    return { at: [...r], along: unit(d), K, dK: mul(sub(K, Kq), 1 / len(sub(r, q))), end: 1 };
+}
+
+/**
+ * A point on a face as a bridge end: the bridge leaves it tangent to the face (G1), heading the way
+ * of `toward` seen in the face's tangent plane (square to `normal`). A face end holds position and
+ * direction only, so it carries no curvature.
+ */
+export function facePoint(at, normal, toward) {
+    const nn = unit(normal), d = sub(toward, at), flat = sub(d, mul(nn, dot(d, nn)));
+    if (len(flat) < 1e-9 * Math.max(1, len(d))) throw new Error('the other point is straight off the face; the bridge cannot leave along it');
+    return { at: [...at], along: unit(flat), K: [0, 0, 0], dK: [0, 0, 0], end: 1, face: true };
+}
