@@ -33,6 +33,9 @@ export const PREF_FIELDS = {
         { key: 'edge', label: 'REGULAR EDGE', type: 'color', value: '#efebe0' },
         { key: 'instanceEdge', label: 'INSTANCE EDGE', type: 'color', value: '#b4b0a6' },
         { key: 'measurement', label: 'MEASUREMENT', type: 'color', value: '#6cbf5f' },
+        // Edge and curve thickness in pixels (drawn as screen-space quads past 1).
+        { key: 'edgeThickness', label: 'EDGE THICKNESS', type: 'number', value: 1, min: 1, max: 8, step: 0.5 },
+        { key: 'curveThickness', label: 'CURVE THICKNESS', type: 'number', value: 1, min: 1, max: 8, step: 0.5 },
         { key: 'pointSize', label: 'CONTROL POINT SIZE', type: 'number', value: 5, min: 2, max: 20 },
         { key: 'vertexSize', label: 'VERTEX SIZE', type: 'number', value: 5, min: 2, max: 20 },
         { key: 'cubeSize', label: 'VIEWPORT GIZMO SIZE', type: 'number', value: 1, min: 0.5, max: 2 },
