@@ -58,8 +58,8 @@ button:focus-visible, input:focus-visible { outline: 1px solid var(--accent); ou
 .tabs button { height: 37px; color: var(--muted); font-size: 10px; }
 .tabs button[aria-selected="true"] { background: var(--ink); color: var(--on-accent); }
 .list { flex: 1; overflow: auto; padding-bottom: 8px; }
-.group-title { padding: 12px 14px 6px; color: var(--muted); }
-.row-item { display: flex; gap: 10px; align-items: center; padding: 8px 14px; cursor: pointer; user-select: none; -webkit-user-select: none; }
+.group-title { padding: calc(12px * var(--space, 1)) calc(14px * var(--space, 1)) calc(6px * var(--space, 1)); color: var(--muted); }
+.row-item { display: flex; gap: calc(10px * var(--space, 1)); align-items: center; padding: calc(8px * var(--space, 1)) calc(14px * var(--space, 1)); cursor: pointer; user-select: none; -webkit-user-select: none; }
 .row-item:hover { background: var(--hover); }
 .row-item[aria-current="true"] { color: var(--accent); background: rgba(255, 77, 0, 0.06); }
 .row-item .sq { width: 8px; height: 8px; border: 1px solid currentColor; flex: none; }
@@ -142,9 +142,9 @@ button:focus-visible, input:focus-visible { outline: 1px solid var(--accent); ou
 .right { grid-column: 3; grid-row: 2; border-left: 1px solid var(--rule); display: flex; flex-direction: column; min-height: 0; overflow: auto; }
 .right header { display: flex; padding: 12px 14px; border-bottom: 1px solid var(--rule-soft); }
 .right header span:last-child { margin-left: auto; color: var(--muted); }
-.sec { padding: 14px; display: flex; flex-direction: column; gap: 8px; border-bottom: 1px dashed var(--rule-dash); }
+.sec { padding: calc(14px * var(--space, 1)); display: flex; flex-direction: column; gap: calc(8px * var(--space, 1)); border-bottom: 1px dashed var(--rule-dash); }
 .sec > .label, .vpop > .label { color: var(--muted); }
-.field { display: grid; grid-template-columns: 86px 1fr; align-items: center; gap: 8px; }
+.field { display: grid; grid-template-columns: 86px 1fr; align-items: center; gap: calc(8px * var(--space, 1)); }
 .field.two { grid-template-columns: 86px 1fr 1fr; }
 .field label { color: var(--muted); }
 .field input { width: 100%; min-width: 0; font: inherit; letter-spacing: 1px; color: var(--ink); background: var(--ground); border: 1px solid var(--rule); padding: 8px 9px; font-variant-numeric: tabular-nums; }
@@ -156,15 +156,15 @@ button:focus-visible, input:focus-visible { outline: 1px solid var(--accent); ou
 .field input:disabled { color: var(--dim); border-color: var(--rule-soft); }
 .advanced summary { cursor: pointer; font-size: 10px; letter-spacing: 0.12em; color: var(--muted, inherit); padding: 4px 0; }
 .advanced[open] summary { margin-bottom: 4px; }
-.seg { display: grid; grid-auto-columns: 1fr; grid-auto-flow: column; gap: 4px; font-size: 10px; }
+.seg { display: grid; grid-auto-columns: 1fr; grid-auto-flow: column; gap: calc(4px * var(--space, 1)); font-size: 10px; }
 .seg.wrap { grid-auto-flow: row; grid-template-columns: repeat(3, 1fr); }
 .seg.wrap2 { grid-auto-flow: row; grid-template-columns: repeat(2, minmax(0, 1fr)); }
-.seg button, .chips button { padding: 7px 6px; border: 1px solid var(--rule); color: var(--muted); white-space: nowrap; }
+.seg button, .chips button { padding: calc(7px * var(--space, 1)) calc(6px * var(--space, 1)); border: 1px solid var(--rule); color: var(--muted); white-space: nowrap; }
 .seg button kbd, .chips button kbd { font: inherit; opacity: 0.6; margin-right: 6px; }
 .seg button[aria-pressed="true"], .chips button[aria-pressed="true"] { background: var(--ink); border-color: var(--ink); color: var(--on-accent); }
 .seg button:hover:not([aria-pressed="true"]):not(:disabled), .chips button:hover:not([aria-pressed="true"]) { color: var(--ink); border-color: var(--muted); }
 .seg button:disabled { color: var(--dim); border-color: var(--rule-soft); }
-.chips { display: flex; flex-wrap: wrap; gap: 4px; font-size: 10px; }
+.chips { display: flex; flex-wrap: wrap; gap: calc(4px * var(--space, 1)); font-size: 10px; }
 .stepper { display: flex; align-items: center; border: 1px solid var(--rule); font-size: 10px; }
 .stepper span { flex: 1; padding: 6px 8px; color: var(--muted); }
 .stepper button { padding: 6px 10px; color: var(--muted); }

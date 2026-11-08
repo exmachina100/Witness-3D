@@ -44,6 +44,9 @@ export const PREF_FIELDS = {
         { key: 'vertexSize', label: 'VERTEX SIZE', type: 'number', value: 5, min: 2, max: 20 },
         { key: 'cubeSize', label: 'VIEWPORT GIZMO SIZE', type: 'number', value: 1, min: 0.5, max: 2 },
         { key: 'uiScale', label: 'ZOOM FACTOR', type: 'number', value: 1, min: 0.5, max: 2 },
+        // Plasticity's UI standard spacing (inferred: the manual names it only): how much room the
+        // outliner rows, panel sections and option buttons leave round themselves, 1 as drawn.
+        { key: 'spacing', label: 'UI STANDARD SPACING', type: 'number', value: 1, min: 0.5, max: 1.5, step: 0.25 },
     ],
     commands: [
         { key: 'autoInvoke', label: 'AUTO-INVOKE COMMANDS', type: 'bool', value: true },
