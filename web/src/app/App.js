@@ -13990,7 +13990,22 @@ export async function mount(root, backend) {
   /** Groups, hidden and locked bodies and materials go into the file with the geometry. */
   async function keepAppState() {
     if (!backend.setAppState) return;
-    await backend.setAppState({ organise: org.toJSON(), materials: [...materials.values()], materialOf: [...materialOf], nextMaterial, images, nextImage, instances: instances.filter(masterOf), nextInstance, planes: savedPlanes });
+    let preview = null;
+    try { preview = previewPng(); } catch { preview = null; }
+    await backend.setAppState({ organise: org.toJSON(), materials: [...materials.values()], materialOf: [...materialOf], nextMaterial, images, nextImage, instances: instances.filter(masterOf), nextInstance, planes: savedPlanes, ...(preview && { preview }) });
+  }
+  /**
+   * The view as a small PNG (at most `size` px), saved at the top of the file for Explorer's
+   * thumbnails. Drawn straight after a render, as the canvas keeps no buffer between frames.
+   */
+  function previewPng(size = 256) {
+    renderer.render(scene, camera);
+    const src = renderer.domElement, k = Math.min(1, size / Math.max(src.width, src.height));
+    const out = document.createElement('canvas');
+    out.width = Math.max(1, Math.round(src.width * k));
+    out.height = Math.max(1, Math.round(src.height * k));
+    out.getContext('2d').drawImage(src, 0, 0, out.width, out.height);
+    return out.toDataURL('image/png');
   }
   async function restoreAppState() {
     const st = backend.appState ? await backend.appState() : null;
