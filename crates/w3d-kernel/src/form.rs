@@ -24,6 +24,9 @@ pub enum FormKind {
     /// Sweep the profile along `path`, turning its far end by `twist` radians and scaling it by
     /// `scale`; or following `guide` by `method`; or kept parallel to itself (`align`).
     Sweep { path: Path, twist: f64, scale: f64, guides: Vec<Path>, method: GuideMethod, align: Alignment, round: bool },
+    /// Sweep's Simplify (inferred from Loft's, the manual does not say): `inner`'s faces that lie
+    /// flat become trimmed planes.
+    Simplified(Box<FormKind>),
     /// Revolve of a curve rather than a region (manual: a curve makes a sheet): `curve` turned
     /// `angle` radians about the axis. The params' profile is not used.
     RevolveCurve { curve: Path, axis_point: DVec3, axis_dir: DVec3, angle: f64 },
@@ -119,11 +122,20 @@ pub fn tool<K: Kernel>(k: &K, p: &FormParams) -> Result<K::Solid, KernelError> {
             k.revolve_curve(curve, *axis_point, axis_dir.normalize(), angle.clamp(-std::f64::consts::TAU, std::f64::consts::TAU))
         }
         FormKind::SweepCurve { curve, path } => k.sweep_curve(curve, path),
+        FormKind::Simplified(inner) => {
+            let made = tool(k, &FormParams { kind: (**inner).clone(), ..p.clone() })?;
+            k.simplify_flat(&made)
+        }
     }
 }
 
 /// Whether the form makes a sheet (from a curve) rather than a solid (from a region).
-pub fn makes_sheet(kind: &FormKind) -> bool { matches!(kind, FormKind::RevolveCurve { .. } | FormKind::SweepCurve { .. }) }
+pub fn makes_sheet(kind: &FormKind) -> bool {
+    match kind {
+        FormKind::Simplified(inner) => makes_sheet(inner),
+        k => matches!(k, FormKind::RevolveCurve { .. } | FormKind::SweepCurve { .. }),
+    }
+}
 
 pub fn form<K: Kernel>(
     k: &K,

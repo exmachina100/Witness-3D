@@ -173,3 +173,27 @@ test('a curve replaced by an edited copy of itself is listed under its new id, a
     assert.deepEqual(be.curves().map(c => c.id), [1, moved]);
     close(volume(be.form({ kind: 'loft', regions: [1, moved] }).tool), 2000, 0.5);
 });
+
+test("Sweep's Simplify makes the flat sides of a growing square planes", async () => {
+    const be = new LocalBackend({ seed: 'enclosure' });
+    const { ids } = await be.addCurves([
+        { origin: [0, 0, 0], x: [1, 0, 0], normal: [0, 1, 0], kind: 'polyline', points: [[-5, -5], [5, -5], [5, 5], [-5, 5]], closed: true },
+        line([0, 0], [0, 20]),
+    ]);
+    const { ids: [guide] } = await be.addCurves([{ origin: [5, 0, -5], x: [5, 20, -5], normal: [1, 0, 1], kind: 'polyline', points: [[0, 0], [Math.hypot(5, 20, 5), 0]], closed: false }]);
+    const o = oc();
+    const planes = shape => {
+        let n = 0, all = 0;
+        for (const ex = new o.TopExp_Explorer(shape, o.TopAbs_ShapeEnum.TopAbs_FACE, o.TopAbs_ShapeEnum.TopAbs_SHAPE); ex.More(); ex.Next(), all++)
+            if (new o.BRepAdaptor_Surface(o.TopoDS.Face(ex.Current()), true).GetType() === o.GeomAbs_SurfaceType.GeomAbs_Plane) n++;
+        return [n, all];
+    };
+    const sweep = simplify => be.form({ kind: 'sweep', regions: [ids[0]], path: ids[1], guides: [guide], method: 'point', simplify }).tool;
+    const plain = sweep(false), simple = sweep(true);
+    const [p, all] = planes(plain), [q, all2] = planes(simple);
+    assert.ok(p < all, `the sweep's sides are swept surfaces (${p} of ${all} planes)`);
+    assert.equal(q, all2, 'every face is a plane once simplified');
+    assert.equal(all2, all);
+    close(volume(simple), volume(plain), 0.5);
+    assert.ok(new o.BRepCheck_Analyzer(simple, true, false, false).IsValid());
+});

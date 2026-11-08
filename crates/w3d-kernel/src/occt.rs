@@ -357,6 +357,10 @@ impl Kernel for Occt {
         Ok(regions.faces().map(|f| Shape::from(f)).collect())
     }
 
+    fn simplify_flat(&self, shape: &Shape) -> Result<Shape, KernelError> {
+        shape.simplified_flat().map_err(shim)
+    }
+
     fn loft_faces(&self, faces: &[&Shape]) -> Result<Shape, KernelError> {
         Shape::loft_faces(faces).map_err(shim)
     }

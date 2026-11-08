@@ -5,7 +5,7 @@ import * as THREE from 'three';
 import { ExtrudeFactory } from '../ExtrudeFactory.js';
 import { NoOpError } from '../GeometryFactory.js';
 import { THROAT, arrayMotions, importSTEP, blendEdges, boolean, booleanWithHistory, extrudeFace, bounds, box, count, draftFaces, faceSheet, imprintEdgesWithHistory, imprintWithHistory, planeSheet, regions, unifyWithHistory, dissolveEdgesWithHistory, boundaryEdges, splitWithHistory, draftWithHistory, exportSTEP, facePlane, mirror, mirror as mirrorShape, numbered, numberedEdges, oc, primitive, shellFaces, tessellate, transform, volume } from '../Kernel.js';
-import { curveIsOpen, curveRegions, cutSheets, extrudeCurve, loft, loftFaces, loftGuided, loftSheet, loftSheetGuided, offsetFlatFaces, pipe, regionFace, revolve, revolveCurve, splineSamples, sweep, sweepCurve, sweepGuided } from '../Forms.js';
+import { curveIsOpen, curveRegions, cutSheets, extrudeCurve, loft, loftFaces, loftGuided, loftSheet, loftSheetGuided, offsetFlatFaces, pipe, regionFace, revolve, revolveCurve, simplifyFlat, splineSamples, sweep, sweepCurve, sweepGuided } from '../Forms.js';
 import { curveFromNurbs, ends, join, loops, MEET, nurbsLoop } from '../curves.js';
 import { isoparam, meetCurves, projectCurveCurve, projectCurves, projectedEdges, sectionCurves } from '../Project.js';
 import { isSheet, patch } from '../Patch.js';
@@ -366,6 +366,7 @@ export class LocalBackend {
                 if (req.regions.includes(req.path)) throw new Error('pick a path other than the profile');
                 if (Math.abs(req.twist ?? 0) > 1e-12 || Math.abs((req.scale ?? 1) - 1) > 1e-12) throw new Error('twist and scale take a region; set them back to 0 and 1');
                 sheet = sweepCurve(c(req.regions[0]), path());
+                if (sheet && req.simplify) sheet = simplifyFlat(sheet);
             }
             return sheet ? { tool: sheet, outcome: 'new' } : null;
         }
@@ -390,6 +391,7 @@ export class LocalBackend {
                 if (guides.some(g => g === req.path || req.regions.includes(g))) throw new Error('pick a guide other than the path and the profile');
                 tool = sweepGuided(c(req.regions[0]), path(), guides.map(guide), req.method ?? 'point', align, corner);
             }
+            if (tool && req.simplify) tool = simplifyFlat(tool);
         } else throw new Error('a form is a revolve, a loft or a sweep');
         if (!tool) return null;
         const o = oc();
