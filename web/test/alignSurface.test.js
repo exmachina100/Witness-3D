@@ -212,3 +212,26 @@ test('Degree/Spans: the target rebuilt first, then aligned', async () => {
     be.undo(); be.undo();
     assert.ok(edgeNear(be.shapes.get(902), [21, 10, 8]) >= 0);
 });
+
+test('Match tangent length ratio: the sheet leaves its side as fast as the reference does across its edge, in ratio', async () => {
+    const { sideOf, alignPoints, alignMoves } = await import('../src/alignSurface.js');
+    const spline = { du: 3, dv: 3, uk: [0, 0, 0, 0, 1, 1, 1, 1], vk: [0, 0, 0, 0, 1, 1, 1, 1], rational: false,
+        poles: Array.from({ length: 4 }, (_, i) => Array.from({ length: 4 }, (_, j) => [21 + 3 * i, 20 * j / 3, 8])) };
+    const side = sideOf(spline, [[21, 0, 8], [21, 10, 8], [21, 20, 8]]);
+    const plan = alignPoints(side, Array.from({ length: 41 }, (_, k) => [20, 20 * k / 40, 0]));
+    // The reference runs across its edge (along x) three times as fast at y = 20 as at y = 0.
+    const frames = plan.points.map(p => ({ at: p, su: [1 + p[1] / 10, 0, 0], sv: [0, 1, 0], suu: [0, 0, 0], suv: [0, 0, 0], svv: [0, 0, 0], sign: 1 }));
+    const reach = matchRatio => {
+        const moved = spline.poles.map(r => r.map(v => [...v]));
+        for (const [p, by] of alignMoves(side, plan, frames, { continuity: 'G1', matchRatio })) {
+            const i = Math.floor(p / 4), j = p % 4;
+            moved[i][j] = moved[i][j].map((v, k) => v + by[k]);
+        }
+        return [0, 3].map(j => Math.hypot(...sub(moved[1][j], moved[0][j])));
+    };
+    const [a, b] = reach(false);
+    assert.ok(Math.abs(b / a - 1) < 1e-6, `even without: ${a} ${b}`);
+    const [c, d] = reach(true);
+    assert.ok(d / c > 2.5 && d / c < 3.5, `in the reference's ratio: ${c} ${d}`);
+    assert.ok(Math.abs((c + d) / 2 - a) < 0.5 * a, 'the mean reach kept');
+});
