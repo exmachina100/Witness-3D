@@ -687,6 +687,11 @@ pub trait Kernel {
     fn reshape_fillets(&self, _s: &Self::Solid, _faces: &[u32], _g2: bool, _tension: f64) -> Result<Self::Solid, KernelError> {
         Err(KernelError::Invalid("this kernel cannot shape fillets"))
     }
+    /// Each of `faces` (rounds a fillet made) made flat between the same spring lines: a chamfer
+    /// whose setback on each face follows the round's (a variable chamfer from a variable round).
+    fn flatten_fillets(&self, _s: &Self::Solid, _faces: &[u32]) -> Result<Self::Solid, KernelError> {
+        Err(KernelError::Invalid("this kernel cannot make variable chamfers"))
+    }
     /// Numbers of the faces that look like fillets; with `seeds`, the fillet chains holding them.
     fn fillet_faces(&self, _s: &Self::Solid, _seeds: &[u32]) -> Vec<u32> { Vec::new() }
     /// The numbered faces deleted and the gap closed by the faces around them (Remove Face).

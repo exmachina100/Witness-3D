@@ -182,6 +182,7 @@ export function fullRound(shape, edges, booleanWithHistory) {
  * `tension`; the G2 section a quintic Bézier with three control points on each side's line.
  */
 export function roundSection(p0, c, p1, kind, tension, s) {
+    if (kind === 'chamfer') return [0, 1, 2].map(i => p0[i] + (p1[i] - p0[i]) * s);
     if (kind === 'conic') {
         const w = tension / (1 - tension), b0 = (1 - s) * (1 - s), b1 = 2 * s * (1 - s) * w, b2 = s * s;
         return [0, 1, 2].map(i => (p0[i] * b0 + c[i] * b1 + p1[i] * b2) / (b0 + b1 + b2));
@@ -202,8 +203,8 @@ const CORNER = "conic and G2 rounds don't go round corners yet; round those edge
  */
 export function reshapeRounds(shape, rounds, kind, tension) {
     const o = oc();
-    if (kind !== 'conic' && kind !== 'g2') throw new Error('a fillet shape is conic or G2');
-    if (!(tension >= 0.05 && tension <= 0.95)) throw new Error('the tension must be between 0.05 and 0.95');
+    if (kind !== 'conic' && kind !== 'g2' && kind !== 'chamfer') throw new Error('a fillet shape is conic or G2');
+    if (kind !== 'chamfer' && !(tension >= 0.05 && tension <= 0.95)) throw new Error('the tension must be between 0.05 and 0.95');
     if (!rounds.length) throw new Error('no rounds to shape');
     const all = numbered(shape, 'TopAbs_FACE').map(f => o.TopoDS.Face(f));
     const mine = new Set(rounds);
