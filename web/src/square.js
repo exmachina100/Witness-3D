@@ -310,6 +310,13 @@ export function quadSides(sides, gap) {
     const pts = [];
     for (const s of loop) for (const p of s) if (!pts.length || dist(pts[pts.length - 1], p) > 1e-9) pts.push(p);
     if (pts.length > 1 && dist(pts[0], pts[pts.length - 1]) <= Math.max(gap, 1e-9)) pts.pop();
+    // A polyline sampled at its corners only: points added along each segment, so the corner
+    // window below has points to measure the turn over.
+    if (pts.length >= 3 && pts.length < 48) {
+        const k = Math.ceil(48 / pts.length), dense = [];
+        pts.forEach((p, i) => { const q = pts[(i + 1) % pts.length]; for (let j = 0; j < k; j++) dense.push(p.map((x, m) => x + (q[m] - x) * j / k)); });
+        pts.splice(0, pts.length, ...dense);
+    }
     const n = pts.length;
     if (n < 12) throw new Error('that loop has too few points to split into four sides');
     const w = Math.max(2, Math.round(n / 48)), at = i => pts[((i % n) + n) % n];
