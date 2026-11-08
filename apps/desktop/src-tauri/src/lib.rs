@@ -1164,6 +1164,7 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .setup(|app| {
+            register_thumbnails(app.handle());
             let model = Arc::new(api::start_with(startup_scene(app.handle()).ok()));
             let m = model.clone();
             let mr = model.clone();
@@ -1327,3 +1328,21 @@ pub fn run() {
             }
         });
 }
+
+/// Explorer thumbnails for .w3d files (Windows): the bundled handler registers itself, for this
+/// user when the machine-wide keys can't be written, so both installers get it. Quiet and in the
+/// background; without it files just show the app's icon.
+#[cfg(windows)]
+fn register_thumbnails(app: &tauri::AppHandle) {
+    use std::os::windows::process::CommandExt;
+    let Ok(dir) = app.path().resource_dir() else { return };
+    let dll = dir.join("w3d_thumbnail.dll");
+    if !dll.exists() { return }
+    std::thread::spawn(move || {
+        const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+        let _ = std::process::Command::new("regsvr32").arg("/s").arg(&dll).creation_flags(CREATE_NO_WINDOW).status();
+    });
+}
+
+#[cfg(not(windows))]
+fn register_thumbnails(_app: &tauri::AppHandle) {}

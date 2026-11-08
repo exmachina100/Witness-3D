@@ -1,0 +1,12 @@
+{
+  "bundle": {
+    "resources": {
+      "../../../target/release/w3d_thumbnail.dll": "w3d_thumbnail.dll"
+    },
+    "windows": {
+      "nsis": {
+        "installerHooks": "windows/hooks.nsh"
+      }
+    }
+  }
+}

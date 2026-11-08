@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["crates/w3d-kernel", "apps/desktop/src-tauri"]
+members = ["crates/w3d-kernel", "apps/desktop/src-tauri", "apps/thumbnail"]
 # The desktop app needs GTK/WebKit and OpenCascade; plain `cargo` commands at the root build only the core.
 default-members = ["crates/w3d-kernel"]
 exclude = ["vendor"]

@@ -31,6 +31,8 @@ jobs:
       - name: Install UI dependencies
         working-directory: apps/desktop
         run: npm ci
+      - name: Build the Explorer thumbnail handler (bundled as w3d_thumbnail.dll)
+        run: cargo build --release -p w3d-thumbnail
       - name: Build the installers (compiles OpenCascade the first time)
         working-directory: apps/desktop
         run: npx tauri build
