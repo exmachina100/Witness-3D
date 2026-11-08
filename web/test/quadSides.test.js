@@ -38,3 +38,12 @@ test('four sides given are only put in order, and a loop with no corners is refu
     const round4 = quadSides([circle], 0.01);
     assert.equal(round4.length, 4, 'an even circle still splits, into four equal arcs');
 });
+
+test('a closed polyline sampled at its corners only splits at those corners (Patch Faces on a rectangle)', () => {
+    const C = [[-60, 0, -60], [-30, 0, -60], [-30, 0, -40], [-60, 0, -40]];
+    const sides = quadSides([[...C, C[0]]], 0.04);
+    assert.equal(sides.length, 4);
+    const ends = sides.map(s => s[0].map(x => Math.round(x)).join(','));
+    for (const c of C) assert.ok(ends.includes(c.join(',')), `corner ${c}`);
+    assert.ok(square(sides, { degree: 3, continuity: 'G0' }).gap < 1e-6);
+});

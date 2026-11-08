@@ -734,6 +734,8 @@ const SHELL = `
       <div class="chips"><button data-id="patch-tangent" aria-pressed="false"><kbd>T</kbd>TANGENT TO FACES</button><button data-id="patch-individual" aria-pressed="false" title="A sheet in each closed loop of the selection, rather than one loop only (I)"><kbd>I</kbd>INDIVIDUAL</button><button data-id="patch-quad" aria-pressed="false" title="Fill the loop as a four-sided B-spline sheet, split at its four corners"><kbd>Q</kbd>QUAD-SIDED</button></div>
       <span class="label">CONTINUITY</span>
       <div class="seg" role="group" aria-label="Continuity (T cycles)"><button data-pcont="planar" aria-pressed="false" title="Fill flat; a loop that is not flat is refused">PLANAR</button><button data-pcont="G0" aria-pressed="true" title="Meet the loop only">G0</button><button data-pcont="G1" aria-pressed="false" title="Leave the faces along the picked edges tangent">G1</button><button data-pcont="G2" aria-pressed="false" title="Match the faces' curvature along the picked edges">G2</button></div>
+      <span class="label">FACES</span>
+      <div class="seg" role="group" aria-label="Faces"><button data-pfaces="single" aria-pressed="true" title="One face fills the whole loop">SINGLE</button><button data-pfaces="minimal" aria-pressed="false" title="As few four-sided B-spline faces as fit well: one for a loop of up to four sides, one round a centre per side for more">MINIMAL</button><button data-pfaces="quality" aria-pressed="false" title="Four-sided B-spline faces round a centre, one per side of the loop, so no face is pinched at a corner">QUALITY</button></div>
       <span class="label">METHOD</span>
       <div class="seg" role="group" aria-label="Method"><button data-pmethod="fill" aria-pressed="true" title="Fill the loop with a new sheet">FILL</button><button data-pmethod="hole" aria-pressed="false" title="Trim to hole: trim the selected target sheet to the hole the base sheet's edges make">HOLE</button><button data-pmethod="sheet" aria-pressed="false" title="Trim to sheet: trim the selected target sheet where the base sheet ends">SHEET</button></div>
       <div class="field"><label>CURVES</label><output data-id="patch-curves">0</output></div>
@@ -9592,7 +9594,10 @@ export async function mount(root, backend) {
     if (!cache.sides.has(key)) {
       if (it.kind === 'curve') {
         const src = curveById(it.id), f = curveFrame(src), { points } = curveSamples(src, 200);
-        cache.sides.set(key, points.map(p => lift(f, { x: p[0], y: p[1], z: p[2] ?? 0 }).toArray()));
+        const pts = points.map(p => lift(f, { x: p[0], y: p[1], z: p[2] ?? 0 }).toArray());
+        // A closed curve's samples stop short of the start: close the polyline so it makes a loop.
+        if (isClosed(src) && pts.length > 2 && Math.hypot(...pts[0].map((x, k) => x - pts.at(-1)[k])) > 1e-9) pts.push(pts[0]);
+        cache.sides.set(key, pts);
       } else cache.sides.set(key, (await backend.edgeCurvature({ body: it.body, edge: it.n, n: 200 })).map(t => t.at));
     }
     return cache.sides.get(key);
@@ -9602,7 +9607,7 @@ export async function mount(root, backend) {
     if (!backend.previewPatch) return toast('PATCH IS NOT IN THIS BUILD YET');
     // Continuity (manual: Planar, G0, G1, G2): Planar fills flat and refuses a loop that is not,
     // G0 meets the loop only, G1 leaves the faces tangent and G2 matches their curvature too.
-    const c = cmd = { id: 'patch', tangent: false, cont: 'G0', individual: false, quad: false, method: 'fill', methodSet: false, target: null, curves: [], edges: [], sent: 0, shown: 0 };
+    const c = cmd = { id: 'patch', tangent: false, cont: 'G0', individual: false, quad: false, faces: 'single', method: 'fill', methodSet: false, target: null, curves: [], edges: [], sent: 0, shown: 0 };
     const LEVEL = { planar: 0, G0: 0, G1: 1, G2: 2 };
     lastTool = 'patch';
     showTool('patch');
@@ -9636,21 +9641,33 @@ export async function mount(root, backend) {
       return groups.map(g => request(g.curves, g.edges));
     };
     // Quad-sided: the loop becomes a four-sided B-spline sheet, fitted as Square does (quadSides).
+    // Faces (manual: Single, Minimal, Quality; what each does is not documented, so inferred):
+    // Single fills the loop with one face; Quality with four-sided B-spline faces round a centre,
+    // one per side (nSided.js), so none is pinched at a corner; Minimal with as few of those as fit
+    // well: one four-sided face (Square's fitter) for a loop of up to four sides, else Quality's.
+    c.spline = () => (c.quad || c.faces !== 'single') && c.method === 'fill' && !c.fill;
     c.quadFit = async () => {
-      const sides = await Promise.all([...c.curves.map(id => ({ kind: 'curve', id })), ...c.edges].map(it => loopSide(it, c)));
+      let sides = await Promise.all([...c.curves.map(id => ({ kind: 'curve', id })), ...c.edges].map(it => loopSide(it, c)));
       const size = Math.max(...sides.flat().map(p => Math.hypot(...p.map((x, k) => x - sides[0][0][k])))) || 1;
-      return square(quadSides(sides, Math.max(0.01, 1e-3 * size)), { degree: 3, continuity: 'G0' });
+      const gap = Math.max(0.01, 1e-3 * size);
+      if (c.quad) { const fit = square(quadSides(sides, gap), { degree: 3, continuity: 'G0' }); return { patches: [fit], gap: fit.gap }; }
+      if (sides.length < 3) sides = quadSides(sides, gap);
+      if (c.faces === 'minimal' && sides.length <= 4) { const fit = square(sides, { degree: 3, continuity: 'G0' }); return { patches: [fit], gap: fit.gap }; }
+      return nSidedFill(sides, { degree: 3, continuity: 'G0' });
     };
     c.preview = () => livePreview(c, async () => {
-      if (c.quad && c.method === 'fill') {
+      if (c.spline()) {
         const fit = await c.quadFit();
         if (cmd !== c) return null;
-        c.data = splineSheetData(fit);
-        c.quadText = `QUAD-SIDED · ${fit.spans.join(' × ')} SPANS · SIDES WITHIN ${fit.gap < 1e-4 ? '< 0.0001' : fit.gap.toFixed(4)} MM`;
-        const b = await backend.previewSplineSheet({ data: c.data });
+        c.data = splineSheetData(fit.patches[0]);
+        c.more = fit.patches.slice(1).map(splineSheetData);
+        const n = fit.patches.length, within = `SIDES WITHIN ${fit.gap < 1e-4 ? '< 0.0001' : fit.gap.toFixed(4)} MM`;
+        c.quadText = c.quad ? `QUAD-SIDED · ${fit.patches[0].spans.join(' × ')} SPANS · ${within}` : `${c.faces.toUpperCase()} · ${n} FOUR-SIDED FACE${n > 1 ? 'S' : ''}${n > 1 ? ' ROUND A CENTRE' : ''} · ${within}`;
+        const b = await backend.previewSplineSheet({ data: c.data, more: c.more });
         return b ? [b] : null;
       }
       c.data = null;
+      c.more = [];
       const out = [];
       for (const r of c.requests()) out.push(await backend.previewPatch(r));
       return out.some(b => !b) ? null : out;
@@ -9676,6 +9693,11 @@ export async function mount(root, backend) {
         return setHud(`PATCH ${list.length} HOLE${list.length === 1 ? '' : 'S'}`);
       }
       const guided = !c.quad && c.guides?.length ? ` · ${c.guides.length} GUIDE${c.guides.length > 1 ? 'S' : ''}` : '';
+      if (c.spline() && !c.quad) {
+        $('patch-guides').textContent = 0;
+        $('patch-hint').textContent = c.quadText;
+        return setHud(`PATCH · ${c.faces.toUpperCase()}`);
+      }
       $('patch-guides').textContent = c.quad ? 0 : c.guides?.length ?? 0;
       $('patch-hint').textContent = c.quad ? c.quadText : (smooth ?? (list.length > 1 ? `A ${c.cont === 'planar' ? 'FLAT ' : ''}SHEET THROUGH EACH LOOP` : `${c.cont === 'planar' ? 'A FLAT' : ''} SHEET THROUGH THE LOOP`.trim())) + guided + (list.length > 1 ? ` · ${list.length} SHEETS` : '');
       setHud(c.quad ? 'PATCH · QUAD-SIDED' : list.length > 1 ? `PATCH ×${list.length}` : 'PATCH');
@@ -9715,7 +9737,8 @@ export async function mount(root, backend) {
       $('patch-tangent').disabled = !c.edges.length;
       $('patch-tangent').lastChild.textContent = c.cont === 'G2' ? 'CURVATURE TO FACES' : 'TANGENT TO FACES';
       $('patch-individual').setAttribute('aria-pressed', String(c.individual));
-      $('patch-individual').disabled = c.quad;
+      $('patch-individual').disabled = c.quad || c.faces !== 'single';
+      for (const b of $$('[data-pfaces]')) b.setAttribute('aria-pressed', String(b.dataset.pfaces === c.faces));
       $('patch-quad').setAttribute('aria-pressed', String(c.quad));
       $('patch-quad').disabled = !backend.previewSplineSheet;
       setTarget(c.curves.length + c.edges.length ? `${c.curves.length + c.edges.length} PIECES` : '—');
@@ -9735,6 +9758,7 @@ export async function mount(root, backend) {
     };
     c.setCont = g => { c.cont = g; c.tangent = LEVEL[g] > 0; c.onSelection(); };
     c.setMethod = m => { c.method = m; c.methodSet = true; c.onSelection(); };
+    c.setFaces = f => { c.faces = f; c.onSelection(); };
     c.key = action => {
       // T cycles the continuity, as the manual lists it: Planar, G0, G1, G2.
       if (action === 'tangent') c.setCont({ planar: 'G0', G0: 'G1', G1: 'G2', G2: 'planar' }[c.cont]);
@@ -9760,13 +9784,13 @@ export async function mount(root, backend) {
       if (c.notFlat) { setState('failed'); return toast($('patch-hint').textContent); }
       let list = null;
       const made = [];
-      if (c.quad && c.method === 'fill') {
+      if (c.spline()) {
         if (!c.data) { setState('failed'); return toast($('patch-hint').textContent); }
         try {
-          const { ids, scene } = await backend.commitSplineSheet({ data: c.data });
+          const { ids, scene } = await backend.commitSplineSheet({ data: c.data, more: c.more ?? [] });
           made.push(ids[0]);
           list = scene;
-          record('PATCH QUAD-SIDED', ids[0], c.quadText);
+          record(c.quad ? 'PATCH QUAD-SIDED' : `PATCH ${c.faces.toUpperCase()}`, ids[0], c.quadText);
           endCmd('committed');
         } catch (e) { setState('failed'); return toast(say(e)); }
         await showScene(list);
@@ -14764,6 +14788,7 @@ export async function mount(root, backend) {
   $('patch-tangent').onclick = () => cmd?.id === 'patch' && cmd.key('tangent');
   $('patch-quad').onclick = () => cmd?.id === 'patch' && cmd.key('quad');
   for (const b of $$('[data-pcont]')) b.onclick = () => cmd?.id === 'patch' && cmd.setCont(b.dataset.pcont);
+  for (const b of $$('[data-pfaces]')) b.onclick = () => cmd?.id === 'patch' && cmd.setFaces(b.dataset.pfaces);
   for (const b of $$('[data-pmethod]')) b.onclick = () => cmd?.id === 'patch' && cmd.setMethod(b.dataset.pmethod);
   $('patch-individual').onclick = () => cmd?.id === 'patch' && cmd.key('individual');
   $('ex-free').onclick = () => cmd?.id === 'extrude' && cmd.key('freestyle');
