@@ -120,6 +120,17 @@ fn refacet_sends_just_the_bodies_asked_for_at_their_settings() {
     // Advanced settings: a coarse edge angle wins over the fine Angle.
     let advanced = tris(json!({ "type": "refacet", "ids": [1], "tolerance": 0.1, "angle": 0.1, "edge_angle_tolerance": 1.0, "face_angle_tolerance": 1.0 }));
     assert!(advanced < fine);
+    // Max Width: no facet side longer than it (the 80 mm block's flat sides are split up).
+    ws.send(Message::text(json!({ "type": "refacet", "ids": [1], "tolerance": 0.1, "angle": 1.0, "max_width": 5.0 }).to_string())).unwrap();
+    let msg = read(&mut ws);
+    let o = &msg["objects"][0];
+    let p: Vec<f64> = o["positions"].as_array().unwrap().iter().map(|v| v.as_f64().unwrap()).collect();
+    let ix: Vec<usize> = o["indices"].as_array().unwrap().iter().map(|v| v.as_u64().unwrap() as usize).collect();
+    let side = |a: usize, b: usize| ((p[3 * a] - p[3 * b]).powi(2) + (p[3 * a + 1] - p[3 * b + 1]).powi(2) + (p[3 * a + 2] - p[3 * b + 2]).powi(2)).sqrt();
+    let longest = ix.chunks_exact(3).map(|t| side(t[0], t[1]).max(side(t[1], t[2])).max(side(t[2], t[0]))).fold(0.0, f64::max);
+    assert!(longest <= 5.0 + 1e-3, "longest side {longest}");
+    assert!(ix.len() / 3 > coarse, "{} vs {coarse}", ix.len() / 3);
+    assert_eq!(o["faceIds"].as_array().map(|f| f.len()).unwrap_or(ix.len() / 3), ix.len() / 3);
     ws.send(Message::text(json!({ "type": "refacet", "ids": [1], "tolerance": "x" }).to_string())).unwrap();
     assert_eq!(read(&mut ws)["type"], "error");
 }
