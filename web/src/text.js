@@ -4,8 +4,17 @@
 // quadratic B-splines). Shared by both builds; the fonts ship with the app under the SIL Open Font
 // License (src/fonts).
 
-/** The fonts the Text command offers: [name, file]. */
-export const FONTS = [['SANS', 'Outfit-Regular.ttf'], ['SERIF', 'Lora-Regular.ttf'], ['MONO', 'JetBrainsMono-Regular.ttf']];
+/** The fonts the Text command offers: [name, file, what it is]. */
+export const FONTS = [
+    ['SANS', 'Outfit-Regular.ttf', 'A plain sans-serif (Outfit)'],
+    ['SERIF', 'Lora-Regular.ttf', 'A serif (Lora)'],
+    ['MONO', 'JetBrainsMono-Regular.ttf', 'A monospace (JetBrains Mono)'],
+    ['INTER', 'Inter-Regular.ttf', 'Inter, a sans-serif made for screens'],
+    ['ROBOTO', 'Roboto-Regular.ttf', 'Roboto, a sans-serif'],
+    ['SPACE GROTESK', 'SpaceGrotesk-Regular.ttf', 'Space Grotesk, a geometric sans-serif'],
+    ['SPACE MONO', 'SpaceMono-Regular.ttf', 'Space Mono, a geometric monospace'],
+    ['POPPINS', 'Poppins-Regular.ttf', 'Poppins, a geometric sans-serif'],
+];
 
 /** A TrueType font from its bytes: { unitsPerEm, ascender, descender, lineGap, glyph(code) }. */
 export function parseFont(buffer) {

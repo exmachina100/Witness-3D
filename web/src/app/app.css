@@ -150,6 +150,8 @@ button:focus-visible, input:focus-visible { outline: 1px solid var(--accent); ou
 .field input { width: 100%; min-width: 0; font: inherit; letter-spacing: 1px; color: var(--ink); background: var(--ground); border: 1px solid var(--rule); padding: 8px 9px; font-variant-numeric: tabular-nums; }
 [data-panel="text"] textarea { width: 100%; box-sizing: border-box; font: inherit; letter-spacing: 1px; color: var(--ink); background: var(--ground); border: 1px solid var(--rule); padding: 8px 9px; resize: vertical; }
 [data-panel="text"] textarea:focus { border-color: var(--accent); outline: none; }
+[data-panel="text"] select { width: 100%; box-sizing: border-box; font: inherit; letter-spacing: 1px; color: var(--ink); background: var(--ground); border: 1px solid var(--rule); padding: 7px 8px; }
+[data-panel="text"] select:focus { border-color: var(--accent); outline: none; }
 .field input.hot { border-color: var(--accent); }
 .field input:disabled { color: var(--dim); border-color: var(--rule-soft); }
 .advanced summary { cursor: pointer; font-size: 10px; letter-spacing: 0.12em; color: var(--muted, inherit); padding: 4px 0; }

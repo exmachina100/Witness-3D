@@ -616,7 +616,7 @@ const SHELL = `
       <span class="hint" data-id="tx-hint">TYPE THE TEXT</span>
       <textarea data-id="tx-text" rows="3" spellcheck="false" title="The text; each line its own row">TEXT</textarea>
       <span class="label">FONT</span>
-      <div class="seg" role="group" aria-label="Font">${FONTS.map(([name], i) => `<button data-txfont="${i}" aria-pressed="${i === 0}" title="${['A plain sans-serif (Outfit)', 'A serif (Lora)', 'A monospace (JetBrains Mono)'][i]}">${name}</button>`).join('')}</div>
+      <select data-id="tx-font" aria-label="Font" title="The font the letters are drawn in">${FONTS.map(([name, , what], i) => `<option value="${i}" title="${what}">${name}</option>`).join('')}</select>
       <div class="chips"><button data-id="tx-load" title="Load a TrueType font (.ttf) from your computer; it stays for next time">LOAD FONT</button><button data-id="tx-system" title="Pick one of the fonts installed on this computer; it stays for next time">SYSTEM FONT</button><button data-txfont="${FONTS.length}" data-id="tx-custom" aria-pressed="false" hidden title="Your font">MY FONT</button></div>
       <input type="file" data-id="tx-file" accept=".ttf,font/ttf,application/x-font-ttf" hidden>
       <select data-id="tx-list" hidden title="The fonts installed on this computer" aria-label="Installed fonts"></select>
@@ -8087,7 +8087,12 @@ export async function mount(root, backend) {
 
   /** The Text command's fonts, read once each (src/fonts, SIL Open Font License). */
   const fontCache = new Map();
-  const FONT_URLS = [new URL('../fonts/Outfit-Regular.ttf', import.meta.url), new URL('../fonts/Lora-Regular.ttf', import.meta.url), new URL('../fonts/JetBrainsMono-Regular.ttf', import.meta.url)];
+  // In FONTS' order (each named in full so the bundler copies it).
+  const FONT_URLS = [
+    new URL('../fonts/Outfit-Regular.ttf', import.meta.url), new URL('../fonts/Lora-Regular.ttf', import.meta.url), new URL('../fonts/JetBrainsMono-Regular.ttf', import.meta.url),
+    new URL('../fonts/Inter-Regular.ttf', import.meta.url), new URL('../fonts/Roboto-Regular.ttf', import.meta.url), new URL('../fonts/SpaceGrotesk-Regular.ttf', import.meta.url),
+    new URL('../fonts/SpaceMono-Regular.ttf', import.meta.url), new URL('../fonts/Poppins-Regular.ttf', import.meta.url),
+  ];
   // A font of the user's own (LOAD FONT), read once and kept for next time; its chip follows the three.
   let customFont = null;
   const fontName = i => i === FONTS.length ? (customFont?.name ?? 'MY FONT') : FONTS[i][0];
@@ -8130,6 +8135,7 @@ export async function mount(root, backend) {
     const frame = { origin: cplane.origin.toArray(), x: x.toArray(), normal: n.toArray() };
     const buttons = () => {
       for (const b of $$('[data-txfont]')) b.setAttribute('aria-pressed', String(+b.dataset.txfont === c.font));
+      $('tx-font').value = c.font < FONTS.length ? String(c.font) : '';
       for (const b of $$('[data-txalign]')) b.setAttribute('aria-pressed', String(b.dataset.txalign === c.align));
     };
     c.preview = async () => {
@@ -14550,6 +14556,7 @@ export async function mount(root, backend) {
   $('sa-flip').onclick = () => cmd?.id === 'section' && cmd.key('flip');
   $('sa-d').oninput = () => cmd?.id === 'section' && cmd.preview();
   for (const b of $$('[data-txfont]')) b.onclick = () => cmd?.id === 'text' && cmd.setFont(+b.dataset.txfont);
+  $('tx-font').onchange = () => cmd?.id === 'text' && cmd.setFont(+$('tx-font').value);
   for (const b of $$('[data-txalign]')) b.onclick = () => cmd?.id === 'text' && cmd.setAlign(b.dataset.txalign);
   for (const b of $$('[data-saplane]')) b.onclick = () => cmd?.id === 'section' && cmd.setHow(b.dataset.saplane);
   $('oe-d').addEventListener('input', () => { if (cmd?.id === 'offset-edge') { cmd.typed = true; cmd.preview(); } });
