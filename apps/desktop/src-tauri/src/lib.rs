@@ -864,6 +864,49 @@ async fn save_startup_scene(app: tauri::AppHandle, model: State<'_, Model>) -> R
     on_model(&model, move |m| api::save(m, path)).await?
 }
 
+/// The asset library: one STEP file per asset in the app's config folder (Mark as Asset).
+fn asset_path(app: &tauri::AppHandle, name: &str) -> Result<PathBuf, String> {
+    let clean: String = name.chars().filter(|c| c.is_ascii_alphanumeric() || " _-".contains(*c)).collect();
+    let clean = clean.trim();
+    if clean.is_empty() { return Err("an asset needs a name".into()) }
+    Ok(app.path().app_config_dir().map_err(|e| e.to_string())?.join("assets").join(format!("{clean}.step")))
+}
+
+/// Mark as Asset: the body kept in the library under `name`, replacing one of that name.
+#[tauri::command]
+async fn mark_asset(app: tauri::AppHandle, model: State<'_, Model>, id: u32, name: String) -> Result<(), String> {
+    let path = asset_path(&app, &name)?;
+    if let Some(dir) = path.parent() { std::fs::create_dir_all(dir).map_err(|e| e.to_string())? }
+    on_model(&model, move |m| api::export_step(m, id, path, None, None)).await?
+}
+
+/// The library's asset names, sorted.
+#[tauri::command]
+fn list_assets(app: tauri::AppHandle) -> Result<Vec<String>, String> {
+    let dir = app.path().app_config_dir().map_err(|e| e.to_string())?.join("assets");
+    let Ok(read) = std::fs::read_dir(&dir) else { return Ok(Vec::new()) };
+    let mut names: Vec<String> = read.filter_map(|e| e.ok()).map(|e| e.path())
+        .filter(|p| p.extension().is_some_and(|x| x.eq_ignore_ascii_case("step")))
+        .filter_map(|p| p.file_stem().map(|s| s.to_string_lossy().into_owned())).collect();
+    names.sort();
+    Ok(names)
+}
+
+/// The asset as a new body, one undo step.
+#[tauri::command]
+async fn insert_asset(app: tauri::AppHandle, model: State<'_, Model>, name: String) -> Result<api::Committed, String> {
+    let path = asset_path(&app, &name)?;
+    if !path.exists() { return Err("that asset is no longer in the library".into()) }
+    on_model(&model, move |m| api::import_step(m, path)).await?
+}
+
+#[tauri::command]
+fn delete_asset(app: tauri::AppHandle, name: String) -> Result<(), String> {
+    let path = asset_path(&app, &name)?;
+    if path.exists() { std::fs::remove_file(&path).map_err(|e| e.to_string())? }
+    Ok(())
+}
+
 /// Go back to the seed enclosure for new documents.
 #[tauri::command]
 fn reset_startup_scene(app: tauri::AppHandle) -> Result<bool, String> {
@@ -1300,6 +1343,10 @@ pub fn run() {
             system_fonts,
             read_font,
             reset_startup_scene,
+            mark_asset,
+            list_assets,
+            insert_asset,
+            delete_asset,
             new_window,
             import_step,
             export_step,
