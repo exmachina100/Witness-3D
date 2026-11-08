@@ -59,6 +59,9 @@ try:
     assert min(ys) == 0 and max(ys) == 30, (min(ys), max(ys))
     vol = signed_volume(block)
     assert abs(vol - 80 * 50 * 30) < 1, vol
+    # A selection group per B-rep face: the block's six, every triangle in one.
+    assert [f for f, _ in block["faces"]] == list(range(6)), block["faces"]
+    assert sorted(t for _, ts in block["faces"] for t in ts) == list(range(len(block["polys"])))
 
     link.send({"type": "live", "on": True})
     next_meshes(link)

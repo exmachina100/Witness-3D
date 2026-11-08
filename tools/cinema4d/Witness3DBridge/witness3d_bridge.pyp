@@ -6,7 +6,9 @@
 # root null named after the Witness 3D document, with a null for each outliner group. Only visible
 # leaves hidden bodies out (otherwise they come in hidden), and Unit Scale is the root null's
 # scale, so it can be changed at any time. It is one-way: an update replaces an object's points in
-# place, so materials and tags added in Cinema 4D stay.
+# place, so materials and tags added in Cinema 4D stay. Each object carries a polygon selection
+# tag per B-rep face (Face 1, Face 2, ...), so a material can be put on one face by dragging the
+# tag onto the material's Selection field; the tags follow the faces when the body changes.
 #
 # Install: copy this Witness3DBridge folder into Cinema 4D's plugins folder (Cinema 4D 2023 or
 # later) and restart. The Witness 3D desktop app listens on 127.0.0.1:8981.
@@ -28,6 +30,7 @@ KEY_ID = PLUGIN_ID + 1      # a body's id, kept in the object's own container
 KEY_REV = PLUGIN_ID + 2     # the revision its points came from
 KEY_ROOT = PLUGIN_ID + 3    # marks the root null
 KEY_GROUP = PLUGIN_ID + 4   # marks a group null
+KEY_FACE = PLUGIN_ID + 5    # marks a face's selection tag, holding the face number + 1
 
 ID_HOST, ID_PORT, ID_CONNECT, ID_REFRESH, ID_LIVE, ID_VISIBLE, ID_SCALE, ID_STATUS = range(1100, 1108)
 
@@ -45,6 +48,31 @@ def find_root(doc):
         if op.GetDataInstance().GetBool(KEY_ROOT):
             return op
     return None
+
+
+def face_tags(op, faces):
+    """
+    A polygon selection tag per B-rep face, named Face 1, Face 2, ... in face order. Tags made
+    before are reused by face number, so a material restricted to one keeps it; faces gone lose
+    theirs.
+    """
+    have = {}
+    for tag in op.GetTags():
+        n = tag.GetDataInstance().GetInt32(KEY_FACE)
+        if tag.CheckType(c4d.Tpolygonselection) and n > 0:
+            have[n - 1] = tag
+    for face, polys in faces:
+        tag = have.pop(face, None)
+        if tag is None:
+            tag = op.MakeTag(c4d.Tpolygonselection)
+            tag.GetDataInstance().SetInt32(KEY_FACE, face + 1)
+        tag.SetName("Face %d" % (face + 1))
+        chosen = tag.GetBaseSelect()
+        chosen.DeselectAll()
+        for i in polys:
+            chosen.Select(i)
+    for tag in have.values():
+        tag.Remove()
 
 
 def apply_plan(doc, p, scale):
@@ -96,6 +124,7 @@ def apply_plan(doc, p, scale):
         op.SetAllPoints([c4d.Vector(*q) for q in m["points"]])
         for i, (a, b, c) in enumerate(m["polys"]):
             op.SetPolygon(i, c4d.CPolygon(a, b, c))
+        face_tags(op, m["faces"])
         op.Message(c4d.MSG_UPDATE)
         bc.SetInt32(KEY_REV, m["revision"])
     for wid, op in have.items():
