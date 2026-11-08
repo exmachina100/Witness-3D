@@ -554,6 +554,35 @@ export class LocalBackend {
     }
 
     /** The primitive as one undo step: a new body, or the target changed (and a slice's piece added). */
+    /** The asset library: name → STEP text, in the browser's storage (a map of its own without one). */
+    assetStore(write) {
+        const ls = globalThis.localStorage;
+        if (!ls) { this.assetMap ??= {}; if (write) this.assetMap = write; return this.assetMap; }
+        if (write) {
+            try { ls.setItem('w3d-assets', JSON.stringify(write)); } catch { throw new Error('the asset library is full; delete an asset first'); }
+            return write;
+        }
+        try { return JSON.parse(ls.getItem('w3d-assets') || '{}'); } catch { return {}; }
+    }
+    /** Mark as Asset: the body kept in the library under `name` (replacing one of that name). */
+    async markAsset({ id, name }) {
+        if (!this.shapes.has(id)) throw new Error('that body no longer exists');
+        if (!name) throw new Error('an asset needs a name');
+        this.assetStore({ ...this.assetStore(), [name]: new TextDecoder().decode(exportSTEP(this.placedShape(id, null, null))) });
+    }
+    async listAssets() { return Object.keys(this.assetStore()).sort(); }
+    /** The asset as a new body, one undo step. */
+    async insertAsset({ name }) {
+        const text = this.assetStore()[name];
+        if (!text) throw new Error('that asset is no longer in the library');
+        return this.importStepData(new TextEncoder().encode(text));
+    }
+    async deleteAsset({ name }) {
+        const all = { ...this.assetStore() };
+        delete all[name];
+        this.assetStore(all);
+    }
+
     /** File › Import of a STEP file's bytes: the whole file as one body, one undo step (as the desktop). */
     async importStepData(bytes) {
         const shape = importSTEP(bytes);

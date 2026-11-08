@@ -2403,9 +2403,39 @@ export async function mount(root, backend) {
   function objectMenu(e, key) {
     openOMenu(e, [
       ['ADD TO ISOLATION', () => { org.addToIsolation([key]); organised(); renderOutliner(); }, !org.layers.length],
+      ['MARK AS ASSET', () => markAsset(key), typeof key !== 'number' || !backend.markAsset],
       ['REMOVE FROM GROUP', () => { orgOp('REMOVE FROM GROUP', () => org.removeFromGroup([key])); renderOutliner(); }, !org.groupOf.has(key)],
       ['SELECT', () => selectKeys([key])],
     ]);
+  }
+  // Assets (inferred: the manual names Mark as Asset only): a solid or sheet kept in a library of
+  // the app's own, outside any file, and inserted into any file later (Insert asset, in the command palette).
+  const assetName = s => String(s).replace(/[^A-Za-z0-9 _-]+/g, ' ').trim().slice(0, 60).toUpperCase();
+  async function markAsset(id) {
+    try {
+      const name = assetName(label(id)) || `BODY ${id}`;
+      await backend.markAsset({ id, name });
+      toast(`${name} KEPT AS AN ASSET; INSERT ASSET (COMMAND PALETTE) PUTS IT IN ANY FILE`);
+    } catch (err) { toast(say(err)); }
+  }
+  async function insertAssetMenu(e) {
+    if (!backend.listAssets) return toast('ASSETS ARE NOT IN THIS BUILD YET');
+    let names;
+    try { names = await backend.listAssets(); } catch (err) { return toast(say(err)); }
+    if (!names.length) return toast('NO ASSETS YET: RIGHT-CLICK A SOLID IN THE OUTLINER › MARK AS ASSET');
+    const at = e ?? { clientX: innerWidth / 2, clientY: innerHeight / 3 };
+    const insert = name => fileAction(async () => {
+      const r = await backend.insertAsset({ name });
+      if (cmd) abort();
+      sel.clear();
+      record(`INSERT ASSET ${name}`, r.id);
+      await showScene(r.scene);
+      sel.add({ kind: 'solid', body: r.id });
+      selectionChanged({ quiet: true });
+      toast(`INSERTED ${name}`);
+    });
+    const remove = () => openOMenu(at, names.map(name => [`DELETE ${name}`, () => backend.deleteAsset({ name }).then(() => toast(`ASSET ${name} DELETED`), err => toast(say(err)))]));
+    openOMenu(at, [...names.map(name => [name, () => insert(name)]), null, ['DELETE AN ASSET…', () => setTimeout(remove)]]);
   }
   /** Delete Recursively: everything the group holds goes (one undo step for the scene), then the group and those inside it. */
   async function deleteGroup(gid) {
@@ -13471,6 +13501,7 @@ export async function mount(root, backend) {
       case 'rename': renameSelected(); return true;
       case 'lock': lockSelected(); return true;
       case 'unlock-all': orgOp('UNLOCK ALL', () => org.setLocked([...org.locked], false)); organised(); return true;
+      case 'asset:insert': insertAssetMenu(); return true;
       case 'delete-empty-groups': { const n = orgOp('DELETE EMPTY GROUPS', () => org.deleteEmptyGroups(allObjectKeys())); toast(n ? `${n} EMPTY GROUP${n > 1 ? 'S' : ''} DELETED` : 'NO EMPTY GROUPS'); renderOutliner(); return true; }
       case 'undo': await step('undo'); return true;
       case 'redo': await step('redo'); return true;
@@ -13498,7 +13529,7 @@ export async function mount(root, backend) {
   // P-Menu: the file menu under the app's name (Plasticity's P at the top left).
   let recent = store.get('w3d-recent', []);
   const remember = path => { if (!path) return; recent = [path, ...recent.filter(p => p !== path)].slice(0, 8); store.set('w3d-recent', recent); };
-  const P_NEEDS = { 'file:new': 'newDocument', 'file:open': 'open', 'import:step': 'importStep', 'file:save': 'save', 'file:save-as': 'saveAs', 'file:save-version': 'saveVersion', 'file:save-startup': 'saveStartupScene', 'app:quit': 'quit' };
+  const P_NEEDS = { 'file:new': 'newDocument', 'file:open': 'open', 'import:step': 'importStep', 'file:save': 'save', 'file:save-as': 'saveAs', 'file:save-version': 'saveVersion', 'file:save-startup': 'saveStartupScene', 'asset:insert': 'listAssets', 'app:quit': 'quit' };
   function openPMenu() {
     const menu = $('pmenu');
     const can = e => e.action === 'import:step' ? !$('import').hidden : !P_NEEDS[e.action] || typeof backend[P_NEEDS[e.action]] === 'function';

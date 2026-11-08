@@ -164,6 +164,10 @@ const rust = {
   get filePath() { return filePath; },
   // File › Save As Startup Scene: the scene New File and launch start from, in the app's config folder.
   saveStartupScene: () => tauri.core.invoke('save_startup_scene'),
+  markAsset: ({ id, name }) => tauri.core.invoke('mark_asset', { id, name }),
+  listAssets: () => tauri.core.invoke('list_assets'),
+  insertAsset: ({ name }) => tauri.core.invoke('insert_asset', { name }),
+  deleteAsset: ({ name }) => tauri.core.invoke('delete_asset', { name }),
   // Backups for emergencies: this window's copy every few minutes, and what a crash left behind.
   backupSave: document => tauri.core.invoke('backup_save', { document }),
   backups: () => tauri.core.invoke('backup_list'),
