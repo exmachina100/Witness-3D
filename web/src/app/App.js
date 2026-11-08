@@ -2404,6 +2404,10 @@ export async function mount(root, backend) {
     openOMenu(e, [
       ['ADD TO ISOLATION', () => { org.addToIsolation([key]); organised(); renderOutliner(); }, !org.layers.length],
       ['MARK AS ASSET', () => markAsset(key), typeof key !== 'number' || !backend.markAsset],
+      null,
+      // The material entries: the row's object is selected, then Set Material opens on it.
+      ['SET MATERIAL', () => { selectKeys([key]); startTool('material'); }],
+      ['REMOVE MATERIAL', () => { selectKeys([key]); removeMaterial(); }, !materialOf.has(key)],
       ['REMOVE FROM GROUP', () => { orgOp('REMOVE FROM GROUP', () => org.removeFromGroup([key])); renderOutliner(); }, !org.groupOf.has(key)],
       ['SELECT', () => selectKeys([key])],
     ]);
