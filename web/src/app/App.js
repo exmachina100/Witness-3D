@@ -983,7 +983,7 @@ const SHELL = `
           <button data-gcorner="mitre" aria-pressed="true" title="The section meets itself in a sharp mitre at the path's corners">MITRE</button>
           <button data-gcorner="round" aria-pressed="false" title="The section turns round the path's corners">ROUND</button>
         </div>
-        <div class="chips"><button data-id="sw-simplify" aria-pressed="true" title="Simplify: parts of the sweep that lie flat become trimmed planes rather than swept surfaces">SIMPLIFY</button></div>
+        <div class="chips"><button data-id="sw-simplify" aria-pressed="false" title="Simplify: parts of the sweep that lie flat become trimmed planes rather than swept surfaces">SIMPLIFY</button></div>
       </div>
       <div class="field"><label>RESULT</label><output data-id="form-outcome">—</output></div>
       <div data-id="form-ops">
@@ -12456,7 +12456,7 @@ export async function mount(root, backend) {
     const first = curveList.find(c => c.id === regions[0]);
     const target = curveOnly && !isClosed(first) ? null : bodyAt(regionCentre(first), curveFrame(first).n);
     // Revolve and Sweep take every selected region (each its own shape); an open curve, one at a time.
-    const c = cmd = { id, regions: curveOnly && !isClosed(first) ? regions.slice(0, 1) : regions, target, op: 'new', angle: 360, thickness: 0, twist: 0, scale: 1, distance: 1, p1: null, p2: null, path: null, guides: [], method: 'point', align: 'normal', corner: 'mitre', simplify: true, outcome: null, sent: 0, shown: 0, line: null };
+    const c = cmd = { id, regions: curveOnly && !isClosed(first) ? regions.slice(0, 1) : regions, target, op: 'new', angle: 360, thickness: 0, twist: 0, scale: 1, distance: 1, p1: null, p2: null, path: null, guides: [], method: 'point', align: 'normal', corner: 'mitre', simplify: false, outcome: null, sent: 0, shown: 0, line: null };
     lastTool = id;
     showTool(id);
     setState('none');
