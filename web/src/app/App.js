@@ -12769,9 +12769,44 @@ export async function mount(root, backend) {
     };
     c.finish = () => commitFormCmd();
     c.abort = () => endCmd('cancelled');
-    c.cleanup = () => { if (c.line) dispose(c.line); clearPreview(); };
+    c.cleanup = () => { if (c.line) dispose(c.line); clearPreview(); for (const g of [c.angleDot, c.thickDot]) g?.dispose(); };
+    if (id === 'revolve') c.extraGizmos = () => [c.angleDot, c.thickDot].filter(g => g?.visible);
     hint();
     if (id === 'loft') previewFormCmd();
+  }
+  /**
+   * Revolve's handles once the axis is placed, as Plasticity draws them: a white circle on the
+   * profile's centre carried round the axis to the current angle, dragged on round (or back) to
+   * turn it, the arc over the centre's distance from the axis being the angle; and a yellow square
+   * on the profile's centre, pulled away from the axis for the wall thickness.
+   */
+  function placeRevolveHandles(c) {
+    if (c.id !== 'revolve' || !c.p2) return;
+    const first = curveById(c.regions[0]);
+    if (!first) return;
+    const axis = c.p2.clone().sub(c.p1).normalize(), centre = regionCentre(first);
+    const foot = c.p1.clone().addScaledVector(axis, centre.clone().sub(c.p1).dot(axis));
+    const radial = centre.clone().sub(foot), r = radial.length();
+    if (r < 1e-6) { for (const g of [c.angleDot, c.thickDot]) if (g) g.visible = false; return; }
+    radial.normalize();
+    const snapTo = (v, step) => snapping(lastPointer) ? Math.round(v / step) * step : v;
+    if (!c.thickDot) c.thickDot = dot(centre, radial, v => setForm({ thickness: +Math.max(0, snapTo(v, gridStep())).toFixed(4) }), null, 'square');
+    if (!c.angleDot) {
+      c.angleDot = dot(centre, radial, v => {
+        c.angleFrom ??= c.angle;
+        const deg = snapTo(c.angleFrom + v / c.angleR / DEG, 5);
+        setForm({ angle: +Math.min(360, Math.max(0.01, deg)).toFixed(2) });
+      }, () => { c.angleFrom = null; placeRevolveHandles(c); }, 'ring');
+    }
+    c.angleR = r;
+    if (!c.thickDot.busy) { c.thickDot.setFrame(centre, radial); c.thickDot.value = c.thickness || 0; }
+    if (!c.angleDot.busy) {
+      const turn = new THREE.Quaternion().setFromAxisAngle(axis, c.angle * DEG);
+      const out = radial.clone().applyQuaternion(turn);
+      c.angleDot.setFrame(foot.clone().addScaledVector(out, r), axis.clone().cross(out).normalize());
+      c.angleDot.value = 0;
+    }
+    c.thickDot.visible = c.angleDot.visible = true;
   }
   function setGuideChips(c) {
     for (const b of $$('[data-gmethod]')) b.setAttribute('aria-pressed', String(c.method === b.dataset.gmethod));
@@ -12881,6 +12916,7 @@ export async function mount(root, backend) {
   async function previewFormCmd() {
     const c = cmd;
     if (!FORMS[c?.id]) return;
+    placeRevolveHandles(c);
     const req = formRequest(c);
     const n = ++c.sent;
     if (!req) { clearPreview(); setState('none'); return; }
@@ -15474,6 +15510,12 @@ export async function mount(root, backend) {
       if (cmd?.id !== 'pipe') return null;
       const one = g => g && { visible: g.visible, knob: g.knob.getWorldPosition(new THREE.Vector3()).toArray(), dir: g.direction.toArray(), value: g.value };
       return { wall: one(cmd.wall), turn: one(cmd.turn) };
+    },
+    /** Revolve's angle circle and thickness square, for tests, as pipeHandles. */
+    revolveHandles() {
+      if (cmd?.id !== 'revolve') return null;
+      const one = g => g && { visible: g.visible, knob: g.knob.getWorldPosition(new THREE.Vector3()).toArray(), dir: g.direction.toArray(), value: g.value };
+      return { angle: one(cmd.angleDot), thickness: one(cmd.thickDot), degrees: cmd.angle, walls: cmd.thickness };
     },
     get bodies() { return current },
     get curves() { return curveList },
