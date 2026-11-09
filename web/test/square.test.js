@@ -215,3 +215,25 @@ test("a loft's first profile with a face leaves that face tangent (G1)", () => {
     const [p0, p1] = [fit.poles[5][0], fit.poles[5][1]];
     assert.ok(Math.abs(p1[1] - p0[1]) < 1e-6 && p1[2] > p0[2], `${p0} ${p1}`);
 });
+
+test("Loft's per-edge tension: each end leaves its face as far out as its own tension says", () => {
+    const n = 20;
+    const floor = Object.assign(arc(t => [20 * t, 0, 0], n), { out: Array.from({ length: n + 1 }, () => [0, 0, 1]) });
+    const wall = Object.assign(arc(t => [20 * t, 10, 10], n), { out: Array.from({ length: n + 1 }, () => [0, 1, 0]) });
+    const one = square([floor, wall], { continuity: 'G1', tension: 1 });
+    const same = square([floor, wall], { continuity: 'G1', tension: [1, 1] });
+    for (const v of [0.25, 0.5, 0.75]) assert.ok(dist(surfaceAt(one, 0.5, v), surfaceAt(same, 0.5, v)) < 1e-9);
+    // More tension at the floor: the sheet rises further before turning toward the wall.
+    const lifted = square([floor, wall], { continuity: 'G1', tension: [2, 1] });
+    const lowered = square([floor, wall], { continuity: 'G1', tension: [1, 2] });
+    const zAt = (s, v) => surfaceAt(s, 0.5, v)[2];
+    assert.ok(zAt(lifted, 0.25) > zAt(one, 0.25) + 0.3, `${zAt(lifted, 0.25)} vs ${zAt(one, 0.25)}`);
+    // More tension at the wall: the sheet comes in further along the wall's way out (+y here).
+    const yAt = (s, v) => surfaceAt(s, 0.5, v)[1];
+    assert.ok(yAt(lowered, 0.75) > yAt(one, 0.75) + 0.3, `${yAt(lowered, 0.75)} vs ${yAt(one, 0.75)}`);
+    // Both ends still leave their faces tangent.
+    for (const s of [lifted, lowered]) {
+        const d0 = surfaceAt(s, 0.5, 0.01).map((x, k) => x - surfaceAt(s, 0.5, 0)[k]);
+        assert.ok(Math.abs(d0[1]) / Math.hypot(...d0) < 0.05, 'leaves the floor upward');
+    }
+});

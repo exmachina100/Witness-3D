@@ -12359,6 +12359,8 @@ export async function mount(root, backend) {
     // as Square's two-sided fill does (square.js with the edge's way out of its face, normals and
     // curvatures); a curve profile, or an edge at G0, is only met. All at G0 is the plain loft.
     c.conts ??= new Map();
+    // Each edge's own Tension (the manual: "the tension of each Edge"); TENSION (D) sets them all.
+    c.tens ??= new Map();
     // The edges that can carry their face on: the first and last profiles' (the inner ones are passed through).
     const edgesOf = () => c.curves.filter((p, i) => typeof p === 'object' && (i === 0 || i === c.curves.length - 1));
     const contOf = p => c.conts.get(p.key) ?? 'G0';
@@ -12379,12 +12381,14 @@ export async function mount(root, backend) {
         if (it.cont === 'G1') { const only = side.map(q => [...q]); only.out = side.out; return only; }
         return side;
       }));
-      const tension = num('ls-t');
-      if (!(tension > 0)) throw new Error('the tension must be greater than zero');
+      const tensionOf = it => it.kind === 'edge' ? c.tens.get(`${it.body}:${it.n}`) ?? num('ls-t') : num('ls-t');
+      const tension = [tensionOf(items[0]), tensionOf(items.at(-1))];
+      if (!tension.every(t => t > 0)) throw new Error('the tension must be greater than zero');
       const continuity = items.reduce((best, it) => RANK[it.cont] > RANK[best] ? it.cont : best, 'G0');
       return square(faced, { degree: 3, continuity, tension, loft: items.length > 2 });
     };
-    const contText = () => edgesOf().map(p => `${label(p.body)} EDGE ${p.n + 1} ${contOf(p)}`).join(' · ');
+    const tensOf = p => c.tens.get(p.key) ?? num('ls-t');
+    const contText = () => edgesOf().map(p => `${label(p.body)} EDGE ${p.n + 1} ${contOf(p)}${contOf(p) !== 'G0' ? ` T ${+tensOf(p).toFixed(2)}` : ''}`).join(' · ');
     c.preview = () => livePreview(c, async () => {
       if (smooth()) {
         const fit = await fitEdges();
@@ -12398,7 +12402,7 @@ export async function mount(root, backend) {
       return b ? [b] : null;
     }, list => {
       for (const b of list) showPreviewBody(b, phantom.add.face, phantom.add.edge).renderOrder = 5;
-      $('ls-hint').textContent = text() + (smooth() ? ` · ${contText()} · TENSION ${num('ls-t')}` : '');
+      $('ls-hint').textContent = text() + (smooth() ? ` · ${contText()}` : '');
       setHud(`LOFT · SHEET${c.loop ? ' · LOOP' : ''}${smooth() ? ` · ${contText()}` : ''}`);
     }, 'ls-hint');
     const refresh = () => {
@@ -12410,8 +12414,9 @@ export async function mount(root, backend) {
       $('ls-edges-row').hidden = !twoEdges();
       // One continuity switch for each edge profile.
       const list = $('ls-edge-conts');
-      list.innerHTML = twoEdges() ? edgesOf().map(p => `<div class="field"><label>${label(p.body)} EDGE ${p.n + 1}</label><div class="seg" role="group" aria-label="Continuity at ${label(p.body)} edge ${p.n + 1}">${['G0', 'G1', 'G2'].map(g => `<button data-lsedge="${p.key}" data-lscont="${g}" aria-pressed="${contOf(p) === g}" title="${{ G0: 'Meet the edge only', G1: 'Leave the face tangent', G2: "Match the face's curvature too" }[g]}">${g}</button>`).join('')}</div></div>`).join('') : '';
+      list.innerHTML = twoEdges() ? edgesOf().map(p => `<div class="field"><label>${label(p.body)} EDGE ${p.n + 1}</label><div class="seg" role="group" aria-label="Continuity at ${label(p.body)} edge ${p.n + 1}">${['G0', 'G1', 'G2'].map(g => `<button data-lsedge="${p.key}" data-lscont="${g}" aria-pressed="${contOf(p) === g}" title="${{ G0: 'Meet the edge only', G1: 'Leave the face tangent', G2: "Match the face's curvature too" }[g]}">${g}</button>`).join('')}</div><input type="number" step="0.1" min="0.05" data-lstens="${p.key}" value="${+tensOf(p).toFixed(3)}" aria-label="Tension at ${label(p.body)} edge ${p.n + 1}" title="This edge's tension: how far the sheet carries on from its face before it turns"${contOf(p) === 'G0' ? ' disabled' : ''}></div>`).join('') : '';
       for (const b of list.querySelectorAll('[data-lscont]')) b.onclick = () => { c.conts.set(b.dataset.lsedge, b.dataset.lscont); refresh(); };
+      for (const f of list.querySelectorAll('[data-lstens]')) f.onchange = () => { const v = parseFloat(f.value); if (v > 0) { c.tens.set(f.dataset.lstens, v); c.preview(); } };
       if (c.curves.length < 2) { clearPreview(); $('ls-hint').textContent = 'SELECT TWO CURVES OR MORE, IN ORDER'; return setState('none'); }
       c.preview();
     };
@@ -14619,7 +14624,8 @@ export async function mount(root, backend) {
   $('ls-limit').onclick = () => cmd?.key?.('limit');
   $('ls-simplify').onclick = () => cmd?.key?.('simplify');
   for (const b of $$('[data-lscont]')) b.onclick = () => cmd?.id === 'loft' && cmd.sheet && cmd.setCont(b.dataset.lscont);
-  $('ls-t').oninput = () => cmd?.id === 'loft' && cmd.sheet && cmd.refresh();
+  // TENSION (D) sets every edge's tension at once, as the manual's D does.
+  $('ls-t').oninput = () => { if (cmd?.id === 'loft' && cmd.sheet) { cmd.tens?.clear(); cmd.refresh(); } };
   for (const b of $$('[data-btmat]')) b.onclick = () => { if (cmd?.id === 'boolean') { cmd.targetMaterial = b.dataset.btmat; previewBooleanCmd(); } };
   for (const b of $$('[data-bumat]')) b.onclick = () => { if (cmd?.id === 'boolean') { cmd.toolMaterial = b.dataset.bumat; previewBooleanCmd(); } };
   for (const id of ['hole-d', 'hole-depth']) $(id).addEventListener('input', () => cmd?.id === 'hole' && cmd.preview());
