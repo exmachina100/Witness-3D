@@ -216,7 +216,7 @@ export const ACTIONS = {
     'repeat': 'Repeat last command', 'ask': 'Ask for a command in words', 'delete': 'Delete', 'dissolve': 'Dissolve (edges merge their faces; else Delete)', 'duplicate': 'Duplicate', 'alt-duplicate': 'Alternative duplicate onto the plane', 'create-outline': 'Create outline', 'toggle-points': 'Toggle points',
     'hide': 'Hide selected', 'hide-others': 'Hide unselected', 'unhide-all': 'Unhide all', 'invert-hidden': 'Invert hidden',
     'isolate': 'Isolate selected', 'unisolate': 'Unisolate', 'group': 'Group selected', 'ungroup': 'Ungroup', 'rename': 'Rename selected',
-    'lock': 'Lock selected', 'unlock-all': 'Unlock all', 'delete-empty-groups': 'Delete empty groups', 'asset:insert': 'Insert asset',
+    'lock': 'Lock selected', 'unlock-all': 'Unlock all', 'delete-empty-groups': 'Delete empty groups', 'asset:insert': 'Insert asset', 'spacemouse:connect': 'Connect SpaceMouse',
     'material:set': 'Set material', 'material:remove': 'Remove material', 'view:render': 'Toggle render mode',
     'view:edges': 'Viewport: toggle edges', 'view:faces': 'Viewport: toggle faces', 'view:curves': 'Viewport: toggle curves',
     'plane:selection': 'Construction plane from selection', 'plane:selection-keep-view': 'Construction plane from selection, keep view',

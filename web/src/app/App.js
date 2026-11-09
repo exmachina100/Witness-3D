@@ -111,6 +111,7 @@ import { ALIGN_CURVE_CONTINUITY, curvePart, mirrorCurve, alignCurveEnd, BRIDGE_C
 import { ViewGizmo } from './ViewGizmo.js';
 import { Toolbar } from './Toolbar.js';
 import { arcballAbout, dragAngles, orbitAbout } from './orbit.js';
+import { spaceMouse, spaceMouseStep } from './spaceMouse.js';
 import { poleMoves } from '../poleFalloff.js';
 import { planeFrom } from '../cplaneFrom.js';
 import { stepSources } from './sources.js';
@@ -1316,6 +1317,25 @@ export async function mount(root, backend) {
     const from = { target: controls.target.clone(), offset: camera.position.clone().sub(controls.target) };
     const to = { target: target.clone(), offset: position.clone().sub(target) };
     turning = { from, to, t0: performance.now(), ms };
+  }
+  // SpaceMouse (Preferences › SpaceMouse): each frame the cap's push, tilt and twist move the view.
+  const sm = spaceMouse(() => {});
+  let smLast = 0;
+  function stepSpaceMouse(now) {
+    const dt = Math.min(0.05, smLast ? (now - smLast) / 1000 : 0);
+    smLast = now;
+    if (!prefs.spaceMouse.enabled || turning || !dt) return;
+    const r = spaceMouseStep(camera.position, controls.target, camera.up, sm.axes, dt, prefs.spaceMouse);
+    if (!r) return;
+    camera.position.copy(r.position);
+    controls.target.copy(r.target);
+    camera.lookAt(controls.target);
+  }
+  async function connectSpaceMouse() {
+    try {
+      const name = await sm.connect();
+      toast(name ? `${name.toUpperCase()} CONNECTED` : 'NO SPACEMOUSE PICKED');
+    } catch (err) { toast(say(err)); }
   }
   function stepTurn(now) {
     const t = turning;
@@ -13550,6 +13570,7 @@ export async function mount(root, backend) {
       case 'lock': lockSelected(); return true;
       case 'unlock-all': orgOp('UNLOCK ALL', () => org.setLocked([...org.locked], false)); organised(); return true;
       case 'asset:insert': insertAssetMenu(); return true;
+      case 'spacemouse:connect': connectSpaceMouse(); return true;
       case 'delete-empty-groups': { const n = orgOp('DELETE EMPTY GROUPS', () => org.deleteEmptyGroups(allObjectKeys())); toast(n ? `${n} EMPTY GROUP${n > 1 ? 'S' : ''} DELETED` : 'NO EMPTY GROUPS'); renderOutliner(); return true; }
       case 'undo': await step('undo'); return true;
       case 'redo': await step('redo'); return true;
@@ -13614,7 +13635,7 @@ export async function mount(root, backend) {
   }
   // Preferences: Plasticity's window of settings, by section; each change applies and is kept at once.
   // The bridge settings live with the desktop app and take effect the next time it starts.
-  const PREF_SECTIONS = { navigation: 'NAVIGATION', appearance: 'APPEARANCE', commands: 'COMMANDS', units: 'UNITS', performance: 'PERFORMANCE', backup: 'BACKUP', network: 'NETWORK' };
+  const PREF_SECTIONS = { navigation: 'NAVIGATION', spaceMouse: 'SPACEMOUSE', appearance: 'APPEARANCE', commands: 'COMMANDS', units: 'UNITS', performance: 'PERFORMANCE', backup: 'BACKUP', network: 'NETWORK' };
   // Performance: the facets the bodies are drawn with, as last asked of the backend.
   let facetQuality = 1, aoShader = false;
   // Plasticity's Units: the model stays in millimetres; length fields show and take the chosen
@@ -15012,6 +15033,7 @@ export async function mount(root, backend) {
   renderer.setAnimationLoop(() => {
     resize();
     stepTurn(performance.now());
+    stepSpaceMouse(performance.now());
     if (!turning) controls.update();
     nav.update(camera, camera.isOrthographicCamera);
     if (cmd?.gizmo) cmd.gizmo.render(cmd.gizmo.value);
