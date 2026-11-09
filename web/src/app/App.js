@@ -2482,6 +2482,50 @@ export async function mount(root, backend) {
     row.querySelector('.name').dispatchEvent(new MouseEvent('dblclick', { bubbles: true }));
   }
   const closedSections = new Set();   // outliner sections folded away (SOLIDS, CURVES, ...)
+  // Box select in the outliner: drag from empty space beside or below the rows; every object and
+  // group row the box crosses is selected (Shift adds, Ctrl takes away), as a box in the viewport.
+  {
+    const list = $('outliner');
+    let box = null;
+    const itemOf = k => k.startsWith('g:') ? { kind: 'group', id: +k.slice(2) } : k.startsWith('c:') ? { kind: 'curve', id: curveKeyId(k) } : { kind: 'solid', body: +k };
+    const crossed = (y0, y1) => [...list.querySelectorAll('[data-okey]')].filter(r => { const b = r.getBoundingClientRect(); return b.bottom > Math.min(y0, y1) && b.top < Math.max(y0, y1); });
+    list.addEventListener('pointerdown', e => {
+      if (e.button !== 0 || e.target.closest('[data-okey], button, input, .sec-head, [contenteditable="true"]')) return;
+      const r = list.getBoundingClientRect();
+      box = { x0: e.clientX, y0: e.clientY, mod: e.shiftKey ? 'add' : (e.ctrlKey || e.metaKey) ? 'remove' : 'replace', el: document.createElement('div'), moved: false };
+      box.el.className = 'obox';
+      list.append(box.el);
+      list.setPointerCapture(e.pointerId);
+      box.r = r;
+    });
+    list.addEventListener('pointermove', e => {
+      if (!box) return;
+      if (!box.moved && Math.hypot(e.clientX - box.x0, e.clientY - box.y0) < 4) return;
+      box.moved = true;
+      const { r } = box, x = Math.min(e.clientX, box.x0), y = Math.min(e.clientY, box.y0);
+      Object.assign(box.el.style, { left: `${x - r.left + list.scrollLeft}px`, top: `${y - r.top + list.scrollTop}px`, width: `${Math.abs(e.clientX - box.x0)}px`, height: `${Math.abs(e.clientY - box.y0)}px` });
+      const hit = new Set(crossed(box.y0, e.clientY));
+      for (const row of list.querySelectorAll('[data-okey]')) row.classList.toggle('boxed', hit.has(row));
+    });
+    const end = e => {
+      if (!box) return;
+      const b = box;
+      box = null;
+      b.el.remove();
+      for (const row of list.querySelectorAll('.boxed')) row.classList.remove('boxed');
+      if (!b.moved) return; // a click on empty space leaves the selection, as in the viewport
+      const keys = crossed(b.y0, e.clientY).map(r => r.dataset.okey);
+      if (b.mod === 'replace') sel.clear();
+      for (const k of keys) {
+        const it = itemOf(k);
+        if (it.kind !== 'group' && !org.picks(it.kind === 'curve' ? k : it.body)) continue;
+        b.mod === 'remove' ? sel.remove(it) : applySelect(it, 'add');
+      }
+      selectionChanged();
+    };
+    list.addEventListener('pointerup', end);
+    list.addEventListener('pointercancel', end);
+  }
   function renderOutliner() {
     const out = $('outliner');
     out.innerHTML = '<div class="group-title">▾ SOLIDS</div>';
