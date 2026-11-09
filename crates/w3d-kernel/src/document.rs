@@ -1535,6 +1535,16 @@ impl<K: Kernel> Document<K> {
         Ok(self.add_unrecorded(sheet))
     }
 
+    /// Square's Refit: the sheet `id` replaced by the fitted one, keeping its id, in one undo step.
+    pub fn commit_spline_sheets_replacing(&mut self, id: BodyId, data: &[f64], more: &[Vec<f64>]) -> Result<BodyId, KernelError> {
+        if !self.state.bodies.contains_key(&id) { return Err(KernelError::Invalid("that body no longer exists")) }
+        let sheet = self.preview_spline_sheets(data, more)?;
+        self.checkpoint();
+        let refs = self.new_refs(&sheet);
+        self.state.bodies.insert(id, Rc::new(Body { solid: sheet, refs }));
+        Ok(id)
+    }
+
     /// Plasticity's Untrim, without changing the document: for each of `faces` of `body`, a sheet
     /// of the whole surface under it, with the face's edges imprinted when `keep_edges`.
     pub fn preview_untrim(&self, body: BodyId, faces: &[u32], keep_edges: bool) -> Result<Vec<K::Solid>, KernelError> {

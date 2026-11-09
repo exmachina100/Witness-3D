@@ -1369,10 +1369,12 @@ export class LocalBackend {
     }
 
     /** Constrained Surface as one undo step: the sheet is a new body (an N-sided fill's patches sewn into one). */
-    async commitSplineSheet({ data, more = [] }) {
+    async commitSplineSheet({ data, more = [], replace = null }) {
         const sheet = splineSheets(data, more);
+        if (replace != null && !this.shapes.has(replace)) throw new Error('that body no longer exists');
         this.checkpoint();
-        const id = this.nextId++;
+        // Square's Refit: the sheet takes the replaced body's place and id.
+        const id = replace ?? this.nextId++;
         this.put(id, sheet);
         return { ids: [id], scene: this.bodies() };
     }

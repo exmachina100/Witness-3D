@@ -1938,6 +1938,9 @@ pub struct SplineSheetRequest {
     /// Further patches sewn on into one sheet (an N-sided fill).
     #[serde(default)]
     pub more: Vec<Vec<f64>>,
+    /// Square's Refit: the sheet body the result replaces (keeping its id).
+    #[serde(default)]
+    pub replace: Option<BodyId>,
 }
 
 pub fn preview_spline_sheet(m: &Model, req: SplineSheetRequest) -> Option<Result<Body, ApiError>> {
@@ -1949,7 +1952,10 @@ pub fn preview_spline_sheet(m: &Model, req: SplineSheetRequest) -> Option<Result
 
 pub fn commit_spline_sheet(m: &Model, req: SplineSheetRequest) -> Result<Duplicated, ApiError> {
     m.call(move |doc| {
-        let id = doc.commit_spline_sheets(&req.data, &req.more)?;
+        let id = match req.replace {
+            Some(old) => doc.commit_spline_sheets_replacing(old, &req.data, &req.more)?,
+            None => doc.commit_spline_sheets(&req.data, &req.more)?,
+        };
         Ok(Duplicated { ids: vec![id], scene: bodies(doc)? })
     })
 }
