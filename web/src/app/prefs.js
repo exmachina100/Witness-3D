@@ -59,6 +59,15 @@ export const PREF_FIELDS = {
         { key: 'autoFillet', label: 'FILLET', type: 'bool', value: true },
         { key: 'autoMove', label: 'MOVE', type: 'bool', value: true },
     ],
+    // Plasticity's SpaceMouse section (its fields inferred: the manual names the section only).
+    spaceMouse: [
+        { key: 'enabled', label: 'USE A SPACEMOUSE', type: 'bool', value: true },
+        { key: 'panSpeed', label: 'PAN AND ZOOM SPEED', type: 'number', value: 1, min: 0.1, max: 5 },
+        { key: 'rotateSpeed', label: 'ROTATE SPEED', type: 'number', value: 1, min: 0.1, max: 5 },
+        { key: 'invertPan', label: 'INVERT PAN', type: 'bool', value: false },
+        { key: 'invertZoom', label: 'INVERT ZOOM', type: 'bool', value: false },
+        { key: 'invertRotate', label: 'INVERT ROTATION', type: 'bool', value: false },
+    ],
     // Plasticity's Grid and Units › Length, and the mass shown for the selection.
     units: [
         { key: 'length', label: 'LENGTH', type: 'choice', value: 'mm', options: ['mm', 'cm', 'm', 'in', 'ft'] },
