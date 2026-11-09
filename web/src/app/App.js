@@ -3934,8 +3934,8 @@ export async function mount(root, backend) {
   }
 
   /** A yellow-dot handle wired to the viewport; `onValue` gets every new value. */
-  function dot(origin, dir, onValue, onEnd) {
-    const g = new MagnitudeGizmo(camera, canvas, { step: gridStep() });
+  function dot(origin, dir, onValue, onEnd, knob = 'dot') {
+    const g = new MagnitudeGizmo(camera, canvas, { step: gridStep(), knob });
     g.setFrame(origin, dir);
     g.onStart = () => { controls.enabled = false; };
     g.onEnd = () => { controls.enabled = true; onEnd?.(); };
@@ -9435,7 +9435,9 @@ export async function mount(root, backend) {
     // As in Plasticity, a yellow dot at the first curve's start sets the size (D grabs it from the
     // cursor) and Shift+T types the wall thickness.
     // C picks a closed curve as a custom profile (the next curve clicked); C again goes back to round.
-    const c = cmd = { id: 'pipe', curves: [], op: 'new', keep: false, target: null, profile: null, picking: false, sent: 0, shown: 0, gizmo: null, at: '' };
+    const c = cmd = { id: 'pipe', curves: [], op: 'new', keep: false, target: null, profile: null, picking: false, sent: 0, shown: 0, gizmo: null, at: '',
+      // Plasticity's other Pipe handles: a yellow square for the wall thickness, a white circle for the angle.
+      wall: null, turn: null, extraGizmos() { return [this.wall, this.turn].filter(g => g?.visible) } };
     // The profile is a drawn curve's id, or { curve, label } for a face's outline.
     const profLabel = () => c.profile?.label ?? curveLabel(c.profile);
     lastTool = 'pipe';
@@ -9469,14 +9471,26 @@ export async function mount(root, backend) {
       const key = src ? `${src.id}:${JSON.stringify(src.points ?? src.center ?? '')}` : '';
       if (key === c.at) return;
       c.at = key;
-      c.gizmo?.dispose();
-      c.gizmo = null;
+      for (const g of [c.gizmo, c.wall, c.turn]) g?.dispose();
+      c.gizmo = c.wall = c.turn = c.frame = null;
       if (!src) return;
       const f = curveFrame(src), pts = curve2d(src);
       if (pts.length < 2) return;
       const p0 = lift(f, pts[0]), along = lift(f, pts[1]).sub(p0);
       let dir = f.n.clone().cross(along).normalize();
       if (dir.lengthSq() < 0.5) dir = f.n.clone();
+      c.frame = { p0, dir, tangent: along.clone().normalize().cross(dir).normalize() };
+      // The wall square: from the outside of the tube inward, its distance the wall thickness.
+      c.wall = dot(p0, dir.clone().negate(), v => {
+        const t = Math.min(Math.max(0, snapping(lastPointer) ? Math.round(v / gridStep()) * gridStep() : v), num('pipe-r') * 0.999);
+        $('pipe-t').value = +t.toFixed(4);
+        c.preview();
+      }, null, 'square');
+      // The angle circle: on the section's rim, dragged round it (along its tangent), the arc over the radius the turn.
+      c.turn = dot(p0, c.frame.tangent, v => {
+        $('pipe-a').value = +(v / Math.max(1e-9, num('pipe-r')) / DEG).toFixed(2);
+        c.preview();
+      }, null, 'ring');
       c.gizmo = dot(p0, dir, v => {
         const r = snapping(lastPointer) ? Math.round(v / gridStep()) * gridStep() : v;
         if (!(r > 1e-6)) return;
@@ -9486,9 +9500,20 @@ export async function mount(root, backend) {
       });
       c.gizmo?.render(num('pipe-r'));
     };
+    // The square and circle sit on the rim at the current radius and show the current values; the
+    // wall only for a round or polygon tube, the circle only for a polygon one.
+    const placeHandles = () => {
+      if (!c.frame) return;
+      const r = num('pipe-r'), rim = c.frame.p0.clone().addScaledVector(c.frame.dir, r);
+      if (c.wall && !c.wall.busy) { c.wall.setFrame(rim, c.frame.dir.clone().negate()); c.wall.value = num('pipe-t') || 0; }
+      if (c.turn && !c.turn.busy) { c.turn.setFrame(rim, c.frame.tangent); c.turn.value = (num('pipe-a') || 0) * DEG * r; }
+      if (c.wall) c.wall.visible = c.profile === null;
+      if (c.turn) c.turn.visible = c.profile === null && sides() > 0;
+    };
     c.preview = () => {
       if (!c.curves.length) return;
       placeDot();
+      placeHandles();
       c.target = c.op === 'new' ? null : findTarget();
       if (c.op !== 'new' && c.target === null) {
         const missing = `NO SOLID FOR THE ${OPS[c.op]}; SELECT ONE WITH THE CURVES`;
@@ -9560,7 +9585,7 @@ export async function mount(root, backend) {
       } catch (e) { setState('failed'); toast(say(e)); }
     };
     c.abort = () => endCmd('cancelled');
-    c.cleanup = () => { clearPreview(); c.gizmo?.dispose(); };
+    c.cleanup = () => { clearPreview(); for (const g of [c.gizmo, c.wall, c.turn]) g?.dispose(); };
     syncOps();
     c.onSelection();
   }
@@ -11922,7 +11947,7 @@ export async function mount(root, backend) {
       } catch (e) { setState('failed'); toast(say(e)); }
     };
     c.abort = () => endCmd('cancelled');
-    c.cleanup = () => { clearPreview(); c.gizmo?.dispose(); };
+    c.cleanup = () => { clearPreview(); for (const g of [c.gizmo, c.wall, c.turn]) g?.dispose(); };
     c.onSelection();
   }
 
@@ -15444,6 +15469,12 @@ export async function mount(root, backend) {
     get organise() { return { locked: [...org.locked], isolated: org.isolated, layers: org.layers.length, groups: org.groups.map(g => ({ ...g, members: org.allMembers(g.id, current.map(b => b.id)) })) } },
     get ortho() { return camera.isOrthographicCamera },
     get camera() { return { position: camera.position.toArray(), target: controls.target.toArray(), up: camera.up.toArray() } },
+    /** Pipe's square and circle handles, for tests: where each knob is, its direction and value. */
+    pipeHandles() {
+      if (cmd?.id !== 'pipe') return null;
+      const one = g => g && { visible: g.visible, knob: g.knob.getWorldPosition(new THREE.Vector3()).toArray(), dir: g.direction.toArray(), value: g.value };
+      return { wall: one(cmd.wall), turn: one(cmd.turn) };
+    },
     get bodies() { return current },
     get curves() { return curveList },
     get instances() { return instances.map(n => ({ id: n.id, master: n.master, curve: !!n.curve })) },
