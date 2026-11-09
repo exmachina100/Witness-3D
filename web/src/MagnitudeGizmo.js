@@ -11,11 +11,15 @@ import * as THREE from 'three';
 //   - Ctrl while dragging snaps to `step`.
 // The value is a signed distance along `direction` from the anchor.
 
-const YELLOW = 0xffd400, HOVER = 0xfff3b0;
+const YELLOW = 0xffd400, HOVER = 0xfff3b0, WHITE = 0xf2f2f2;
 const MIN_PX = 28; // the dot never sits closer than this to the anchor on screen, so it can be grabbed
 
 export class MagnitudeGizmo extends THREE.Group {
-    constructor(camera, dom, { step = 0.5, label = '' } = {}) {
+    /**
+     * `knob` is its look: Plasticity's yellow 'dot' (a distance), a yellow 'square' (a wall
+     * thickness, as Pipe's) or a white 'ring' (an angle, as Pipe's).
+     */
+    constructor(camera, dom, { step = 0.5, label = '', knob = 'dot' } = {}) {
         super();
         this.camera = camera;
         this.dom = dom;
@@ -29,10 +33,12 @@ export class MagnitudeGizmo extends THREE.Group {
         this.onEnd = () => { };
         this.onText = () => { };
 
-        this.mat = new THREE.MeshBasicMaterial({ color: YELLOW, depthTest: false, transparent: true });
-        this.lineMat = new THREE.LineBasicMaterial({ color: YELLOW, depthTest: false, transparent: true });
+        this.color = knob === 'ring' ? WHITE : YELLOW;
+        this.mat = new THREE.MeshBasicMaterial({ color: this.color, depthTest: false, transparent: true });
+        this.lineMat = new THREE.LineBasicMaterial({ color: this.color, depthTest: false, transparent: true });
         this.line = new THREE.Line(new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(), new THREE.Vector3(0, 1, 0)]), this.lineMat);
-        this.knob = new THREE.Mesh(new THREE.SphereGeometry(1, 16, 12), this.mat);
+        const shape = knob === 'square' ? new THREE.BoxGeometry(1.7, 1.7, 1.7) : knob === 'ring' ? new THREE.TorusGeometry(1.1, 0.28, 8, 28) : new THREE.SphereGeometry(1, 16, 12);
+        this.knob = new THREE.Mesh(shape, this.mat);
         this.grip = new THREE.Mesh(new THREE.SphereGeometry(2.2, 8, 6), new THREE.MeshBasicMaterial({ visible: false }));
         this.knob.add(this.grip);
         this.add(this.line, this.knob);
@@ -102,6 +108,7 @@ export class MagnitudeGizmo extends THREE.Group {
     }
 
     over(event) {
+        if (!this.visible) return false; // a hidden handle can't be grabbed
         this.updateMatrixWorld(true);
         this.ray(event);
         return this.raycaster.intersectObject(this.knob, true).length > 0;
@@ -112,8 +119,8 @@ export class MagnitudeGizmo extends THREE.Group {
         const on = this.over(event);
         if (on !== (this.state === 'hover')) {
             this.state = on ? 'hover' : 'none';
-            this.mat.color.setHex(on ? HOVER : YELLOW);
-            this.lineMat.color.setHex(on ? HOVER : YELLOW);
+            this.mat.color.setHex(on ? HOVER : this.color);
+            this.lineMat.color.setHex(on ? HOVER : this.color);
         }
     }
 
@@ -179,8 +186,8 @@ export class MagnitudeGizmo extends THREE.Group {
         this.stopListening();
         this.state = 'none';
         this.text = '';
-        this.mat.color.setHex(YELLOW);
-        this.lineMat.color.setHex(YELLOW);
+        this.mat.color.setHex(this.color);
+        this.lineMat.color.setHex(this.color);
         if (was === 'dragging' || was === 'command') this.onEnd();
     }
 
