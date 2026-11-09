@@ -56,3 +56,20 @@ test('an aligned curve follows its reference', () => {
     assert.deepEqual(p.ids, [1]);
     assert.deepEqual(p.list, [{ x: 0, meets: 7, g: 'G1' }]);
 });
+
+test('a Square sheet follows its curves, and lets them go when one is split', () => {
+    const k = new Constraints(), live = new Set([1, 2, 5]);
+    k.addSheet(9, [1, 2], { degree: 3 });
+    assert.equal(k.count, 1);
+    // Curve 5 is no side of the sheet: nothing to fit.
+    assert.deepEqual(k.sheetsOn([5], id => live.has(id)), []);
+    const hits = k.sheetsOn([2], id => live.has(id));
+    assert.equal(hits.length, 1);
+    const again = k.moveSheets(hits, [2], [7]);
+    assert.deepEqual(again.map(r => [r.k.sheet, r.curves]), [[9, [1, 7]]]);
+    live.delete(2); live.add(7);
+    // Split: two curves for one, and the sheet stays as it is.
+    const split = k.sheetsOn([7], id => live.has(id));
+    assert.deepEqual(k.moveSheets(split, [7], [11, 12]), []);
+    assert.equal(k.count, 0);
+});
