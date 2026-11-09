@@ -527,6 +527,12 @@ def handle(scene, msg):
         for req in apply_meshes(scene, msg, scene.w3d_scale, scene.w3d_only_visible) or []:
             if state["link"] is not None:
                 state["link"].send(req)
+        # Each update is a step of Blender's undo, as in Plasticity's add-on: Ctrl+Z after an update
+        # goes back to the meshes before it, not past what was done in Blender before.
+        try:
+            bpy.ops.ed.undo_push(message="Witness 3D: %s" % (state["document"] or "update"))
+        except Exception:  # no window to push from (running headless)
+            pass
     elif kind == "error":
         state["error"] = msg.get("message", "")
     elif kind == "closed":
@@ -649,7 +655,8 @@ if bpy is not None:
                 row.prop(s, "w3d_port", text="")
                 col.operator("witness3d.connect", icon="LINKED")
             else:
-                col.label(text="Connected", icon="CHECKMARK")
+                # The open file's name, as Plasticity's add-on shows it once connected.
+                col.label(text=state["document"] or "Connected", icon="CHECKMARK")
                 col.operator("witness3d.refresh", icon="FILE_REFRESH")
                 col.operator("witness3d.disconnect", icon="UNLINKED")
             col.prop(s, "w3d_live")

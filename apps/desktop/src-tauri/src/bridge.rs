@@ -11,6 +11,8 @@
 //!   server → client  { type: "meshes", document, objects: [{ id, name, revision, positions, indices,
 //!                    faceIds, path, hidden, normals? }] }
 //!                    every body there is; z is up, millimetres. Bodies missing from it are gone.
+//!                    A body's `revision` changes only when its mesh does, so an edit to one body
+//!                    leaves the others' revisions (and the add-on's copies of them) alone.
 //!                    `document` is the file's name, `path` the outliner groups a body is in (from
 //!                    the top) and `hidden` whether it is hidden; disabled bodies are not sent.
 //!                    `normals` (x, y, z per position, z up) are the true surface normals, so
@@ -23,6 +25,9 @@
 //!   server → client  { type: "error", message }
 //! Only 127.0.0.1 is listened on.
 
+use std::collections::hash_map::DefaultHasher;
+use std::collections::HashMap;
+use std::hash::{Hash, Hasher};
 use std::net::{SocketAddr, TcpListener, TcpStream};
 use std::sync::mpsc::{channel, Receiver, Sender};
 use std::sync::{Arc, Mutex};
@@ -78,7 +83,31 @@ pub struct Bridge {
     scene: Scene,
     outline: Arc<Mutex<Value>>,
     refacet: Arc<Mutex<Option<RefacetFn>>>,
+    /// Per body, its mesh's fingerprint and the revision it was first sent at: a body an edit left
+    /// alone keeps its revision, so the add-on leaves its mesh (and Blender's undo) alone.
+    sent: Arc<Mutex<HashMap<u32, (u64, u64)>>>,
     pub addr: SocketAddr,
+}
+
+/// What a body's mesh looks like, in one number.
+fn fingerprint(b: &Body) -> u64 {
+    let mut h = DefaultHasher::new();
+    for v in b.positions.iter().chain(&b.normals) { v.to_bits().hash(&mut h) }
+    b.indices.hash(&mut h);
+    b.face_ids.hash(&mut h);
+    h.finish()
+}
+
+/// Give each body the revision its mesh last changed at, remembered in `sent`.
+fn settle_revisions(bodies: &mut [Body], sent: &Mutex<HashMap<u32, (u64, u64)>>) {
+    let mut sent = sent.lock().unwrap();
+    for b in bodies {
+        let f = fingerprint(b);
+        match sent.get(&b.id) {
+            Some(&(seen, rev)) if seen == f => b.revision = rev,
+            _ => { sent.insert(b.id, (f, b.revision)); }
+        }
+    }
 }
 
 #[derive(Serialize)]
@@ -150,6 +179,7 @@ impl Bridge {
             scene,
             outline: Arc::new(Mutex::new(Value::Null)),
             refacet: Arc::default(),
+            sent: Arc::default(),
             addr: listener.local_addr()?,
         };
         let b = bridge.clone();
@@ -211,7 +241,10 @@ impl Bridge {
 
     fn message(&self) -> String {
         match (self.scene)() {
-            Ok(bodies) => meshes(&bodies, &self.outline.lock().unwrap()),
+            Ok(mut bodies) => {
+                settle_revisions(&mut bodies, &self.sent);
+                meshes(&bodies, &self.outline.lock().unwrap())
+            }
             Err(e) => json!({ "type": "error", "message": e }).to_string(),
         }
     }

@@ -72,6 +72,11 @@ fn refresh_and_live_link_send_z_up_meshes() {
             > objs[0]["indices"].as_array().unwrap().len(),
         "the rounded body has more triangles"
     );
+    // A change that leaves the mesh as it is (the outliner, another body) keeps its revision, so
+    // Blender doesn't rebuild it.
+    bridge.changed();
+    let again = read(&mut ws);
+    assert_eq!(again["objects"][0]["revision"], after["objects"][0]["revision"]);
 
     // The outliner: the document's name, each body's groups and whether it is hidden.
     bridge.set_outline(json!({ "document": "HOUSING", "objects": { "1": { "path": ["PARTS", "LID"], "hidden": true, "name": "LID" } } }));
