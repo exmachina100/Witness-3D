@@ -1,6 +1,7 @@
 // Plasticity's Square: a four-sided B-spline surface on boundary curves and edges, with its Degree
 // and Spans chosen. Four sides meeting end to end fill as a Coons patch (each side exact in the
-// blend, the corners counted once); two sides that don't touch loft straight between them. The
+// blend, the corners counted once); two sides that don't touch loft straight between them; two or
+// three chained end to end without closing sweep (sweepSurface). The
 // patch is then fitted to a clamped B-spline of the chosen degree and spans by least squares over a
 // grid, with the boundary rows fitted first and held, so the sheet's sides follow the sides given;
 // with Spans at 0 (auto) the spans double until every side is within the gap allowed.
@@ -53,6 +54,51 @@ export function orderLoop(sides, gap) {
     const closing = dist(loop.at(-1).at(-1), loop[0][0]);
     if (closing > gap) throw new Error(`the sides don't close: a gap of ${closing.toFixed(3)} mm`);
     return loop;
+}
+
+/**
+ * Two or three sides chained end to end that don't close (Square's sweep-like inputs), each
+ * running on from the one before, or null when they don't chain so.
+ */
+export function openChain(sides, gap) {
+    if (sides.length !== 2 && sides.length !== 3) return null;
+    for (let first = 0; first < sides.length; first++) for (const flip of [false, true]) {
+        const left = sides.filter((_, i) => i !== first).map(copy);
+        const chain = [flip ? reversed(sides[first]) : copy(sides[first])];
+        while (left.length) {
+            const end = chain.at(-1).at(-1);
+            const i = left.findIndex(s => dist(s[0], end) <= gap || dist(s.at(-1), end) <= gap);
+            if (i < 0) break;
+            const [s] = left.splice(i, 1);
+            chain.push(dist(s[0], end) <= gap ? s : reversed(s));
+        }
+        if (!left.length && dist(chain.at(-1).at(-1), chain[0][0]) > gap) return chain;
+    }
+    return null;
+}
+
+/**
+ * Square's sweep-like fill: two sides meeting at a corner sweep each along the other (a
+ * translation surface); three in an open chain sweep the middle one along the outer two as rails,
+ * its ends on them and its shape carried along, leaning from one rail's movement to the other's
+ * across it. The side opposite the middle one (or both far sides of two) is left free.
+ */
+function sweepSurface(chain) {
+    if (chain.length === 2) {
+        const a = reversed(chain[0]), b = chain[1], A = byLength(a), B = byLength(b), corner = A(0);
+        return {
+            kind: 'sweep',
+            at: (u, v) => sub(add(A(u), B(v)), corner),
+            sides: [A, null, null, B], outs: [outOf(a), null, null, outOf(b)], bends: [bendOf(a), null, null, bendOf(b)],
+        };
+    }
+    const l = reversed(chain[0]), m = chain[1], r = chain[2];
+    const L = byLength(l), M = byLength(m), R = byLength(r), L0 = L(0), R0 = R(0);
+    return {
+        kind: 'sweep',
+        at: (u, v) => add(M(u), add(mul(sub(L(v), L0), 1 - u), mul(sub(R(v), R0), u))),
+        sides: [M, R, null, L], outs: [outOf(m), outOf(r), null, outOf(l)], bends: [bendOf(m), bendOf(r), null, bendOf(l)],
+    };
 }
 
 /** What a side may carry per point besides its position: the way out of its face, and for G2 the face's normal and its curvature that way (as [k, 0, 0]). */
@@ -157,6 +203,9 @@ const ends = tension => Array.isArray(tension) ? [tension[0] ?? 1, tension.at(-1
 export function boundarySurface(sides, gap, tension = 1, loft = false) {
     if (loft && sides.length >= 3) return loftSurface(sides, tension);
     const [t0, t1] = ends(tension);
+    // Two or three sides chained without closing: sweep-like, not a loft or a three-sided fill.
+    const chain = loft ? null : openChain(sides, gap);
+    if (chain) return sweepSurface(chain);
     if (sides.length === 2) {
         // A loft: the second side runs the same way as the first.
         let [a, b] = sides;
@@ -396,7 +445,7 @@ export function square(sides, { degree = 3, spans = 0, tolerance = 0.01, continu
         if (tangent) tangentRows(poles, uk, vk, degree, shape.outs, open);
         if (curved) curvatureRows(poles, uk, vk, degree, shape.bends, open);
         if (flatness > 0) flatten(poles, Math.min(1, flatness), rowsU / 2, rowsV / 2);
-        const out = { degree: [degree, degree], uKnots: uk, vKnots: vk, poles, spans: [su, sv] };
+        const out = { degree: [degree, degree], uKnots: uk, vKnots: vk, poles, spans: [su, sv], kind: shape.kind ?? (sides.length === 2 ? 'loft' : 'fill') };
         out.gap = Math.max(sideGap(out, shape.sides), innerGap(out, shape.inner));
         out.turn = tangent ? sideTurn(out, shape.outs) : 0;
         out.bend = curved ? sideBend(out, shape.bends) : 0;

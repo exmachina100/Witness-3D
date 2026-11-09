@@ -7227,7 +7227,7 @@ export async function mount(root, backend) {
       if (loose) {
         c.data = null;
         clearPreview();
-        $('sq-hint').textContent = c.quad ? 'SELECT THE CURVES AND EDGES ROUND ONE CLOSED LOOP' : c.xnurbs ? 'SELECT THREE SIDES OR MORE MEETING END TO END, OR TWO TO LOFT BETWEEN' : 'SELECT THREE OR FOUR SIDES MEETING END TO END, OR TWO TO LOFT BETWEEN';
+        $('sq-hint').textContent = c.quad ? 'SELECT THE CURVES AND EDGES ROUND ONE CLOSED LOOP' : c.xnurbs ? 'SELECT THREE SIDES OR MORE MEETING END TO END, OR TWO TO LOFT BETWEEN' : 'SELECT THREE OR FOUR SIDES MEETING END TO END, TWO TO LOFT BETWEEN, OR TWO OR THREE IN A CHAIN TO SWEEP';
         return setState('none');
       }
       let fit;
@@ -7271,7 +7271,7 @@ export async function mount(root, backend) {
       c.data = splineSheetData(fit);
       c.fit = fit;
       c.analyse();
-      $('sq-hint').textContent = `${c.xnurbs ? 'XNURBS · ' : ''}${c.continuity === 'FREE' ? 'FREE · ' : ''}${c.quad ? 'QUAD SIDED' : items.length === 2 ? 'LOFT' : items.length === 3 ? 'THREE SIDES' : 'FOUR SIDES'} · DEGREE ${fit.degree[0]} · ${fit.spans.join(' × ')} SPANS · SIDES WITHIN ${fit.gap < 1e-4 ? '< 0.0001' : fit.gap.toFixed(4)} MM${c.continuity === 'G1' || c.continuity === 'G2' ? ` · TANGENT WITHIN ${fit.turn.toFixed(2)}°` : ''}${c.continuity === 'G2' ? ` · CURVATURE WITHIN ${fit.bend.toFixed(5)} /MM` : ''}${num('sq-flat') > 0 ? ` · FLATNESS ${Math.min(1, num('sq-flat'))}` : ''}${num('sq-w') < 1 ? ` · WEIGHT ${Math.max(0.05, num('sq-w'))}` : ''}${c.boundary && c.boundary !== 'natural' ? ` · ${c.boundary.toUpperCase()} BOUNDARY` : ''}`;
+      $('sq-hint').textContent = `${c.xnurbs ? 'XNURBS · ' : ''}${c.continuity === 'FREE' ? 'FREE · ' : ''}${c.quad ? 'QUAD SIDED' : fit.kind === 'sweep' ? `SWEEP ON ${items.length} SIDES` : items.length === 2 ? 'LOFT' : items.length === 3 ? 'THREE SIDES' : 'FOUR SIDES'} · DEGREE ${fit.degree[0]} · ${fit.spans.join(' × ')} SPANS · SIDES WITHIN ${fit.gap < 1e-4 ? '< 0.0001' : fit.gap.toFixed(4)} MM${c.continuity === 'G1' || c.continuity === 'G2' ? ` · TANGENT WITHIN ${fit.turn.toFixed(2)}°` : ''}${c.continuity === 'G2' ? ` · CURVATURE WITHIN ${fit.bend.toFixed(5)} /MM` : ''}${num('sq-flat') > 0 ? ` · FLATNESS ${Math.min(1, num('sq-flat'))}` : ''}${num('sq-w') < 1 ? ` · WEIGHT ${Math.max(0.05, num('sq-w'))}` : ''}${c.boundary && c.boundary !== 'natural' ? ` · ${c.boundary.toUpperCase()} BOUNDARY` : ''}`;
       setHud(`${c.xnurbs ? 'XNURBS' : 'SQUARE'} · ${fit.spans.join(' × ')} SPANS`);
       livePreview(c, () => backend.previewSplineSheet({ data: c.data }), b => showPreviewBody(b), 'sq-hint');
     };
@@ -12430,7 +12430,7 @@ export async function mount(root, backend) {
       const tension = [tensionOf(items[0]), tensionOf(items.at(-1))];
       if (!tension.every(t => t > 0)) throw new Error('the tension must be greater than zero');
       const continuity = items.reduce((best, it) => RANK[it.cont] > RANK[best] ? it.cont : best, 'G0');
-      return square(faced, { degree: 3, continuity, tension, loft: items.length > 2 });
+      return square(faced, { degree: 3, continuity, tension, loft: true });
     };
     const tensOf = p => c.tens.get(p.key) ?? num('ls-t');
     const contText = () => edgesOf().map(p => `${label(p.body)} EDGE ${p.n + 1} ${contOf(p)}${contOf(p) !== 'G0' ? ` T ${+tensOf(p).toFixed(2)}` : ''}`).join(' · ');

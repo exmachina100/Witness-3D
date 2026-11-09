@@ -43,7 +43,7 @@ test('two sides loft straight between them', () => {
 
 test('a side of no length is refused', () => {
     assert.throws(() => byLength([[1, 1, 1], [1, 1, 1]]), /length/);
-    assert.throws(() => square([bottom, right, top]), /don't close/);
+    assert.throws(() => square([bottom, right, top.map(p => [p[0], p[1] + 1, p[2]])]), /meet|close/);
     assert.throws(() => square([bottom]), /three or four sides/);
 });
 
@@ -236,4 +236,36 @@ test("Loft's per-edge tension: each end leaves its face as far out as its own te
         const d0 = surfaceAt(s, 0.5, 0.01).map((x, k) => x - surfaceAt(s, 0.5, 0)[k]);
         assert.ok(Math.abs(d0[1]) / Math.hypot(...d0) < 0.05, 'leaves the floor upward');
     }
+});
+
+test('two sides meeting at a corner sweep each along the other', () => {
+    // An arc in the x-z plane and a bowed line along y, sharing the corner at the origin (given in any direction).
+    const a = arc(t => [10 * t, 0, 4 * Math.sin(Math.PI * t)]), b = arc(t => [0, 15 * t, 2 * Math.sin(Math.PI * t)]);
+    const s = square([[...a].reverse(), b], { tolerance: 0.01 });
+    assert.equal(s.kind, 'sweep');
+    assert.ok(s.gap <= 0.01, `gap ${s.gap}`);
+    // The far corner is the corner of both sides' ends; the arc's shape rides along the line.
+    assert.ok(dist(surfaceAt(s, 1, 1), [10, 15, 0]) < 0.01);
+    const mid = surfaceAt(s, 0.5, 0.5);
+    assert.ok(dist(mid, [5, 7.5, 6]) < 0.05, `mid ${mid}`);
+});
+
+test('three sides in an open chain sweep the middle along the outer two', () => {
+    const left = arc(t => [0, 20 * t, 3 * Math.sin(Math.PI * t)]);
+    const middle = arc(t => [12 * t, 0, 5 * Math.sin(Math.PI * t)]);
+    const right = arc(t => [12 + 2 * t, 20 * t, 0]);
+    // Given out of order and turned round: left reversed so the chain runs left (backwards), middle, right.
+    const s = square([right, middle, [...left].reverse()], { tolerance: 0.01 });
+    assert.equal(s.kind, 'sweep');
+    assert.ok(s.gap <= 0.01, `gap ${s.gap}`);
+    // Its far side runs from the end of one rail to the end of the other.
+    const corners = [[0, 0], [0, 1], [1, 0], [1, 1]].map(([u, v]) => surfaceAt(s, u, v));
+    for (const p of [[0, 20, 0], [14, 20, 0], [0, 0, 0], [12, 0, 0]]) assert.ok(corners.some(x => dist(x, p) < 0.01), `corner ${p}`);
+});
+
+test('three sides that close still fill, and a loft of two touching sides stays a loft', () => {
+    const t = square([arc(x => [10 * x, 0, 0]), arc(x => [10 - 10 * x, 10 * x, 0]), arc(x => [0, 10 - 10 * x, 0])], { tolerance: 0.01 });
+    assert.equal(t.kind, 'fill');
+    const l = square([arc(x => [10 * x, 0, 0]), arc(x => [0, 10 * x, 5 * x])], { tolerance: 0.01, loft: true });
+    assert.equal(l.kind, 'loft');
 });
