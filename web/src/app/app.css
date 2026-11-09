@@ -57,7 +57,9 @@ button:focus-visible, input:focus-visible { outline: 1px solid var(--accent); ou
 .tabs { display: grid; grid-template-columns: 1fr 1fr; border-bottom: 1px solid var(--rule); }
 .tabs button { height: 37px; color: var(--muted); font-size: 10px; }
 .tabs button[aria-selected="true"] { background: var(--ink); color: var(--on-accent); }
-.list { flex: 1; overflow: auto; padding-bottom: 8px; }
+.list { flex: 1; overflow: auto; padding-bottom: 8px; position: relative; }
+.list .obox { position: absolute; border: 1px dashed var(--accent); background: color-mix(in srgb, var(--accent) 12%, transparent); pointer-events: none; z-index: 2; }
+.list .boxed { background: color-mix(in srgb, var(--accent) 18%, transparent); }
 .group-title { padding: calc(12px * var(--space, 1)) calc(14px * var(--space, 1)) calc(6px * var(--space, 1)); color: var(--muted); }
 .row-item { display: flex; gap: calc(10px * var(--space, 1)); align-items: center; padding: calc(8px * var(--space, 1)) calc(14px * var(--space, 1)); cursor: pointer; user-select: none; -webkit-user-select: none; }
 .row-item:hover { background: var(--hover); }
