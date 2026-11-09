@@ -21,6 +21,50 @@ fn edge_points(edge: &Edge) -> (Vec<[f64; 3]>, String) {
     (pts, key.join("|"))
 }
 
+/// The surface normal at each of a face mesh's points, turned to agree with its triangles (which
+/// face out of the solid): the kernel's normals ignore a face's placement and may face inward on a
+/// reversed face. Falls back to the triangles' own (area-weighted) normals where it gives none.
+fn surface_normals(face: &Face, mesh: &opencascade::mesh::Mesh) -> Vec<[f64; 3]> {
+    let n = mesh.vertices.len();
+    let mut flat = vec![glam::DVec3::ZERO; n];
+    for t in mesh.indices.chunks_exact(3) {
+        let [a, b, c] = [t[0], t[1], t[2]].map(|i| mesh.vertices[i]);
+        let w = (b - a).cross(c - a);
+        for &i in t { flat[i] += w }
+    }
+    // Points the face has more than once sit on a collapsed edge (a sphere's or a corner blend's
+    // pole), where the surface has no normal of its own: there it is the surface's a hair's
+    // breadth inside the face, toward the points round the pole.
+    let mut at: HashMap<[i64; 3], Vec<usize>> = HashMap::new();
+    for (i, v) in mesh.vertices.iter().enumerate() {
+        at.entry((*v * 1e7).round().as_i64vec3().to_array()).or_default().push(i);
+    }
+    let mut pole = vec![None; n];
+    for same in at.values().filter(|s| s.len() > 1) {
+        let fan = same.iter().map(|&i| flat[i]).sum::<glam::DVec3>();
+        let p = mesh.vertices[same[0]];
+        let round: Vec<glam::DVec3> = mesh.indices.chunks_exact(3).filter(|t| t.iter().any(|i| same.contains(i)))
+            .flat_map(|t| t.iter().filter(|i| !same.contains(i)).map(|&i| mesh.vertices[i])).collect();
+        if round.is_empty() { continue }
+        let toward = round.iter().sum::<glam::DVec3>() / round.len() as f64;
+        let s = face.normal_at(p + (toward - p) * 1e-4).normalize_or_zero();
+        let s = if s.dot(fan) < 0.0 { -s } else { s };
+        let s = if s == glam::DVec3::ZERO { fan.normalize_or_zero() } else { s };
+        for &i in same { pole[i] = Some(s) }
+    }
+    let given = mesh.normals.len() == n;
+    // One sign for the whole face: the kernel's normals all turn the same way.
+    let sign = if given && (0..n).map(|i| mesh.normals[i].dot(flat[i])).sum::<f64>() < 0.0 { -1.0 } else { 1.0 };
+    (0..n).map(|i| {
+        let f = flat[i].normalize_or_zero();
+        if let Some(fan) = pole[i] { return fan.to_array() }
+        let k = if given { (mesh.normals[i] * sign).normalize_or_zero() } else { f };
+        // A normal far from the triangles' (a moved face whose placement the kernel left out)
+        // is not trusted.
+        (if k.dot(f) > 0.7 || f == glam::DVec3::ZERO { k } else { f }).to_array()
+    }).collect()
+}
+
 /// The face's plane if every triangle faces the same way. Triangle winding already accounts for
 /// the face's orientation in the solid, so the normal points out of the body.
 fn plane_of(mesh: &opencascade::mesh::Mesh) -> Option<Plane> {
@@ -730,6 +774,7 @@ impl Kernel for Occt {
             let mesh = Shape::from(&face).mesh_with_tolerance(tolerance).map_err(failed)?;
             let offset = t.positions.len() as u32;
             t.positions.extend(mesh.vertices.iter().map(|v| v.to_array()));
+            t.normals.extend(surface_normals(&face, &mesh));
             t.indices.extend(mesh.indices.iter().map(|&i| offset + i as u32));
             t.face_ids.extend(std::iter::repeat(face_id as u32).take(mesh.indices.len() / 3));
             t.face_planes.push(plane_of(&mesh));

@@ -40,6 +40,14 @@ fn refresh_and_live_link_send_z_up_meshes() {
     let zs: Vec<f64> = p.chunks(3).map(|c| c[2]).collect();
     assert_eq!(zs.iter().cloned().fold(f64::MAX, f64::min), 0.0);
     assert_eq!(zs.iter().cloned().fold(f64::MIN, f64::max), 30.0);
+    // The true surface normals come along, z-up too: straight up on the top face.
+    let n: Vec<f64> = objs[0]["normals"].as_array().unwrap().iter().map(|v| v.as_f64().unwrap()).collect();
+    assert_eq!(n.len(), p.len());
+    // Each face has its own points, so one at the top is on the top face (up) or a side (level).
+    for (q, n) in p.chunks(3).zip(n.chunks(3)) {
+        if q[2] == 30.0 { assert!((n[2] - 1.0).abs() < 1e-6 || n[2].abs() < 1e-6, "{n:?}") }
+    }
+    assert!(p.chunks(3).zip(n.chunks(3)).any(|(q, n)| q[2] == 30.0 && (n[2] - 1.0).abs() < 1e-6));
 
     // Live Link: on sends the scene at once, then again after each change.
     ws.send(Message::text(

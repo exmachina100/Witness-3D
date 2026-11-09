@@ -233,6 +233,10 @@ def apply_meshes(scene, msg, scale, only_visible=False):
         verts = [(p[i] * scale, p[i + 1] * scale, p[i + 2] * scale) for i in range(0, len(p), 3)]
         ix = m["indices"]
         faces = [(ix[i], ix[i + 1], ix[i + 2]) for i in range(0, len(ix), 3)]
+        if not partial:
+            # A face's collapsed edge (a sphere's or a corner blend's pole) leaves triangles with two
+            # corners at one point; they have no area, and Blender can't place a normal on them.
+            faces = [f for f in faces if verts[f[0]] != verts[f[1]] and verts[f[1]] != verts[f[2]] and verts[f[2]] != verts[f[0]]]
         if obj is None:
             mesh = bpy.data.meshes.new(m["name"])
             obj = bpy.data.objects.new(m["name"], mesh)
@@ -250,6 +254,7 @@ def apply_meshes(scene, msg, scale, only_visible=False):
             # Witness 3D sends each B-rep face with its own vertices, so smooth shading stays sharp
             # at the face boundaries and smooth across rounds.
             mesh.polygons.foreach_set("use_smooth", [True] * len(mesh.polygons))
+            set_normals(mesh, m.get("normals"))
             if obj.get("w3d_refacet"):
                 again.setdefault(obj["w3d_refacet"], []).append(m["id"])
         mesh.update()
@@ -267,6 +272,16 @@ def apply_meshes(scene, msg, scale, only_visible=False):
         if c.get("w3d_name") == doc:
             prune(c)
     return refacet_requests(again)
+
+
+def set_normals(mesh, n):
+    """Give the mesh Witness 3D's true surface normals (one per vertex), so curved faces shade
+    as the surface does rather than as the facets do. Without them Blender's own smoothing stays."""
+    if not n or len(n) != 3 * len(mesh.vertices):
+        return
+    if hasattr(mesh, "use_auto_smooth"):  # Blender before 4.1 reads custom normals only with this
+        mesh.use_auto_smooth = True
+    mesh.normals_split_custom_set_from_vertices([tuple(n[i:i + 3]) for i in range(0, len(n), 3)])
 
 
 def place(obj, target, root):

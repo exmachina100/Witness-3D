@@ -120,6 +120,12 @@ try:
     wait_for(lambda: body["w3d_revision"] != rev, "the Live Link update")
     check(len(body.data.vertices) > before, "the mesh in Blender is the rounded one (%d → %d vertices)" % (before, len(body.data.vertices)))
     check(tuple(round(d * 1000, 3) for d in body.dimensions) == (80.0, 50.0, 30.0), "its size is unchanged")
+    # The true surface normals came along: where a round meets the top it is level, so every
+    # corner there shades straight up (Blender's own smoothing would tilt the round's edge row).
+    me = body.data
+    top = max(v.co.z for v in me.vertices)
+    ups = [me.corner_normals[l.index].vector.z for l in me.loops if abs(me.vertices[l.vertex_index].co.z - top) < 1e-7]
+    check(len(ups) > 0 and min(ups) > 0.9999, "the rounds shade with the surface's own normals (lowest up %.5f)" % min(ups))
     check(len(body.data.materials) == 1 and body.data.materials[0] == mat, "the material set in Blender is kept")
     bpy.context.view_layer.update()
     check([list(r) for r in cam.matrix_world] == cam_matrix and scene.camera == cam, "the camera is untouched")

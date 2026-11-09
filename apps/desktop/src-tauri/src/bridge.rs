@@ -9,10 +9,12 @@
 //!   client → server  { type: "refresh" }                  reply: one "meshes" message
 //!   client → server  { type: "live", on: bool }            Live Link on or off
 //!   server → client  { type: "meshes", document, objects: [{ id, name, revision, positions, indices,
-//!                    faceIds, path, hidden }] }
+//!                    faceIds, path, hidden, normals? }] }
 //!                    every body there is; z is up, millimetres. Bodies missing from it are gone.
 //!                    `document` is the file's name, `path` the outliner groups a body is in (from
 //!                    the top) and `hidden` whether it is hidden; disabled bodies are not sent.
+//!                    `normals` (x, y, z per position, z up) are the true surface normals, so
+//!                    curved faces shade smoothly; left out when not known (refaceted meshes).
 //!   client → server  { type: "refacet", ids, tolerance, angle, ngon, min_width,
 //!                    edge_chord_tolerance, edge_angle_tolerance, face_plane_tolerance,
 //!                    face_angle_tolerance }
@@ -90,6 +92,8 @@ struct MeshOut<'a> {
     face_ids: &'a [u32],
     path: Vec<String>,
     hidden: bool,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    normals: Vec<f32>,
 }
 
 /// The bodies as a "meshes" message, turned from the viewport's y-up to z-up. `outline` is what
@@ -128,6 +132,7 @@ pub fn meshes_message(bodies: &[Body], outline: &Value, partial: bool) -> String
                 .map(|p| p.iter().filter_map(|g| g.as_str().map(String::from)).collect())
                 .unwrap_or_default(),
             hidden: o["hidden"].as_bool().unwrap_or(false),
+            normals: b.normals.chunks(3).flat_map(|n| [n[0], -n[2], n[1]]).collect(),
         })
         .collect();
     let document = outline["document"].as_str().unwrap_or("Witness 3D");

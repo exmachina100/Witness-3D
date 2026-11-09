@@ -152,6 +152,9 @@ pub struct Tessellation {
     /// The true edges as polylines. The index is the edge's number: what a click on an edge
     /// selects and what [`Kernel::blend`] takes.
     pub edges: Vec<Vec<[f64; 3]>>,
+    /// The surface's unit normal at each position, pointing out of the solid (empty when the
+    /// kernel gives none): what a mesh needs to shade curved faces smoothly elsewhere (Blender).
+    pub normals: Vec<[f64; 3]>,
 }
 
 /// One tooth of a curvature comb: where it stands, which way it points (away from the centre of
