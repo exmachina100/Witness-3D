@@ -47,6 +47,9 @@ export const PREF_FIELDS = {
         // Plasticity's UI standard spacing (inferred: the manual names it only): how much room the
         // outliner rows, panel sections and option buttons leave round themselves, 1 as drawn.
         { key: 'spacing', label: 'UI STANDARD SPACING', type: 'number', value: 1, min: 0.5, max: 1.5, step: 0.25 },
+        // Plasticity shows suggested commands only in the Shift+F window; the strip of them in the
+        // top bar is ours, off unless asked for.
+        { key: 'ctxStrip', label: 'SUGGESTED COMMANDS IN THE TOP BAR', type: 'bool', value: false },
     ],
     commands: [
         { key: 'autoInvoke', label: 'AUTO-INVOKE COMMANDS', type: 'bool', value: true },
