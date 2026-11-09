@@ -68,7 +68,7 @@ import { filterFillets } from '../filletFilter.js';
 import { navAction, navHints, orbitMode } from '../navPresets.js';
 import { MagnitudeGizmo, typed } from '../MagnitudeGizmo.js';
 import { TOOLS, check, tool as toolInfo, withDefaults } from './tools.js';
-import { ACTIONS, COMMAND, VIEWPORT, keyFor, keyOf } from './keymap.js';
+import { ACTIONS, COMMAND, VIEWPORT, keyFor, keyOf, useKeys } from './keymap.js';
 import { adjacent, edgeLoop, edgeRing, topology } from './edgeLoops.js';
 import { Selection, faceBoundEdges, faceEdges, faceNeighbours, faceRim } from './Selection.js';
 import { faceProfile } from '../faceProfile.js';
@@ -13521,14 +13521,30 @@ export async function mount(root, backend) {
   };
   let customKeys = store.get('w3d-keys', {});
   let keys = mergeKeys(VIEWPORT, customKeys);
+  const keyLabel = action => showKey(Object.keys(keys).find(k => keys[k] === action));
+  // Tooltips and key labels follow the keymap as it is now, as Plasticity's read the current keys.
+  function keysShown() {
+    useKeys(keys);
+    toolbar.repaint();
+    for (const b of $$('.cmdbar [data-action]')) {
+      const a = b.dataset.action, k = keyLabel(a), name = b.getAttribute('aria-label');
+      b.title = `${name}${k ? ` (${k})` : ''}`;
+      const kbd = b.querySelector('kbd');
+      const short = k.replace('SHIFT ', '⇧').replace('CTRL ', '⌃').replace('ALT ', '⌥');
+      if (k && kbd) kbd.textContent = short;
+      else if (k) b.insertAdjacentHTML('beforeend', `<kbd>${short}</kbd>`);
+      else kbd?.remove();
+    }
+  }
+  keysShown();
   function bindKeys(list, action) {
     for (const k of list) customKeys[k] = action;
     // A key set back to the action it has by default needs no entry.
     for (const k of Object.keys(customKeys)) if ((customKeys[k] || undefined) === VIEWPORT[k]) delete customKeys[k];
     store.set('w3d-keys', customKeys);
     keys = mergeKeys(VIEWPORT, customKeys);
+    keysShown();
   }
-  const keyLabel = action => showKey(Object.keys(keys).find(k => keys[k] === action));
 
   // P-Menu: the file menu under the app's name (Plasticity's P at the top left).
   let recent = store.get('w3d-recent', []);
@@ -13913,7 +13929,8 @@ export async function mount(root, backend) {
   ];
   function renderContext() {
     const el = $('ctx');
-    if (!sel.size) { el.innerHTML = ''; return; }
+    el.hidden = !prefs.appearance.ctxStrip;
+    if (!sel.size || el.hidden) { el.innerHTML = ''; return; }
     const groups = new Map();
     for (const e of suggestions()) {
       const g = CTX_GROUPS.find(([, re]) => re.test(e.action))?.[0] ?? 'MORE';

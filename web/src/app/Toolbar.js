@@ -87,6 +87,9 @@ export class Toolbar {
         addEventListener('keydown', e => { if (e.key === 'Escape' && !this.strip.hidden) { e.stopPropagation(); this.close(); } }, true);
     }
 
+    /** Draw every family's button again (after the keymap changes, so tooltips show the new keys). */
+    repaint() { for (const f of FAMILIES) this.paint(f.id); }
+
     /** Draw a family's button from its current face. */
     paint(famId) {
         const id = this.face[famId], m = this.meta(id), fam = FAMILIES.find(f => f.id === famId);

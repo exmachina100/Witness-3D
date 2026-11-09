@@ -232,8 +232,13 @@ export const ACTIONS = {
     'export:step': 'Export STEP', 'export:mesh': 'Export mesh (OBJ, STL)', 'export:drawing': 'Export drawing (SVG, DXF)', 'import:step': 'Import (STEP, IGES, DXF)',
 };
 
+// The keys in use: the defaults until the app hands over the user's own (useKeys).
+let current = VIEWPORT;
+/** The keymap tooltips and labels read from now on (defaults merged with the user's own keys). */
+export function useKeys(map) { current = map; }
+
 /** The key bound to an action, for display ('SHIFT X'), or ''. */
 export function keyFor(action) {
-    const k = Object.keys(VIEWPORT).find(k => VIEWPORT[k] === action);
+    const k = Object.keys(current).find(k => current[k] === action);
     return k ? k.toUpperCase().replaceAll('-', ' ') : '';
 }
