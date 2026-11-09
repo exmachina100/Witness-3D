@@ -6,9 +6,46 @@
 //
 // Curves get new ids whenever they change, so each reference is a chain of ids, newest last; the
 // newest one still present is the curve (undo brings older ones back, and the chain still finds them).
+//
+// A Square sheet made with the option on, from curves only, rests on those curves the same way:
+// when one is edited the sheet is fitted again to the curves as they now are, with the options it
+// was made with, in the sheet's place (sheets, below).
 
 export class Constraints {
-    constructor() { this.list = []; }
+    constructor() { this.list = []; this.sheets = []; }
+
+    /** How many constraints there are, of every kind. */
+    get count() { return this.list.length + this.sheets.length; }
+
+    /** A Square sheet `sheet` (a body id) resting on `curves` (in the order fitted), made with `options`. */
+    addSheet(sheet, curves, options) {
+        this.sheets.push({ kind: 'square', sheet, ins: curves.map(c => [c]), options });
+    }
+
+    /** Before curves `ids` are replaced: the sheets resting on any of them, with their curves' current ids. */
+    sheetsOn(ids, exists) {
+        return this.sheets.map(k => ({ k, heads: k.ins.map(c => Constraints.head(c, exists)) }))
+            .filter(r => r.heads.every(h => h !== null) && r.heads.some(h => ids.includes(h)));
+    }
+
+    /**
+     * After curves `ids` became `newIds`: the sheets found by {@link sheetsOn} follow them, and are
+     * returned as { k, curves } (their curves' new ids) to be fitted again. When the counts differ
+     * (a curve split or joined) the sheets let their curves go and stay as they are.
+     */
+    moveSheets(hits, ids, newIds) {
+        if (ids.length !== newIds.length) {
+            this.sheets = this.sheets.filter(k => !hits.some(r => r.k === k));
+            return [];
+        }
+        return hits.map(({ k, heads }) => {
+            k.ins.forEach((chain, j) => { const i = ids.indexOf(heads[j]); if (i >= 0) chain.push(newIds[i]); });
+            return { k, curves: k.ins.map(c => c.at(-1)) };
+        });
+    }
+
+    /** A sheet no longer there (deleted, or replaced by hand) lets its curves go. */
+    dropSheet(k) { this.sheets = this.sheets.filter(x => x !== k); }
 
     /** A bridge `out` between curves `a` (end `ea`) and `b` (end `eb`), with the options it was made with. */
     addBridge(out, a, ea, b, eb, options) {
@@ -65,5 +102,5 @@ export class Constraints {
         return { ...extra, done };
     }
 
-    clear() { this.list = []; }
+    clear() { this.list = []; this.sheets = []; }
 }
