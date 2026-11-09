@@ -17,6 +17,11 @@
 # merged where they lie flat. Live Link keeps each object's settings: when the body changes it is
 # refaceted again.
 #
+# Selection utilities, as in Plasticity's add-on (each polygon keeps its B-rep face in the w3d_face
+# attribute): Select Faces and Select Edges in edit mode, Auto Mark Edges (seams and/or sharp on the
+# B-rep edges), Merge UV Seams (seams left only on the B-rep edges) and Paint Faces (a colour per
+# face). Marking and merging weld the mesh first, keeping its shading through custom normals.
+#
 # Install: Edit > Preferences > Add-ons > Install from Disk, pick this file, enable it. The panel is
 # in the 3D view's sidebar (N), under "Witness 3D". The Witness 3D desktop app listens on
 # 127.0.0.1:8981. Protocol: apps/desktop/src-tauri/src/bridge.rs.
@@ -47,6 +52,7 @@ except ImportError:  # the WebSocket client is usable without Blender, for tests
     bpy = bmesh = None
 
 COLLECTION = "Witness 3D"
+FACE_ATTR = "w3d_face"  # per polygon: the B-rep face it came from
 GUID = b"258EAFA5-E914-47DA-95CA-C5AB0DC85B11"
 
 
@@ -233,10 +239,13 @@ def apply_meshes(scene, msg, scale, only_visible=False):
         verts = [(p[i] * scale, p[i + 1] * scale, p[i + 2] * scale) for i in range(0, len(p), 3)]
         ix = m["indices"]
         faces = [(ix[i], ix[i + 1], ix[i + 2]) for i in range(0, len(ix), 3)]
+        fids = m.get("faceIds") or [0] * len(faces)
         if not partial:
             # A face's collapsed edge (a sphere's or a corner blend's pole) leaves triangles with two
             # corners at one point; they have no area, and Blender can't place a normal on them.
-            faces = [f for f in faces if verts[f[0]] != verts[f[1]] and verts[f[1]] != verts[f[2]] and verts[f[2]] != verts[f[0]]]
+            keep = [verts[f[0]] != verts[f[1]] and verts[f[1]] != verts[f[2]] and verts[f[2]] != verts[f[0]] for f in faces]
+            faces = [f for f, k in zip(faces, keep) if k]
+            fids = [i for i, k in zip(fids, keep) if k]
         if obj is None:
             mesh = bpy.data.meshes.new(m["name"])
             obj = bpy.data.objects.new(m["name"], mesh)
@@ -248,13 +257,15 @@ def apply_meshes(scene, msg, scale, only_visible=False):
         # Clearing keeps the mesh's material slots, so materials set in Blender stay put.
         mesh.clear_geometry()
         if partial:
-            build_refaceted(mesh, verts, faces, m.get("faceIds") or [0] * len(faces), bool(obj.get("w3d_ngon")), 0.0005 * scale)
+            build_refaceted(mesh, verts, faces, fids, bool(obj.get("w3d_ngon")), 0.0005 * scale)
         else:
             mesh.from_pydata(verts, [], faces)
             # Witness 3D sends each B-rep face with its own vertices, so smooth shading stays sharp
             # at the face boundaries and smooth across rounds.
             mesh.polygons.foreach_set("use_smooth", [True] * len(mesh.polygons))
             set_normals(mesh, m.get("normals"))
+            # Which B-rep face each polygon came from, for the selection utilities.
+            mesh.attributes.new(FACE_ATTR, "INT", "FACE").data.foreach_set("value", fids)
             if obj.get("w3d_refacet"):
                 again.setdefault(obj["w3d_refacet"], []).append(m["id"])
         mesh.update()
@@ -342,7 +353,7 @@ def build_refaceted(mesh, verts, faces, face_ids, ngon, weld):
     """Fill `mesh` welded into one piece, with sharp B-rep edges and (Ngon) flat facets merged."""
     bm = bmesh.new()
     bv = [bm.verts.new(v) for v in verts]
-    layer = bm.faces.layers.int.new("w3d_face")
+    layer = bm.faces.layers.int.new(FACE_ATTR)
     for f, fid in zip(faces, face_ids):
         try:
             bf = bm.faces.new((bv[f[0]], bv[f[1]], bv[f[2]]))
@@ -360,6 +371,153 @@ def build_refaceted(mesh, verts, faces, face_ids, ngon, weld):
         f.smooth = True
     bm.to_mesh(mesh)
     bm.free()
+
+
+# --- selection utilities (Plasticity's add-on has the same five; each polygon knows its B-rep face) ---
+
+def face_layer(bm):
+    return bm.faces.layers.int.get(FACE_ATTR)
+
+
+def borders(bm, faces):
+    """The edges of `faces` that bound their B-rep face: open edges, or between two B-rep faces."""
+    layer = face_layer(bm)
+    out = set()
+    for f in faces:
+        for e in f.edges:
+            fs = e.link_faces
+            if len(fs) != 2 or fs[0][layer] != fs[1][layer]:
+                out.add(e)
+    return out
+
+
+def whole_faces(bm, faces):
+    """Every polygon of the B-rep faces `faces` belong to."""
+    layer = face_layer(bm)
+    ids = {f[layer] for f in faces}
+    return [f for f in bm.faces if f[layer] in ids]
+
+
+def welded_mesh(obj, dist):
+    """Weld the object's mesh in place (outside edit mode), its shading kept: the B-rep edges stay
+    sharp through their custom normals and every face's own normals stay as they were."""
+    me = obj.data
+    loop_normals = [tuple(me.corner_normals[i].vector) for i in range(len(me.loops))]
+    attr = me.attributes.get("w3d_n") or me.attributes.new("w3d_n", "FLOAT_VECTOR", "CORNER")
+    attr.data.foreach_set("vector", [c for n in loop_normals for c in n])
+    bm = bmesh.new()
+    bm.from_mesh(me)
+    bmesh.ops.remove_doubles(bm, verts=bm.verts, dist=dist)
+    bm.to_mesh(me)
+    bm.free()
+    attr = me.attributes["w3d_n"]
+    flat = [0.0] * (3 * len(me.loops))
+    attr.data.foreach_get("vector", flat)
+    me.attributes.remove(attr)
+    if hasattr(me, "use_auto_smooth"):
+        me.use_auto_smooth = True
+    me.normals_split_custom_set([tuple(flat[i:i + 3]) for i in range(0, len(flat), 3)])
+    me.update()
+
+
+def ours(context):
+    """The objects worked on: those in edit mode, else the selected ones, that came from Witness 3D
+    (their polygons know their B-rep faces)."""
+    objs = context.objects_in_mode if context.mode == "EDIT_MESH" else context.selected_objects
+    return [o for o in objs or [] if o.type == "MESH" and o.data.attributes.get(FACE_ATTR)]
+
+
+def on_whole_mesh(context, work):
+    """Run `work(obj, picked)` on each object out of edit mode, `picked` its selected polygons (empty
+    outside edit mode), going back to edit mode after."""
+    objs, editing = ours(context), context.mode == "EDIT_MESH"
+    picked = {}
+    if editing:
+        for o in objs:
+            bm = bmesh.from_edit_mesh(o.data)
+            picked[o.name] = {f.index for f in bm.faces if f.select}
+        bpy.ops.object.mode_set(mode="OBJECT")
+    for o in objs:
+        work(o, picked.get(o.name, set()))
+    if editing:
+        bpy.ops.object.mode_set(mode="EDIT")
+    return len(objs)
+
+
+def select_faces(obj):
+    """Grow the face selection to the whole B-rep faces it touches."""
+    bm = bmesh.from_edit_mesh(obj.data)
+    if face_layer(bm) is None:
+        return
+    for f in whole_faces(bm, [f for f in bm.faces if f.select]):
+        f.select_set(True)
+    bmesh.update_edit_mesh(obj.data)
+
+
+def select_edges(obj):
+    """Select the B-rep edges round the selected faces (and nothing else)."""
+    bm = bmesh.from_edit_mesh(obj.data)
+    if face_layer(bm) is None:
+        return
+    edges = borders(bm, whole_faces(bm, [f for f in bm.faces if f.select]))
+    for f in bm.faces:
+        f.select_set(False)
+    for e in edges:
+        e.select_set(True)
+    bm.select_mode = {"EDGE"}
+    bm.select_flush_mode()
+    bmesh.update_edit_mesh(obj.data)
+
+
+def mark_edges(obj, picked, sharp, seam, dist):
+    """Weld the object, then mark the B-rep edges round the faces `picked` (polygon indices; all
+    when empty) sharp and/or as UV seams."""
+    welded_mesh(obj, dist)
+    bm = bmesh.new()
+    bm.from_mesh(obj.data)
+    bm.faces.ensure_lookup_table()
+    faces = [bm.faces[i] for i in picked] if picked else list(bm.faces)
+    for e in borders(bm, whole_faces(bm, faces)):
+        if sharp:
+            e.smooth = False
+        if seam:
+            e.seam = True
+    bm.to_mesh(obj.data)
+    bm.free()
+    obj.data.update()
+
+
+def merge_seams(obj, picked, dist):
+    """Weld the object and clear the UV seams inside the B-rep faces of `picked` (polygon indices;
+    all when empty), keeping those on the B-rep edges: each face unwraps as one island."""
+    welded_mesh(obj, dist)
+    bm = bmesh.new()
+    bm.from_mesh(obj.data)
+    bm.faces.ensure_lookup_table()
+    faces = whole_faces(bm, [bm.faces[i] for i in picked] if picked else list(bm.faces))
+    edge = borders(bm, faces)
+    for f in faces:
+        for e in f.edges:
+            e.seam = e in edge
+    bm.to_mesh(obj.data)
+    bm.free()
+    obj.data.update()
+
+
+def paint_faces(obj):
+    """A colour attribute with a random colour per B-rep face (the same face keeps its colour)."""
+    me = obj.data
+    ids = [0] * len(me.polygons)
+    me.attributes[FACE_ATTR].data.foreach_get("value", ids)
+    col = me.color_attributes.get("w3d_faces") or me.color_attributes.new("w3d_faces", "BYTE_COLOR", "CORNER")
+    rgba = []
+    for p, fid in zip(me.polygons, ids):
+        h = hashlib.md5(b"%d" % fid).digest()
+        c = (h[0] / 255, h[1] / 255, h[2] / 255, 1.0)
+        rgba.extend(c * p.loop_total)
+    col.data.foreach_set("color", rgba)
+    me.color_attributes.active_color = col
+    me.update()
 
 
 def handle(scene, msg):
@@ -509,10 +667,91 @@ if bpy is not None:
             row = box.row()
             row.enabled = state["link"] is not None
             row.operator("witness3d.refacet", icon="MOD_TRIANGULATE")
+            box = col.box()
+            box.label(text="Selection utilities")
+            row = box.row(align=True)
+            row.operator("witness3d.select_faces", icon="FACESEL")
+            row.operator("witness3d.select_edges", icon="EDGESEL")
+            box.operator("witness3d.mark_edges", icon="EDGESEL")
+            box.operator("witness3d.merge_seams", icon="UV")
+            box.operator("witness3d.paint_faces", icon="BRUSH_DATA")
             if state["error"]:
                 col.label(text=state["error"], icon="ERROR")
 
-    CLASSES = (W3D_OT_connect, W3D_OT_disconnect, W3D_OT_refresh, W3D_OT_refacet, W3D_PT_panel)
+    class W3D_OT_select_faces(bpy.types.Operator):
+        """Grow the face selection to the whole Witness 3D faces it touches"""
+        bl_idname = "witness3d.select_faces"
+        bl_label = "Select Faces"
+        bl_options = {"REGISTER", "UNDO"}
+
+        @classmethod
+        def poll(cls, context):
+            return context.mode == "EDIT_MESH"
+
+        def execute(self, context):
+            for o in ours(context):
+                select_faces(o)
+            return {"FINISHED"}
+
+    class W3D_OT_select_edges(bpy.types.Operator):
+        """Select the Witness 3D edges round the selected faces"""
+        bl_idname = "witness3d.select_edges"
+        bl_label = "Select Edges"
+        bl_options = {"REGISTER", "UNDO"}
+
+        @classmethod
+        def poll(cls, context):
+            return context.mode == "EDIT_MESH"
+
+        def execute(self, context):
+            for o in ours(context):
+                select_edges(o)
+            return {"FINISHED"}
+
+    class W3D_OT_mark_edges(bpy.types.Operator):
+        """Weld the mesh and mark the Witness 3D edges round the selected faces (or all of them)"""
+        bl_idname = "witness3d.mark_edges"
+        bl_label = "Auto Mark Edges"
+        bl_options = {"REGISTER", "UNDO"}
+        mark: bpy.props.EnumProperty(name="Mark", default="SEAM", items=[
+            ("SEAM", "Seams", "Mark them as UV seams"), ("SHARP", "Sharp", "Mark them sharp"),
+            ("BOTH", "Both", "Seams and sharp")])
+
+        def execute(self, context):
+            sharp, seam = self.mark in ("SHARP", "BOTH"), self.mark in ("SEAM", "BOTH")
+            weld = 0.0005 * context.scene.w3d_scale
+            if not on_whole_mesh(context, lambda o, p: mark_edges(o, p, sharp, seam, weld)):
+                self.report({"ERROR"}, "Select objects from Witness 3D")
+                return {"CANCELLED"}
+            return {"FINISHED"}
+
+    class W3D_OT_merge_seams(bpy.types.Operator):
+        """Weld the mesh and keep UV seams only on the Witness 3D edges of the selected faces, so each face unwraps whole"""
+        bl_idname = "witness3d.merge_seams"
+        bl_label = "Merge UV Seams"
+        bl_options = {"REGISTER", "UNDO"}
+
+        def execute(self, context):
+            weld = 0.0005 * context.scene.w3d_scale
+            if not on_whole_mesh(context, lambda o, p: merge_seams(o, p, weld)):
+                self.report({"ERROR"}, "Select objects from Witness 3D")
+                return {"CANCELLED"}
+            return {"FINISHED"}
+
+    class W3D_OT_paint_faces(bpy.types.Operator):
+        """Give each Witness 3D face a random colour (a colour attribute, w3d_faces)"""
+        bl_idname = "witness3d.paint_faces"
+        bl_label = "Paint Faces"
+        bl_options = {"REGISTER", "UNDO"}
+
+        def execute(self, context):
+            if not on_whole_mesh(context, lambda o, p: paint_faces(o)):
+                self.report({"ERROR"}, "Select objects from Witness 3D")
+                return {"CANCELLED"}
+            return {"FINISHED"}
+
+    CLASSES = (W3D_OT_connect, W3D_OT_disconnect, W3D_OT_refresh, W3D_OT_refacet, W3D_OT_select_faces,
+               W3D_OT_select_edges, W3D_OT_mark_edges, W3D_OT_merge_seams, W3D_OT_paint_faces, W3D_PT_panel)
 
 REFACET_PROPS = ("w3d_facet_type", "w3d_tolerance", "w3d_angle", "w3d_advanced", "w3d_min_width", "w3d_max_width",
                  "w3d_edge_chord_tolerance", "w3d_edge_angle_tolerance", "w3d_face_plane_tolerance",
