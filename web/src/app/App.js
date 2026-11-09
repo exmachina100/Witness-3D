@@ -7197,10 +7197,30 @@ export async function mount(root, backend) {
     if (xnurbs) { $('tool-name').textContent = 'XNURBS'; $('status-tool').textContent = 'XNURBS'; }
     setState('none');
     const { sideOf, withOut } = edgeSideReader(c);
-    const picked = () => [...sel.curves.map(id => ({ kind: 'curve', id })), ...sel.list('edge').map(e => ({ kind: 'edge', body: e.body, n: e.n }))];
+    // Refit (Plasticity's Square on one four-sided face): with no curves or edges picked, one face,
+    // or a sheet of one face, gives its own edges as the sides; a one-face sheet is replaced by the
+    // fitted one (degree, spans and continuity as set), the face of a solid gets a new sheet.
+    const refitSource = () => {
+      if (c.xnurbs || sel.curves.length || sel.list('edge').length) return null;
+      const faces = sel.list('face'), solids = sel.solids;
+      let body, face = 0;
+      if (faces.length === 1 && !solids.length) ({ body, n: face } = faces[0]);
+      else if (solids.length === 1 && !faces.length && bodyOf(solids[0])?.facePlanes.length === 1) body = solids[0];
+      else return null;
+      const b = bodyOf(body);
+      if (!b) return null;
+      return { body, edges: faceRim(b, face).map(r => r.edge), replace: b.sheet && b.facePlanes.length === 1 ? body : null };
+    };
+    const picked = () => {
+      const r = refitSource();
+      c.replace = r?.replace ?? null;
+      c.refit = !!r;
+      if (r) return r.edges.map(n => ({ kind: 'edge', body: r.body, n }));
+      return [...sel.curves.map(id => ({ kind: 'curve', id })), ...sel.list('edge').map(e => ({ kind: 'edge', body: e.body, n: e.n }))];
+    };
     c.preview = async () => {
       const items = picked();
-      setTarget(`${items.length} SIDE${items.length === 1 ? '' : 'S'}`);
+      setTarget(c.refit ? `REFIT ${items.length} SIDES${c.replace ? ' · REPLACES THE SHEET' : ''}` : `${items.length} SIDE${items.length === 1 ? '' : 'S'}`);
       // xNURBS fills five sides or more as one sheet of patches round a centre (nSided.js).
       const many = c.xnurbs && !c.quad && items.length > 4;
       const loose = c.quad ? items.length < 1 : items.length < 2 || (items.length > 4 && !many);
@@ -7302,9 +7322,9 @@ export async function mount(root, backend) {
     c.finish = async () => {
       if (!c.data) { toast($('sq-hint').textContent); return endCmd('cancelled'); }
       try {
-        const { ids, scene: list } = await backend.commitSplineSheet({ data: c.data, more: c.more ?? [] });
+        const { ids, scene: list } = await backend.commitSplineSheet({ data: c.data, more: c.more ?? [], ...(c.replace != null ? { replace: c.replace } : {}) });
         endCmd('committed');
-        record(c.xnurbs ? 'XNURBS' : 'SQUARE', ids[0], $('sq-hint').textContent);
+        record(c.xnurbs ? 'XNURBS' : c.refit ? 'SQUARE REFIT' : 'SQUARE', ids[0], $('sq-hint').textContent);
         await showScene(list);
         sel.clear();
         sel.add({ kind: 'solid', body: ids[0] });

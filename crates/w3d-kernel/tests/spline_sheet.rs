@@ -40,3 +40,18 @@ fn numbers_that_do_not_add_up_are_refused() {
     assert!(k.spline_sheet(&d).is_err());
     assert!(k.spline_sheet(&[3.0, 3.0]).is_err());
 }
+
+#[test]
+fn refit_replaces_the_sheet_in_place_and_undoes() {
+    use w3d_kernel::document::Document;
+    let mut doc = Document::new(Occt);
+    let id = doc.commit_spline_sheets(&data(0.0), &[]).unwrap();
+    let top = |doc: &Document<Occt>| doc.kernel.tessellate(doc.get(id).unwrap(), 0.01).unwrap().positions.iter().map(|p| p[1]).fold(f64::MIN, f64::max);
+    assert!(top(&doc).abs() < 1e-6);
+    assert_eq!(doc.commit_spline_sheets_replacing(id, &data(3.0), &[]).unwrap(), id);
+    assert_eq!(doc.ids(), vec![id]);
+    assert!((top(&doc) - 3.0 * 0.5625).abs() < 0.02);
+    assert!(doc.undo());
+    assert!(top(&doc).abs() < 1e-6, "undo brings the old sheet back");
+    assert!(doc.commit_spline_sheets_replacing(99, &data(1.0), &[]).is_err());
+}
