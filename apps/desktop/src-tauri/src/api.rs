@@ -109,6 +109,10 @@ pub struct Body {
     pub edge_refs: Vec<Ref>,
     /// The document revision this body was drawn from.
     pub revision: u64,
+    /// The surface normal at each position (x, y, z), out of the body; for the Blender bridge,
+    /// not the viewport, so never sent to the UI. Empty when unknown (a Refacet's mesh).
+    #[serde(skip)]
+    pub normals: Vec<f32>,
 }
 
 #[derive(Serialize, Debug)]
@@ -255,6 +259,7 @@ fn body(k: &Occt, id: BodyId, solid: &<Occt as Kernel>::Solid) -> Result<Body, S
         face_refs: vec![],
         edge_refs: vec![],
         revision: 0,
+        normals: t.normals.iter().flatten().map(|&c| c as f32).collect(),
     })
 }
 
@@ -366,6 +371,7 @@ pub fn refacet(m: &Model, ids: Vec<BodyId>, r: Refacet) -> Result<Vec<Body>, Str
                 face_refs: vec![],
                 edge_refs: vec![],
                 revision: doc.revision(),
+                normals: vec![],
             });
         }
         Ok(out)
