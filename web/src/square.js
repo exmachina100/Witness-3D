@@ -71,6 +71,7 @@ function copy(side) {
  * the next profile is, times tension), else heads straight for the next profile.
  */
 function loftSurface(sides, tension) {
+    const [t0, t1] = ends(tension);
     const list = [sides[0]];
     for (const side of sides.slice(1)) {
         const a = list.at(-1);
@@ -85,8 +86,8 @@ function loftSurface(sides, tension) {
     const oa = outOf(list[0]), oz = outOf(list[n - 1]);
     // dP/dv at profile k for parameter u.
     const slope = (k, u) => {
-        if (k === 0) return oa ? mul(oa(u), gaps[0] * tension / (vs[1] - vs[0])) : mul(sub(F[1](u), F[0](u)), 1 / (vs[1] - vs[0]));
-        if (k === n - 1) return oz ? mul(oz(u), -gaps[n - 2] * tension / (vs[n - 1] - vs[n - 2])) : mul(sub(F[n - 1](u), F[n - 2](u)), 1 / (vs[n - 1] - vs[n - 2]));
+        if (k === 0) return oa ? mul(oa(u), gaps[0] * t0 / (vs[1] - vs[0])) : mul(sub(F[1](u), F[0](u)), 1 / (vs[1] - vs[0]));
+        if (k === n - 1) return oz ? mul(oz(u), -gaps[n - 2] * t1 / (vs[n - 1] - vs[n - 2])) : mul(sub(F[n - 1](u), F[n - 2](u)), 1 / (vs[n - 1] - vs[n - 2]));
         return mul(sub(F[k + 1](u), F[k - 1](u)), 1 / (vs[k + 1] - vs[k - 1]));
     };
     const at = (u, v) => {
@@ -146,20 +147,28 @@ const outOf = side => {
     return s => { const d = f(s), l = Math.hypot(...d); return l > 0 ? mul(d, 1 / l) : d; };
 };
 
-/** The surface the sides describe, as a function of (u, v) in 0..1. */
+/** A tension for the first and last profile: one number for both, or [first, last] (Loft's per-edge Tension). */
+const ends = tension => Array.isArray(tension) ? [tension[0] ?? 1, tension.at(-1) ?? 1] : [tension, tension];
+
+/**
+ * The surface the sides describe, as a function of (u, v) in 0..1. `tension` is one number, or for
+ * a loft (two sides, or `loft`) [first, last]: each end's own.
+ */
 export function boundarySurface(sides, gap, tension = 1, loft = false) {
     if (loft && sides.length >= 3) return loftSurface(sides, tension);
+    const [t0, t1] = ends(tension);
     if (sides.length === 2) {
         // A loft: the second side runs the same way as the first.
         let [a, b] = sides;
         if (dist(a[0], b[0]) + dist(a.at(-1), b.at(-1)) > dist(a[0], b.at(-1)) + dist(a.at(-1), b[0])) b = reversed(b);
+        // The second side keeps its own tension, however it was turned.
         const A = byLength(a), B = byLength(b), oa = outOf(a), ob = outOf(b);
         const sides2 = [A, null, B, null], outs = [oa, null, ob, null], bends = [bendOf(a), null, bendOf(b), null];
         if (!oa && !ob) return { at: (u, v) => lerp(A(u), B(u), v), sides: sides2, outs, bends };
         // Leaving each edge side along its face, as far out as the sides are apart (times tension).
         const at = (u, v) => {
-            const pa = A(u), pb = B(u), chord = sub(pb, pa), reach = Math.hypot(...chord) * tension;
-            return hermite(v, pa, pb, oa ? mul(oa(u), reach) : chord, ob ? mul(ob(u), -reach) : chord);
+            const pa = A(u), pb = B(u), chord = sub(pb, pa), reach = Math.hypot(...chord);
+            return hermite(v, pa, pb, oa ? mul(oa(u), reach * t0) : chord, ob ? mul(ob(u), -reach * t1) : chord);
         };
         return { at, sides: sides2, outs, bends };
     }
@@ -196,7 +205,7 @@ export function boundarySurface(sides, gap, tension = 1, loft = false) {
     // parameter's direction, -1 against it), or straight between the corner derivatives.
     const across = (out, sign, c0, c1) => {
         if (!out) return t => lerp(c0, c1, t);
-        const m0 = len(c0) * tension, m1 = len(c1) * tension;
+        const m0 = len(c0) * t0, m1 = len(c1) * t0;
         const fix0 = sub(c0, mul(out(0), sign * m0)), fix1 = sub(c1, mul(out(1), sign * m1));
         return t => add(mul(out(t), sign * ((1 - t) * m0 + t * m1)), lerp(fix0, fix1, t));
     };

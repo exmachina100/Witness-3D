@@ -453,3 +453,4 @@ input[type="range"] { accent-color: var(--accent); }
 .xdialog .xd-foot button { padding: 6px 14px; border: 1px solid var(--rule); color: var(--muted); }
 .xdialog .xd-foot button:hover { color: var(--ink); border-color: var(--ink); }
 .xdialog .xd-foot button.primary { color: var(--bg, #111); background: var(--accent); border-color: var(--accent); }
+[data-panel="loft-sheet"] [data-lstens] { width: 52px; flex: 0 0 52px; margin-left: 6px; }
