@@ -4,7 +4,7 @@
 import * as THREE from 'three';
 import { ExtrudeFactory } from '../ExtrudeFactory.js';
 import { NoOpError } from '../GeometryFactory.js';
-import { THROAT, arrayMotions, importSTEP, blendEdges, boolean, booleanWithHistory, extrudeFace, bounds, box, count, draftFaces, faceSheet, imprintEdgesWithHistory, imprintWithHistory, planeSheet, regions, unifyWithHistory, dissolveEdgesWithHistory, boundaryEdges, splitWithHistory, draftWithHistory, exportSTEP, facePlane, mirror, mirror as mirrorShape, numbered, numberedEdges, oc, primitive, shellFaces, tessellate, transform, volume, filletShell } from '../Kernel.js';
+import { THROAT, arrayMotions, importSTEP, import3DM, blendEdges, boolean, booleanWithHistory, extrudeFace, bounds, box, count, draftFaces, faceSheet, imprintEdgesWithHistory, imprintWithHistory, planeSheet, regions, unifyWithHistory, dissolveEdgesWithHistory, boundaryEdges, splitWithHistory, draftWithHistory, exportSTEP, export3DM, facePlane, mirror, mirror as mirrorShape, numbered, numberedEdges, oc, primitive, shellFaces, tessellate, transform, volume, filletShell } from '../Kernel.js';
 import { curveIsOpen, curveRegions, cutSheets, extrudeCurve, loft, loftFaces, loftGuided, loftSheet, loftSheetGuided, offsetFlatFaces, pipe, regionFace, revolve, revolveCurve, simplifyFlat, splineSamples, sweep, sweepCurve, sweepGuided } from '../Forms.js';
 import { curveFromNurbs, ends, join, loops, MEET, nurbsLoop } from '../curves.js';
 import { isoparam, meetCurves, projectCurveCurve, projectCurves, projectedEdges, sectionCurves } from '../Project.js';
@@ -587,6 +587,15 @@ export class LocalBackend {
     /** File › Import of a STEP file's bytes: the whole file as one body, one undo step (as the desktop). */
     async importStepData(bytes) {
         const shape = importSTEP(bytes);
+        this.checkpoint();
+        const id = this.nextId++;
+        this.put(id, shape);
+        return { id, scene: this.bodies() };
+    }
+
+    /** File › Import of a Rhino .3dm file's bytes. */
+    async import3dmData(bytes) {
+        const shape = import3DM(bytes);
         this.checkpoint();
         const id = this.nextId++;
         this.put(id, shape);
@@ -1934,6 +1943,15 @@ export class LocalBackend {
     exportStep(id, { motion = null, mirror = null, name: what = `body-${id}` } = {}) {
         const name = `witness3d-${what}.step`;
         const url = URL.createObjectURL(new Blob([exportSTEP(this.placedShape(id, motion, mirror))], { type: 'application/step' }));
+        Object.assign(document.createElement('a'), { href: url, download: name }).click();
+        setTimeout(() => URL.revokeObjectURL(url), 1000);
+        return `SAVED ${name.toUpperCase()}`;
+    }
+
+    /** Body `id` as a Rhino .3dm download; with `motion`, where an instance of it stands. */
+    export3dm(id, { motion = null, mirror = null, name: what = `body-${id}` } = {}) {
+        const name = `witness3d-${what}.3dm`;
+        const url = URL.createObjectURL(new Blob([export3DM(this.placedShape(id, motion, mirror))], { type: 'application/x-rhino3dm' }));
         Object.assign(document.createElement('a'), { href: url, download: name }).click();
         setTimeout(() => URL.revokeObjectURL(url), 1000);
         return `SAVED ${name.toUpperCase()}`;

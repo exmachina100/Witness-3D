@@ -892,14 +892,14 @@ fn placed_solid(doc: &Document<Occt>, solid: &<Occt as Kernel>::Solid, motion: O
     })
 }
 
-/// Body `id` written as STEP (or IGES by the extension); with `motion` (and `mirror`), where an
+/// Body `id` written as STEP, IGES, or .3dm (by the extension); with `motion` (and `mirror`), where an
 /// instance of it stands rather than where it is.
 pub fn export_step(m: &Model, id: BodyId, path: PathBuf, motion: Option<MotionRequest>, mirror: Option<MirrorPlane>) -> Result<(), String> {
     m.call(move |doc| {
         let solid = doc.get(id).ok_or("no such body")?;
         let placed = if motion.is_some() || mirror.is_some() { Some(placed_solid(doc, solid, motion.as_ref(), mirror.as_ref()).map_err(|e| e.message)?) } else { None };
         let solid = placed.as_ref().unwrap_or(solid);
-        if is_iges(&path) { doc.kernel.write_iges(solid, &path) } else { doc.kernel.write_step(solid, &path) }.map_err(|e| e.to_string())
+        if is_iges(&path) { doc.kernel.write_iges(solid, &path) } else if is_3dm(&path) { doc.kernel.write_3dm(solid, &path) } else { doc.kernel.write_step(solid, &path) }.map_err(|e| e.to_string())
     })
 }
 
@@ -1011,10 +1011,15 @@ fn is_iges(path: &std::path::Path) -> bool {
     matches!(path.extension().and_then(|e| e.to_str()).map(|e| e.to_ascii_lowercase()).as_deref(), Some("igs" | "iges"))
 }
 
-/// Import a STEP or IGES file (by its extension) as a new body.
+/// Whether a path names a Rhino .3dm file.
+fn is_3dm(path: &std::path::Path) -> bool {
+    matches!(path.extension().and_then(|e| e.to_str()).map(|e| e.to_ascii_lowercase()).as_deref(), Some("3dm"))
+}
+
+/// Import a STEP, IGES, or .3dm file (by its extension) as a new body.
 pub fn import_step(m: &Model, path: PathBuf) -> Result<Committed, String> {
     m.call(move |doc| {
-        let solid = if is_iges(&path) { doc.kernel.read_iges(&path) } else { doc.kernel.read_step(&path) }.map_err(|e| e.to_string())?;
+        let solid = if is_iges(&path) { doc.kernel.read_iges(&path) } else if is_3dm(&path) { doc.kernel.read_3dm(&path) } else { doc.kernel.read_step(&path) }.map_err(|e| e.to_string())?;
         let id = doc.add(solid);
         Ok(Committed { id, scene: bodies(doc)? })
     })

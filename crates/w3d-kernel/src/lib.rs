@@ -800,6 +800,15 @@ pub trait Kernel {
     fn to_native(&self, s: &Self::Solid) -> Result<String, KernelError>;
     fn from_native(&self, text: &str) -> Result<Self::Solid, KernelError>;
 
+    /// Rhino .3dm export via openNURBS (cadmpeg-codec-rhino).
+    fn write_3dm(&self, _s: &Self::Solid, _path: &std::path::Path) -> Result<(), KernelError> {
+        Err(KernelError::Invalid("this kernel cannot write .3dm"))
+    }
+    /// Rhino .3dm import via openNURBS (cadmpeg-codec-rhino).
+    fn read_3dm(&self, _path: &std::path::Path) -> Result<Self::Solid, KernelError> {
+        Err(KernelError::Invalid("this kernel cannot read .3dm"))
+    }
+
     /// Evaluate a Catmull-Clark subdivision surface from a cage.
     /// Returns the refined mesh and bicubic B-spline patches representing the limit surface.
     fn subdivide_cage(&self, cage: &SubdCage, options: &SubdivOptions) -> Result<SubdivResult<Self::Solid>, KernelError>;

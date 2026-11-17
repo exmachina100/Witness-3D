@@ -6,6 +6,9 @@ use std::path::Path as FilePath;
 use glam::DVec3;
 use opencascade::primitives::{BooleanKind, Edge, Face, Shape, ShapeHistory, ShapeType, Wire};
 
+#[cfg(feature = "rhino")]
+use uuid;
+
 use crate::{Blend, BooleanOp, Material, CombTooth, DeformOptions, DrawnLine, Extent, FaceRebuild, FaceSurface, Frame, History, Kernel, KernelError, Motion, Path, Plane, Profile, RebuiltFace, Segment, SheetExtension, Tessellation, Traced, SubdCage, SubdivOptions, SubdivResult, BsplinePatch};
 
 pub struct Occt;
@@ -869,6 +872,94 @@ impl Kernel for Occt {
         let shape = shape.healed().map_err(|e| KernelError::File(format!("the STEP geometry could not be repaired: {e}")))?;
         if shape.faces().next().is_none() {
             return Err(KernelError::File("the STEP file holds no surfaces or solids".into()));
+        }
+        Ok(shape)
+    }
+
+    #[cfg(feature = "rhino")]
+    fn write_3dm(&self, s: &Shape, path: &FilePath) -> Result<(), KernelError> {
+        use cadmpeg_codec_rhino::RhinoCodec;
+        use cadmpeg_codec_step::StepCodec;
+        use cadmpeg_ir::codec::{CodecBackend, DecodeDepth, EncoderBackend};
+        use cadmpeg_ir::codec::write::{DepthNeed, EncodeInput};
+        use cadmpeg_ir::document::CadIr;
+
+        // Step 1: Write OCCT Shape to a temporary STEP file
+        let temp_step = std::env::temp_dir().join(format!("w3d_export_{}.step", uuid::Uuid::new_v4()));
+        s.write_step(&temp_step).map_err(|e| KernelError::File(format!("failed to write temporary STEP: {e}")))?;
+
+        // Step 2: Read the STEP file into CadIr using StepCodec
+        let step_bytes = std::fs::read(&temp_step).map_err(|e| KernelError::File(format!("failed to read temporary STEP: {e}")))?;
+        let _ = std::fs::remove_file(&temp_step);
+
+        let step_codec = StepCodec::default();
+        let arena = cadmpeg_core::decode::DecodeArena::new();
+        let ctx = cadmpeg_core::decode::DecodeContext::new(
+            cadmpeg_core::decode::DecodePolicy::service(),
+            &arena,
+        );
+        let view = cadmpeg_core::decode::View::new(&step_bytes);
+        let decoded = step_codec.decode_impl(&ctx, view)
+            .map_err(|e| KernelError::File(format!("failed to decode STEP: {e}")))?;
+
+        let ir: CadIr = decoded.ir;
+
+        // Step 3: Write the CadIr to .3dm using RhinoCodec
+        let rhino_codec = RhinoCodec;
+        let mut encoder = cadmpeg_ir::codec::write::Encoder::new(&rhino_codec);
+        let input = EncodeInput { ir: &ir, depth: DecodeDepth::Geometry };
+        let export_body = encoder
+            .plan(input)
+            .map_err(|e| KernelError::File(format!("failed to plan 3dm export: {e}")))?;
+
+        std::fs::write(path, &export_body.bytes)
+            .map_err(|e| KernelError::File(format!("failed to write .3dm: {e}")))?;
+
+        Ok(())
+    }
+
+    #[cfg(feature = "rhino")]
+    fn read_3dm(&self, path: &FilePath) -> Result<Shape, KernelError> {
+        use cadmpeg_codec_rhino::RhinoCodec;
+        use cadmpeg_codec_step::StepCodec;
+        use cadmpeg_ir::codec::{CodecBackend, DecodeDepth};
+        use cadmpeg_ir::codec::write::{DepthNeed, EncodeInput, EncoderBackend};
+
+        // Step 1: Read .3dm using RhinoCodec to get CadIr
+        let file_bytes = std::fs::read(path).map_err(|e| KernelError::File(format!("failed to read .3dm: {e}")))?;
+
+        let rhino_codec = RhinoCodec;
+        let arena = cadmpeg_core::decode::DecodeArena::new();
+        let ctx = cadmpeg_core::decode::DecodeContext::new(
+            cadmpeg_core::decode::DecodePolicy::service(),
+            &arena,
+        );
+        let view = cadmpeg_core::decode::View::new(&file_bytes);
+        let decoded = rhino_codec.decode_impl(&ctx, view)
+            .map_err(|e| KernelError::File(format!("failed to decode .3dm: {e}")))?;
+
+        let ir: CadIr = decoded.ir;
+
+        // Step 2: Write the CadIr to a temporary STEP file using StepCodec
+        let step_codec = StepCodec::default();
+        let mut encoder = cadmpeg_ir::codec::write::Encoder::new(&step_codec);
+        let input = EncodeInput { ir: &ir, depth: DecodeDepth::Geometry };
+        let export_body = encoder
+            .plan(input)
+            .map_err(|e| KernelError::File(format!("failed to plan STEP export: {e}")))?;
+
+        let temp_step = std::env::temp_dir().join(format!("w3d_import_{}.step", uuid::Uuid::new_v4()));
+        std::fs::write(&temp_step, &export_body.bytes)
+            .map_err(|e| KernelError::File(format!("failed to write temporary STEP: {e}")))?;
+
+        // Step 3: Read the STEP file using OCCT
+        let shape = Shape::read_step(&temp_step).map_err(|_| KernelError::File("the STEP file could not be read".into()))?;
+        let _ = std::fs::remove_file(&temp_step);
+
+        // Repair on import like STEP/IGES
+        let shape = shape.healed().map_err(|e| KernelError::File(format!("the .3dm geometry could not be repaired: {e}")))?;
+        if shape.faces().next().is_none() {
+            return Err(KernelError::File("the .3dm file holds no surfaces or solids".into()));
         }
         Ok(shape)
     }

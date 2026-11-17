@@ -240,7 +240,7 @@ pub fn fillet_shell<K: Kernel>(k: &K, body: &K::Solid, params: &FilletShellParam
     // Fillet outer edges if any
     if !outer_edges.is_empty() {
         let mut blend_params = BlendParams {
-            edges: outer_edges,
+            edges: outer_edges.clone(),
             size: params.radius,
             kind: Blend::Fillet,
             angle: 0.0,
@@ -255,7 +255,7 @@ pub fn fillet_shell<K: Kernel>(k: &K, body: &K::Solid, params: &FilletShellParam
     // Fillet inner edges if any
     if !inner_edges.is_empty() {
         let mut blend_params = BlendParams {
-            edges: inner_edges,
+            edges: inner_edges.clone(),
             size: params.radius,
             kind: Blend::Fillet,
             angle: 0.0,
