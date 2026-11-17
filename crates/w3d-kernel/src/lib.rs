@@ -17,7 +17,7 @@ pub mod solids;
 #[cfg(feature = "occt")]
 pub mod occt;
 
-pub use blend::{blend, Blend, BlendParams};
+pub use blend::{blend, fillet_shell, Blend, BlendParams, FilletShellParams, FilletShape, VariablePoint};
 pub use document::{Ref, Refs};
 pub use extrude::{extrude, ExtrudeParams, ExtrudeResult, Operation};
 pub use form::{form, match_faces_grow, offset_faces, offset_faces_grow, FormKind, FormParams, Grow};
@@ -412,6 +412,14 @@ pub trait Kernel {
     /// `angle` (radians) is measured from each edge's first face; π/4 gives equal distances.
     /// `variable` gives a fillet's radius at points along its edges (see [`blend::VariablePoint`]).
     fn blend(&self, s: &Self::Solid, edges: &[u32], size: f64, kind: Blend, angle: f64, variable: &[blend::VariablePoint]) -> Result<Traced<Self::Solid>, KernelError>;
+    /// Fillet Shell: hollow the body and fillet both outer and inner edges (Plasticity's Fillet Shell).
+    /// `open_faces` are the faces to leave open for the shell operation.
+    /// `outer_edges` are the edges to fillet on the outer surface.
+    /// `inner_edges` are the edges to fillet on the inner surface (after shelling).
+    /// `thickness` is the wall thickness for the shell.
+    fn fillet_shell(&self, _s: &Self::Solid, _open_faces: &[u32], _outer_edges: &[u32], _inner_edges: &[u32], _thickness: f64, _radius: f64, _outer_variable: &[blend::VariablePoint], _inner_variable: &[blend::VariablePoint], _shape: blend::FilletShape, _tension: f64) -> Result<Traced<Self::Solid>, KernelError> {
+        Err(KernelError::Invalid("this kernel cannot fillet shell"))
+    }
     /// The solid moved rigidly. Faces and edges keep their numbers.
     fn transform(&self, s: &Self::Solid, m: &Motion) -> Self::Solid;
     /// `profile` turned `angle` radians about the axis through `axis_point` along `axis_dir`; with a

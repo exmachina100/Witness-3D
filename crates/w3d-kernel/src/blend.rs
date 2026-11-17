@@ -49,6 +49,9 @@ pub enum FilletShape {
     /// A round tangent to all three faces around two edges of one face: the face it replaces and
     /// the two beside it (a rib's top rounded off). The size is not used.
     Full,
+    /// A fillet on a shelled (hollow) body: fillets both the outer and inner edges of the shell.
+    /// This creates a smooth transition at the shell's thickness edges.
+    Shell,
     /// Chamfers only: Plasticity's Apex chamfer shape (the default chamfer is Offset, the
     /// distance set back along each face). Here the distance is the chamfer's throat, measured
     /// from the sharp corner (the apex of its section) square to the chamfer face, equal on both
@@ -72,6 +75,32 @@ pub struct VariablePoint {
 
 /// The equal-distance chamfer angle.
 pub const EQUAL: f64 = std::f64::consts::FRAC_PI_4;
+
+/// Parameters for Fillet Shell (fillets on a shelled/hollow body).
+/// This fillets both the outer and inner edges created by the shell operation.
+#[derive(Clone, Debug, PartialEq)]
+pub struct FilletShellParams {
+    /// The original solid to shell and fillet.
+    pub body: crate::Kernel::Solid, // This will be handled by the kernel implementation
+    /// Edges to fillet on the outer surface.
+    pub outer_edges: Vec<u32>,
+    /// Edges to fillet on the inner surface (after shelling).
+    pub inner_edges: Vec<u32>,
+    /// Fillet radius.
+    pub radius: f64,
+    /// Shell thickness (wall thickness).
+    pub thickness: f64,
+    /// Faces to leave open (for the shell operation).
+    pub open_faces: Vec<u32>,
+    /// Variable radius points for outer edges.
+    pub outer_variable: Vec<VariablePoint>,
+    /// Variable radius points for inner edges.
+    pub inner_variable: Vec<VariablePoint>,
+    /// Fillet shape (Round, Chordal, Conic, G2).
+    pub shape: FilletShape,
+    /// Tension for Conic/G2 shapes.
+    pub tension: f64,
+}
 
 impl Blend {
     pub fn noun(self) -> &'static str {
@@ -193,6 +222,58 @@ pub fn blend<K: Kernel>(k: &K, body: &K::Solid, p: &BlendParams) -> Result<Trace
     if k.solid_count(result) != k.solid_count(body) {
         return Err(KernelError::Blend { edges, reason: "the result split the body apart; try a smaller size".into() });
     }
+    Ok(traced)
+}
+
+/// Fillet Shell: create a hollow body with filleted edges.
+/// This shells the body (hollows it out) and then fillets both the outer and inner edges.
+pub fn fillet_shell<K: Kernel>(k: &K, body: &K::Solid, params: &FilletShellParams) -> Result<Traced<K::Solid>, KernelError> {
+    // First, shell the body to create a hollow solid with the given thickness
+    let open_faces: Vec<u32> = params.open_faces.iter().copied().collect();
+    let mut traced = k.shell(body, &open_faces, params.thickness)?;
+
+    // Get the edges to fillet on the outer and inner surfaces
+    // The outer edges are the original edges, the inner edges are new edges created by shelling
+    let outer_edges = params.outer_edges.clone();
+    let inner_edges = params.inner_edges.clone();
+
+    // Fillet outer edges if any
+    if !outer_edges.is_empty() {
+        let mut blend_params = BlendParams {
+            edges: outer_edges,
+            size: params.radius,
+            kind: Blend::Fillet,
+            angle: 0.0,
+            variable: params.outer_variable.clone(),
+            shape: params.shape,
+            tension: params.tension,
+            limits: vec![],
+        };
+        traced = blend(k, &traced.solid, &blend_params)?;
+    }
+
+    // Fillet inner edges if any
+    if !inner_edges.is_empty() {
+        let mut blend_params = BlendParams {
+            edges: inner_edges,
+            size: params.radius,
+            kind: Blend::Fillet,
+            angle: 0.0,
+            variable: params.inner_variable.clone(),
+            shape: params.shape,
+            tension: params.tension,
+            limits: vec![],
+        };
+        traced = blend(k, &traced.solid, &blend_params)?;
+    }
+
+    if !k.is_valid(&traced.solid) {
+        return Err(KernelError::Blend {
+            edges: outer_edges.iter().chain(inner_edges.iter()).copied().collect(),
+            reason: "the fillet shell produced an invalid solid; try a smaller radius or thickness".into(),
+        });
+    }
+
     Ok(traced)
 }
 

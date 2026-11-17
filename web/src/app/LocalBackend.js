@@ -4,7 +4,7 @@
 import * as THREE from 'three';
 import { ExtrudeFactory } from '../ExtrudeFactory.js';
 import { NoOpError } from '../GeometryFactory.js';
-import { THROAT, arrayMotions, importSTEP, blendEdges, boolean, booleanWithHistory, extrudeFace, bounds, box, count, draftFaces, faceSheet, imprintEdgesWithHistory, imprintWithHistory, planeSheet, regions, unifyWithHistory, dissolveEdgesWithHistory, boundaryEdges, splitWithHistory, draftWithHistory, exportSTEP, facePlane, mirror, mirror as mirrorShape, numbered, numberedEdges, oc, primitive, shellFaces, tessellate, transform, volume } from '../Kernel.js';
+import { THROAT, arrayMotions, importSTEP, blendEdges, boolean, booleanWithHistory, extrudeFace, bounds, box, count, draftFaces, faceSheet, imprintEdgesWithHistory, imprintWithHistory, planeSheet, regions, unifyWithHistory, dissolveEdgesWithHistory, boundaryEdges, splitWithHistory, draftWithHistory, exportSTEP, facePlane, mirror, mirror as mirrorShape, numbered, numberedEdges, oc, primitive, shellFaces, tessellate, transform, volume, filletShell } from '../Kernel.js';
 import { curveIsOpen, curveRegions, cutSheets, extrudeCurve, loft, loftFaces, loftGuided, loftSheet, loftSheetGuided, offsetFlatFaces, pipe, regionFace, revolve, revolveCurve, simplifyFlat, splineSamples, sweep, sweepCurve, sweepGuided } from '../Forms.js';
 import { curveFromNurbs, ends, join, loops, MEET, nurbsLoop } from '../curves.js';
 import { isoparam, meetCurves, projectCurveCurve, projectCurves, projectedEdges, sectionCurves } from '../Project.js';
@@ -1708,6 +1708,29 @@ export class LocalBackend {
 
     async commitBlend(req) {
         const { shape, history } = this.blend(req, true);
+        this.checkpoint();
+        this.put(req.body, shape, history);
+        return { id: req.body, scene: this.bodies() };
+    }
+
+    /** Fillet Shell: hollow the body and fillet both outer and inner edges. */
+    filletShell({ body, openFaces = [], outerEdges = [], innerEdges = [], thickness, radius, outerVariable = [], innerVariable = [], shape: shapeType = 'round', tension = 0.5 }) {
+        const shape = this.shapes.get(body);
+        if (!shape) throw new Error('that body no longer exists');
+        if (!outerEdges.length && !innerEdges.length) throw new Error('select at least one edge to fillet');
+        if (!(thickness > 0)) throw new Error('the thickness must be greater than zero');
+        if (!(radius > 0)) throw new Error('the radius must be greater than zero');
+        return filletShell(shape, openFaces, outerEdges, innerEdges, thickness, radius, outerVariable, innerVariable, shapeType, tension);
+    }
+
+    /** Preview Fillet Shell. */
+    previewFilletShell(req) {
+        return this.latest(async () => this.body(req.body, this.filletShell(req)));
+    }
+
+    /** Commit Fillet Shell. */
+    async commitFilletShell(req) {
+        const { shape, history } = this.filletShell(req);
         this.checkpoint();
         this.put(req.body, shape, history);
         return { id: req.body, scene: this.bodies() };
