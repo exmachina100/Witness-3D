@@ -9,6 +9,7 @@
   },
   "dependencies": {
     "@anthropic-ai/sdk": "0.128.0",
+    "@nasedkinpv/opensubdiv-wasm": "^0.3.0",
     "replicad-opencascadejs": "1.1.0",
     "three": "0.185.1"
   }

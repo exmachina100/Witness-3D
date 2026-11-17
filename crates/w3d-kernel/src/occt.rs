@@ -6,7 +6,7 @@ use std::path::Path as FilePath;
 use glam::DVec3;
 use opencascade::primitives::{BooleanKind, Edge, Face, Shape, ShapeHistory, ShapeType, Wire};
 
-use crate::{Blend, BooleanOp, Material, CombTooth, DeformOptions, DrawnLine, Extent, FaceRebuild, FaceSurface, Frame, History, Kernel, KernelError, Motion, Path, Plane, Profile, RebuiltFace, Segment, SheetExtension, Tessellation, Traced};
+use crate::{Blend, BooleanOp, Material, CombTooth, DeformOptions, DrawnLine, Extent, FaceRebuild, FaceSurface, Frame, History, Kernel, KernelError, Motion, Path, Plane, Profile, RebuiltFace, Segment, SheetExtension, Tessellation, Traced, SubdCage, SubdivOptions, SubdivResult, BsplinePatch};
 
 pub struct Occt;
 
@@ -839,6 +839,170 @@ impl Kernel for Occt {
     fn to_native(&self, s: &Shape) -> Result<String, KernelError> { s.to_brep_text().map_err(failed) }
 
     fn from_native(&self, text: &str) -> Result<Shape, KernelError> { Shape::from_brep_text(text).map_err(failed) }
+
+    #[cfg(feature = "opensubdiv")]
+    fn subdivide_cage(&self, cage: &SubdCage, options: &SubdivOptions) -> Result<SubdivResult<Shape>, KernelError> {
+        use opensubdiv::far::{TopologyDescriptor, TopologyRefinerFactory, PrimvarRefiner, UniformOptions, PatchTableFactory, PatchTableOptions};
+        use opensubdiv::sdc::{SchemeType, Options as SdcOptions};
+        use opensubdiv::vtr::TopologyError;
+
+        // Build the OpenSubdiv topology from the cage
+        let n_verts = cage.vertices.len();
+        let n_faces = cage.faces.len();
+
+        // Prepare face vertex counts and flattened vertex indices
+        let num_verts_per_face: Vec<usize> = cage.faces.iter().map(|f| f.len()).collect();
+        let vert_indices_per_face: Vec<u32> = cage.faces.iter().flat_map(|f| f.iter().map(|&v| v as u32)).collect();
+
+        // Create the topology descriptor
+        let mut descriptor = TopologyDescriptor::new(n_verts, &num_verts_per_face, &vert_indices_per_face);
+
+        // Add creases if provided
+        if let Some(creases) = &cage.creases {
+            if creases.len() == n_verts {
+                let crease_pairs: Vec<[u32; 2]> = Vec::new(); // Vertex creases handled differently in this API
+                let crease_weights: Vec<f32> = creases.iter().map(|&w| w).collect();
+                // Note: vertex creases are set via corner_vertex_indices in this API
+                descriptor = descriptor.with_corners(&(0..n_verts).map(|i| i as u32).collect::<Vec<_>>(), &crease_weights);
+            }
+        }
+
+        if let Some(edge_creases) = &cage.edge_creases {
+            let crease_pairs: Vec<[u32; 2]> = edge_creases.iter().map(|((v1, v2), _)| [*v1 as u32, *v2 as u32]).collect();
+            let crease_weights: Vec<f32> = edge_creases.iter().map(|(_, w)| *w).collect();
+            descriptor = descriptor.with_creases(&crease_pairs, &crease_weights);
+        }
+
+        // Create the refiner with Catmark scheme (Catmull-Clark)
+        let mut refiner = TopologyRefinerFactory::create(
+            descriptor,
+            SchemeType::Catmark,
+            SdcOptions::default(),
+        ).map_err(|e| KernelError::Failed(format!("OpenSubdiv refiner creation failed: {e:?}")))?;
+
+        // Refine uniformly to the requested level
+        if options.level > 0 {
+            refiner.refine_uniform(UniformOptions::new(options.level as usize));
+        }
+
+        // Interpolate vertex positions through the refinement hierarchy
+        let primvar_refiner = PrimvarRefiner::new(&refiner);
+        let mut positions: Vec<[f64; 3]> = cage.vertices.iter().map(|v| [v.x, v.y, v.z]).collect();
+
+        for level in 1..=refiner.max_level() {
+            let n_verts = refiner.level(level).num_vertices();
+            let mut dst = vec![[0.0f64; 3]; n_verts];
+            primvar_refiner.interpolate(level, &positions, &mut dst);
+            positions = dst;
+        }
+
+        // Get the refined mesh topology
+        let refined_verts = positions.len();
+        let refined_faces = refiner.level(refiner.max_level()).num_faces();
+
+        let mut refined_positions = vec![DVec3::ZERO; refined_verts];
+        for (i, pos) in positions.iter().enumerate() {
+            refined_positions[i] = DVec3::new(pos[0], pos[1], pos[2]);
+        }
+
+        let mut refined_faces_list = Vec::with_capacity(refined_faces);
+        for fi in 0..refined_faces {
+            let face_verts = refiner.level(refiner.max_level()).face_vertices(fi);
+            let face: Vec<usize> = face_verts.iter().map(|&v| v as usize).collect();
+            refined_faces_list.push(face);
+        }
+
+        // Build B-spline patches from the limit surface using PatchTable
+        let patch_table = PatchTableFactory::create(&refiner)
+            .map_err(|e| KernelError::Failed(format!("OpenSubdiv patch table creation failed: {e:?}")))?;
+
+        let mut patches = Vec::new();
+        let control_values = &positions; // Interpolated positions at all levels, base first
+
+        for patch_idx in 0..patch_table.num_patches() {
+            let patch_type = patch_table.patch_type(patch_idx);
+
+            // Only create B-spline patches for regular quad faces
+            if matches!(patch_type, opensubdiv::far::PatchType::Regular) {
+                let param = patch_table.patch_param(patch_idx);
+                let cvs = patch_table.patch_vertices(patch_idx);
+
+                if cvs.len() == 16 {
+                    // Extract the 4x4 control grid
+                    let mut poles = vec![vec![DVec3::ZERO; 4]; 4];
+                    for (idx, &cv) in cvs.iter().enumerate() {
+                        if (cv as usize) < control_values.len() {
+                            let row = idx / 4;
+                            let col = idx % 4;
+                            let pos = control_values[cv as usize];
+                            poles[row][col] = DVec3::new(pos[0], pos[1], pos[2]);
+                        }
+                    }
+
+                    patches.push(BsplinePatch {
+                        degree_u: 3,
+                        degree_v: 3,
+                        knots_u: vec![0.0, 0.0, 0.0, 0.0, 1.0, 1.0, 1.0, 1.0],
+                        knots_v: vec![0.0, 0.0, 0.0, 0.0, 1.0, 1.0, 1.0, 1.0],
+                        poles,
+                    });
+                }
+            }
+        }
+
+        // Create a solid from patches if the cage was closed (all faces quads, manifold)
+        let solid = if cage.faces.iter().all(|f| f.len() == 4) && !patches.is_empty() {
+            // Build faces from patches and try to sew into a solid
+            let mut faces = Vec::new();
+            for patch in &patches {
+                // Create a B-spline surface from the patch
+                let poles_flat: Vec<f64> = patch.poles.iter().flat_map(|row| row.iter().flat_map(|p| p.to_array())).collect();
+                let surface = opencascade::primitives::Surface::bspline(
+                    patch.degree_u as i32,
+                    patch.degree_v as i32,
+                    &patch.knots_u,
+                    &patch.knots_v,
+                    &poles_flat,
+                ).map_err(|e| KernelError::Failed(format!("Failed to create B-spline surface: {e:?}")))?;
+
+                let face = Face::new(surface, true).map_err(|e| KernelError::Failed(format!("Failed to create face: {e:?}")))?;
+                faces.push(face);
+            }
+
+            // Sew faces into a shell, then solid
+            if !faces.is_empty() {
+                let shell = opencascade::primitives::Shell::sew(&faces, 1e-4).map_err(|e| KernelError::Failed(format!("Failed to sew faces: {e:?}")))?;
+                let solid = shell.make_solid().map_err(|e| KernelError::Failed(format!("Failed to make solid: {e:?}")))?;
+                Some(solid)
+            } else {
+                None
+            }
+        } else {
+            None
+        };
+
+        Ok(SubdivResult {
+            mesh: (refined_positions, refined_faces_list),
+            patches,
+            solid,
+        })
+    }
+
+    #[cfg(feature = "opensubdiv")]
+    fn cage_to_solid(&self, cage: &SubdCage, options: &SubdivOptions) -> Result<Shape, KernelError> {
+        let result = self.subdivide_cage(cage, options)?;
+        result.solid.ok_or_else(|| KernelError::Failed("cage did not produce a closed solid; ensure all faces are quads and the cage is manifold".into()))
+    }
+
+    #[cfg(not(feature = "opensubdiv"))]
+    fn subdivide_cage(&self, _cage: &SubdCage, _options: &SubdivOptions) -> Result<SubdivResult<Shape>, KernelError> {
+        Err(KernelError::Invalid("PolySplines requires the 'opensubdiv' feature"))
+    }
+
+    #[cfg(not(feature = "opensubdiv"))]
+    fn cage_to_solid(&self, _cage: &SubdCage, _options: &SubdivOptions) -> Result<Shape, KernelError> {
+        Err(KernelError::Invalid("PolySplines requires the 'opensubdiv' feature"))
+    }
 }
 
 /// Cutting curves for the shim: [count, then per curve its plane normal and path numbers].

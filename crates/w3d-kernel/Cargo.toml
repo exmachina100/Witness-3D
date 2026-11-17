@@ -9,6 +9,8 @@ description = "Witness 3D modeling core: a kernel trait, an OpenCascade backend,
 default = ["occt"]
 # OpenCascade backend through opencascade-rs. Builds OCCT from source on first compile.
 occt = ["dep:opencascade"]
+# OpenSubdiv for Catmull-Clark subdivision surfaces (PolySplines)
+opensubdiv = ["dep:opensubdiv"]
 
 [dependencies]
 glam = "0.24"
@@ -16,3 +18,4 @@ thiserror = "1"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 opencascade = { version = "=0.3.0", optional = true }
+opensubdiv = { package = "opensubdiv-rs", version = "0.7", optional = true }

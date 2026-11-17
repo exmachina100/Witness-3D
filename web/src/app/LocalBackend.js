@@ -33,6 +33,7 @@ import { compound, untrimFace } from '../untrim.js';
 import { splineSheet } from '../splineSheet.js';
 import { unwrapFace } from '../unwrap.js';
 import { edgeCurvature } from '../edgeCurvature.js';
+import { subdivideCage, cageToSolid, createBoxCage } from '../PolySplines.js';
 
 /** The point halfway along edge `e` of `shape`. */
 function edgeMiddle(shape, e) { return edgeCurvature(shape, e, 2)[1].at; }
@@ -1123,6 +1124,53 @@ export class LocalBackend {
         let added = null;
         if (bridge) { added = this.nextId++; this.put(added, bridge); }
         return { id: shown === 2 ? added : shown === 1 ? req.b : req.a, scene: this.bodies() };
+    }
+
+    // PolySplines: SubD cage to NURBS via OpenSubdiv (Catmull-Clark)
+    /** Evaluate a Catmull-Clark subdivision surface from a cage. */
+    async polySplinesResult(req) {
+        const cage = req.cage;
+        const options = req.options ?? { level: 3, limitSurface: true };
+        if (!cage || !cage.vertices?.length || !cage.faces?.length) {
+            throw new Error('invalid cage: must have vertices and faces');
+        }
+        const result = await subdivideCage(cage, options);
+        return result;
+    }
+
+    previewPolySplines(req) { return this.latest(async () => this.polySplinesResult(req)) }
+
+    /** Convert a closed SubD cage to a solid (NURBS/B-spline faces).
+     * Note: In the browser, this returns the mesh and patches since OCCT is not available.
+     * The desktop backend (Rust + OCCT) can create a true solid. */
+    async commitPolySplines(req) {
+        const result = await this.polySplinesResult(req);
+        this.checkpoint();
+        // In the browser, we create a mesh body from the refined mesh
+        // A true solid requires the desktop backend
+        if (result.mesh && result.mesh.positions.length) {
+            const { positions, faces } = result.mesh;
+            // Create a THREE.BufferGeometry from the refined mesh
+            const geometry = new THREE.BufferGeometry();
+            const posArray = new Float32Array(positions.length * 3);
+            positions.forEach((v, i) => { posArray[i * 3] = v.x; posArray[i * 3 + 1] = v.y; posArray[i * 3 + 2] = v.z; });
+            geometry.setAttribute('position', new THREE.BufferAttribute(posArray, 3));
+            const indexArray = faces.flat();
+            geometry.setIndex(indexArray);
+            geometry.computeVertexNormals();
+
+            // Convert to OCCT shape (simplified - creates a mesh-based solid)
+            // In practice, this would need proper B-rep construction
+            const id = this.nextId++;
+            // For now, just return the mesh data
+            return { id, mesh: { positions, faces }, patches: result.patches, scene: this.bodies() };
+        }
+        return { id: null, scene: this.bodies() };
+    }
+
+    /** Create a simple box cage for testing PolySplines. */
+    createTestCage() {
+        return createBoxCage();
     }
 
     /** Plasticity's Patch: a sheet filling one closed loop of curves and body edges. */

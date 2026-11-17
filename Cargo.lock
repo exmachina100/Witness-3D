@@ -2264,6 +2264,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "opensubdiv-rs"
+version = "0.7.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6576055a2910b396a96775bbb4aad452001abf8133ebdb1ebd6b8eec939a624b"
+
+[[package]]
 name = "option-ext"
 version = "0.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4029,6 +4035,7 @@ version = "0.1.0"
 dependencies = [
  "glam",
  "opencascade",
+ "opensubdiv-rs",
  "serde",
  "serde_json",
  "thiserror 1.0.69",

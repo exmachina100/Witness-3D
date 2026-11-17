@@ -330,6 +330,57 @@ pub enum SheetExtension {
     Reflective,
 }
 
+/// PolySplines: SubD cage to NURBS via OpenSubdiv (Catmull-Clark)
+/// A subdivision surface control cage: vertices and faces (each a list of vertex indices).
+#[derive(Clone, Debug, PartialEq)]
+pub struct SubdCage {
+    pub vertices: Vec<DVec3>,
+    pub faces: Vec<Vec<usize>>,
+    /// Vertex crease weights (0 = smooth, >0 = sharp). Length = vertices.len().
+    pub creases: Option<Vec<f32>>,
+    /// Edge crease weights. Each is ((v1, v2), weight).
+    pub edge_creases: Option<Vec<((usize, usize), f32)>>,
+}
+
+/// Subdivision surface evaluation options.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct SubdivOptions {
+    /// Subdivision level (0 = cage, 1 = one level of Catmull-Clark, etc.)
+    pub level: u32,
+    /// Whether to use limit surface evaluation (true) or explicit refinement (false).
+    pub limit_surface: bool,
+    /// Maximum number of vertices in the output (safety limit).
+    pub max_vertices: usize,
+}
+
+impl Default for SubdivOptions {
+    fn default() -> Self {
+        SubdivOptions { level: 3, limit_surface: true, max_vertices: 100_000 }
+    }
+}
+
+/// Result of subdividing a cage: the refined mesh and its B-spline patches.
+#[derive(Clone, Debug)]
+pub struct SubdivResult<S> {
+    /// The evaluated limit surface mesh (vertices, faces).
+    pub mesh: (Vec<DVec3>, Vec<Vec<usize>>),
+    /// Bicubic B-spline patches (u-degree, v-degree, u-knots, v-knots, control points).
+    pub patches: Vec<BsplinePatch>,
+    /// The solid made from the patches (if the cage was closed).
+    pub solid: Option<S>,
+}
+
+/// A bicubic B-spline patch from the limit surface.
+#[derive(Clone, Debug, PartialEq)]
+pub struct BsplinePatch {
+    pub degree_u: usize,
+    pub degree_v: usize,
+    pub knots_u: Vec<f64>,
+    pub knots_v: Vec<f64>,
+    /// Poles as [v][u] (row-major in v).
+    pub poles: Vec<Vec<DVec3>>,
+}
+
 /// Everything a modeling tool may ask of geometry. One implementation per kernel.
 pub trait Kernel {
     type Solid;
@@ -740,4 +791,11 @@ pub trait Kernel {
     fn native_format(&self) -> &'static str;
     fn to_native(&self, s: &Self::Solid) -> Result<String, KernelError>;
     fn from_native(&self, text: &str) -> Result<Self::Solid, KernelError>;
+
+    /// Evaluate a Catmull-Clark subdivision surface from a cage.
+    /// Returns the refined mesh and bicubic B-spline patches representing the limit surface.
+    fn subdivide_cage(&self, cage: &SubdCage, options: &SubdivOptions) -> Result<SubdivResult<Self::Solid>, KernelError>;
+
+    /// Convert a closed SubD cage directly to a solid (NURBS/B-spline faces).
+    fn cage_to_solid(&self, cage: &SubdCage, options: &SubdivOptions) -> Result<Self::Solid, KernelError>;
 }
