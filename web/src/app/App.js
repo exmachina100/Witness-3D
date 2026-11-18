@@ -1527,7 +1527,39 @@ export async function mount(root, backend) {
         float line = abs(fract(h - 0.5) - 0.5) / max(fwidth(h), 1e-6);
         gl_FragColor.rgb = mix(vec3(1.0, 0.30, 0.0), vec3(0.16 + 0.2 * lam), clamp(line, 0.0, 1.0));
       } else if (shadeMode == 13) gl_FragColor.rgb = (gl_FrontFacing ? vec3(0.24, 0.44, 0.85) : vec3(0.85, 0.29, 0.24)) * (0.45 + 0.55 * lam);
-      else if (shadeMode == 14) {
+      else if (shadeMode == 18) {
+        // Reflection zebra: stripes in the reflection direction (mirror-like zebra).
+        // Uses the reflection vector against a striped environment.
+        vec3 r = reflect(-v, n);
+        // Rotate reflection vector for diagonal stripes
+        float band = fract((r.x + r.z) * stripes * 0.25 + 0.5);
+        float aa = fwidth(band) * 1.5;
+        float s = smoothstep(0.5 - aa, 0.5 + aa, band) - smoothstep(1.0 - aa, 1.0, band);
+        gl_FragColor.rgb = mix(vec3(0.06), vec3(0.92), s);
+      } else if (shadeMode == 19) {
+        // Reflection check: shows how the surface reflects a color-coded environment map.
+        // The reflection vector maps to a gradient that reveals surface flow and continuity.
+        vec3 r = reflect(-v, n);
+        // Map reflection to a color wheel for visual analysis
+        float angle = atan(r.z, r.x) / 3.14159265;
+        float band = fract(angle * stripes * 0.5 + 0.5);
+        float aa = fwidth(band) * 1.5;
+        float s = smoothstep(0.5 - aa, 0.5 + aa, band) - smoothstep(1.0 - aa, 1.0, band);
+        // Color-coded bands: blue -> green -> yellow -> red (rainbow)
+        vec3 c1 = vec3(0.24, 0.44, 0.85), c2 = vec3(0.30, 0.72, 0.42), c3 = vec3(0.93, 0.68, 0.22), c4 = vec3(0.86, 0.30, 0.26);
+        vec3 c = mix(c1, c2, clamp(band * 4.0, 0.0, 1.0));
+        c = mix(c, c3, clamp((band - 0.25) * 4.0, 0.0, 1.0));
+        c = mix(c, c4, clamp((band - 0.5) * 4.0, 0.0, 1.0));
+        c = mix(c, c1, clamp((band - 0.75) * 4.0, 0.0, 1.0));
+        gl_FragColor.rgb = c * (0.6 + 0.4 * lam);
+      } else if (shadeMode == 20) {
+        // Reflection isophote: bands of equal angle between reflection and view.
+        // More sensitive to G2 discontinuities than standard isophotes.
+        vec3 r = reflect(-v, n);
+        float band = fract(acos(clamp(dot(r, v), -1.0, 1.0)) / 1.5707963 * stripes * 0.5);
+        float aa = fwidth(band) * 1.5;
+        gl_FragColor.rgb = mix(vec3(0.08), vec3(0.9), smoothstep(0.5 - aa, 0.5 + aa, band) - smoothstep(1.0 - aa, 1.0, band));
+      } else if (shadeMode == 14) {
         // A matcap image: the sphere's picture at the view-space normal, tinted by a material's colour.
         vec3 m = texture2D(matcap, n.xy * 0.495 + 0.5).rgb;
         gl_FragColor.rgb = ownColor ? m * diffuseColor.rgb / 0.62 : m;
@@ -13573,6 +13605,9 @@ export async function mount(root, backend) {
         else if (arg === 'curvature') { view.curvature = !view.curvature; applyView(); renderOutliner(); }
         else if (arg === 'surface-curvature') await toggleSurfaceCurvature();
         else if (arg === 'zebra' || arg === 'draft') { view.shader = view.shader === (arg === 'zebra' ? 'zebra-v' : 'draft') ? 'ceramic-dark' : arg === 'zebra' ? 'zebra-v' : 'draft'; view.render = false; applyView(); }
+        else if (arg === 'reflection-zebra') { view.shader = view.shader === 'zebra-ref' ? 'ceramic-dark' : 'zebra-ref'; view.render = false; applyView(); }
+        else if (arg === 'reflection-check') { view.shader = view.shader === 'reflection' ? 'ceramic-dark' : 'reflection'; view.render = false; applyView(); }
+        else if (arg === 'reflection-isophote') { view.shader = view.shader === 'isophote-ref' ? 'ceramic-dark' : 'isophote-ref'; view.render = false; applyView(); }
         else if (arg === 'render') { view.render = !view.render; applyView(); }
         else if (arg === 'edges' || arg === 'faces' || arg === 'curves') { view[arg] = !view[arg]; applyView(); }
         else setView(arg);

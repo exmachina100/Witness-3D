@@ -80,6 +80,8 @@ export const VIEWPORT = {
     // P-Menu (manual: Plasticity Interface › P-Menu)
     'ctrl-z': 'undo', 'ctrl-shift-z': 'redo', 'ctrl-t': 'sources:back', 'ctrl-b': 'sidebar:left', 'ctrl-shift-b': 'sidebar:right', 'ctrl-shift-t': 'sources:forward', 'ctrl-n': 'file:new', 'ctrl-o': 'file:open', 'ctrl-s': 'file:save',
     'ctrl-shift-o': 'import:step', 'ctrl-shift-s': 'file:save-as', 'ctrl-shift-e': 'file:export', 'ctrl-q': 'app:quit', 'ctrl-,': 'app:preferences',
+    // Shader modes (Witness 3D additions)
+    'shift-z': 'view:zebra', 'shift-alt-z': 'view:reflection-zebra', 'shift-ctrl-z': 'view:reflection-check', 'shift-ctrl-alt-z': 'view:reflection-isophote',
 };
 
 /** Keys inside a running command, by tool. Each names the value the cursor then sets (see App.js). */
@@ -219,6 +221,8 @@ export const ACTIONS = {
     'lock': 'Lock selected', 'unlock-all': 'Unlock all', 'delete-empty-groups': 'Delete empty groups', 'asset:insert': 'Insert asset', 'spacemouse:connect': 'Connect SpaceMouse',
     'material:set': 'Set material', 'material:remove': 'Remove material', 'view:render': 'Toggle render mode',
     'view:edges': 'Viewport: toggle edges', 'view:faces': 'Viewport: toggle faces', 'view:curves': 'Viewport: toggle curves',
+    'view:zebra': 'Shader: vertical zebra', 'view:draft': 'Shader: draft angle',
+    'view:reflection-zebra': 'Shader: reflection zebra', 'view:reflection-check': 'Shader: reflection check', 'view:reflection-isophote': 'Shader: reflection isophote',
     'plane:selection': 'Construction plane from selection', 'plane:selection-keep-view': 'Construction plane from selection, keep view',
     'plane:view': 'Construction plane from view', 'plane:view-at': 'Construction plane from view, at a point', 'plane:save': 'Save construction plane', 'plane:world': 'Construction plane: world XY',
     'draw:rect': 'Corner rectangle', 'draw:circle': 'Center circle', 'draw:line': 'Line',
