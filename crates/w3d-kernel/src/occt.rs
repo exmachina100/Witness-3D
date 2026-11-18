@@ -1039,6 +1039,22 @@ impl Kernel for Occt {
             all_positions.extend(dst);
         }
 
+        // Interpolate UV coordinates if provided
+        // The UV coordinates follow the same refinement hierarchy as positions
+        let mut all_uvs: Option<Vec<[f64; 2]>> = None;
+        if let Some(ref base_uvs) = cage.uvs {
+            if base_uvs.len() == n_verts {
+                let mut uvs = base_uvs.clone();
+                for level in 1..=refiner.max_level() {
+                    let n_verts = refiner.level(level).num_vertices();
+                    let mut dst = vec![[0.0f64; 2]; n_verts];
+                    primvar_refiner.interpolate(level, base_uvs, &mut dst);
+                    uvs.extend(dst);
+                }
+                all_uvs = Some(uvs);
+            }
+        }
+
         // Get the refined mesh topology (final level)
         let refined_verts = refiner.level(refiner.max_level()).num_vertices();
         let refined_faces = refiner.level(refiner.max_level()).num_faces();
@@ -1049,6 +1065,14 @@ impl Kernel for Occt {
         for (i, pos) in all_positions[final_level_start..].iter().enumerate() {
             refined_positions[i] = DVec3::new(pos[0], pos[1], pos[2]);
         }
+
+        // Extract UV coordinates for the final level if available
+        let refined_uvs = if let Some(ref all_uvs) = all_uvs {
+            let final_level_start = all_uvs.len() - refined_verts;
+            Some(all_uvs[final_level_start..].to_vec())
+        } else {
+            None
+        };
 
         let mut refined_faces_list = Vec::with_capacity(refined_faces);
         for fi in 0..refined_faces {
@@ -1063,6 +1087,9 @@ impl Kernel for Occt {
 
         let mut patches = Vec::new();
         let control_values = &all_positions; // All levels' interpolated positions, base first (as PatchTable expects)
+
+        // Also get the UV control values if available
+        let uv_control_values = all_uvs.as_deref();
 
         for patch_idx in 0..patch_table.num_patches() {
             let patch_type = patch_table.patch_type(patch_idx);
@@ -1084,6 +1111,21 @@ impl Kernel for Occt {
                         }
                     }
 
+                    // Extract UV coordinates for this patch if available
+                    let pole_uvs = if let Some(ref uv_values) = uv_control_values {
+                        let mut uvs = vec![vec![[0.0f64, 0.0f64]; 4]; 4];
+                        for (idx, &cv) in cvs.iter().enumerate() {
+                            if (cv as usize) < uv_values.len() {
+                                let row = idx / 4;
+                                let col = idx % 4;
+                                uvs[row][col] = uv_values[cv as usize];
+                            }
+                        }
+                        Some(uvs)
+                    } else {
+                        None
+                    };
+
                     // For regular patches, the domain is [0,1] x [0,1] with uniform knots
                     patches.push(BsplinePatch {
                         degree_u: 3,
@@ -1091,11 +1133,84 @@ impl Kernel for Occt {
                         knots_u: vec![0.0, 0.0, 0.0, 0.0, 1.0, 1.0, 1.0, 1.0],
                         knots_v: vec![0.0, 0.0, 0.0, 0.0, 1.0, 1.0, 1.0, 1.0],
                         poles,
+                        pole_uvs,
                     });
                 }
             }
-            // Note: Could also handle SingleCrease patches (regular patches with semi-sharp creases)
-            // and GregoryBasis patches (extraordinary vertices) in the future
+            // Handle SingleCrease patches (regular patches with semi-sharp creases)
+            else if matches!(patch_type, opensubdiv::far::PatchType::SingleCrease) {
+                let param = patch_table.patch_param(patch_idx);
+                let cvs = patch_table.patch_vertices(patch_idx);
+
+                // SingleCrease patches also have 16 control vertices but with modified knot vectors
+                // to represent semi-sharp creases. The knot vectors have non-uniform spacing
+                // at the crease location.
+                if cvs.len() == 16 {
+                    let mut poles = vec![vec![DVec3::ZERO; 4]; 4];
+                    for (idx, &cv) in cvs.iter().enumerate() {
+                        if (cv as usize) < control_values.len() {
+                            let row = idx / 4;
+                            let col = idx % 4;
+                            let pos = control_values[cv as usize];
+                            poles[row][col] = DVec3::new(pos[0], pos[1], pos[2]);
+                        }
+                    }
+
+                    // Extract UV coordinates for this patch if available
+                    let pole_uvs = if let Some(ref uv_values) = uv_control_values {
+                        let mut uvs = vec![vec![[0.0f64, 0.0f64]; 4]; 4];
+                        for (idx, &cv) in cvs.iter().enumerate() {
+                            if (cv as usize) < uv_values.len() {
+                                let row = idx / 4;
+                                let col = idx % 4;
+                                uvs[row][col] = uv_values[cv as usize];
+                            }
+                        }
+                        Some(uvs)
+                    } else {
+                        None
+                    };
+
+                    // Extract knot vectors for SingleCrease - they may have interior knots
+                    // for semi-sharp creases. For now, use uniform as approximation.
+                    // A full implementation would use patch_table.patch_param() to get
+                    // the exact knot intervals and compute non-uniform knots.
+                    let (knots_u, knots_v) = if let Some(p) = param {
+                        // p contains the UV intervals and potentially crease parameters
+                        // For SingleCrease, the knot vectors are modified at the crease
+                        (vec![0.0, 0.0, 0.0, 0.0, 1.0, 1.0, 1.0, 1.0],
+                         vec![0.0, 0.0, 0.0, 0.0, 1.0, 1.0, 1.0, 1.0])
+                    } else {
+                        (vec![0.0, 0.0, 0.0, 0.0, 1.0, 1.0, 1.0, 1.0],
+                         vec![0.0, 0.0, 0.0, 0.0, 1.0, 1.0, 1.0, 1.0])
+                    };
+
+                    patches.push(BsplinePatch {
+                        degree_u: 3,
+                        degree_v: 3,
+                        knots_u,
+                        knots_v,
+                        poles,
+                        pole_uvs,
+                    });
+                }
+            }
+            // Handle GregoryBasis patches (extraordinary vertices - valence != 4)
+            else if matches!(patch_type, opensubdiv::far::PatchType::GregoryBasis) {
+                let param = patch_table.patch_param(patch_idx);
+                let cvs = patch_table.patch_vertices(patch_idx);
+
+                // GregoryBasis patches are used for extraordinary vertices
+                // They have a different structure (typically 20 control vertices for valence 3/5)
+                // For now, we skip these as they require special evaluation
+                // A full implementation would convert Gregory basis patches to NURBS
+                // or approximate them with multiple bicubic patches.
+                if !cvs.is_empty() {
+                    // Log that we encountered an extraordinary vertex patch
+                    // In production, we'd approximate or convert these
+                }
+            }
+            // Note: Could also handle other patch types (Vertex, etc.) in the future
         }
 
         // Create a solid from patches if the cage was closed (all faces quads, manifold)

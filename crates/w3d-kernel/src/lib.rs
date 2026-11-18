@@ -340,6 +340,9 @@ pub struct SubdCage {
     pub creases: Option<Vec<f32>>,
     /// Edge crease weights. Each is ((v1, v2), weight).
     pub edge_creases: Option<Vec<((usize, usize), f32)>>,
+    /// UV coordinates for each vertex (optional). Length = vertices.len().
+    /// Used for UV interpolation through the subdivision hierarchy.
+    pub uvs: Option<Vec<[f64; 2]>>,
 }
 
 /// Subdivision surface evaluation options.
@@ -379,6 +382,9 @@ pub struct BsplinePatch {
     pub knots_v: Vec<f64>,
     /// Poles as [v][u] (row-major in v).
     pub poles: Vec<Vec<DVec3>>,
+    /// UV coordinates for each pole [v][u] - maps the patch's local [0,1]x[0,1] to global UV space.
+    /// If None, the patch uses its local [0,1]x[0,1] parameterization.
+    pub pole_uvs: Option<Vec<Vec<[f64; 2]>>>,
 }
 
 /// Everything a modeling tool may ask of geometry. One implementation per kernel.

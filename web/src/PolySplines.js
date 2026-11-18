@@ -38,12 +38,13 @@ async function loadOpenSubdiv() {
  * @property {number[]} knotsU - U knots
  * @property {number[]} knotsV - V knots
  * @property {THREE.Vector3[][]} poles - Control points as [v][u] (row-major in v)
+ * @property {number[][][]} [poleUVs] - UV coordinates for each pole [v][u] (row-major in v)
  */
 
 /**
  * Result of subdividing a cage.
  * @typedef {Object} SubdivResult
- * @property {Object} mesh - The evaluated limit surface mesh { positions: THREE.Vector3[], faces: number[][] }
+ * @property {Object} mesh - The evaluated limit surface mesh { positions: THREE.Vector3[], faces: number[][], uvs: THREE.Vector2[] }
  * @property {BsplinePatch[]} patches - Bicubic B-spline patches
  * @property {THREE.Shape} [solid] - The solid made from patches (if cage was closed)
  */
@@ -109,12 +110,16 @@ export async function subdivideCage(cage, options = {}) {
 
     // Convert to THREE.Vector3 array
     const vertices = [];
+    // UV coordinates for the refined mesh vertices
+    const uvs = [];
     for (let i = 0; i < vertexCount; i++) {
         vertices.push(new THREE.Vector3(
             refinedPositions[i * 3],
             refinedPositions[i * 3 + 1],
             refinedPositions[i * 3 + 2]
         ));
+        // Placeholder UV - in a full implementation, we'd interpolate UVs through the refinement hierarchy
+        uvs.push(new THREE.Vector2(0, 0));
     }
 
     // Convert faces from triangle indices
@@ -154,12 +159,21 @@ export async function subdivideCage(cage, options = {}) {
                 [pole00, pole10, pole11, pole01],
             ];
 
+            // Placeholder UV coordinates for poles
+            const poleUVs = [
+                [[0, 0], [1, 0], [1, 1], [0, 1]],
+                [[0, 0], [1, 0], [1, 1], [0, 1]],
+                [[0, 0], [1, 0], [1, 1], [0, 1]],
+                [[0, 0], [1, 0], [1, 1], [0, 1]],
+            ];
+
             patches.push({
                 degreeU: 3,
                 degreeV: 3,
                 knotsU: [0, 0, 0, 0, 1, 1, 1, 1],
                 knotsV: [0, 0, 0, 0, 1, 1, 1, 1],
                 poles,
+                poleUVs,
             });
         }
     }
@@ -167,7 +181,7 @@ export async function subdivideCage(cage, options = {}) {
     mesh.delete();
 
     return {
-        mesh: { positions: vertices, faces },
+        mesh: { positions: vertices, faces, uvs },
         patches,
         solid: null, // Creating a solid from patches requires OCCT which isn't available in WASM
     };
