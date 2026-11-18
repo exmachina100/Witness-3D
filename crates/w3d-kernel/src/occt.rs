@@ -1026,22 +1026,27 @@ impl Kernel for Occt {
         }
 
         // Interpolate vertex positions through the refinement hierarchy
+        // The PatchTable expects control values as the concatenation of ALL levels' vertices, base level first
         let primvar_refiner = PrimvarRefiner::new(&refiner);
-        let mut positions: Vec<[f64; 3]> = cage.vertices.iter().map(|v| [v.x, v.y, v.z]).collect();
+        let base_positions: Vec<[f64; 3]> = cage.vertices.iter().map(|v| [v.x, v.y, v.z]).collect();
 
+        // Collect all levels' interpolated positions: base level first, then each refinement level
+        let mut all_positions = base_positions.clone();
         for level in 1..=refiner.max_level() {
             let n_verts = refiner.level(level).num_vertices();
             let mut dst = vec![[0.0f64; 3]; n_verts];
-            primvar_refiner.interpolate(level, &positions, &mut dst);
-            positions = dst;
+            primvar_refiner.interpolate(level, &base_positions, &mut dst);
+            all_positions.extend(dst);
         }
 
-        // Get the refined mesh topology
-        let refined_verts = positions.len();
+        // Get the refined mesh topology (final level)
+        let refined_verts = refiner.level(refiner.max_level()).num_vertices();
         let refined_faces = refiner.level(refiner.max_level()).num_faces();
 
         let mut refined_positions = vec![DVec3::ZERO; refined_verts];
-        for (i, pos) in positions.iter().enumerate() {
+        // The final level's positions are at the end of all_positions
+        let final_level_start = all_positions.len() - refined_verts;
+        for (i, pos) in all_positions[final_level_start..].iter().enumerate() {
             refined_positions[i] = DVec3::new(pos[0], pos[1], pos[2]);
         }
 
@@ -1057,18 +1062,18 @@ impl Kernel for Occt {
             .map_err(|e| KernelError::Failed(format!("OpenSubdiv patch table creation failed: {e:?}")))?;
 
         let mut patches = Vec::new();
-        let control_values = &positions; // Interpolated positions at all levels, base first
+        let control_values = &all_positions; // All levels' interpolated positions, base first (as PatchTable expects)
 
         for patch_idx in 0..patch_table.num_patches() {
             let patch_type = patch_table.patch_type(patch_idx);
 
-            // Only create B-spline patches for regular quad faces
+            // Create B-spline patches for regular quad faces (bicubic B-splines)
             if matches!(patch_type, opensubdiv::far::PatchType::Regular) {
                 let param = patch_table.patch_param(patch_idx);
                 let cvs = patch_table.patch_vertices(patch_idx);
 
                 if cvs.len() == 16 {
-                    // Extract the 4x4 control grid
+                    // Extract the 4x4 control grid (row-major: rows along v, columns along u)
                     let mut poles = vec![vec![DVec3::ZERO; 4]; 4];
                     for (idx, &cv) in cvs.iter().enumerate() {
                         if (cv as usize) < control_values.len() {
@@ -1079,6 +1084,7 @@ impl Kernel for Occt {
                         }
                     }
 
+                    // For regular patches, the domain is [0,1] x [0,1] with uniform knots
                     patches.push(BsplinePatch {
                         degree_u: 3,
                         degree_v: 3,
@@ -1088,6 +1094,8 @@ impl Kernel for Occt {
                     });
                 }
             }
+            // Note: Could also handle SingleCrease patches (regular patches with semi-sharp creases)
+            // and GregoryBasis patches (extraordinary vertices) in the future
         }
 
         // Create a solid from patches if the cage was closed (all faces quads, manifold)
