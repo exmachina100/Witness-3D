@@ -175,8 +175,8 @@ export const COMMAND = {
     imprint: { s: 'screen', x: 'axis-x', y: 'axis-y', z: 'axis-z', c: 'complete', t: 'tool' },
     // Bridge Surface: T types the tension.
     'bridge-surface': { t: 'tension', a: 'add-pair' },
-    // Patch: T leaves the edges tangent to their faces.
-    patch: { t: 'tangent', i: 'individual', q: 'quad' },
+    // Patch: T leaves the edges tangent to their faces. A toggles quality analysis.
+    patch: { t: 'tangent', i: 'individual', q: 'quad', a: 'analysis' },
     thicken: { d: 'front', b: 'back', s: 'lock' },
     // Pipe: R radius, T wall thickness, V sides.
     pipe: { d: 'diameter', r: 'radius', 'shift-t': 'thickness', v: 'sides', a: 'angle', s: 'scale', 'shift-1': 'distance1', 'shift-2': 'distance2', c: 'profile', b: 'new', q: 'union', w: 'difference', 'shift-e': 'intersect', 'shift-q': 'slice', t: 'keep' },

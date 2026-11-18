@@ -69,7 +69,6 @@ export function wideSurface(tf, far, useXnurbsSolver = false) {
     }
     return s;
 }
-}
 
 /**
  * `shape` (a solid) with `faces` replaced by the surface of face `tface` of `target`. A positive

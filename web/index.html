@@ -27,29 +27,11 @@ import { loadKernel } from './src/Kernel.js';
 import { LocalBackend } from './src/app/LocalBackend.js';
 import { mount } from './src/app/App.js';
 
-// OpenCascade compiled to WebAssembly, shipped gzipped next to the page (occ.gz.wasm holds gzip bytes).
-async function bootKernel() {
-  try {
-    const res = await fetch('./occ.gz.wasm');
-    if (!res.ok) throw new Error(res.status);
-    // Some hosts decode gzip on the way; only decompress if the bytes are still gzipped.
-    const raw = await res.arrayBuffer();
-    const gz = new Uint8Array(raw, 0, 2);
-    const wasmBinary = gz[0] === 0x1f && gz[1] === 0x8b
-      ? await new Response(new Blob([raw]).stream().pipeThrough(new DecompressionStream('gzip'))).arrayBuffer()
-      : raw;
-    console.log('Loading kernel with local wasmBinary...');
-    await loadKernel({ wasmBinary });
-    console.log('Kernel loaded successfully!');
-  } catch (e) {
-    console.warn('Local wasm load failed, trying auto-fetch:', e);
-    await loadKernel(); // local dev: let the loader fetch its own .wasm
-    console.log('Kernel loaded via auto-fetch!');
-  }
-}
-
 document.getElementById('app').innerHTML = '<div class="loading" style="position:fixed">LOADING THE OPENCASCADE KERNEL (7 MB)…</div>';
-await bootKernel();
+console.log('Loading kernel...');
+await loadKernel(); // let the loader fetch its own .wasm via locateFile
+console.log('Kernel loaded successfully!');
+
 console.log('Mounting app...');
 const app = await mount(document.getElementById('app'), new LocalBackend());
 window.__w3d = app;

@@ -738,6 +738,12 @@ const SHELL = `
       <div class="field" title="Open curves selected with one closed loop: the sheet passes through them"><label>GUIDES</label><output data-id="patch-guides">0</output></div>
       <div class="field" title="The sheet the Trim methods cut: select it in body mode with the base sheet's edges"><label>TARGET</label><output data-id="patch-target">—</output></div>
       <div class="field" title="How far the sheet may stray from its loop, and how far apart the loop's pieces may be and still join (mm)"><label for="w3d-patch-tol">TOLERANCE</label><input id="w3d-patch-tol" data-id="patch-tol" type="number" step="0.001" min="0.0001" value="0.001"></div>
+      <div class="chips"><button data-id="patch-analysis" aria-pressed="false" title="Analysis: check the G0 position error, G1 tangent angle, and G2 curvature difference against the target edges"><kbd>A</kbd>ANALYSIS</button></div>
+      <div data-id="patch-analysis-row" hidden>
+        <div class="field"><label>G0</label><output data-id="patch-r0">—</output></div>
+        <div class="field"><label>G1</label><output data-id="patch-r1">—</output></div>
+        <div class="field"><label>G2</label><output data-id="patch-r2">—</output></div>
+      </div>
     </div>
     <div class="sec" data-panel="bridge-surface" hidden>
       <span class="hint" data-id="bs-hint">—</span>
@@ -9777,7 +9783,7 @@ export async function mount(root, backend) {
     if (!backend.previewPatch) return toast('PATCH IS NOT IN THIS BUILD YET');
     // Continuity (manual: Planar, G0, G1, G2): Planar fills flat and refuses a loop that is not,
     // G0 meets the loop only, G1 leaves the faces tangent and G2 matches their curvature too.
-    const c = cmd = { id: 'patch', tangent: false, cont: 'G0', individual: false, quad: false, faces: 'single', method: 'fill', methodSet: false, target: null, curves: [], edges: [], sent: 0, shown: 0 };
+    const c = cmd = { id: 'patch', tangent: false, cont: 'G0', individual: false, quad: false, faces: 'single', method: 'fill', methodSet: false, target: null, curves: [], edges: [], sent: 0, shown: 0, analysis: false };
     const LEVEL = { planar: 0, G0: 0, G1: 1, G2: 2 };
     lastTool = 'patch';
     showTool('patch');
@@ -9839,7 +9845,22 @@ export async function mount(root, backend) {
       c.data = null;
       c.more = [];
       const out = [];
-      for (const r of c.requests()) out.push(await backend.previewPatch(r));
+      const useQuality = backend.previewPatchWithQuality && (c.analysis || c.edges.length);
+      for (const r of c.requests()) {
+        if (useQuality) {
+          const res = await backend.previewPatchWithQuality(r);
+          if (res) {
+            c.g0 = res.g0;
+            c.g1 = res.g1;
+            c.g2 = res.g2;
+            out.push(res);
+          } else {
+            out.push(null);
+          }
+        } else {
+          out.push(await backend.previewPatch(r));
+        }
+      }
       return out.some(b => !b) ? null : out;
     }, list => {
       for (const b of list) showPreviewBody(b, phantom.add.face, phantom.add.edge).renderOrder = 5;
@@ -9871,6 +9892,15 @@ export async function mount(root, backend) {
       $('patch-guides').textContent = c.quad ? 0 : c.guides?.length ?? 0;
       $('patch-hint').textContent = c.quad ? c.quadText : (smooth ?? (list.length > 1 ? `A ${c.cont === 'planar' ? 'FLAT ' : ''}SHEET THROUGH EACH LOOP` : `${c.cont === 'planar' ? 'A FLAT' : ''} SHEET THROUGH THE LOOP`.trim())) + guided + (list.length > 1 ? ` · ${list.length} SHEETS` : '');
       setHud(c.quad ? 'PATCH · QUAD-SIDED' : list.length > 1 ? `PATCH ×${list.length}` : 'PATCH');
+      // Update quality analysis display if available
+      if (c.analysis && c.g0 !== undefined) {
+        $('patch-r0').textContent = c.g0 < 1e-4 ? '< 0.0001' : c.g0.toFixed(4) + ' MM';
+        $('patch-r1').textContent = c.g1 === null ? '—' : c.g1.toFixed(3) + '°';
+        $('patch-r2').textContent = c.g2 === null ? '—' : c.g2.toFixed(5) + ' /MM';
+        $('patch-analysis-row').hidden = false;
+      } else if (!c.analysis) {
+        $('patch-analysis-row').hidden = true;
+      }
     }, 'patch-hint');
     c.onSelection = () => {
       drawOverlays();
@@ -9911,6 +9941,8 @@ export async function mount(root, backend) {
       for (const b of $$('[data-pfaces]')) b.setAttribute('aria-pressed', String(b.dataset.pfaces === c.faces));
       $('patch-quad').setAttribute('aria-pressed', String(c.quad));
       $('patch-quad').disabled = !backend.previewSplineSheet;
+      $('patch-analysis').setAttribute('aria-pressed', String(c.analysis));
+      $('patch-analysis-row').hidden = !c.analysis;
       setTarget(c.curves.length + c.edges.length ? `${c.curves.length + c.edges.length} PIECES` : '—');
       if (c.fill && !c.edges.length) {
         const missing = c.holes ? 'THOSE SHEETS HAVE NO HOLES: EVERY EDGE IS SHARED' : 'FINDING THE HOLES';
@@ -9936,6 +9968,8 @@ export async function mount(root, backend) {
       else if (action === 'quad') {
         if (!backend.previewSplineSheet) return toast('QUAD-SIDED IS NOT IN THIS BUILD YET'), true;
         c.quad = !c.quad;
+      } else if (action === 'analysis') {
+        c.analysis = !c.analysis;
       } else return false;
       c.onSelection();
       return true;
@@ -10006,11 +10040,20 @@ export async function mount(root, backend) {
       }
       try {
         // One undo step per sheet, as Plasticity's Individual makes separate patches.
+        const useQuality = c.analysis && backend.commitPatchWithQuality;
         for (const r of c.requests()) {
-          const { id, scene } = await backend.commitPatch(r);
-          made.push(id);
-          list = scene;
-          record(c.method !== 'fill' ? `PATCH TRIM TO ${c.method.toUpperCase()}` : `PATCH${c.cont === 'planar' ? ' PLANAR' : LEVEL[c.cont] && c.edges.length ? ` ${c.cont}` : ''}`, id);
+          let result;
+          if (useQuality) {
+            result = await backend.commitPatchWithQuality(r);
+            c.g0 = result.g0;
+            c.g1 = result.g1;
+            c.g2 = result.g2;
+          } else {
+            result = await backend.commitPatch(r);
+          }
+          made.push(result.id);
+          list = result.scene;
+          record(c.method !== 'fill' ? `PATCH TRIM TO ${c.method.toUpperCase()}` : `PATCH${c.cont === 'planar' ? ' PLANAR' : LEVEL[c.cont] && c.edges.length ? ` ${c.cont}` : ''}`, result.id);
         }
         endCmd('committed');
       } catch (e) { setState('failed'); toast(say(e)); }
@@ -10019,6 +10062,13 @@ export async function mount(root, backend) {
       sel.clear();
       for (const id of made) sel.add({ kind: 'solid', body: id });
       selectionChanged({ quiet: true });
+      // Show quality metrics after commit if analysis was enabled
+      if (c.analysis && c.g0 !== undefined) {
+        $('patch-r0').textContent = c.g0 < 1e-4 ? '< 0.0001' : c.g0.toFixed(4) + ' MM';
+        $('patch-r1').textContent = c.g1 === null ? '—' : c.g1.toFixed(3) + '°';
+        $('patch-r2').textContent = c.g2 === null ? '—' : c.g2.toFixed(5) + ' /MM';
+        $('patch-analysis-row').hidden = false;
+      }
     };
     c.abort = () => endCmd('cancelled');
     c.cleanup = () => clearPreview();

@@ -1196,6 +1196,18 @@ export class LocalBackend {
         return patch(cs, es, tolerance, gs);
     }
 
+    /** Patch with quality metrics: returns the sheet and G0/G1/G2 errors. */
+    async patchWithQualityResult({ curves = [], edges = [], tolerance, guides = [] }) {
+        const cs = curves.map(id => { const c = this.curveMap.get(id); if (!c) throw new Error('that curve no longer exists'); return c; });
+        const es = edges.map(({ body, edge, tangent, continuity }) => {
+            const shape = this.shapes.get(body);
+            if (!shape) throw new Error('that body no longer exists');
+            return { shape, n: edge, continuity: Math.min(2, continuity ?? (tangent ? 1 : 0)) };
+        });
+        const gs = guides.map(id => { const c = this.curveMap.get(id); if (!c) throw new Error('that guide curve no longer exists'); return c; });
+        return patchWithQuality(cs, es, tolerance, gs);
+    }
+
     /** Patch › Method: the `target` sheet trimmed by edges of one base sheet (Trim to hole / sheet). */
     patchTrimResult(target, edges, method = 'hole') {
         if (!edges.length) throw new Error('select the edges of the base sheet to trim to');
@@ -1240,6 +1252,12 @@ export class LocalBackend {
 
     previewPatch(req) { return this.latest(async () => this.body(0, this.patchResult(req))) }
 
+    /** Patch with quality metrics preview: returns the body and G0/G1/G2 errors. */
+    async previewPatchWithQuality(req) {
+        const { shape, g0, g1, g2 } = await this.patchWithQualityResult(req);
+        return this.body(0, shape);
+    }
+
     /** Patch as one undo step: the sheet becomes a body of its own, and the loop stays. */
     async commitPatch(req) {
         const sheet = this.patchResult(req);
@@ -1251,6 +1269,15 @@ export class LocalBackend {
         const id = this.nextId++;
         this.put(id, sheet);
         return { id, scene: this.bodies() };
+    }
+
+    /** Patch with quality metrics as one undo step: returns the body ID and G0/G1/G2 errors. */
+    async commitPatchWithQuality(req) {
+        const { shape, g0, g1, g2 } = await this.patchWithQualityResult(req);
+        this.checkpoint();
+        const id = this.nextId++;
+        this.put(id, shape);
+        return { id, g0, g1, g2, scene: this.bodies() };
     }
 
     /** Plasticity's Pipe: a tube along each of `curves`, round (`sides` 0) or polygonal, hollow with a `thickness`. */

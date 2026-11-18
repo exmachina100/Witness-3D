@@ -2018,6 +2018,12 @@ impl<K: Kernel> Document<K> {
         Ok(self.add(sheet))
     }
 
+    /// Patch with quality metrics as one undoable step: returns the body ID and G0/G1/G2 errors.
+    pub fn commit_patch_with_quality(&mut self, curves: &[CurveId], edges: &[(BodyId, u32, u32)], tolerance: f64, guides: &[CurveId]) -> Result<(BodyId, f64, f64, f64), KernelError> {
+        let (sheet, g0, g1, g2) = self.preview_patch_with_quality(curves, edges, tolerance, guides)?;
+        Ok((self.add(sheet), g0, g1, g2))
+    }
+
     /// Plasticity's Loft of curves and edges, without changing the document: a sheet through the
     /// `curves` (drawn curves, or body edges given whole) in the order given, closing back on the
     /// first when `looped` (three curves or more).
