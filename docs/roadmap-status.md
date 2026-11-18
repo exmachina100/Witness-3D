@@ -91,13 +91,24 @@ _Last updated: 2026-11-19_
   - ✅ **GregoryBasis patch handling**: Extraordinary vertex (valence != 4) patches now approximated as bicubic B-spline patches in Rust backend
 - **Missing**: Proper preview mesh display for custom cages, edge crease UI, better cage topology generation from arbitrary vertices (auto-quadrangulation), exact Gregory basis evaluation
 
-#### **7. Variable-radius Fillet & Fillet Shell**
-- **Status**: Variable fillet done; `fillet_shell` implemented with Y-blend fallback
-- **Missing**: Y-blend corner patches where 3+ fillets meet
+#### **7. Variable-radius Fillet & Fillet Shell** ✅ **DONE**
+- **Status**: 
+  - ✅ Variable fillet done (already implemented)
+  - ✅ `fillet_shell` implemented with Y-blend fallback
+  - ✅ **Y-blend corner patches** where 3+ fillets meet - implemented in OCCT shim (`vendor/opencascade-sys/include/w3d.hxx` lines 531-748)
+    - Detects faulty vertices where standard fillet fails
+    - Creates corner patches using `BRepOffsetAPI_MakeFilling` with G0 continuity
+    - Fuses patches with filleted shape via `BRepAlgoAPI_Fuse`
+- **Files**: `vendor/opencascade-sys/include/w3d.hxx` (w3d_blend_edges_with_yblend), `crates/w3d-kernel/src/blend.rs`, `crates/w3d-kernel/src/occt.rs`
 
-#### **8. Match Face G1/G2, Unwrap Face**
-- **Status**: `match_faces` and `unwrap_face` implemented in kernel
-- **Missing**: Solver options ("constrained" vs "xnurbs"), skew parameter
+#### **8. Match Face G1/G2, Unwrap Face** ✅ **DONE**
+- **Status**: 
+  - ✅ `match_faces` and `unwrap_face` implemented in kernel
+  - ✅ **Solver options**: "constrained" (default) vs "xnurbs" - implemented in kernel trait and OCCT backend
+  - ✅ **Skew parameter** (-1 to 1): UV flow bias along matched edge - implemented in kernel trait and OCCT backend
+  - ✅ Web frontend: Match Face panel now has SOLVER toggle (CONSTRAINED/XNURBS) and SKEW input (-1 to 1)
+  - ✅ Desktop backend: MatchFacesRequest already has solver and skew fields
+- **Files**: `crates/w3d-kernel/src/form.rs` (match_faces_grow), `crates/w3d-kernel/src/occt.rs` (match_faces), `crates/w3d-kernel/src/document.rs`, `web/src/app/App.js` (match-face panel), `apps/desktop/src-tauri/src/api.rs`
 
 ---
 

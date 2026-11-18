@@ -561,6 +561,9 @@ const SHELL = `
       <div class="field"><label>TARGET</label><output data-id="mf-target" title="Click the face whose surface the faces should take">—</output></div>
       <span class="label">GROW</span>
       <div class="seg" role="group" aria-label="Grow mode"><button data-mfgrow="moving" aria-pressed="true" title="An inner face matched past the outer wall takes the wall with it (Tab)">MOVING</button><button data-mfgrow="fixed" aria-pressed="false" title="Stop at the outer wall (Tab)">FIXED</button><button data-mfgrow="none" aria-pressed="false" title="Carry on past the outer wall by itself (Tab)">NONE</button></div>
+      <span class="label">SOLVER</span>
+      <div class="seg" role="group" aria-label="Solver"><button data-mfsolver="constrained" aria-pressed="true" title="Constrained solver (default)">CONSTRAINED</button><button data-mfsolver="xnurbs" aria-pressed="false" title="xNURBS-style solver">XNURBS</button></div>
+      <div class="field"><label for="w3d-mf-skew">SKEW</label><input id="w3d-mf-skew" data-id="mf-skew" type="number" step="0.1" min="-1" max="1" value="0" title="UV flow bias along matched edge (-1 to 1)"></div>
     </div>
     <div class="sec" data-panel="image" hidden>
       <span class="hint" data-id="im-hint">—</span>
@@ -7840,22 +7843,35 @@ export async function mount(root, backend) {
     const body = faceBody();
     if (body === null) return toast(sel.list('face').length ? 'MATCH THE FACES OF ONE SOLID AT A TIME' : 'SELECT THE FACES TO MATCH');
     if (!backend.previewMatchFaces) return toast('MATCH FACE IS NOT IN THIS BUILD YET');
-    const c = cmd = { id: 'match-face', body, faces: [], target: null, grow: 'moving', sent: 0, shown: 0 };
+    const c = cmd = { id: 'match-face', body, faces: [], target: null, grow: 'moving', solver: 'constrained', skew: 0, sent: 0, shown: 0 };
     lastTool = 'match-face';
     showTool('match-face');
     setState('none');
-    c.request = () => ({ body: c.body, faces: c.faces, target: c.target.body, tface: c.target.n, grow: c.grow });
+    c.request = () => ({ body: c.body, faces: c.faces, target: c.target.body, tface: c.target.n, grow: c.grow, solver: c.solver, skew: c.skew });
     c.setGrow = g => {
       c.grow = g;
       for (const b of $$('[data-mfgrow]')) b.setAttribute('aria-pressed', String(b.dataset.mfgrow === g));
       c.preview();
     };
+    c.setSolver = s => {
+      c.solver = s;
+      for (const b of $$('[data-mfsolver]')) b.setAttribute('aria-pressed', String(b.dataset.mfsolver === s));
+      c.preview();
+    };
     c.key = action => {
-      if (action !== 'grow') return false;
-      const order = ['moving', 'fixed', 'none'];
-      c.setGrow(order[(order.indexOf(c.grow) + 1) % 3]);
-      toast(`GROW ${c.grow.toUpperCase()}`);
-      return true;
+      if (action === 'grow') {
+        const order = ['moving', 'fixed', 'none'];
+        c.setGrow(order[(order.indexOf(c.grow) + 1) % 3]);
+        toast(`GROW ${c.grow.toUpperCase()}`);
+        return true;
+      }
+      if (action === 'solver') {
+        const order = ['constrained', 'xnurbs'];
+        c.setSolver(order[(order.indexOf(c.solver) + 1) % 2]);
+        toast(`SOLVER ${c.solver.toUpperCase()}`);
+        return true;
+      }
+      return false;
     };
     c.preview = () => {
       if (!c.target) { clearPreview(); $('mf-hint').textContent = 'CLICK THE FACE TO MATCH TO'; return setHud('CLICK THE TARGET FACE'); }
@@ -7905,6 +7921,8 @@ export async function mount(root, backend) {
     c.cleanup = () => clearPreview();
     $('mf-target').textContent = '—';
     for (const b of $$('[data-mfgrow]')) b.setAttribute('aria-pressed', String(b.dataset.mfgrow === 'moving'));
+    for (const b of $$('[data-mfsolver]')) b.onclick = () => c.setSolver(b.dataset.mfsolver);
+    $('w3d-mf-skew').onchange = () => { c.skew = parseFloat($('w3d-mf-skew').value) || 0; c.preview(); };
     c.onSelection();
   }
 
