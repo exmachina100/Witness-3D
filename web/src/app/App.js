@@ -5807,7 +5807,7 @@ export async function mount(root, backend) {
   }
   async function commitCurve(curve, text) {
     if (!backend.addCurves) { endCmd('failed'); return toast('DRAWING IS NOT IN THIS BUILD YET'); }
-    const knife = cmd?.knife ? cmd.plane : null;
+    const knife = curve.knifePlane ?? (cmd?.knife ? cmd.plane : null);
     endCmd('committed');
     try {
       const { ids } = await backend.addCurves([curve]);
@@ -5848,7 +5848,7 @@ export async function mount(root, backend) {
   // adjust: Turns, Radius, Length, Angle (how steeply it climbs, tied to the pitch) and
   // handedness in the panel, A, D and R to type the angle, length and radius. Enter keeps it.
   function startSpiral() {
-    const c = cmd = { id: 'spiral', step: 0, p1: null, p2: null, plane: null, axis: null, x: null, radius: 0, length: 0, turns: 4, left: false, at: null, entry: null };
+    const c = cmd = { id: 'spiral', step: 0, p1: null, p2: null, plane: null, axis: null, x: null, radius: 0, length: 0, turns: 4, left: false, at: null, entry: null, knife: false };
     lastTool = 'spiral';
     showTool('spiral');
     setState('none');
@@ -5950,7 +5950,7 @@ export async function mount(root, backend) {
       const p = pointAt(e);
       if (c.step > 2) return true;
       if (!p || p.curved) { toast('START ON A FLAT FACE OR THE CONSTRUCTION PLANE'); return true; }
-      if (c.step === 0) { c.p1 = p.origin.clone(); c.plane = { n: p.normal.clone() }; setTarget(p.target != null ? label(p.target) : cplane.name); }
+      if (c.step === 0) { c.p1 = p.origin.clone(); c.plane = { origin: p.origin.toArray(), normal: p.normal.toArray(), target: p.target, face: p.face }; setTarget(p.target != null ? label(p.target) : cplane.name); }
       else if (c.step === 1) {
         if (p.origin.distanceTo(c.p1) < 1e-6) return true;
         c.p2 = p.origin.clone();
@@ -5982,6 +5982,12 @@ export async function mount(root, backend) {
       set(k, v);
     };
     c.key = action => {
+      if (action === 'knife') {
+        c.knife = !c.knife;
+        $$('[data-draw="knife"]')[0].setAttribute('aria-pressed', c.knife);
+        setHud(c.knife ? 'KNIFE: THE CURVE CUTS THE FACE IT IS DRAWN ON' : 'KNIFE OFF');
+        return true;
+      }
       if (action.startsWith('axis-')) {
         if (c.step !== 1) return false;
         const a = action.slice(5);
@@ -6005,7 +6011,9 @@ export async function mount(root, backend) {
     c.finish = () => {
       if (c.step < 3) return endCmd(c.step ? 'cancelled' : null);
       const n = c.p2.clone().sub(c.p1).normalize();
-      return commitCurve({ origin: c.p1.toArray(), x: c.x.toArray(), normal: n.toArray(), kind: 'spiral', radius: c.radius, length: c.length, turns: c.turns, left: c.left }, `SPIRAL R ${c.radius.toFixed(2)} L ${c.length.toFixed(2)} ×${+c.turns.toFixed(3)}`);
+      const curve = { origin: c.p1.toArray(), x: c.x.toArray(), normal: n.toArray(), kind: 'spiral', radius: c.radius, length: c.length, turns: c.turns, left: c.left };
+      if (c.knife && c.plane) curve.knifePlane = c.plane;
+      return commitCurve(curve, `SPIRAL R ${c.radius.toFixed(2)} L ${c.length.toFixed(2)} ×${+c.turns.toFixed(3)}`);
     };
     c.abort = () => endCmd('cancelled');
     c.cleanup = () => { drawPreview.visible = false; c.gizmos?.length.dispose(); c.gizmos?.radius.dispose(); };
@@ -10147,7 +10155,7 @@ export async function mount(root, backend) {
    */
   function startTangentCircle() {
     if (!backend.addCurves) return toast('DRAWING IS NOT IN THIS BUILD YET');
-    const c = cmd = { id: 'tangent-circle', picks: [], radius: null, frozen: false, out: null, at: null };
+    const c = cmd = { id: 'tangent-circle', picks: [], radius: null, frozen: false, out: null, at: null, knife: false };
     lastTool = 'tangent-circle';
     showTool('tangent-circle');
     setState('none');
@@ -10202,6 +10210,12 @@ export async function mount(root, backend) {
       return true;
     };
     c.key = action => {
+      if (action === 'knife') {
+        c.knife = !c.knife;
+        $$('[data-draw="knife"]')[0].setAttribute('aria-pressed', c.knife);
+        setHud(c.knife ? 'KNIFE: THE CURVE CUTS THE FACE IT IS DRAWN ON' : 'KNIFE OFF');
+        return true;
+      }
       if (action === 'freeze') { c.frozen = !c.frozen; update(); return true; }
       if (action === 'typed') {
         if (c.picks[2]) { toast('THREE CURVES SET THE RADIUS'); return true; }
@@ -10214,7 +10228,12 @@ export async function mount(root, backend) {
     c.finish = async () => {
       if (!c.out) return endCmd('cancelled');
       try {
-        const { ids: made } = await backend.addCurves([c.out]);
+        const curve = c.out;
+        if (c.knife && c.picks[0]) {
+          const f = curveFrame(c.picks[0]);
+          curve.knifePlane = { target: c.picks[0].body, face: c.picks[0].face, origin: f.o.toArray(), normal: f.n.toArray() };
+        }
+        const { ids: made } = await backend.addCurves([curve]);
         endCmd('committed');
         record(`TANGENT CIRCLE R ${c.out.radius.toFixed(2)}`, made[0], curveLabel(made[0]));
         await curvesChanged(made);
@@ -13779,7 +13798,7 @@ export async function mount(root, backend) {
   const P_NEEDS = { 'file:new': 'newDocument', 'file:open': 'open', 'import:step': 'importStep', 'file:save': 'save', 'file:save-as': 'saveAs', 'file:save-version': 'saveVersion', 'file:save-startup': 'saveStartupScene', 'asset:insert': 'listAssets', 'app:quit': 'quit' };
   function openPMenu() {
     const menu = $('pmenu');
-    const can = e => e.action === 'import:step' ? !$('import').hidden : !P_NEEDS[e.action] || typeof backend[P_NEEDS[e.action]] === 'function';
+    const can = e => !P_NEEDS[e.action] || typeof backend[P_NEEDS[e.action]] === 'function';
     menu.innerHTML = P_MENU.map(e => {
       if (e.action === 'file:recent') {
         const files = typeof backend.open === 'function' ? recent : [];

@@ -15,8 +15,8 @@ export async function loadKernel(options = {}) {
         const { default: init } = await import('replicad-opencascadejs');
         // Ensure the wasm file is loaded from the correct location (same dir as replicad_single.js)
         // The importmap maps 'replicad-opencascadejs' to ./node_modules/replicad-opencascadejs/dist/replicad_single.js
-        // so the WASM is at ./node_modules/replicad-opencascadejs/dist/replicad_single.wasm
-        const wasmUrl = new URL('./node_modules/replicad-opencascadejs/dist/replicad_single.wasm', import.meta.url).href;
+        // so the WASM is at /node_modules/replicad-opencascadejs/dist/replicad_single.wasm (absolute from site root)
+        const wasmUrl = new URL('/node_modules/replicad-opencascadejs/dist/replicad_single.wasm', import.meta.url).href;
         kernel = await init({
             ...options,
             locateFile: (path) => path === 'replicad_single.wasm' ? wasmUrl : path
