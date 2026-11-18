@@ -338,7 +338,7 @@ const SHELL = `
     <div class="toast" data-id="toast" hidden></div>
     <div class="loading" data-id="loading">STARTING THE KERNEL…</div>
     <div class="recover" data-id="recover" role="alertdialog" aria-label="Recover a backup" hidden></div>
-    <input type="file" data-id="import-file" accept=".step,.stp,.dxf,.png,.jpg,.jpeg" hidden>
+    <input type="file" data-id="import-file" accept=".step,.stp,.igs,.iges,.dxf,.png,.jpg,.jpeg" hidden>
   </main>
 
   <aside class="right" aria-label="Inspector">
@@ -13553,6 +13553,14 @@ export async function mount(root, backend) {
       catch (e) { toast(say(e)); }
     }
   }
+  async function exportSelectedIGES() {
+    const ids = sel.bodies.length ? sel.bodies : current.map(b => b.id);
+    const jobs = [...ids.map(id => [id, {}]), ...(sel.bodies.length ? [] : placedSolids().map(({ n }) => [n.master, { motion: motionOf(n), mirror: n.mirror ?? null, name: `instance-${n.id}` }]))];
+    for (const [id, opts] of jobs) {
+      try { const msg = await backend.exportIGES(id, opts); if (!msg) return; toast(msg); }
+      catch (e) { toast(say(e)); }
+    }
+  }
 
   function renderModes() {
     const all = ['point', 'edge', 'face', 'solid'].every(k => sel.allows(k));
@@ -13738,7 +13746,7 @@ export async function mount(root, backend) {
         }
         return true;
       }
-      case 'export': if (arg === 'mesh' || arg === 'drawing') await startTool(`export-${arg}`); else exportSelected(); return true;
+      case 'export': if (arg === 'mesh' || arg === 'drawing') await startTool(`export-${arg}`); else if (arg === 'iges') exportSelectedIGES(); else exportSelected(); return true;
       case 'import': {
         if (!backend.importStep && !backend.importStepData && !backend.addCurves) { toast('NOT IN THE BROWSER YET'); return true; }
         // In the browser, import is handled via file input in the palette or drag-drop
@@ -14275,7 +14283,7 @@ export async function mount(root, backend) {
     const out = [];
     if (sel.solids.length > 1) out.push('tool:boolean');
     if (sel.solids.length === 2) out.push('tool:project');
-    if (kinds.has('solid')) out.push('tool:move', 'tool:rotate', 'tool:scale', 'duplicate', 'create-outline', 'toggle-points', 'place', 'copy-place', 'dimension', 'tool:mirror', 'tool:rect-array', 'tool:radial-array', 'tool:curve-array', 'unify', 'boundary-edges', 'remove-fillets', 'raise-degree', 'deform-curve', 'create-instance', 'delete', 'hide', 'isolate', 'group', 'lock', 'material:set', 'export:step', 'export:mesh', 'export:drawing');
+    if (kinds.has('solid')) out.push('tool:move', 'tool:rotate', 'tool:scale', 'duplicate', 'create-outline', 'toggle-points', 'place', 'copy-place', 'dimension', 'tool:mirror', 'tool:rect-array', 'tool:radial-array', 'tool:curve-array', 'unify', 'boundary-edges', 'remove-fillets', 'raise-degree', 'deform-curve', 'create-instance', 'delete', 'hide', 'isolate', 'group', 'lock', 'material:set', 'export:step', 'export:iges', 'export:mesh', 'export:drawing');
     if (kinds.has('face')) out.push('tool:extrude', 'tool:offset', 'tool:thicken', 'tool:shell', 'tool:hole', 'tool:remove-face', 'alt-duplicate', 'remove-fillets', 'isoparam', 'rebuild', 'raise-degree', 'subdivide', 'match-face', 'untrim', 'unwrap', 'toggle-points', 'view:surface-curvature', 'plane:selection', 'plane:selection-keep-view');
     if (sel.list('face').length >= 2) out.push('tool:loft');
     if (sel.list('edge').length === 1 && sel.list('face').length === 1) out.push('project-align');
@@ -14598,12 +14606,23 @@ export async function mount(root, backend) {
     await showScene(r.scene);
     toast(`IMPORTED ${file.name.toUpperCase()}`);
   }
+  /** An IGES file read in the browser: the whole file as one body. */
+  async function importIGESData(file) {
+    if (!backend.importIGESData) throw new Error('IGES import is not in this build');
+    const r = await backend.importIGESData(new Uint8Array(await file.arrayBuffer()));
+    if (cmd) abort();
+    sel.clear();
+    record(`IMPORT IGES ${file.name.toUpperCase()}`, r.id);
+    await showScene(r.scene);
+    toast(`IMPORTED ${file.name.toUpperCase()}`);
+  }
   $('import-file').onchange = e => fileAction(async () => {
     const file = e.target.files?.[0];
     e.target.value = '';
     if (!file) return;
     if (/\.(png|jpe?g)$/i.test(file.name)) return importImage(file, file.name);
     if (/\.(step|stp)$/i.test(file.name)) return importStepData(file);
+    if (/\.(igs|iges)$/i.test(file.name)) return importIGESData(file);
     await importDxf(await file.text(), file.name);
   });
 

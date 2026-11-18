@@ -801,7 +801,7 @@ export function import3DM(bytes) {
 
 /**
  * A STEP file's bytes read into one shape (in millimetres), as the desktop's File › Import does.
- * This kernel build has no IGES reader. Throws when the file holds no shapes.
+ * Throws when the file holds no shapes.
  */
 export function importSTEP(bytes) {
     const o = oc();
@@ -814,6 +814,44 @@ export function importSTEP(bytes) {
         const shape = reader.OneShape();
         if (shape.IsNull()) throw new Error('that STEP file holds no shapes');
         return shape;
+    } finally { o.FS.unlink(path); }
+}
+
+/** Write an IGES file and return its bytes. */
+export function exportIGES(shape) {
+    const o = oc();
+    const writer = new o.IGESControl_Writer();
+    writer.AddShape(shape);
+    writer.ComputeModel();
+    const path = '/witness3d-export.igs';
+    writer.Write(path);
+    const bytes = o.FS.readFile(path);
+    o.FS.unlink(path);
+    return bytes;
+}
+
+/**
+ * An IGES file's bytes read into one shape (in millimetres).
+ * IGES often arrives as loose faces with gaps; repaired on import.
+ * Throws when the file holds no shapes.
+ */
+export function importIGES(bytes) {
+    const o = oc();
+    const path = '/witness3d-import.igs';
+    o.FS.writeFile(path, bytes);
+    try {
+        const reader = new o.IGESControl_Reader();
+        if (reader.ReadFile(path) !== o.IFSelect_ReturnStatus.IFSelect_RetDone) throw new Error('that IGES file could not be read');
+        if (!reader.TransferRoots(new o.Message_ProgressRange())) throw new Error('that IGES file holds no shapes');
+        const shape = reader.OneShape();
+        if (shape.IsNull()) throw new Error('that IGES file holds no shapes');
+        // Repair gaps and tolerances like STEP import does
+        const healed = new o.ShapeFix_Shape(shape);
+        healed.SetPrecision(1e-6);
+        healed.Perform();
+        const result = healed.Shape();
+        if (result.IsNull()) throw new Error('the IGES geometry could not be repaired');
+        return result;
     } finally { o.FS.unlink(path); }
 }
 
