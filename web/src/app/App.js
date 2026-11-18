@@ -338,6 +338,7 @@ const SHELL = `
     <div class="toast" data-id="toast" hidden></div>
     <div class="loading" data-id="loading">STARTING THE KERNEL…</div>
     <div class="recover" data-id="recover" role="alertdialog" aria-label="Recover a backup" hidden></div>
+    <input type="file" data-id="import-file" accept=".step,.stp,.dxf,.png,.jpg,.jpeg" hidden>
   </main>
 
   <aside class="right" aria-label="Inspector">
@@ -688,6 +689,7 @@ const SHELL = `
       <div class="field"><label>FACES</label><output data-id="draft-count">0</output></div>
       <div class="field" title="Moves the neutral plane along the pull direction (D)"><label for="w3d-draft-d">OFFSET</label><input id="w3d-draft-d" data-id="draft-d" type="number" step="0.5" value="0"></div>
       <div class="field"><label>NEUTRAL</label><output data-id="draft-pull">—</output></div>
+      <div class="field"><label>PULL DIR</label><output data-id="draft-pull-dir">—</output></div>
       <div class="seg" role="group" aria-label="Taper method"><button data-drtaper="offset" aria-pressed="true" title="Offset: the faces tilt about the neutral plane, moved along the pull by Offset">OFFSET</button><button data-drtaper="curve" aria-pressed="false" title="Curve: click a straight curve or edge; the faces tilt about it">CURVE</button></div>
       <span class="label">GROW</span>
       <div class="seg" role="group" aria-label="Grow mode"><button data-drgrow="moving" aria-pressed="true" title="Moving: an inner face drafted out past the outer wall takes the wall with it (Tab)">MOVING</button><button data-drgrow="fixed" aria-pressed="false" title="Fixed: the drafted face stops at the outer wall (Tab)">FIXED</button><button data-drgrow="none" aria-pressed="false" title="None: the drafted face carries on by itself, past the outer wall (Tab)">NONE</button></div>
@@ -772,10 +774,14 @@ const SHELL = `
       <span class="hint" data-id="th-hint">—</span>
       <div class="field"><label for="w3d-th-f">FRONT</label><input id="w3d-th-f" data-id="th-f" type="number" step="0.5" min="0" value="1"></div>
       <div class="field"><label for="w3d-th-b">BACK</label><input id="w3d-th-b" data-id="th-b" type="number" step="0.5" min="0" value="0"></div>
+      <div class="field"><label>TOTAL</label><output data-id="th-total">1 MM</output></div>
+      <div class="field"><label>FACES</label><output data-id="th-faces">—</output></div>
       <div class="chips"><button class="chip" data-id="th-lock" aria-pressed="false" title="Lock distances: the back the same as the front (S)">S LOCK DISTANCES</button></div>
     </div>
     <div class="sec" data-panel="pipe" hidden>
       <span class="hint" data-id="pipe-hint">—</span>
+      <div class="field"><label>CURVES</label><output data-id="pipe-curves">0</output></div>
+      <div class="field"><label>GUIDES</label><output data-id="pipe-guides">0</output></div>
       <div class="field"><label for="w3d-pipe-r">RADIUS</label><input id="w3d-pipe-r" data-id="pipe-r" type="number" step="0.5" min="0.01" value="1"></div>
       <div class="field"><label for="w3d-pipe-t">THICKNESS</label><input id="w3d-pipe-t" data-id="pipe-t" type="number" step="0.1" min="0" value="0"></div>
       <div class="field"><label for="w3d-pipe-v">SIDES</label><input id="w3d-pipe-v" data-id="pipe-v" type="number" step="1" min="0" max="256" value="0" title="0 for a round pipe, or 3 to 256 for a polygon"></div>
@@ -963,6 +969,7 @@ const SHELL = `
       <span class="hint" data-id="form-hint">—</span>
       <div class="field" data-id="form-angle-row"><label for="w3d-form-angle">ANGLE °</label><input id="w3d-form-angle" data-id="form-angle" type="number" step="15" value="360"></div>
       <div class="field" data-id="form-thickness-row"><label for="w3d-form-thickness">THICKNESS</label><input id="w3d-form-thickness" data-id="form-thickness" type="number" step="0.5" min="0" value="0"></div>
+      <div class="field" data-id="form-path-row" hidden><label>PATH</label><output data-id="form-path">—</output></div>
       <div class="field" data-id="form-twist-row"><label for="w3d-form-twist">TWIST °</label><input id="w3d-form-twist" data-id="form-twist" type="number" step="15" value="0"></div>
       <div class="field" data-id="form-scale-row"><label for="w3d-form-scale">SCALE</label><input id="w3d-form-scale" data-id="form-scale" type="number" step="0.1" min="0.01" value="1"></div>
       <div class="field" data-id="form-distance-row"><label for="w3d-form-distance">DISTANCE</label><input id="w3d-form-distance" data-id="form-distance" type="number" step="0.05" min="0.01" max="1" value="1" title="How much of the path the sweep follows, from its start: 1 the whole path"></div>
@@ -1005,7 +1012,7 @@ const SHELL = `
     </div>
     <div class="sec" data-panel="loft-sheet" hidden>
       <span class="hint" data-id="ls-hint">—</span>
-      <div class="field"><label>CURVES</label><output data-id="ls-count">0</output></div>
+      <div class="field"><label>PROFILES</label><output data-id="ls-count">0</output></div>
       <div class="field" title="Shift+click curves or edges the sheet's sides run along; Shift+click one again to drop it"><label>GUIDES</label><output data-id="ls-guides">0</output></div>
       <div class="field"><label>LIMIT POINTS</label><output data-id="ls-limits">0</output></div>
       <div data-id="ls-edges-row" hidden>
@@ -9585,6 +9592,8 @@ export async function mount(root, backend) {
         else return setHud('CLICK A CLOSED CURVE OR A FLAT FACE FOR THE PROFILE');
         c.picking = false;
       } else c.curves = sel.curves.filter(id => curveById(id) && id !== c.profile);
+      $('pipe-curves').textContent = c.curves.length;
+      $('pipe-guides').textContent = c.guides.length;
       setTarget(c.curves.length ? `${c.curves.length} CURVES${c.profile !== null ? ` · PROFILE ${profLabel()}` : ''}` : '—');
       if (!c.curves.length) {
         const missing = 'SELECT THE CURVES TO RUN PIPES ALONG';
@@ -11879,6 +11888,9 @@ export async function mount(root, backend) {
       for (const b of $$('[data-drtaper]')) b.setAttribute('aria-pressed', String(b.dataset.drtaper === c.taper));
       for (const b of $$('[data-drgrow]')) b.setAttribute('aria-pressed', String(b.dataset.drgrow === c.grow));
       $('draft-pull').textContent = c.taper === 'curve' ? (c.hinge ? 'THE LINE' : 'CLICK A LINE') : c.ref !== null ? `FACE ${c.ref}` : `PLANE ${cplane.name}`;
+      // Show pull direction vector
+      const { n } = (() => { const b = bodyOf(c.body), p = c.ref !== null && b?.facePlanes[c.ref]; const n = p ? new THREE.Vector3(...p.normal).normalize() : cplane.normal.clone().normalize(); return { n }; })();
+      $('draft-pull-dir').textContent = `[${n.x.toFixed(2)}, ${n.y.toFixed(2)}, ${n.z.toFixed(2)}]`;
       if (!c.faces.length) { clearPreview(); setState('none'); return setHud('SHIFT-SELECT THE FACES TO DRAFT'); }
       if (c.taper === 'curve' && !c.hinge) { clearPreview(); setState('none'); return setHud('CLICK THE STRAIGHT CURVE OR EDGE TO TILT ABOUT'); }
       livePreview(c, () => { const q = c.call(); return q.draft ? backend.previewDraft(q.draft) : backend.previewMoveFaces(q.turn); }, b => { showPreviewBody(b); setHud(text()); }, 'draft-hint');
@@ -11918,6 +11930,9 @@ export async function mount(root, backend) {
       setTarget(label(b));
       $('draft-count').textContent = c.faces.length;
       $('draft-pull').textContent = c.ref !== null ? `FACE ${c.ref}` : `PLANE ${cplane.name}`;
+      // Show pull direction vector
+      const n = c.ref !== null && bodyOf(b)?.facePlanes[c.ref] ? new THREE.Vector3(...bodyOf(b).facePlanes[c.ref].normal).normalize() : cplane.normal.clone().normalize();
+      $('draft-pull-dir').textContent = `[${n.x.toFixed(2)}, ${n.y.toFixed(2)}, ${n.z.toFixed(2)}]`;
       $('draft-hint').textContent = `${c.faces.length} FACE${c.faces.length === 1 ? '' : 'S'} OF ${label(b)} ABOUT ${c.ref !== null ? 'THE REFERENCE FACE' : `PLANE ${cplane.name}`}`;
       place();
       c.preview();
@@ -12740,6 +12755,7 @@ export async function mount(root, backend) {
     setTarget(target ? label(target) : 'NEW BODY');
     $('form-angle-row').hidden = $('form-thickness-row').hidden = id !== 'revolve';
     $('form-twist-row').hidden = $('form-scale-row').hidden = $('form-distance-row').hidden = id !== 'sweep';
+    $('form-path-row').hidden = id !== 'sweep';
     $('form-ops').hidden = id === 'loft';
     $('form-guides-row').hidden = id === 'revolve';
     $('form-method-row').hidden = $('form-align-row').hidden = $('form-corner-row').hidden = id !== 'sweep';
@@ -12753,6 +12769,7 @@ export async function mount(root, backend) {
         : id === 'revolve' ? (!c.p1 ? 'CLICK THE AXIS START' : !c.p2 ? 'CLICK THE AXIS END' : `${c.angle}° ABOUT THE AXIS${c.thickness ? ` · WALLS ${c.thickness}` : ''}`)
         : !c.path ? 'CLICK THE CURVE TO SWEEP ALONG' : `ALONG ${curveLabel(c.path)}${guides || ' · CLICK GUIDES (OPTIONAL, UP TO TWO)'}`;
       $('form-guides').textContent = c.guides.length;
+      $('form-path').textContent = c.path ? curveLabel(c.path) : '—';
       $('form-hint').textContent = text;
       setHud(text);
     };
@@ -13658,12 +13675,41 @@ export async function mount(root, backend) {
           });
           return true;
         }
-        const b = $({ new: 'file-new', open: 'file-open', save: 'file-save' }[arg]);
-        if (b.hidden) toast('NOT IN THE BROWSER YET'); else b.click();
+        // File operations: new, open, save
+        if (arg === 'new') {
+          if (!backend.newDocument) { toast('NOT IN THE BROWSER YET'); return true; }
+          await fileAction(async () => { newScene(await backend.newDocument(), 'UNTITLED.W3D'); await restoreAppState(); });
+          return true;
+        }
+        if (arg === 'open') {
+          if (!backend.open) { toast('NOT IN THE BROWSER YET'); return true; }
+          await fileAction(async () => {
+            const r = await backend.open();
+            if (!r) return;
+            newScene(r.scene, r.name.toUpperCase());
+            await restoreAppState();
+            remember(backend.filePath);
+          });
+          return true;
+        }
+        if (arg === 'save') {
+          if (!backend.save) { toast('NOT IN THE BROWSER YET'); return true; }
+          await fileAction(async () => {
+            await keepAppState();
+            const name = await backend.save();
+            if (name) { $('file-name').textContent = name.toUpperCase(); toast(`SAVED ${name.toUpperCase()}`); remember(backend.filePath); }
+          });
+          return true;
+        }
         return true;
       }
       case 'export': if (arg === 'mesh' || arg === 'drawing') await startTool(`export-${arg}`); else exportSelected(); return true;
-      case 'import': $('import').hidden ? toast('NOT IN THE BROWSER YET') : $('import').click(); return true;
+      case 'import': {
+        if (!backend.importStep && !backend.importStepData && !backend.addCurves) { toast('NOT IN THE BROWSER YET'); return true; }
+        // In the browser, import is handled via file input in the palette or drag-drop
+        openPalette(false, 'IMPORT');
+        return true;
+      }
       // Unjoin Curve (Alt+J), and Unjoin with only curves selected: joined curves back into the
       // curves they were joined from (as Explode does here: a contour's pieces, a polyline's lines).
       case 'unjoin':
@@ -14492,27 +14538,9 @@ export async function mount(root, backend) {
   async function fileAction(fn) {
     try { await fn(); } catch (e) { toast(say(e)); }
   }
-  for (const [id, method] of [['file-new', 'newDocument'], ['file-open', 'open'], ['file-save', 'save'], ['import', 'importStep']]) {
-    $(id).hidden = typeof backend[method] !== 'function';
-  }
-  // Without a native import (the browser), Import still reads DXF drawings as curves.
-  if (!backend.importStep && backend.addCurves) { $('import').hidden = false; $('import').title = backend.importStepData ? 'Import a STEP model, a DXF drawing as curves, or a PNG or JPEG reference image' : 'Import a DXF drawing as curves, or a PNG or JPEG reference image'; }
-  $('file-new').onclick = () => fileAction(async () => { newScene(await backend.newDocument(), 'UNTITLED.W3D'); await restoreAppState(); });
-  function openFile(path) {
-    return fileAction(async () => {
-      const r = await backend.open(path);
-      if (!r) return;
-      newScene(r.scene, r.name.toUpperCase());
-      await restoreAppState();
-      remember(backend.filePath);
-    });
-  }
-  $('file-open').onclick = () => openFile();
-  $('file-save').onclick = () => fileAction(async () => {
-    await keepAppState();
-    const name = await backend.save();
-    if (name) { $('file-name').textContent = name.toUpperCase(); toast(`SAVED ${name.toUpperCase()}`); remember(backend.filePath); }
-  });
+  // File operations (New, Open, Save, Import) are now in the P-Menu dropdown.
+  // The top bar only shows the brand (P-Menu), context strip, ASK button, and file name.
+  // Backend capability checks are done in openPMenu() via P_NEEDS and doAction() handles them directly.
   /** A DXF drawing's curves added on the XY plane as one undo step, then selected. */
   async function importDxf(text, name) {
     // Text comes in drawn in the Text tool's sans font (its letters as curves).
@@ -14543,17 +14571,8 @@ export async function mount(root, backend) {
     if (/\.(step|stp)$/i.test(file.name)) return importStepData(file);
     await importDxf(await file.text(), file.name);
   });
-  $('import').onclick = () => fileAction(async () => {
-    if (!backend.importStep) return $('import-file').click();
-    const r = await backend.importStep();
-    if (!r) return;
-    if (r.dxf !== undefined) return importDxf(r.dxf, r.name);
-    if (r.image) return importImage(r.image, r.name);
-    if (cmd) abort();
-    sel.clear();
-    record('IMPORT STEP', r.id);
-    showScene(r.scene);
-  });
+
+  // Import button was removed from top bar - handled via P-Menu / palette instead
 
   // --- pointer input --------------------------------------------------------
   let down = null; // { x, y, button, consumed, box }
