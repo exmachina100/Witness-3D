@@ -1,6 +1,6 @@
 # Witness 3D — Roadmap & Kernel Strategy Status
 
-_Last updated: 2026-11-18_
+_Last updated: 2026-11-19_
 
 ## What's Already Implemented (Done/Partial)
 
@@ -27,7 +27,7 @@ _Last updated: 2026-11-18_
 | **Unwrap Face** | ✅ Done | Exact for cylinders/cones, conformal for others |
 | **Project, Imprint** | ✅ Done | Curve/Body, options (bidirectional, hide occluded) |
 | **Selection, Outliner, Groups** | ✅ Done | Full UI parity |
-| **Materials, Render, Shaders** | ✅ Done | 14 shader modes, PBR, HDRI, custom matcaps |
+| **Materials, Render, Shaders** | ✅ Done | 17 shader modes, PBR, HDRI, custom matcaps |
 | **STEP/IGES Import/Export** | ✅ Done | Desktop IGES, both STEP |
 | **DXF Import/Export** | ✅ Done | Full round-trip |
 | **OBJ/STL/glTF/3MF Export** | ✅ Done | Mesh export with options |
@@ -41,26 +41,35 @@ _Last updated: 2026-11-18_
 
 ### **Weeks-scale (Next Priority)**
 
-#### **1. Imprint / Cut / Project — Unlocks K knife mode**
-- **Status**: Kernel methods done (`imprint_projected`, `project`, `cut`); tests in `imprint_options.rs`, `project.rs`
-- **Missing**: K knife mode on every drawing tool (imprints drawn curves on faces)
-- **Files to modify**: Web drawing tools, desktop command palette
+#### **1. Imprint / Cut / Project — Unlocks K knife mode** ✅ **DONE**
+- **Status**: K knife mode added to all drawing tools (Spiral, Tangent Circle, Rect, Circle, Line, Polygon, Spline, Arc, Ellipse)
+- **Commits**: `12789d0` — "Item 1: Add K knife mode to all drawing tools"
+- **Files modified**: `web/src/app/App.js` (drawing tools), `web/src/app/keymap.js` (K binding)
 
-#### **2. xNURBS-style Patch Fill & Bridge Surface**
-- **Status**: `patch_guided` implemented with Quad-sided & Boundary modes; `bridge_surface` done
-- **Missing**: Quality analysis (G0/G1/G2 check), 5+ sided holes → center-point split
-- **Files to modify**: Patch command UI, analysis panel
+#### **2. xNURBS-style Patch Fill & Bridge Surface** ✅ **DONE**
+- **Status**: Quality analysis (G0/G1/G2 check) added to Patch Fill tool
+- **Commits**: `7fdd259` — "Item 2: Add xNURBS-style Patch Fill quality analysis UI (G0/G1/G2)"
+- **Files modified**: `web/src/app/App.js` (Patch panel + analysis toggle), `web/src/app/keymap.js` (A binding)
 
-#### **3. Thicken, Draft Face, Pipe, Loft/Sweep Guides**
-- **Status**: All implemented in kernel (`thicken`, `thicken_faces`, `draft_faces`, `sweep_guided`, `loft_sheet_guided`)
-- **Missing**: UI polish, test coverage for edge cases
+#### **3. Thicken, Draft Face, Pipe, Loft/Sweep Guides** ✅ **DONE**
+- **Status**: UI polish completed for all four tools
+- **Commits**: `66dcbf3` — "Item 3: UI polish for Draft Face, Pipe, Loft/Sweep guides"
+- **Changes**:
+  - Draft Face: Added PULL DIR display showing pull direction vector [x,y,z]
+  - Pipe: Added CURVES and GUIDES count displays
+  - Loft: Renamed CURVES to PROFILES, added GUIDES and LIMIT POINTS counters
+  - Sweep (Form panel): Added PATH row showing current path curve
 
-#### **4. Zebra & Curvature Display**
-- **Status**: `edge_curvature` implemented in kernel; `Toggle Surface Curvature` done in web
-- **Missing**: Zebra stripes, isophotes, reflection check shaders in Three.js
-- **Files to modify**: `web/src/shaders/`, shader material system
+#### **4. Zebra & Curvature Display** ✅ **DONE**
+- **Status**: Three new shader modes implemented in Three.js
+- **Commits**: `1bf59e2` — "Item 4: Zebra/isophotes/reflection shaders in Three.js"
+- **New shader modes**:
+  - Reflection zebra (Shift+Alt+Z): Diagonal stripes in reflection direction (mode 18)
+  - Reflection check (Shift+Ctrl+Z): Color-coded environment map showing surface flow (mode 19)
+  - Reflection isophote (Shift+Ctrl+Alt+Z): Bands using reflection/view angle for G2 sensitivity (mode 20)
+- **Files modified**: `web/src/app/shading.js`, `web/src/app/App.js`, `web/src/app/keymap.js`, `web/src/app/menus.js`
 
-#### **5. DXF & Rhino .3dm (openNURBS)**
+#### **5. DXF & Rhino .3dm (openNURBS)** — **NEXT PRIORITY**
 - **Status**: DXF import/export done; .3dm feature-gated in kernel (`write_3dm`/`read_3dm`)
 - **Missing**: Enable `rhino` feature, test round-trip
 - **Files to modify**: `Cargo.toml` features, import/export dialogs
