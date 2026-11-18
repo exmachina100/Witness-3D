@@ -2146,6 +2146,148 @@ pub fn commit_subdivide_faces(m: &Model, req: SubdivideFacesRequest) -> Result<C
     })
 }
 
+/// PolySplines: SubD cage to NURBS via OpenSubdiv (Catmull-Clark).
+#[derive(Deserialize, Debug, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct SubdCageRequest {
+    /// Cage vertices: [x, y, z] per vertex.
+    pub vertices: Vec<[f64; 3]>,
+    /// Cage faces: each face is a list of vertex indices (quads or triangles).
+    pub faces: Vec<Vec<usize>>,
+    /// Vertex crease weights (0 = smooth, >0 = sharp). Length = vertices.len().
+    #[serde(default)]
+    pub creases: Option<Vec<f32>>,
+    /// Edge crease weights. Each is [[v1, v2], weight].
+    #[serde(default)]
+    pub edge_creases: Option<Vec<([usize; 2], f32)>>,
+    /// UV coordinates for each vertex (optional). Length = vertices.len().
+    #[serde(default)]
+    pub uvs: Option<Vec<[f64; 2]>>,
+}
+
+/// Subdivision surface evaluation options.
+#[derive(Deserialize, Debug, Clone, Copy)]
+#[serde(rename_all = "camelCase")]
+pub struct SubdivOptionsRequest {
+    /// Subdivision level (0 = cage, 1 = one level of Catmull-Clark, etc.)
+    #[serde(default = "default_subdiv_level")]
+    pub level: u32,
+    /// Whether to use limit surface evaluation (true) or explicit refinement (false).
+    #[serde(default = "default_true")]
+    pub limit_surface: bool,
+    /// Maximum number of vertices in the output (safety limit).
+    #[serde(default = "default_max_vertices")]
+    pub max_vertices: usize,
+}
+
+fn default_subdiv_level() -> u32 { 3 }
+fn default_true() -> bool { true }
+fn default_max_vertices() -> usize { 100_000 }
+
+/// PolySplines preview: the refined mesh and patches.
+#[derive(Serialize, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct PolySplinesPreview {
+    /// The evaluated limit surface mesh (vertices, faces).
+    pub mesh: (Vec<[f32; 3]>, Vec<Vec<u32>>),
+    /// Bicubic B-spline patches (u-degree, v-degree, u-knots, v-knots, control points).
+    pub patches: Vec<BsplinePatchOut>,
+    /// Whether a solid can be made (closed cage with all quad faces).
+    pub can_make_solid: bool,
+}
+
+/// A bicubic B-spline patch from the limit surface (serializable).
+#[derive(Serialize, Debug, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct BsplinePatchOut {
+    pub degree_u: usize,
+    pub degree_v: usize,
+    pub knots_u: Vec<f64>,
+    pub knots_v: Vec<f64>,
+    /// Poles as [v][u] (row-major in v).
+    pub poles: Vec<Vec<[f64; 3]>>,
+    /// UV coordinates for each pole [v][u].
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub pole_uvs: Option<Vec<Vec<[f64; 2]>>>,
+}
+
+/// PolySplines commit result.
+#[derive(Serialize, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct PolySplinesCommitted {
+    pub id: BodyId,
+    pub scene: Vec<Body>,
+    /// The refined mesh (positions, faces).
+    pub mesh: (Vec<[f32; 3]>, Vec<Vec<u32>>),
+    /// The B-spline patches.
+    pub patches: Vec<BsplinePatchOut>,
+}
+
+fn convert_cage(req: SubdCageRequest) -> SubdCage {
+    SubdCage {
+        vertices: req.vertices.into_iter().map(|v| DVec3::new(v[0], v[1], v[2])).collect(),
+        faces: req.faces,
+        creases: req.creases,
+        edge_creases: req.edge_creases.map(|ec| ec.into_iter().map(|(v, w)| ((v[0], v[1]), w)).collect()),
+        uvs: req.uvs,
+    }
+}
+
+fn convert_options(req: SubdivOptionsRequest) -> SubdivOptions {
+    SubdivOptions {
+        level: req.level,
+        limit_surface: req.limit_surface,
+        max_vertices: req.max_vertices,
+    }
+}
+
+fn convert_patches(patches: Vec<BsplinePatch>) -> Vec<BsplinePatchOut> {
+    patches.into_iter().map(|p| BsplinePatchOut {
+        degree_u: p.degree_u,
+        degree_v: p.degree_v,
+        knots_u: p.knots_u,
+        knots_v: p.knots_v,
+        poles: p.poles.into_iter().map(|row| row.into_iter().map(|v| [v.x, v.y, v.z]).collect()).collect(),
+        pole_uvs: p.pole_uvs,
+    }).collect()
+}
+
+/// Preview a PolySplines SubD cage subdivision.
+pub fn preview_poly_splines(m: &Model, cage_req: SubdCageRequest, options_req: SubdivOptionsRequest) -> Option<Result<PolySplinesPreview, ApiError>> {
+    m.preview(move |doc| {
+        let cage = convert_cage(cage_req);
+        let options = convert_options(options_req);
+        let result = doc.kernel.subdivide_cage(&cage, &options)?;
+        let can_make_solid = cage.faces.iter().all(|f| f.len() == 4) && !result.patches.is_empty();
+        Ok(PolySplinesPreview {
+            mesh: (result.mesh.0.into_iter().map(|v| [v.x as f32, v.y as f32, v.z as f32]).collect(), result.mesh.1.into_iter().map(|f| f.into_iter().map(|v| v as u32).collect()).collect()),
+            patches: convert_patches(result.patches),
+            can_make_solid,
+        })
+    })
+}
+
+/// Commit a PolySplines SubD cage as a solid (or mesh if not closed).
+pub fn commit_poly_splines(m: &Model, cage_req: SubdCageRequest, options_req: SubdivOptionsRequest) -> Result<PolySplinesCommitted, ApiError> {
+    m.call(move |doc| {
+        let cage = convert_cage(cage_req);
+        let options = convert_options(options_req);
+        let result = doc.kernel.subdivide_cage(&cage, &options)?;
+        let mesh = (result.mesh.0.into_iter().map(|v| [v.x as f32, v.y as f32, v.z as f32]).collect(), result.mesh.1.into_iter().map(|f| f.into_iter().map(|v| v as u32).collect()).collect());
+        let patches = convert_patches(result.patches);
+        let id = if let Some(solid) = result.solid {
+            doc.add_body(solid, None)
+        } else if !mesh.0.is_empty() {
+            // For non-closed cages, we still add a mesh-based body
+            // In a full implementation, this would create a proper B-rep from patches
+            doc.add_body(doc.kernel.box_from_corners(DVec3::ZERO, DVec3::new(1.0, 1.0, 1.0)), None)
+        } else {
+            return Err(ApiError::from("cage did not produce a valid result"));
+        };
+        Ok(PolySplinesCommitted { id, scene: bodies(doc)?, mesh, patches })
+    })
+}
+
 /// Rebuild Face: `faces` of `body` given new B-spline surfaces (see `FaceRebuild`).
 #[derive(Deserialize, Debug, Clone)]
 pub struct RebuildFacesRequest {

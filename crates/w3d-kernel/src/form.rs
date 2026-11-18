@@ -6,10 +6,12 @@
 use glam::DVec3;
 
 use crate::extrude::{combine, ExtrudeResult, Operation};
-use crate::{BooleanOp, Frame, Kernel, KernelError, Path, Profile, Traced};
+use crate::{BooleanOp, Frame, Kernel, KernelError, Path, Profile, Traced, SubdCage, SubdivOptions};
 
 #[derive(Clone, Debug)]
 pub enum FormKind {
+    /// SubD Cage: convert a subdivision control cage to a NURBS solid via Catmull-Clark.
+    Subd { cage: SubdCage, options: SubdivOptions },
     /// Turn the profile `angle` radians about an axis (Plasticity picks it with two clicks).
     Revolve {
         axis_point: DVec3,
@@ -67,6 +69,7 @@ pub struct FormParams {
 /// The new shape on its own, before any boolean.
 pub fn tool<K: Kernel>(k: &K, p: &FormParams) -> Result<K::Solid, KernelError> {
     match &p.kind {
+        FormKind::Subd { cage, options } => k.cage_to_solid(cage, options),
         FormKind::Revolve {
             axis_point,
             axis_dir,
@@ -132,6 +135,7 @@ pub fn tool<K: Kernel>(k: &K, p: &FormParams) -> Result<K::Solid, KernelError> {
 /// Whether the form makes a sheet (from a curve) rather than a solid (from a region).
 pub fn makes_sheet(kind: &FormKind) -> bool {
     match kind {
+        FormKind::Subd { .. } => false,
         FormKind::Simplified(inner) => makes_sheet(inner),
         k => matches!(k, FormKind::RevolveCurve { .. } | FormKind::SweepCurve { .. }),
     }

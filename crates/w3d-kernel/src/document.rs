@@ -18,7 +18,7 @@ use crate::blend::{blend, BlendParams};
 use crate::extrude::{extrude, ExtrudeMany, ExtrudeParams, ExtrudeResult, Operation};
 use crate::form::{form, match_faces_grow, offset_faces_grow, FormKind, FormParams, Grow};
 use crate::solids::{ArraySpec, Primitive};
-use crate::{BooleanOp, Material, Materials, FaceRebuild, Frame, History, Kernel, KernelError, Motion, Path, Profile, RebuiltFace, Segment, SheetExtension, Traced};
+use crate::{BooleanOp, Material, Materials, FaceRebuild, Frame, History, Kernel, KernelError, Motion, Path, Profile, RebuiltFace, Segment, SheetExtension, SubdCage, SubdivOptions, Traced};
 
 /// Length unit of every coordinate in a document. Fixed for now; stored in files so a later
 /// version can convert.
@@ -71,6 +71,8 @@ pub enum FormRequest {
     LoftGuided { guides: Vec<GuideRef> },
     /// Sweep along `path` following the `guides` curves (any number; past two the sections bend onto the rest) by `method`, held by `align`.
     SweepGuided { path: CurveId, guides: Vec<GuideRef>, round: bool, method: crate::form::GuideMethod, align: crate::form::Alignment },
+    /// SubD Cage: convert a subdivision control cage to a NURBS solid.
+    Subd { cage: SubdCage, options: SubdivOptions },
 }
 
 /// A planar curve drawn on a construction plane (Plasticity's Line, Rectangle and Circle). A closed
@@ -901,6 +903,7 @@ impl<K: Kernel> Document<K> {
                 let guides = self.guide_paths(&guides)?;
                 FormKind::Sweep { path, twist: 0.0, scale: 1.0, guides, method, align, round }
             }
+            FormRequest::Subd { cage, options } => FormKind::Subd { cage, options },
         };
         Ok(FormParams { profile, frame, kind, operation })
     }

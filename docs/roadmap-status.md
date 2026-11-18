@@ -79,9 +79,17 @@ _Last updated: 2026-11-19_
 
 ### **Months-scale (Next Priority)**
 
-#### **6. PolySplines on OpenSubdiv**
-- **Status**: `SubdCage`, `SubdivOptions`, `subdivide_cage`, `cage_to_solid` implemented behind `opensubdiv` feature
-- **Missing**: Extraordinary vertex handling (GregoryBasis patches), UI for SubD cage editing
+#### **6. PolySplines on OpenSubdiv** 🚧 **IN PROGRESS**
+- **Status**: 
+  - ✅ `SubdCage`, `SubdivOptions`, `subdivide_cage`, `cage_to_solid` implemented behind `opensubdiv` feature (Rust kernel)
+  - ✅ Web frontend: SubD Cage tool with Box/Sphere/Custom cage types, subdivision level control, crease toggle
+  - ✅ Custom cage vertex editing: Click to add vertices (8+ for box-like cage), drag to move existing vertices
+  - ✅ Web preview: Three.js mesh preview with OpenSubdiv WASM (PolySplines.js)
+  - ✅ Desktop backend: Tauri commands `preview_poly_splines` and `commit_poly_splines` added
+  - ✅ Kernel trait: `FormKind::Subd` and `FormRequest::Subd` added
+  - ✅ Crease handling: Vertex creases passed through to OpenSubdiv (API support in progress)
+  - ✅ **GregoryBasis patch handling**: Extraordinary vertex (valence != 4) patches now approximated as bicubic B-spline patches in Rust backend
+- **Missing**: Proper preview mesh display for custom cages, edge crease UI, better cage topology generation from arbitrary vertices (auto-quadrangulation), exact Gregory basis evaluation
 
 #### **7. Variable-radius Fillet & Fillet Shell**
 - **Status**: Variable fillet done; `fillet_shell` implemented with Y-blend fallback

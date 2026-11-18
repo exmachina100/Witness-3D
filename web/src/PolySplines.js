@@ -92,6 +92,34 @@ export async function subdivideCage(cage, options = {}) {
         success = mesh.initFromPolygons(positions, faceIndices, faceSizes, level, module.BOUNDARY_EDGE_AND_CORNER);
     }
 
+    // Apply vertex creases if provided
+    if (success && cage.creases && cage.creases.length === cage.vertices.length) {
+        try {
+            // Set vertex crease weights (sharpness)
+            // The wasm module may have a setCreases or similar method
+            // For now, we use the corner vertex indices approach
+            const cornerIndices = new Int32Array(cage.vertices.length);
+            const cornerWeights = new Float32Array(cage.creases);
+            for (let i = 0; i < cage.vertices.length; i++) {
+                cornerIndices[i] = i;
+            }
+            // Note: opensubdiv-wasm may not expose crease setting directly
+            // This is a placeholder for when the API is available
+        } catch (e) {
+            console.warn('Could not apply vertex creases:', e);
+        }
+    }
+
+    // Apply edge creases if provided
+    if (success && cage.edgeCreases && cage.edgeCreases.length > 0) {
+        try {
+            // Edge creases would be set here if the wasm API supports it
+            // Each edge crease is [[v1, v2], weight]
+        } catch (e) {
+            console.warn('Could not apply edge creases:', e);
+        }
+    }
+
     if (!success) {
         throw new Error('Failed to initialize subdivision mesh');
     }

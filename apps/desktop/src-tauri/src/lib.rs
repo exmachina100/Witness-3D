@@ -98,6 +98,26 @@ async fn commit_form(
 }
 
 #[tauri::command]
+async fn preview_poly_splines(
+    model: State<'_, Model>,
+    cage: api::SubdCageRequest,
+    options: api::SubdivOptionsRequest,
+) -> Result<Option<api::PolySplinesPreview>, api::ApiError> {
+    on_model(&model, move |m| api::preview_poly_splines(m, cage, options))
+        .await?
+        .transpose()
+}
+
+#[tauri::command]
+async fn commit_poly_splines(
+    model: State<'_, Model>,
+    cage: api::SubdCageRequest,
+    options: api::SubdivOptionsRequest,
+) -> Result<api::PolySplinesCommitted, api::ApiError> {
+    on_model(&model, move |m| api::commit_poly_splines(m, cage, options)).await?
+}
+
+#[tauri::command]
 async fn preview_primitive(
     model: State<'_, Model>,
     req: api::PrimitiveRequest,
@@ -1235,6 +1255,8 @@ pub fn run() {
             commit_blend,
             preview_form,
             commit_form,
+            preview_poly_splines,
+            commit_poly_splines,
             read_dxf,
             read_image,
             preview_offset,

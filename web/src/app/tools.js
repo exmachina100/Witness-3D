@@ -312,6 +312,16 @@ export const TOOLS = [
             factor: { type: 'number', above: 0, default: 1, describe: 'the scale factor; 2 doubles every length' },
         },
     },
+    // Plasticity's SubD Cage: create a subdivision surface control cage and convert to NURBS solid
+    {
+        id: 'subd', label: 'SUBD CAGE', key: '', group: 'shape', selects: 'solid', toolbar: false,
+        summary: 'Create a SubD control cage (box, sphere, or custom) and convert it to a smooth NURBS solid via Catmull-Clark subdivision. The cage vertices can be edited for free-form shaping.',
+        params: {
+            type: { type: 'enum', values: ['box', 'sphere', 'custom'], default: 'box', describe: 'the cage type: box (cube), sphere (rounded), or custom (draw your own)' },
+            level: { type: 'number', min: 1, max: 5, default: 2, describe: 'subdivision level (1-5); higher = smoother but more vertices' },
+            creases: { type: 'boolean', default: false, describe: 'whether to add sharp creases on cage edges' },
+        },
+    },
 ];
 
 export const tool = id => TOOLS.find(t => t.id === id);

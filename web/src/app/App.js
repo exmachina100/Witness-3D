@@ -224,7 +224,7 @@ for (const id of Object.keys(DRAW)) KEYS[id]?.splice(-1, 0, ['K', 'KNIFE']);
 // Clicks that finish each drawing; lines and splines go on until closed or finished.
 const CLICKS = { rect: 2, 'center-rect': 2, rect3: 3, circle: 2, circle2: 2, circle3: 3, arc3: 3, arc: 3, polygon: 2, ellipse: 3, ellipse3: 3, 'tangent-arc': 2 };
 // Commands that grow a solid from drawn regions, sharing one panel.
-const FORMS = { revolve: true, loft: true, sweep: true };
+const FORMS = { revolve: true, loft: true, sweep: true, subd: true };
 const PRIMS = { box: true, 'center-box': true, box3: true, cylinder: true, sphere: true };
 // Commands that aren't tools in the registry (they act on a click, not on settings).
 const EDITS = { 'remove-fillets': 'REMOVE FILLETS', isoparam: 'ISOPARAM', 'offset-vertex': 'OFFSET VERTEX', slide: 'SLIDE CURVE CV', 'fillet-vertex': 'FILLET VERTEX', 'align-vertex': 'ALIGN VERTEX', 'align-curve': 'ALIGN CURVE', rebuild: 'REBUILD CURVE', 'rebuild-face': 'REBUILD FACE', 'match-face': 'MATCH FACE', 'deform-curve': 'DEFORM', image: 'REFERENCE IMAGE', instance: 'INSTANCE', untrim: 'UNTRIM', unwrap: 'UNWRAP FACE', section: 'SECTION ANALYSIS', place: 'PLACE', dimension: 'DIMENSION', text: 'TEXT', 'insert-knot': 'INSERT KNOT', 'offset-edge': 'OFFSET EDGE', material: 'SET MATERIAL', 'export-mesh': 'EXPORT MESH', 'export-drawing': 'EXPORT DRAWING', 'measure-continuity': 'MEASURE CONTINUITY', trim: 'TRIM', 'cut-curve': 'CUT CURVE', 'bridge-edge': 'BRIDGE EDGE', 'align-surface': 'ALIGN SURFACE', 'project-align': 'PROJECT ALIGN', 'constrained-surface': 'CONSTRAINED SURFACE', square: 'SQUARE', extend: 'EXTEND CURVE', 'tangent-circle': 'TANGENT CIRCLE', split: 'SPLIT CURVE', 'measure-distance': 'MEASURE DISTANCE', 'measure-radius': 'MEASURE RADIUS' };
@@ -967,6 +967,11 @@ const SHELL = `
     </div>
     <div class="sec" data-panel="form" hidden>
       <span class="hint" data-id="form-hint">—</span>
+      <!-- SubD Cage controls (shown when tool is 'subd') -->
+      <div class="field" data-id="form-subd-type-row" hidden><label>TYPE</label><div class="seg" role="group" aria-label="Cage type"><button data-subd-type="box" aria-pressed="true" title="Cube cage (6 quads)"><kbd>T</kbd>BOX</button><button data-subd-type="sphere" aria-pressed="false" title="Sphere-like cage"><kbd>T</kbd>SPHERE</button><button data-subd-type="custom" aria-pressed="false" title="Custom cage (click to add vertices)"><kbd>T</kbd>CUSTOM</button></div></div>
+      <div class="field" data-id="form-subd-level-row" hidden><label for="w3d-form-subd-level">LEVEL</label><input id="w3d-form-subd-level" data-id="form-subd-level" type="number" step="1" min="1" max="5" value="2"></div>
+      <div class="field" data-id="form-subd-creases-row" hidden><label>CREASES</label><div class="seg" role="group" aria-label="Edge creases"><button data-subd-creases="off" aria-pressed="true" title="Smooth subdivision (no creases)"><kbd>C</kbd>SMOOTH</button><button data-subd-creases="on" aria-pressed="false" title="Sharp creases on cage edges"><kbd>C</kbd>SHARP</button></div></div>
+      <!-- Revolve/Loft/Sweep controls (hidden when tool is 'subd') -->
       <div class="field" data-id="form-angle-row"><label for="w3d-form-angle">ANGLE °</label><input id="w3d-form-angle" data-id="form-angle" type="number" step="15" value="360"></div>
       <div class="field" data-id="form-thickness-row"><label for="w3d-form-thickness">THICKNESS</label><input id="w3d-form-thickness" data-id="form-thickness" type="number" step="0.5" min="0" value="0"></div>
       <div class="field" data-id="form-path-row" hidden><label>PATH</label><output data-id="form-path">—</output></div>
@@ -12763,7 +12768,94 @@ export async function mount(root, backend) {
     refresh();
   }
 
+  // SubD Cage: create a subdivision surface control cage
+  function startSubdCage() {
+    if (!backend.previewPolySplines || !backend.commitPolySplines) return toast('SUBD CAGE IS NOT IN THIS BUILD YET');
+    const c = cmd = { id: 'subd', type: 'box', level: 2, creases: false, outcome: null, sent: 0, shown: 0 };
+    lastTool = 'subd';
+    showTool('subd');
+    setState('none');
+    setTarget('NEW BODY');
+    // Show SubD-specific controls, hide others
+    $('form-subd-type-row').hidden = false;
+    $('form-subd-level-row').hidden = false;
+    $('form-subd-creases-row').hidden = false;
+    $$('[data-panel="form"] > .field:not([data-id^="form-subd"]), [data-panel="form"] > .seg:not([data-id^="form-subd"]), [data-panel="form"] > .chips').forEach(el => el.hidden = true);
+    const hint = () => {
+      const typeLabel = { box: 'BOX CAGE', sphere: 'SPHERE CAGE', custom: 'CUSTOM CAGE' }[c.type];
+      let text = `CLICK TO PLACE ${typeLabel} · LEVEL ${c.level}${c.creases ? ' · CREASES ON' : ''} · ⏎ TO CONVERT TO NURBS SOLID`;
+
+      if (c.type === 'custom' && c.customVertices) {
+        const n = c.customVertices.length;
+        if (n < 8) {
+          text = `CUSTOM CAGE: ${n}/8 VERTICES · CLICK TO ADD MORE · LEVEL ${c.level}${c.creases ? ' · CREASES ON' : ''} · ⏎ TO CONVERT`;
+        } else {
+          text = `CUSTOM CAGE: ${n} VERTICES READY · DRAG TO EDIT · LEVEL ${c.level}${c.creases ? ' · CREASES ON' : ''} · ⏎ TO CONVERT`;
+        }
+      }
+
+      $('form-hint').textContent = text;
+      setHud(text);
+      // Update UI controls
+      $$('[data-subd-type]').forEach(b => b.setAttribute('aria-pressed', b.dataset.subdType === c.type));
+      $('form-subd-level').value = c.level;
+      $$('[data-subd-creases]').forEach(b => b.setAttribute('aria-pressed', b.dataset.subdCreases === (c.creases ? 'on' : 'off')));
+    };
+    c.hint = hint;
+    c.key = action => {
+      if (action === 'type') { c.type = ({ box: 'sphere', sphere: 'custom', custom: 'box' })[c.type]; hint(); previewSubdCmd(); return true; }
+      if (action === 'level') { c.level = c.level >= 5 ? 1 : c.level + 1; hint(); previewSubdCmd(); return true; }
+      if (action === 'creases') { c.creases = !c.creases; hint(); previewSubdCmd(); return true; }
+      if (action === 'keep') { c.keep = !c.keep; return true; }
+      return false;
+    };
+    c.click = e => {
+      if (c.type === 'custom') {
+        // For custom cage, click to add/move vertices
+        const p = pointAt(e);
+        if (!p) return true;
+
+        if (c.dragVertex !== undefined) {
+          // Moving an existing vertex
+          c.customVertices[c.dragVertex] = [p.x, p.y, p.z];
+          c.dragVertex = undefined;
+        } else {
+          // Adding a new vertex or checking for click on existing vertex
+          const closestIdx = c.customVertices?.findIndex((v, i) => {
+            const dist = Math.hypot(v[0] - p.x, v[1] - p.y, v[2] - p.z);
+            return dist < 0.5; // click threshold
+          });
+
+          if (closestIdx >= 0) {
+            // Start dragging this vertex
+            c.dragVertex = closestIdx;
+            setHud(`DRAG VERTEX ${closestIdx + 1} · CLICK TO PLACE`);
+          } else {
+            // Add new vertex
+            c.customVertices = c.customVertices ?? [];
+            c.customVertices.push([p.x, p.y, p.z]);
+          }
+        }
+        hint();
+        previewSubdCmd();
+        return true;
+      }
+      return true;
+    };
+    c.finish = () => commitSubdCmd();
+    c.abort = () => endCmd('cancelled');
+    c.cleanup = () => { clearPreview(); };
+    // Wire up SubD control buttons
+    $$('[data-subd-type]').forEach(b => b.onclick = () => { c.type = b.dataset.subdType; hint(); previewSubdCmd(); });
+    $('form-subd-level').onchange = () => { c.level = parseInt($('form-subd-level').value) || 2; hint(); previewSubdCmd(); };
+    $$('[data-subd-creases]').forEach(b => b.onclick = () => { c.creases = b.dataset.subdCreases === 'on'; hint(); previewSubdCmd(); });
+    hint();
+    previewSubdCmd();
+  }
+
   function startForm(id) {
+    // SubD Cage: create a subdivision surface control cage
+    if (id === 'subd') return startSubdCage();
     // Faces selected (no curves or regions): Loft makes a solid between them.
     if (id === 'loft' && sel.list('face').length && !sel.curves.length && !sel.list('edge').length) return startLoftFaces();
     // Curves or edges (not regions) selected: Loft makes a sheet through them.
@@ -12791,6 +12883,8 @@ export async function mount(root, backend) {
     $('form-ops').hidden = id === 'loft';
     $('form-guides-row').hidden = id === 'revolve';
     $('form-method-row').hidden = $('form-align-row').hidden = $('form-corner-row').hidden = id !== 'sweep';
+    // Hide SubD controls for non-SubD form tools
+    $('form-subd-type-row').hidden = $('form-subd-level-row').hidden = $('form-subd-creases-row').hidden = true;
     setGuideChips(c);
     $('form-angle').value = c.angle; $('form-thickness').value = c.thickness; $('form-twist').value = c.twist; $('form-scale').value = c.scale; $('form-distance').value = c.distance;
     $('form-outcome').textContent = '—';
@@ -13103,6 +13197,98 @@ export async function mount(root, backend) {
       sel.replace({ kind: 'solid', body: id });
       selectionChanged({ quiet: true });
     } catch (e) { setState('failed'); toast(say(e)); }
+  }
+  async function previewSubdCmd() {
+    const c = cmd;
+    if (c?.id !== 'subd') return;
+    const cage = buildSubdCage(c);
+    if (c.creases && cage.vertices) {
+      cage.creases = new Float32Array(cage.vertices.length).fill(0.5); // Default crease weight for sharp edges
+    }
+    const req = { cage, options: { level: c.level, limitSurface: true } };
+    const n = ++c.sent;
+    setState('updating');
+    const t0 = performance.now();
+    let p;
+    try { p = await backend.previewPolySplines(req); }
+    catch (e) {
+      if (cmd !== c || n !== c.sent) return;
+      clearPreview();
+      setState('failed');
+      $('form-outcome').textContent = 'FAILED';
+      return setHud(say(e));
+    }
+    if (!p || cmd !== c || n < c.shown) return;
+    c.shown = n;
+    c.outcome = p.outcome ?? 'new';
+    $('ms').textContent = Math.round(performance.now() - t0);
+    clearPreview();
+    if (p.mesh && p.mesh.positions.length) {
+      // Show preview mesh
+      const geometry = new THREE.BufferGeometry();
+      const posArray = new Float32Array(p.mesh.positions.length * 3);
+      p.mesh.positions.forEach((v, i) => { posArray[i * 3] = v.x; posArray[i * 3 + 1] = v.y; posArray[i * 3 + 2] = v.z; });
+      geometry.setAttribute('position', new THREE.BufferAttribute(posArray, 3));
+      const indexArray = p.mesh.faces.flat();
+      geometry.setIndex(indexArray);
+      geometry.computeVertexNormals();
+      const look = { face: 0x4db86b, edge: 0xffffff };
+      const material = new THREE.MeshStandardMaterial({ color: look.face, roughness: 0.5, metalness: 0, side: THREE.DoubleSide, opacity: 0.8, transparent: true });
+      const m = new THREE.Mesh(geometry, material);
+      m.renderOrder = 5;
+      previewGroup.add(m);
+    }
+    $('form-outcome').textContent = (c.outcome ?? 'NEW').toUpperCase();
+    if (n === c.sent) setState('updated');
+  }
+  async function commitSubdCmd() {
+    const c = cmd;
+    const cage = buildSubdCage(c);
+    if (c.creases && cage.vertices) {
+      cage.creases = new Float32Array(cage.vertices.length).fill(0.5);
+    }
+    const req = { cage, options: { level: c.level, limitSurface: true } };
+    if (!req.cage) return endCmd('cancelled');
+    try {
+      const { id, scene: list } = await backend.commitPolySplines(req);
+      if (!id) return toast('SUBD CAGE DID NOT PRODUCE A SOLID');
+      endCmd('committed');
+      const what = `SUBD CAGE ${c.type.toUpperCase()} LEVEL ${c.level}${c.creases ? ' CREASES' : ''}`;
+      record(`${what}${c.keep ? ' · KEEP TOOLS' : ''}`, id);
+      await showScene(list);
+      sel.replace({ kind: 'solid', body: id });
+      selectionChanged({ quiet: true });
+    } catch (e) { setState('failed'); toast(say(e)); }
+  }
+  function buildSubdCage(c) {
+    if (c.type === 'custom' && c.customVertices && c.customVertices.length >= 8) {
+      // Custom cage from clicked vertices - create faces from vertices
+      // For a simple box-like cage, expect 8 vertices in order:
+      // 0-3: bottom face (counter-clockwise), 4-7: top face (counter-clockwise)
+      // Faces: bottom, top, front, right, back, left
+      const verts = c.customVertices;
+      // If we have exactly 8 vertices, create a box-like cage
+      if (verts.length >= 8) {
+        return {
+          vertices: verts.slice(0, 8).map(v => ({ x: v[0], y: v[1], z: v[2] })),
+          faces: [
+            [0, 1, 2, 3], // bottom
+            [4, 5, 6, 7], // top
+            [0, 1, 5, 4], // front
+            [1, 2, 6, 5], // right
+            [2, 3, 7, 6], // back
+            [3, 0, 4, 7], // left
+          ],
+        };
+      }
+      return backend.createTestCage ? backend.createTestCage() : { vertices: [], faces: [] };
+    }
+    if (c.type === 'sphere') {
+      // Sphere cage - use box cage (it will subdivide to sphere-like)
+      return backend.createTestCage ? backend.createTestCage() : { vertices: [], faces: [] };
+    }
+    // Default box cage
+    return backend.createTestCage ? backend.createTestCage() : { vertices: [], faces: [] };
   }
 
   // --- actions without a command --------------------------------------------
@@ -14293,7 +14479,7 @@ export async function mount(root, backend) {
     if (sel.solids.length > 1 && sel.solids.every(id => current.find(b => b.id === id)?.sheet)) out.push('join');
     if (sel.solids.length === 1) out.push('unjoin:faces', 'unjoin:pieces');
     if (sel.list('edge').some(e => current.find(b => b.id === e.body)?.sheet)) out.push('tool:extend-sheet');
-    if (kinds.has('region')) out.push('tool:extrude', 'tool:revolve', 'tool:loft', 'tool:sweep');
+    if (kinds.has('region')) out.push('tool:extrude', 'tool:revolve', 'tool:loft', 'tool:sweep', 'tool:subd');
     if (kinds.has('curve') || kinds.has('region')) {
       if (kinds.has('solid')) out.push('tool:project', 'tool:cut', 'tool:imprint');
       if (sel.curves.length === 2) out.push('tool:project');
