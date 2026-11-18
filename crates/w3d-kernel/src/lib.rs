@@ -412,12 +412,17 @@ pub trait Kernel {
     /// `angle` (radians) is measured from each edge's first face; π/4 gives equal distances.
     /// `variable` gives a fillet's radius at points along its edges (see [`blend::VariablePoint`]).
     fn blend(&self, s: &Self::Solid, edges: &[u32], size: f64, kind: Blend, angle: f64, variable: &[blend::VariablePoint]) -> Result<Traced<Self::Solid>, KernelError>;
+    /// Like [`blend`] but with Y-blend corner patch fallback: when standard fillet fails at vertices
+    /// where 3+ filleted edges meet, creates corner patches to blend them together.
+    fn blend_with_yblend(&self, s: &Self::Solid, edges: &[u32], size: f64, kind: Blend, angle: f64, variable: &[blend::VariablePoint]) -> Result<Traced<Self::Solid>, KernelError> {
+        self.blend(s, edges, size, kind, angle, variable)
+    }
     /// Fillet Shell: hollow the body and fillet both outer and inner edges (Plasticity's Fillet Shell).
     /// `open_faces` are the faces to leave open for the shell operation.
     /// `outer_edges` are the edges to fillet on the outer surface.
     /// `inner_edges` are the edges to fillet on the inner surface (after shelling).
     /// `thickness` is the wall thickness for the shell.
-    fn fillet_shell(&self, _s: &Self::Solid, _open_faces: &[u32], _outer_edges: &[u32], _inner_edges: &[u32], _thickness: f64, _radius: f64, _outer_variable: &[blend::VariablePoint], _inner_variable: &[blend::VariablePoint], _shape: blend::FilletShape, _tension: f64) -> Result<Traced<Self::Solid>, KernelError> {
+    fn fillet_shell(&self, _s: &Self::Solid, _open_faces: &[u32], _outer_edges: &[u32], _inner_edges: &[u32], _thickness: f64, _radius: f64, _outer_variable: &[blend::VariablePoint], _inner_variable: &[blend::VariablePoint], _shape: blend::FilletShape) -> Result<Traced<Self::Solid>, KernelError> {
         Err(KernelError::Invalid("this kernel cannot fillet shell"))
     }
     /// The solid moved rigidly. Faces and edges keep their numbers.

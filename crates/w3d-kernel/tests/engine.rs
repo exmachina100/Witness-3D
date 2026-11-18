@@ -27,6 +27,8 @@ impl Kernel for NoKernel {
     fn native_format(&self) -> &'static str { "none" }
     fn to_native(&self, _: &()) -> Result<String, KernelError> { Ok("()".into()) }
     fn from_native(&self, _: &str) -> Result<(), KernelError> { Ok(()) }
+    fn subdivide_cage(&self, _: &SubdCage, _: &SubdivOptions) -> Result<SubdivResult<()>, KernelError> { Ok(SubdivResult { mesh: (vec![], vec![]), patches: vec![], solid: Some(()) }) }
+    fn cage_to_solid(&self, _: &SubdCage, _: &SubdivOptions) -> Result<(), KernelError> { Ok(()) }
 }
 
 #[test]

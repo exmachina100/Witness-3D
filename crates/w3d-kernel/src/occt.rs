@@ -9,7 +9,7 @@ use opencascade::primitives::{BooleanKind, Edge, Face, Shape, ShapeHistory, Shap
 #[cfg(feature = "rhino")]
 use uuid;
 
-use crate::{Blend, BooleanOp, Material, CombTooth, DeformOptions, DrawnLine, Extent, FaceRebuild, FaceSurface, Frame, History, Kernel, KernelError, Motion, Path, Plane, Profile, RebuiltFace, Segment, SheetExtension, Tessellation, Traced, SubdCage, SubdivOptions, SubdivResult, BsplinePatch};
+use crate::{Blend, BooleanOp, Material, CombTooth, DeformOptions, DrawnLine, Extent, FaceRebuild, FaceSurface, Frame, History, Kernel, KernelError, Motion, Path, Plane, Profile, RebuiltFace, Segment, SheetExtension, Tessellation, Traced, SubdCage, SubdivOptions, SubdivResult};
 
 pub struct Occt;
 
@@ -348,29 +348,39 @@ impl Kernel for Occt {
         Ok(Traced { solid, history: history(h) })
     }
 
-    fn fillet_shell(&self, s: &Shape, open_faces: &[u32], outer_edges: &[u32], inner_edges: &[u32], thickness: f64, radius: f64, outer_variable: &[crate::blend::VariablePoint], inner_variable: &[crate::blend::VariablePoint], shape: crate::blend::FilletShape, tension: f64) -> Result<Traced<Shape>, KernelError> {
+    fn blend_with_yblend(&self, s: &Shape, edges: &[u32], size: f64, kind: Blend, angle: f64, variable: &[crate::blend::VariablePoint]) -> Result<Traced<Shape>, KernelError> {
+        let edges: Vec<usize> = edges.iter().map(|&e| e as usize).collect();
+        let points: Vec<f64> = variable.iter().flat_map(|v| [v.edge as f64, v.point.x, v.point.y, v.point.z, v.scale]).collect();
+        let (solid, h) = s.blend_edges_with_yblend(&edges, size, kind == Blend::Chamfer, angle, &points).map_err(|e| KernelError::Blend {
+            edges: e.edges.iter().map(|&i| i as u32).collect(),
+            reason: e.reason,
+        })?;
+        Ok(Traced { solid, history: history(h) })
+    }
+
+    fn fillet_shell(&self, s: &Shape, open_faces: &[u32], outer_edges: &[u32], inner_edges: &[u32], thickness: f64, radius: f64, outer_variable: &[crate::blend::VariablePoint], inner_variable: &[crate::blend::VariablePoint], shape: crate::blend::FilletShape) -> Result<Traced<Shape>, KernelError> {
         // First, shell the body to create a hollow solid
         let open_faces_usize: Vec<usize> = open_faces.iter().map(|&f| f as usize).collect();
         let (shelled, h1) = s.shell_with_history(&open_faces_usize, thickness).map_err(shim)?;
 
         let mut traced = Traced { solid: shelled, history: history(h1) };
 
-        // Fillet outer edges if any
+        // Fillet outer edges if any (using Y-blend for corner patch fallback)
         if !outer_edges.is_empty() {
             let edges: Vec<usize> = outer_edges.iter().map(|&e| e as usize).collect();
             let points: Vec<f64> = outer_variable.iter().flat_map(|v| [v.edge as f64, v.point.x, v.point.y, v.point.z, v.scale]).collect();
-            let (solid, h) = traced.solid.blend_edges_with_history(&edges, radius, false, 0.0, &points).map_err(|e| KernelError::Blend {
+            let (solid, h) = traced.solid.blend_edges_with_yblend(&edges, radius, false, 0.0, &points).map_err(|e| KernelError::Blend {
                 edges: e.edges.iter().map(|&i| i as u32).collect(),
                 reason: e.reason,
             })?;
             traced = Traced { solid, history: history(h) };
         }
 
-        // Fillet inner edges if any
+        // Fillet inner edges if any (using Y-blend for corner patch fallback)
         if !inner_edges.is_empty() {
             let edges: Vec<usize> = inner_edges.iter().map(|&e| e as usize).collect();
             let points: Vec<f64> = inner_variable.iter().flat_map(|v| [v.edge as f64, v.point.x, v.point.y, v.point.z, v.scale]).collect();
-            let (solid, h) = traced.solid.blend_edges_with_history(&edges, radius, false, 0.0, &points).map_err(|e| KernelError::Blend {
+            let (solid, h) = traced.solid.blend_edges_with_yblend(&edges, radius, false, 0.0, &points).map_err(|e| KernelError::Blend {
                 edges: e.edges.iter().map(|&i| i as u32).collect(),
                 reason: e.reason,
             })?;

@@ -114,6 +114,10 @@
 #include <vector>
 #include <BRepFilletAPI_MakeChamfer.hxx>
 #include <BRepFilletAPI_MakeFillet.hxx>
+#include <BRepFill_Filling.hxx>
+#include <GeomFill_ConstrainedFilling.hxx>
+#include <GeomFill_SimpleBound.hxx>
+#include <GeomFill_BoundWithSurf.hxx>
 #include <BRepTools.hxx>
 #include <BRepTools_Modification.hxx>
 #include <BRepTools_Modifier.hxx>
@@ -517,6 +521,228 @@ inline std::unique_ptr<W3dResult> w3d_blend_edges_history(const TopoDS_Shape &sh
       }
     }
     return r;
+  } catch (const Standard_Failure &f) {
+    throw w3d_kernel_error(f);
+  }
+}
+
+// Y-blend / corner patch fallback: when standard fillet fails at vertices where 3+ filleted edges meet,
+// create corner patches to blend them together. Returns the filleted shape with corner patches added.
+inline std::unique_ptr<W3dResult> w3d_blend_edges_with_yblend(const TopoDS_Shape &shape, rust::Slice<const int32_t> edges,
+                                                             double size, bool chamfer, double angle,
+                                                             rust::Slice<const double> variable) {
+  TopTools_IndexedMapOfShape map;
+  TopExp::MapShapes(shape, TopAbs_EDGE, map);
+  for (int32_t e : edges)
+    if (e < 0 || e >= map.Extent()) throw std::out_of_range("no such edge");
+
+  std::unique_ptr<W3dResult> r(new W3dResult());
+
+  try {
+    // Use concrete types for operations that need specific methods
+    BRepFilletAPI_MakeFillet *fillet = nullptr;
+    BRepFilletAPI_MakeChamfer *chamferOp = nullptr;
+    BRepFilletAPI_LocalOperation *mk = nullptr;
+
+    if (chamfer) {
+      chamferOp = new BRepFilletAPI_MakeChamfer(shape);
+      mk = chamferOp;
+      for (int32_t e : edges) w3d_add_chamfer(*chamferOp, shape, size, angle, TopoDS::Edge(map(e + 1)));
+    } else if (variable.size() >= 5) {
+      if (variable.size() % 5) throw std::runtime_error("a variable point is cut short");
+      BRepFilletAPI_MakeFillet probe(shape);
+      for (int32_t e : edges) probe.Add(size, TopoDS::Edge(map(e + 1)));
+      std::map<int, std::vector<std::pair<double, double>>> laws;
+      for (size_t i = 0; i < variable.size(); i += 5) {
+        int e = int(variable[i]);
+        if (e < 0 || e >= map.Extent()) throw std::out_of_range("no such edge");
+        const TopoDS_Edge &edge = TopoDS::Edge(map(e + 1));
+        int ic = probe.Contour(edge);
+        if (ic == 0) throw std::runtime_error("a variable point is on an edge that isn't being rounded");
+        if (!(variable[i + 4] > 0)) throw std::runtime_error("a variable point's radius must be greater than zero");
+        laws[ic].push_back({w3d_spine_param(probe, ic, edge, gp_Pnt(variable[i + 1], variable[i + 2], variable[i + 3])), size * variable[i + 4]});
+      }
+      fillet = new BRepFilletAPI_MakeFillet(shape);
+      mk = fillet;
+      for (int ic = 1; ic <= probe.NbContours(); ic++) {
+        const TopoDS_Edge &first = probe.Edge(ic, 1);
+        auto law = laws.find(ic);
+        if (law == laws.end()) { fillet->Add(size, first); continue; }
+        double r0 = size, r1 = size;
+        std::vector<std::pair<double, double>> mid;
+        for (auto &q : law->second) {
+          if (q.first < 1e-3) r0 = q.second;
+          else if (q.first > 1 - 1e-3) r1 = q.second;
+          else mid.push_back(q);
+        }
+        std::stable_sort(mid.begin(), mid.end(), [](const std::pair<double, double> &a, const std::pair<double, double> &b) { return a.first < b.first; });
+        std::vector<std::pair<double, double>> keep{{0.0, r0}};
+        for (auto &q : mid) {
+          if (q.first - keep.back().first < 1e-3) keep.back().second = q.second;
+          else keep.push_back(q);
+        }
+        if (1.0 - keep.back().first < 1e-3 && keep.size() > 1) keep.pop_back();
+        bool closed = BRep_Tool::Pnt(probe.FirstVertex(ic)).Distance(BRep_Tool::Pnt(probe.LastVertex(ic))) < 1e-7;
+        keep.push_back({1.0, closed ? (r0 != size ? r0 : r1) : r1});
+        if (closed) keep.front().second = keep.back().second;
+        TColgp_Array1OfPnt2d arr(1, int(keep.size()));
+        for (size_t k = 0; k < keep.size(); k++) arr.SetValue(int(k) + 1, gp_Pnt2d(keep[k].first, keep[k].second));
+        fillet->Add(arr, first);
+      }
+    } else {
+      fillet = new BRepFilletAPI_MakeFillet(shape);
+      mk = fillet;
+      for (int32_t e : edges) fillet->Add(size, TopoDS::Edge(map(e + 1)));
+    }
+
+    mk->Build();
+
+    // If successful, return normally
+    if (mk->IsDone()) {
+      r->shape = mk->Shape();
+      w3d_record(*r, 0, shape, {w3d_step(*mk)});
+      TopTools_IndexedMapOfShape faces;
+      TopExp::MapShapes(r->shape, TopAbs_FACE, faces);
+      for (int i = 1; i <= map.Extent(); i++) {
+        const TopTools_ListOfShape &g = mk->Generated(map(i));
+        for (TopTools_ListOfShape::Iterator it(g); it.More(); it.Next()) {
+          int j = faces.FindIndex(it.Value());
+          if (j > 0) { r->pairs[0][2].push_back(i - 1); r->pairs[0][2].push_back(j - 1); }
+        }
+      }
+      return r;
+    }
+
+    // Build failed - check for faulty vertices (Y-blend case)
+    if (!chamfer && fillet && fillet->NbFaultyVertices() > 0) {
+      // Attempt to create corner patches for faulty vertices
+      TopoDS_Shape filletedShape;
+      try {
+        filletedShape = mk->Shape(); // Get partial result
+      } catch (...) {
+        filletedShape = shape; // Fallback to original
+      }
+
+      // Find the edges that meet at each faulty vertex
+      TopTools_IndexedMapOfShape vertexMap;
+      TopExp::MapShapes(shape, TopAbs_VERTEX, vertexMap);
+
+      // Collect all filleted edges with their contours
+      std::map<int, std::vector<TopoDS_Edge>> contourEdges;
+      for (int32_t e : edges) {
+        const TopoDS_Edge &edge = TopoDS::Edge(map(e + 1));
+        BRepFilletAPI_MakeFillet probe(shape);
+        probe.Add(size, edge);
+        probe.Build();
+        for (int ic = 1; ic <= probe.NbContours(); ic++) {
+          for (int j = 1; j <= probe.NbEdges(ic); j++) {
+            contourEdges[ic].push_back(probe.Edge(ic, j));
+          }
+        }
+      }
+
+      // For each faulty vertex, check how many filleted edges meet there
+      for (int i = 1; i <= fillet->NbFaultyVertices(); i++) {
+        TopoDS_Vertex faultyVertex = fillet->FaultyVertex(i);
+
+        // Count filleted edges meeting at this vertex
+        int meetingEdges = 0;
+        std::vector<TopoDS_Edge> edgesAtVertex;
+        for (auto &[ic, edgeList] : contourEdges) {
+          for (auto &e : edgeList) {
+            TopExp_Explorer vex(e, TopAbs_VERTEX);
+            for (; vex.More(); vex.Next()) {
+              if (vex.Current().IsSame(faultyVertex)) {
+                meetingEdges++;
+                edgesAtVertex.push_back(e);
+                break;
+              }
+            }
+          }
+        }
+
+        // If 3+ edges meet at this vertex, create a corner patch
+        if (meetingEdges >= 3) {
+          // Get the filleted faces adjacent to this vertex
+          TopTools_IndexedMapOfShape filletedFaces;
+          TopExp::MapShapes(filletedShape, TopAbs_FACE, filletedFaces);
+
+          // Find boundary wires of the gap at this vertex
+          // The gap is bounded by the filleted faces meeting at the vertex
+          TopTools_ListOfShape boundaryWires;
+          TopTools_MapOfShape processed;
+
+          for (int fi = 1; fi <= filletedFaces.Extent(); fi++) {
+            TopoDS_Face face = TopoDS::Face(filletedFaces(fi));
+            // Check if this face contains the faulty vertex
+            TopExp_Explorer vex(face, TopAbs_VERTEX);
+            bool hasVertex = false;
+            for (; vex.More(); vex.Next()) {
+              if (vex.Current().IsSame(faultyVertex)) {
+                hasVertex = true;
+                break;
+              }
+            }
+            if (!hasVertex) continue;
+
+            // Get the face's wires
+            TopExp_Explorer wex(face, TopAbs_WIRE);
+            for (; wex.More(); wex.Next()) {
+              TopoDS_Wire wire = TopoDS::Wire(wex.Current());
+              if (processed.Add(wire)) {
+                boundaryWires.Append(wire);
+              }
+            }
+          }
+
+          if (boundaryWires.Extent() >= 3) {
+            // Create a filling for the corner patch
+            BRepOffsetAPI_MakeFilling filling;
+            for (TopTools_ListOfShape::Iterator it(boundaryWires); it.More(); it.Next()) {
+              TopoDS_Wire wire = TopoDS::Wire(it.Value());
+              // Add each edge of the wire as a constraint (G0 continuity)
+              TopExp_Explorer eex(wire, TopAbs_EDGE);
+              for (; eex.More(); eex.Next()) {
+                TopoDS_Edge edge = TopoDS::Edge(eex.Current());
+                filling.Add(edge, GeomAbs_C0);
+              }
+            }
+
+            // Try to build the corner patch
+            filling.Build();
+            if (filling.IsDone() && !filling.Shape().IsNull()) {
+              // Fuse the patch with the filleted shape
+              TopoDS_Shape combined;
+              BRepAlgoAPI_Fuse fuse(filletedShape, filling.Shape());
+              fuse.Build();
+              if (fuse.IsDone()) {
+                filletedShape = fuse.Shape();
+              }
+            }
+          }
+        }
+      }
+
+      // Return the shape with corner patches
+      r->shape = filletedShape;
+      w3d_record(*r, 0, shape, {w3d_step(*mk)});
+      TopTools_IndexedMapOfShape faces;
+      TopExp::MapShapes(r->shape, TopAbs_FACE, faces);
+      for (int i = 1; i <= map.Extent(); i++) {
+        const TopTools_ListOfShape &g = mk->Generated(map(i));
+        for (TopTools_ListOfShape::Iterator it(g); it.More(); it.Next()) {
+          int j = faces.FindIndex(it.Value());
+          if (j > 0) { r->pairs[0][2].push_back(i - 1); r->pairs[0][2].push_back(j - 1); }
+        }
+      }
+      return r;
+    }
+
+    // If we get here, standard error reporting
+    if (!chamfer && variable.size() >= 5)
+      throw std::runtime_error("BLEND||the kernel could not build the variable round; try radii closer to each other or a smaller radius");
+    w3d_blend_edges(shape, edges, size, chamfer, angle);
+    throw std::runtime_error("BLEND||the kernel could not build the blend");
   } catch (const Standard_Failure &f) {
     throw w3d_kernel_error(f);
   }

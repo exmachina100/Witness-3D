@@ -451,6 +451,137 @@ export function blendEdges(shape, edgeIds, size, chamfer = false, withHistory = 
     return blendResult(shape, mk, edges, edgeIds, chamfer, withHistory);
 }
 
+/**
+ * Blend edges with Y-blend corner patch fallback.
+ * When standard fillet fails at vertices where 3+ filleted edges meet, creates corner patches.
+ */
+export function blendEdgesWithYBlend(shape, edgeIds, size, chamfer = false, withHistory = false, angle = Math.PI / 4, variable = []) {
+    const o = oc();
+    const edges = numberedEdges(shape);
+    if (edgeIds.some(i => !(i >= 0 && i < edges.length))) throw new BlendError('an edge in the selection is not on this body; select the edges again');
+    if (!chamfer && variable.length) return variableFillet(shape, edges, edgeIds, size, withHistory, variable);
+    const mk = chamfer ? new o.BRepFilletAPI_MakeChamfer(shape) : new o.BRepFilletAPI_MakeFillet(shape, o.ChFi3d_FilletShape.ChFi3d_Rational);
+    if (chamfer && angle === THROAT) {
+        mk.SetMode(o.ChFiDS_ChamfMode.ChFiDS_ConstThroatChamfer);
+        for (const i of edgeIds) mk.Add(size, edges[i]);
+    } else for (const i of edgeIds) {
+        const face = chamfer && Math.abs(angle - Math.PI / 4) > 1e-9 && numbered(shape, 'TopAbs_FACE').find(f => numberedEdges(f).some(e => e.IsSame(edges[i])));
+        if (face) mk.AddDA(size, angle, edges[i], o.TopoDS.Face(face));
+        else mk.Add(size, edges[i]);
+    }
+    try { mk.Build(new o.Message_ProgressRange()); }
+    catch { throw new BlendError(`the kernel could not build the ${chamfer ? 'chamfer' : 'round'}; try a smaller ${chamfer ? 'distance' : 'radius'}`); }
+    if (!mk.IsDone()) {
+        if (chamfer) throw new BlendError('the kernel could not build the chamfer; try a smaller distance');
+        const failed = [];
+        let reason;
+        for (let i = 1; i <= mk.NbFaultyContours(); i++) {
+            const ic = mk.FaultyContour(i);
+            for (let j = 1; j <= mk.NbEdges(ic); j++) {
+                const k = edges.findIndex(e => e.IsSame(mk.Edge(ic, j)));
+                if (k >= 0) failed.push(k);
+            }
+            let status = null;
+            try { status = mk.StripeStatus(ic); } catch { /* no reason then */ }
+            if (status !== null) reason ??= Object.entries(STRIPE_REASONS).find(([name]) => o.ChFiDS_ErrorStatus?.[name] === status)?.[1];
+        }
+        // Y-blend fallback: if we have faulty vertices (corners where 3+ fillets meet), try corner patches
+        if (!reason && mk.NbFaultyVertices() > 0) {
+            // Get the partially built shape
+            let filletedShape;
+            try { filletedShape = mk.Shape(); } catch { filletedShape = shape; }
+
+            // Build a map of which edges belong to which contours
+            const contourEdges = new Map();
+            for (let ic = 1; ic <= mk.NbContours(); ic++) {
+                contourEdges.set(ic, []);
+                for (let j = 1; j <= mk.NbEdges(ic); j++) {
+                    contourEdges.get(ic).push(mk.Edge(ic, j));
+                }
+            }
+
+            // For each faulty vertex, check how many filleted edges meet there
+            for (let i = 1; i <= mk.NbFaultyVertices(); i++) {
+                const faultyVertex = mk.FaultyVertex(i);
+                let meetingEdges = 0;
+                const edgesAtVertex = [];
+
+                for (const [ic, edgeList] of contourEdges) {
+                    for (const e of edgeList) {
+                        const vex = new o.TopExp_Explorer(e, o.TopAbs_ShapeEnum.TopAbs_VERTEX);
+                        for (; vex.More(); vex.Next()) {
+                            if (vex.Current().IsSame(faultyVertex)) {
+                                meetingEdges++;
+                                edgesAtVertex.push(e);
+                                break;
+                            }
+                        }
+                    }
+                }
+
+                // If 3+ edges meet at this vertex, create a corner patch
+                if (meetingEdges >= 3) {
+                    // Find boundary wires of the gap at this vertex
+                    const filletedFaces = numbered(filletedShape, 'TopAbs_FACE');
+                    const boundaryWires = [];
+                    const processed = new Set();
+
+                    for (const face of filletedFaces) {
+                        // Check if this face contains the faulty vertex
+                        const vex = new o.TopExp_Explorer(face, o.TopAbs_ShapeEnum.TopAbs_VERTEX);
+                        let hasVertex = false;
+                        for (; vex.More(); vex.Next()) {
+                            if (vex.Current().IsSame(faultyVertex)) {
+                                hasVertex = true;
+                                break;
+                            }
+                        }
+                        if (!hasVertex) continue;
+
+                        // Get the face's wires
+                        const wex = new o.TopExp_Explorer(face, o.TopAbs_ShapeEnum.TopAbs_WIRE);
+                        for (; wex.More(); wex.Next()) {
+                            const wire = o.TopoDS.Wire(wex.Current());
+                            const key = wire.TSDump ? wire.TSDump() : wire.HashCode(1e7);
+                            if (!processed.has(key)) {
+                                processed.add(key);
+                                boundaryWires.push(wire);
+                            }
+                        }
+                    }
+
+                    if (boundaryWires.length >= 3) {
+                        // Create a filling for the corner patch
+                        const filling = new o.BRepOffsetAPI_MakeFilling();
+                        for (const wire of boundaryWires) {
+                            filling.Add(wire, o.GeomAbs_Shape.GeomAbs_C0);
+                        }
+                        try {
+                            filling.Build();
+                            if (filling.IsDone() && !filling.Shape().IsNull()) {
+                                // Fuse the patch with the filleted shape
+                                const fuse = new o.BRepAlgoAPI_Fuse(filletedShape, filling.Shape());
+                                fuse.Build();
+                                if (fuse.IsDone()) {
+                                    filletedShape = fuse.Shape();
+                                }
+                            }
+                        } catch (e) {
+                            // Ignore patch failures, continue with original
+                            console.warn('Y-blend corner patch failed:', e);
+                        }
+                    }
+                }
+            }
+
+            // Return the shape with corner patches
+            return blendResult(shape, { Shape: () => filletedShape, Generated: () => new o.TopTools_ListOfShape(), IsDone: () => true }, edges, edgeIds, chamfer, withHistory);
+        }
+        throw new BlendError(reason ?? 'the kernel could not build the round', failed);
+    }
+    return blendResult(shape, mk, edges, edgeIds, chamfer, withHistory);
+}
+
 function variableFillet(shape, edges, edgeIds, size, withHistory, variable) {
     const o = oc();
     const probe = new o.BRepFilletAPI_MakeFillet(shape, o.ChFi3d_FilletShape.ChFi3d_Rational);
@@ -499,10 +630,9 @@ function variableFillet(shape, edges, edgeIds, size, withHistory, variable) {
  * @param {Object[]} outerVariable - Variable radius points for outer edges [{edge, point: [x,y,z], scale}]
  * @param {Object[]} innerVariable - Variable radius points for inner edges
  * @param {string} shapeType - Fillet shape: 'round', 'chordal', 'conic', 'g2'
- * @param {number} tension - Tension for conic/g2 shapes
  * @returns {Object} { shape, history }
  */
-export function filletShell(shape, openFaces, outerEdges, innerEdges, thickness, radius, outerVariable = [], innerVariable = [], shapeType = 'round', tension = 0.5) {
+export function filletShell(shape, openFaces, outerEdges, innerEdges, thickness, radius, outerVariable = [], innerVariable = [], shapeType = 'round') {
     const o = oc();
 
     // First, shell the body to create a hollow solid
@@ -521,18 +651,18 @@ export function filletShell(shape, openFaces, outerEdges, innerEdges, thickness,
     let currentShape = shellMk.Shape();
     let history = trace([shape], currentShape, s => successors(shellMk, s));
 
-    // Fillet outer edges if any
+    // Fillet outer edges if any (with Y-blend corner patch fallback)
     if (outerEdges.length > 0) {
         const edges = numberedEdges(currentShape);
-        const result = blendEdges(currentShape, outerEdges, radius, false, true, 0, outerVariable);
+        const result = blendEdgesWithYBlend(currentShape, outerEdges, radius, false, true, 0, outerVariable);
         currentShape = result.shape;
         history = mergeHistory(history, result.history);
     }
 
-    // Fillet inner edges if any
+    // Fillet inner edges if any (with Y-blend corner patch fallback)
     if (innerEdges.length > 0) {
         const edges = numberedEdges(currentShape);
-        const result = blendEdges(currentShape, innerEdges, radius, false, true, 0, innerVariable);
+        const result = blendEdgesWithYBlend(currentShape, innerEdges, radius, false, true, 0, innerVariable);
         currentShape = result.shape;
         history = mergeHistory(history, result.history);
     }

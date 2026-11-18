@@ -134,6 +134,16 @@ impl Shape {
             Err(e) => Err(parse_blend_error(e.what())),
         }
     }
+
+    /// [`Shape::blend_edges`] with Y-blend corner patch fallback.
+    /// When standard fillet fails at vertices where 3+ filleted edges meet, creates corner patches.
+    pub fn blend_edges_with_yblend(&self, edges: &[usize], size: f64, chamfer: bool, angle: f64, variable: &[f64]) -> Result<(Shape, ShapeHistory), BlendError> {
+        let ids: Vec<i32> = edges.iter().map(|&e| e as i32).collect();
+        match ffi::w3d::w3d_blend_edges_with_yblend(&self.inner, &ids, size, chamfer, angle, variable) {
+            Ok(r) => Ok((Shape::from_shape(&ffi::w3d::w3d_result_shape(&r)), history(&r, 1))),
+            Err(e) => Err(parse_blend_error(e.what())),
+        }
+    }
 }
 
 /// Strip the "kernel: " wrapper the shim puts on OpenCascade's own failures; keep our sentences.

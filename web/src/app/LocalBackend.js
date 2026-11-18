@@ -1723,13 +1723,13 @@ export class LocalBackend {
     }
 
     /** Fillet Shell: hollow the body and fillet both outer and inner edges. */
-    filletShell({ body, openFaces = [], outerEdges = [], innerEdges = [], thickness, radius, outerVariable = [], innerVariable = [], shape: shapeType = 'round', tension = 0.5 }) {
+    filletShell({ body, openFaces = [], outerEdges = [], innerEdges = [], thickness, radius, outerVariable = [], innerVariable = [], shape: shapeType = 'round' }) {
         const shape = this.shapes.get(body);
         if (!shape) throw new Error('that body no longer exists');
         if (!outerEdges.length && !innerEdges.length) throw new Error('select at least one edge to fillet');
         if (!(thickness > 0)) throw new Error('the thickness must be greater than zero');
         if (!(radius > 0)) throw new Error('the radius must be greater than zero');
-        return filletShell(shape, openFaces, outerEdges, innerEdges, thickness, radius, outerVariable, innerVariable, shapeType, tension);
+        return filletShell(shape, openFaces, outerEdges, innerEdges, thickness, radius, outerVariable, innerVariable, shapeType);
     }
 
     /** Preview Fillet Shell. */
