@@ -28,7 +28,7 @@ _Last updated: 2026-11-19_
 | **Project, Imprint** | ✅ Done | Curve/Body, options (bidirectional, hide occluded) |
 | **Selection, Outliner, Groups** | ✅ Done | Full UI parity |
 | **Materials, Render, Shaders** | ✅ Done | 17 shader modes, PBR, HDRI, custom matcaps |
-| **STEP/IGES Import/Export** | ✅ Done | Desktop IGES, both STEP |
+| **STEP/IGES Import/Export** | ✅ Done | Desktop & Web IGES, both STEP |
 | **DXF Import/Export** | ✅ Done | Full round-trip |
 | **OBJ/STL/glTF/3MF Export** | ✅ Done | Mesh export with options |
 | **SVG Hidden-line Export** | ✅ Done | |
@@ -69,14 +69,15 @@ _Last updated: 2026-11-19_
   - Reflection isophote (Shift+Ctrl+Alt+Z): Bands using reflection/view angle for G2 sensitivity (mode 20)
 - **Files modified**: `web/src/app/shading.js`, `web/src/app/App.js`, `web/src/app/keymap.js`, `web/src/app/menus.js`
 
-#### **5. DXF & Rhino .3dm (openNURBS)** — **NEXT PRIORITY**
-- **Status**: DXF import/export done; .3dm feature-gated in kernel (`write_3dm`/`read_3dm`)
-- **Missing**: Enable `rhino` feature, test round-trip
-- **Files to modify**: `Cargo.toml` features, import/export dialogs
+#### **5. IGES Import/Export for Web** ✅ **DONE** (replaces Rhino .3dm per user request)
+- **Status**: Web IGES import/export fully implemented using OpenCascade's IGESControl
+- **Commits**: `d396684` — "feat: Add IGES import/export for web frontend"
+- **Files modified**: `web/src/Kernel.js` (exportIGES/importIGES), `web/src/app/LocalBackend.js`, `web/src/app/App.js`
+- **Note**: Rhino .3dm skipped per user request; IGES provides equivalent CAD exchange capability
 
 ---
 
-### **Months-scale (Later)**
+### **Months-scale (Next Priority)**
 
 #### **6. PolySplines on OpenSubdiv**
 - **Status**: `SubdCage`, `SubdivOptions`, `subdivide_cage`, `cage_to_solid` implemented behind `opensubdiv` feature
