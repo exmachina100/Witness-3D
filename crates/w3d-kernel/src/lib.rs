@@ -620,6 +620,13 @@ pub trait Kernel {
         if guides.is_empty() { return self.patch_within(curves, edges, tolerance) }
         Err(KernelError::Invalid("this kernel cannot patch through guide curves"))
     }
+    /// Patch with quality metrics: returns the sheet and G0/G1/G2 errors.
+    /// G0Error: max distance from surface to boundary (mm).
+    /// G1Error: max angular deviation from tangency along tangent edges (degrees).
+    /// G2Error: max curvature deviation along tangent edges (1/mm).
+    fn patch_with_quality(&self, _curves: &[Path], _edges: &[(&Self::Solid, Vec<(u32, u32)>)], _tolerance: f64, _guides: &[Path]) -> Result<(Self::Solid, f64, f64, f64), KernelError> {
+        Err(KernelError::Invalid("this kernel cannot patch with quality metrics"))
+    }
     /// Plasticity's Patch › Method: the `target` sheet trimmed by `edges` of the `base` sheet, to the
     /// hole they close round (`hole`) or where the base sheet ends.
     fn patch_trim(&self, _target: &Self::Solid, _base: &Self::Solid, _edges: &[u32], _hole: bool) -> Result<Self::Solid, KernelError> {
@@ -678,7 +685,9 @@ pub trait Kernel {
     /// Plasticity's Match Face: `faces` of the solid replaced by the surface of `target`'s face
     /// `tface`, the body grown out to it or cut back to it. A positive `caps[i]` stops face `i`
     /// growing further out than that (Grow Fixed).
-    fn match_faces(&self, _s: &Self::Solid, _faces: &[u32], _target: &Self::Solid, _tface: u32, _caps: &[f64]) -> Result<Self::Solid, KernelError> {
+    /// solver: "constrained" (default) or "xnurbs" - the method for solving the surface match
+    /// skew: -1 to 1, how the sheet's UV flow is biased along the matched edge
+    fn match_faces(&self, _s: &Self::Solid, _faces: &[u32], _target: &Self::Solid, _tface: u32, _caps: &[f64], _solver: &str, _skew: f64) -> Result<Self::Solid, KernelError> {
         Err(KernelError::Invalid("this kernel cannot match faces"))
     }
     /// Extend Sheet's Limit: the sheet carried on past its open `edge` until it first meets `target`

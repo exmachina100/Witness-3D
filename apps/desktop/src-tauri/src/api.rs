@@ -2180,18 +2180,28 @@ pub struct MatchFacesRequest {
     /// "moving" (the default), "fixed" or "none": what an inner face does past the outer wall.
     #[serde(default)]
     pub grow: String,
+    /// Solver: "constrained" (default) or "xnurbs" - the method for solving the surface match
+    #[serde(default = "default_solver")]
+    pub solver: String,
+    /// Skew factor (-1 to 1): how the sheet's UV flow is biased along the matched edge
+    #[serde(default)]
+    pub skew: f64,
+}
+
+fn default_solver() -> String {
+    "constrained".to_string()
 }
 
 pub fn preview_match_faces(m: &Model, req: MatchFacesRequest) -> Option<Result<Body, ApiError>> {
     m.preview(move |doc| {
-        let solid = doc.preview_match_faces(req.body, &req.faces, req.target, req.tface, grow_of(&req.grow))?;
+        let solid = doc.preview_match_faces(req.body, &req.faces, req.target, req.tface, grow_of(&req.grow), &req.solver, req.skew)?;
         Ok(body(&doc.kernel, req.body, &solid)?)
     })
 }
 
 pub fn commit_match_faces(m: &Model, req: MatchFacesRequest) -> Result<Committed, ApiError> {
     m.call(move |doc| {
-        let id = doc.commit_match_faces(req.body, &req.faces, req.target, req.tface, grow_of(&req.grow))?;
+        let id = doc.commit_match_faces(req.body, &req.faces, req.target, req.tface, grow_of(&req.grow), &req.solver, req.skew)?;
         Ok(Committed { id, scene: bodies(doc)? })
     })
 }

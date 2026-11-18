@@ -619,6 +619,14 @@ impl Kernel for Occt {
         Shape::patch(&cutter_numbers(&curves)?, &edges, &cutter_numbers(&guides)?, tol).map_err(shim)
     }
 
+    fn patch_with_quality(&self, curves: &[Path], edges: &[(&Shape, Vec<(u32, u32)>)], tolerance: f64, guides: &[Path]) -> Result<(Shape, f64, f64, f64), KernelError> {
+        let curves: Vec<(Path, DVec3)> = curves.iter().map(|c| (c.clone(), DVec3::Z)).collect();
+        let guides: Vec<(Path, DVec3)> = guides.iter().map(|c| (c.clone(), DVec3::Z)).collect();
+        let edges: Vec<(&Shape, Vec<(usize, u32)>)> = edges.iter().map(|(s, e)| (*s, e.iter().map(|&(i, t)| (i as usize, t)).collect())).collect();
+        let tol = if tolerance > 0.0 { tolerance } else { PATCH_TOLERANCE };
+        Shape::patch_with_quality(&cutter_numbers(&curves)?, &edges, &cutter_numbers(&guides)?, tol).map_err(shim)
+    }
+
     fn patch_trim(&self, target: &Shape, base: &Shape, edges: &[u32], hole: bool) -> Result<Shape, KernelError> {
         base.patch_trim(target, &edges.iter().map(|&e| e as usize).collect::<Vec<_>>(), hole).map_err(shim)
     }
@@ -686,9 +694,9 @@ impl Kernel for Occt {
         s.untrim_face(face as usize, keep_edges).map_err(shim)
     }
 
-    fn match_faces(&self, s: &Shape, faces: &[u32], target: &Shape, tface: u32, caps: &[f64]) -> Result<Shape, KernelError> {
+    fn match_faces(&self, s: &Shape, faces: &[u32], target: &Shape, tface: u32, caps: &[f64], solver: &str, skew: f64) -> Result<Shape, KernelError> {
         let idx: Vec<usize> = faces.iter().map(|&f| f as usize).collect();
-        s.match_faces(&idx, target, tface as usize, caps).map_err(shim)
+        s.match_faces(&idx, target, tface as usize, caps, solver, skew).map_err(shim)
     }
 
     fn raise_faces(&self, s: &Shape, faces: &[u32]) -> Result<(Shape, Vec<RebuiltFace>), KernelError> {

@@ -1634,17 +1634,21 @@ impl<K: Kernel> Document<K> {
     /// Plasticity's Match Face, without changing the document: `faces` of `body` replaced by the
     /// surface of face `tface` of body `target`, with Plasticity's grow mode for an inner face matched
     /// past the body's outer wall.
-    pub fn preview_match_faces(&self, body: BodyId, faces: &[u32], target: BodyId, tface: u32, grow: Grow) -> Result<K::Solid, KernelError> {
+    /// solver: "constrained" (default) or "xnurbs" - the method for solving the surface match
+    /// skew: -1 to 1, how the sheet's UV flow is biased along the matched edge
+    pub fn preview_match_faces(&self, body: BodyId, faces: &[u32], target: BodyId, tface: u32, grow: Grow, solver: &str, skew: f64) -> Result<K::Solid, KernelError> {
         let s = self.get(body).ok_or(KernelError::Invalid("that body no longer exists"))?;
         let t = self.get(target).ok_or(KernelError::Invalid("the target body no longer exists"))?;
         if faces.is_empty() { return Err(KernelError::Invalid("select the faces to match")) }
         if target == body && faces.contains(&tface) { return Err(KernelError::Invalid("match the faces to another face, not one of themselves")) }
-        match_faces_grow(&self.kernel, s, faces, t, tface, grow, (target == body).then_some(tface))
+        match_faces_grow(&self.kernel, s, faces, t, tface, grow, (target == body).then_some(tface), solver, skew)
     }
 
     /// Match Face as one undoable step: the body keeps its id.
-    pub fn commit_match_faces(&mut self, body: BodyId, faces: &[u32], target: BodyId, tface: u32, grow: Grow) -> Result<BodyId, KernelError> {
-        let solid = self.preview_match_faces(body, faces, target, tface, grow)?;
+    /// solver: "constrained" (default) or "xnurbs" - the method for solving the surface match
+    /// skew: -1 to 1, how the sheet's UV flow is biased along the matched edge
+    pub fn commit_match_faces(&mut self, body: BodyId, faces: &[u32], target: BodyId, tface: u32, grow: Grow, solver: &str, skew: f64) -> Result<BodyId, KernelError> {
+        let solid = self.preview_match_faces(body, faces, target, tface, grow, solver, skew)?;
         self.checkpoint();
         self.replace_traced(body, Traced { solid, history: History::default() });
         Ok(body)
@@ -1979,6 +1983,28 @@ impl<K: Kernel> Document<K> {
         }
         let guides: Vec<Path> = self.cutters(guides)?.into_iter().map(|(p, _)| p).collect();
         self.kernel.patch_guided(&paths, &picked, tolerance, &guides)
+    }
+
+    /// Patch with quality metrics: returns the sheet and G0/G1/G2 errors.
+    /// G0Error: max distance from surface to boundary (mm).
+    /// G1Error: max angular deviation from tangency along tangent edges (degrees).
+    /// G2Error: max curvature deviation along tangent edges (1/mm).
+    pub fn preview_patch_with_quality(&self, curves: &[CurveId], edges: &[(BodyId, u32, u32)], tolerance: f64, guides: &[CurveId]) -> Result<(K::Solid, f64, f64, f64), KernelError> {
+        if curves.is_empty() && edges.is_empty() { return Err(KernelError::Invalid("select a closed loop of curves or edges to patch")) }
+        let paths: Vec<Path> = self.cutters(curves)?.into_iter().map(|(p, _)| p).collect();
+        let mut bodies: Vec<(BodyId, Vec<(u32, u32)>)> = vec![];
+        for &(b, e, t) in edges {
+            match bodies.iter_mut().find(|(id, _)| *id == b) {
+                Some((_, list)) => list.push((e, t)),
+                None => bodies.push((b, vec![(e, t)])),
+            }
+        }
+        let mut picked = vec![];
+        for (b, list) in bodies {
+            picked.push((self.get(b).ok_or(KernelError::Invalid("that body no longer exists"))?, list));
+        }
+        let guides: Vec<Path> = self.cutters(guides)?.into_iter().map(|(p, _)| p).collect();
+        self.kernel.patch_with_quality(&paths, &picked, tolerance, &guides)
     }
 
     /// Patch as one undoable step: the sheet becomes a body of its own, and the loop stays.

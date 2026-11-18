@@ -239,12 +239,6 @@ const SHELL = `
     <nav class="ctx" data-id="ctx" aria-label="Suggested commands for the selection"></nav>
     <span class="spacer"></span>
     <button class="export" data-action="ask" title="Ask for a command in words (Ctrl+K)">${icon('ask')}ASK</button>
-    <button class="export" data-id="file-new" hidden>${icon('file-new')}NEW</button>
-    <button class="export" data-id="file-open" hidden>${icon('file-open')}OPEN</button>
-    <button class="export" data-id="file-save" hidden>${icon('file-save')}SAVE</button>
-    <button class="export" data-id="import" hidden title="Import a STEP, IGES or DXF file">${icon('import')}IMPORT</button>
-    <input type="file" data-id="import-file" accept=".step,.stp,.dxf,.png,.jpg,.jpeg" hidden>
-    <button class="export" data-id="export" disabled title="Export STEP">${icon('export')}STEP</button>
     <span class="file" data-id="file-name">UNTITLED.W3D</span>
   </header>
   <div class="pmenu" data-id="pmenu" role="menu" hidden></div>

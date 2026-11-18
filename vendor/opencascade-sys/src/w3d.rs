@@ -119,7 +119,7 @@ mod inner {
         pub fn w3d_move_face_poles(shape: &TopoDS_Shape, moves: &[f64]) -> Result<UniquePtr<TopoDS_Shape>>;
         pub fn w3d_rebuild_faces(shape: &TopoDS_Shape, faces: &[i32], p: &[f64]) -> Result<UniquePtr<TopoDS_Shape>>;
         pub fn w3d_raise_faces(shape: &TopoDS_Shape, faces: &[i32]) -> Result<UniquePtr<TopoDS_Shape>>;
-        pub fn w3d_match_faces(shape: &TopoDS_Shape, faces: &[i32], target: &TopoDS_Shape, tface: i32, caps: &[f64]) -> Result<UniquePtr<TopoDS_Shape>>;
+        pub fn w3d_match_faces(shape: &TopoDS_Shape, faces: &[i32], target: &TopoDS_Shape, tface: i32, caps: &[f64], solver: &str, skew: f64) -> Result<UniquePtr<TopoDS_Shape>>;
         pub fn w3d_offset_edge_faces(shape: &TopoDS_Shape, edges: &[i32], side: i32) -> Result<Vec<i32>>;
         pub fn w3d_edge_tube(shape: &TopoDS_Shape, edges: &[i32], d: f64) -> Result<UniquePtr<TopoDS_Shape>>;
         pub fn w3d_reshape_fillets(shape: &TopoDS_Shape, faces: &[i32], kind: i32, tension: f64) -> Result<UniquePtr<TopoDS_Shape>>;
@@ -140,5 +140,7 @@ mod inner {
         pub fn w3d_join_sheets(all: &TopoDS_Shape, tol: f64) -> Result<UniquePtr<TopoDS_Shape>>;
         pub fn w3d_unjoin(shape: &TopoDS_Shape, faces: bool) -> Result<UniquePtr<TopoDS_Shape>>;
         pub fn w3d_patch(data: &[f64], shape: &TopoDS_Shape, edges: &[i32], tangent: &[i32], guides: &[f64], tol: f64) -> Result<UniquePtr<TopoDS_Shape>>;
+        // Patch with quality metrics: returns the face and fills g0_error, g1_error (degrees), g2_error.
+        pub fn w3d_patch_with_quality(data: &[f64], shape: &TopoDS_Shape, edges: &[i32], tangent: &[i32], guides: &[f64], tol: f64, g0_error: &mut f64, g1_error: &mut f64, g2_error: &mut f64) -> Result<UniquePtr<TopoDS_Shape>>;
     }
 }

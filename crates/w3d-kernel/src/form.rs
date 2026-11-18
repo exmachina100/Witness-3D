@@ -295,6 +295,8 @@ fn grown_past_wall<K: Kernel>(
 /// outer wall (manual, solid/match-face): Moving takes the wall's own faces to the surface too,
 /// Fixed stops at the wall, None carries on past it by itself. `keep` is a face of the body never
 /// to take along (the target, when it is on the same body).
+/// solver: "constrained" (default) or "xnurbs" - the method for solving the surface match
+/// skew: -1 to 1, how the sheet's UV flow is biased along the matched edge
 pub fn match_faces_grow<K: Kernel>(
     k: &K,
     body: &K::Solid,
@@ -303,6 +305,8 @@ pub fn match_faces_grow<K: Kernel>(
     tface: u32,
     grow: Grow,
     keep: Option<u32>,
+    solver: &str,
+    skew: f64,
 ) -> Result<K::Solid, KernelError> {
     const TOL: f64 = 1e-6;
     let mesh = k.tessellate(body, 0.1)?;
@@ -314,7 +318,7 @@ pub fn match_faces_grow<K: Kernel>(
         mesh.face_planes.get(f as usize).copied().flatten().map(|p| (p, reach(&mesh.positions, &p))).filter(|(_, w)| *w > TOL)
     }).collect();
     let caps: Vec<f64> = walls.iter().map(|w| match (grow, w) { (Grow::Fixed, Some((_, w))) => *w, _ => 0.0 }).collect();
-    let matched = k.match_faces(body, faces, target, tface, &caps)?;
+    let matched = k.match_faces(body, faces, target, tface, &caps, solver, skew)?;
     if grow != Grow::Moving || walls.iter().all(Option::is_none) { return Ok(matched) }
     let after = k.tessellate(&matched, 0.1)?;
     let mut all = faces.to_vec();
@@ -330,7 +334,7 @@ pub fn match_faces_grow<K: Kernel>(
         }
     }
     if all.len() == faces.len() { return Ok(matched) }
-    k.match_faces(body, &all, target, tface, &[])
+    k.match_faces(body, &all, target, tface, &[], solver, skew)
 }
 
 /// Plasticity's Pipe: a tube of `radius` along `path`, its section a circle (`sides` 0) or a

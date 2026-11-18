@@ -13,7 +13,12 @@ let kernel;
 export async function loadKernel(options = {}) {
     if (!kernel) {
         const { default: init } = await import('replicad-opencascadejs');
-        kernel = await init(options);
+        // Ensure the wasm file is loaded from the correct location (same dir as the JS module)
+        const wasmUrl = new URL('replicad_single.wasm', import.meta.url).href;
+        kernel = await init({
+            ...options,
+            locateFile: (path) => path === 'replicad_single.wasm' ? wasmUrl : path
+        });
     }
     return kernel;
 }

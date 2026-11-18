@@ -16,7 +16,8 @@
   "imports": {
     "three": "https://cdn.jsdelivr.net/npm/three@0.185.1/build/three.module.js",
     "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.185.1/examples/jsm/",
-    "replicad-opencascadejs": "https://cdn.jsdelivr.net/npm/replicad-opencascadejs@1.1.0/dist/replicad_single.js",
+    "replicad-opencascadejs": "./node_modules/replicad-opencascadejs/dist/replicad_single.js",
+    "@nasedkinpv/opensubdiv-wasm": "./node_modules/@nasedkinpv/opensubdiv-wasm/dist/opensubdiv.mjs",
     "@anthropic-ai/sdk": "https://cdn.jsdelivr.net/npm/@anthropic-ai/sdk@0.128.0/+esm"
   }
 }
@@ -37,16 +38,22 @@ async function bootKernel() {
     const wasmBinary = gz[0] === 0x1f && gz[1] === 0x8b
       ? await new Response(new Blob([raw]).stream().pipeThrough(new DecompressionStream('gzip'))).arrayBuffer()
       : raw;
+    console.log('Loading kernel with local wasmBinary...');
     await loadKernel({ wasmBinary });
-  } catch {
+    console.log('Kernel loaded successfully!');
+  } catch (e) {
+    console.warn('Local wasm load failed, trying auto-fetch:', e);
     await loadKernel(); // local dev: let the loader fetch its own .wasm
+    console.log('Kernel loaded via auto-fetch!');
   }
 }
 
 document.getElementById('app').innerHTML = '<div class="loading" style="position:fixed">LOADING THE OPENCASCADE KERNEL (7 MB)…</div>';
 await bootKernel();
+console.log('Mounting app...');
 const app = await mount(document.getElementById('app'), new LocalBackend());
 window.__w3d = app;
+console.log('App mounted!');
 </script>
 </body>
 </html>

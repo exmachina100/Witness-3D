@@ -461,6 +461,26 @@ impl Shape {
         Ok(Shape::from_shape(&sheet))
     }
 
+    /// Patch with quality metrics: returns the sheet and G0/G1/G2 errors.
+    /// G0Error: max distance from surface to boundary (mm).
+    /// G1Error: max angular deviation from tangency along tangent edges (degrees).
+    /// G2Error: max curvature deviation along tangent edges (1/mm).
+    pub fn patch_with_quality(data: &[f64], bodies: &[(&Shape, Vec<(usize, u32)>)], guides: &[f64], tol: f64)
+        -> Result<(Shape, f64, f64, f64), String> {
+        let all = Shape::from(crate::primitives::Compound::from_shapes(bodies.iter().map(|(s, _)| *s)));
+        let (mut edges, mut tangent, mut offset) = (vec![], vec![], 0);
+        for (s, picked) in bodies {
+            for &(e, t) in picked {
+                edges.push((offset + e) as i32);
+                tangent.push(t as i32);
+            }
+            offset += ffi::w3d::w3d_count(&s.inner, false) as usize;
+        }
+        let mut g0 = 0.0, g1 = 0.0, g2 = 0.0;
+        let sheet = ffi::w3d::w3d_patch_with_quality(data, &all.inner, &edges, &tangent, guides, tol, &mut g0, &mut g1, &mut g2).map_err(reason)?;
+        Ok((Shape::from_shape(&sheet), g0, g1, g2))
+    }
+
     /// Plasticity's Bridge Surface from edge `a` of `sa` to edge `b` of `sb`, tangent to their faces
     /// (see `w3d_bridge_surface`). The shapes may be the same.
     pub fn bridge_surface(sa: &Shape, a: usize, sb: &Shape, b: usize, same: bool, tension: f64) -> Result<Shape, String> {
@@ -507,9 +527,11 @@ impl Shape {
     }
 
     /// Plasticity's Match Face: `faces` of this solid replaced by the surface of `target`'s face `tface`.
-    pub fn match_faces(&self, faces: &[usize], target: &Shape, tface: usize, caps: &[f64]) -> Result<Shape, String> {
+    /// solver: "constrained" (default) or "xnurbs" - the method for solving the surface match
+    /// skew: -1 to 1, how the sheet's UV flow is biased along the matched edge
+    pub fn match_faces(&self, faces: &[usize], target: &Shape, tface: usize, caps: &[f64], solver: &str, skew: f64) -> Result<Shape, String> {
         let faces: Vec<i32> = faces.iter().map(|&f| f as i32).collect();
-        let shape = ffi::w3d::w3d_match_faces(&self.inner, &faces, &target.inner, tface as i32, caps).map_err(reason)?;
+        let shape = ffi::w3d::w3d_match_faces(&self.inner, &faces, &target.inner, tface as i32, caps, solver, skew).map_err(reason)?;
         Ok(Shape::from_shape(&shape))
     }
 

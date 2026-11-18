@@ -1388,12 +1388,12 @@ export class LocalBackend {
     }
 
     /** Plasticity's Match Face: `faces` of `body` replaced by the surface of face `tface` of body `target`. */
-    matchResult({ body, faces, target, tface, grow = 'moving' }) {
+    matchResult({ body, faces, target, tface, grow = 'moving', solver = 'constrained', skew = 0 }) {
         const s = this.shapes.get(body), t = this.shapes.get(target);
         if (!s) throw new Error('that body no longer exists');
         if (!t) throw new Error('the target body no longer exists');
         if (target === body && faces.includes(tface)) throw new Error('match the faces to another face, not one of themselves');
-        return matchFacesGrow(s, faces, t, tface, grow || 'moving', target === body ? tface : -1);
+        return matchFacesGrow(s, faces, t, tface, grow || 'moving', target === body ? tface : -1, solver, skew);
     }
 
     previewMatchFaces(req) { return this.latest(async () => this.body(req.body, this.matchResult(req))) }
