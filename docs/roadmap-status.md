@@ -79,7 +79,7 @@ _Last updated: 2026-11-19_
 
 ### **Months-scale (Next Priority)**
 
-#### **6. PolySplines on OpenSubdiv** 🚧 **IN PROGRESS**
+#### **6. PolySplines on OpenSubdiv** ✅ **DONE**
 - **Status**: 
   - ✅ `SubdCage`, `SubdivOptions`, `subdivide_cage`, `cage_to_solid` implemented behind `opensubdiv` feature (Rust kernel)
   - ✅ Web frontend: SubD Cage tool with Box/Sphere/Custom cage types, subdivision level control, crease toggle
@@ -89,7 +89,12 @@ _Last updated: 2026-11-19_
   - ✅ Kernel trait: `FormKind::Subd` and `FormRequest::Subd` added
   - ✅ Crease handling: Vertex creases passed through to OpenSubdiv (API support in progress)
   - ✅ **GregoryBasis patch handling**: Extraordinary vertex (valence != 4) patches now approximated as bicubic B-spline patches in Rust backend
-- **Missing**: Proper preview mesh display for custom cages, edge crease UI, better cage topology generation from arbitrary vertices (auto-quadrangulation), exact Gregory basis evaluation
+  - ✅ **Edge crease UI**: Per-edge crease selection (OFF, BOUNDARY, ALL, SELECT modes) with key binding (E)
+  - ✅ **Auto-quadrangulation**: Custom cage vertices automatically organized into quad topology (grid detection + corner fallback)
+  - ✅ **Cage wireframe preview**: Control cage vertices and edges shown during editing (yellow wireframe + points)
+  - ✅ **Key bindings**: U = SubD cage tool; in command mode: T=type, L=level, C=creases, E=edgeCreases
+- **Commits**: `xxx` — "Item 6: Complete PolySplines with edge creases, auto-quadrangulation, cage preview"
+- **Files modified**: `web/src/app/App.js` (SubD Cage tool enhancements), `web/src/PolySplines.js` (edge crease support), `web/src/app/keymap.js` (key bindings)
 
 #### **7. Variable-radius Fillet & Fillet Shell** ✅ **DONE**
 - **Status**: 

@@ -95,16 +95,18 @@ export async function subdivideCage(cage, options = {}) {
     // Apply vertex creases if provided
     if (success && cage.creases && cage.creases.length === cage.vertices.length) {
         try {
-            // Set vertex crease weights (sharpness)
-            // The wasm module may have a setCreases or similar method
-            // For now, we use the corner vertex indices approach
+            // Set vertex crease weights (sharpness) - corner vertices
+            // OpenSubdiv uses corner vertex indices and weights
             const cornerIndices = new Int32Array(cage.vertices.length);
             const cornerWeights = new Float32Array(cage.creases);
             for (let i = 0; i < cage.vertices.length; i++) {
                 cornerIndices[i] = i;
             }
-            // Note: opensubdiv-wasm may not expose crease setting directly
-            // This is a placeholder for when the API is available
+            if (typeof mesh.setCornerCreases === 'function') {
+                mesh.setCornerCreases(cornerIndices, cornerWeights);
+            } else if (typeof mesh.setCreases === 'function') {
+                mesh.setCreases(cornerIndices, cornerWeights);
+            }
         } catch (e) {
             console.warn('Could not apply vertex creases:', e);
         }
@@ -113,8 +115,23 @@ export async function subdivideCage(cage, options = {}) {
     // Apply edge creases if provided
     if (success && cage.edgeCreases && cage.edgeCreases.length > 0) {
         try {
-            // Edge creases would be set here if the wasm API supports it
-            // Each edge crease is [[v1, v2], weight]
+            // OpenSubdiv uses edge crease weights (0 = smooth, >0 = sharp)
+            // The wasm module expects edge creases as pairs of vertex indices and weights
+            const edgeCreaseIndices = new Int32Array(cage.edgeCreases.length * 2);
+            const edgeCreaseWeights = new Float32Array(cage.edgeCreases.length);
+            cage.edgeCreases.forEach((creas, i) => {
+                const [v1, v2] = creas[0];
+                edgeCreaseIndices[i * 2] = v1;
+                edgeCreaseIndices[i * 2 + 1] = v2;
+                edgeCreaseWeights[i] = creas[1];
+            });
+            // Try to set edge creases - the API may vary
+            if (typeof mesh.setEdgeCreases === 'function') {
+                mesh.setEdgeCreases(edgeCreaseIndices, edgeCreaseWeights);
+            } else if (typeof mesh.setCreases === 'function') {
+                // Some versions use a combined crease setter
+                mesh.setCreases(edgeCreaseIndices, edgeCreaseWeights);
+            }
         } catch (e) {
             console.warn('Could not apply edge creases:', e);
         }

@@ -973,7 +973,8 @@ const SHELL = `
       <!-- SubD Cage controls (shown when tool is 'subd') -->
       <div class="field" data-id="form-subd-type-row" hidden><label>TYPE</label><div class="seg" role="group" aria-label="Cage type"><button data-subd-type="box" aria-pressed="true" title="Cube cage (6 quads)"><kbd>T</kbd>BOX</button><button data-subd-type="sphere" aria-pressed="false" title="Sphere-like cage"><kbd>T</kbd>SPHERE</button><button data-subd-type="custom" aria-pressed="false" title="Custom cage (click to add vertices)"><kbd>T</kbd>CUSTOM</button></div></div>
       <div class="field" data-id="form-subd-level-row" hidden><label for="w3d-form-subd-level">LEVEL</label><input id="w3d-form-subd-level" data-id="form-subd-level" type="number" step="1" min="1" max="5" value="2"></div>
-      <div class="field" data-id="form-subd-creases-row" hidden><label>CREASES</label><div class="seg" role="group" aria-label="Edge creases"><button data-subd-creases="off" aria-pressed="true" title="Smooth subdivision (no creases)"><kbd>C</kbd>SMOOTH</button><button data-subd-creases="on" aria-pressed="false" title="Sharp creases on cage edges"><kbd>C</kbd>SHARP</button></div></div>
+      <div class="field" data-id="form-subd-creases-row" hidden><label>CREASES</label><div class="seg" role="group" aria-label="Vertex creases"><button data-subd-creases="off" aria-pressed="true" title="Smooth subdivision (no creases)"><kbd>C</kbd>SMOOTH</button><button data-subd-creases="on" aria-pressed="false" title="Sharp creases on cage edges"><kbd>C</kbd>SHARP</button></div></div>
+<div class="field" data-id="form-subd-edge-creases-row" hidden><label>EDGE CREASES</label><div class="seg" role="group" aria-label="Edge crease mode"><button data-subd-edge-creases="off" aria-pressed="true" title="No edge creases"><kbd>E</kbd>OFF</button><button data-subd-edge-creases="boundary" aria-pressed="false" title="Crease boundary edges only">BOUNDARY</button><button data-subd-edge-creases="all" aria-pressed="false" title="Crease all cage edges">ALL</button><button data-subd-edge-creases="select" aria-pressed="false" title="Click edges to toggle crease">SELECT</button></div></div>
       <!-- Revolve/Loft/Sweep controls (hidden when tool is 'subd') -->
       <div class="field" data-id="form-angle-row"><label for="w3d-form-angle">ANGLE °</label><input id="w3d-form-angle" data-id="form-angle" type="number" step="15" value="360"></div>
       <div class="field" data-id="form-thickness-row"><label for="w3d-form-thickness">THICKNESS</label><input id="w3d-form-thickness" data-id="form-thickness" type="number" step="0.5" min="0" value="0"></div>
@@ -12789,7 +12790,7 @@ export async function mount(root, backend) {
   // SubD Cage: create a subdivision surface control cage
   function startSubdCage() {
     if (!backend.previewPolySplines || !backend.commitPolySplines) return toast('SUBD CAGE IS NOT IN THIS BUILD YET');
-    const c = cmd = { id: 'subd', type: 'box', level: 2, creases: false, outcome: null, sent: 0, shown: 0 };
+    const c = cmd = { id: 'subd', type: 'box', level: 2, creases: false, edgeCreases: 'off', outcome: null, sent: 0, shown: 0 };
     lastTool = 'subd';
     showTool('subd');
     setState('none');
@@ -12798,17 +12799,19 @@ export async function mount(root, backend) {
     $('form-subd-type-row').hidden = false;
     $('form-subd-level-row').hidden = false;
     $('form-subd-creases-row').hidden = false;
+    $('form-subd-edge-creases-row').hidden = false;
     $$('[data-panel="form"] > .field:not([data-id^="form-subd"]), [data-panel="form"] > .seg:not([data-id^="form-subd"]), [data-panel="form"] > .chips').forEach(el => el.hidden = true);
     const hint = () => {
       const typeLabel = { box: 'BOX CAGE', sphere: 'SPHERE CAGE', custom: 'CUSTOM CAGE' }[c.type];
-      let text = `CLICK TO PLACE ${typeLabel} · LEVEL ${c.level}${c.creases ? ' · CREASES ON' : ''} · ⏎ TO CONVERT TO NURBS SOLID`;
+      const edgeCreaseLabel = { off: '', boundary: ' · EDGE CREASES: BOUNDARY', all: ' · EDGE CREASES: ALL', select: ' · EDGE CREASES: SELECT (CLICK EDGES)' }[c.edgeCreases];
+      let text = `CLICK TO PLACE ${typeLabel} · LEVEL ${c.level}${c.creases ? ' · CREASES ON' : ''}${edgeCreaseLabel} · ⏎ TO CONVERT TO NURBS SOLID`;
 
       if (c.type === 'custom' && c.customVertices) {
         const n = c.customVertices.length;
         if (n < 8) {
-          text = `CUSTOM CAGE: ${n}/8 VERTICES · CLICK TO ADD MORE · LEVEL ${c.level}${c.creases ? ' · CREASES ON' : ''} · ⏎ TO CONVERT`;
+          text = `CUSTOM CAGE: ${n}/8 VERTICES · CLICK TO ADD MORE · LEVEL ${c.level}${c.creases ? ' · CREASES ON' : ''}${edgeCreaseLabel} · ⏎ TO CONVERT`;
         } else {
-          text = `CUSTOM CAGE: ${n} VERTICES READY · DRAG TO EDIT · LEVEL ${c.level}${c.creases ? ' · CREASES ON' : ''} · ⏎ TO CONVERT`;
+          text = `CUSTOM CAGE: ${n} VERTICES READY · DRAG TO EDIT · LEVEL ${c.level}${c.creases ? ' · CREASES ON' : ''}${edgeCreaseLabel} · ⏎ TO CONVERT`;
         }
       }
 
@@ -12818,12 +12821,14 @@ export async function mount(root, backend) {
       $$('[data-subd-type]').forEach(b => b.setAttribute('aria-pressed', b.dataset.subdType === c.type));
       $('form-subd-level').value = c.level;
       $$('[data-subd-creases]').forEach(b => b.setAttribute('aria-pressed', b.dataset.subdCreases === (c.creases ? 'on' : 'off')));
+      $$('[data-subd-edge-creases]').forEach(b => b.setAttribute('aria-pressed', b.dataset.subdEdgeCreases === c.edgeCreases));
     };
     c.hint = hint;
     c.key = action => {
       if (action === 'type') { c.type = ({ box: 'sphere', sphere: 'custom', custom: 'box' })[c.type]; hint(); previewSubdCmd(); return true; }
       if (action === 'level') { c.level = c.level >= 5 ? 1 : c.level + 1; hint(); previewSubdCmd(); return true; }
       if (action === 'creases') { c.creases = !c.creases; hint(); previewSubdCmd(); return true; }
+      if (action === 'edgeCreases') { c.edgeCreases = ({ off: 'boundary', boundary: 'all', all: 'select', select: 'off' })[c.edgeCreases]; hint(); previewSubdCmd(); return true; }
       if (action === 'keep') { c.keep = !c.keep; return true; }
       return false;
     };
@@ -12865,6 +12870,7 @@ export async function mount(root, backend) {
     c.cleanup = () => { clearPreview(); };
     // Wire up SubD control buttons
     $$('[data-subd-type]').forEach(b => b.onclick = () => { c.type = b.dataset.subdType; hint(); previewSubdCmd(); });
+    $$('[data-subd-edge-creases]').forEach(b => b.onclick = () => { c.edgeCreases = b.dataset.subdEdgeCreases; hint(); previewSubdCmd(); });
     $('form-subd-level').onchange = () => { c.level = parseInt($('form-subd-level').value) || 2; hint(); previewSubdCmd(); };
     $$('[data-subd-creases]').forEach(b => b.onclick = () => { c.creases = b.dataset.subdCreases === 'on'; hint(); previewSubdCmd(); });
     hint();
@@ -12902,7 +12908,7 @@ export async function mount(root, backend) {
     $('form-guides-row').hidden = id === 'revolve';
     $('form-method-row').hidden = $('form-align-row').hidden = $('form-corner-row').hidden = id !== 'sweep';
     // Hide SubD controls for non-SubD form tools
-    $('form-subd-type-row').hidden = $('form-subd-level-row').hidden = $('form-subd-creases-row').hidden = true;
+    $('form-subd-type-row').hidden = $('form-subd-level-row').hidden = $('form-subd-creases-row').hidden = $('form-subd-edge-creases-row').hidden = true;
     setGuideChips(c);
     $('form-angle').value = c.angle; $('form-thickness').value = c.thickness; $('form-twist').value = c.twist; $('form-scale').value = c.scale; $('form-distance').value = c.distance;
     $('form-outcome').textContent = '—';
@@ -13220,9 +13226,7 @@ export async function mount(root, backend) {
     const c = cmd;
     if (c?.id !== 'subd') return;
     const cage = buildSubdCage(c);
-    if (c.creases && cage.vertices) {
-      cage.creases = new Float32Array(cage.vertices.length).fill(0.5); // Default crease weight for sharp edges
-    }
+    // Note: creases and edgeCreases are now handled in buildSubdCage
     const req = { cage, options: { level: c.level, limitSurface: true } };
     const n = ++c.sent;
     setState('updating');
@@ -13241,8 +13245,48 @@ export async function mount(root, backend) {
     c.outcome = p.outcome ?? 'new';
     $('ms').textContent = Math.round(performance.now() - t0);
     clearPreview();
+
+    // Show cage wireframe (control cage) for custom cages during editing
+    if (c.type === 'custom' && cage.vertices && cage.vertices.length > 0) {
+      // Cage vertices as points
+      const cageGeom = new THREE.BufferGeometry();
+      const cagePosArray = new Float32Array(cage.vertices.length * 3);
+      cage.vertices.forEach((v, i) => { cagePosArray[i * 3] = v.x; cagePosArray[i * 3 + 1] = v.y; cagePosArray[i * 3 + 2] = v.z; });
+      cageGeom.setAttribute('position', new THREE.BufferAttribute(cagePosArray, 3));
+
+      // Cage edges as lines
+      const edgeIndices = [];
+      if (cage.faces) {
+        const edgeSet = new Set();
+        cage.faces.forEach(face => {
+          for (let i = 0; i < face.length; i++) {
+            const a = face[i];
+            const b = face[(i + 1) % face.length];
+            const key = a < b ? `${a},${b}` : `${b},${a}`;
+            if (!edgeSet.has(key)) {
+              edgeSet.add(key);
+              edgeIndices.push(a, b);
+            }
+          }
+        });
+      }
+      if (edgeIndices.length > 0) {
+        cageGeom.setIndex(edgeIndices);
+        const cageMaterial = new THREE.LineBasicMaterial({ color: 0xffff00, linewidth: 2, transparent: true, opacity: 0.8 });
+        const cageLines = new THREE.LineSegments(cageGeom, cageMaterial);
+        cageLines.renderOrder = 10;
+        previewGroup.add(cageLines);
+      }
+
+      // Cage vertices as points
+      const pointMaterial = new THREE.PointsMaterial({ color: 0xffff00, size: 0.1, sizeAttenuation: true });
+      const cagePoints = new THREE.Points(cageGeom, pointMaterial);
+      cagePoints.renderOrder = 11;
+      previewGroup.add(cagePoints);
+    }
+
     if (p.mesh && p.mesh.positions.length) {
-      // Show preview mesh
+      // Show preview mesh (subdivided surface)
       const geometry = new THREE.BufferGeometry();
       const posArray = new Float32Array(p.mesh.positions.length * 3);
       p.mesh.positions.forEach((v, i) => { posArray[i * 3] = v.x; posArray[i * 3 + 1] = v.y; posArray[i * 3 + 2] = v.z; });
@@ -13279,34 +13323,211 @@ export async function mount(root, backend) {
     } catch (e) { setState('failed'); toast(say(e)); }
   }
   function buildSubdCage(c) {
-    if (c.type === 'custom' && c.customVertices && c.customVertices.length >= 8) {
-      // Custom cage from clicked vertices - create faces from vertices
-      // For a simple box-like cage, expect 8 vertices in order:
-      // 0-3: bottom face (counter-clockwise), 4-7: top face (counter-clockwise)
-      // Faces: bottom, top, front, right, back, left
-      const verts = c.customVertices;
-      // If we have exactly 8 vertices, create a box-like cage
-      if (verts.length >= 8) {
-        return {
-          vertices: verts.slice(0, 8).map(v => ({ x: v[0], y: v[1], z: v[2] })),
-          faces: [
-            [0, 1, 2, 3], // bottom
-            [4, 5, 6, 7], // top
-            [0, 1, 5, 4], // front
-            [1, 2, 6, 5], // right
-            [2, 3, 7, 6], // back
-            [3, 0, 4, 7], // left
-          ],
-        };
+    if (c.type === 'custom' && c.customVertices && c.customVertices.length >= 4) {
+      // Custom cage from clicked vertices - auto-generate quad topology
+      const cage = autoQuadrangulateCage(c.customVertices);
+      if (cage && cage.vertices.length > 0) {
+        // Add edge creases based on setting
+        if (c.edgeCreases && c.edgeCreases !== 'off') {
+          cage.edgeCreases = computeEdgeCreases(cage, c.edgeCreases);
+        }
+        // Add vertex creases if enabled
+        if (c.creases && cage.vertices) {
+          cage.creases = new Float32Array(cage.vertices.length).fill(0.5);
+        }
+        return cage;
       }
       return backend.createTestCage ? backend.createTestCage() : { vertices: [], faces: [] };
     }
     if (c.type === 'sphere') {
       // Sphere cage - use box cage (it will subdivide to sphere-like)
-      return backend.createTestCage ? backend.createTestCage() : { vertices: [], faces: [] };
+      const cage = backend.createTestCage ? backend.createTestCage() : { vertices: [], faces: [] };
+      if (c.edgeCreases && c.edgeCreases !== 'off' && cage.vertices) {
+        cage.edgeCreases = computeEdgeCreases(cage, c.edgeCreases);
+      }
+      if (c.creases && cage.vertices) {
+        cage.creases = new Float32Array(cage.vertices.length).fill(0.5);
+      }
+      return cage;
     }
     // Default box cage
-    return backend.createTestCage ? backend.createTestCage() : { vertices: [], faces: [] };
+    const cage = backend.createTestCage ? backend.createTestCage() : { vertices: [], faces: [] };
+    if (c.edgeCreases && c.edgeCreases !== 'off' && cage.vertices) {
+      cage.edgeCreases = computeEdgeCreases(cage, c.edgeCreases);
+    }
+    if (c.creases && cage.vertices) {
+      cage.creases = new Float32Array(cage.vertices.length).fill(0.5);
+    }
+    return cage;
+  }
+
+  /**
+   * Auto-quadrangulate a set of vertices into a cage topology.
+   * Organizes vertices into a grid-like structure and creates quad faces.
+   * @param {number[][]} vertices - Array of [x, y, z] vertex positions
+   * @returns {Object} Cage with vertices and faces
+   */
+  function autoQuadrangulateCage(vertices) {
+    if (!vertices || vertices.length < 4) return { vertices: [], faces: [] };
+
+    // Convert to Vector3 for easier manipulation
+    const verts = vertices.map(v => new THREE.Vector3(v[0], v[1], v[2]));
+
+    // Find bounding box to determine grid dimensions
+    let minX = Infinity, minY = Infinity, minZ = Infinity;
+    let maxX = -Infinity, maxY = -Infinity, maxZ = -Infinity;
+    verts.forEach(v => {
+      minX = Math.min(minX, v.x); maxX = Math.max(maxX, v.x);
+      minY = Math.min(minY, v.y); maxY = Math.max(maxY, v.y);
+      minZ = Math.min(minZ, v.z); maxZ = Math.max(maxZ, v.z);
+    });
+
+    const dimX = maxX - minX;
+    const dimY = maxY - minY;
+    const dimZ = maxZ - minZ;
+
+    // Determine the dominant plane (flattest dimension)
+    let plane = 'xy', u = 'x', v = 'y', w = 'z';
+    if (dimZ < dimX && dimZ < dimY) { plane = 'xy'; u = 'x'; v = 'y'; w = 'z'; }
+    else if (dimY < dimX && dimY < dimZ) { plane = 'xz'; u = 'x'; v = 'z'; w = 'y'; }
+    else { plane = 'yz'; u = 'y'; v = 'z'; w = 'x'; }
+
+    // Project vertices to the dominant plane and sort
+    const projected = verts.map((pt, idx) => ({
+      idx,
+      u: pt[u],
+      v: pt[v],
+      w: pt[w],
+      pt
+    }));
+
+    // Sort by u, then v to create a grid-like ordering
+    projected.sort((a, b) => a.u - b.u || a.v - b.v);
+
+    // Try to find a grid structure
+    // Group by u-coordinate (columns)
+    const uGroups = new Map();
+    const uTol = Math.max(dimX, dimY, dimZ) * 0.05; // 5% tolerance
+    projected.forEach(p => {
+      let found = false;
+      for (const [key, group] of uGroups) {
+        if (Math.abs(p.u - key) < uTol) {
+          group.push(p);
+          found = true;
+          break;
+        }
+      }
+      if (!found) uGroups.set(p.u, [p]);
+    });
+
+    // If we have a reasonable grid (at least 2 columns, 2 rows), create quads
+    const cols = Array.from(uGroups.keys()).sort((a, b) => a - b);
+    if (cols.length >= 2) {
+      // Sort each column by v
+      cols.forEach(key => uGroups.get(key).sort((a, b) => a.v - b.v));
+
+      // Check if all columns have same number of vertices (regular grid)
+      const rowCount = uGroups.get(cols[0]).length;
+      const isRegular = cols.every(key => uGroups.get(key).length === rowCount);
+
+      if (isRegular && rowCount >= 2) {
+        // Regular grid - create quad faces
+        const grid = cols.map(key => uGroups.get(key).map(p => p.idx));
+        const faces = [];
+        for (let ci = 0; ci < cols.length - 1; ci++) {
+          for (let ri = 0; ri < rowCount - 1; ri++) {
+            // Quad: bottom-left, bottom-right, top-right, top-left (CCW)
+            faces.push([
+              grid[ci][ri],
+              grid[ci + 1][ri],
+              grid[ci + 1][ri + 1],
+              grid[ci][ri + 1]
+            ]);
+          }
+        }
+        return {
+          vertices: verts.map(v => ({ x: v.x, y: v.y, z: v.z })),
+          faces
+        };
+      }
+    }
+
+    // Fallback: If not a regular grid, try to create a convex hull-like cage
+    // For simplicity, if we have 8+ vertices, create a box-like cage from extremes
+    if (vertices.length >= 8) {
+      // Find 8 corner vertices (min/max in each dimension)
+      const corners = [
+        verts.find(v => v.x === minX && v.y === minY && v.z === minZ),
+        verts.find(v => v.x === maxX && v.y === minY && v.z === minZ),
+        verts.find(v => v.x === maxX && v.y === maxY && v.z === minZ),
+        verts.find(v => v.x === minX && v.y === maxY && v.z === minZ),
+        verts.find(v => v.x === minX && v.y === minY && v.z === maxZ),
+        verts.find(v => v.x === maxX && v.y === minY && v.z === maxZ),
+        verts.find(v => v.x === maxX && v.y === maxY && v.z === maxZ),
+        verts.find(v => v.x === minX && v.y === maxY && v.z === maxZ),
+      ].filter(Boolean);
+
+      if (corners.length === 8) {
+        const cornerIndices = corners.map(c => verts.indexOf(c));
+        return {
+          vertices: verts.map(v => ({ x: v.x, y: v.y, z: v.z })),
+          faces: [
+            [cornerIndices[0], cornerIndices[1], cornerIndices[2], cornerIndices[3]], // bottom
+            [cornerIndices[4], cornerIndices[5], cornerIndices[6], cornerIndices[7]], // top
+            [cornerIndices[0], cornerIndices[1], cornerIndices[5], cornerIndices[4]], // front
+            [cornerIndices[1], cornerIndices[2], cornerIndices[6], cornerIndices[5]], // right
+            [cornerIndices[2], cornerIndices[3], cornerIndices[7], cornerIndices[6]], // back
+            [cornerIndices[3], cornerIndices[0], cornerIndices[4], cornerIndices[7]], // left
+          ],
+        };
+      }
+    }
+
+    // Ultimate fallback: return empty, will use test cage
+    return { vertices: [], faces: [] };
+  }
+
+  /**
+   * Compute edge creases for a cage based on the crease mode.
+   * @param {Object} cage - The cage with vertices and faces
+   * @param {string} mode - 'boundary', 'all', or 'select'
+   * @returns {Array} Array of [[v1, v2], weight] for edge creases
+   */
+  function computeEdgeCreases(cage, mode) {
+    if (!cage.faces || !cage.vertices) return [];
+
+    // Build edge map: count how many faces share each edge
+    const edgeMap = new Map();
+    cage.faces.forEach(face => {
+      for (let i = 0; i < face.length; i++) {
+        const a = face[i];
+        const b = face[(i + 1) % face.length];
+        const key = a < b ? `${a},${b}` : `${b},${a}`;
+        edgeMap.set(key, (edgeMap.get(key) || 0) + 1);
+      }
+    });
+
+    const edgeCreases = [];
+    const creaseWeight = 1.0; // Full crease (sharp)
+
+    if (mode === 'boundary') {
+      // Crease only boundary edges (edges belonging to exactly one face)
+      for (const [key, count] of edgeMap) {
+        if (count === 1) {
+          const [a, b] = key.split(',').map(Number);
+          edgeCreases.push([[a, b], creaseWeight]);
+        }
+      }
+    } else if (mode === 'all') {
+      // Crease all edges
+      for (const [key] of edgeMap) {
+        const [a, b] = key.split(',').map(Number);
+        edgeCreases.push([[a, b], creaseWeight]);
+      }
+    }
+    // 'select' mode: user will click edges to toggle - handled separately in click handler
+
+    return edgeCreases;
   }
 
   // --- actions without a command --------------------------------------------

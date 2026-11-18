@@ -39,7 +39,7 @@ export const VIEWPORT = {
     b: 'tool:fillet', g: 'tool:move', r: 'tool:rotate', s: 'tool:scale',
     // Pipe (manual: P), Cut (C), Trim (T), Imprint (Shift+I)
     p: 'tool:pipe', c: 'tool:cut', t: 'trim', 'shift-i': 'tool:imprint',
-    e: 'tool:extrude', q: 'tool:boolean', l: 'tool:loft', 'shift-p': 'tool:sweep',
+    e: 'tool:extrude', q: 'tool:boolean', l: 'tool:loft', 'shift-p': 'tool:sweep', u: 'tool:subd',
     // Project (manual: I; Curve Body, Body Body or Curve Curve by what is selected)
     i: 'tool:project',
     // Offset Curve, Offset Vertex, Offset Edge and Offset Face Loop by what is selected (manual: O)
@@ -102,6 +102,7 @@ export const COMMAND = {
     revolve: { a: 'angle', 'shift-t': 'thickness', q: 'union', w: 'difference', 'shift-e': 'intersect', 'shift-q': 'slice', b: 'new', t: 'keep' },
     loft: { o: 'loop', l: 'limit', tab: 'continuity', d: 'tension' },
     sweep: { m: 'method', n: 'align', d: 'twist', q: 'union', w: 'difference', 'shift-e': 'intersect', 'shift-q': 'slice', b: 'new', t: 'keep' },
+    subd: { t: 'type', l: 'level', c: 'creases', e: 'edgeCreases' },
     // Drawing (manual: Tab types dimensions, S square and C centre for rectangles, Ctrl+Z drops a line's last point)
     rect: { tab: 'typed', s: 'square', c: 'centre', d: 'size-d', f: 'size-f' },
     circle: { tab: 'typed', v: 'vertical', x: 'axis-x', y: 'axis-y', d: 'size-d' },
