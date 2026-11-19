@@ -2428,8 +2428,6 @@ dependencies = [
 [[package]]
 name = "occt-sys"
 version = "7.8.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c3d2199ccf5331d261cf293abbc6b6b6ca1eb7187ef2113c181c49f9365cd9ae"
 dependencies = [
  "cmake",
 ]

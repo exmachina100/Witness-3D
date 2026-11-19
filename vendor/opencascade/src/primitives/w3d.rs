@@ -476,7 +476,9 @@ impl Shape {
             }
             offset += ffi::w3d::w3d_count(&s.inner, false) as usize;
         }
-        let mut g0 = 0.0, g1 = 0.0, g2 = 0.0;
+        let mut g0 = 0.0;
+        let mut g1 = 0.0;
+        let mut g2 = 0.0;
         let sheet = ffi::w3d::w3d_patch_with_quality(data, &all.inner, &edges, &tangent, guides, tol, &mut g0, &mut g1, &mut g2).map_err(reason)?;
         Ok((Shape::from_shape(&sheet), g0, g1, g2))
     }

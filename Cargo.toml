@@ -14,3 +14,4 @@ license = "MIT OR Apache-2.0"
 [patch.crates-io]
 opencascade = { path = "vendor/opencascade" }
 opencascade-sys = { path = "vendor/opencascade-sys" }
+occt-sys = { path = "vendor/occt-sys" }

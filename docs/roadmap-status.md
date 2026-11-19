@@ -115,6 +115,26 @@ _Last updated: 2026-11-19_
   - ✅ Desktop backend: MatchFacesRequest already has solver and skew fields
 - **Files**: `crates/w3d-kernel/src/form.rs` (match_faces_grow), `crates/w3d-kernel/src/occt.rs` (match_faces), `crates/w3d-kernel/src/document.rs`, `web/src/app/App.js` (match-face panel), `apps/desktop/src-tauri/src/api.rs`
 
+#### **9. OCCT Build Fix (Builtin/From-Source Compilation)** ✅ **DONE**
+- **Status**: Fixed OCCT compilation from source via `occt-sys` crate with `builtin` feature
+- **Issues Fixed**:
+  - CMake minimum version already at 3.5 (was already correct in `vendor/occt-sys/OCCT/CMakeLists.txt`)
+  - Fixed `opencascade-sys` wrapper CMakeLists.txt to find OCCT built by `occt-sys`
+  - Fixed C++ API mismatches in `vendor/opencascade-sys/include/w3d.hxx` for OCCT 7.8:
+    - Forward declaration for `w3d_patch_impl`
+    - `Geom_BSplineSurface::IncreaseDegree` instead of separate `IncreaseUDegree`/`IncreaseVDegree`
+    - `InsertUKnots`/`InsertVKnots` with correct multiplicity array signatures
+    - `w3d_match_faces`: `rust::Str` instead of `const char*`
+    - `w3d_patch_with_quality`/`w3d_patch_impl`: `double&` instead of `double*` for output params
+  - Fixed Rust syntax error in `vendor/opencascade/src/primitives/w3d.rs`
+- **Verification**: `cargo check -p w3d-kernel` passes with default features (OCCT backend)
+- **Note**: Desktop app build requires significant disk space (~15GB) for OCCT from-source build
+- **Commits**: (pending)
+- **Files modified**: 
+  - `vendor/opencascade-sys/OCCT/CMakeLists.txt` (wrapper)
+  - `vendor/opencascade-sys/include/w3d.hxx` (C++ API fixes)
+  - `vendor/opencascade/src/primitives/w3d.rs` (Rust syntax fix)
+
 ---
 
 ## What's Explicitly Not Planned

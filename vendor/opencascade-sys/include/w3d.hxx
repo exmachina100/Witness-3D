@@ -4468,6 +4468,12 @@ inline rust::Vec<double> w3d_project_curve_curve(rust::Slice<const double> data,
 }
 
 
+// Forward declaration for w3d_patch_impl
+inline std::unique_ptr<TopoDS_Shape> w3d_patch_impl(rust::Slice<const double> data, const TopoDS_Shape &shape,
+                                                     rust::Slice<const int32_t> edges, rust::Slice<const int32_t> tangent,
+                                                     rust::Slice<const double> guides, double tol,
+                                                     double &g0_error, double &g1_error, double &g2_error);
+
 // Plasticity's Patch: a sheet filling one closed loop of drawn curves (`data`, as w3d_curtains
 // reads them, their directions unused) and edges of `shape`. `tangent[i]` is edge `edges[i]`'s
 // continuity with the body's face along it: 0 none, 1 tangent (G1), 2 its curvature too (G2). A flat loop with no tangency gives
@@ -4478,7 +4484,7 @@ inline std::unique_ptr<TopoDS_Shape> w3d_patch(rust::Slice<const double> data, c
                                               rust::Slice<const int32_t> edges, rust::Slice<const int32_t> tangent,
                                               rust::Slice<const double> guides, double tol) {
   double g0_dummy = 0, g1_dummy = 0, g2_dummy = 0;
-  return w3d_patch_impl(data, shape, edges, tangent, guides, tol, &g0_dummy, &g1_dummy, &g2_dummy);
+  return w3d_patch_impl(data, shape, edges, tangent, guides, tol, g0_dummy, g1_dummy, g2_dummy);
 }
 
 // Patch with quality metrics: same as w3d_patch but also returns G0/G1/G2 errors.
@@ -4488,7 +4494,7 @@ inline std::unique_ptr<TopoDS_Shape> w3d_patch(rust::Slice<const double> data, c
 inline std::unique_ptr<TopoDS_Shape> w3d_patch_with_quality(rust::Slice<const double> data, const TopoDS_Shape &shape,
                                                              rust::Slice<const int32_t> edges, rust::Slice<const int32_t> tangent,
                                                              rust::Slice<const double> guides, double tol,
-                                                             double *g0_error, double *g1_error, double *g2_error) {
+                                                             double &g0_error, double &g1_error, double &g2_error) {
   return w3d_patch_impl(data, shape, edges, tangent, guides, tol, g0_error, g1_error, g2_error);
 }
 
@@ -4496,7 +4502,7 @@ inline std::unique_ptr<TopoDS_Shape> w3d_patch_with_quality(rust::Slice<const do
 inline std::unique_ptr<TopoDS_Shape> w3d_patch_impl(rust::Slice<const double> data, const TopoDS_Shape &shape,
                                                      rust::Slice<const int32_t> edges, rust::Slice<const int32_t> tangent,
                                                      rust::Slice<const double> guides, double tol,
-                                                     double *g0_error, double *g1_error, double *g2_error) {
+                                                     double &g0_error, double &g1_error, double &g2_error) {
   if (edges.size() != tangent.size()) throw std::runtime_error("each edge needs its continuity");
   try {
     // C++11: no default member initialiser, so this stays an aggregate for brace initialisation.
@@ -4579,9 +4585,9 @@ inline std::unique_ptr<TopoDS_Shape> w3d_patch_impl(rust::Slice<const double> da
     }
     if (!fill.IsDone()) throw std::runtime_error("no surface could be filled inside that loop");
     // Return quality metrics (always, even if they exceed tolerances - caller decides).
-    if (g0_error) *g0_error = fill.G0Error();
-    if (g1_error) *g1_error = fill.G1Error() * 180.0 / M_PI;  // Convert to degrees
-    if (g2_error) *g2_error = fill.G2Error();
+    g0_error = fill.G0Error();
+    g1_error = fill.G1Error() * 180.0 / M_PI;  // Convert to degrees
+    g2_error = fill.G2Error();
     // Still enforce tolerances for backward compatibility (throw if exceeded).
     if (fill.G0Error() > 10 * tol) {
       std::ostringstream why;
@@ -5941,7 +5947,7 @@ inline gp_Dir w3d_face_out(const TopoDS_Face &f) {
 // skew: -1 to 1, how the sheet's UV flow is biased along the matched edge
 inline std::unique_ptr<TopoDS_Shape> w3d_match_faces(const TopoDS_Shape &shape, rust::Slice<const int32_t> faces,
                                                      const TopoDS_Shape &target, int32_t tface, rust::Slice<const double> caps,
-                                                     const char* solver, double skew) {
+                                                     rust::Str solver, double skew) {
   if (faces.empty()) throw std::runtime_error("select the faces to match");
   TopTools_IndexedMapOfShape map, tmap;
   TopExp::MapShapes(shape, TopAbs_FACE, map);
@@ -5972,21 +5978,48 @@ inline std::unique_ptr<TopoDS_Shape> w3d_match_faces(const TopoDS_Shape &shape, 
     // Solver option: "constrained" (default) or "xnurbs"
     // For "xnurbs", we use a different fitting approach that minimizes surface energy
     // similar to xNURBS's boundary fitting. This affects how the wide surface is created.
-    bool useXnurbsSolver = (solver && std::string(solver) == "xnurbs");
+    bool useXnurbsSolver = (!solver.empty() && std::string(solver) == "xnurbs");
     if (useXnurbsSolver) {
         // xNURBS-style: rebuild the wide surface with more spans for better boundary matching
         // Increase degree and spans for a more flexible surface that can better match boundaries
         wide = GeomConvert::SurfaceToBSplineSurface(new Geom_RectangularTrimmedSurface(ts, tu0, tu1, tv0, tv1));
-        // Add more spans for better fitting
+        // Add more spans for better fitting - OCCT 7.8 uses IncreaseDegree(UDegree, VDegree)
         int u_deg = wide->UDegree();
         int v_deg = wide->VDegree();
-        if (u_deg < 5) wide->IncreaseUDegree(5);
-        if (v_deg < 5) wide->IncreaseVDegree(5);
-        // Add more spans for boundary fitting
+        if (u_deg < 5 || v_deg < 5) wide->IncreaseDegree(u_deg < 5 ? 5 : u_deg, v_deg < 5 ? 5 : v_deg);
+        // Add more spans for boundary fitting - OCCT 7.8 uses IncreaseUMultiplicity/UIndex/M
         int u_spans = wide->NbUPoles() - wide->UDegree() - 1;
         int v_spans = wide->NbVPoles() - wide->VDegree() - 1;
-        if (u_spans < 8) wide->IncreaseUMultiplicity(8 + wide->UDegree() + 1);
-        if (v_spans < 8) wide->IncreaseVMultiplicity(8 + wide->VDegree() + 1);
+        if (u_spans < 8) {
+            // Add knots to increase multiplicity - use InsertUKnots for adding spans
+            int target_poles = 8 + wide->UDegree() + 1;
+            int current_poles = wide->NbUPoles();
+            if (target_poles > current_poles) {
+                // Insert uniform knots to add spans
+                int nk = target_poles - wide->UDegree() - 1;
+                TColStd_Array1OfReal knots(1, nk);
+                TColStd_Array1OfInteger mults(1, nk);
+                for (int i = 1; i <= nk; i++) {
+                    knots.SetValue(i, double(i) / double(nk + 1));
+                    mults.SetValue(i, 1);
+                }
+                wide->InsertUKnots(knots, mults, 0.0, Standard_True);
+            }
+        }
+        if (v_spans < 8) {
+            int target_poles = 8 + wide->VDegree() + 1;
+            int current_poles = wide->NbVPoles();
+            if (target_poles > current_poles) {
+                int nk = target_poles - wide->VDegree() - 1;
+                TColStd_Array1OfReal knots(1, nk);
+                TColStd_Array1OfInteger mults(1, nk);
+                for (int i = 1; i <= nk; i++) {
+                    knots.SetValue(i, double(i) / double(nk + 1));
+                    mults.SetValue(i, 1);
+                }
+                wide->InsertVKnots(knots, mults, 0.0, Standard_True);
+            }
+        }
     }
 
     // Skew factor: biases the UV parameterization along the matched edge
