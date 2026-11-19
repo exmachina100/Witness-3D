@@ -2,6 +2,44 @@
 
 _Last updated: 2026-11-19_
 
+## REA Analysis: Plasticity 26.2.7 (2026-11-19)
+
+Reverse-engineered binaries from Plasticity 26.2.7 installation to identify competitive features and update roadmap accordingly.
+
+### Key Findings
+
+| Binary | Purpose | Key Capabilities |
+|--------|---------|------------------|
+| **xnkernel.dll** | xNURBS kernel | G0/G1/G2/G3 continuity solving, VK_* API for surface creation/constraints/solving, Intel MKL PARDISO linear solver, multiple solver types (band, sparse, sparse-mix) |
+| **PolyhedralSplinesLib.dll** | SubD/PolySplines | OpenMesh-based, Catmull-Clark subdivision, PnSpline API (getEdgeVertexIdx, getNumEdges, getPatchEdgeLoop), VertexMapping for B-Rep to SubD |
+| **pskernel.dll / psbodyshop.dll** | Parasolid kernel wrapper | Native Parasolid topology (Body, Face, Edge, Vertex, Shell), BLENDED_EDGE, BLENDED_VERTEX (Y-blend corners), BLEND_OVERLAP, BLEND_BOUND with continuity field |
+| **Parasolid schema** | Parasolid 35002 data model | Full B-Rep with fillet/blend entities, continuity tracking, NURBS surfaces/curves |
+
+### Competitive Feature Parity Assessment
+
+| Feature | Plasticity | Witness-3D | Gap |
+|---------|------------|------------|-----|
+| **xNURBS-quality Patch Fill** | ✅ Native xnkernel (VK_create_vsurf, VK_generate_solution, G0-G3 continuity) | ✅ OCCT GeomPlate + quality analysis UI | Minor — solver options differ |
+| **Variable Fillet + Y-blend corners** | ✅ Parasolid BLENDED_EDGE + BLENDED_VERTEX | ✅ OCCT Fillet + Y-blend in w3d.hxx | **Parity achieved** |
+| **Fillet Shell (hollow + inner/outer fillets)** | ✅ Parasolid native | ✅ fillet_shell implemented | **Parity achieved** |
+| **Match Face G0/G1/G2** | ✅ Parasolid continuity field on blends | ✅ match_faces with solver + skew | **Parity achieved** |
+| **PolySplines / SubD** | ✅ PolyhedralSplinesLib (OpenMesh + Catmull-Clark) | ✅ OpenSubdiv + GregoryBasis patches | **Parity achieved** |
+| **Parasolid kernel access** | ✅ Native Parasolid (commercial) | ❌ No Parasolid license | **Unbridgeable** — proprietary |
+| **xNURBS kernel access** | ✅ Native xnkernel.dll | ❌ No xNURBS license | **Unbridgeable** — proprietary |
+
+### Critical Insight: Why We Can't Build with Parasolid/xNURBS Kernels
+
+1. **Parasolid (Siemens)**: Commercial license ~$100K+/year, closed source, no Rust bindings, requires NDA
+2. **xNURBS**: Commercial product, closed source, no public API/SDK, used internally by Plasticity
+3. **ODA (DWG)**: GPLv3 conflict with our MIT/Apache-2.0 license
+4. **Witness-3D strategy**: OpenCascade (LGPL-2.1) + OpenSubdiv (Apache-2.0) = fully open, commercially viable
+
+**Conclusion**: Our current OCCT + OpenSubdiv stack achieves functional parity with Plasticity's Parasolid + xNURBS stack for all roadmap items. The proprietary kernels provide robustness from 30+ years of edge-case fixes — we close that gap incrementally via our quality bar workflows.
+
+---
+
+## What's Already Implemented (Done/Partial)
+
 ## What's Already Implemented (Done/Partial)
 
 | Area | Status | Evidence |
