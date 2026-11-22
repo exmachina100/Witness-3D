@@ -12658,7 +12658,7 @@ export async function mount(root, backend) {
       $('ls-guides').textContent = c.guides.length;
       $('ls-pick-guides').setAttribute('aria-pressed', String(!!c.pickingGuides));
       $('ls-clear-guides').disabled = !c.guides.length;
-      const available = curveList.filter(curve => !c.curves.includes(curve.id) && !c.guides.includes(curve.id) && org.shows(curve.id));
+      const available = curveList.filter(curve => !c.curves.includes(curve.id) && !c.guides.includes(curve.id) && org.shows(curveKey(curve.id)) && !org.locked.has(curveKey(curve.id)));
       const choices = $('ls-add-guide');
       choices.replaceChildren(new Option('Choose a curve', ''), ...available.map(curve => new Option(curveLabel(curve.id), String(curve.id))));
       choices.disabled = !available.length;
@@ -12680,6 +12680,7 @@ export async function mount(root, backend) {
       const same = (a, b) => typeof a === 'object' ? typeof b === 'object' && a.key === b.key : a === b;
       // Keep the order the profiles were picked in; new ones go on the end.
       c.curves = [...c.curves.filter(p => now.some(q => same(p, q))), ...now.filter(q => !c.curves.some(p => same(p, q)))];
+      c.guides = c.guides.filter(guide => !c.curves.some(profile => same(profile, guide)));
       if (c.curves.length < 3) c.loop = false;
       for (const id of c.limits.keys()) if (!c.curves.some(p => (typeof p === 'object' ? p.key : p) === id)) c.limits.delete(id);
       showLimits();
