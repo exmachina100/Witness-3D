@@ -3939,7 +3939,7 @@ export async function mount(root, backend) {
   function showTool(id) {
     toolbar.setActive(id);
     for (const el of $$('[data-panel]')) el.hidden = el.dataset.panel !== (id === 'spiral' ? 'spiral' : DRAW[id] ? 'draw' : FORMS[id] ? 'form' : PRIMS[id] ? 'primitive' : id);
-    for (const dialog of $('dialog.xdialog')) {
+    for (const dialog of $$('dialog.xdialog')) {
       if (dialog.hidden && dialog.open) dialog.close();
       if (!dialog.hidden && !dialog.open) dialog.showModal();
     }
@@ -14533,7 +14533,7 @@ export async function mount(root, backend) {
   }
   function closePrefs() { const dialog = $('prefs'); dialog.close(); dialog.hidden = true; }
   $('prefs').oncancel = e => { e.preventDefault(); closePrefs(); };
-  for (const dialog of $('dialog.xdialog')) dialog.oncancel = e => { e.preventDefault(); abort(); };
+  for (const dialog of $$('dialog.xdialog')) dialog.oncancel = e => { e.preventDefault(); abort(); };
   function closePMenu() { $('pmenu').hidden = true; $('pmenu-open').setAttribute('aria-expanded', 'false'); }
   $('pmenu-open').onclick = () => $('pmenu').hidden ? openPMenu() : closePMenu();
   addEventListener('pointerdown', e => { if (!$('pmenu').hidden && !e.target.closest('.pmenu, .pmenu-open')) closePMenu(); }, true);
