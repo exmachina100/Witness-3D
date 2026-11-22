@@ -84,3 +84,76 @@ export function parseLength(text, unit = 'mm') {
     if (!v || i !== toks.length || !Number.isFinite(v.n)) return undefined;
     return v.n;
 }
+
+/** Degrees in one of each angle unit. */
+export const ANGLE_UNITS = { deg: 1, rad: 180 / Math.PI, grad: 0.9 };
+
+const ANGLE_ALIASES = { degree: 'deg', degrees: 'deg', '°': 'deg', radian: 'rad', radians: 'rad', gradian: 'grad', gradians: 'grad', gon: 'grad' };
+
+/** Degrees to `unit`. */
+export const toAngleUnit = (deg, unit = 'deg') => deg / (ANGLE_UNITS[unit] ?? 1);
+/** `unit` to degrees. */
+export const fromAngleUnit = (v, unit = 'deg') => v * (ANGLE_UNITS[unit] ?? 1);
+
+/** An angle in degrees shown in `unit`, without trailing zeros past `digits` decimals. */
+export function formatAngle(deg, unit = 'deg', digits = 3) {
+    const v = toAngleUnit(deg, unit);
+    return `${+v.toFixed(digits)}`;
+}
+
+/** An angle with its unit: "45.0 DEG". */
+export const showAngle = (deg, unit = 'deg', digits = 3) => `${formatAngle(deg, unit, digits)} ${unit.toUpperCase()}`;
+
+/**
+ * Typed text to degrees: numbers in `unit` unless a unit follows them, with + − × ÷ and brackets.
+ * Returns undefined for text that isn't a value.
+ */
+export function parseAngle(text, unit = 'deg') {
+    const src = String(text ?? '').trim().toLowerCase().replaceAll('−', '-').replaceAll('×', '*').replaceAll('÷', '/').replaceAll(',', '.');
+    if (!src) return undefined;
+    const toks = [];
+    const re = /\s*(?:(\d*\.?\d+(?:e[-+]?\d+)?)\s*(degrees?|radians?|gradians?|grad|deg|rad|gon|°)?|([-+*/()]))/y;
+    let at = 0;
+    while (at < src.length) {
+        re.lastIndex = at;
+        const m = re.exec(src);
+        if (!m || m[0].length === 0) { if (/^\s+$/.test(src.slice(at))) break; return undefined; }
+        at = re.lastIndex;
+        if (m[1] !== undefined) {
+            const u = m[2] ? ANGLE_ALIASES[m[2]] ?? m[2] : unit;
+            toks.push({ n: fromAngleUnit(Number(m[1]), u), unitless: !m[2] });
+        } else toks.push(m[3]);
+    }
+    let i = 0;
+    const factor = () => {
+        const t = toks[i++];
+        if (t === '-') { const v = factor(); return v && { n: -v.n, unitless: v.unitless }; }
+        if (t === '+') return factor();
+        if (t === '(') { const v = sum(); if (toks[i++] !== ')') return undefined; return v; }
+        return typeof t === 'object' ? t : undefined;
+    };
+    const term = () => {
+        let a = factor();
+        while (a && (toks[i] === '*' || toks[i] === '/')) {
+            const op = toks[i++], b = factor();
+            if (!b) return undefined;
+            const bn = b.unitless ? b.n / (ANGLE_UNITS[unit] ?? 1) : b.n;
+            if (op === '*') a = { n: a.unitless ? (a.n / (ANGLE_UNITS[unit] ?? 1)) * b.n : a.n * bn, unitless: a.unitless && b.unitless };
+            else a = { n: a.n / bn, unitless: a.unitless };
+        }
+        return a;
+    };
+    const sum = () => {
+        let a = term();
+        while (a && (toks[i] === '+' || toks[i] === '-')) {
+            const op = toks[i++], b = term();
+            if (!b) return undefined;
+            a = { n: op === '+' ? a.n + b.n : a.n - b.n, unitless: a.unitless && b.unitless };
+        }
+        return a;
+    };
+    const v = sum();
+    if (!v || i !== toks.length || !Number.isFinite(v.n)) return undefined;
+    return v.n;
+}
+
