@@ -3939,13 +3939,16 @@ export async function mount(root, backend) {
   function showTool(id) {
     toolbar.setActive(id);
     for (const el of $$('[data-panel]')) el.hidden = el.dataset.panel !== (id === 'spiral' ? 'spiral' : DRAW[id] ? 'draw' : FORMS[id] ? 'form' : PRIMS[id] ? 'primitive' : id);
-    for (const dialog of $$('dialog.xdialog')) {
-      if (dialog.hidden && dialog.open) dialog.close();
-      if (!dialog.hidden && !dialog.open) dialog.showModal();
-    }
     const toolProperties = $('tool-properties');
     toolProperties.hidden = !toolProperties.querySelector('[data-panel]:not([hidden])');
     if (!toolProperties.hidden) toolProperties.open = true;
+    for (const dialog of $$('dialog.xdialog')) {
+      if (dialog.hidden && dialog.open) dialog.close();
+      if (!dialog.hidden && !dialog.open) {
+        dialog.showModal();
+        dialog.querySelector('[data-xd="cancel"]').focus();
+      }
+    }
     $('keys').innerHTML = keysHtml(KEYS[id] ? id : 'idle');
     $('step-keys').innerHTML = (KEYS[id] ?? []).map(([k, what]) => `<kbd>${k}</kbd>${what}`).join('');
     $('stepline').dataset.cmd = id ?? '';
