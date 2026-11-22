@@ -4143,7 +4143,7 @@ export async function mount(root, backend) {
       }
       if (action === 'tangent') { setFilletTangent(!c.tangent); return true; }
       if (action === 'angle') {
-        c.entry = { label: 'ANGLE °', text: '', apply: v => { if (v > 0 && v < 90) { c.angle = v; $('blend-angle').value = v; previewFillet(); } else toast('THE ANGLE MUST BE BETWEEN 0 AND 90'); } };
+        c.entry = { label: 'ANGLE °', text: '', parse: parseAngle, apply: v => { if (v > 0 && v < 90) { c.angle = v; $('blend-angle').value = v; previewFillet(); } else toast('THE ANGLE MUST BE BETWEEN 0 AND 90'); } };
         setHud('ANGLE ° _');
         return true;
       }
@@ -5747,7 +5747,7 @@ export async function mount(root, backend) {
       else width();
     } else if (c.id === 'arc') {
       if (c.pts.length === 1) c.entry = { label: 'RADIUS', text: '', apply: r => { c.pts.push(along(Math.abs(r))); c.sweep = 0; c.turn = null; } };
-      else c.entry = { label: 'ANGLE °', text: '', apply: v => { c.sweep = Math.max(-359.9, Math.min(359.9, v)) * DEG; commitDrawn([...c.pts, c.pts[1]]); } };
+      else c.entry = { label: 'ANGLE °', text: '', parse: parseAngle, apply: v => { c.sweep = Math.max(-359.9, Math.min(359.9, v)) * DEG; commitDrawn([...c.pts, c.pts[1]]); } };
     } else if (CLICKS[c.id] || c.id === 'spline' || c.id === 'cv') {
       return toast('CLICK THE POINTS');
     } else {
@@ -5766,7 +5766,7 @@ export async function mount(root, backend) {
       c.entry = { label: 'LENGTH', text: '', apply: l => { length = l; put(dir); },
         next: () => {
           const now = Math.atan2(dir.y, dir.x) / DEG;
-          c.entry = { label: `ANGLE ° (${now.toFixed(1)})`, text: '', apply: v => {
+          c.entry = { label: `ANGLE ° (${now.toFixed(1)})`, text: '', parse: parseAngle, apply: v => {
             const d = dir.clone();
             d.x = Math.cos(v * DEG); d.y = Math.sin(v * DEG);
             if (d.isVector3) d.z = 0;
@@ -6249,7 +6249,7 @@ export async function mount(root, backend) {
       if (action === 'thickness') { c.auto = false; c.thickDot.activate(lastPointer); setHud('MOVE FOR THE THICKNESS · CLICK TO SET, OR TYPE IT'); return true; }
       if (action === 'angle') {
         c.auto = false;
-        c.entry = { label: 'ANGLE °', text: '', apply: v => setExtrudeShape({ angle: v }) };
+        c.entry = { label: 'ANGLE °', text: '', parse: parseAngle, apply: v => setExtrudeShape({ angle: v }) };
         setHud('ANGLE ° _');
         return true;
       }
@@ -6637,7 +6637,7 @@ export async function mount(root, backend) {
       if (action === 'angle') {
         // A: Angle Adjacent, the faces around lean (positive narrows the face).
         c.auto = false;
-        c.entry = { label: 'ANGLE ADJACENT °', text: '', apply: v => setOffsetAngle(v) };
+        c.entry = { label: 'ANGLE ADJACENT °', text: '', parse: parseAngle, apply: v => setOffsetAngle(v) };
         setHud('ANGLE ADJACENT ° _');
         return true;
       }
@@ -12029,7 +12029,7 @@ export async function mount(root, backend) {
     };
     c.key = action => {
       if (action === 'angle') {
-        c.entry = { label: 'ANGLE', text: '', apply: v => { $('draft-a').value = v; c.preview(); } };
+        c.entry = { label: 'ANGLE', text: '', parse: parseAngle, apply: v => { $('draft-a').value = v; c.preview(); } };
         setHud('ANGLE _');
         return true;
       }
@@ -12968,7 +12968,7 @@ export async function mount(root, backend) {
         if (at) { c.drag = { what: action, from: at, start: c[action] }; setHud(action === 'angle' ? 'MOVE TO SET THE ANGLE · CLICK TO KEEP' : 'MOVE TO SET THE THICKNESS · CLICK TO KEEP'); return true; }
       }
       if (action === 'angle' && id === 'revolve') {
-        c.entry = { label: 'ANGLE °', text: '', apply: v => { if (v !== 0) setForm({ angle: v }); } };
+        c.entry = { label: 'ANGLE °', text: '', parse: parseAngle, apply: v => { if (v !== 0) setForm({ angle: v }); } };
         setHud('ANGLE ° _');
         return true;
       }
@@ -15684,10 +15684,16 @@ export async function mount(root, backend) {
     if (entry) {
       e.preventDefault();
       if (e.key === 'Escape') { cmd.entry = null; setHud(null); return cmd.entryDone?.(); }
-      if (e.key === 'Enter') { cmd.entry = null; const v = typed(entry.text); if (v !== undefined) entry.apply(v); return cmd?.entryDone?.(); }
+      if (e.key === 'Enter' || (e.key === 'Tab' && entry.next)) {
+        const v = (entry.parse ?? typed)(entry.text);
+        if (entry.parse && entry.text && v === undefined) return toast('ENTER A VALID ANGLE');
+        cmd.entry = null;
+        if (v !== undefined) entry.apply(v);
+        return e.key === 'Tab' ? entry.next() : cmd?.entryDone?.();
+      }
       // Tab takes the value and moves to the next one, where a command has several (Dimension).
-      if (e.key === 'Tab' && entry.next) { cmd.entry = null; const v = typed(entry.text); if (v !== undefined) entry.apply(v); return entry.next(); }
-      if (/^[0-9.\-]$/.test(e.key)) entry.text += e.key;
+
+      if ((entry.parse ? /^[0-9a-z.°+*/() −×÷,-]$/i : /^[0-9.\-]$/).test(e.key)) entry.text += e.key;
       else if (e.key === 'Backspace') entry.text = entry.text.slice(0, -1);
       return setHud(`${entry.label} ${entry.text}_`);
     }
