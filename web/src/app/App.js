@@ -9501,6 +9501,7 @@ export async function mount(root, backend) {
       c.gizmo?.dispose();
       const f = faceFrame(bodyOf(c.body), c.faces.at(-1) ?? 0);
       c.gizmo = f && dot(f.at, f.normal, v => setFront(snapping(lastPointer) ? Math.round(v / gridStep()) * gridStep() : v));
+      if (c.gizmo) c.gizmo.parseInput = parseDistanceEntry;
       c.gizmo?.render(num('th-f'));
     };
     // Dragged behind the sheet, the dot grows it backwards instead (both ways when locked).
