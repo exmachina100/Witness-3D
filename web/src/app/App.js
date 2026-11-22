@@ -15145,14 +15145,16 @@ export async function mount(root, backend) {
   /** The dot being dragged or under the pointer, among the command's dots; else its main one. */
   const liveGizmo = () => [cmd?.gizmo, ...(cmd?.extraGizmos?.() ?? [])].find(g => g && (g.busy || g.state === 'hover')) ?? cmd?.gizmo;
   canvas.addEventListener('pointerdown', e => {
+    if (down && down.pointerId !== e.pointerId) return;
     lastPointer = e;
     const g = liveGizmo();
     const grabbed = g?.busy || g?.state === 'hover' || (cmd?.tc?.enabled && cmd.tc.axis !== null);
     // nav: the press navigates (a preset's Alt+left, say); a click without a drag still selects.
-    down = { x: e.clientX, y: e.clientY, button: e.button, consumed: grabbed, box: null, nav: !!navPress };
+    down = { pointerId: e.pointerId, x: e.clientX, y: e.clientY, button: e.button, consumed: grabbed, box: null, nav: !!navPress };
     if (e.button === 0 && cmd?.follow) { endFollow(true); down.consumed = true; }
   });
   canvas.addEventListener('pointermove', e => {
+    if (down && down.pointerId !== e.pointerId) return;
     lastPointer = e;
     ray(e);
     const p = raycaster.ray.intersectPlane(planeOf(), new THREE.Vector3());
@@ -15203,10 +15205,16 @@ export async function mount(root, backend) {
     });
   }
   canvas.addEventListener('pointerleave', () => { if (hover) { hover = null; drawOverlays(); } });
+  canvas.addEventListener('pointercancel', e => {
+    if (down?.pointerId !== e.pointerId) return;
+    down = null;
+    $('boxsel').hidden = true;
+    if (boxHover.length) { boxHover = []; drawOverlays(); }
+  });
   canvas.addEventListener('pointerup', async e => {
     const d = down;
+    if (!d || d.pointerId !== e.pointerId || d.button !== e.button) return;
     down = null;
-    if (!d || d.button !== e.button) return;
     if (pickMenu?.held && e.button === 0) return choosePick(pickMenu.at, e.shiftKey);
     if (planeOriginPending && e.button === 0 && Math.hypot(e.clientX - d.x, e.clientY - d.y) < 5) return placeViewPlane(e);
     const moved = Math.hypot(e.clientX - d.x, e.clientY - d.y) > 4;
