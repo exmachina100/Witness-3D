@@ -1831,7 +1831,6 @@ export async function mount(root, backend) {
       bodies.add(m);
     }
     renderTotals();
-    $('export').disabled = list.length === 0;
     hover = null;
     selectionChanged({ quiet: true });
     bridgeOutline();
@@ -15609,7 +15608,6 @@ export async function mount(root, backend) {
   $('undo').onclick = () => step('undo');
   $('isolated').onclick = () => doAction('unisolate');
   $('redo').onclick = () => step('redo');
-  $('export').onclick = () => exportSelected();
 
   // --- keyboard -------------------------------------------------------------
   // In order: a handle or typed entry taking keys, the running command's own keys, then the
