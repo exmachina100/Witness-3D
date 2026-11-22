@@ -50,14 +50,18 @@ export class MagnitudeGizmo extends THREE.Group {
         this._up = this.pointerUp.bind(this);
         this._cancel = this.pointerCancel.bind(this);
         this._hover = this.hover.bind(this);
+        this._leave = () => { if (this.state === 'hover') this.setHover(false); };
+        this._blur = () => { if (this.busy) this.cancel(); };
         dom.addEventListener('pointerdown', this._down, true);
         dom.addEventListener('pointermove', this._hover);
+        dom.addEventListener('pointerleave', this._leave);
     }
 
     dispose() {
         this.stopListening();
         this.dom.removeEventListener('pointerdown', this._down, true);
         this.dom.removeEventListener('pointermove', this._hover);
+        this.dom.removeEventListener('pointerleave', this._leave);
         this.removeFromParent();
     }
 
@@ -126,7 +130,10 @@ export class MagnitudeGizmo extends THREE.Group {
 
     hover(event) {
         if (this.busy || !this.visible) return;
-        const on = event.pointerType !== 'touch' && this.over(event);
+        this.setHover(event.pointerType !== 'touch' && this.over(event));
+    }
+
+    setHover(on) {
         if (on !== (this.state === 'hover')) {
             this.state = on ? 'hover' : 'none';
             this.mat.color.setHex(on ? HOVER : this.color);
@@ -160,6 +167,7 @@ export class MagnitudeGizmo extends THREE.Group {
         window.addEventListener('pointermove', this._move);
         window.addEventListener('pointerup', this._up);
         window.addEventListener('pointercancel', this._cancel);
+        window.addEventListener('blur', this._blur);
     }
 
     pointerMove(event) {
@@ -217,6 +225,7 @@ export class MagnitudeGizmo extends THREE.Group {
         window.removeEventListener('pointermove', this._move);
         window.removeEventListener('pointerup', this._up);
         window.removeEventListener('pointercancel', this._cancel);
+        window.removeEventListener('blur', this._blur);
     }
 }
 
