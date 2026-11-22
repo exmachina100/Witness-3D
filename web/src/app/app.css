@@ -459,3 +459,7 @@ input[type="range"] { accent-color: var(--accent); }
 .inspector-section > summary { padding: 10px 14px; cursor: pointer; color: var(--muted); }
 .inspector-section > summary:focus-visible { outline: 1px solid var(--accent); outline-offset: -2px; }
 .inspector-section > .sec { border-bottom: 0; }
+
+dialog.prefs, dialog.xdialog { color: var(--ink); margin: 0; }
+dialog.xdialog[open] { position: fixed; inset: 50% auto auto 50%; transform: translate(-50%, -50%); width: min(440px, calc(100vw - 32px)); max-height: calc(100vh - 32px); overflow: auto; background: var(--raised); border: 1px solid var(--rule); }
+dialog::backdrop { background: rgb(0 0 0 / 45%); }
