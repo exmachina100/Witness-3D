@@ -336,6 +336,7 @@ const SHELL = `
       <div class="ask-out" data-id="ask-out"></div>
     </div>
     <div class="toast" data-id="toast" hidden></div>
+    <div class="sr-only" data-id="announcement" role="status" aria-atomic="true"></div>
     <div class="loading" data-id="loading">STARTING THE KERNEL…</div>
     <div class="recover" data-id="recover" role="alertdialog" aria-label="Recover a backup" hidden></div>
     <input type="file" data-id="import-file" accept=".step,.stp,.igs,.iges,.dxf,.png,.jpg,.jpeg" hidden>
@@ -1211,6 +1212,7 @@ export async function mount(root, backend) {
 
   const toast = msg => {
     const t = $('toast'); t.textContent = msg; t.hidden = false;
+    $('announcement').textContent = msg;
     clearTimeout(toast.timer); toast.timer = setTimeout(() => t.hidden = true, 2600);
   };
   $('kernel').textContent = `KERNEL: ${backend.info.kernel}`;
@@ -1373,8 +1375,9 @@ export async function mount(root, backend) {
   // `VIEW_MS`. A turn in progress is replaced by the next.
   const VIEW_MS = 260;
   let turning = null;
+  const reducedMotion = matchMedia('(prefers-reduced-motion: reduce)');
   function turnTo(target, position, ms = VIEW_MS) {
-    if (!ms) { controls.target.copy(target); camera.position.copy(position); camera.lookAt(target); turning = null; return; }
+    if (!ms || reducedMotion.matches) { controls.target.copy(target); camera.position.copy(position); camera.lookAt(target); turning = null; return; }
     const from = { target: controls.target.clone(), offset: camera.position.clone().sub(controls.target) };
     const to = { target: target.clone(), offset: position.clone().sub(target) };
     turning = { from, to, t0: performance.now(), ms };
@@ -15653,7 +15656,8 @@ export async function mount(root, backend) {
   // In order: a handle or typed entry taking keys, the running command's own keys, then the
   // viewport's (keymap.js).
   addEventListener('keydown', async e => {
-    if (palette || asking || $('prefs').open) return;
+    if (palette || asking || $('prefs').open || e.isComposing) return;
+    if (e.key === 'Enter' && e.target.closest?.('button, summary, select, a[href]')) return;
     // The Text command's box takes every key (its own handler finishes and cancels).
     if (e.target.tagName === 'TEXTAREA') return;
     const inInput = e.target.tagName === 'INPUT';
@@ -15697,6 +15701,12 @@ export async function mount(root, backend) {
       return;
     }
     if (cmd) {
+      if (e.key === 'Escape' && cmd.id === 'fillet' && cmd.placing) {
+        e.preventDefault();
+        cmd.placing = null;
+        previewFillet();
+        return;
+      }
       const action = COMMAND[cmd.id]?.[k];
       if (action && !(cmd.auto && !['distance', 'chamfer', 'angle', 'grow'].includes(action)) && cmd.key?.(action, e)) { e.preventDefault(); return; }
       if (e.key === 'Enter') { e.preventDefault(); return finish(); }
