@@ -201,12 +201,16 @@ export class MagnitudeGizmo extends THREE.Group {
     key(event) {
         if (!this.busy) return false;
         if (event.key === 'Escape') { this.cancel(); return true; }
-        if (event.key === 'Enter') { this.finish(); return true; }
-        if (/^[0-9.\-]$/.test(event.key)) this.text += event.key;
+        if (event.key === 'Enter') {
+            if (!this.parseInput || !this.text || this.parseInput(this.text) !== undefined) this.finish();
+            return true;
+        }
+        const allowed = this.parseInput ? /^[0-9a-z.+'"*/() ,°−×÷-]$/i : /^[0-9.\-]$/;
+        if (allowed.test(event.key)) this.text += event.key;
         else if (event.key === 'Backspace') this.text = this.text.slice(0, -1);
         else return false;
         this.onText(this.text);
-        const v = typed(this.text);
+        const v = (this.parseInput ?? typed)(this.text);
         if (v !== undefined) { this.render(v); this.onChange(v); }
         return true;
     }
