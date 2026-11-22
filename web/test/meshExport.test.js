@@ -64,3 +64,7 @@ test('min width merges short edges and drops the triangles that collapse', () =>
     const same = mergeShortEdges([0, 0, 0, 10, 0, 0, 10, 0.05, 0, 0, 10, 0], [0, 1, 2, 0, 2, 3], 0);
     assert.equal(same.indices.length, 6);
 });
+
+test('max width rejects a request beyond the subdivision budget', () => {
+    assert.throws(() => limitEdges(tri.positions, tri.indices, 1e-10), /Increase Max Width/);
+});
