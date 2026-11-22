@@ -98,7 +98,7 @@ import { Constraints } from './constraints.js';
 import { SNAP_KINDS, allowed as snapAllowed, kindOf as snapKindOf, parseSnaps } from './snapKinds.js';
 import { Organise, curveKey } from './Organise.js';
 import { P_MENU, RADIALS, mergeKeys, parseRadial, shortLabel, showKey, sliceAt, slicePosition } from './menus.js';
-import { formatLength, fromUnit, parseLength, showMass, showVolume, toUnit } from '../units.js';
+import { formatLength, fromUnit, parseAngle, parseLength, showMass, showVolume, toUnit } from '../units.js';
 import { ADVANCED_MATERIAL, ENVIRONMENTS, MATERIAL_LIBRARY, SHADERS, SHADER_OPTIONS, checkMaterial, isColorKey, massOf, newMaterial, shader } from './shading.js';
 import { claude, describe, MODEL, reply, request } from './ai.js';
 import { icon } from './icons.js';
@@ -243,7 +243,7 @@ const SHELL = `
   </header>
   <div class="pmenu" data-id="pmenu" role="menu" hidden></div>
   <div class="pmenu omenu" data-id="omenu" role="menu" hidden></div>
-  <div class="prefs" data-id="prefs" role="dialog" aria-label="Preferences" hidden></div>
+  <dialog class="prefs" data-id="prefs" aria-label="Preferences" hidden></dialog>
 
   <aside class="left" aria-label="Document">
     <div class="doc">
@@ -441,7 +441,7 @@ const SHELL = `
       <div class="seg" role="group" aria-label="Grow mode"><button data-grow="moving" aria-pressed="true" title="Move the whole wall when the offset gets to the outer wall">MOVING</button><button data-grow="fixed" aria-pressed="false" title="Stop at the outer wall">FIXED</button><button data-grow="none" aria-pressed="false" title="Keep going by itself, past the outer wall">NONE</button></div>
       <div class="field"><label>FACES</label><output data-id="off-count">0</output></div>
     </div>
-    <div class="sec xdialog" data-panel="export-mesh" role="dialog" aria-label="Export mesh" hidden>
+    <dialog class="sec xdialog" data-panel="export-mesh" aria-label="Export mesh" hidden>
       <div class="xd-head"><span>EXPORT MESH</span><button data-xd="cancel" title="Cancel (Esc)" aria-label="Cancel">${icon('close')}</button></div>
       <span class="hint" data-id="mx-hint">—</span>
       <span class="label">FORMAT</span>
@@ -459,8 +459,8 @@ const SHELL = `
       <div class="chips" data-id="mx-convex-row"><button data-id="mx-convex" aria-pressed="false" title="Ngons: only convex polygons; a run that is not convex stays triangles">CONVEX NGONS ONLY</button></div>
       <div class="field" title="Separate pieces smaller across (their bounding box's diagonal) than this are left out; 0 keeps them all"><label for="w3d-mx-small">REMOVE SMALL FEATURES</label><input id="w3d-mx-small" data-id="mx-small" type="number" step="0.5" min="0" value="0"></div>
       <div class="xd-foot"><button data-xd="cancel" title="Cancel (Esc)">CANCEL</button><button data-xd="ok" class="primary" title="Export (Enter)">EXPORT</button></div>
-    </div>
-    <div class="sec xdialog" data-panel="export-drawing" role="dialog" aria-label="Export drawing" hidden>
+    </dialog>
+    <dialog class="sec xdialog" data-panel="export-drawing" aria-label="Export drawing" hidden>
       <div class="xd-head"><span>EXPORT DRAWING</span><button data-xd="cancel" title="Cancel (Esc)" aria-label="Cancel">${icon('close')}</button></div>
       <span class="hint" data-id="dr-hint">—</span>
       <span class="label">FORMAT</span>
@@ -468,7 +468,7 @@ const SHELL = `
       <div class="chips"><button data-id="dr-hidden" aria-pressed="true" title="Hidden lines (H)">HIDDEN</button><button data-id="dr-curves" aria-pressed="true" title="Curves (C)">CURVES</button></div>
       <div class="field"><label for="w3d-dr-tol">TOLERANCE</label><input id="w3d-dr-tol" data-id="dr-tol" type="number" step="0.01" min="0.001" value="0.01"></div>
       <div class="xd-foot"><button data-xd="cancel" title="Cancel (Esc)">CANCEL</button><button data-xd="ok" class="primary" title="Export (Enter)">EXPORT</button></div>
-    </div>
+    </dialog>
     <div class="sec" data-panel="offset-curve" hidden>
       <span class="hint" data-id="oc-hint">—</span>
       <div class="field"><label for="w3d-oc-d">DISTANCE</label><input id="w3d-oc-d" data-id="oc-d" type="number" step="0.5" value="5"></div>
@@ -3939,6 +3939,10 @@ export async function mount(root, backend) {
   function showTool(id) {
     toolbar.setActive(id);
     for (const el of $$('[data-panel]')) el.hidden = el.dataset.panel !== (id === 'spiral' ? 'spiral' : DRAW[id] ? 'draw' : FORMS[id] ? 'form' : PRIMS[id] ? 'primitive' : id);
+    for (const dialog of $('dialog.xdialog')) {
+      if (dialog.hidden && dialog.open) dialog.close();
+      if (!dialog.hidden && !dialog.open) dialog.showModal();
+    }
     const toolProperties = $('tool-properties');
     toolProperties.hidden = !toolProperties.querySelector('[data-panel]:not([hidden])');
     if (!toolProperties.hidden) toolProperties.open = true;
@@ -14365,29 +14369,33 @@ export async function mount(root, backend) {
     'pipe-r', 'pipe-t', 'hole-d', 'hole-depth', 'ext-len', 'prim-w', 'prim-d', 'prim-r', 'prim-h', 'shell-t', 'mirror-at', 'form-thickness', 'distance', 'ra-sx', 'ra-sy', 'ra-sz', 'im-w'];
   const rawValue = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value');
   let lengthUnit = 'mm';
-  function unitField(el) {
+  function unitField(el, kind = 'length') {
     if (!el || el.dataset.unit) return;
     const mm = parseFloat(rawValue.get.call(el));
-    el.dataset.unit = 'length';
+    const angle = kind === 'angle';
+    const parse = value => angle ? parseAngle(value) : parseLength(value, lengthUnit);
+    const format = value => angle ? String(value) : formatLength(value, lengthUnit);
+    el.dataset.unit = kind;
     el.type = 'text';
     el.inputMode = 'decimal';
     el.autocomplete = 'off';
     Object.defineProperty(el, 'value', {
       configurable: true,
-      get() { const v = parseLength(rawValue.get.call(this), lengthUnit); if (v !== undefined) this.mm = v; return v === undefined ? '' : String(v); },
+      get() { const v = parse(rawValue.get.call(this)); if (v !== undefined) this.mm = v; return v === undefined ? '' : String(v); },
       set(v) {
         const n = typeof v === 'number' ? v : parseFloat(v);
         if (Number.isFinite(n)) this.mm = n;
-        rawValue.set.call(this, Number.isFinite(n) ? formatLength(n, lengthUnit) : String(v ?? ''));
+        rawValue.set.call(this, Number.isFinite(n) ? format(n) : String(v ?? ''));
       },
     });
     // A finished entry shows as a plain number in the unit.
-    el.addEventListener('change', () => { if (Number.isFinite(el.mm)) rawValue.set.call(el, formatLength(el.mm, lengthUnit)); });
-    el.title = `${el.title ? `${el.title}. ` : ''}In ${lengthUnit}; type a unit (2in, 5cm) or sums (5 + 2in)`;
+    el.addEventListener('change', () => { if (Number.isFinite(el.mm)) rawValue.set.call(el, format(el.mm)); });
+    el.title = `${el.title ? `${el.title}. ` : ''}${angle ? 'In degrees; accepts deg, rad and arithmetic' : `In ${lengthUnit}; type a unit (2in, 5cm) or sums (5 + 2in)`}`;
     if (Number.isFinite(mm)) el.value = mm;
   }
   function unitFields() {
     for (const id of LENGTH_FIELDS) unitField($(id));
+    for (const id of ['blend-angle', 'spiral-angle', 'ex-angle', 'off-angle', 'mx-angle', 'pl-angle', 'rr-angle', 'ca-twist', 'form-angle', 'form-twist', 'angle']) unitField($(id), 'angle');
     for (const el of $$('[data-move], [data-dm]')) unitField(el);
   }
   /** A length readout in the chosen unit. */
@@ -14495,6 +14503,8 @@ export async function mount(root, backend) {
       for (const pg of el.querySelectorAll('[data-pfpage]')) pg.hidden = pg.dataset.pfpage !== prefsTab;
     };
     el.hidden = false;
+    if (!el.open) el.showModal();
+    $('prefs-close').focus();
     for (const row of el.querySelectorAll('[data-pref]')) {
       const [s, key] = row.dataset.pref.split('.'), input = row.querySelector('input, select');
       input.onchange = input.oninput = () => {
@@ -14521,7 +14531,9 @@ export async function mount(root, backend) {
     if (section === 'network' && backend.setNetworkPrefs) backend.setNetworkPrefs({ bridge: prefs.network.bridge, port: prefs.network.bridgePort }).catch(e => toast(say(e)));
     applyPrefs();
   }
-  function closePrefs() { $('prefs').hidden = true; }
+  function closePrefs() { const dialog = $('prefs'); dialog.close(); dialog.hidden = true; }
+  $('prefs').oncancel = e => { e.preventDefault(); closePrefs(); };
+  for (const dialog of $('dialog.xdialog')) dialog.oncancel = e => { e.preventDefault(); abort(); };
   function closePMenu() { $('pmenu').hidden = true; $('pmenu-open').setAttribute('aria-expanded', 'false'); }
   $('pmenu-open').onclick = () => $('pmenu').hidden ? openPMenu() : closePMenu();
   addEventListener('pointerdown', e => { if (!$('pmenu').hidden && !e.target.closest('.pmenu, .pmenu-open')) closePMenu(); }, true);
@@ -14571,7 +14583,7 @@ export async function mount(root, backend) {
   addEventListener('pointermove', e => { if (radial) hotRadial(sliceAt(e.clientX - radial.x, e.clientY - radial.y, radial.m.items.length)); });
   addEventListener('pointerdown', e => { if (radial && !e.target.closest('.radial')) closeRadial(); }, true);
   addEventListener('keydown', e => { if (radial && e.key === 'Escape') { e.stopImmediatePropagation(); closeRadial(); } }, true);
-  addEventListener('keydown', e => { if (!$('prefs').hidden && e.key === 'Escape') { e.stopImmediatePropagation(); closePrefs(); } }, true);
+
   addEventListener('keydown', e => { if (planeOriginPending && e.key === 'Escape') { e.stopImmediatePropagation(); planeOriginPending = false; setHud(''); } }, true);
   // Keys over the outliner (manual: Outliner): / scrolls to the selection, . folds every group but
   // those holding the selection, C folds them all, Ctrl+F searches the rows.
@@ -15638,7 +15650,7 @@ export async function mount(root, backend) {
   // In order: a handle or typed entry taking keys, the running command's own keys, then the
   // viewport's (keymap.js).
   addEventListener('keydown', async e => {
-    if (palette || asking) return;
+    if (palette || asking || $('prefs').open) return;
     // The Text command's box takes every key (its own handler finishes and cancels).
     if (e.target.tagName === 'TEXTAREA') return;
     const inInput = e.target.tagName === 'INPUT';
