@@ -1033,6 +1033,7 @@ const SHELL = `
       <div class="field"><label>PROFILES</label><output data-id="ls-count">0</output></div>
       <div class="field" data-id="ls-guide-count" title="Shift+click curves or edges the sheet's sides run along; Shift+click one again to drop it"><label>GUIDES</label><output data-id="ls-guides">0</output></div>
       <div class="chips" data-id="ls-guide-actions"><button data-id="ls-pick-guides" aria-pressed="false">PICK GUIDES</button><button data-id="ls-clear-guides" disabled>CLEAR GUIDES</button></div>
+      <div class="field" data-id="ls-guide-choice"><label for="w3d-loft-guide">GUIDE CURVE</label><select id="w3d-loft-guide" data-id="ls-add-guide"></select></div>
       <div class="field"><label>LIMIT POINTS</label><output data-id="ls-limits">0</output></div>
       <div data-id="ls-edges-row" hidden>
         <span class="label">CONTINUITY AT EACH EDGE · TAB SETS ALL</span>
@@ -12555,7 +12556,7 @@ export async function mount(root, backend) {
   function startLoftSheet(curves) {
     if (!backend.previewLoftSheet) return toast('LOFT OF CURVES IS NOT IN THIS BUILD YET');
     const c = cmd = { id: 'loft', sheet: true, curves, guides: [], loop: false, simplify: true, cont: 'G0', data: null, sent: 0, shown: 0 };
-    for (const id of ['ls-guide-count', 'ls-guide-actions']) $(id).hidden = false;
+    for (const id of ['ls-guide-count', 'ls-guide-actions', 'ls-guide-choice']) $(id).hidden = false;
     $('ls-t').value = '1';
     lastTool = 'loft';
     showTool('loft');
@@ -12657,6 +12658,10 @@ export async function mount(root, backend) {
       $('ls-guides').textContent = c.guides.length;
       $('ls-pick-guides').setAttribute('aria-pressed', String(!!c.pickingGuides));
       $('ls-clear-guides').disabled = !c.guides.length;
+      const available = curveList.filter(curve => !c.curves.includes(curve.id) && !c.guides.includes(curve.id) && org.shows(curve.id));
+      const choices = $('ls-add-guide');
+      choices.replaceChildren(new Option('Choose a curve', ''), ...available.map(curve => new Option(curveLabel(curve.id), String(curve.id))));
+      choices.disabled = !available.length;
       $('ls-loop').setAttribute('aria-pressed', String(c.loop));
       $('ls-loop').disabled = c.curves.length < 3 || c.guides.length > 0;
       $('ls-simplify').setAttribute('aria-pressed', String(c.simplify));
@@ -12690,6 +12695,13 @@ export async function mount(root, backend) {
     };
     $('ls-pick-guides').onclick = () => c.setGuidePicking(!c.pickingGuides);
     $('ls-clear-guides').onclick = () => { c.guides = []; refresh(); };
+    $('ls-add-guide').onchange = e => {
+      const guide = curveList.find(curve => String(curve.id) === e.target.value);
+      if (!guide) return;
+      c.guides = [...c.guides, guide.id];
+      c.loop = false;
+      refresh();
+    };
     // Tab (or the old shared switch) sets every edge's continuity at once.
     c.setCont = g => { c.cont = g; for (const p of edgesOf()) c.conts.set(p.key, g); refresh(); };
     c.key = action => {
@@ -12789,7 +12801,7 @@ export async function mount(root, backend) {
     showTool('loft');
     $$('[data-panel="form"]')[0].hidden = true;
     $$('[data-panel="loft-sheet"]')[0].hidden = false;
-    for (const id of ['ls-loop', 'ls-limit', 'ls-simplify', 'ls-guide-count', 'ls-guide-actions']) $(id).hidden = true;
+    for (const id of ['ls-loop', 'ls-limit', 'ls-simplify', 'ls-guide-count', 'ls-guide-actions', 'ls-guide-choice']) $(id).hidden = true;
     $('ls-edges-row').hidden = true;
     $('keys').innerHTML = keysHtml('loft-faces');
     setState('none');
