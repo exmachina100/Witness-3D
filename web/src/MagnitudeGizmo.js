@@ -48,6 +48,7 @@ export class MagnitudeGizmo extends THREE.Group {
         this._down = this.pointerDown.bind(this);
         this._move = this.pointerMove.bind(this);
         this._up = this.pointerUp.bind(this);
+        this._cancel = this.pointerCancel.bind(this);
         this._hover = this.hover.bind(this);
         dom.addEventListener('pointerdown', this._down, true);
         dom.addEventListener('pointermove', this._hover);
@@ -125,7 +126,7 @@ export class MagnitudeGizmo extends THREE.Group {
     }
 
     pointerDown(event) {
-        if (event.button !== 0 || !this.visible) return;
+        if (event.button !== 0 || !this.visible || this.state === 'dragging') return;
         if (this.state === 'command') { event.stopPropagation(); event.preventDefault(); return; }
         if (!this.over(event)) return;
         event.stopPropagation();
@@ -141,6 +142,7 @@ export class MagnitudeGizmo extends THREE.Group {
 
     begin(state, event) {
         this.state = state;
+        this.dragPointer = state === 'dragging' ? event.pointerId : null;
         this.text = '';
         this.original = this.value;
         const t = event ? this.axisParam(this.ray(event)) : null;
@@ -148,11 +150,12 @@ export class MagnitudeGizmo extends THREE.Group {
         this.onStart(state);
         window.addEventListener('pointermove', this._move);
         window.addEventListener('pointerup', this._up);
+        window.addEventListener('pointercancel', this._cancel);
     }
 
     pointerMove(event) {
         if (!this.busy || this.text) return;
-        if (this.state === 'dragging' && event.buttons === 0) return;
+        if (this.state === 'dragging' && (event.pointerId !== this.dragPointer || event.buttons === 0)) return;
         const t = this.axisParam(this.ray(event));
         if (t === null) return;
         if (this.grab === null) this.grab = t - this.value;
@@ -163,14 +166,24 @@ export class MagnitudeGizmo extends THREE.Group {
     }
 
     pointerUp(event) {
-        if (event.button !== 0) return;
+        if (event.button !== 0 || (this.state === 'dragging' && event.pointerId !== this.dragPointer)) return;
         if (this.state === 'dragging' || this.state === 'command') this.finish();
+    }
+
+    pointerCancel(event) {
+        if (this.state === 'dragging' && event.pointerId === this.dragPointer) this.cancel();
+    }
+
+    cancel() {
+        this.render(this.original);
+        this.onChange(this.original);
+        this.finish();
     }
 
     /** Keys while dragging or following. Returns true when the key was used. */
     key(event) {
         if (!this.busy) return false;
-        if (event.key === 'Escape') { this.render(this.original); this.onChange(this.original); this.finish(); return true; }
+        if (event.key === 'Escape') { this.cancel(); return true; }
         if (event.key === 'Enter') { this.finish(); return true; }
         if (/^[0-9.\-]$/.test(event.key)) this.text += event.key;
         else if (event.key === 'Backspace') this.text = this.text.slice(0, -1);
@@ -194,6 +207,7 @@ export class MagnitudeGizmo extends THREE.Group {
     stopListening() {
         window.removeEventListener('pointermove', this._move);
         window.removeEventListener('pointerup', this._up);
+        window.removeEventListener('pointercancel', this._cancel);
     }
 }
 
