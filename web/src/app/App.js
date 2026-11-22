@@ -1034,6 +1034,7 @@ const SHELL = `
       <div class="field" data-id="ls-guide-count" title="Shift+click curves or edges the sheet's sides run along; Shift+click one again to drop it"><label>GUIDES</label><output data-id="ls-guides">0</output></div>
       <div class="chips" data-id="ls-guide-actions"><button data-id="ls-pick-guides" aria-pressed="false">PICK GUIDES</button><button data-id="ls-clear-guides" disabled>CLEAR GUIDES</button></div>
       <div class="field" data-id="ls-guide-choice"><label for="w3d-loft-guide">GUIDE CURVE</label><select id="w3d-loft-guide" data-id="ls-add-guide"></select></div>
+      <div class="chips" data-id="ls-guide-list" role="group" aria-label="Selected Loft guides" hidden></div>
       <div class="field"><label>LIMIT POINTS</label><output data-id="ls-limits">0</output></div>
       <div data-id="ls-edges-row" hidden>
         <span class="label">CONTINUITY AT EACH EDGE · TAB SETS ALL</span>
@@ -12658,6 +12659,21 @@ export async function mount(root, backend) {
       $('ls-guides').textContent = c.guides.length;
       $('ls-pick-guides').setAttribute('aria-pressed', String(!!c.pickingGuides));
       $('ls-clear-guides').disabled = !c.guides.length;
+      const guides = $('ls-guide-list');
+      guides.hidden = !c.guides.length;
+      guides.replaceChildren(...c.guides.map((guide, index) => {
+        const button = document.createElement('button');
+        button.type = 'button';
+        const name = nameOf(guide);
+        button.textContent = `${name} ×`;
+        button.setAttribute('aria-label', `Remove Loft guide ${name}`);
+        button.onclick = () => {
+          c.guides = c.guides.filter(item => item !== guide);
+          refresh();
+          (guides.children[Math.min(index, guides.children.length - 1)] ?? $('ls-pick-guides')).focus();
+        };
+        return button;
+      }));
       const available = curveList.filter(curve => !c.curves.includes(curve.id) && !c.guides.includes(curve.id) && org.shows(curveKey(curve.id)) && !org.locked.has(curveKey(curve.id)));
       const choices = $('ls-add-guide');
       choices.replaceChildren(new Option('Choose a curve', ''), ...available.map(curve => new Option(curveLabel(curve.id), String(curve.id))));
@@ -12802,7 +12818,7 @@ export async function mount(root, backend) {
     showTool('loft');
     $$('[data-panel="form"]')[0].hidden = true;
     $$('[data-panel="loft-sheet"]')[0].hidden = false;
-    for (const id of ['ls-loop', 'ls-limit', 'ls-simplify', 'ls-guide-count', 'ls-guide-actions', 'ls-guide-choice']) $(id).hidden = true;
+    for (const id of ['ls-loop', 'ls-limit', 'ls-simplify', 'ls-guide-count', 'ls-guide-actions', 'ls-guide-choice', 'ls-guide-list']) $(id).hidden = true;
     $('ls-edges-row').hidden = true;
     $('keys').innerHTML = keysHtml('loft-faces');
     setState('none');
