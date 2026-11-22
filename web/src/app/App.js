@@ -3367,25 +3367,26 @@ export async function mount(root, backend) {
    * What is under the pointer among the active selection modes: an edge if one is close (and not
    * behind a face), else a face, else the solid. Returns { kind, body, n?, point }.
    */
-  function pickAt(e) {
+  function pickAt(e, { guide = false } = {}) {
     ray(e);
-    const vertex = sel.allows('point') && (vertexAt(local(e)) ?? poleAt(local(e)));
+    const vertex = !guide && sel.allows('point') && (vertexAt(local(e)) ?? poleAt(local(e)));
     if (vertex) return vertex;
     const meshes = shownMeshes().filter(m => !org.locked.has(m.userData.id));
     const faceHit = raycaster.intersectObjects(meshes, false)[0];
     const reach = faceHit ? faceHit.distance * 1.01 + 0.5 : Infinity; // in front of the face, or on it
-    raycaster.params.Line.threshold = unitsPerPixel(faceHit?.point ?? controls.target) * 6;
+    raycaster.params.Line.threshold = unitsPerPixel(faceHit?.point ?? controls.target) * (guide && e.pointerType === 'touch' ? 12 : 6);
     // Curves pick with edges or solids (Plasticity picks a curve whole), regions with faces.
     // Hidden curves (View › Curves off, or hidden in the outliner) can't be picked.
-    const curveHit = sel.allows('edge') && curveGroup.visible
-      && raycaster.intersectObjects(curveGroup.children.filter(o => o.visible && o.userData.curve !== undefined), false).find(h => h.distance <= reach);
+    const curveHit = (guide || sel.allows('edge')) && curveGroup.visible
+      && raycaster.intersectObjects(curveGroup.children.filter(o => o.visible && o.userData.curve !== undefined && (!guide || !org.locked.has(curveKey(o.userData.curve)))), false).find(h => h.distance <= reach);
     let edgeHit = null;
-    if (sel.allows('edge')) {
+    if (guide || sel.allows('edge')) {
       const hits = raycaster.intersectObjects(meshes.map(m => m.userData.lines), false);
       edgeHit = hits.find(h => !faceHit || h.distance <= faceHit.distance * 1.01 + 1e-6);
     }
     if (curveHit && (!edgeHit || curveHit.distance <= edgeHit.distance + 0.5)) return { kind: 'curve', id: curveHit.object.userData.curve, point: curveHit.point };
     if (edgeHit) return { kind: 'edge', body: edgeHit.object.parent.userData.id, n: edgeHit.object.userData.segEdge[edgeHit.index / 2], point: edgeHit.point };
+    if (guide) return null;
     if (sel.allows('face')) {
       const r = curveGroup.visible && raycaster.intersectObjects(curveGroup.children.filter(o => o.visible && o.userData.region !== undefined), false).find(h => h.distance <= reach);
       if (r) return { kind: 'region', id: r.object.userData.region, point: r.point };
@@ -12744,7 +12745,7 @@ export async function mount(root, backend) {
       return true;
     };
     c.click = e => {
-      const hit = pickAt(e);
+      const hit = pickAt(e, { guide: !c.picking && (c.pickingGuides || e.shiftKey) });
       if (c.picking) {
         if (!hit?.point || (hit.kind !== 'curve' && hit.kind !== 'region' && hit.kind !== 'edge')) return true;
         const edge = hit.kind === 'edge' ? c.curves.find(p => typeof p === 'object' && p.key === `${hit.body}:${hit.n}`) : null;
