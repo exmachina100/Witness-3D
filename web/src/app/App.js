@@ -343,6 +343,14 @@ const SHELL = `
 
   <aside class="right" aria-label="Inspector">
     <header><span data-id="tool-name">SELECT</span><span data-id="target">—</span></header>
+    <details class="inspector-section" open>
+      <summary>SELECTION PROPERTIES</summary>
+      <div class="sec">
+        <div class="field"><span>SELECTED</span><output data-id="inspector-selection">—</output></div>
+      </div>
+    </details>
+    <details class="inspector-section" data-id="tool-properties" hidden>
+      <summary>TOOL PROPERTIES</summary>
     <div class="sec" data-panel="fillet" hidden>
       <span class="hint" data-id="blend-hint">SELECT EDGES TO ROUND</span>
       <div class="field"><label for="w3d-blend-distance">DISTANCE</label><input id="w3d-blend-distance" data-id="blend-distance" type="number" step="0.5" value="0" title="Negative makes a chamfer"></div>
@@ -1099,12 +1107,16 @@ const SHELL = `
         <button data-op="new" aria-pressed="false"><kbd>B</kbd>NEW</button>
       </div>
     </div>
+    </details>
+    <details class="inspector-section" open>
+      <summary>SNAPPING</summary>
     <div class="sec" data-id="snapping">
-      <span class="label">SNAPPING</span>
       <div class="chips"><button data-toggle="snap" aria-pressed="false" aria-label="Snap" title="Grid snapping without holding Ctrl"></button><button data-id="snap-object" aria-pressed="true" aria-label="Object snapping" title="Object snapping: points on solids, sheets and curves (Ctrl or drawing). Shift+X while a snap shows skips that kind until the command ends">${icon('snap-object')}</button>${SNAP_KINDS.map(k => `<button data-snapkind="${k.id}" aria-pressed="true" aria-label="${k.label} snaps" title="${k.label} snaps">${icon(`snap-${k.id}`)}</button>`).join('')}</div>
     </div>
+    </details>
+    <details class="inspector-section" open>
+      <summary>CONSTRUCTION PLANES</summary>
     <div class="sec">
-      <span class="label">CONSTRUCTION PLANE</span>
       <div class="seg" role="group" aria-label="Construction plane">
         <button data-action="plane:selection" aria-label="From selection" title="From selection (Space): a flat face, a face and an edge, two parallel faces, a planar curve or region, or points; the view turns to face it">${icon('plane-face')}</button>
         <button data-action="plane:view" aria-label="Facing the view" title="Facing the view (Ctrl+Space), through the world origin">${icon('plane-view')}</button>
@@ -1114,13 +1126,22 @@ const SHELL = `
       </div>
       <div class="saved-planes" data-id="saved-planes" hidden></div>
     </div>
-    <div class="states">
+    </details>
+    <details class="inspector-section">
+      <summary>MATERIALS</summary>
+      <div class="sec"><div class="chips"><button data-action="material:set">SET MATERIAL</button><button data-action="material:remove">REMOVE MATERIAL</button></div></div>
+    </details>
+    <details class="inspector-section">
+      <summary>SCENE SETTINGS</summary>
+      <div class="sec"><div class="chips"><button data-action="app:preferences">PREFERENCES</button></div></div>
+      <div class="states">
       <span class="label">STATE</span>
       <ol data-id="states">
         <li data-s="none">NONE</li><li data-s="updating">UPDATING</li><li data-s="updated">UPDATED</li>
         <li data-s="committed">COMMITTED</li><li data-s="failed">FAILED</li><li data-s="cancelled">CANCELLED</li>
       </ol>
     </div>
+    </details>
     <span class="fill"></span>
     <div class="pair">
       <button data-id="cancel" disabled>ESC CANCEL</button>
@@ -3633,6 +3654,7 @@ export async function mount(root, backend) {
     renderContext();
     const n = sel.size;
     $('sel-count').textContent = n ? `${n} ${[...new Set(sel.list().map(it => it.kind === 'pole' ? 'surface point' : it.kind))].join('+').toUpperCase()}` : '—';
+    $('inspector-selection').textContent = $('sel-count').textContent;
     renderMass();
     if (cmd?.onSelection) return cmd.onSelection();
     if (quiet) return;
@@ -3917,6 +3939,9 @@ export async function mount(root, backend) {
   function showTool(id) {
     toolbar.setActive(id);
     for (const el of $$('[data-panel]')) el.hidden = el.dataset.panel !== (id === 'spiral' ? 'spiral' : DRAW[id] ? 'draw' : FORMS[id] ? 'form' : PRIMS[id] ? 'primitive' : id);
+    const toolProperties = $('tool-properties');
+    toolProperties.hidden = !toolProperties.querySelector('[data-panel]:not([hidden])');
+    if (!toolProperties.hidden) toolProperties.open = true;
     $('keys').innerHTML = keysHtml(KEYS[id] ? id : 'idle');
     $('step-keys').innerHTML = (KEYS[id] ?? []).map(([k, what]) => `<kbd>${k}</kbd>${what}`).join('');
     $('stepline').dataset.cmd = id ?? '';
