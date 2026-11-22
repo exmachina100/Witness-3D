@@ -111,11 +111,14 @@ export class MagnitudeGizmo extends THREE.Group {
     over(event) {
         if (!this.visible) return false; // a hidden handle can't be grabbed
         this.updateMatrixWorld(true);
-        this.ray(event);
-        if (event.pointerType !== 'touch') return this.raycaster.intersectObject(this.knob, true).length > 0;
+        if (event.pointerType !== 'touch') {
+            this.ray(event);
+            return this.raycaster.intersectObject(this.knob, true).length > 0;
+        }
         const center = this.knob.getWorldPosition(new THREE.Vector3()).project(this.camera);
         if (center.z < -1 || center.z > 1) return false;
         const rect = this.dom.getBoundingClientRect();
+        if (!rect.width || !rect.height) return false;
         const x = rect.left + (center.x + 1) * rect.width / 2;
         const y = rect.top + (1 - center.y) * rect.height / 2;
         return Math.hypot(event.clientX - x, event.clientY - y) <= 18;
@@ -123,7 +126,7 @@ export class MagnitudeGizmo extends THREE.Group {
 
     hover(event) {
         if (this.busy || !this.visible) return;
-        const on = this.over(event);
+        const on = event.pointerType !== 'touch' && this.over(event);
         if (on !== (this.state === 'hover')) {
             this.state = on ? 'hover' : 'none';
             this.mat.color.setHex(on ? HOVER : this.color);
