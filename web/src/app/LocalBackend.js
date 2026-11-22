@@ -4,7 +4,7 @@
 import * as THREE from 'three';
 import { ExtrudeFactory } from '../ExtrudeFactory.js';
 import { NoOpError } from '../GeometryFactory.js';
-import { THROAT, arrayMotions, importSTEP, import3DM, importIGES, blendEdges, boolean, booleanWithHistory, extrudeFace, bounds, box, count, draftFaces, faceSheet, imprintEdgesWithHistory, imprintWithHistory, planeSheet, regions, unifyWithHistory, dissolveEdgesWithHistory, boundaryEdges, splitWithHistory, draftWithHistory, exportSTEP, export3DM, exportIGES, facePlane, mirror, mirror as mirrorShape, numbered, numberedEdges, oc, primitive, shellFaces, tessellate, transform, volume, filletShell } from '../Kernel.js';
+import { hasSurfaceInflection, THROAT, arrayMotions, importSTEP, import3DM, importIGES, blendEdges, boolean, booleanWithHistory, extrudeFace, bounds, box, count, draftFaces, faceSheet, imprintEdgesWithHistory, imprintWithHistory, planeSheet, regions, unifyWithHistory, dissolveEdgesWithHistory, boundaryEdges, splitWithHistory, draftWithHistory, exportSTEP, export3DM, exportIGES, facePlane, mirror, mirror as mirrorShape, numbered, numberedEdges, oc, primitive, shellFaces, tessellate, transform, volume, filletShell } from '../Kernel.js';
 import { curveIsOpen, curveRegions, cutSheets, extrudeCurve, loft, loftFaces, loftGuided, loftSheet, loftSheetGuided, offsetFlatFaces, pipe, regionFace, revolve, revolveCurve, simplifyFlat, splineSamples, sweep, sweepCurve, sweepGuided } from '../Forms.js';
 import { curveFromNurbs, ends, join, loops, MEET, nurbsLoop } from '../curves.js';
 import { isoparam, meetCurves, projectCurveCurve, projectCurves, projectedEdges, sectionCurves } from '../Project.js';
@@ -1941,13 +1941,16 @@ export class LocalBackend {
      * between neighbouring normals (Plasticity's export-mesh angle tolerance). Any finer display mesh is
      * cleared first, so a coarser export really is coarser.
      */
-    async meshBodies(ids, { tolerance = 0.05, angle = 0.25 } = {}) {
+    supportsInflectionRefinement = true;
+
+    async meshBodies(ids, { tolerance = 0.05, angle = 0.25, inflect = false } = {}) {
         if (!(tolerance > 0) || !(angle > 0)) throw new Error('the tolerance and angle must be greater than zero');
         return ids.map(id => {
             const s = this.shapes.get(id);
             if (!s) throw new Error('that body no longer exists');
             oc().BRepTools.Clean(s, true);
-            const { mesh } = tessellate(s, { deflection: tolerance, angle });
+            const factor = inflect && hasSurfaceInflection(s) ? 0.5 : 1;
+            const { mesh } = tessellate(s, { deflection: tolerance * factor, angle: angle * factor });
             return { id, positions: Array.from(mesh.getAttribute('position').array), indices: Array.from(mesh.index.array) };
         });
     }
