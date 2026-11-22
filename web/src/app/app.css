@@ -463,3 +463,14 @@ input[type="range"] { accent-color: var(--accent); }
 dialog.prefs, dialog.xdialog { color: var(--ink); margin: 0; }
 dialog.xdialog[open] { position: fixed; inset: 50% auto auto 50%; transform: translate(-50%, -50%); width: min(440px, calc(100vw - 32px)); max-height: calc(100vh - 32px); overflow: auto; background: var(--raised); border: 1px solid var(--rule); }
 dialog::backdrop { background: rgb(0 0 0 / 45%); }
+
+.sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+@media (prefers-reduced-motion: reduce) {
+  .nav-bg { transition: none; }
+}
+@media (forced-colors: active) {
+  .w3d :is(button, input, select, summary, a):focus-visible { outline: 2px solid Highlight; outline-offset: -2px; }
+  .w3d button[aria-pressed="true"], .w3d [role="tab"][aria-selected="true"] { outline: 1px solid Highlight; outline-offset: -1px; }
+  .w3d button:disabled { color: GrayText; }
+  .w3d dialog { border-color: CanvasText; }
+}
