@@ -459,6 +459,7 @@ const SHELL = `
       <div class="seg" role="group" aria-label="Topology" data-id="mx-topo"><button data-mxtopo="tris" aria-pressed="true" title="Triangles only">TRIS</button><button data-mxtopo="quads" aria-pressed="false" title="Quads, with triangles where two will not pair">QUADS</button><button data-mxtopo="ngons" aria-pressed="false" title="Each flat run of faces one polygon of any number of sides">NGONS</button></div>
       <div class="chips" data-id="mx-convex-row"><button data-id="mx-convex" aria-pressed="false" title="Ngons: only convex polygons; a run that is not convex stays triangles">CONVEX NGONS ONLY</button></div>
       <div class="field" title="Separate pieces smaller across (their bounding box's diagonal) than this are left out; 0 keeps them all"><label for="w3d-mx-small">REMOVE SMALL FEATURES</label><input id="w3d-mx-small" data-id="mx-small" type="number" step="0.5" min="0" value="0"></div>
+      <label class="field" data-id="mx-inflect-row" hidden><span>REFINE CURVATURE REVERSALS</span><input type="checkbox" data-id="mx-inflect" title="Use finer tessellation for bodies with a sampled curvature reversal"></label>
       <div class="xd-foot"><button data-xd="cancel" title="Cancel (Esc)">CANCEL</button><button data-xd="ok" class="primary" title="Export (Enter)">EXPORT</button></div>
     </dialog>
     <dialog class="sec xdialog" data-panel="export-drawing" aria-label="Export drawing" hidden>
@@ -10530,6 +10531,8 @@ export async function mount(root, backend) {
     const placed = sel.bodies.length ? [] : instances.filter(n => !n.curve && !n.hidden && current.some(b => b.id === n.master));
     if (!ids.length && !placed.length) return toast('NOTHING TO EXPORT');
     const c = cmd = { id: 'export-mesh', format: 'obj', up: 'z', topology: 'tris', convex: false };
+    $('mx-inflect-row').hidden = !backend.supportsInflectionRefinement;
+    $('mx-inflect').checked = false;
     lastTool = 'export-mesh';
     showTool('export-mesh');
     setState('none');
@@ -10564,7 +10567,7 @@ export async function mount(root, backend) {
       };
       try {
         const masters = placed.map(n => n.master).filter((id, i, all) => all.indexOf(id) === i);
-        const made = await backend.meshBodies([...new Set([...ids, ...masters])], { tolerance, angle });
+        const made = await backend.meshBodies([...new Set([...ids, ...masters])], { tolerance, angle, inflect: !!backend.supportsInflectionRefinement && $('mx-inflect').checked });
         // Each body's material, for the formats that carry one (glTF and 3MF).
         const look = id => { const m = materials.get(materialOf.get(id)); return m ? { color: m.color, roughness: m.roughness, metalness: m.metalness, opacity: m.opacity } : {}; };
         const sheet = id => !!current.find(b => b.id === id)?.sheet;
