@@ -4223,6 +4223,7 @@ export async function mount(root, backend) {
       setFillet(snapping(lastPointer) ? Math.round(v / gridStep()) * gridStep() : v);
     }, () => refineFillet());
     c.gizmo.onStart = () => { controls.enabled = false; c.auto = false; c.dragVar = null; };
+    c.gizmo.parseInput = parseDistanceEntry;
     c.gizmo.render(c.value);
   }
 
@@ -5182,6 +5183,7 @@ export async function mount(root, backend) {
     c.sent = c.computed = c.shown = 0;
     $('coalesced').textContent = '0→0';
     c.gizmo = dot(origin, normal, d => setDistance(snapping(lastPointer) ? Math.round(d / gridStep()) * gridStep() : d));
+    c.gizmo.parseInput = parseDistanceEntry;
     placeOutline(origin, normal);
     showSnap(null);
     $('distance').disabled = false;
@@ -6207,6 +6209,7 @@ export async function mount(root, backend) {
     $('ex-outcome').textContent = '—';
     setExtrudeOps();
     c.gizmo = dot(src.at, src.normal, d => setExtrude(snapping(lastPointer) ? Math.round(d / gridStep()) * gridStep() : d));
+    c.gizmo.parseInput = parseDistanceEntry;
     c.gizmo.onStart = () => { controls.enabled = false; c.auto = false; c.dragVar = null; };
     // The angle (race) dot on the tip and the thickness dot at the base, both across the extrude
     // direction. The angle dot's offset is how far the side leans over the distance; typed digits
@@ -14420,6 +14423,9 @@ export async function mount(root, backend) {
     'pipe-r', 'pipe-t', 'hole-d', 'hole-depth', 'ext-len', 'prim-w', 'prim-d', 'prim-r', 'prim-h', 'shell-t', 'mirror-at', 'form-thickness', 'distance', 'ra-sx', 'ra-sy', 'ra-sz', 'im-w'];
   const rawValue = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value');
   let lengthUnit = 'mm';
+  const parseDistanceEntry = text => /^(?:\d*\.)?\d+-$/.test(text)
+    ? fromUnit(typed(text), lengthUnit)
+    : parseLength(text, lengthUnit);
   function unitField(el, kind = 'length') {
     if (!el || el.dataset.unit) return;
     const mm = parseFloat(rawValue.get.call(el));
