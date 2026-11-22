@@ -47,7 +47,6 @@ export const RADIALS = [
             { command: 'view:reflection-zebra', label: 'REFLECTION ZEBRA' },
             { command: 'view:reflection-check', label: 'REFLECTION CHECK' },
             { command: 'view:reflection-isophote', label: 'REFLECTION ISOPHOTE' },
-            { command: 'view:focus', label: 'FOCUS' },
         ],
     },
 ];
