@@ -289,6 +289,51 @@ export function bounds(shape) {
  * Tessellate a shape for display. Returns the triangle mesh (with a per-vertex `faceIndex` so a
  * pick can find the B-rep face) and the true B-rep edges as line segments.
  */
+/** Detect sampled normal-curvature sign changes on a continuous surface direction. */
+export function hasSurfaceInflection(shape) {
+    const o = oc();
+    const point = new o.gp_Pnt();
+    const [du, dv, duu, dvv, duv] = Array.from({ length: 5 }, () => new o.gp_Vec());
+    try {
+        for (const face of numbered(shape, 'TopAbs_FACE')) {
+            const surface = new o.BRepAdaptor_Surface(o.TopoDS.Face(face), true);
+            try {
+                const u0 = surface.FirstUParameter(), u1 = surface.LastUParameter();
+                const v0 = surface.FirstVParameter(), v1 = surface.LastVParameter();
+                if (![u0, u1, v0, v1].every(Number.isFinite) || u1 <= u0 || v1 <= v0) continue;
+                const rows = [], cols = Array.from({ length: 9 }, () => []);
+                for (let i = 0; i < 9; i++) {
+                    const row = [];
+                    for (let j = 0; j < 9; j++) {
+                        const u = u0 + (u1 - u0) * (i + 0.5) / 9;
+                        const v = v0 + (v1 - v0) * (j + 0.5) / 9;
+                        surface.D2(u, v, point, du, dv, duu, dvv, duv);
+                        const x = du.Y() * dv.Z() - du.Z() * dv.Y();
+                        const y = du.Z() * dv.X() - du.X() * dv.Z();
+                        const z = du.X() * dv.Y() - du.Y() * dv.X();
+                        const scale = Math.hypot(x, y, z);
+                        const curvature = (d, dd) => scale > 1e-14
+                            ? (x * dd.X() + y * dd.Y() + z * dd.Z()) / (scale * d.SquareMagnitude())
+                            : 0;
+                        cols[j].push(curvature(du, duu));
+                        row.push(curvature(dv, dvv));
+                    }
+                    rows.push(row);
+                }
+                if ([...rows, ...cols].some(values => values.some(v => v > 1e-7 && Number.isFinite(v)) &&
+                    values.some(v => v < -1e-7 && Number.isFinite(v)))) return true;
+            } catch {
+                // A derivative may be unavailable on a degenerate or discontinuous face.
+            } finally {
+                surface.delete();
+            }
+        }
+        return false;
+    } finally {
+        for (const value of [point, du, dv, duu, dvv, duv]) value.delete();
+    }
+}
+
 export function tessellate(shape, { deflection = 0.01, angle = 0.25 } = {}) {
     const o = oc();
     new o.BRepMesh_IncrementalMesh(shape, deflection, false, angle, false);
