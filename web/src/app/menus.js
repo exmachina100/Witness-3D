@@ -37,6 +37,7 @@ export const RADIALS = [
         name: 'Viewport settings', command: 'viewport-settings', items: [
             { command: 'view:ortho', label: 'ORTHOGRAPHIC' },
             { command: 'view:xray', label: 'X-RAY' },
+            { command: 'overlays:toggle', label: 'OVERLAYS' },
             { command: 'view:edges', label: 'EDGES' },
             { command: 'view:faces', label: 'FACES' },
             { command: 'view:curves', label: 'CURVES' },
