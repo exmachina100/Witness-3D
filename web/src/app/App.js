@@ -3357,6 +3357,7 @@ export async function mount(root, backend) {
   };
   $('plane-pick-origin').onclick = () => planeFromViewAt();
   $('plane-cancel').onclick = () => closePlaneDialog(true);
+  planeDialog.oncancel = e => { e.preventDefault(); closePlaneDialog(true); };
   $('plane-form').onsubmit = e => {
     e.preventDefault();
     const name = $('plane-name').value.trim();
@@ -3996,9 +3997,10 @@ export async function mount(root, backend) {
     const bridgeOptions = id === 'bridge' && !!cmd?.continuity;
     if (bridgeOptions) {
       $('bridge-dialog-body').append(bridgePanel);
-    } else if (bridgeDialog.open) {
-      bridgeDialog.close();
-      $('bridge-panel-home').append(bridgePanel);
+    } else {
+      if (bridgeDialog.open) bridgeDialog.close();
+      const home = $('bridge-panel-home');
+      if (bridgePanel.parentElement !== home) home.append(bridgePanel);
     }
     bridgeDialog.hidden = !bridgeOptions;
     toolProperties.hidden = !bridgeOptions && !toolProperties.querySelector('[data-panel]:not([hidden])');
@@ -15782,7 +15784,8 @@ export async function mount(root, backend) {
     if (palette || asking || $('prefs').open || e.isComposing) return;
     const modalOpen = !!root.querySelector('dialog:modal');
     if (modalOpen && e.key === 'Tab') return;
-    if (e.key === 'Enter' && e.target.closest?.('button, summary, select, a[href], [data-id="plane-form"] input')) return;
+    if (e.target.closest?.('[data-id="plane-form"]')) return;
+    if (e.key === 'Enter' && e.target.closest?.('button, summary, select, a[href]')) return;
     // The Text command's box takes every key (its own handler finishes and cancels).
     if (e.target.tagName === 'TEXTAREA') return;
     const inInput = e.target.tagName === 'INPUT';
