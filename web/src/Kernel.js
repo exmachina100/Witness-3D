@@ -686,7 +686,22 @@ export function filletShell(shape, openFaces, outerEdges, innerEdges, thickness,
     if (edgeIds.length) {
         const result = blendEdges(currentShape, edgeIds, radius, false, true, 0, [...outerVariable, ...innerVariable]);
         currentShape = result.shape;
-        history = mergeHistory(history, result.history);
+        // The document stores refs on the original solid; the blend maps from the shell.
+        const throughShell = (before, after) => {
+            const targets = new Map();
+            for (const [shellIndex, finalIndex] of after[0]) {
+                if (!targets.has(shellIndex)) targets.set(shellIndex, []);
+                targets.get(shellIndex).push(finalIndex);
+            }
+            return [before[0].flatMap(([original, shellIndex]) =>
+                (targets.get(shellIndex) ?? []).map(finalIndex => [original, finalIndex])), []];
+        };
+        history = {
+            faces: throughShell(history.faces, result.history.faces),
+            edges: throughShell(history.edges, result.history.edges),
+            // Guide selections and generated-face provenance use the shell's edge numbering.
+            generatedFaces: result.history.generatedFaces,
+        };
     }
 
     // Apply Conic/G2 shape if needed (simplified - would need proper face tracking)
