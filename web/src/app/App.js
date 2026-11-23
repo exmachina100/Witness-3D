@@ -14700,9 +14700,9 @@ export async function mount(root, backend) {
   addEventListener('pointerdown', e => { if (radial && !e.target.closest('.radial')) closeRadial(); }, true);
   addEventListener('keydown', e => { if (radial && e.key === 'Escape') { e.stopImmediatePropagation(); closeRadial(); } }, true);
 
-  addEventListener('keydown', e => { if (planeOriginPending && e.key === 'Escape' && !document.querySelector('dialog:modal')) { e.stopImmediatePropagation(); planeOriginPending = false; setHud(''); } }, true);
+  addEventListener('keydown', e => { if (planeOriginPending && e.key === 'Escape' && !root.querySelector('dialog:modal')) { e.preventDefault(); e.stopImmediatePropagation(); planeOriginPending = false; setHud(''); } }, true);
   addEventListener('keydown', e => {
-    if (e.key === 'Escape' && planeDialog.open && !document.querySelector('dialog:modal')) {
+    if (e.key === 'Escape' && planeDialog.open && !root.querySelector('dialog:modal')) {
       e.preventDefault();
       e.stopImmediatePropagation();
       closePlaneDialog(true);
@@ -15783,7 +15783,7 @@ export async function mount(root, backend) {
   addEventListener('keydown', async e => {
     if (palette || asking || $('prefs').open || e.isComposing) return;
     const modalOpen = !!root.querySelector('dialog:modal');
-    if (modalOpen && e.key === 'Tab') return;
+    if (modalOpen && (e.key === 'Tab' || (e.key === ' ' && e.target.closest?.('button')))) return;
     if (e.target.closest?.('[data-id="plane-form"]')) return;
     if (e.key === 'Enter' && e.target.closest?.('button, summary, select, a[href]')) return;
     // The Text command's box takes every key (its own handler finishes and cancels).
