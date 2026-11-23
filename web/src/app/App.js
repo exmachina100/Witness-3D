@@ -192,7 +192,7 @@ const KEYS = {
   extend: [['CLICK', 'NEAR AN END'], ['D / DRAG DOT', 'LENGTH'], ['CLICK CURVE / SOLID', 'EXTEND TO IT'], ['S', 'SHAPE NATURAL · LINEAR · ARC · SOFT · REFL'], ['⏎', 'OK'], ['ESC', 'CANCEL']],
   bridge: [['T / D', 'TENSION'], ['TAB', 'CONTINUITY G0 G1 G2 G3'], ['X Y Z', 'AXIS'], ['Q', 'TRIM'], ['CHIP', 'CONSTRAIN'], ['⏎ / RMB', 'OK']],
   'bridge-edge': [['D', 'TENSION'], ['TAB', 'CONTINUITY G0 G1 G2 G3'], ['X Y Z', 'AXIS'], ['⏎ / RMB', 'OK']],
-  'align-surface': [['TAB', 'CONTINUITY G0 G1 G2'], ['D', 'TENSION'], ['⏎ / RMB', 'OK']],
+  'align-surface': [['TAB', 'CONTINUITY G0 G1 G2'], ['D', 'TENSION'], ['B', 'BOUNDARY ALIGNMENT'], ['P', 'PARTIAL ALIGNMENT'], ['⏎ / RMB', 'OK']],
   'project-align': [['TAB', 'CONTINUITY G0 G1 G2 PERP'], ['N X Y Z S', 'PROJECTION'], ['D', 'TENSION'], ['⏎ / RMB', 'OK']],
   square: [['⇧ CLICK', 'SIDES: CURVES OR EDGES'], ['TAB', 'CONTINUITY G0 G1 G2'], ['T', 'TENSION'], ['D', 'DEGREE'], ['⏎ / RMB', 'OK']],
   'constrained-surface': [['CLICK', 'ADD A POINT'], ['CTRL Z', 'REMOVE THE LAST'], ['TAB', 'PERFORMANCE / SMOOTHNESS'], ['⏎ / RMB', 'OK']],
@@ -874,7 +874,8 @@ const SHELL = `
       <div class="field two" title="Rebuild the sheet to this degree and number of spans each way before aligning (0: keep it as it is)"><label for="w3d-as-deg">DEGREE · SPANS</label><input id="w3d-as-deg" data-id="as-deg" type="number" step="1" min="0" max="7" value="0" aria-label="Degree"><input data-id="as-spans" type="number" step="1" min="0" value="0" aria-label="Spans"></div>
       <div class="field two" title="Align in full only between these fractions along the side, easing out to the side's ends"><label for="w3d-as-p0">PARTIAL START · END</label><input id="w3d-as-p0" data-id="as-p0" type="number" step="0.05" min="0" max="1" value="0" aria-label="Partial start"><input data-id="as-p1" type="number" step="0.05" min="0" max="1" value="1" aria-label="Partial end"></div>
       <span class="label">BOUNDARY</span>
-      <div class="seg" role="group" aria-label="How the sheet leaves the aligned side at its ends"><button data-asbound="natural" aria-pressed="true" title="Natural: the sheet leaves the side's ends as the fit has it">NATURAL</button><button data-asbound="normal" aria-pressed="false" title="Normal: the sheet leaves the side's ends square to the side">NORMAL</button><button data-asbound="next" aria-pressed="false" title="Next: square where the neighbouring side is nearly flat">NEXT</button><button data-asbound="adjacent" aria-pressed="false" title="Adjacent: along the sheet's own neighbouring sides, as they ran before">ADJ.</button></div>
+      <div class="seg" role="group" aria-label="How the sheet leaves the aligned side at its ends"><button data-asbound="natural" aria-pressed="true" title="Natural: the sheet leaves the side's ends as the fit has it">NATURAL</button><button data-asbound="normal" aria-pressed="false" title="Normal: the sheet leaves the side's ends square to the side">NORMAL</button><button data-asbound="next" aria-pressed="false" title="Next: square where the neighbouring side is nearly flat">NEXT</button><button data-asbound="adjacent" aria-pressed="false" title="Adjacent: along the sheet's own neighbouring sides, as they ran before">ADJ.</button><button data-asbound="skew" aria-pressed="false" title="Skew: the sheet leaves the side's ends tilted by the start and end angles from square (G1 or G2)">SKEW</button></div>
+      <div class="field two" data-id="as-skew-row" hidden title="Skew: how far each end of the side tilts from square, outward positive (degrees)"><label for="w3d-as-k0">SKEW START · END °</label><input id="w3d-as-k0" data-id="as-k0" type="number" step="5" min="-85" max="85" value="0" aria-label="Skew start"><input data-id="as-k1" type="number" step="5" min="-85" max="85" value="0" aria-label="Skew end"></div>
       <div class="chips"><button data-id="as-symmetric" aria-pressed="false" title="Symmetric: both sheets move, meeting halfway between their edges (G0 or G1)">SYMMETRIC</button><button data-id="as-analysis" aria-pressed="false" title="Analysis: check how the sheets meet along the edge (G0 gap, G1 angle, G2 curvature) against the tolerances">ANALYSIS</button><button data-id="as-ratio" aria-pressed="false" title="Match tangent length ratio: along the side, the sheet leaves it faster or slower as the reference face does across its edge (G1 and G2)">MATCH RATIO</button><button data-id="as-constrain" aria-pressed="false" title="Create constraints: the sheet stays aligned to the reference, aligned again with the same options when the reference is edited (for this session)">CONSTRAIN</button></div>
       <div data-id="as-analysis-row" hidden>
         <div class="field two" title="Analysis tolerances: the largest gap (mm) and angle between the faces (°) that still pass"><label for="w3d-as-tg0">G0 MM · G1 °</label><input id="w3d-as-tg0" data-id="as-tg0" type="number" step="0.01" min="0" value="0.01" aria-label="G0 tolerance"><input data-id="as-tg1" type="number" step="0.1" min="0" value="0.5" aria-label="G1 tolerance"></div>
@@ -11300,6 +11301,7 @@ export async function mount(root, backend) {
       $('as-constrain').setAttribute('aria-pressed', String(surfaceConstrain));
       $('as-analysis').setAttribute('aria-pressed', String(c.analysis));
       for (const b of $$('[data-asbound]')) b.setAttribute('aria-pressed', String(b.dataset.asbound === c.boundary));
+      $('as-skew-row').hidden = c.boundary !== 'skew';
       $('as-analysis-row').hidden = !c.analysis;
       $('as-infl').disabled = !(num('as-blend') > 0);
     };
@@ -11358,7 +11360,7 @@ export async function mount(root, backend) {
         c.req = null;
         c.ready = (c.ready ?? Promise.resolve()).then(rebuildTo);
         await c.ready;
-        const req = await alignRequest(backend, { target, reference, continuity: c.continuity, tension: num('as-t'), blend: Math.max(0, Math.round(num('as-blend') || 0)), influence: Math.min(1, Math.max(0, num('as-infl') || 0)), partial: [num('as-p0'), num('as-p1')], symmetric: c.symmetric, boundary: c.boundary, matchRatio: !!c.matchRatio });
+        const req = await alignRequest(backend, { target, reference, continuity: c.continuity, tension: num('as-t'), blend: Math.max(0, Math.round(num('as-blend') || 0)), influence: Math.min(1, Math.max(0, num('as-infl') || 0)), partial: [num('as-p0'), num('as-p1')], symmetric: c.symmetric, boundary: c.boundary, skew: [num('as-k0'), num('as-k1')], matchRatio: !!c.matchRatio });
         // Symmetric moves the other sheet too: both previewed.
         const list = [];
         for (const r of [req, ...(req.more ?? [])]) list.push(await backend.previewMoveFacePoles(r));
@@ -11374,6 +11376,21 @@ export async function mount(root, backend) {
     c.analyse = () => analyse(c.req);
     c.key = action => {
       if (action === 'continuity') return c.setContinuity(ALIGN_CONTINUITY[(ALIGN_CONTINUITY.indexOf(c.continuity) + 1) % ALIGN_CONTINUITY.length]), true;
+      // Edge Align's B: boundary alignment off (Natural) or back to the last one chosen (Normal at first).
+      if (action === 'boundary') {
+        if (c.boundary === 'natural') c.boundary = c.lastBoundary ?? 'normal';
+        else { c.lastBoundary = c.boundary; c.boundary = 'natural'; }
+        toast(c.boundary === 'natural' ? 'BOUNDARY ALIGNMENT OFF' : `BOUNDARY ALIGNMENT ${c.boundary.toUpperCase()}`);
+        return c.preview(), true;
+      }
+      // P: partial alignment off (the whole side) or back to the last start and end (the middle half at first).
+      if (action === 'partial') {
+        const p0 = num('as-p0'), p1 = num('as-p1'), whole = p0 <= 0 && p1 >= 1;
+        if (whole) [$('as-p0').value, $('as-p1').value] = c.lastPartial ?? [0.25, 0.75];
+        else { c.lastPartial = [p0, p1]; $('as-p0').value = 0; $('as-p1').value = 1; }
+        toast(whole ? `PARTIAL ALIGNMENT ${$('as-p0').value} TO ${$('as-p1').value}` : 'PARTIAL ALIGNMENT OFF');
+        return c.preview(), true;
+      }
       if (action !== 'tension') return false;
       c.entry = { label: 'TENSION', text: '', apply: v => { if (v > 0) { $('as-t').value = v; c.preview(); } else toast('THE TENSION MUST BE ABOVE ZERO'); } };
       setHud('TENSION _');
@@ -11391,7 +11408,7 @@ export async function mount(root, backend) {
           // Plasticity's Create Constraints: the side follows the reference from now on.
           constraints.addSurface(target.body, reference.body, edgeMiddle(target.body, edgeNear(target.body, marks.t)), edgeMiddle(reference.body, reference.edge), {
             continuity: c.continuity, tension: num('as-t'), blend: Math.max(0, Math.round(num('as-blend') || 0)), influence: Math.min(1, Math.max(0, num('as-infl') || 0)),
-            partial: [num('as-p0'), num('as-p1')], boundary: c.boundary, matchRatio: !!c.matchRatio,
+            partial: [num('as-p0'), num('as-p1')], boundary: c.boundary, skew: [num('as-k0'), num('as-k1')], matchRatio: !!c.matchRatio,
           });
         } else if (surfaceConstrain) toast('CONSTRAINTS HOLD ONE SHEET MOVED: SYMMETRIC SHEETS STAY AS THEY ARE');
       } catch (e) { setState('failed'); toast(say(e)); }
@@ -15769,7 +15786,7 @@ export async function mount(root, backend) {
   $('as-analysis').onclick = () => cmd?.id === 'align-surface' && cmd.setAnalysis(!cmd.analysis);
   for (const id of ['as-tg0', 'as-tg1', 'as-tg2']) $(id).addEventListener('input', () => cmd?.id === 'align-surface' && cmd.analyse());
   $('as-t').addEventListener('input', () => cmd?.id === 'align-surface' && num('as-t') > 0 && cmd.preview());
-  for (const id of ['as-blend', 'as-infl', 'as-p0', 'as-p1', 'as-deg', 'as-spans']) $(id).addEventListener('input', () => cmd?.id === 'align-surface' && cmd.preview());
+  for (const id of ['as-blend', 'as-infl', 'as-p0', 'as-p1', 'as-k0', 'as-k1', 'as-deg', 'as-spans']) $(id).addEventListener('input', () => cmd?.id === 'align-surface' && cmd.preview());
   $('be-end').onclick = () => cmd?.id === 'bridge-edge' && cmd.cycleEnd(1);
   $('br-end').onclick = () => cmd?.id === 'bridge' && cmd.cycleEnd(1);
   $('oc-lock').onclick = () => cmd?.id === 'offset-curve' && cmd.key('lock');

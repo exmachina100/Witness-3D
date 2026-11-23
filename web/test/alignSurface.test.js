@@ -188,7 +188,19 @@ test('Boundary turns how the sheet leaves the aligned side at its ends', async (
     }
     // The sheet's neighbouring sides are straight, so Next acts as Normal.
     assert.deepEqual(leave('next'), normal);
-    assert.throws(() => alignMoves(side, plan, frames, { boundary: 'sideways' }), /Natural, Normal, Next or Adjacent/);
+    assert.throws(() => alignMoves(side, plan, frames, { boundary: 'sideways' }), /Natural, Normal, Next, Adjacent or Skew/);
+    // Skew (2026.2): from square, each end tilts outward by its angle, keeping its reach.
+    const skewed = (() => {
+        const moved = new Map(alignMoves(side, plan, frames, { continuity: 'G1', boundary: 'skew', skew: [30, -20] }));
+        const at = (i, j) => { const n = side.ids[i][j], p = side.rows[i][j], by = moved.get(n) ?? [0, 0, 0]; return p.map((v, k) => v + by[k]); };
+        return [0, 4].map(j => at(1, j).map((v, k) => v - at(0, j)[k]));
+    })();
+    const deg = d => Math.atan2(d[1], d[0]) * 180 / Math.PI;
+    assert.ok(Math.abs(deg(skewed[0]) - -30) < 1e-6, `start tilts 30° outward (toward -y): ${skewed[0]}`);
+    assert.ok(Math.abs(deg(skewed[1]) - -20) < 1e-6, `end tilts 20° inward (toward -y): ${skewed[1]}`);
+    assert.ok(Math.abs(Math.hypot(...skewed[0]) - Math.hypot(...natural[0])) < 1e-9);
+    assert.throws(() => alignMoves(side, plan, frames, { continuity: 'G0', boundary: 'skew', skew: [10, 10] }), /G1 or G2/);
+    assert.throws(() => alignMoves(side, plan, frames, { continuity: 'G1', boundary: 'skew', skew: [95, 0] }), /-89/);
 });
 
 test('Degree/Spans: the target rebuilt first, then aligned', async () => {

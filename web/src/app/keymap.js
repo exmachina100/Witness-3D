@@ -161,7 +161,8 @@ export const COMMAND = {
     'cut-curve': { tab: 'extend', s: 'screen' },
     // Bridge Edge (manual: Tab continuity, D tension)
     'bridge-edge': { d: 'tension', tab: 'continuity', x: 'axis-x', y: 'axis-y', z: 'axis-z' },
-    'align-surface': { d: 'tension', tab: 'continuity' },
+    // Edge Align (2026.2): B toggles boundary alignment, P partial alignment
+    'align-surface': { d: 'tension', tab: 'continuity', b: 'boundary', p: 'partial' },
     'project-align': { d: 'tension', tab: 'continuity', n: 'normal', x: 'axis-x', y: 'axis-y', z: 'axis-z', s: 'screen' },
     // Instance (manual: Create Solid and Sheet Instance; moved, turned and scaled like a body)
     instance: { g: 'move', r: 'rotate', s: 'scale', 'shift-d': 'duplicate', delete: 'delete', backspace: 'delete' },

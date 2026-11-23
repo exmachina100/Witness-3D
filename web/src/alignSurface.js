@@ -207,7 +207,7 @@ export function normalCurvature(f, n, e) {
  * alignPoints, `frames` the reference face's frames at those points. Returns [[pole, [dx, dy, dz]]]
  * with poles in the face's own numbering.
  */
-export function alignMoves(side, { greville, points }, frames, { continuity = 'G1', tension = 1, blend = 0, influence = 0, partial = [0, 1], boundary = 'natural', matchRatio = false } = {}) {
+export function alignMoves(side, { greville, points }, frames, { continuity = 'G1', tension = 1, blend = 0, influence = 0, partial = [0, 1], boundary = 'natural', skew = [0, 0], matchRatio = false } = {}) {
     // Perpendicular (Project Align): the sheet leaves its side square to the reference, as fast as now.
     const perpendicular = continuity === 'PERP';
     const order = perpendicular ? 1 : ALIGN_CONTINUITY.indexOf(continuity);
@@ -217,7 +217,9 @@ export function alignMoves(side, { greville, points }, frames, { continuity = 'G
     if (!(influence >= 0 && influence <= 1)) throw new Error('the input shape influence runs from 0 to 1');
     const [p0, p1] = partial;
     if (!(p0 >= 0 && p1 <= 1 && p0 < p1)) throw new Error('the partial start and end run from 0 to 1, start before end');
-    if (!BOUNDARY.includes(boundary)) throw new Error('the boundary is Natural, Normal, Next or Adjacent');
+    if (!BOUNDARY.includes(boundary) && boundary !== 'skew') throw new Error('the boundary is Natural, Normal, Next, Adjacent or Skew');
+    if (boundary === 'skew' && order < 1 && !perpendicular) throw new Error('Skew tilts the sheet off the side, so it needs G1 or G2');
+    if (boundary === 'skew' && !(skew.every(a => Number.isFinite(a) && Math.abs(a) < 89))) throw new Error('the skew angles run between -89° and 89°');
     const { rows, ids, along, q, across: A, p } = side;
     if (rows.length < order + 1) throw new Error(`${continuity} needs ${order + 1} rows of control points across the side; raise the degree or rebuild the face first`);
     if (order === 2 && p < 2) throw new Error('G2 needs a surface of degree 2 or more across the side; raise the degree first');
@@ -289,6 +291,15 @@ export function alignMoves(side, { greville, points }, frames, { continuity = 'G
             if (dot(dir, D) < 0) dir = mul(dir, -1);
         } else dir = dot(t, t) > 1e-18 ? sub(D, mul(t, dot(D, t) / dot(t, t))) : D;
         if (len(dir) < 1e-12) continue;
+        // Skew (2026.2, inferred: the manual gives only start and end angles): from square to the
+        // side, the boundary tilts by its angle in the sheet's leaving plane, positive outward
+        // (past the start at the start, past the end at the end).
+        if (boundary === 'skew' && dot(t, t) > 1e-18) {
+            const angle = skew[e === 0 ? 0 : 1] * Math.PI / 180;
+            let out = mul(unit(t), e === 0 ? -1 : 1);
+            out = sub(out, mul(unit(dir), dot(out, unit(dir))));
+            if (len(out) > 1e-12) dir = add(mul(unit(dir), Math.cos(angle)), mul(unit(out), Math.sin(angle)));
+        }
         const moved = add(out[0][e], mul(unit(dir), reach)), shift = sub(moved, out[1][e]);
         out[1][e] = moved;
         if (order >= 2) out[2][e] = add(out[2][e], shift);
@@ -354,9 +365,9 @@ function meanFrame(f, g) {
  * { body, edge }. Returns { body, moves } for previewMoveFacePoles / commitMoveFacePoles, moves as
  * [[face, pole, [dx, dy, dz]]].
  */
-export async function alignRequest(backend, { target, reference, continuity = 'G1', tension = 1, blend = 0, influence = 0, partial = [0, 1], symmetric = false, boundary = 'natural', matchRatio = false }) {
+export async function alignRequest(backend, { target, reference, continuity = 'G1', tension = 1, blend = 0, influence = 0, partial = [0, 1], symmetric = false, boundary = 'natural', skew = [0, 0], matchRatio = false }) {
     if (target.body === reference.body && target.edge === reference.edge) throw new Error('pick two different edges: the one to move, then the one to meet');
-    if (symmetric) return symmetricRequest(backend, { target, reference, continuity, tension, blend, influence, partial, boundary });
+    if (symmetric) return symmetricRequest(backend, { target, reference, continuity, tension, blend, influence, partial, boundary, skew });
     const [tTeeth, rTeeth] = await Promise.all([target, reference].map(e => backend.edgeCurvature({ body: e.body, edge: e.edge, n: 400 })));
     const tAlong = tTeeth.map(t => t.at), rAlong = rTeeth.map(t => t.at);
     const middle = pts => pts[Math.floor(pts.length / 2)];
@@ -365,7 +376,7 @@ export async function alignRequest(backend, { target, reference, continuity = 'G
     const plan = alignPoints(side, rAlong);
     const rFaces = readEdgeFaces(await backend.edgeFaces({ body: reference.body, edge: reference.edge, points: plan.points }), plan.points.length);
     const rFace = pickFace(rFaces, middle(tAlong), false);
-    const moves = alignMoves(side, plan, rFace.frames, { continuity, tension, blend, influence, partial, boundary, matchRatio });
+    const moves = alignMoves(side, plan, rFace.frames, { continuity, tension, blend, influence, partial, boundary, skew, matchRatio });
     // What Analysis needs to check the result: the side, and the reference edge and face.
     const check = { side, reference, face: rFace.face, target: tFace.face, moves };
     return { body: target.body, moves: moves.map(([pole, by]) => [tFace.face, pole, by]), check };
