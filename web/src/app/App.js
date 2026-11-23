@@ -829,7 +829,8 @@ const SHELL = `
         <button data-extshape="reflective" aria-pressed="false" title="The curve's own end mirrored through the end point, into an S">REFL</button>
       </div>
     </div>
-    <div class="sec" data-panel="bridge" hidden>
+    <div data-id="bridge-panel-home">
+    <div class="sec" data-panel="bridge" data-id="bridge-panel" hidden>
       <span class="hint" data-id="br-hint">—</span>
       <div class="field" title="Where the bridge leaves the first curve: 0 its start, 1 its end"><label for="w3d-br-p1">PARAMETER 1</label><input id="w3d-br-p1" data-id="br-p1" type="number" step="0.05" min="0" max="1" value="1"></div>
       <div class="field" title="Where the bridge meets the second curve: 0 its start, 1 its end"><label for="w3d-br-p2">PARAMETER 2</label><input id="w3d-br-p2" data-id="br-p2" type="number" step="0.05" min="0" max="1" value="0"></div>
@@ -842,6 +843,12 @@ const SHELL = `
       <div class="seg" role="group" aria-label="Constrain the bridge to an axis"><button data-braxis="" aria-pressed="true" title="The bridge leaves along the curves themselves">NONE</button><button data-braxis="x" aria-pressed="false" title="The bridge leaves both ends along X"><kbd>X</kbd>X</button><button data-braxis="y" aria-pressed="false" title="The bridge leaves both ends along Y"><kbd>Y</kbd>Y</button><button data-braxis="z" aria-pressed="false" title="The bridge leaves both ends along Z"><kbd>Z</kbd>Z</button></div>
       <div class="chips"><button data-id="br-trim" aria-pressed="false" title="Trim the curves where they run on past the bridge"><kbd>Q</kbd>TRIM</button><button data-id="br-comb" aria-pressed="false" title="Show the curvature of the bridge and the curves it joins">CURVATURE</button><button data-id="br-constrain" aria-pressed="false" title="Create constraints: the bridge stays joined to the curves it bridges, remade with the same continuity when they are edited (for this session)">CONSTRAIN</button></div>
     </div>
+    </div>
+    <dialog class="sec xdialog" data-id="bridge-dialog" aria-label="Bridge Curve" hidden>
+      <div class="xd-head"><span>BRIDGE CURVE</span><button data-xd="cancel" aria-label="Cancel">${icon('close')}</button></div>
+      <div data-id="bridge-dialog-body"></div>
+      <div class="xd-foot"><button data-xd="cancel">CANCEL</button><button data-xd="ok" class="primary">OK</button></div>
+    </dialog>
     <div class="sec" data-panel="bridge-edge" hidden>
       <span class="hint" data-id="be-hint">—</span>
       <div class="field"><label for="w3d-be-p1">PARAMETER 1</label><input id="w3d-be-p1" data-id="be-p1" type="number" step="0.05" min="0" max="1" value="1"></div>
@@ -3948,7 +3955,18 @@ export async function mount(root, backend) {
     toolbar.setActive(id);
     for (const el of $$('[data-panel]')) el.hidden = el.dataset.panel !== (id === 'spiral' ? 'spiral' : DRAW[id] ? 'draw' : FORMS[id] ? 'form' : PRIMS[id] ? 'primitive' : id);
     const toolProperties = $('tool-properties');
-    toolProperties.hidden = !toolProperties.querySelector('[data-panel]:not([hidden])');
+    const bridgeDialog = $('bridge-dialog');
+    const bridgePanel = $('bridge-panel');
+    // The first stage needs the canvas. Show modal options only once both ends are known.
+    const bridgeOptions = id === 'bridge' && !!cmd?.continuity;
+    if (bridgeOptions) {
+      $('bridge-dialog-body').append(bridgePanel);
+    } else if (bridgeDialog.open) {
+      bridgeDialog.close();
+      $('bridge-panel-home').append(bridgePanel);
+    }
+    bridgeDialog.hidden = !bridgeOptions;
+    toolProperties.hidden = !bridgeOptions && !toolProperties.querySelector('[data-panel]:not([hidden])');
     if (!toolProperties.hidden) toolProperties.open = true;
     for (const dialog of $$('dialog.xdialog')) {
       if (dialog.hidden && dialog.open) dialog.close();
@@ -15527,7 +15545,7 @@ export async function mount(root, backend) {
   // Export options open as a small dialog over the view (Plasticity's export options window),
   // with Export and Cancel at its foot as well as Enter and Esc.
   for (const b of $$('[data-xd]')) b.onclick = () => {
-    if (!cmd || !['export-mesh', 'export-drawing'].includes(cmd.id)) return;
+    if (!cmd || !['bridge', 'export-mesh', 'export-drawing'].includes(cmd.id)) return;
     if (b.dataset.xd === 'ok') cmd.finish(); else cmd.abort();
   };
   $('ex-pick-target').onclick = () => {
