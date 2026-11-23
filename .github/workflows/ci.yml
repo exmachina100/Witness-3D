@@ -19,6 +19,23 @@ jobs:
           cache-dependency-path: web/package-lock.json
       - run: npm ci
       - run: npm test
+      - name: Assemble browser preview
+        run: bash assemble-pages.sh ../_site
+      - name: Verify preview dialogs in Chrome
+        run: |
+          npm install --prefix "$RUNNER_TEMP/witness-browser" --no-package-lock playwright-core@1.56.1
+          python3 -m http.server 4175 --bind 127.0.0.1 --directory ../_site &
+          server=$!
+          trap 'kill "$server" 2>/dev/null || true' EXIT
+          for attempt in {1..20}; do
+            if curl --silent --fail http://127.0.0.1:4175/ -o /dev/null; then break; fi
+            sleep 1
+          done
+          CHROME_BIN="$(command -v google-chrome)" NODE_PATH="$RUNNER_TEMP/witness-browser/node_modules" node test/browser-dialogs.cjs
+      - uses: actions/upload-artifact@v4
+        with:
+          name: witness-browser-preview
+          path: _site/
 
   desktop-ui:
     runs-on: ubuntu-latest

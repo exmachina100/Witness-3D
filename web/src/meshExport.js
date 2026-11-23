@@ -28,7 +28,11 @@ export function limitEdges(positions, indices, maxEdge) {
     while (stack.length) {
         const [a, b, c] = stack.pop();
         const e = [len(a, b), len(b, c), len(c, a)], m = Math.max(...e);
-        if (m <= maxEdge || ++guard > 2e6) { out.push(a, b, c); continue; }
+        if (m <= maxEdge) { out.push(a, b, c); continue; }
+        // One split can add at most one segment along any original edge.
+        if (m / maxEdge > 2e6 || ++guard > 2e6) {
+            throw new Error('Mesh max width requires too many subdivisions. Increase Max Width and retry.');
+        }
         // Split the longest edge; the two halves keep the winding.
         if (m === e[0]) { const d = mid(a, b); stack.push([a, d, c], [d, b, c]); }
         else if (m === e[1]) { const d = mid(b, c); stack.push([a, b, d], [a, d, c]); }

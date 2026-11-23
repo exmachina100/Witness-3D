@@ -98,7 +98,7 @@ import { Constraints } from './constraints.js';
 import { SNAP_KINDS, allowed as snapAllowed, kindOf as snapKindOf, parseSnaps } from './snapKinds.js';
 import { Organise, curveKey } from './Organise.js';
 import { P_MENU, RADIALS, mergeKeys, parseRadial, shortLabel, showKey, sliceAt, slicePosition } from './menus.js';
-import { formatLength, fromUnit, parseLength, showMass, showVolume, toUnit } from '../units.js';
+import { formatLength, fromUnit, parseAngle, parseLength, showMass, showVolume, toUnit } from '../units.js';
 import { ADVANCED_MATERIAL, ENVIRONMENTS, MATERIAL_LIBRARY, SHADERS, SHADER_OPTIONS, checkMaterial, isColorKey, massOf, newMaterial, shader } from './shading.js';
 import { claude, describe, MODEL, reply, request } from './ai.js';
 import { icon } from './icons.js';
@@ -243,7 +243,7 @@ const SHELL = `
   </header>
   <div class="pmenu" data-id="pmenu" role="menu" hidden></div>
   <div class="pmenu omenu" data-id="omenu" role="menu" hidden></div>
-  <div class="prefs" data-id="prefs" role="dialog" aria-label="Preferences" hidden></div>
+  <dialog class="prefs" data-id="prefs" aria-label="Preferences" hidden></dialog>
 
   <aside class="left" aria-label="Document">
     <div class="doc">
@@ -336,6 +336,7 @@ const SHELL = `
       <div class="ask-out" data-id="ask-out"></div>
     </div>
     <div class="toast" data-id="toast" hidden></div>
+    <div class="sr-only" data-id="announcement" role="status" aria-atomic="true"></div>
     <div class="loading" data-id="loading">STARTING THE KERNEL…</div>
     <div class="recover" data-id="recover" role="alertdialog" aria-label="Recover a backup" hidden></div>
     <input type="file" data-id="import-file" accept=".step,.stp,.igs,.iges,.dxf,.png,.jpg,.jpeg" hidden>
@@ -343,6 +344,14 @@ const SHELL = `
 
   <aside class="right" aria-label="Inspector">
     <header><span data-id="tool-name">SELECT</span><span data-id="target">—</span></header>
+    <details class="inspector-section" open>
+      <summary>SELECTION PROPERTIES</summary>
+      <div class="sec">
+        <div class="field"><span>SELECTED</span><output data-id="inspector-selection">—</output></div>
+      </div>
+    </details>
+    <details class="inspector-section" data-id="tool-properties" hidden>
+      <summary>TOOL PROPERTIES</summary>
     <div class="sec" data-panel="fillet" hidden>
       <span class="hint" data-id="blend-hint">SELECT EDGES TO ROUND</span>
       <div class="field"><label for="w3d-blend-distance">DISTANCE</label><input id="w3d-blend-distance" data-id="blend-distance" type="number" step="0.5" value="0" title="Negative makes a chamfer"></div>
@@ -433,7 +442,7 @@ const SHELL = `
       <div class="seg" role="group" aria-label="Grow mode"><button data-grow="moving" aria-pressed="true" title="Move the whole wall when the offset gets to the outer wall">MOVING</button><button data-grow="fixed" aria-pressed="false" title="Stop at the outer wall">FIXED</button><button data-grow="none" aria-pressed="false" title="Keep going by itself, past the outer wall">NONE</button></div>
       <div class="field"><label>FACES</label><output data-id="off-count">0</output></div>
     </div>
-    <div class="sec xdialog" data-panel="export-mesh" role="dialog" aria-label="Export mesh" hidden>
+    <dialog class="sec xdialog" data-panel="export-mesh" aria-label="Export mesh" hidden>
       <div class="xd-head"><span>EXPORT MESH</span><button data-xd="cancel" title="Cancel (Esc)" aria-label="Cancel">${icon('close')}</button></div>
       <span class="hint" data-id="mx-hint">—</span>
       <span class="label">FORMAT</span>
@@ -450,17 +459,20 @@ const SHELL = `
       <div class="seg" role="group" aria-label="Topology" data-id="mx-topo"><button data-mxtopo="tris" aria-pressed="true" title="Triangles only">TRIS</button><button data-mxtopo="quads" aria-pressed="false" title="Quads, with triangles where two will not pair">QUADS</button><button data-mxtopo="ngons" aria-pressed="false" title="Each flat run of faces one polygon of any number of sides">NGONS</button></div>
       <div class="chips" data-id="mx-convex-row"><button data-id="mx-convex" aria-pressed="false" title="Ngons: only convex polygons; a run that is not convex stays triangles">CONVEX NGONS ONLY</button></div>
       <div class="field" title="Separate pieces smaller across (their bounding box's diagonal) than this are left out; 0 keeps them all"><label for="w3d-mx-small">REMOVE SMALL FEATURES</label><input id="w3d-mx-small" data-id="mx-small" type="number" step="0.5" min="0" value="0"></div>
+      <label class="field" data-id="mx-inflect-row" hidden><span>REFINE CURVATURE REVERSALS</span><input type="checkbox" data-id="mx-inflect" title="Use finer tessellation for bodies with a sampled curvature reversal"></label>
+      <output class="hint" data-xd-status role="status" aria-live="polite"></output>
       <div class="xd-foot"><button data-xd="cancel" title="Cancel (Esc)">CANCEL</button><button data-xd="ok" class="primary" title="Export (Enter)">EXPORT</button></div>
-    </div>
-    <div class="sec xdialog" data-panel="export-drawing" role="dialog" aria-label="Export drawing" hidden>
+    </dialog>
+    <dialog class="sec xdialog" data-panel="export-drawing" aria-label="Export drawing" hidden>
       <div class="xd-head"><span>EXPORT DRAWING</span><button data-xd="cancel" title="Cancel (Esc)" aria-label="Cancel">${icon('close')}</button></div>
       <span class="hint" data-id="dr-hint">—</span>
       <span class="label">FORMAT</span>
       <div class="seg" role="group" aria-label="Drawing format"><button data-drf="svg" aria-pressed="true">SVG</button><button data-drf="dxf" aria-pressed="false">DXF</button></div>
       <div class="chips"><button data-id="dr-hidden" aria-pressed="true" title="Hidden lines (H)">HIDDEN</button><button data-id="dr-curves" aria-pressed="true" title="Curves (C)">CURVES</button></div>
       <div class="field"><label for="w3d-dr-tol">TOLERANCE</label><input id="w3d-dr-tol" data-id="dr-tol" type="number" step="0.01" min="0.001" value="0.01"></div>
+      <output class="hint" data-xd-status role="status" aria-live="polite"></output>
       <div class="xd-foot"><button data-xd="cancel" title="Cancel (Esc)">CANCEL</button><button data-xd="ok" class="primary" title="Export (Enter)">EXPORT</button></div>
-    </div>
+    </dialog>
     <div class="sec" data-panel="offset-curve" hidden>
       <span class="hint" data-id="oc-hint">—</span>
       <div class="field"><label for="w3d-oc-d">DISTANCE</label><input id="w3d-oc-d" data-id="oc-d" type="number" step="0.5" value="5"></div>
@@ -819,7 +831,8 @@ const SHELL = `
         <button data-extshape="reflective" aria-pressed="false" title="The curve's own end mirrored through the end point, into an S">REFL</button>
       </div>
     </div>
-    <div class="sec" data-panel="bridge" hidden>
+    <div data-id="bridge-panel-home">
+    <div class="sec" data-panel="bridge" data-id="bridge-panel" hidden>
       <span class="hint" data-id="br-hint">—</span>
       <div class="field" title="Where the bridge leaves the first curve: 0 its start, 1 its end"><label for="w3d-br-p1">PARAMETER 1</label><input id="w3d-br-p1" data-id="br-p1" type="number" step="0.05" min="0" max="1" value="1"></div>
       <div class="field" title="Where the bridge meets the second curve: 0 its start, 1 its end"><label for="w3d-br-p2">PARAMETER 2</label><input id="w3d-br-p2" data-id="br-p2" type="number" step="0.05" min="0" max="1" value="0"></div>
@@ -832,6 +845,13 @@ const SHELL = `
       <div class="seg" role="group" aria-label="Constrain the bridge to an axis"><button data-braxis="" aria-pressed="true" title="The bridge leaves along the curves themselves">NONE</button><button data-braxis="x" aria-pressed="false" title="The bridge leaves both ends along X"><kbd>X</kbd>X</button><button data-braxis="y" aria-pressed="false" title="The bridge leaves both ends along Y"><kbd>Y</kbd>Y</button><button data-braxis="z" aria-pressed="false" title="The bridge leaves both ends along Z"><kbd>Z</kbd>Z</button></div>
       <div class="chips"><button data-id="br-trim" aria-pressed="false" title="Trim the curves where they run on past the bridge"><kbd>Q</kbd>TRIM</button><button data-id="br-comb" aria-pressed="false" title="Show the curvature of the bridge and the curves it joins">CURVATURE</button><button data-id="br-constrain" aria-pressed="false" title="Create constraints: the bridge stays joined to the curves it bridges, remade with the same continuity when they are edited (for this session)">CONSTRAIN</button></div>
     </div>
+    </div>
+    <dialog class="sec xdialog" data-id="bridge-dialog" aria-label="Bridge Curve" hidden>
+      <div class="xd-head"><span>BRIDGE CURVE</span><button data-xd="cancel" aria-label="Cancel">${icon('close')}</button></div>
+      <div data-id="bridge-dialog-body"></div>
+      <output class="hint" data-xd-status role="status" aria-live="polite"></output>
+      <div class="xd-foot"><button data-xd="cancel">CANCEL</button><button data-xd="ok" class="primary">OK</button></div>
+    </dialog>
     <div class="sec" data-panel="bridge-edge" hidden>
       <span class="hint" data-id="be-hint">—</span>
       <div class="field"><label for="w3d-be-p1">PARAMETER 1</label><input id="w3d-be-p1" data-id="be-p1" type="number" step="0.05" min="0" max="1" value="1"></div>
@@ -1022,7 +1042,10 @@ const SHELL = `
     <div class="sec" data-panel="loft-sheet" hidden>
       <span class="hint" data-id="ls-hint">—</span>
       <div class="field"><label>PROFILES</label><output data-id="ls-count">0</output></div>
-      <div class="field" title="Shift+click curves or edges the sheet's sides run along; Shift+click one again to drop it"><label>GUIDES</label><output data-id="ls-guides">0</output></div>
+      <div class="field" data-id="ls-guide-count" title="Shift+click curves or edges the sheet's sides run along; Shift+click one again to drop it"><label>GUIDES</label><output data-id="ls-guides">0</output></div>
+      <div class="chips" data-id="ls-guide-actions"><button data-id="ls-pick-guides" aria-pressed="false">PICK GUIDES</button><button data-id="ls-clear-guides" disabled>CLEAR GUIDES</button></div>
+      <div class="field" data-id="ls-guide-choice"><label for="w3d-loft-guide">GUIDE CURVE</label><select id="w3d-loft-guide" data-id="ls-add-guide"></select></div>
+      <div class="chips" data-id="ls-guide-list" role="group" aria-label="Selected Loft guides" hidden></div>
       <div class="field"><label>LIMIT POINTS</label><output data-id="ls-limits">0</output></div>
       <div data-id="ls-edges-row" hidden>
         <span class="label">CONTINUITY AT EACH EDGE · TAB SETS ALL</span>
@@ -1099,12 +1122,16 @@ const SHELL = `
         <button data-op="new" aria-pressed="false"><kbd>B</kbd>NEW</button>
       </div>
     </div>
+    </details>
+    <details class="inspector-section" open>
+      <summary>SNAPPING</summary>
     <div class="sec" data-id="snapping">
-      <span class="label">SNAPPING</span>
       <div class="chips"><button data-toggle="snap" aria-pressed="false" aria-label="Snap" title="Grid snapping without holding Ctrl"></button><button data-id="snap-object" aria-pressed="true" aria-label="Object snapping" title="Object snapping: points on solids, sheets and curves (Ctrl or drawing). Shift+X while a snap shows skips that kind until the command ends">${icon('snap-object')}</button>${SNAP_KINDS.map(k => `<button data-snapkind="${k.id}" aria-pressed="true" aria-label="${k.label} snaps" title="${k.label} snaps">${icon(`snap-${k.id}`)}</button>`).join('')}</div>
     </div>
+    </details>
+    <details class="inspector-section" open>
+      <summary>CONSTRUCTION PLANES</summary>
     <div class="sec">
-      <span class="label">CONSTRUCTION PLANE</span>
       <div class="seg" role="group" aria-label="Construction plane">
         <button data-action="plane:selection" aria-label="From selection" title="From selection (Space): a flat face, a face and an edge, two parallel faces, a planar curve or region, or points; the view turns to face it">${icon('plane-face')}</button>
         <button data-action="plane:view" aria-label="Facing the view" title="Facing the view (Ctrl+Space), through the world origin">${icon('plane-view')}</button>
@@ -1112,15 +1139,32 @@ const SHELL = `
         <button data-action="plane:world" aria-label="World XY" title="The world XY plane">${icon('plane-world')}</button>
         <button data-action="plane:save" aria-label="Save plane" title="Save the construction plane to the list below (Temporary construction plane); saved with the file">${icon('plane-save')}</button>
       </div>
+      <button data-id="new-plane">NEW PLANE</button>
+      <dialog class="plane-dialog" data-id="plane-dialog" aria-label="New construction plane">
+        <form data-id="plane-form">
+          <div class="field"><label for="w3d-plane-name">NAME</label><input id="w3d-plane-name" data-id="plane-name" required maxlength="48"></div>
+          <div class="chips"><button type="button" data-id="plane-pick-origin">PICK ORIGIN IN VIEW</button></div>
+          <div class="pair"><button type="button" data-id="plane-cancel">CANCEL</button><button type="submit">SAVE PLANE</button></div>
+        </form>
+      </dialog>
       <div class="saved-planes" data-id="saved-planes" hidden></div>
     </div>
-    <div class="states">
+    </details>
+    <details class="inspector-section">
+      <summary>MATERIALS</summary>
+      <div class="sec"><div class="chips"><button data-action="material:set">SET MATERIAL</button><button data-action="material:remove">REMOVE MATERIAL</button></div></div>
+    </details>
+    <details class="inspector-section">
+      <summary>SCENE SETTINGS</summary>
+      <div class="sec"><div class="chips"><button data-action="app:preferences">PREFERENCES</button></div></div>
+      <div class="states">
       <span class="label">STATE</span>
       <ol data-id="states">
         <li data-s="none">NONE</li><li data-s="updating">UPDATING</li><li data-s="updated">UPDATED</li>
         <li data-s="committed">COMMITTED</li><li data-s="failed">FAILED</li><li data-s="cancelled">CANCELLED</li>
       </ol>
     </div>
+    </details>
     <span class="fill"></span>
     <div class="pair">
       <button data-id="cancel" disabled>ESC CANCEL</button>
@@ -1190,6 +1234,7 @@ export async function mount(root, backend) {
 
   const toast = msg => {
     const t = $('toast'); t.textContent = msg; t.hidden = false;
+    $('announcement').textContent = msg;
     clearTimeout(toast.timer); toast.timer = setTimeout(() => t.hidden = true, 2600);
   };
   $('kernel').textContent = `KERNEL: ${backend.info.kernel}`;
@@ -1352,8 +1397,9 @@ export async function mount(root, backend) {
   // `VIEW_MS`. A turn in progress is replaced by the next.
   const VIEW_MS = 260;
   let turning = null;
+  const reducedMotion = matchMedia('(prefers-reduced-motion: reduce)');
   function turnTo(target, position, ms = VIEW_MS) {
-    if (!ms) { controls.target.copy(target); camera.position.copy(position); camera.lookAt(target); turning = null; return; }
+    if (!ms || reducedMotion.matches) { controls.target.copy(target); camera.position.copy(position); camera.lookAt(target); turning = null; return; }
     const from = { target: controls.target.clone(), offset: camera.position.clone().sub(controls.target) };
     const to = { target: target.clone(), offset: position.clone().sub(target) };
     turning = { from, to, t0: performance.now(), ms };
@@ -3285,14 +3331,42 @@ export async function mount(root, backend) {
   }
   // Saved construction planes (Plasticity's Temporary construction plane, kept in a list).
   let savedPlanes = [];
-  function savePlane() {
-    const name = cplane.name === 'XY' || /^PLANE \d+$/.test(cplane.name) ? `PLANE ${savedPlanes.length + 1}` : cplane.name;
-    if (savedPlanes.some(q => q.origin.every((v, i) => Math.abs(v - cplane.origin.getComponent(i)) < 1e-9) && q.normal.every((v, i) => Math.abs(v - cplane.normal.getComponent(i)) < 1e-9))) return toast('THAT PLANE IS SAVED ALREADY');
+  function defaultPlaneName() {
+    return cplane.name === 'XY' || /^PLANE \d+$/.test(cplane.name) ? `PLANE ${savedPlanes.length + 1}` : cplane.name;
+  }
+  function savePlane(name = defaultPlaneName()) {
+    if (savedPlanes.some(q => q.origin.every((v, i) => Math.abs(v - cplane.origin.getComponent(i)) < 1e-9) && q.normal.every((v, i) => Math.abs(v - cplane.normal.getComponent(i)) < 1e-9))) { toast('THAT PLANE IS SAVED ALREADY'); return false; }
     savedPlanes.push({ name, origin: cplane.origin.toArray(), normal: cplane.normal.toArray() });
     drawSavedPlanes();
     keepAppState();
     toast(`SAVED ${name}`);
+    return true;
   }
+  const planeDialog = $('plane-dialog');
+  let planeBeforeDialog;
+  function closePlaneDialog(cancelled) {
+    if (planeOriginPending) { planeOriginPending = false; setHud(''); }
+    if (cancelled && planeBeforeDialog) setPlane(planeBeforeDialog);
+    planeBeforeDialog = undefined;
+    planeDialog.close();
+    $('new-plane').focus();
+  }
+  $('new-plane').onclick = () => {
+    if (planeDialog.open) return;
+    planeBeforeDialog = { origin: cplane.origin.clone(), normal: cplane.normal.clone(), name: cplane.name };
+    $('plane-name').value = defaultPlaneName();
+    planeDialog.show();
+    $('plane-name').select();
+  };
+  $('plane-pick-origin').onclick = () => planeFromViewAt();
+  $('plane-cancel').onclick = () => closePlaneDialog(true);
+  planeDialog.oncancel = e => { e.preventDefault(); closePlaneDialog(true); };
+  $('plane-form').onsubmit = e => {
+    e.preventDefault();
+    const name = $('plane-name').value.trim();
+    if (!name) { $('plane-name').focus(); return; }
+    if (savePlane(name)) closePlaneDialog(false);
+  };
   function drawSavedPlanes() {
     const el = $('saved-planes');
     el.replaceChildren(...savedPlanes.map((q, i) => {
@@ -3340,25 +3414,26 @@ export async function mount(root, backend) {
    * What is under the pointer among the active selection modes: an edge if one is close (and not
    * behind a face), else a face, else the solid. Returns { kind, body, n?, point }.
    */
-  function pickAt(e) {
+  function pickAt(e, { guide = false } = {}) {
     ray(e);
-    const vertex = sel.allows('point') && (vertexAt(local(e)) ?? poleAt(local(e)));
+    const vertex = !guide && sel.allows('point') && (vertexAt(local(e)) ?? poleAt(local(e)));
     if (vertex) return vertex;
     const meshes = shownMeshes().filter(m => !org.locked.has(m.userData.id));
     const faceHit = raycaster.intersectObjects(meshes, false)[0];
     const reach = faceHit ? faceHit.distance * 1.01 + 0.5 : Infinity; // in front of the face, or on it
-    raycaster.params.Line.threshold = unitsPerPixel(faceHit?.point ?? controls.target) * 6;
+    raycaster.params.Line.threshold = unitsPerPixel(faceHit?.point ?? controls.target) * (guide && e.pointerType === 'touch' ? 12 : 6);
     // Curves pick with edges or solids (Plasticity picks a curve whole), regions with faces.
     // Hidden curves (View › Curves off, or hidden in the outliner) can't be picked.
-    const curveHit = sel.allows('edge') && curveGroup.visible
-      && raycaster.intersectObjects(curveGroup.children.filter(o => o.visible && o.userData.curve !== undefined), false).find(h => h.distance <= reach);
+    const curveHit = (guide || sel.allows('edge')) && curveGroup.visible
+      && raycaster.intersectObjects(curveGroup.children.filter(o => o.visible && o.userData.curve !== undefined && (!guide || !org.locked.has(curveKey(o.userData.curve)))), false).find(h => h.distance <= reach);
     let edgeHit = null;
-    if (sel.allows('edge')) {
+    if (guide || sel.allows('edge')) {
       const hits = raycaster.intersectObjects(meshes.map(m => m.userData.lines), false);
       edgeHit = hits.find(h => !faceHit || h.distance <= faceHit.distance * 1.01 + 1e-6);
     }
     if (curveHit && (!edgeHit || curveHit.distance <= edgeHit.distance + 0.5)) return { kind: 'curve', id: curveHit.object.userData.curve, point: curveHit.point };
     if (edgeHit) return { kind: 'edge', body: edgeHit.object.parent.userData.id, n: edgeHit.object.userData.segEdge[edgeHit.index / 2], point: edgeHit.point };
+    if (guide) return null;
     if (sel.allows('face')) {
       const r = curveGroup.visible && raycaster.intersectObjects(curveGroup.children.filter(o => o.visible && o.userData.region !== undefined), false).find(h => h.distance <= reach);
       if (r) return { kind: 'region', id: r.object.userData.region, point: r.point };
@@ -3633,6 +3708,7 @@ export async function mount(root, backend) {
     renderContext();
     const n = sel.size;
     $('sel-count').textContent = n ? `${n} ${[...new Set(sel.list().map(it => it.kind === 'pole' ? 'surface point' : it.kind))].join('+').toUpperCase()}` : '—';
+    $('inspector-selection').textContent = $('sel-count').textContent;
     renderMass();
     if (cmd?.onSelection) return cmd.onSelection();
     if (quiet) return;
@@ -3917,6 +3993,29 @@ export async function mount(root, backend) {
   function showTool(id) {
     toolbar.setActive(id);
     for (const el of $$('[data-panel]')) el.hidden = el.dataset.panel !== (id === 'spiral' ? 'spiral' : DRAW[id] ? 'draw' : FORMS[id] ? 'form' : PRIMS[id] ? 'primitive' : id);
+    const toolProperties = $('tool-properties');
+    const bridgeDialog = $('bridge-dialog');
+    const bridgePanel = $('bridge-panel');
+    // The first stage needs the canvas. Show modal options only once both ends are known.
+    const bridgeOptions = id === 'bridge' && !!cmd?.continuity;
+    if (bridgeOptions) {
+      $('bridge-dialog-body').append(bridgePanel);
+    } else {
+      if (bridgeDialog.open) bridgeDialog.close();
+      const home = $('bridge-panel-home');
+      if (bridgePanel.parentElement !== home) home.append(bridgePanel);
+    }
+    bridgeDialog.hidden = !bridgeOptions;
+    toolProperties.hidden = !bridgeOptions && !toolProperties.querySelector('[data-panel]:not([hidden])');
+    if (!toolProperties.hidden) toolProperties.open = true;
+    for (const dialog of $$('dialog.xdialog')) {
+      if (dialog.hidden && dialog.open) dialog.close();
+      if (!dialog.hidden && !dialog.open) {
+        dialog.querySelector('[data-xd-status]').textContent = '';
+        dialog.showModal();
+        dialog.querySelector('[data-xd="cancel"]').focus();
+      }
+    }
     $('keys').innerHTML = keysHtml(KEYS[id] ? id : 'idle');
     $('step-keys').innerHTML = (KEYS[id] ?? []).map(([k, what]) => `<kbd>${k}</kbd>${what}`).join('');
     $('stepline').dataset.cmd = id ?? '';
@@ -3939,8 +4038,33 @@ export async function mount(root, backend) {
     if (state) setState(state);
     renderOutliner();
   }
-  async function finish() { const c = cmd; if (c) await c.finish(); }
-  function abort() { cmd?.abort(); }
+  function reportDialogError(error) {
+    const status = root.querySelector('dialog.xdialog:modal [data-xd-status]');
+    if (status) status.textContent = say(error);
+    else toast(say(error));
+    setState('failed');
+  }
+  async function finish() {
+    const c = cmd;
+    if (!c) return;
+    if (c.dialogFinish) return c.dialogFinish;
+    const dialog = root.querySelector('dialog.xdialog:modal');
+    if (!dialog) return c.finish();
+
+    const status = dialog.querySelector('[data-xd-status]');
+    dialog.setAttribute('aria-busy', 'true');
+    status.textContent = 'WORKING…';
+    c.dialogFinish = Promise.resolve().then(() => c.finish()).catch(error => {
+      if (cmd !== c) return;
+      reportDialogError(error);
+    }).finally(() => {
+      if (status.textContent === 'WORKING…') status.textContent = '';
+      dialog.removeAttribute('aria-busy');
+      c.dialogFinish = null;
+    });
+    return c.dialogFinish;
+  }
+  function abort() { if (!cmd?.dialogFinish) cmd?.abort(); }
 
   async function startTool(id, opts = {}) {
     if (cmd && cmd.id === id && !cmd.auto) return;
@@ -4108,7 +4232,7 @@ export async function mount(root, backend) {
       }
       if (action === 'tangent') { setFilletTangent(!c.tangent); return true; }
       if (action === 'angle') {
-        c.entry = { label: 'ANGLE °', text: '', apply: v => { if (v > 0 && v < 90) { c.angle = v; $('blend-angle').value = v; previewFillet(); } else toast('THE ANGLE MUST BE BETWEEN 0 AND 90'); } };
+        c.entry = { label: 'ANGLE °', text: '', parse: parseAngle, apply: v => { if (v > 0 && v < 90) { c.angle = v; $('blend-angle').value = v; previewFillet(); } else toast('THE ANGLE MUST BE BETWEEN 0 AND 90'); } };
         setHud('ANGLE ° _');
         return true;
       }
@@ -4184,6 +4308,7 @@ export async function mount(root, backend) {
       setFillet(snapping(lastPointer) ? Math.round(v / gridStep()) * gridStep() : v);
     }, () => refineFillet());
     c.gizmo.onStart = () => { controls.enabled = false; c.auto = false; c.dragVar = null; };
+    c.gizmo.parseInput = parseDistanceEntry;
     c.gizmo.render(c.value);
   }
 
@@ -5143,6 +5268,7 @@ export async function mount(root, backend) {
     c.sent = c.computed = c.shown = 0;
     $('coalesced').textContent = '0→0';
     c.gizmo = dot(origin, normal, d => setDistance(snapping(lastPointer) ? Math.round(d / gridStep()) * gridStep() : d));
+    c.gizmo.parseInput = parseDistanceEntry;
     placeOutline(origin, normal);
     showSnap(null);
     $('distance').disabled = false;
@@ -5712,7 +5838,7 @@ export async function mount(root, backend) {
       else width();
     } else if (c.id === 'arc') {
       if (c.pts.length === 1) c.entry = { label: 'RADIUS', text: '', apply: r => { c.pts.push(along(Math.abs(r))); c.sweep = 0; c.turn = null; } };
-      else c.entry = { label: 'ANGLE °', text: '', apply: v => { c.sweep = Math.max(-359.9, Math.min(359.9, v)) * DEG; commitDrawn([...c.pts, c.pts[1]]); } };
+      else c.entry = { label: 'ANGLE °', text: '', parse: parseAngle, apply: v => { c.sweep = Math.max(-359.9, Math.min(359.9, v)) * DEG; commitDrawn([...c.pts, c.pts[1]]); } };
     } else if (CLICKS[c.id] || c.id === 'spline' || c.id === 'cv') {
       return toast('CLICK THE POINTS');
     } else {
@@ -5731,7 +5857,7 @@ export async function mount(root, backend) {
       c.entry = { label: 'LENGTH', text: '', apply: l => { length = l; put(dir); },
         next: () => {
           const now = Math.atan2(dir.y, dir.x) / DEG;
-          c.entry = { label: `ANGLE ° (${now.toFixed(1)})`, text: '', apply: v => {
+          c.entry = { label: `ANGLE ° (${now.toFixed(1)})`, text: '', parse: parseAngle, apply: v => {
             const d = dir.clone();
             d.x = Math.cos(v * DEG); d.y = Math.sin(v * DEG);
             if (d.isVector3) d.z = 0;
@@ -6168,6 +6294,7 @@ export async function mount(root, backend) {
     $('ex-outcome').textContent = '—';
     setExtrudeOps();
     c.gizmo = dot(src.at, src.normal, d => setExtrude(snapping(lastPointer) ? Math.round(d / gridStep()) * gridStep() : d));
+    c.gizmo.parseInput = parseDistanceEntry;
     c.gizmo.onStart = () => { controls.enabled = false; c.auto = false; c.dragVar = null; };
     // The angle (race) dot on the tip and the thickness dot at the base, both across the extrude
     // direction. The angle dot's offset is how far the side leans over the distance; typed digits
@@ -6214,7 +6341,7 @@ export async function mount(root, backend) {
       if (action === 'thickness') { c.auto = false; c.thickDot.activate(lastPointer); setHud('MOVE FOR THE THICKNESS · CLICK TO SET, OR TYPE IT'); return true; }
       if (action === 'angle') {
         c.auto = false;
-        c.entry = { label: 'ANGLE °', text: '', apply: v => setExtrudeShape({ angle: v }) };
+        c.entry = { label: 'ANGLE °', text: '', parse: parseAngle, apply: v => setExtrudeShape({ angle: v }) };
         setHud('ANGLE ° _');
         return true;
       }
@@ -6602,7 +6729,7 @@ export async function mount(root, backend) {
       if (action === 'angle') {
         // A: Angle Adjacent, the faces around lean (positive narrows the face).
         c.auto = false;
-        c.entry = { label: 'ANGLE ADJACENT °', text: '', apply: v => setOffsetAngle(v) };
+        c.entry = { label: 'ANGLE ADJACENT °', text: '', parse: parseAngle, apply: v => setOffsetAngle(v) };
         setHud('ANGLE ADJACENT ° _');
         return true;
       }
@@ -9459,6 +9586,7 @@ export async function mount(root, backend) {
       c.gizmo?.dispose();
       const f = faceFrame(bodyOf(c.body), c.faces.at(-1) ?? 0);
       c.gizmo = f && dot(f.at, f.normal, v => setFront(snapping(lastPointer) ? Math.round(v / gridStep()) * gridStep() : v));
+      if (c.gizmo) c.gizmo.parseInput = parseDistanceEntry;
       c.gizmo?.render(num('th-f'));
     };
     // Dragged behind the sheet, the dot grows it backwards instead (both ways when locked).
@@ -10487,6 +10615,8 @@ export async function mount(root, backend) {
     const placed = sel.bodies.length ? [] : instances.filter(n => !n.curve && !n.hidden && current.some(b => b.id === n.master));
     if (!ids.length && !placed.length) return toast('NOTHING TO EXPORT');
     const c = cmd = { id: 'export-mesh', format: 'obj', up: 'z', topology: 'tris', convex: false };
+    $('mx-inflect-row').hidden = !backend.supportsInflectionRefinement;
+    $('mx-inflect').checked = false;
     lastTool = 'export-mesh';
     showTool('export-mesh');
     setState('none');
@@ -10521,7 +10651,7 @@ export async function mount(root, backend) {
       };
       try {
         const masters = placed.map(n => n.master).filter((id, i, all) => all.indexOf(id) === i);
-        const made = await backend.meshBodies([...new Set([...ids, ...masters])], { tolerance, angle });
+        const made = await backend.meshBodies([...new Set([...ids, ...masters])], { tolerance, angle, inflect: !!backend.supportsInflectionRefinement && $('mx-inflect').checked });
         // Each body's material, for the formats that carry one (glTF and 3MF).
         const look = id => { const m = materials.get(materialOf.get(id)); return m ? { color: m.color, roughness: m.roughness, metalness: m.metalness, opacity: m.opacity } : {}; };
         const sheet = id => !!current.find(b => b.id === id)?.sheet;
@@ -10539,7 +10669,7 @@ export async function mount(root, backend) {
         const msg = await backend.saveExport(name, c.format === 'obj' ? toObj(meshes, undefined, { scale: num('mx-scale') || 1, up: c.up }) : write(meshes));
         endCmd(msg ? 'committed' : 'cancelled');
         if (msg) toast(`${msg} · ${c.format === 'obj' && c.topology !== 'tris' ? `${polygons} POLYGONS` : `${triangles} TRIANGLES`}`);
-      } catch (e) { setState('failed'); toast(say(e)); }
+      } catch (e) { reportDialogError(e); }
     };
     c.abort = () => endCmd('cancelled');
     sync();
@@ -10593,7 +10723,7 @@ export async function mount(root, backend) {
         const msg = await backend.saveExport(name, text);
         endCmd(msg ? 'committed' : 'cancelled');
         if (msg) toast(`${msg} · ${lines.filter(l => c.hidden || !l.hidden).length} LINES`);
-      } catch (e) { setState('failed'); toast(say(e)); }
+      } catch (e) { reportDialogError(e); }
     };
     c.abort = () => endCmd('cancelled');
     sync();
@@ -10968,7 +11098,7 @@ export async function mount(root, backend) {
         endCmd('committed');
         record('BRIDGE CURVES', made[0], curveLabel(made[0]));
         await curvesChanged(made);
-      } catch (e) { setState('failed'); toast(say(e)); }
+      } catch (e) { reportDialogError(e); }
     };
     c.setAxis = a => { c.axis = c.axis === a ? '' : a; c.preview(); };
     c.abort = () => endCmd('cancelled');
@@ -11040,7 +11170,7 @@ export async function mount(root, backend) {
         endCmd('committed');
         record(`${trims.length ? 'BRIDGE CURVES · TRIM' : 'BRIDGE CURVES'}${bridgeConstrain ? ' · CONSTRAINED' : ''}`, bridge, curveLabel(bridge));
         await curvesChanged([bridge]);
-      } catch (e) { setState('failed'); toast(say(e)); }
+      } catch (e) { reportDialogError(e); }
     };
     c.setAxis = a => { c.axis = c.axis === a ? '' : a; c.preview(); };
     c.abort = () => endCmd('cancelled');
@@ -11994,7 +12124,7 @@ export async function mount(root, backend) {
     };
     c.key = action => {
       if (action === 'angle') {
-        c.entry = { label: 'ANGLE', text: '', apply: v => { $('draft-a').value = v; c.preview(); } };
+        c.entry = { label: 'ANGLE', text: '', parse: parseAngle, apply: v => { $('draft-a').value = v; c.preview(); } };
         setHud('ANGLE _');
         return true;
       }
@@ -12519,6 +12649,7 @@ export async function mount(root, backend) {
   function startLoftSheet(curves) {
     if (!backend.previewLoftSheet) return toast('LOFT OF CURVES IS NOT IN THIS BUILD YET');
     const c = cmd = { id: 'loft', sheet: true, curves, guides: [], loop: false, simplify: true, cont: 'G0', data: null, sent: 0, shown: 0 };
+    for (const id of ['ls-guide-count', 'ls-guide-actions', 'ls-guide-choice']) $(id).hidden = false;
     $('ls-t').value = '1';
     lastTool = 'loft';
     showTool('loft');
@@ -12618,6 +12749,27 @@ export async function mount(root, backend) {
     const refresh = () => {
       $('ls-count').textContent = c.curves.length;
       $('ls-guides').textContent = c.guides.length;
+      $('ls-pick-guides').setAttribute('aria-pressed', String(!!c.pickingGuides));
+      $('ls-clear-guides').disabled = !c.guides.length;
+      const guides = $('ls-guide-list');
+      guides.hidden = !c.guides.length;
+      guides.replaceChildren(...c.guides.map((guide, index) => {
+        const button = document.createElement('button');
+        button.type = 'button';
+        const name = nameOf(guide);
+        button.textContent = `${name} ×`;
+        button.setAttribute('aria-label', `Remove Loft guide ${name}`);
+        button.onclick = () => {
+          c.guides = c.guides.filter(item => item !== guide);
+          refresh();
+          (guides.children[Math.min(index, guides.children.length - 1)] ?? $('ls-pick-guides')).focus();
+        };
+        return button;
+      }));
+      const available = curveList.filter(curve => !c.curves.includes(curve.id) && !c.guides.includes(curve.id) && org.shows(curveKey(curve.id)) && !org.locked.has(curveKey(curve.id)));
+      const choices = $('ls-add-guide');
+      choices.replaceChildren(new Option('Choose a curve', ''), ...available.map(curve => new Option(curveLabel(curve.id), String(curve.id))));
+      choices.disabled = !available.length;
       $('ls-loop').setAttribute('aria-pressed', String(c.loop));
       $('ls-loop').disabled = c.curves.length < 3 || c.guides.length > 0;
       $('ls-simplify').setAttribute('aria-pressed', String(c.simplify));
@@ -12636,12 +12788,29 @@ export async function mount(root, backend) {
       const same = (a, b) => typeof a === 'object' ? typeof b === 'object' && a.key === b.key : a === b;
       // Keep the order the profiles were picked in; new ones go on the end.
       c.curves = [...c.curves.filter(p => now.some(q => same(p, q))), ...now.filter(q => !c.curves.some(p => same(p, q)))];
+      c.guides = c.guides.filter(guide => !c.curves.some(profile => same(profile, guide)));
       if (c.curves.length < 3) c.loop = false;
       for (const id of c.limits.keys()) if (!c.curves.some(p => (typeof p === 'object' ? p.key : p) === id)) c.limits.delete(id);
       showLimits();
       refresh();
     };
     c.refresh = () => refresh();
+    c.setGuidePicking = active => {
+      c.pickingGuides = active;
+      if (active) c.picking = false;
+      showLimits();
+      $('ls-pick-guides').setAttribute('aria-pressed', String(active));
+      setHud(active ? 'CLICK OR TAP A CURVE OR EDGE TO TOGGLE ITS GUIDE' : 'LOFT · SHEET');
+    };
+    $('ls-pick-guides').onclick = () => c.setGuidePicking(!c.pickingGuides);
+    $('ls-clear-guides').onclick = () => { c.guides = []; refresh(); };
+    $('ls-add-guide').onchange = e => {
+      const guide = curveList.find(curve => String(curve.id) === e.target.value);
+      if (!guide) return;
+      c.guides = [...c.guides, guide.id];
+      c.loop = false;
+      refresh();
+    };
     // Tab (or the old shared switch) sets every edge's continuity at once.
     c.setCont = g => { c.cont = g; for (const p of edgesOf()) c.conts.set(p.key, g); refresh(); };
     c.key = action => {
@@ -12654,6 +12823,7 @@ export async function mount(root, backend) {
       }
       if (action === 'tension') { $('ls-t').focus(); $('ls-t').select(); return true; }
       if (action === 'limit') {
+        c.setGuidePicking(false);
         c.picking = !c.picking;
         showLimits();
         setHud(c.picking ? 'CLICK A PROFILE CURVE OR EDGE FOR A LIMIT POINT; CLICK ONE AGAIN TO REVERSE IT' : 'LOFT · SHEET');
@@ -12666,7 +12836,7 @@ export async function mount(root, backend) {
       return true;
     };
     c.click = e => {
-      const hit = pickAt(e);
+      const hit = pickAt(e, { guide: !c.picking && (c.pickingGuides || e.shiftKey) });
       if (c.picking) {
         if (!hit?.point || (hit.kind !== 'curve' && hit.kind !== 'region' && hit.kind !== 'edge')) return true;
         const edge = hit.kind === 'edge' ? c.curves.find(p => typeof p === 'object' && p.key === `${hit.body}:${hit.n}`) : null;
@@ -12681,7 +12851,7 @@ export async function mount(root, backend) {
         return true;
       }
       // Shift+click: a guide curve or edge, added or (clicked again) dropped.
-      if (e.shiftKey && (hit?.kind === 'curve' || hit?.kind === 'region' || hit?.kind === 'edge')) {
+      if ((c.pickingGuides || e.shiftKey) && (hit?.kind === 'curve' || hit?.kind === 'region' || hit?.kind === 'edge')) {
         const g = hit.kind === 'edge' ? { key: `${hit.body}:${hit.n}`, body: hit.body, n: hit.n } : hit.id;
         const same = q => typeof g === 'object' ? typeof q === 'object' && q.key === g.key : q === g;
         if (c.curves.some(same)) return toast('THAT IS A PROFILE · SHIFT+CLICK ANOTHER CURVE OR EDGE AS A GUIDE'), true;
@@ -12690,6 +12860,7 @@ export async function mount(root, backend) {
         refresh();
         return true;
       }
+      if (c.pickingGuides) return true;
       if (hit?.kind === 'curve') sel.toggle({ kind: 'curve', id: hit.id });
       else if (hit?.kind === 'edge') sel.toggle({ kind: 'edge', body: hit.body, n: hit.n });
       else return true;
@@ -12739,7 +12910,7 @@ export async function mount(root, backend) {
     showTool('loft');
     $$('[data-panel="form"]')[0].hidden = true;
     $$('[data-panel="loft-sheet"]')[0].hidden = false;
-    for (const id of ['ls-loop', 'ls-limit', 'ls-simplify']) $(id).hidden = true;
+    for (const id of ['ls-loop', 'ls-limit', 'ls-simplify', 'ls-guide-count', 'ls-guide-actions', 'ls-guide-choice', 'ls-guide-list']) $(id).hidden = true;
     $('ls-edges-row').hidden = true;
     $('keys').innerHTML = keysHtml('loft-faces');
     setState('none');
@@ -12933,7 +13104,7 @@ export async function mount(root, backend) {
         if (at) { c.drag = { what: action, from: at, start: c[action] }; setHud(action === 'angle' ? 'MOVE TO SET THE ANGLE · CLICK TO KEEP' : 'MOVE TO SET THE THICKNESS · CLICK TO KEEP'); return true; }
       }
       if (action === 'angle' && id === 'revolve') {
-        c.entry = { label: 'ANGLE °', text: '', apply: v => { if (v !== 0) setForm({ angle: v }); } };
+        c.entry = { label: 'ANGLE °', text: '', parse: parseAngle, apply: v => { if (v !== 0) setForm({ angle: v }); } };
         setHud('ANGLE ° _');
         return true;
       }
@@ -14340,29 +14511,36 @@ export async function mount(root, backend) {
     'pipe-r', 'pipe-t', 'hole-d', 'hole-depth', 'ext-len', 'prim-w', 'prim-d', 'prim-r', 'prim-h', 'shell-t', 'mirror-at', 'form-thickness', 'distance', 'ra-sx', 'ra-sy', 'ra-sz', 'im-w'];
   const rawValue = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value');
   let lengthUnit = 'mm';
-  function unitField(el) {
+  const parseDistanceEntry = text => /^(?:\d*\.)?\d+-$/.test(text)
+    ? fromUnit(typed(text), lengthUnit)
+    : parseLength(text, lengthUnit);
+  function unitField(el, kind = 'length') {
     if (!el || el.dataset.unit) return;
     const mm = parseFloat(rawValue.get.call(el));
-    el.dataset.unit = 'length';
+    const angle = kind === 'angle';
+    const parse = value => angle ? parseAngle(value) : parseLength(value, lengthUnit);
+    const format = value => angle ? String(value) : formatLength(value, lengthUnit);
+    el.dataset.unit = kind;
     el.type = 'text';
     el.inputMode = 'decimal';
     el.autocomplete = 'off';
     Object.defineProperty(el, 'value', {
       configurable: true,
-      get() { const v = parseLength(rawValue.get.call(this), lengthUnit); if (v !== undefined) this.mm = v; return v === undefined ? '' : String(v); },
+      get() { const v = parse(rawValue.get.call(this)); if (v !== undefined) this.mm = v; return v === undefined ? '' : String(v); },
       set(v) {
         const n = typeof v === 'number' ? v : parseFloat(v);
         if (Number.isFinite(n)) this.mm = n;
-        rawValue.set.call(this, Number.isFinite(n) ? formatLength(n, lengthUnit) : String(v ?? ''));
+        rawValue.set.call(this, Number.isFinite(n) ? format(n) : String(v ?? ''));
       },
     });
     // A finished entry shows as a plain number in the unit.
-    el.addEventListener('change', () => { if (Number.isFinite(el.mm)) rawValue.set.call(el, formatLength(el.mm, lengthUnit)); });
-    el.title = `${el.title ? `${el.title}. ` : ''}In ${lengthUnit}; type a unit (2in, 5cm) or sums (5 + 2in)`;
+    el.addEventListener('change', () => { if (Number.isFinite(el.mm)) rawValue.set.call(el, format(el.mm)); });
+    el.title = `${el.title ? `${el.title}. ` : ''}${angle ? 'In degrees; accepts deg, rad and arithmetic' : `In ${lengthUnit}; type a unit (2in, 5cm) or sums (5 + 2in)`}`;
     if (Number.isFinite(mm)) el.value = mm;
   }
   function unitFields() {
     for (const id of LENGTH_FIELDS) unitField($(id));
+    for (const id of ['blend-angle', 'spiral-angle', 'ex-angle', 'off-angle', 'mx-angle', 'pl-angle', 'rr-angle', 'ca-twist', 'form-angle', 'form-twist', 'angle']) unitField($(id), 'angle');
     for (const el of $$('[data-move], [data-dm]')) unitField(el);
   }
   /** A length readout in the chosen unit. */
@@ -14470,6 +14648,8 @@ export async function mount(root, backend) {
       for (const pg of el.querySelectorAll('[data-pfpage]')) pg.hidden = pg.dataset.pfpage !== prefsTab;
     };
     el.hidden = false;
+    if (!el.open) el.showModal();
+    $('prefs-close').focus();
     for (const row of el.querySelectorAll('[data-pref]')) {
       const [s, key] = row.dataset.pref.split('.'), input = row.querySelector('input, select');
       input.onchange = input.oninput = () => {
@@ -14496,7 +14676,9 @@ export async function mount(root, backend) {
     if (section === 'network' && backend.setNetworkPrefs) backend.setNetworkPrefs({ bridge: prefs.network.bridge, port: prefs.network.bridgePort }).catch(e => toast(say(e)));
     applyPrefs();
   }
-  function closePrefs() { $('prefs').hidden = true; }
+  function closePrefs() { const dialog = $('prefs'); dialog.close(); dialog.hidden = true; }
+  $('prefs').oncancel = e => { e.preventDefault(); closePrefs(); };
+  for (const dialog of $$('dialog.xdialog')) dialog.oncancel = e => { e.preventDefault(); abort(); };
   function closePMenu() { $('pmenu').hidden = true; $('pmenu-open').setAttribute('aria-expanded', 'false'); }
   $('pmenu-open').onclick = () => $('pmenu').hidden ? openPMenu() : closePMenu();
   addEventListener('pointerdown', e => { if (!$('pmenu').hidden && !e.target.closest('.pmenu, .pmenu-open')) closePMenu(); }, true);
@@ -14546,8 +14728,15 @@ export async function mount(root, backend) {
   addEventListener('pointermove', e => { if (radial) hotRadial(sliceAt(e.clientX - radial.x, e.clientY - radial.y, radial.m.items.length)); });
   addEventListener('pointerdown', e => { if (radial && !e.target.closest('.radial')) closeRadial(); }, true);
   addEventListener('keydown', e => { if (radial && e.key === 'Escape') { e.stopImmediatePropagation(); closeRadial(); } }, true);
-  addEventListener('keydown', e => { if (!$('prefs').hidden && e.key === 'Escape') { e.stopImmediatePropagation(); closePrefs(); } }, true);
-  addEventListener('keydown', e => { if (planeOriginPending && e.key === 'Escape') { e.stopImmediatePropagation(); planeOriginPending = false; setHud(''); } }, true);
+
+  addEventListener('keydown', e => { if (planeOriginPending && e.key === 'Escape' && !root.querySelector('dialog:modal')) { e.preventDefault(); e.stopImmediatePropagation(); planeOriginPending = false; setHud(''); } }, true);
+  addEventListener('keydown', e => {
+    if (e.key === 'Escape' && planeDialog.open && !root.querySelector('dialog:modal')) {
+      e.preventDefault();
+      e.stopImmediatePropagation();
+      closePlaneDialog(true);
+    }
+  }, true);
   // Keys over the outliner (manual: Outliner): / scrolls to the selection, . folds every group but
   // those holding the selection, C folds them all, Ctrl+F searches the rows.
   let overOutliner = false;
@@ -15057,14 +15246,16 @@ export async function mount(root, backend) {
   /** The dot being dragged or under the pointer, among the command's dots; else its main one. */
   const liveGizmo = () => [cmd?.gizmo, ...(cmd?.extraGizmos?.() ?? [])].find(g => g && (g.busy || g.state === 'hover')) ?? cmd?.gizmo;
   canvas.addEventListener('pointerdown', e => {
+    if (down && down.pointerId !== e.pointerId) return;
     lastPointer = e;
     const g = liveGizmo();
     const grabbed = g?.busy || g?.state === 'hover' || (cmd?.tc?.enabled && cmd.tc.axis !== null);
     // nav: the press navigates (a preset's Alt+left, say); a click without a drag still selects.
-    down = { x: e.clientX, y: e.clientY, button: e.button, consumed: grabbed, box: null, nav: !!navPress };
+    down = { pointerId: e.pointerId, x: e.clientX, y: e.clientY, button: e.button, consumed: grabbed, box: null, nav: !!navPress };
     if (e.button === 0 && cmd?.follow) { endFollow(true); down.consumed = true; }
   });
   canvas.addEventListener('pointermove', e => {
+    if (down && down.pointerId !== e.pointerId) return;
     lastPointer = e;
     ray(e);
     const p = raycaster.ray.intersectPlane(planeOf(), new THREE.Vector3());
@@ -15115,10 +15306,16 @@ export async function mount(root, backend) {
     });
   }
   canvas.addEventListener('pointerleave', () => { if (hover) { hover = null; drawOverlays(); } });
+  canvas.addEventListener('pointercancel', e => {
+    if (down?.pointerId !== e.pointerId) return;
+    down = null;
+    $('boxsel').hidden = true;
+    if (boxHover.length) { boxHover = []; drawOverlays(); }
+  });
   canvas.addEventListener('pointerup', async e => {
     const d = down;
+    if (!d || d.pointerId !== e.pointerId || d.button !== e.button) return;
     down = null;
-    if (!d || d.button !== e.button) return;
     if (pickMenu?.held && e.button === 0) return choosePick(pickMenu.at, e.shiftKey);
     if (planeOriginPending && e.button === 0 && Math.hypot(e.clientX - d.x, e.clientY - d.y) < 5) return placeViewPlane(e);
     const moved = Math.hypot(e.clientX - d.x, e.clientY - d.y) > 4;
@@ -15421,8 +15618,8 @@ export async function mount(root, backend) {
   // Export options open as a small dialog over the view (Plasticity's export options window),
   // with Export and Cancel at its foot as well as Enter and Esc.
   for (const b of $$('[data-xd]')) b.onclick = () => {
-    if (!cmd || !['export-mesh', 'export-drawing'].includes(cmd.id)) return;
-    if (b.dataset.xd === 'ok') cmd.finish(); else cmd.abort();
+    if (!cmd || !['bridge', 'export-mesh', 'export-drawing'].includes(cmd.id)) return;
+    if (b.dataset.xd === 'ok') finish(); else abort();
   };
   $('ex-pick-target').onclick = () => {
     const c = cmd;
@@ -15613,7 +15810,12 @@ export async function mount(root, backend) {
   // In order: a handle or typed entry taking keys, the running command's own keys, then the
   // viewport's (keymap.js).
   addEventListener('keydown', async e => {
-    if (palette || asking) return;
+    if (palette || asking || $('prefs').open || e.isComposing) return;
+    const modalOpen = !!root.querySelector('dialog:modal');
+    if (modalOpen && cmd?.dialogFinish && e.key !== 'Tab') { e.preventDefault(); return; }
+    if (modalOpen && (e.key === 'Tab' || (e.key === ' ' && e.target.closest?.('button')))) return;
+    if (e.target.closest?.('[data-id="plane-form"]')) return;
+    if (e.key === 'Enter' && e.target.closest?.('button, summary, select, a[href]')) return;
     // The Text command's box takes every key (its own handler finishes and cancels).
     if (e.target.tagName === 'TEXTAREA') return;
     const inInput = e.target.tagName === 'INPUT';
@@ -15640,10 +15842,16 @@ export async function mount(root, backend) {
     if (entry) {
       e.preventDefault();
       if (e.key === 'Escape') { cmd.entry = null; setHud(null); return cmd.entryDone?.(); }
-      if (e.key === 'Enter') { cmd.entry = null; const v = typed(entry.text); if (v !== undefined) entry.apply(v); return cmd?.entryDone?.(); }
+      if (e.key === 'Enter' || (e.key === 'Tab' && entry.next)) {
+        const v = (entry.parse ?? typed)(entry.text);
+        if (entry.parse && entry.text && v === undefined) return toast('ENTER A VALID ANGLE');
+        cmd.entry = null;
+        if (v !== undefined) entry.apply(v);
+        return e.key === 'Tab' ? entry.next() : cmd?.entryDone?.();
+      }
       // Tab takes the value and moves to the next one, where a command has several (Dimension).
-      if (e.key === 'Tab' && entry.next) { cmd.entry = null; const v = typed(entry.text); if (v !== undefined) entry.apply(v); return entry.next(); }
-      if (/^[0-9.\-]$/.test(e.key)) entry.text += e.key;
+
+      if ((entry.parse ? /^[0-9a-z.°+*/() −×÷,-]$/i : /^[0-9.\-]$/).test(e.key)) entry.text += e.key;
       else if (e.key === 'Backspace') entry.text = entry.text.slice(0, -1);
       return setHud(`${entry.label} ${entry.text}_`);
     }
@@ -15657,6 +15865,17 @@ export async function mount(root, backend) {
       return;
     }
     if (cmd) {
+      if (e.key === 'Escape' && cmd.pickingGuides && cmd.setGuidePicking) {
+        e.preventDefault();
+        cmd.setGuidePicking(false);
+        return;
+      }
+      if (e.key === 'Escape' && cmd.id === 'fillet' && cmd.placing) {
+        e.preventDefault();
+        cmd.placing = null;
+        previewFillet();
+        return;
+      }
       const action = COMMAND[cmd.id]?.[k];
       if (action && !(cmd.auto && !['distance', 'chamfer', 'angle', 'grow'].includes(action)) && cmd.key?.(action, e)) { e.preventDefault(); return; }
       if (e.key === 'Enter') { e.preventDefault(); return finish(); }
@@ -15669,6 +15888,7 @@ export async function mount(root, backend) {
         return;
       }
     }
+    if (modalOpen) return;
     const action = keys[k];
     if (!action) return;
     e.preventDefault();

@@ -48,15 +48,20 @@ export class MagnitudeGizmo extends THREE.Group {
         this._down = this.pointerDown.bind(this);
         this._move = this.pointerMove.bind(this);
         this._up = this.pointerUp.bind(this);
+        this._cancel = this.pointerCancel.bind(this);
         this._hover = this.hover.bind(this);
+        this._leave = () => { if (this.state === 'hover') this.setHover(false); };
+        this._blur = () => { if (this.busy) this.cancel(); };
         dom.addEventListener('pointerdown', this._down, true);
         dom.addEventListener('pointermove', this._hover);
+        dom.addEventListener('pointerleave', this._leave);
     }
 
     dispose() {
         this.stopListening();
         this.dom.removeEventListener('pointerdown', this._down, true);
         this.dom.removeEventListener('pointermove', this._hover);
+        this.dom.removeEventListener('pointerleave', this._leave);
         this.removeFromParent();
     }
 
@@ -110,13 +115,25 @@ export class MagnitudeGizmo extends THREE.Group {
     over(event) {
         if (!this.visible) return false; // a hidden handle can't be grabbed
         this.updateMatrixWorld(true);
-        this.ray(event);
-        return this.raycaster.intersectObject(this.knob, true).length > 0;
+        if (event.pointerType !== 'touch') {
+            this.ray(event);
+            return this.raycaster.intersectObject(this.knob, true).length > 0;
+        }
+        const center = this.knob.getWorldPosition(new THREE.Vector3()).project(this.camera);
+        if (center.z < -1 || center.z > 1) return false;
+        const rect = this.dom.getBoundingClientRect();
+        if (!rect.width || !rect.height) return false;
+        const x = rect.left + (center.x + 1) * rect.width / 2;
+        const y = rect.top + (1 - center.y) * rect.height / 2;
+        return Math.hypot(event.clientX - x, event.clientY - y) <= 18;
     }
 
     hover(event) {
         if (this.busy || !this.visible) return;
-        const on = this.over(event);
+        this.setHover(event.pointerType !== 'touch' && this.over(event));
+    }
+
+    setHover(on) {
         if (on !== (this.state === 'hover')) {
             this.state = on ? 'hover' : 'none';
             this.mat.color.setHex(on ? HOVER : this.color);
@@ -125,7 +142,7 @@ export class MagnitudeGizmo extends THREE.Group {
     }
 
     pointerDown(event) {
-        if (event.button !== 0 || !this.visible) return;
+        if (event.button !== 0 || !this.visible || this.state === 'dragging') return;
         if (this.state === 'command') { event.stopPropagation(); event.preventDefault(); return; }
         if (!this.over(event)) return;
         event.stopPropagation();
@@ -141,6 +158,7 @@ export class MagnitudeGizmo extends THREE.Group {
 
     begin(state, event) {
         this.state = state;
+        this.dragPointer = state === 'dragging' ? event.pointerId : null;
         this.text = '';
         this.original = this.value;
         const t = event ? this.axisParam(this.ray(event)) : null;
@@ -148,11 +166,13 @@ export class MagnitudeGizmo extends THREE.Group {
         this.onStart(state);
         window.addEventListener('pointermove', this._move);
         window.addEventListener('pointerup', this._up);
+        window.addEventListener('pointercancel', this._cancel);
+        window.addEventListener('blur', this._blur);
     }
 
     pointerMove(event) {
         if (!this.busy || this.text) return;
-        if (this.state === 'dragging' && event.buttons === 0) return;
+        if (this.state === 'dragging' && (event.pointerId !== this.dragPointer || event.buttons === 0)) return;
         const t = this.axisParam(this.ray(event));
         if (t === null) return;
         if (this.grab === null) this.grab = t - this.value;
@@ -163,20 +183,34 @@ export class MagnitudeGizmo extends THREE.Group {
     }
 
     pointerUp(event) {
-        if (event.button !== 0) return;
+        if (event.button !== 0 || (this.state === 'dragging' && event.pointerId !== this.dragPointer)) return;
         if (this.state === 'dragging' || this.state === 'command') this.finish();
+    }
+
+    pointerCancel(event) {
+        if (this.state === 'dragging' && event.pointerId === this.dragPointer) this.cancel();
+    }
+
+    cancel() {
+        this.render(this.original);
+        this.onChange(this.original);
+        this.finish();
     }
 
     /** Keys while dragging or following. Returns true when the key was used. */
     key(event) {
         if (!this.busy) return false;
-        if (event.key === 'Escape') { this.render(this.original); this.onChange(this.original); this.finish(); return true; }
-        if (event.key === 'Enter') { this.finish(); return true; }
-        if (/^[0-9.\-]$/.test(event.key)) this.text += event.key;
+        if (event.key === 'Escape') { this.cancel(); return true; }
+        if (event.key === 'Enter') {
+            if (!this.parseInput || !this.text || this.parseInput(this.text) !== undefined) this.finish();
+            return true;
+        }
+        const allowed = this.parseInput ? /^[0-9a-z.+'"*/() ,°−×÷-]$/i : /^[0-9.\-]$/;
+        if (allowed.test(event.key)) this.text += event.key;
         else if (event.key === 'Backspace') this.text = this.text.slice(0, -1);
         else return false;
         this.onText(this.text);
-        const v = typed(this.text);
+        const v = (this.parseInput ?? typed)(this.text);
         if (v !== undefined) { this.render(v); this.onChange(v); }
         return true;
     }
@@ -194,6 +228,8 @@ export class MagnitudeGizmo extends THREE.Group {
     stopListening() {
         window.removeEventListener('pointermove', this._move);
         window.removeEventListener('pointerup', this._up);
+        window.removeEventListener('pointercancel', this._cancel);
+        window.removeEventListener('blur', this._blur);
     }
 }
 

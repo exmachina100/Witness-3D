@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { chordal } from './filletShape.js';
 import { arrayMotions } from './arrayMotions.js';
 
 export { arrayMotions };
@@ -289,6 +290,51 @@ export function bounds(shape) {
  * Tessellate a shape for display. Returns the triangle mesh (with a per-vertex `faceIndex` so a
  * pick can find the B-rep face) and the true B-rep edges as line segments.
  */
+/** Detect sampled normal-curvature sign changes on a continuous surface direction. */
+export function hasSurfaceInflection(shape) {
+    const o = oc();
+    const point = new o.gp_Pnt();
+    const [du, dv, duu, dvv, duv] = Array.from({ length: 5 }, () => new o.gp_Vec());
+    try {
+        for (const face of numbered(shape, 'TopAbs_FACE')) {
+            const surface = new o.BRepAdaptor_Surface(o.TopoDS.Face(face), true);
+            try {
+                const u0 = surface.FirstUParameter(), u1 = surface.LastUParameter();
+                const v0 = surface.FirstVParameter(), v1 = surface.LastVParameter();
+                if (![u0, u1, v0, v1].every(Number.isFinite) || u1 <= u0 || v1 <= v0) continue;
+                const rows = [], cols = Array.from({ length: 9 }, () => []);
+                for (let i = 0; i < 9; i++) {
+                    const row = [];
+                    for (let j = 0; j < 9; j++) {
+                        const u = u0 + (u1 - u0) * (i + 0.5) / 9;
+                        const v = v0 + (v1 - v0) * (j + 0.5) / 9;
+                        surface.D2(u, v, point, du, dv, duu, dvv, duv);
+                        const x = du.Y() * dv.Z() - du.Z() * dv.Y();
+                        const y = du.Z() * dv.X() - du.X() * dv.Z();
+                        const z = du.X() * dv.Y() - du.Y() * dv.X();
+                        const scale = Math.hypot(x, y, z);
+                        const curvature = (d, dd) => scale > 1e-14
+                            ? (x * dd.X() + y * dd.Y() + z * dd.Z()) / (scale * d.SquareMagnitude())
+                            : 0;
+                        cols[j].push(curvature(du, duu));
+                        row.push(curvature(dv, dvv));
+                    }
+                    rows.push(row);
+                }
+                if ([...rows, ...cols].some(values => values.some(v => v > 1e-7 && Number.isFinite(v)) &&
+                    values.some(v => v < -1e-7 && Number.isFinite(v)))) return true;
+            } catch {
+                // A derivative may be unavailable on a degenerate or discontinuous face.
+            } finally {
+                surface.delete();
+            }
+        }
+        return false;
+    } finally {
+        for (const value of [point, du, dv, duu, dvv, duv]) value.delete();
+    }
+}
+
 export function tessellate(shape, { deflection = 0.01, angle = 0.25 } = {}) {
     const o = oc();
     new o.BRepMesh_IncrementalMesh(shape, deflection, false, angle, false);
@@ -633,44 +679,36 @@ function variableFillet(shape, edges, edgeIds, size, withHistory, variable) {
  * @returns {Object} { shape, history }
  */
 export function filletShell(shape, openFaces, outerEdges, innerEdges, thickness, radius, outerVariable = [], innerVariable = [], shapeType = 'round') {
-    const o = oc();
+    if (!['round', 'chordal'].includes(shapeType)) throw new BlendError('Fillet Shell currently supports round and chordal blends only');
+    let { shape: currentShape, history } = shellFaces(shape, openFaces, thickness);
 
-    // First, shell the body to create a hollow solid
-    const shellMk = new o.BRepOffsetAPI_MakeThickSolid();
-    const faces = numbered(shape, 'TopAbs_FACE');
-    for (const faceIdx of openFaces) {
-        if (faceIdx >= 0 && faceIdx < faces.length) {
-            shellMk.Add(faces[faceIdx]);
+    // Both selections refer to the freshly shelled body. Blend together so an outer
+    // round cannot renumber the inner edges or their variable-radius points.
+    const edgeIds = [...new Set([...outerEdges, ...innerEdges])];
+    if (edgeIds.length) {
+        let size = radius, variable = [...outerVariable, ...innerVariable];
+        if (shapeType === 'chordal') {
+            if (variable.length) throw new BlendError('a chordal round takes one distance; remove the variable points');
+            ({ size, variable } = chordal(currentShape, edgeIds, radius));
         }
-    }
-    shellMk.MakeThickSolidByJoin(shape, thickness, 1e-3, false, false, false, o.BRepOffset_Mode.BRepOffset_Skin);
-    shellMk.Build();
-    if (!shellMk.IsDone()) {
-        throw new BlendError('the kernel could not shell the body; try a smaller thickness');
-    }
-    let currentShape = shellMk.Shape();
-    let history = trace([shape], currentShape, s => successors(shellMk, s));
-
-    // Fillet outer edges if any (with Y-blend corner patch fallback)
-    if (outerEdges.length > 0) {
-        const edges = numberedEdges(currentShape);
-        const result = blendEdgesWithYBlend(currentShape, outerEdges, radius, false, true, 0, outerVariable);
+        const result = blendEdges(currentShape, edgeIds, size, false, true, 0, variable);
         currentShape = result.shape;
-        history = mergeHistory(history, result.history);
-    }
-
-    // Fillet inner edges if any (with Y-blend corner patch fallback)
-    if (innerEdges.length > 0) {
-        const edges = numberedEdges(currentShape);
-        const result = blendEdgesWithYBlend(currentShape, innerEdges, radius, false, true, 0, innerVariable);
-        currentShape = result.shape;
-        history = mergeHistory(history, result.history);
-    }
-
-    // Apply Conic/G2 shape if needed (simplified - would need proper face tracking)
-    if (shapeType === 'conic' || shapeType === 'g2') {
-        // For fillet shell, reshaping would require tracking generated faces from both fillet operations
-        // This is a placeholder for future implementation
+        // The document stores refs on the original solid; the blend maps from the shell.
+        const throughShell = (before, after) => {
+            const targets = new Map();
+            for (const [shellIndex, finalIndex] of after[0]) {
+                if (!targets.has(shellIndex)) targets.set(shellIndex, []);
+                targets.get(shellIndex).push(finalIndex);
+            }
+            return [before[0].flatMap(([original, shellIndex]) =>
+                (targets.get(shellIndex) ?? []).map(finalIndex => [original, finalIndex])), []];
+        };
+        history = {
+            faces: throughShell(history.faces, result.history.faces),
+            edges: throughShell(history.edges, result.history.edges),
+            // Guide selections and generated-face provenance use the shell's edge numbering.
+            generatedFaces: result.history.generatedFaces,
+        };
     }
 
     return { shape: currentShape, history };
