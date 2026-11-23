@@ -67,6 +67,7 @@ import { setLanguage } from './i18n.js';
 import { filterFillets } from '../filletFilter.js';
 import { navAction, navHints, orbitMode } from '../navPresets.js';
 import { MagnitudeGizmo, typed } from '../MagnitudeGizmo.js';
+import { CurveHandle, pointAlong } from '../CurveHandle.js';
 import { TOOLS, check, tool as toolInfo, withDefaults } from './tools.js';
 import { ACTIONS, COMMAND, VIEWPORT, keyFor, keyOf, useKeys } from './keymap.js';
 import { adjacent, edgeLoop, edgeRing, topology } from './edgeLoops.js';
@@ -848,7 +849,7 @@ const SHELL = `
       <div class="chips"><button data-id="br-trim" aria-pressed="false" title="Trim the curves where they run on past the bridge"><kbd>Q</kbd>TRIM</button><button data-id="br-comb" aria-pressed="false" title="Show the curvature of the bridge and the curves it joins">CURVATURE</button><button data-id="br-constrain" aria-pressed="false" title="Create constraints: the bridge stays joined to the curves it bridges, remade with the same continuity when they are edited (for this session)">CONSTRAIN</button></div>
     </div>
     </div>
-    <dialog class="sec xdialog" data-id="bridge-dialog" aria-label="Bridge Curve" hidden>
+    <dialog class="sec xdialog live" data-id="bridge-dialog" aria-label="Bridge Curve" hidden>
       <div class="xd-head"><span>BRIDGE CURVE</span><button data-xd="cancel" aria-label="Cancel">${icon('close')}</button></div>
       <div data-id="bridge-dialog-body"></div>
       <output class="hint" data-xd-status role="status" aria-live="polite"></output>
@@ -4110,8 +4111,10 @@ export async function mount(root, backend) {
       if (dialog.hidden && dialog.open) dialog.close();
       if (!dialog.hidden && !dialog.open) {
         dialog.querySelector('[data-xd-status]').textContent = '';
-        dialog.showModal();
-        dialog.querySelector('[data-xd="cancel"]').focus();
+        // A command's dialog (class live) leaves the viewport working, as Plasticity's does: its
+        // handles can be dragged and its keys (Tab, D, Q...) reach the command.
+        if (dialog.classList.contains('live')) { dialog.show(); document.activeElement?.blur?.(); }
+        else { dialog.showModal(); dialog.querySelector('[data-xd="cancel"]').focus(); }
       }
     }
     $('keys').innerHTML = keysHtml(KEYS[id] ? id : 'idle');
@@ -4137,7 +4140,7 @@ export async function mount(root, backend) {
     renderOutliner();
   }
   function reportDialogError(error) {
-    const status = root.querySelector('dialog.xdialog:modal [data-xd-status]');
+    const status = root.querySelector('dialog.xdialog[open] [data-xd-status]');
     if (status) status.textContent = say(error);
     else toast(say(error));
     setState('failed');
@@ -4146,7 +4149,7 @@ export async function mount(root, backend) {
     const c = cmd;
     if (!c) return;
     if (c.dialogFinish) return c.dialogFinish;
-    const dialog = root.querySelector('dialog.xdialog:modal');
+    const dialog = root.querySelector('dialog.xdialog[open]');
     if (!dialog) return c.finish();
 
     const status = dialog.querySelector('[data-xd-status]');
@@ -11208,6 +11211,8 @@ export async function mount(root, backend) {
   }
   /** Bridge Curve's dialog between curves a and b, from ends pick.ea and pick.eb (at: the parameters). */
   function bridgeWith(a, b, pick, at = [pick.ea, pick.eb]) {
+    // The Sense handles turn the ends round, so the command keeps its own copy.
+    pick = { ...pick };
     const c = cmd = { id: 'bridge', out: null, continuity: ['G1', 'G1'], axis: '', trim: false, comb: false };
     $('br-p1').value = +at[0].toFixed(4);
     $('br-p2').value = +at[1].toFixed(4);
@@ -11219,6 +11224,7 @@ export async function mount(root, backend) {
     setTarget(`${curveLabel(a.id)} · ${curveLabel(b.id)}`);
     c.preview = () => {
       clearPreview();
+      c.placeHandles?.();
       try {
         $('br-start').textContent = `START ${c.continuity[0]}`;
         $('br-end').textContent = `END ${c.continuity[1]}`;
@@ -11237,6 +11243,36 @@ export async function mount(root, backend) {
         setState('updated');
       } catch (e) { c.out = null; $('br-hint').textContent = say(e); setHud('BRIDGE FAILED'); setState('failed'); }
     };
+    // Plasticity 2026.2's gizmo: a Parameter handle on each curve (drag it along the curve to set
+    // where the bridge meets it) and a Sense arrow at each bridge point (click it to bridge off the
+    // other way, keeping the other side of the curve); the dialog has no Sense option.
+    const pathOf = cv => { const f = curveFrame(cv); return curveSamples(cv, 192).points.map(q => lift(f, { x: q[0], y: q[1], z: q[2] ?? 0 })); };
+    const paths = [pathOf(a), pathOf(b)], field = i => (i ? 'br-p2' : 'br-p1');
+    const handle = (kind, i) => {
+      const h = new CurveHandle(camera, canvas, { kind });
+      h.onStart = () => { controls.enabled = false; };
+      h.onEnd = () => { controls.enabled = true; };
+      scene.add(h);
+      return h;
+    };
+    c.handles = [0, 1].map(i => {
+      const h = handle('parameter', i);
+      h.onChange = t => { $(field(i)).value = +t.toFixed(4); c.preview(); };
+      return h;
+    });
+    c.senses = [0, 1].map(i => {
+      const h = handle('sense', i);
+      h.onFlip = () => { if (i) pick.eb = 1 - pick.eb; else pick.ea = 1 - pick.ea; c.preview(); };
+      return h;
+    });
+    c.placeHandles = () => {
+      for (const i of [0, 1]) {
+        const t = Math.min(1, Math.max(0, num(field(i)) || 0)), { point, tangent } = pointAlong(paths[i], t);
+        c.handles[i].setPath(paths[i], t);
+        c.senses[i].setArrow(point, (i ? pick.eb : pick.ea) ? tangent : tangent.negate());
+      }
+    };
+    c.extraGizmos = () => [...c.handles, ...c.senses];
     c.key = action => {
       if (action === 'continuity') {
         // Tab steps both ends together, as Plasticity's Tab cycles G0 to G3; the buttons set each end.
@@ -11275,7 +11311,7 @@ export async function mount(root, backend) {
     };
     c.setAxis = a => { c.axis = c.axis === a ? '' : a; c.preview(); };
     c.abort = () => endCmd('cancelled');
-    c.cleanup = () => clearPreview();
+    c.cleanup = () => { clearPreview(); for (const h of [...c.handles, ...c.senses]) h.dispose(); controls.enabled = true; };
     c.preview();
   }
 

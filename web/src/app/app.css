@@ -445,6 +445,8 @@ input[type="range"] { accent-color: var(--accent); }
 /* Export options as a small dialog over the view rather than in the side panel. */
 .sec.xdialog { position: fixed; left: 50%; top: 50%; transform: translate(-50%, -50%); width: min(380px, calc(100vw - 32px)); max-height: calc(100vh - 96px); overflow-y: auto; z-index: 22; background: var(--raised); border: 1px solid var(--rule); box-shadow: 0 0 0 100vmax rgba(0, 0, 0, 0.35), 0 12px 40px rgba(0, 0, 0, 0.5); padding: 0 16px 0; }
 .sec.xdialog[hidden] { display: none; }
+/* A command's dialog sits at the viewport's top left and leaves the viewport usable (Plasticity's). */
+.sec.xdialog.live { left: 288px; top: 132px; transform: none; margin: 0; box-shadow: 0 12px 40px rgba(0, 0, 0, 0.5); max-height: calc(100vh - 200px); }
 .xdialog .xd-head { display: flex; align-items: center; justify-content: space-between; margin: 0 -16px; padding: 10px 14px; border-bottom: 1px solid var(--rule-soft); color: var(--accent); position: sticky; top: 0; background: var(--raised); z-index: 1; }
 .xdialog .xd-head button { color: var(--muted); display: flex; }
 .xdialog .xd-head button:hover { color: var(--ink); }
