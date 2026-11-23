@@ -68,11 +68,33 @@ export async function projectOnto(uvn, mapAt, points, direction = null) {
 }
 
 /**
+ * Points along polyline `line` at the same shares of its length as `points` have along theirs,
+ * the line read from whichever end lies nearer the first point.
+ */
+export function alongLine(points, line) {
+    if (line.length < 2) throw new Error('the reference curve is too short');
+    const ends = [line[0], line.at(-1)];
+    const run = len(sub(points[0], ends[0])) + len(sub(points.at(-1), ends[1])) <= len(sub(points[0], ends[1])) + len(sub(points.at(-1), ends[0])) ? line : [...line].reverse();
+    const cum = pts => pts.reduce((a, p, i) => (a.push(i ? a[i - 1] + len(sub(p, pts[i - 1])) : 0), a), []);
+    const mine = cum(points), theirs = cum(run), L = mine.at(-1) || 1, M = theirs.at(-1);
+    if (!(M > 1e-9)) throw new Error('the reference curve is too short');
+    return mine.map(d => {
+        const want = (d / L) * M;
+        let i = 1;
+        while (i < run.length - 1 && theirs[i] < want) i++;
+        const span = theirs[i] - theirs[i - 1], f = span > 0 ? (want - theirs[i - 1]) / span : 0;
+        return add(run[i - 1], mul(sub(run[i], run[i - 1]), Math.min(1, Math.max(0, f))));
+    });
+}
+
+/**
  * The whole of Project Align against a backend (either build): `target` { body, edge } on a
  * B-spline sheet and `reference` { body, face }. `direction` null projects along the reference's
- * normal. Returns { body, moves } for previewMoveFacePoles / commitMoveFacePoles.
+ * normal. With `curve` (points along a reference curve on or near the surface) the side goes to the
+ * curve instead, each point at its share of the length, dropped onto the surface along its normal.
+ * Returns { body, moves } for previewMoveFacePoles / commitMoveFacePoles.
  */
-export async function projectAlignRequest(backend, { target, reference, direction = null, continuity = 'G1', tension = 1, blend = 0, influence = 0 }) {
+export async function projectAlignRequest(backend, { target, reference, direction = null, curve = null, continuity = 'G1', tension = 1, blend = 0, influence = 0 }) {
     if (target.body === reference.body) throw new Error('the reference surface must be another body');
     const uvn = async points => (await backend.faceUvn({ body: reference.body, face: reference.face, points })).points;
     const mapAt = async points => (await backend.faceUvn({ body: reference.body, face: reference.face, map: true, points })).points;
@@ -84,7 +106,7 @@ export async function projectAlignRequest(backend, { target, reference, directio
     const { rows, along: knots, q } = side, m = rows[0].length;
     const greville = Array.from({ length: m }, (_, j) => knots.slice(j + 1, j + q + 1).reduce((s, k) => s + k, 0) / q || knots[j]);
     const onSide = greville.map(x => curveAt(rows[0], knots, q, x));
-    const st = await projectOnto(uvn, mapAt, onSide, direction);
+    const st = curve ? await projectOnto(uvn, mapAt, alongLine(onSide, curve), null) : await projectOnto(uvn, mapAt, onSide, direction);
     if (st.some(([s, t]) => s < -0.02 || s > 1.02 || t < -0.02 || t > 1.02)) throw new Error('the edge projects past the reference surface; extend it or pick a bigger one');
     const frames = await framesAt(mapAt, st);
     if (frames.some(f => len(cross(f.su, f.sv)) < 1e-12)) throw new Error('the reference surface has no tangent plane there');

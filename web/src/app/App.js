@@ -11409,9 +11409,14 @@ export async function mount(root, backend) {
   async function startProjectAlign() {
     if (cmd) await finish();
     if (!backend.edgeFaces || !backend.faceUvn || !backend.previewMoveFacePoles) return toast('PROJECT ALIGN IS NOT IN THIS BUILD YET');
-    const edges = sel.list('edge'), faces = sel.list('face');
-    if (edges.length !== 1 || faces.length !== 1) return toast('SELECT THE SHEET EDGE TO MOVE, THEN SHIFT-SELECT THE REFERENCE FACE');
+    const edges = sel.list('edge'), faces = sel.list('face'), curves = sel.list('curve');
+    if (edges.length !== 1 || faces.length !== 1 || curves.length > 1) return toast('SELECT THE SHEET EDGE TO MOVE, THEN SHIFT-SELECT THE REFERENCE FACE (AND A REFERENCE CURVE IF YOU LIKE)');
     const target = { body: edges[0].body, edge: edges[0].n }, reference = { body: faces[0].body, face: faces[0].n };
+    // Plasticity's optional reference curve: the side goes to the curve on the surface.
+    let curve = null;
+    if (curves.length) {
+      try { curve = curveSidePoints(curveById(curves[0].id), curves[0].id); } catch (e) { return toast(say(e)); }
+    }
     const c = cmd = { id: 'project-align', continuity: 'G1', dir: 'normal', screen: null, req: null, sent: 0, shown: 0 };
     lastTool = 'project-align';
     showTool('project-align');
@@ -11424,12 +11429,12 @@ export async function mount(root, backend) {
     const direction = () => c.dir === 'normal' ? null : c.dir === 'screen' ? c.screen : toWorld(userAxis(c.dir));
     c.preview = () => {
       buttons();
-      const along = c.dir === 'normal' ? 'ALONG ITS NORMAL' : c.dir === 'screen' ? 'ALONG THE VIEW' : `ALONG ${c.dir.toUpperCase()}`;
+      const along = curve ? `TO ${curveLabel(curves[0].id)}` : c.dir === 'normal' ? 'ALONG ITS NORMAL' : c.dir === 'screen' ? 'ALONG THE VIEW' : `ALONG ${c.dir.toUpperCase()}`;
       $('pa-hint').textContent = `${label(target.body)} PROJECTS ONTO ${label(reference.body)} ${along} · ${c.continuity === 'PERP' ? 'PERPENDICULAR' : c.continuity}`;
       setHud(`PROJECT ALIGN ${c.continuity === 'PERP' ? 'PERPENDICULAR' : c.continuity} · TENSION ${num('pa-t')}`);
       livePreview(c, async () => {
         c.req = null;
-        const req = await projectAlignRequest(backend, { target, reference, direction: direction(), continuity: c.continuity, tension: num('pa-t'), blend: Math.max(0, Math.round(num('pa-blend') || 0)) });
+        const req = await projectAlignRequest(backend, { target, reference, direction: direction(), curve, continuity: c.continuity, tension: num('pa-t'), blend: Math.max(0, Math.round(num('pa-blend') || 0)) });
         const b = await backend.previewMoveFacePoles(req);
         c.req = req;
         return b;

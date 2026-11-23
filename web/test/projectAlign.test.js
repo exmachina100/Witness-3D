@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { projectAlignRequest } from '../src/projectAlign.js';
+import { alongLine, projectAlignRequest } from '../src/projectAlign.js';
 
 // A flat cubic sheet, 30 × 30 at z = 10 (4 × 4 poles, u along y, v along x); its edge at y = 0 is the target.
 const knots = [0, 0, 0, 0, 1, 1, 1, 1];
@@ -49,4 +49,17 @@ test('G1 lays the next row into the reference tangent plane; Perpendicular stand
     }
     await assert.rejects(() => projectAlignRequest(backend, { target, reference: { body: 2, face: 0 } }), /another body/);
     await assert.rejects(() => projectAlignRequest(backend, { target, reference, direction: [1, 0, 0] }), /along the reference/);
+});
+
+test('with a reference curve the side goes to the curve on the surface, either way round', async () => {
+    // A curve on the plane at y = 5, drawn from x = 30 back to x = 0.
+    const curve = Array.from({ length: 31 }, (_, i) => [30 - i, 5, 0]);
+    const p = after((await projectAlignRequest(backend, { target, reference, continuity: 'G0', curve })).moves);
+    for (let b = 0; b < 4; b++) assert.ok(near(p[b], [10 * b, 5, 0], 1e-5), `${p[b]}`);
+});
+
+test('points along a line keep their shares of the length', () => {
+    const got = alongLine([[0, 0, 0], [1, 0, 0], [4, 0, 0]], [[0, 0, 0], [0, 8, 0]]);
+    assert.ok(near(got[1], [0, 2, 0]) && near(got[2], [0, 8, 0]), JSON.stringify(got));
+    assert.throws(() => alongLine([[0, 0, 0], [1, 0, 0]], [[1, 1, 1]]), /too short/);
 });
