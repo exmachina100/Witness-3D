@@ -4068,6 +4068,24 @@ export async function mount(root, backend) {
     else if (faceBody() !== null) { if (on.autoOffset) startOffset({ auto: true }); }
     // 2026.2: Move comes up on selected solids and curves, its handles ready to drag.
     else if (on.autoMove && sel.size && sel.list().every(it => it.kind === 'solid' || it.kind === 'curve')) startTransform('move', { auto: true });
+    if (cmd?.auto) quietUntilUsed(cmd);
+  }
+  /**
+   * An auto-invoked command shows only its handles (the gizmo, the fillet's or extrude's dot), as
+   * Plasticity's do on selection: its dialog comes up once it is used (a drag, a key, a typed
+   * value), which is when the command clears its `auto`.
+   */
+  function quietUntilUsed(c) {
+    let auto = true;
+    $('cmd-dialog').hidden = true;
+    Object.defineProperty(c, 'auto', {
+      configurable: true,
+      get: () => auto,
+      set: v => {
+        auto = v;
+        if (!v && cmd === c) $('cmd-dialog').hidden = false;
+      },
+    });
   }
   /** The one selected edge, when it is an edge of a sheet and nothing else is selected. */
   function sheetEdge() {
@@ -4379,9 +4397,9 @@ export async function mount(root, backend) {
     // only when it has options. Bridge Curve's first stage, the two clicks, has none yet. Drawing
     // a curve or a primitive is done in the viewport alone, its options on keys (shown at the
     // viewport's bottom right), as Plasticity's drawing tools are: no dialog for those.
-    dialog.hidden = !id || id in DRAW || id in PRIMS;
+    dialog.hidden = !id || id in DRAW || id in PRIMS || cmd?.auto === true;
     body.hidden = !body.querySelector('[data-panel]:not([hidden])') || (id === 'bridge' && !cmd?.continuity);
-    if (!dialog.hidden) {
+    if (!dialog.hidden || cmd?.auto === true) {
       $('cd-name').textContent = !id ? '' : EDITS[id] ?? DRAW[id] ?? toolInfo(id).label;
       body.scrollTop = 0;
       requestAnimationFrame(() => body.onscroll?.());
@@ -5237,6 +5255,9 @@ export async function mount(root, backend) {
       return !(c.auto && untouched());
     };
     c.onSelection = () => { if (!c.auto || !untouched()) return; endCmd(null); defaultCommand(); };
+    // A key the move takes (an axis, the pivot, a typed value) uses the auto-invoked Move.
+    const keyOf = c.key;
+    c.key = (action, e) => { const used = keyOf(action, e); if (used) c.auto = false; return used; };
     c.finish = () => { if (c.free) { c.free.base = null; c.freestyle(false); } return commitTransform(); };
     c.abort = () => c.free ? c.freestyle(false) : endCmd('cancelled');
     // Started from inside another command (Boolean's G/R/S on its tool): back to it once done,
