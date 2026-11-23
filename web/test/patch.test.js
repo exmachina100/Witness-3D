@@ -110,3 +110,19 @@ test('a guide curve lifts the patch through it inside the loop', async () => {
     const { id } = await be.commitPatch({ curves: ids, guides: [guide] });
     assert.ok(be.scene().find(b => b.id === id).sheet);
 });
+
+test('Patch with quality: body edges preview and commit with their G0/G1/G2 errors', async () => {
+    const be = new LocalBackend({ seed: 'enclosure' });
+    const seed = be.scene()[0];
+    const top = seed.edges.map((e, n) => ({ e, n })).filter(({ e }) => { for (let i = 1; i < e.length; i += 3) if (Math.abs(e[i] - 30) > 1e-9) return false; return true; }).map(({ n }) => n);
+    const req = { edges: top.map(edge => ({ body: seed.id, edge })) };
+    const lid = await be.previewPatchWithQuality(req);
+    close(area(lid), 80 * 50, 1e-6);
+    assert.deepEqual([lid.g0, lid.g1, lid.g2], [0, 0, 0], 'a flat lid is exact');
+    const c = [[0, 60, 0], [10, 58, 0], [10, 60, 10], [0, 58, 10]];
+    const { ids } = await be.addCurves(c.map((p, i) => line(p, c[(i + 1) % 4])));
+    const twisted = await be.previewPatchWithQuality({ curves: ids });
+    assert.ok(Number.isFinite(twisted.g0) && twisted.g0 < 0.01, `G0 ${twisted.g0}`);
+    const { id, g0 } = await be.commitPatchWithQuality({ curves: ids });
+    assert.ok(be.scene().find(b => b.id === id).sheet && g0 < 0.01);
+});

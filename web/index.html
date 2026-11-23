@@ -16,8 +16,8 @@
   "imports": {
     "three": "https://cdn.jsdelivr.net/npm/three@0.185.1/build/three.module.js",
     "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.185.1/examples/jsm/",
-    "replicad-opencascadejs": "./node_modules/replicad-opencascadejs/dist/replicad_single.js",
-    "@nasedkinpv/opensubdiv-wasm": "./node_modules/@nasedkinpv/opensubdiv-wasm/dist/opensubdiv.mjs",
+    "replicad-opencascadejs": "https://cdn.jsdelivr.net/npm/replicad-opencascadejs@1.1.0/dist/replicad_single.js",
+    "@nasedkinpv/opensubdiv-wasm": "https://cdn.jsdelivr.net/npm/@nasedkinpv/opensubdiv-wasm@0.3.0/dist/opensubdiv.mjs",
     "@anthropic-ai/sdk": "https://cdn.jsdelivr.net/npm/@anthropic-ai/sdk@0.128.0/+esm"
   }
 }
@@ -28,14 +28,25 @@ import { LocalBackend } from './src/app/LocalBackend.js';
 import { mount } from './src/app/App.js';
 
 document.getElementById('app').innerHTML = '<div class="loading" style="position:fixed">LOADING THE OPENCASCADE KERNEL (7 MB)…</div>';
-console.log('Loading kernel...');
-await loadKernel(); // let the loader fetch its own .wasm via locateFile
-console.log('Kernel loaded successfully!');
-
-console.log('Mounting app...');
-const app = await mount(document.getElementById('app'), new LocalBackend());
-window.__w3d = app;
-console.log('App mounted!');
+// OpenCascade compiled to WebAssembly: a hosted copy ships it gzipped next to the page
+// (occ.gz.wasm); without it the loader fetches its own .wasm beside replicad_single.js.
+async function bootKernel() {
+  try {
+    const res = await fetch('./occ.gz.wasm');
+    if (!res.ok) throw new Error(res.status);
+    // Some hosts decode gzip on the way; only decompress if the bytes are still gzipped.
+    const raw = await res.arrayBuffer();
+    const gz = new Uint8Array(raw, 0, 2);
+    const wasmBinary = gz[0] === 0x1f && gz[1] === 0x8b
+      ? await new Response(new Blob([raw]).stream().pipeThrough(new DecompressionStream('gzip'))).arrayBuffer()
+      : raw;
+    await loadKernel({ wasmBinary });
+  } catch {
+    await loadKernel();
+  }
+}
+await bootKernel();
+window.__w3d = await mount(document.getElementById('app'), new LocalBackend());
 </script>
 </body>
 </html>
