@@ -1136,6 +1136,14 @@ const SHELL = `
         <button data-action="plane:world" aria-label="World XY" title="The world XY plane">${icon('plane-world')}</button>
         <button data-action="plane:save" aria-label="Save plane" title="Save the construction plane to the list below (Temporary construction plane); saved with the file">${icon('plane-save')}</button>
       </div>
+      <button data-id="new-plane">NEW PLANE</button>
+      <dialog class="plane-dialog" data-id="plane-dialog" aria-label="New construction plane">
+        <form data-id="plane-form">
+          <div class="field"><label for="w3d-plane-name">NAME</label><input id="w3d-plane-name" data-id="plane-name" required maxlength="48"></div>
+          <div class="chips"><button type="button" data-id="plane-pick-origin">PICK ORIGIN IN VIEW</button></div>
+          <div class="pair"><button type="button" data-id="plane-cancel">CANCEL</button><button type="submit">SAVE PLANE</button></div>
+        </form>
+      </dialog>
       <div class="saved-planes" data-id="saved-planes" hidden></div>
     </div>
     </details>
@@ -3320,14 +3328,41 @@ export async function mount(root, backend) {
   }
   // Saved construction planes (Plasticity's Temporary construction plane, kept in a list).
   let savedPlanes = [];
-  function savePlane() {
-    const name = cplane.name === 'XY' || /^PLANE \d+$/.test(cplane.name) ? `PLANE ${savedPlanes.length + 1}` : cplane.name;
-    if (savedPlanes.some(q => q.origin.every((v, i) => Math.abs(v - cplane.origin.getComponent(i)) < 1e-9) && q.normal.every((v, i) => Math.abs(v - cplane.normal.getComponent(i)) < 1e-9))) return toast('THAT PLANE IS SAVED ALREADY');
+  function defaultPlaneName() {
+    return cplane.name === 'XY' || /^PLANE \d+$/.test(cplane.name) ? `PLANE ${savedPlanes.length + 1}` : cplane.name;
+  }
+  function savePlane(name = defaultPlaneName()) {
+    if (savedPlanes.some(q => q.origin.every((v, i) => Math.abs(v - cplane.origin.getComponent(i)) < 1e-9) && q.normal.every((v, i) => Math.abs(v - cplane.normal.getComponent(i)) < 1e-9))) { toast('THAT PLANE IS SAVED ALREADY'); return false; }
     savedPlanes.push({ name, origin: cplane.origin.toArray(), normal: cplane.normal.toArray() });
     drawSavedPlanes();
     keepAppState();
     toast(`SAVED ${name}`);
+    return true;
   }
+  const planeDialog = $('plane-dialog');
+  let planeBeforeDialog;
+  function closePlaneDialog(cancelled) {
+    if (planeOriginPending) { planeOriginPending = false; setHud(''); }
+    if (cancelled && planeBeforeDialog) setPlane(planeBeforeDialog);
+    planeBeforeDialog = undefined;
+    planeDialog.close();
+    $('new-plane').focus();
+  }
+  $('new-plane').onclick = () => {
+    if (planeDialog.open) return;
+    planeBeforeDialog = { origin: cplane.origin.clone(), normal: cplane.normal.clone(), name: cplane.name };
+    $('plane-name').value = defaultPlaneName();
+    planeDialog.show();
+    $('plane-name').select();
+  };
+  $('plane-pick-origin').onclick = () => planeFromViewAt();
+  $('plane-cancel').onclick = () => closePlaneDialog(true);
+  $('plane-form').onsubmit = e => {
+    e.preventDefault();
+    const name = $('plane-name').value.trim();
+    if (!name) { $('plane-name').focus(); return; }
+    if (savePlane(name)) closePlaneDialog(false);
+  };
   function drawSavedPlanes() {
     const el = $('saved-planes');
     el.replaceChildren(...savedPlanes.map((q, i) => {
@@ -14664,6 +14699,13 @@ export async function mount(root, backend) {
   addEventListener('keydown', e => { if (radial && e.key === 'Escape') { e.stopImmediatePropagation(); closeRadial(); } }, true);
 
   addEventListener('keydown', e => { if (planeOriginPending && e.key === 'Escape') { e.stopImmediatePropagation(); planeOriginPending = false; setHud(''); } }, true);
+  addEventListener('keydown', e => {
+    if (e.key === 'Escape' && planeDialog.open && !document.querySelector('dialog:modal')) {
+      e.preventDefault();
+      e.stopImmediatePropagation();
+      closePlaneDialog(true);
+    }
+  }, true);
   // Keys over the outliner (manual: Outliner): / scrolls to the selection, . folds every group but
   // those holding the selection, C folds them all, Ctrl+F searches the rows.
   let overOutliner = false;
@@ -15738,7 +15780,7 @@ export async function mount(root, backend) {
   // viewport's (keymap.js).
   addEventListener('keydown', async e => {
     if (palette || asking || $('prefs').open || e.isComposing) return;
-    if (e.key === 'Enter' && e.target.closest?.('button, summary, select, a[href]')) return;
+    if (e.key === 'Enter' && e.target.closest?.('button, summary, select, a[href], [data-id="plane-form"] input')) return;
     // The Text command's box takes every key (its own handler finishes and cancels).
     if (e.target.tagName === 'TEXTAREA') return;
     const inInput = e.target.tagName === 'INPUT';
