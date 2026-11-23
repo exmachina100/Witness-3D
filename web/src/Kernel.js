@@ -680,18 +680,16 @@ function variableFillet(shape, edges, edgeIds, size, withHistory, variable) {
 export function filletShell(shape, openFaces, outerEdges, innerEdges, thickness, radius, outerVariable = [], innerVariable = [], shapeType = 'round') {
     let { shape: currentShape, history } = shellFaces(shape, openFaces, thickness);
 
-    // Fillet outer edges if any (with Y-blend corner patch fallback)
+    // Fillet outer edges if any
     if (outerEdges.length > 0) {
-        const edges = numberedEdges(currentShape);
-        const result = blendEdgesWithYBlend(currentShape, outerEdges, radius, false, true, 0, outerVariable);
+        const result = blendEdges(currentShape, outerEdges, radius, false, true, 0, outerVariable);
         currentShape = result.shape;
         history = mergeHistory(history, result.history);
     }
 
-    // Fillet inner edges if any (with Y-blend corner patch fallback)
+    // Fillet inner edges if any
     if (innerEdges.length > 0) {
-        const edges = numberedEdges(currentShape);
-        const result = blendEdgesWithYBlend(currentShape, innerEdges, radius, false, true, 0, innerVariable);
+        const result = blendEdges(currentShape, innerEdges, radius, false, true, 0, innerVariable);
         currentShape = result.shape;
         history = mergeHistory(history, result.history);
     }
