@@ -325,7 +325,6 @@ const SHELL = `
       ${BAR.map(([a, k, l]) => `<button data-action="${a}" aria-label="${l}" title="${l}${k ? ` (${k})` : ''}">${icon(a === 'palette' ? 'search' : a === 'suggest' ? 'suggest' : a.replace('tool:', ''))}${k ? `<kbd>${k}</kbd>` : ''}</button>`).join('')}
     </div>
     <div class="keys" data-id="keys">${keysHtml('idle')}</div>
-    <div class="stepline" data-id="stepline" aria-live="polite"><span data-id="step-text">SELECT · F SEARCH</span><span class="step-keys" data-id="step-keys"></span></div>
     <span class="snap-tag" data-id="snap-tag" hidden></span>
     <div class="radial" data-id="radial" hidden><div class="radial-hub" data-id="radial-hub"></div></div>
     <button class="isolated" data-id="isolated" hidden title="Unisolate (Alt+.)">${icon('isolate')}<span>0 ISOLATED</span></button>
@@ -413,6 +412,7 @@ const SHELL = `
         <button data-id="ex-individual" aria-pressed="false" title="Each selected face along its own normal instead of all along the first face's"><kbd>I</kbd>INDIVIDUAL</button>
       </div>
       <div class="field"><label>RESULT</label><output data-id="ex-outcome">—</output></div>
+      <div class="field"><button class="pick" data-id="ex-source-step" aria-pressed="false" disabled>SOURCE</button><output data-id="ex-source">—</output></div>
       <div class="field"><button class="pick" data-id="ex-pick-target" aria-pressed="false" title="Pick the target body: click a solid to join, cut or intersect with, or empty space for a new body">TARGET</button><output data-id="ex-target">—</output></div>
       <span class="label">OPERATION</span>
       <div class="seg wrap" role="group" aria-label="Extrude operation">
@@ -1206,6 +1206,63 @@ const worldAxis = a => new THREE.Vector3(...toWorld(AXES[a]));
  * up stays the horizontal axis (±x or ±z) nearest the one the view has now. `offset` is the
  * camera's position less its target. Returns the view's direction as VIEWS gives it.
  */
+/**
+ * The selection steps of a command, as Plasticity's dialog lists them at its top: what to pick
+ * and what for (wording inferred from its Extrude dialog: "Select region, face, or curve / to
+ * extrude", "Select target bodies / to cut or join into"). Keyed by the pick button's data-id;
+ * `noun` counts what the step holds.
+ */
+const STEPS = {
+  'ex-source-step': ['Select region, face, or curve', 'to extrude'],
+  'ex-pick-target': ['Select target bodies', 'to cut or join into', 'body', 'bodies'],
+  'bool-pick-targets': ['Select target bodies', 'to cut, join or intersect', 'body', 'bodies'],
+  'bool-pick-tools': ['Select tool bodies', 'to cut, join or intersect with', 'body', 'bodies'],
+  'cut-pick-targets': ['Select target bodies', 'to cut', 'body', 'bodies'],
+  'cut-pick-cutters': ['Select curves, faces or sheets', 'to cut with', 'cutter', 'cutters'],
+};
+
+/** What a step's output holds, said Plasticity's way ("4 faces"); '' while it holds nothing. */
+export function stepCount(text, one, many) {
+  const t = (text ?? '').trim();
+  if (!t || t === '—' || t === '0' || t === 'NEW BODY') return '';
+  if (!one) return t;
+  const n = /^\d+$/.test(t) ? +t : t.split(/\s+/).length;
+  return `${n} ${n === 1 ? one : many}`;
+}
+
+/** Pick fields become step rows (a mark, what to pick, what for, how many) at the top of their panel. */
+function plasticitySteps(body) {
+  for (const [id, [title, sub, one, many]] of Object.entries(STEPS)) {
+    const button = body.querySelector(`[data-id="${id}"]`), row = button?.parentElement, out = row?.querySelector('output');
+    if (!button || !out) continue;
+    row.classList.add('step');
+    button.textContent = '';
+    const mark = document.createElement('span'), text = document.createElement('span'), count = document.createElement('span');
+    mark.className = 'st-mark';
+    text.className = 'st-text';
+    text.innerHTML = `<b></b><small></small>`;
+    text.firstChild.textContent = title;
+    text.lastChild.textContent = sub;
+    count.className = 'st-count';
+    button.append(mark, text, count);
+    out.hidden = true;
+    const sync = () => {
+      count.textContent = stepCount(out.textContent, one, many);
+      row.classList.toggle('done', !!count.textContent);
+    };
+    new MutationObserver(sync).observe(out, { childList: true, characterData: true, subtree: true });
+    sync();
+    // The steps lead their panel, after its hint, in their order.
+    // Their hint said the same: the steps take its place.
+    const sec = row.closest('[data-panel]'), steps = [...sec.querySelectorAll(':scope > .step')].filter(s => s !== row);
+    sec.classList.add('stepped');
+    if (steps.length) steps.at(-1).after(row);
+    else sec.prepend(row);
+  }
+}
+
+/** Chip buttons that do something once rather than switch an option on or off. */
+const ONCE_BUTTONS = '[data-id="xf-pick"], [data-id="xf-unpivot"], [data-draw="fewer"], [data-draw="more"], [data-id="bs-add"]';
 /** Chip buttons whose data attribute picks one of a set: Plasticity shows these as a row of tabs. */
 const TAB_SETS = ['flshape', 'chshape', 'oecorner', 'rcmethod', 'rbmethod', 'rflconv', 'impcomp', 'bstrim', 'esshape', 'pipeop', 'txfont'];
 /** Chip buttons picking one of a set by id or value, where their group also holds on/off options. */
@@ -1217,6 +1274,7 @@ const TAB_IDS = [['oc-linear', 'oc-round', 'oc-natural'], ['[data-imp="normal"]'
  * their data attributes and handlers; only their grouping and classes change.
  */
 export function plasticityControls(body) {
+  plasticitySteps(body);
   // A value and its second (DISTANCE, DISTANCE 2): one row of two fields under one label.
   for (const a of body.querySelectorAll('.field')) {
     const b = a.nextElementSibling, la = a.querySelector(':scope > label'), lb = b?.querySelector?.(':scope > label');
@@ -1251,7 +1309,9 @@ export function plasticityControls(body) {
       set[0].before(seg);
       seg.append(...set);
     }
-    for (const b of chips.querySelectorAll(':scope > button[aria-pressed]')) b.classList.add('sw');
+    // On/off options become switches; an action (set or remove the pivot, one side more or
+    // fewer, add a wall pair) stays a button with its key.
+    for (const b of chips.querySelectorAll(':scope > button[aria-pressed]')) if (!b.matches(ONCE_BUTTONS)) b.classList.add('sw');
     // Tabs taken out ahead of the group: the group's rest follows them.
     const first = chips.firstElementChild;
     if (first?.classList.contains('seg') && chips.children.length === 1) chips.replaceWith(first);
@@ -4155,9 +4215,33 @@ export async function mount(root, backend) {
     const h = $('hud');
     if (text) { h.textContent = text; delete h.dataset.idle; }
     else { h.textContent = 'SELECT · F SEARCH'; h.dataset.idle = ''; }
-    // The step line under the Command Bar names the same step (approved layout plan).
-    $('step-text').textContent = h.textContent;
   }
+  // Every key of the command is listed in the viewport's key hints, as Plasticity lists them
+  // (its Fillet: A chamfer angle, D fillet distance, C chamfer distance): the dialog's keyed
+  // options (V set pivot, F freestyle...) join the command's own keys, ahead of OK. Panels shown
+  // after the command starts (Move's options) bring theirs as they appear.
+  let keysOf = null, keysWritten = '';
+  function showKeys() {
+    const id = keysOf;
+    const keyed = [...KEYS[id] ?? []];
+    if (id) {
+      const have = new Set(keyed.map(([k]) => k)), more = [];
+      for (const b of $('cd-body').querySelectorAll('[data-panel]:not([hidden]) button')) {
+        const k = b.querySelector('kbd'), key = k?.textContent.trim();
+        if (!key || b.closest('[hidden]') || have.has(key)) continue;
+        const what = b.textContent.replace(k.textContent, '').trim();
+        if (!what) continue;
+        have.add(key);
+        more.push([key, what]);
+      }
+      const ok = keyed.findIndex(([k]) => /RMB/.test(k));
+      keyed.splice(ok < 0 ? keyed.length : ok, 0, ...more);
+    }
+    $('keys').innerHTML = (keyed.length ? keyed : KEYS.idle).map(([k, v]) => `<kbd>${k}</kbd><span>${v}</span>`).join('');
+    keysWritten = $('keys').innerHTML;
+  }
+  // A command that writes its own keys (Loft, primitives' sizes) keeps them.
+  new MutationObserver(() => requestAnimationFrame(() => { if ($('keys').innerHTML === keysWritten) showKeys(); })).observe($('cd-body'), { attributes: true, attributeFilter: ['hidden'], subtree: true });
   function showTool(id) {
     toolbar.setActive(id);
     for (const el of $$('[data-panel]')) el.hidden = el.dataset.panel !== (id === 'spiral' ? 'spiral' : DRAW[id] ? 'draw' : FORMS[id] ? 'form' : PRIMS[id] ? 'primitive' : id);
@@ -4165,8 +4249,10 @@ export async function mount(root, backend) {
     // left, beside the toolbar, and leave the viewport working (its handles, snaps and keys).
     const dialog = $('cmd-dialog'), body = $('cd-body');
     // Every running command has the dialog, as in Plasticity (its title, Cancel and OK); its body
-    // only when it has options. Bridge Curve's first stage, the two clicks, has none yet.
-    dialog.hidden = !id;
+    // only when it has options. Bridge Curve's first stage, the two clicks, has none yet. Drawing
+    // a curve or a primitive is done in the viewport alone, its options on keys (shown at the
+    // viewport's bottom right), as Plasticity's drawing tools are: no dialog for those.
+    dialog.hidden = !id || id in DRAW || id in PRIMS;
     body.hidden = !body.querySelector('[data-panel]:not([hidden])') || (id === 'bridge' && !cmd?.continuity);
     if (!dialog.hidden) {
       $('cd-name').textContent = !id ? '' : EDITS[id] ?? DRAW[id] ?? toolInfo(id).label;
@@ -4186,9 +4272,8 @@ export async function mount(root, backend) {
         else { dialog.showModal(); dialog.querySelector('[data-xd="cancel"]').focus(); }
       }
     }
-    $('keys').innerHTML = keysHtml(KEYS[id] ? id : 'idle');
-    $('step-keys').innerHTML = (KEYS[id] ?? []).map(([k, what]) => `<kbd>${k}</kbd>${what}`).join('');
-    $('stepline').dataset.cmd = id ?? '';
+    keysOf = id;
+    showKeys();
     const name = !id ? 'SELECT' : EDITS[id] ?? DRAW[id] ?? toolInfo(id).label;
     $('tool-name').textContent = name;
     $('status-tool').textContent = name;
@@ -6452,6 +6537,7 @@ export async function mount(root, backend) {
       setTarget(all);
       $('ex-hint').textContent = `${c.src.name}${t ? ` ON ${all}` : ''}`;
       $('ex-target').textContent = all;
+      $('ex-source').textContent = c.src.name;
       $('ex-pick-target').disabled = c.src.region === undefined && !c.src.arrangement;
       $('ex-pick-target').setAttribute('aria-pressed', String(c.picking === 'target'));
     };
