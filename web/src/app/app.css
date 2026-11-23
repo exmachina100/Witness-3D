@@ -487,3 +487,6 @@ dialog::backdrop { background: rgb(0 0 0 / 45%); }
 }
 .plane-dialog form { display: grid; gap: 8px; }
 .plane-dialog input { min-width: 0; }
+
+dialog.xdialog[aria-busy="true"] { cursor: wait; }
+dialog.xdialog[aria-busy="true"] > * { pointer-events: none; }
