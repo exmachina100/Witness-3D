@@ -460,6 +460,30 @@ input[type="range"] { accent-color: var(--accent); }
 .cmd-dialog .cd-foot button:hover { color: var(--ink); }
 .cmd-dialog .cd-foot kbd { font: inherit; padding: 1px 5px; border: 1px solid var(--rule); }
 .cmd-dialog.folded .cd-body { display: none; }
+/* Plasticity's controls in the dialog: labels over their fields, a choice of one as a row of
+   tabs, on/off options as switches with the label on the left. */
+.cmd-dialog .cd-body .sec { gap: 10px; }
+.cmd-dialog .field:has(> input, > select) { grid-template-columns: 1fr; gap: 5px; }
+.cmd-dialog .field.two:has(> input) { grid-template-columns: 1fr 1fr; }
+.cmd-dialog .field.two:has(> input) > label { grid-column: 1 / -1; }
+.cmd-dialog .field input { padding: 6px 8px; text-align: center; background: var(--ground); border-color: var(--rule-soft); }
+.cmd-dialog .field.merged, .cmd-dialog .field input[hidden] { display: none; }
+.cmd-dialog .field:has(> output) { grid-template-columns: 1fr auto; }
+.cmd-dialog .field output { padding: 2px 0; text-align: right; }
+.cmd-dialog .seg { display: grid; grid-template-columns: repeat(auto-fit, minmax(52px, 1fr)); grid-auto-flow: row; gap: 0; padding: 2px; background: var(--ground); border: 1px solid var(--rule-soft); }
+.cmd-dialog .seg button { border: 0; padding: 5px 2px; letter-spacing: 0.5px; }
+.cmd-dialog .seg button .ico, .cmd-dialog .seg button kbd { display: none; }
+.cmd-dialog .seg button[aria-pressed="true"] { background: var(--raised); color: var(--ink); box-shadow: inset 0 0 0 1px var(--rule); }
+.cmd-dialog .chips:has(> .sw) { display: flex; flex-direction: column; gap: 2px; }
+.cmd-dialog .chips button.sw { display: flex; align-items: center; gap: 0; width: 100%; border: 0; padding: 5px 0; color: var(--ink); background: none; text-align: left; }
+.cmd-dialog .chips button.sw kbd { order: 2; margin: 0 8px 0 auto; opacity: 0.45; }
+.cmd-dialog .chips button.sw .ico { display: none; }
+.cmd-dialog .chips button.sw::after { content: ''; order: 3; flex: none; width: 24px; height: 12px; margin-left: auto; border-radius: 6px; background: var(--rule) radial-gradient(circle at 6px 50%, var(--ink) 4px, transparent 4.5px); transition: background 0.12s; }
+.cmd-dialog .chips button.sw:has(kbd)::after { margin-left: 0; }
+.cmd-dialog .chips button.sw[aria-pressed="true"] { background: none; color: var(--ink); }
+.cmd-dialog .chips button.sw[aria-pressed="true"]::after { background: var(--accent) radial-gradient(circle at 18px 50%, var(--on-accent) 4px, transparent 4.5px); }
+.cmd-dialog .chips button.sw:hover { color: var(--ink); }
+.cmd-dialog .chips button.sw:hover::after { box-shadow: 0 0 0 1px var(--muted); }
 .cmd-dialog.more .cd-foot::before { content: ''; position: absolute; left: 0; right: 0; bottom: 100%; height: 28px; background: linear-gradient(to bottom, transparent, var(--raised)); pointer-events: none; }
 .xdialog.more .xd-foot::before { content: ''; position: absolute; left: 0; right: 0; bottom: 100%; height: 28px; background: linear-gradient(to bottom, transparent, var(--raised)); pointer-events: none; }
 /* A command's dialog sits at the viewport's top left and leaves the viewport usable (Plasticity's). */
