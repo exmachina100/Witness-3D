@@ -678,6 +678,7 @@ function variableFillet(shape, edges, edgeIds, size, withHistory, variable) {
  * @returns {Object} { shape, history }
  */
 export function filletShell(shape, openFaces, outerEdges, innerEdges, thickness, radius, outerVariable = [], innerVariable = [], shapeType = 'round') {
+    if (shapeType !== 'round') throw new BlendError('Fillet Shell currently supports round blends only');
     let { shape: currentShape, history } = shellFaces(shape, openFaces, thickness);
 
     // Both selections refer to the freshly shelled body. Blend together so an outer
@@ -702,12 +703,6 @@ export function filletShell(shape, openFaces, outerEdges, innerEdges, thickness,
             // Guide selections and generated-face provenance use the shell's edge numbering.
             generatedFaces: result.history.generatedFaces,
         };
-    }
-
-    // Apply Conic/G2 shape if needed (simplified - would need proper face tracking)
-    if (shapeType === 'conic' || shapeType === 'g2') {
-        // For fillet shell, reshaping would require tracking generated faces from both fillet operations
-        // This is a placeholder for future implementation
     }
 
     return { shape: currentShape, history };
