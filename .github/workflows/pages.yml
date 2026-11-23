@@ -29,14 +29,17 @@ jobs:
           cache-dependency-path: web/package-lock.json
       - run: npm ci
         working-directory: web
-      # No build step: the page is served straight from web/. The OCCT wasm ships gzipped
-      # next to index.html as occ.gz.wasm, which index.html decompresses itself.
       - name: Assemble site
         run: |
-          mkdir -p _site
+          mkdir -p _site/node_modules/replicad-opencascadejs
+          mkdir -p _site/node_modules/@nasedkinpv/opensubdiv-wasm
           cp web/index.html _site/
           cp -r web/src _site/
-          gzip -9 -c web/node_modules/replicad-opencascadejs/dist/replicad_single.wasm > _site/occ.gz.wasm
+          cp -r web/node_modules/replicad-opencascadejs/dist _site/node_modules/replicad-opencascadejs/
+          cp -r web/node_modules/@nasedkinpv/opensubdiv-wasm/dist _site/node_modules/@nasedkinpv/opensubdiv-wasm/
+          test -s _site/node_modules/replicad-opencascadejs/dist/replicad_single.js
+          test -s _site/node_modules/replicad-opencascadejs/dist/replicad_single.wasm
+          test -s _site/node_modules/@nasedkinpv/opensubdiv-wasm/dist/opensubdiv.mjs
           touch _site/.nojekyll
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3
