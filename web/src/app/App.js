@@ -4038,6 +4038,12 @@ export async function mount(root, backend) {
     if (state) setState(state);
     renderOutliner();
   }
+  function reportDialogError(error) {
+    const status = root.querySelector('dialog.xdialog:modal [data-xd-status]');
+    if (status) status.textContent = say(error);
+    else toast(say(error));
+    setState('failed');
+  }
   async function finish() {
     const c = cmd;
     if (!c) return;
@@ -4050,8 +4056,7 @@ export async function mount(root, backend) {
     status.textContent = 'WORKING…';
     c.dialogFinish = Promise.resolve().then(() => c.finish()).catch(error => {
       if (cmd !== c) return;
-      setState('failed');
-      status.textContent = say(error);
+      reportDialogError(error);
     }).finally(() => {
       if (status.textContent === 'WORKING…') status.textContent = '';
       dialog.removeAttribute('aria-busy');
@@ -10664,7 +10669,7 @@ export async function mount(root, backend) {
         const msg = await backend.saveExport(name, c.format === 'obj' ? toObj(meshes, undefined, { scale: num('mx-scale') || 1, up: c.up }) : write(meshes));
         endCmd(msg ? 'committed' : 'cancelled');
         if (msg) toast(`${msg} · ${c.format === 'obj' && c.topology !== 'tris' ? `${polygons} POLYGONS` : `${triangles} TRIANGLES`}`);
-      } catch (e) { setState('failed'); toast(say(e)); }
+      } catch (e) { reportDialogError(e); }
     };
     c.abort = () => endCmd('cancelled');
     sync();
@@ -10718,7 +10723,7 @@ export async function mount(root, backend) {
         const msg = await backend.saveExport(name, text);
         endCmd(msg ? 'committed' : 'cancelled');
         if (msg) toast(`${msg} · ${lines.filter(l => c.hidden || !l.hidden).length} LINES`);
-      } catch (e) { setState('failed'); toast(say(e)); }
+      } catch (e) { reportDialogError(e); }
     };
     c.abort = () => endCmd('cancelled');
     sync();
@@ -11093,7 +11098,7 @@ export async function mount(root, backend) {
         endCmd('committed');
         record('BRIDGE CURVES', made[0], curveLabel(made[0]));
         await curvesChanged(made);
-      } catch (e) { setState('failed'); toast(say(e)); }
+      } catch (e) { reportDialogError(e); }
     };
     c.setAxis = a => { c.axis = c.axis === a ? '' : a; c.preview(); };
     c.abort = () => endCmd('cancelled');
@@ -11165,7 +11170,7 @@ export async function mount(root, backend) {
         endCmd('committed');
         record(`${trims.length ? 'BRIDGE CURVES · TRIM' : 'BRIDGE CURVES'}${bridgeConstrain ? ' · CONSTRAINED' : ''}`, bridge, curveLabel(bridge));
         await curvesChanged([bridge]);
-      } catch (e) { setState('failed'); toast(say(e)); }
+      } catch (e) { reportDialogError(e); }
     };
     c.setAxis = a => { c.axis = c.axis === a ? '' : a; c.preview(); };
     c.abort = () => endCmd('cancelled');
