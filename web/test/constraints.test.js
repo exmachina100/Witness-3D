@@ -73,3 +73,30 @@ test('a Square sheet follows its curves, and lets them go when one is split', ()
     assert.deepEqual(k.moveSheets(split, [7], [11, 12]), []);
     assert.equal(k.count, 0);
 });
+
+test('an aligned sheet follows its reference body and lets go when edited itself', () => {
+    const k = new Constraints();
+    k.addSurface(5, 7, [0, 0, 0], [1, 0, 0], { continuity: 'G1' });
+    assert.equal(k.count, 1);
+    assert.deepEqual(k.bodyEdited(9), []);
+    const due = k.bodyEdited(7);
+    assert.equal(due.length, 1);
+    assert.equal(due[0].target, 5);
+    assert.equal(due[0].options.continuity, 'G1');
+    assert.deepEqual(k.bodyEdited(5), []);   // the sheet itself edited: constraint gone
+    assert.equal(k.count, 0);
+});
+
+test('a sheet side follows one reference, and a failed align drops it', () => {
+    const k = new Constraints();
+    k.addSurface(5, 7, [0, 0, 0], [1, 0, 0], {});
+    k.addSurface(5, 8, [0, 0, 0], [2, 0, 0], {});
+    assert.equal(k.count, 1);
+    assert.deepEqual(k.bodyEdited(7), []);
+    const [c] = k.bodyEdited(8);
+    k.dropSurface(c);
+    assert.equal(k.count, 0);
+    k.addSurface(5, 7, [0, 0, 0], [1, 0, 0], {});
+    k.clear();
+    assert.equal(k.count, 0);
+});
