@@ -566,10 +566,12 @@ dialog.xdialog[aria-busy="true"] > * { pointer-events: none; }
 .inspector-section .view-icons button[aria-pressed="true"] { border-color: var(--accent); color: var(--accent); background: none; }
 
 /* Snapping rows keep their icon before the name; Object snaps is a sub-heading as in Plasticity. */
-.inspector-section .switches button.sw.with-ico .ico { display: inline-flex; margin-right: 8px; color: var(--muted); }
-.inspector-section .switches button.sw.with-ico[aria-pressed="true"] .ico { color: var(--accent); }
-.inspector-section .switches button.sw:disabled { opacity: 0.4; }
+.inspector-section .snap-icons { grid-template-columns: repeat(6, minmax(0, 1fr)); }
+.inspector-section .snap-icons button:disabled { opacity: 0.35; }
 .inspector-section .label.sub { display: block; margin: 10px 0 2px; color: var(--muted); }
 /* The rail's grip, as the handle on top of Plasticity's tool rail. */
 .rail .grip { flex: none; height: 14px; cursor: grab; background: radial-gradient(circle, var(--muted) 1px, transparent 1.5px) center / 5px 5px repeat-x; border-bottom: 1px solid var(--rule-soft); }
 .rail .grip:active { cursor: grabbing; }
+.inspector-section .units-fields { display: flex; flex-direction: column; gap: 6px; }
+.inspector-section .units-fields .field { display: grid; grid-template-columns: 1fr 110px; align-items: center; }
+.inspector-section .units-fields select, .inspector-section .units-fields input { width: 100%; text-align: center; }

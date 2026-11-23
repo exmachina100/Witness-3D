@@ -118,7 +118,7 @@ import { planeFrom } from '../cplaneFrom.js';
 import { stepSources } from './sources.js';
 import { parallelCylinders, parallelFlatFaces, relatedFaces, samePlane } from './faceGroups.js';
 import { circleTangents, closestOnScreen, commonTangents, curvePointSnaps, intersections, perpendicularFeet, tangentPoints } from '../curveSnaps.js';
-import { PREF_FIELDS, changedPrefs, controlSettings, readPrefs, setPref, viewColors, wheelSpeed } from './prefs.js';
+import { PREF_FIELDS, changedPrefs, controlSettings, defaultPrefs, readPrefs, setPref, viewColors, wheelSpeed } from './prefs.js';
 import { drawnCurve3d, isFlat as flat3d, cv3d, spline3d } from '../draw3d.js';
 import { arcPoints, circleThrough, curveFromNurbs, cvPoints, ellipsePoints, endTangent, helixPoints, loops, nurbsLoop, nurbsPoints, polygonCorners, spiralAngle, tangentArc, tangentArcEnds } from '../curves.js';
 
@@ -1261,14 +1261,6 @@ function plasticitySteps(body) {
   }
 }
 
-/** A labelled on/off row in the Inspector (Plasticity's "Show edges" and its other switches). */
-function switchRow(button, label) {
-  button.textContent = label;
-  button.classList.add('sw');
-  button.removeAttribute('aria-label');
-  return button;
-}
-
 /** A collapsible Inspector section as Plasticity's right panel has them: a title and its rows. */
 function inspectorSection(title, ...rows) {
   const d = document.createElement('details');
@@ -1278,24 +1270,6 @@ function inspectorSection(title, ...rows) {
   d.firstChild.textContent = title;
   d.lastChild.append(...rows.filter(Boolean));
   return d;
-}
-
-/** An on/off row that keeps its icon before its name. */
-function iconRow(button, label) {
-  if (!button) return null;
-  const span = document.createElement('span');
-  span.className = 'sw-label';
-  span.textContent = label;
-  button.append(span);
-  button.classList.add('sw', 'with-ico');
-  return button;
-}
-
-function switchList(...buttons) {
-  const list = document.createElement('div');
-  list.className = 'chips switches';
-  list.append(...buttons.filter(Boolean));
-  return list;
 }
 
 /**
@@ -1319,19 +1293,39 @@ export function plasticityInspector(root) {
   const show = inspectorSection('VIEWPORT', icons, q('[data-id="comb-scale"]')?.parentElement);
   const camera = inspectorSection('CAMERA', q('[data-id="fov"]')?.parentElement, q('[data-id="fov-value"]'));
   const gridStep = q('[data-id="grid"]')?.parentElement;
-  const grid = inspectorSection('GRID', switchList(switchRow(toggle('snap'), 'SNAP TO GRID')), gridStep);
+  // Snap to grid is an icon button, as the other snapping controls are (the user's choice).
+  const gridSnap = document.createElement('div');
+  gridSnap.className = 'chips icons view-icons snap-icons';
+  gridSnap.append(toggle('snap'));
+  const grid = inspectorSection('GRID', gridSnap, gridStep);
+  // Plasticity's Units section under Grid: the length unit, how often a major line is drawn, and
+  // a reset. The same settings as Preferences › Grid and Units.
+  const unitsBox = document.createElement('div');
+  unitsBox.className = 'units-fields';
+  unitsBox.innerHTML = `<label class="field"><span>UNITS</span><select data-id="units-length" title="Length unit for every typed and shown length">${['mm', 'cm', 'm', 'in', 'ft'].map(u => `<option value="${u}">${u.toUpperCase()}</option>`).join('')}</select></label>`
+    + `<label class="field"><span>LINE EVERY</span><input data-id="units-line-every" type="number" min="1" max="100" step="1" value="10" title="A major grid line every this many grid steps"></label>`
+    + `<button data-id="units-reset" class="wide" title="Units, grid size and line spacing back to their defaults">RESET TO DEFAULT</button>`;
+  const units = inspectorSection('UNITS', unitsBox);
   const snapping = q('[data-id="snapping"]')?.closest('details');
-  // Snapping as Plasticity's panel has it: an Object snapping switch, then the Object snaps one
-  // switch per kind. Each row keeps its icon (the user's choice) beside its name.
+  // Snapping as Plasticity's panel has it: Object snapping, then the Object snaps one per kind,
+  // as icon buttons with tooltips (the user's choice over Plasticity's labelled switches).
   if (snapping) {
     snapping.querySelector('summary').textContent = 'SNAPPING';
     const chips = snapping.querySelector('.chips');
     const kinds = [...chips.querySelectorAll('[data-snapkind]')];
-    chips.replaceWith(switchList(iconRow(q('[data-id="snap-object"]'), 'OBJECT SNAPPING')));
+    const iconList = (label, buttons) => {
+      const list = document.createElement('div');
+      list.className = 'chips icons view-icons snap-icons';
+      list.setAttribute('role', 'group');
+      list.setAttribute('aria-label', label);
+      list.append(...buttons.filter(Boolean));
+      return list;
+    };
+    chips.replaceWith(iconList('Object snapping', [q('[data-id="snap-object"]')]));
     const head = document.createElement('span');
     head.className = 'label sub';
     head.textContent = 'OBJECT SNAPS';
-    snapping.querySelector('.sec').append(head, switchList(...kinds.map(b => iconRow(b, b.title.replace(/ snaps$/i, '').toUpperCase()))));
+    snapping.querySelector('.sec').append(head, iconList('Object snaps', kinds));
   }
   const planes = q('[data-action="plane:world"]')?.closest('details');
   if (planes) {
@@ -1353,10 +1347,10 @@ export function plasticityInspector(root) {
   }
   const selection = q('[data-id="inspector-selection"]')?.closest('details');
   if (selection) selection.querySelector('summary').textContent = 'SELECTION';
-  header.after(shader, show, camera, grid);
-  if (snapping) grid.after(snapping);
-  if (planes) (snapping ?? grid).after(planes);
-  if (selection) (planes ?? snapping ?? grid).after(selection);
+  header.after(shader, show, camera, grid, units);
+  if (snapping) units.after(snapping);
+  if (planes) (snapping ?? units).after(planes);
+  if (selection) (planes ?? snapping ?? units).after(selection);
   // The viewport keeps X-ray at its top right; the rest moved into the panel.
   const vhead = q('.vhead'), xray = toggle('xray');
   if (xray) vhead.append(xray);
@@ -15061,6 +15055,7 @@ export async function mount(root, backend) {
     $('distance').step = gs;
     if (cmd?.gizmo) cmd.gizmo.step = gs;
     buildGrid(gs, prefs.units.lineEvery);
+    if ($('units-length')) { $('units-length').value = prefs.units.length; $('units-line-every').value = prefs.units.lineEvery; }
     scene.background.setHex(c.ground);
     COLORS.ground = c.ground;
     paintGrid(c.gridMajor, c.grid);
@@ -15963,6 +15958,14 @@ export async function mount(root, backend) {
   $('grid').onkeydown = e => { e.stopPropagation(); if (e.key === 'Enter' || e.key === 'Escape') { if (e.key === 'Escape') $('grid').value = prefs.units.gridSize; $('grid').blur(); } };
   $('grid').onblur = () => { $('grid').value = prefs.units.gridSize; };
   $('units-label').onclick = () => { prefsTab = 'units'; openPrefs(); };
+  $('units-length').onchange = () => { prefs = setPref(prefs, 'units', 'length', $('units-length').value); keepPrefs('units'); };
+  $('units-line-every').onkeydown = e => e.stopPropagation();
+  $('units-line-every').onchange = () => { prefs = setPref(prefs, 'units', 'lineEvery', parseFloat($('units-line-every').value)); keepPrefs('units'); };
+  $('units-reset').onclick = () => {
+    const d = defaultPrefs().units;
+    for (const k of ['length', 'gridSize', 'lineEvery']) prefs = setPref(prefs, 'units', k, d[k]);
+    keepPrefs('units');
+  };
   $('snap-object').onclick = () => doAction('snap:object');
   for (const b of $$('[data-snapkind]')) b.onclick = () => {
     const id = b.dataset.snapkind, off = snapSettings.off.includes(id) ? snapSettings.off.filter(x => x !== id) : [...snapSettings.off, id];
