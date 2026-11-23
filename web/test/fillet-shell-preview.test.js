@@ -66,6 +66,9 @@ test('Fillet Shell builds a valid round at a three-edge outer corner', async () 
     }
     assert.ok(new o.BRepCheck_Analyzer(mixed.shape, true, false, false).IsValid());
     for (const edge of [...edges, ...inner]) assert.ok(mixed.history.generatedFaces.some(([source]) => source === edge));
+    const chordal = filletShell(solid, [0], edges, [], 1, 0.4, [], [], 'chordal');
+    const equivalentRound = filletShell(solid, [0], edges, [], 1, 0.4 / Math.sqrt(2));
+    assert.ok(Math.abs(volume(chordal.shape) - volume(equivalentRound.shape)) < 1e-6);
     const { shape, history } = filletShell(solid, [0], edges, [], 1, 0.4);
     assert.ok(new o.BRepCheck_Analyzer(shape, true, false, false).IsValid());
     assert.ok(volume(shape) < volume(open));
@@ -73,7 +76,7 @@ test('Fillet Shell builds a valid round at a three-edge outer corner', async () 
 });
 
 test('Fillet Shell fails explicitly for profiles that do not have a kernel implementation', () => {
-    for (const profile of ['chordal', 'conic', 'g2']) {
-        assert.throws(() => filletShell(null, [], [], [], 1, 1, [], [], profile), /supports round blends only/);
+    for (const profile of ['conic', 'g2']) {
+        assert.throws(() => filletShell(null, [], [], [], 1, 1, [], [], profile), /supports round and chordal blends only/);
     }
 });
