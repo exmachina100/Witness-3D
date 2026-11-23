@@ -365,8 +365,9 @@ function meanFrame(f, g) {
  * { body, edge }. Returns { body, moves } for previewMoveFacePoles / commitMoveFacePoles, moves as
  * [[face, pole, [dx, dy, dz]]].
  */
-export async function alignRequest(backend, { target, reference, continuity = 'G1', tension = 1, blend = 0, influence = 0, partial = [0, 1], symmetric = false, boundary = 'natural', skew = [0, 0], matchRatio = false }) {
+export async function alignRequest(backend, { target, reference, continuity = 'G1', tension = 1, blend = 0, influence = 0, partial = [0, 1], symmetric = false, boundary = 'natural', skew = [0, 0], matchRatio = false, solver = 'constrained' }) {
     if (target.body === reference.body && target.edge === reference.edge) throw new Error('pick two different edges: the one to move, then the one to meet');
+    if (solver === 'collinear') return collinearRequest(backend, { target, reference, continuity, symmetric, tension, blend, influence, partial });
     if (symmetric) return symmetricRequest(backend, { target, reference, continuity, tension, blend, influence, partial, boundary, skew });
     const [tTeeth, rTeeth] = await Promise.all([target, reference].map(e => backend.edgeCurvature({ body: e.body, edge: e.edge, n: 400 })));
     const tAlong = tTeeth.map(t => t.at), rAlong = rTeeth.map(t => t.at);
@@ -418,6 +419,81 @@ async function symmetricRequest(backend, { target, reference, continuity, ...opt
     }));
     if (target.body === reference.body) return { body: target.body, moves: [...out[0].moves, ...out[1].moves] };
     return { body: target.body, moves: out[0].moves, more: [out[1]] };
+}
+
+/**
+ * Edge Align's Collinear solver (2026.2; the manual says only that it "controls how the CV hulls
+ * of both surfaces are adjusted to form a clean grid along the shared boundary edge", so the rest
+ * is inferred): the two sides share their control points one for one, and for G1 each column's
+ * first hull leg on one sheet runs straight on from the other's, so the control nets form one
+ * grid across the edge. Asymmetric moves the target only, onto the reference's points and along
+ * its hull; Symmetric moves both, onto their middle and along the line through both hull points.
+ * Each sheet keeps its own hull leg lengths (times the tension on the target). Both sides need the
+ * same degree and number of control points along the edge. `t` and `r` are sides (sideOf).
+ * Returns { target, reference } moves as [[pole, [dx, dy, dz]]].
+ */
+export function collinearMoves(t, r, { continuity = 'G1', symmetric = false, tension = 1, blend = 0, influence = 0, partial = [0, 1] } = {}) {
+    const order = ALIGN_CONTINUITY.indexOf(continuity);
+    if (order < 0 || order > 1) throw new Error('the Collinear solver meets the sides in G0 or G1');
+    if (!(tension > 0) || !Number.isFinite(tension)) throw new Error('the tension must be greater than zero');
+    const m = t.rows[0].length;
+    if (r.rows[0].length !== m || r.q !== t.q) throw new Error(`Collinear lines up control points one for one: the target has ${t.rows[0].length} along the edge (degree ${t.q}), the reference ${r.rows[0].length} (degree ${r.q}); rebuild one to match`);
+    if (order >= 1 && (t.rows.length < 2 || r.rows.length < 2)) throw new Error('G1 needs two rows of control points across each side');
+    const [p0, p1] = partial;
+    if (!(p0 >= 0 && p1 <= 1 && p0 < p1)) throw new Error('the partial start and end run from 0 to 1, start before end');
+    // The reference's rows the same way round as the target's.
+    const flip = dist(t.rows[0][0], r.rows[0][m - 1]) + dist(t.rows[0][m - 1], r.rows[0][0]) < dist(t.rows[0][0], r.rows[0][0]) + dist(t.rows[0][m - 1], r.rows[0][m - 1]);
+    const rRows = flip ? r.rows.map(row => [...row].reverse()) : r.rows;
+    const rIds = flip ? r.ids.map(row => [...row].reverse()) : r.ids;
+    const T = t.rows.map(row => row.map(v => [...v])), R = rRows.map(row => row.map(v => [...v]));
+    const shared = T[0].map((v, j) => symmetric ? mul(add(v, R[0][j]), 0.5) : [...R[0][j]]);
+    T[0] = shared.map(v => [...v]);
+    if (symmetric) R[0] = shared.map(v => [...v]);
+    if (order >= 1) for (let j = 0; j < m; j++) {
+        const lt = dist(t.rows[1][j], t.rows[0][j]), lr = dist(rRows[1][j], rRows[0][j]);
+        let dir = symmetric ? sub(t.rows[1][j], rRows[1][j]) : sub(shared[j], rRows[1][j]);
+        if (len(dir) < 1e-12) throw new Error('the two hulls meet at a point there; there is no line to run them along');
+        dir = unit(dir);
+        T[1][j] = add(shared[j], mul(dir, lt * tension));
+        if (symmetric) R[1][j] = sub(shared[j], mul(dir, lr));
+    }
+    // Partial alignment eases out toward the side's ends (as alignMoves), blended rows follow.
+    const ease = x => x * x * (3 - 2 * x);
+    const weight = Array.from({ length: m }, (_, j) => {
+        const f = m > 1 ? j / (m - 1) : 0;
+        if (f < p0) return ease(f / p0);
+        if (f > p1) return ease((1 - f) / (1 - p1));
+        return 1;
+    });
+    const movesOf = (rows, out, ids) => {
+        const last = order, reach = Math.min(blend, rows.length - 1 - last);
+        for (let k = 1; k <= reach; k++) {
+            const w = (1 - influence) * (1 - k / (blend + 1));
+            out[last + k] = rows[last + k].map((v, j) => add(v, mul(sub(out[last][j], rows[last][j]), w)));
+        }
+        const moves = [];
+        for (let i = 0; i <= last + reach; i++) for (let j = 0; j < m; j++) {
+            const by = mul(sub(out[i][j], rows[i][j]), weight[j]);
+            if (len(by) > 1e-12) moves.push([ids[i][j], by]);
+        }
+        return moves;
+    };
+    return { target: movesOf(t.rows, T, t.ids), reference: symmetric ? movesOf(rRows, R, rIds) : [] };
+}
+
+/** Collinear against a backend: both edges on B-spline sheets. Returns { body, moves, more? }. */
+async function collinearRequest(backend, { target, reference, continuity, symmetric, ...opts }) {
+    const edges = [target, reference];
+    const along = (await Promise.all(edges.map(e => backend.edgeCurvature({ body: e.body, edge: e.edge, n: 400 })))).map(teeth => teeth.map(x => x.at));
+    const middle = pts => pts[Math.floor(pts.length / 2)];
+    const faces = await Promise.all(edges.map(async (e, k) => pickFace(readEdgeFaces(await backend.edgeFaces({ body: e.body, edge: e.edge, points: [] }), 0), middle(along[1 - k]), true)));
+    if (target.body === reference.body && faces[0].face === faces[1].face) throw new Error('the two edges are sides of one face; pick edges of two sheets');
+    const sides = faces.map((f, k) => sideOf(f.spline, along[k].filter((_, i) => i % 25 === 0)));
+    const { target: tm, reference: rm } = collinearMoves(sides[0], sides[1], { continuity, symmetric, ...opts });
+    const tMoves = tm.map(([pole, by]) => [faces[0].face, pole, by]), rMoves = rm.map(([pole, by]) => [faces[1].face, pole, by]);
+    if (!rMoves.length) return { body: target.body, moves: tMoves };
+    if (target.body === reference.body) return { body: target.body, moves: [...tMoves, ...rMoves] };
+    return { body: target.body, moves: tMoves, more: [{ body: reference.body, moves: rMoves }] };
 }
 
 /** Analysis's default tolerances: gap in mm, angle in degrees, curvature difference in percent. */
