@@ -460,6 +460,7 @@ const SHELL = `
       <div class="chips" data-id="mx-convex-row"><button data-id="mx-convex" aria-pressed="false" title="Ngons: only convex polygons; a run that is not convex stays triangles">CONVEX NGONS ONLY</button></div>
       <div class="field" title="Separate pieces smaller across (their bounding box's diagonal) than this are left out; 0 keeps them all"><label for="w3d-mx-small">REMOVE SMALL FEATURES</label><input id="w3d-mx-small" data-id="mx-small" type="number" step="0.5" min="0" value="0"></div>
       <label class="field" data-id="mx-inflect-row" hidden><span>REFINE CURVATURE REVERSALS</span><input type="checkbox" data-id="mx-inflect" title="Use finer tessellation for bodies with a sampled curvature reversal"></label>
+      <output class="hint" data-xd-status role="status" aria-live="polite"></output>
       <div class="xd-foot"><button data-xd="cancel" title="Cancel (Esc)">CANCEL</button><button data-xd="ok" class="primary" title="Export (Enter)">EXPORT</button></div>
     </dialog>
     <dialog class="sec xdialog" data-panel="export-drawing" aria-label="Export drawing" hidden>
@@ -469,6 +470,7 @@ const SHELL = `
       <div class="seg" role="group" aria-label="Drawing format"><button data-drf="svg" aria-pressed="true">SVG</button><button data-drf="dxf" aria-pressed="false">DXF</button></div>
       <div class="chips"><button data-id="dr-hidden" aria-pressed="true" title="Hidden lines (H)">HIDDEN</button><button data-id="dr-curves" aria-pressed="true" title="Curves (C)">CURVES</button></div>
       <div class="field"><label for="w3d-dr-tol">TOLERANCE</label><input id="w3d-dr-tol" data-id="dr-tol" type="number" step="0.01" min="0.001" value="0.01"></div>
+      <output class="hint" data-xd-status role="status" aria-live="polite"></output>
       <div class="xd-foot"><button data-xd="cancel" title="Cancel (Esc)">CANCEL</button><button data-xd="ok" class="primary" title="Export (Enter)">EXPORT</button></div>
     </dialog>
     <div class="sec" data-panel="offset-curve" hidden>
@@ -847,6 +849,7 @@ const SHELL = `
     <dialog class="sec xdialog" data-id="bridge-dialog" aria-label="Bridge Curve" hidden>
       <div class="xd-head"><span>BRIDGE CURVE</span><button data-xd="cancel" aria-label="Cancel">${icon('close')}</button></div>
       <div data-id="bridge-dialog-body"></div>
+      <output class="hint" data-xd-status role="status" aria-live="polite"></output>
       <div class="xd-foot"><button data-xd="cancel">CANCEL</button><button data-xd="ok" class="primary">OK</button></div>
     </dialog>
     <div class="sec" data-panel="bridge-edge" hidden>
@@ -4008,6 +4011,7 @@ export async function mount(root, backend) {
     for (const dialog of $$('dialog.xdialog')) {
       if (dialog.hidden && dialog.open) dialog.close();
       if (!dialog.hidden && !dialog.open) {
+        dialog.querySelector('[data-xd-status]').textContent = '';
         dialog.showModal();
         dialog.querySelector('[data-xd="cancel"]').focus();
       }
@@ -4041,8 +4045,15 @@ export async function mount(root, backend) {
     const dialog = root.querySelector('dialog.xdialog:modal');
     if (!dialog) return c.finish();
 
+    const status = dialog.querySelector('[data-xd-status]');
     dialog.setAttribute('aria-busy', 'true');
-    c.dialogFinish = Promise.resolve().then(() => c.finish()).finally(() => {
+    status.textContent = 'WORKING…';
+    c.dialogFinish = Promise.resolve().then(() => c.finish()).catch(error => {
+      if (cmd !== c) return;
+      setState('failed');
+      status.textContent = say(error);
+    }).finally(() => {
+      if (status.textContent === 'WORKING…') status.textContent = '';
       dialog.removeAttribute('aria-busy');
       c.dialogFinish = null;
     });
