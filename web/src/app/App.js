@@ -278,7 +278,6 @@ const SHELL = `
       <div class="cd-foot"><button data-id="cd-cancel" title="Cancel the command (Esc)"><kbd>ESC</kbd>CANCEL</button><button data-id="cd-ok" title="Finish the command (Enter or right-click)">OK<kbd>↵</kbd></button></div>
     </section>
     <div class="vtl">
-      <button class="plane-pill" data-action="plane:save" title="Construction plane: click to save it to the list in the Inspector">${icon('plane-world')}<output data-id="plane">XY</output></button>
       <span class="hud" data-id="hud" data-idle>SELECT · F SEARCH</span>
     </div>
     <div class="vhead" role="toolbar" aria-label="View">
@@ -1281,6 +1280,17 @@ function inspectorSection(title, ...rows) {
   return d;
 }
 
+/** An on/off row that keeps its icon before its name. */
+function iconRow(button, label) {
+  if (!button) return null;
+  const span = document.createElement('span');
+  span.className = 'sw-label';
+  span.textContent = label;
+  button.append(span);
+  button.classList.add('sw', 'with-ico');
+  return button;
+}
+
 function switchList(...buttons) {
   const list = document.createElement('div');
   list.className = 'chips switches';
@@ -1299,25 +1309,29 @@ export function plasticityInspector(root) {
   const q = s => root.querySelector(s), aside = q('aside.right'), header = aside.querySelector(':scope > header');
   const toggle = id => q(`[data-toggle="${id}"]`), pop = q('[data-id="view-pop"]');
   const shader = inspectorSection('SHADER MODE', q('[data-id="shader-name"]')?.parentElement, q('[data-id="shader-swatches"]'), q('[data-id="matcap-file"]'), q('[data-id="shader-option"]'), q('[data-id="render-options"]'));
-  const show = inspectorSection('VIEWPORT',
-    switchList(switchRow(toggle('edges'), 'SHOW EDGES'), switchRow(toggle('curves'), 'SHOW CURVES'), switchRow(toggle('faces'), 'SHOW FACES'),
-      switchRow(toggle('images'), 'SHOW IMAGES'), switchRow(toggle('constraints'), 'SHOW CONSTRAINTS'), switchRow(toggle('curvature'), 'CURVATURE COMBS')),
-    q('[data-id="comb-scale"]')?.parentElement,
-    switchList(switchRow(toggle('render'), 'RENDER MODE'), switchRow(toggle('ao'), 'AMBIENT OCCLUSION'), switchRow(q('[data-id="section-btn"]'), 'SECTION ANALYSIS')));
+  // The view switches are icon buttons (the user's choice over Plasticity's labelled switches),
+  // each with its tooltip, in one row.
+  const icons = document.createElement('div');
+  icons.className = 'chips icons view-icons';
+  icons.setAttribute('role', 'group');
+  icons.setAttribute('aria-label', 'Viewport');
+  icons.append(...['edges', 'curves', 'faces', 'images', 'constraints', 'curvature', 'render', 'ao'].map(toggle).filter(Boolean), q('[data-id="section-btn"]'));
+  const show = inspectorSection('VIEWPORT', icons, q('[data-id="comb-scale"]')?.parentElement);
   const camera = inspectorSection('CAMERA', q('[data-id="fov"]')?.parentElement, q('[data-id="fov-value"]'));
   const gridStep = q('[data-id="grid"]')?.parentElement;
   const grid = inspectorSection('GRID', switchList(switchRow(toggle('snap'), 'SNAP TO GRID')), gridStep);
   const snapping = q('[data-id="snapping"]')?.closest('details');
+  // Snapping as Plasticity's panel has it: an Object snapping switch, then the Object snaps one
+  // switch per kind. Each row keeps its icon (the user's choice) beside its name.
   if (snapping) {
     snapping.querySelector('summary').textContent = 'SNAPPING';
     const chips = snapping.querySelector('.chips');
     const kinds = [...chips.querySelectorAll('[data-snapkind]')];
-    const label = b => b.title.replace(/ snaps$/i, '').toUpperCase();
-    chips.replaceWith(switchList(switchRow(q('[data-id="snap-object"]'), 'OBJECT SNAPPING')));
+    chips.replaceWith(switchList(iconRow(q('[data-id="snap-object"]'), 'OBJECT SNAPPING')));
     const head = document.createElement('span');
-    head.className = 'label';
+    head.className = 'label sub';
     head.textContent = 'OBJECT SNAPS';
-    snapping.querySelector('.sec').append(head, switchList(...kinds.map(b => switchRow(b, label(b)))));
+    snapping.querySelector('.sec').append(head, switchList(...kinds.map(b => iconRow(b, b.title.replace(/ snaps$/i, '').toUpperCase()))));
   }
   const planes = q('[data-action="plane:world"]')?.closest('details');
   if (planes) {
@@ -3203,7 +3217,7 @@ export async function mount(root, backend) {
     cplane.name = name;
     grid.position.copy(origin);
     grid.quaternion.setFromUnitVectors(UP, cplane.normal);
-    $('plane').textContent = name;
+    if ($('plane')) $('plane').textContent = name;
     $('status-plane').textContent = name;
   }
   // --- reference images -----------------------------------------------------

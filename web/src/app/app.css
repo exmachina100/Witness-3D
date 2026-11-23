@@ -48,7 +48,7 @@ button:focus-visible, input:focus-visible { outline: 1px solid var(--accent); ou
 .left .doc { flex: 1; min-width: 0; display: flex; flex-direction: column; min-height: 0; }
 /* The tool rail: the manual's sketch, primitive and measurement families, one icon each, a floating
    vertical toolbar over the viewport's left edge, framed like the view toolbar (.vhead). */
-.rail { position: absolute; left: 14px; top: 86px; z-index: 4; flex-direction: column; max-height: calc(100% - 180px); overflow-x: hidden; overflow-y: auto; border: 1px solid rgba(239, 235, 224, 0.25); background: var(--ground); }
+.rail { position: absolute; left: 14px; top: 62px; z-index: 4; flex-direction: column; max-height: calc(100% - 180px); overflow-x: hidden; overflow-y: auto; border: 1px solid rgba(239, 235, 224, 0.25); background: var(--ground); }
 .rail .family { flex-direction: column; border-right: 0; }
 .rail .family + .family { border-top: 1px solid var(--rule-soft); }
 .rail .family .tool { justify-content: center; padding: 0; height: 34px; width: 34px; border-right: 0; }
@@ -98,7 +98,7 @@ button:focus-visible, input:focus-visible { outline: 1px solid var(--accent); ou
 .corner.br { right: 10px; bottom: 10px; border-right-width: 1px; border-bottom-width: 1px; }
 .hud { position: relative; padding: 4px 8px; background: var(--accent); color: var(--on-accent); font-weight: 700; white-space: nowrap; pointer-events: none; }
 .hud[data-idle] { background: var(--ground); color: var(--muted); border: 1px solid var(--rule); font-weight: 400; }
-.modes { position: absolute; left: 14px; top: 44px; display: flex; border: 1px solid rgba(239, 235, 224, 0.35); background: var(--ground); }
+.modes { position: absolute; left: 14px; top: 12px; display: flex; border: 1px solid rgba(239, 235, 224, 0.35); background: var(--ground); }
 .modes button { padding: 5px 10px; color: var(--muted); }
 .modes button[aria-pressed="true"] { background: var(--ink); color: var(--on-accent); }
 .modes button:disabled { color: var(--dim); }
@@ -561,3 +561,15 @@ dialog::backdrop { background: rgb(0 0 0 / 45%); }
 dialog.xdialog[aria-busy="true"] { cursor: wait; }
 dialog.xdialog[aria-busy="true"] > * { pointer-events: none; }
 .inspector-section .swatches[data-id="shader-swatches"] { grid-template-columns: repeat(6, 30px); max-height: none; }
+.inspector-section .view-icons { grid-template-columns: repeat(9, minmax(0, 1fr)); gap: 4px; }
+.inspector-section .view-icons button { padding: 6px 0; border: 1px solid var(--rule); color: var(--muted); }
+.inspector-section .view-icons button[aria-pressed="true"] { border-color: var(--accent); color: var(--accent); background: none; }
+
+/* Snapping rows keep their icon before the name; Object snaps is a sub-heading as in Plasticity. */
+.inspector-section .switches button.sw.with-ico .ico { display: inline-flex; margin-right: 8px; color: var(--muted); }
+.inspector-section .switches button.sw.with-ico[aria-pressed="true"] .ico { color: var(--accent); }
+.inspector-section .switches button.sw:disabled { opacity: 0.4; }
+.inspector-section .label.sub { display: block; margin: 10px 0 2px; color: var(--muted); }
+/* The rail's grip, as the handle on top of Plasticity's tool rail. */
+.rail .grip { flex: none; height: 14px; cursor: grab; background: radial-gradient(circle, var(--muted) 1px, transparent 1.5px) center / 5px 5px repeat-x; border-bottom: 1px solid var(--rule-soft); }
+.rail .grip:active { cursor: grabbing; }
