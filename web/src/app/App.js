@@ -319,7 +319,7 @@ const SHELL = `
     </div>
     <div class="nav" data-id="nav" aria-label="View navigation"></div>
     <div class="modes" role="group" aria-label="Selection mode">
-      ${[['point', 'POINTS', '1'], ['edge', 'EDGES', '2'], ['face', 'FACES', '3'], ['solid', 'SOLIDS', '4'], ['all', 'ALL', '5']].map(([m, name, k]) => `<button data-mode="${m}" aria-pressed="true" aria-label="Select ${name.toLowerCase()}" title="${name} (${k}${m === 'all' ? '' : ` · ⇧${k} toggles`})">${icon(`mode-${m}`)}</button>`).join('')}
+      ${[['point', 'POINTS', '1'], ['edge', 'EDGES', '2'], ['face', 'FACES', '3'], ['solid', 'SOLIDS', '4']].map(([m, name, k]) => `<button data-mode="${m}" aria-pressed="true" aria-label="Select ${name.toLowerCase()}" title="${name} (${k}${m === 'all' ? '' : ` · ⇧${k} toggles`})">${icon(`mode-${m}`)}</button>`).join('')}
     </div>
     <div class="cmdbar" role="toolbar" aria-label="Command bar">
       ${BAR.map(([a, k, l]) => `<button data-action="${a}" aria-label="${l}" title="${l}${k ? ` (${k})` : ''}">${icon(a === 'palette' ? 'search' : a === 'suggest' ? 'suggest' : a.replace('tool:', ''))}${k ? `<kbd>${k}</kbd>` : ''}</button>`).join('')}

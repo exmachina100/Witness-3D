@@ -5,19 +5,27 @@
 // remembered on this browser.
 
 /**
- * The families, top to bottom: the manual's Sketching tools (Curves and Lines, Circles, Arcs,
- * Rectangles, Polygon and Spiral), its 3D Primitives and its Measurement tools. The common commands
- * live on the Command Bar at the bottom (App.js `BAR`); every other command is reached the way
+ * The families, top to bottom, in the order of Plasticity's own tool rail (its 2025.1 workspace
+ * overview: Line, Curve, Circle, Polygon, Spiral, Rectangle, Bridge Curve, Trim, Arc, Sphere, Box,
+ * Cylinder; read from the icons, so the order is inferred), with this app's Measurement tools
+ * last. Families with variants show the corner mark, as Plasticity's do. The common commands live
+ * on the Command Bar at the bottom (App.js `BAR`); every other command is reached the way
  * Plasticity reaches it, by its key, the F palette or Shift+F suggestions. `items` are command ids;
  * the first is the default face.
  */
 export const FAMILIES = [
-    { id: 'curve', label: 'CURVES AND LINES', items: ['line', 'spline', 'cv', 'bridge', 'split', 'insert-knot', 'trim'] },
+    { id: 'line', label: 'LINE', items: ['line'] },
+    { id: 'curve', label: 'CURVES', items: ['spline', 'cv', 'insert-knot'] },
     { id: 'circle', label: 'CIRCLES', items: ['circle', 'circle2', 'circle3', 'tangent-circle', 'ellipse', 'ellipse3'] },
+    { id: 'polygon', label: 'POLYGON', items: ['polygon'] },
+    { id: 'spiral', label: 'SPIRAL', items: ['spiral'] },
+    { id: 'rect', label: 'RECTANGLES', items: ['rect', 'center-rect', 'rect3', 'slot'] },
+    { id: 'bridge', label: 'BRIDGE CURVE', items: ['bridge'] },
+    { id: 'trim', label: 'TRIM', items: ['trim', 'split'] },
     { id: 'arc', label: 'ARCS', items: ['arc3', 'arc', 'tangent-arc'] },
-    { id: 'rect', label: 'RECTANGLES', items: ['rect', 'center-rect', 'rect3'] },
-    { id: 'polygon', label: 'POLYGON · SPIRAL', items: ['polygon', 'spiral', 'slot'] },
-    { id: 'box', label: '3D PRIMITIVES', items: ['box', 'center-box', 'box3', 'cylinder', 'sphere'] },
+    { id: 'sphere', label: 'SPHERE', items: ['sphere'] },
+    { id: 'box', label: 'BOXES', items: ['box', 'center-box', 'box3'] },
+    { id: 'cylinder', label: 'CYLINDER', items: ['cylinder'] },
     { id: 'measure', label: 'MEASUREMENT', items: ['measure-distance', 'measure-radius', 'measure-continuity', 'view-curvature'] },
 ];
 
