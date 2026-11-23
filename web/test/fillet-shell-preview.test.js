@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { box, facePlane, filletShell, loadKernel, numberedEdges, oc, shellFaces, volume } from '../src/Kernel.js';
+import { blendEdges, box, facePlane, filletShell, loadKernel, numberedEdges, oc, shellFaces, volume } from '../src/Kernel.js';
 import { LocalBackend } from '../src/app/LocalBackend.js';
 
 test('Fillet Shell preview forwards only the shape to the viewport body builder', async () => {
@@ -40,7 +40,8 @@ test('Fillet Shell builds a valid round at a three-edge outer corner', async () 
     const solid = box({ x: 0, y: 0, z: 0 }, { x: 12, y: 12, z: 12 });
     const opening = facePlane(solid, 0).normal;
     const corner = [opening.x > 0.5 ? 0 : 12, opening.y > 0.5 ? 0 : 12, opening.z > 0.5 ? 0 : 12];
-    const open = shellFaces(solid, [0], 1).shape;
+    const shell = shellFaces(solid, [0], 1);
+    const open = shell.shape;
     const atCorner = p => Math.hypot(p.X() - corner[0], p.Y() - corner[1], p.Z() - corner[2]) < 1e-6;
     const edges = numberedEdges(open).flatMap((edge, index) => {
         const curve = new o.BRepAdaptor_Curve(edge);
@@ -55,6 +56,14 @@ test('Fillet Shell builds a valid round at a three-edge outer corner', async () 
     });
     assert.equal(inner.length, 3);
     const mixed = filletShell(solid, [0], edges, inner, 1, 0.25);
+    const blend = blendEdges(open, [...edges, ...inner], 0.25, false, true);
+    for (const kind of ['faces', 'edges']) {
+        const expected = shell.history[kind][0].flatMap(([original, intermediate]) =>
+            blend.history[kind][0].filter(([from]) => from === intermediate)
+                .map(([, final]) => [original, final]));
+        assert.ok(expected.length > 0);
+        assert.deepEqual(mixed.history[kind], [expected, []]);
+    }
     assert.ok(new o.BRepCheck_Analyzer(mixed.shape, true, false, false).IsValid());
     for (const edge of [...edges, ...inner]) assert.ok(mixed.history.generatedFaces.some(([source]) => source === edge));
     const { shape, history } = filletShell(solid, [0], edges, [], 1, 0.4);
