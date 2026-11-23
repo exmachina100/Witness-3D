@@ -71,3 +71,9 @@ test('Fillet Shell builds a valid round at a three-edge outer corner', async () 
     assert.ok(volume(shape) < volume(open));
     for (const edge of edges) assert.ok(history.generatedFaces.some(([source]) => source === edge));
 });
+
+test('Fillet Shell fails explicitly for profiles that do not have a kernel implementation', () => {
+    for (const profile of ['chordal', 'conic', 'g2']) {
+        assert.throws(() => filletShell(null, [], [], [], 1, 1, [], [], profile), /supports round blends only/);
+    }
+});
