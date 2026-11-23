@@ -75,6 +75,8 @@ export const PREF_FIELDS = {
         // Plasticity's Grid and Units: the snap step (typed, not only stepped) and how many steps
         // apart the major lines are drawn.
         { key: 'gridSize', label: 'SNAP TO GRID SIZE (MM)', type: 'number', value: 2.5, min: 0.001, max: 1000, step: 0.5 },
+        // Plasticity's Grid size: how far the grid reaches across.
+        { key: 'gridExtent', label: 'GRID SIZE (MM)', type: 'number', value: 400, min: 10, max: 100000, step: 10 },
         { key: 'lineEvery', label: 'LINE EVERY', type: 'number', value: 10, min: 1, max: 100, step: 1 },
     ],
     performance: [

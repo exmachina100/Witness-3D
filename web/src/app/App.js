@@ -100,6 +100,7 @@ import { SNAP_KINDS, allowed as snapAllowed, kindOf as snapKindOf, parseSnaps } 
 import { Organise, curveKey } from './Organise.js';
 import { P_MENU, RADIALS, mergeKeys, parseRadial, shortLabel, showKey, sliceAt, slicePosition } from './menus.js';
 import { formatLength, fromUnit, parseAngle, parseLength, showMass, showVolume, toUnit } from '../units.js';
+import { MATCAPS, matcapById, matcapDataUrl } from './matcaps.js';
 import { ADVANCED_MATERIAL, ENVIRONMENTS, MATERIAL_LIBRARY, SHADERS, SHADER_OPTIONS, checkMaterial, isColorKey, massOf, newMaterial, shader } from './shading.js';
 import { claude, describe, MODEL, reply, request } from './ai.js';
 import { icon } from './icons.js';
@@ -301,6 +302,7 @@ const SHELL = `
       <div class="field"><label for="w3d-comb-scale">COMB SCALE</label><input id="w3d-comb-scale" data-id="comb-scale" type="range" min="0.1" max="4" step="0.1" value="1" title="Length of the curvature combs on curves and edges"><button class="pick" data-id="comb-auto" title="Autosize: combs sized again to fit the curves shown (the longest tooth a quarter of their size)">AUTO</button></div>
       <span class="label">SHADER <output data-id="shader-name">CERAMIC DARK</output></span>
       <div class="swatches" data-id="shader-swatches" role="group" aria-label="Shader mode">${SHADERS.map(s => `<button data-shader="${s.id}" aria-pressed="${s.id === 'ceramic-dark'}" aria-label="${s.name}" title="${s.name}: ${s.use}" style="background: ${s.swatch}"></button>`).join('')}</div>
+      <div class="swatches matcaps" data-id="matcap-swatches" role="group" aria-label="All matcaps"></div>
       <input type="file" data-id="matcap-file" accept=".png,.jpg,.jpeg,image/png,image/jpeg" multiple hidden>
       <div class="stepper" data-id="shader-option" hidden><span data-id="shader-option-label">STRIPES</span><button data-id="shader-option-dec" aria-label="Less">−</button><output data-id="shader-option-value">24</output><button data-id="shader-option-inc" aria-label="More">+</button></div>
       <div data-id="render-options" hidden>
@@ -1290,8 +1292,14 @@ export function plasticityInspector(root) {
   icons.setAttribute('role', 'group');
   icons.setAttribute('aria-label', 'Viewport');
   icons.append(...['edges', 'curves', 'faces', 'images', 'constraints', 'curvature', 'render', 'ao'].map(toggle).filter(Boolean), q('[data-id="section-btn"]'));
-  const show = inspectorSection('VIEWPORT', icons, q('[data-id="comb-scale"]')?.parentElement);
-  const camera = inspectorSection('CAMERA', q('[data-id="fov"]')?.parentElement, q('[data-id="fov-value"]'));
+  // Plasticity's ALL MATCAPS, then its Show switches under them (here the icon row) without a title.
+  const show = inspectorSection('ALL MATCAPS', q('[data-id="matcap-swatches"]'), icons, q('[data-id="comb-scale"]')?.parentElement);
+  const camReset = document.createElement('button');
+  camReset.dataset.id = 'camera-reset';
+  camReset.className = 'wide';
+  camReset.title = 'Field of view back to its default';
+  camReset.textContent = 'RESET TO DEFAULT';
+  const camera = inspectorSection('CAMERA', q('[data-id="fov"]')?.parentElement, q('[data-id="fov-value"]'), camReset);
   const gridStep = q('[data-id="grid"]')?.parentElement;
   // Snap to grid is an icon button, as the other snapping controls are (the user's choice).
   const gridSnap = document.createElement('div');
@@ -1303,6 +1311,7 @@ export function plasticityInspector(root) {
   const unitsBox = document.createElement('div');
   unitsBox.className = 'units-fields';
   unitsBox.innerHTML = `<label class="field"><span>UNITS</span><select data-id="units-length" title="Length unit for every typed and shown length">${['mm', 'cm', 'm', 'in', 'ft'].map(u => `<option value="${u}">${u.toUpperCase()}</option>`).join('')}</select></label>`
+    + `<label class="field"><span>GRID SIZE</span><input data-id="units-grid-size" type="number" min="10" max="100000" step="10" value="400" title="How far the grid reaches across, in millimetres"></label>`
     + `<label class="field"><span>LINE EVERY</span><input data-id="units-line-every" type="number" min="1" max="100" step="1" value="10" title="A major grid line every this many grid steps"></label>`
     + `<button data-id="units-reset" class="wide" title="Units, grid size and line spacing back to their defaults">RESET TO DEFAULT</button>`;
   const units = inspectorSection('UNITS', unitsBox);
@@ -1428,6 +1437,9 @@ export function xnurbsBoundary({ xnurbs, quad, boundary = 'natural' }) {
   if (!xnurbs || quad) return boundary;
   return boundary === 'adjacent' ? 'normal' : boundary === 'next' ? 'natural' : boundary;
 }
+
+/** The grid's world axis lines: X red, Y green, darkened to sit with the grid. */
+export const AXIS_COLORS = { x: '#9c3b36', y: '#4d7f3a' };
 
 export function closestViewDir(name, offset) {
   const v = VIEWS[name];
@@ -2020,7 +2032,15 @@ export async function mount(root, backend) {
     if (old && !myMatcaps.some(m => m.url === old)) myMatcaps.push({ name: 'My matcap', url: old });
   } catch { /* no storage */ }
   const keepMatcaps = () => { try { localStorage.setItem('w3d-matcaps', JSON.stringify(myMatcaps)); localStorage.removeItem('w3d-matcap'); return true; } catch { return false; } };
-  const matcapAt = id => /^custom:\d+$/.test(id ?? '') ? myMatcaps[Number(id.slice(7))] : id === 'custom' ? myMatcaps[0] : null;
+  // The built-in matcaps (matcaps.js), drawn once each when first used; the shader 'matcap:<id>'.
+  const builtInUrls = new Map();
+  const builtIn = id => {
+    const m = matcapById(id);
+    if (!m) return null;
+    if (!builtInUrls.has(id)) builtInUrls.set(id, matcapDataUrl(m));
+    return { name: m.name, url: builtInUrls.get(id) };
+  };
+  const matcapAt = id => /^custom:\d+$/.test(id ?? '') ? myMatcaps[Number(id.slice(7))] : id === 'custom' ? myMatcaps[0] : /^matcap:/.test(id ?? '') ? builtIn(id.slice(7)) : null;
   function useMatcap(url) {
     if (url === matcapUrl) return Promise.resolve();
     return new Promise((ok, fail) => new THREE.TextureLoader().load(url, t => {
@@ -2031,11 +2051,23 @@ export async function mount(root, backend) {
       ok();
     }, undefined, () => fail(new Error('that image could not be read'))));
   }
-  /** The uploaded matcaps' swatches after the built-in ones, then the + swatch that loads one more. */
+  /**
+   * Plasticity's ALL MATCAPS: the built-in matcaps, then the uploaded ones, then the + swatch that
+   * loads one more.
+   */
   function renderMatcapSwatches() {
-    const grid = $('shader-swatches');
+    const grid = $('matcap-swatches');
     if (!grid) return;
-    for (const b of grid.querySelectorAll('[data-mymatcap], [data-id="matcap-load"]')) b.remove();
+    grid.replaceChildren();
+    for (const m of MATCAPS) {
+      const b = document.createElement('button');
+      b.dataset.matcap = m.id;
+      b.setAttribute('aria-label', m.name);
+      b.title = `${m.name}: matcap`;
+      b.style.background = `center / cover no-repeat url("${builtIn(m.id).url}")`;
+      b.onclick = () => { view.shader = `matcap:${m.id}`; view.render = false; applyView(); };
+      grid.append(b);
+    }
     myMatcaps.forEach((m, i) => {
       const b = document.createElement('button');
       b.dataset.mymatcap = String(i);
@@ -2103,7 +2135,7 @@ export async function mount(root, backend) {
 
   function applyView() {
     const mine = matcapAt(view.shader);
-    if (view.shader.startsWith('custom') && !mine) view.shader = 'ceramic-dark';
+    if ((view.shader.startsWith('custom') || view.shader.startsWith('matcap:')) && !mine) view.shader = 'ceramic-dark';
     if (mine && mine.url !== matcapUrl) useMatcap(mine.url).catch(e => toast(say(e)));
     const sh = mine ? { id: view.shader, name: mine.name, mode: 14 } : shader(view.shader);
     shadeU.mode.value = view.render ? -1 : sh.mode;
@@ -2129,6 +2161,7 @@ export async function mount(root, backend) {
     for (const b of $$('[data-shader]')) b.setAttribute('aria-pressed', !view.render && b.dataset.shader === sh.id);
     for (const b of $$('[data-env]')) b.setAttribute('aria-pressed', b.dataset.env === view.environment);
     for (const b of $$('[data-mymatcap]')) b.setAttribute('aria-pressed', String(!view.render && view.shader === `custom:${b.dataset.mymatcap}`));
+    for (const b of $$('[data-matcap]')) b.setAttribute('aria-pressed', String(!view.render && view.shader === `matcap:${b.dataset.matcap}`));
     $('hdr-custom').hidden = !envMaps.hdr;
     $('hdr-custom').setAttribute('aria-pressed', String(view.environment === 'hdr'));
     if (envMaps.hdr) $('hdr-custom').title = `Your HDR environment: ${hdrName}`;
@@ -3205,10 +3238,10 @@ export async function mount(root, backend) {
   scene.add(grid);
   // Lines at every snap step with a major line every "Line every" steps (Plasticity: Grid and Units).
   let gridShape = '';
-  function buildGrid(step, every) {
-    if (gridShape === `${step}/${every}`) return false;
-    gridShape = `${step}/${every}`;
-    const g = gridLines(step, every), geo = new THREE.BufferGeometry();
+  function buildGrid(step, every, extent = 400) {
+    if (gridShape === `${step}/${every}/${extent}`) return false;
+    gridShape = `${step}/${every}/${extent}`;
+    const g = gridLines(step, every, extent / 2), geo = new THREE.BufferGeometry();
     geo.setAttribute('position', new THREE.BufferAttribute(g.positions, 3));
     geo.setAttribute('color', new THREE.BufferAttribute(new Float32Array(g.positions.length), 3));
     grid.geometry.dispose();
@@ -15102,8 +15135,9 @@ export async function mount(root, backend) {
     if (document.activeElement !== $('grid')) $('grid').value = gs;
     $('distance').step = gs;
     if (cmd?.gizmo) cmd.gizmo.step = gs;
-    buildGrid(gs, prefs.units.lineEvery);
-    if ($('units-length')) { $('units-length').value = prefs.units.length; $('units-line-every').value = prefs.units.lineEvery; }
+    buildGrid(gs, prefs.units.lineEvery, prefs.units.gridExtent);
+    if ($('units-length')) { $('units-length').value = prefs.units.length; $('units-line-every').value = prefs.units.lineEvery; $('units-grid-size').value = prefs.units.gridExtent; }
+    $('fov').value = prefs.navigation.fov; $('fov-value').textContent = `${prefs.navigation.fov}°`;
     scene.background.setHex(c.ground);
     COLORS.ground = c.ground;
     paintGrid(c.gridMajor, c.grid);
@@ -15127,9 +15161,16 @@ export async function mount(root, backend) {
   }
   function paintGrid(major, minor) {
     // Two points a line; gridLines says which lines are major.
-    const col = grid.geometry.getAttribute('color'), m = grid.userData.major ?? [];
+    const col = grid.geometry.getAttribute('color'), pos = grid.geometry.getAttribute('position'), m = grid.userData.major ?? [];
     const a = new THREE.Color(major), b = new THREE.Color(minor);
-    for (let v = 0; v < col.count; v++) (m[v >> 1] ? a : b).toArray(col.array, v * 3);
+    // The world axes through the origin, as Plasticity's grid draws them: X red, Y green (the
+    // model is y-up, so the user's Y runs along the model's z).
+    const ax = new THREE.Color(AXIS_COLORS.x), ay = new THREE.Color(AXIS_COLORS.y);
+    for (let v = 0; v < col.count; v++) {
+      const line = v - (v & 1);
+      const along = pos.getX(line) === 0 && pos.getX(line + 1) === 0 ? ay : pos.getZ(line) === 0 && pos.getZ(line + 1) === 0 ? ax : null;
+      (along ?? (m[v >> 1] ? a : b)).toArray(col.array, v * 3);
+    }
     col.needsUpdate = true;
   }
   let prefsTab = 'navigation';
@@ -16007,11 +16048,13 @@ export async function mount(root, backend) {
   $('grid').onblur = () => { $('grid').value = prefs.units.gridSize; };
   $('units-label').onclick = () => { prefsTab = 'units'; openPrefs(); };
   $('units-length').onchange = () => { prefs = setPref(prefs, 'units', 'length', $('units-length').value); keepPrefs('units'); };
-  $('units-line-every').onkeydown = e => e.stopPropagation();
+  $('units-line-every').onkeydown = $('units-grid-size').onkeydown = e => e.stopPropagation();
+  $('units-grid-size').onchange = () => { prefs = setPref(prefs, 'units', 'gridExtent', parseFloat($('units-grid-size').value)); keepPrefs('units'); };
+  $('camera-reset').onclick = () => { prefs = setPref(prefs, 'navigation', 'fov', defaultPrefs().navigation.fov); keepPrefs('navigation'); };
   $('units-line-every').onchange = () => { prefs = setPref(prefs, 'units', 'lineEvery', parseFloat($('units-line-every').value)); keepPrefs('units'); };
   $('units-reset').onclick = () => {
     const d = defaultPrefs().units;
-    for (const k of ['length', 'gridSize', 'lineEvery']) prefs = setPref(prefs, 'units', k, d[k]);
+    for (const k of ['length', 'gridSize', 'gridExtent', 'lineEvery']) prefs = setPref(prefs, 'units', k, d[k]);
     keepPrefs('units');
   };
   $('snap-object').onclick = () => doAction('snap:object');
@@ -16112,7 +16155,7 @@ export async function mount(root, backend) {
         myMatcaps.push({ name: f.name.replace(/\.[^.]+$/, ''), url });
         if (!keepMatcaps()) toast('MATCAP LOADED; TOO BIG TO KEEP FOR NEXT TIME');
         renderMatcapSwatches();
-        $('shader-swatches').scrollTop = $('shader-swatches').scrollHeight;
+        $('matcap-swatches').scrollTop = $('matcap-swatches').scrollHeight;
         view.shader = `custom:${myMatcaps.length - 1}`; view.render = false; applyView();
       } catch (err) { toast(say(err)); }
     }

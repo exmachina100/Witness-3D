@@ -560,7 +560,8 @@ dialog::backdrop { background: rgb(0 0 0 / 45%); }
 
 dialog.xdialog[aria-busy="true"] { cursor: wait; }
 dialog.xdialog[aria-busy="true"] > * { pointer-events: none; }
-.inspector-section .swatches[data-id="shader-swatches"] { grid-template-columns: repeat(6, 30px); max-height: none; }
+.inspector-section .swatches[data-id="shader-swatches"], .inspector-section .swatches[data-id="matcap-swatches"] { grid-template-columns: repeat(4, 30px); justify-content: space-between; max-height: none; }
+.inspector-section .swatches[data-id="matcap-swatches"] { margin-bottom: 10px; }
 .inspector-section .view-icons { grid-template-columns: repeat(9, minmax(0, 1fr)); gap: 4px; }
 .inspector-section .view-icons button { padding: 6px 0; border: 1px solid var(--rule); color: var(--muted); }
 .inspector-section .view-icons button[aria-pressed="true"] { border-color: var(--accent); color: var(--accent); background: none; }
