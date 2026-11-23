@@ -4034,8 +4034,21 @@ export async function mount(root, backend) {
     if (state) setState(state);
     renderOutliner();
   }
-  async function finish() { const c = cmd; if (c) await c.finish(); }
-  function abort() { cmd?.abort(); }
+  async function finish() {
+    const c = cmd;
+    if (!c) return;
+    if (c.dialogFinish) return c.dialogFinish;
+    const dialog = root.querySelector('dialog.xdialog:modal');
+    if (!dialog) return c.finish();
+
+    dialog.setAttribute('aria-busy', 'true');
+    c.dialogFinish = Promise.resolve().then(() => c.finish()).finally(() => {
+      dialog.removeAttribute('aria-busy');
+      c.dialogFinish = null;
+    });
+    return c.dialogFinish;
+  }
+  function abort() { if (!cmd?.dialogFinish) cmd?.abort(); }
 
   async function startTool(id, opts = {}) {
     if (cmd && cmd.id === id && !cmd.auto) return;
@@ -15590,7 +15603,7 @@ export async function mount(root, backend) {
   // with Export and Cancel at its foot as well as Enter and Esc.
   for (const b of $$('[data-xd]')) b.onclick = () => {
     if (!cmd || !['bridge', 'export-mesh', 'export-drawing'].includes(cmd.id)) return;
-    if (b.dataset.xd === 'ok') cmd.finish(); else cmd.abort();
+    if (b.dataset.xd === 'ok') finish(); else abort();
   };
   $('ex-pick-target').onclick = () => {
     const c = cmd;
@@ -15783,6 +15796,7 @@ export async function mount(root, backend) {
   addEventListener('keydown', async e => {
     if (palette || asking || $('prefs').open || e.isComposing) return;
     const modalOpen = !!root.querySelector('dialog:modal');
+    if (modalOpen && cmd?.dialogFinish && e.key !== 'Tab') { e.preventDefault(); return; }
     if (modalOpen && (e.key === 'Tab' || (e.key === ' ' && e.target.closest?.('button')))) return;
     if (e.target.closest?.('[data-id="plane-form"]')) return;
     if (e.key === 'Enter' && e.target.closest?.('button, summary, select, a[href]')) return;
