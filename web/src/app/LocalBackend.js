@@ -1770,7 +1770,10 @@ export class LocalBackend {
 
     /** Preview Fillet Shell. */
     previewFilletShell(req) {
-        return this.latest(async () => this.body(req.body, this.filletShell(req)));
+        return this.latest(async () => {
+            const { shape } = this.filletShell(req);
+            return this.body(req.body, shape);
+        });
     }
 
     /** Commit Fillet Shell. */
