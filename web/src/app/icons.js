@@ -338,6 +338,12 @@ const ICONS = {
     'array-total': `<path d="M12 12m-8 0a8 8 0 1 0 16 0a8 8 0 1 0-16 0" stroke-dasharray="2 2"/><path ${A} d="M12 4h0M19 16h0M5 16h0"/><circle ${A} cx="12" cy="4" r="1.5"/><circle ${A} cx="19" cy="16" r="1.5"/><circle ${A} cx="5" cy="16" r="1.5"/>`,
     'array-angle-step': `<path d="M12 12L20 12M12 12l5.7-5.7"/><path ${A} d="M17 12a5 5 0 0 0-1.5-3.5"/><circle cx="20" cy="12" r="1.5"/><circle cx="17.7" cy="6.3" r="1.5"/>`,
     constrain: `<path d="M3 17c3 0 4-10 9-10s6 10 9 10"/><path ${A} d="M9 14l-3 3M15 14l3 3"/><circle ${A} cx="12" cy="7" r="2"/>`,
+    // Plasticity's Object snaps: what a snap may lie on.
+    'snapon-point': `<path d="M5 18c4-10 10-10 14 0" stroke-dasharray="2 2"/><rect ${A} x="9.5" y="7.5" width="5" height="5"/>`,
+    'snapon-edge': `<path d="M4 8l8-4 8 4v9l-8 4-8-4z"/><path ${A} d="M4 8l8 4 8-4"/>`,
+    'snapon-curve': `<path ${A} d="M3 16c3-9 6-9 9-4s6 5 9-4"/>`,
+    'snapon-face': `<path d="M4 8l8-4 8 4v9l-8 4-8-4z"/><path ${A} d="M4 8l8 4v9l-8-4z"/>`,
+    'snapon-axis': `<path d="M12 13V3M12 13l-8 6"/><path ${A} d="M12 13l9 5"/><path d="M10 5l2-2 2 2"/>`,
     'snap-object': `<path d="M4 20L20 4" stroke-dasharray="2 2"/><path d="M12 3v4M12 17v4M3 12h4M17 12h4"/><circle ${A} cx="12" cy="12" r="3"/>`,
     'snap-end': `<path d="M4 18L16 6"/><rect ${A} x="14" y="4" width="4" height="4"/>`,
     'snap-middle': `<path d="M3 18L21 6"/><path ${A} d="M12 9l2.5 3.5L9.5 15z"/>`,

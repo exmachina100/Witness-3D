@@ -18,7 +18,18 @@ test('object snapping off offers nothing; switched-off and skipped kinds are lef
 });
 
 test('stored settings keep only known kinds', () => {
-    assert.deepEqual(parseSnaps('{"on":false,"off":["end","bogus"]}'), { on: false, off: ['end'] });
+    assert.deepEqual(parseSnaps('{"on":false,"off":["end","bogus"]}'), { on: false, off: ['end'], objOff: [] });
     assert.deepEqual(parseSnaps('nonsense'), defaultSnaps());
     assert.deepEqual(parseSnaps(null), defaultSnaps());
+});
+
+test("Plasticity's Object snaps: a snap on a switched-off object is not offered", async () => {
+  const { allowed, parseSnaps, OBJECT_SNAPS } = await import('../src/app/snapKinds.js');
+  assert.deepEqual(OBJECT_SNAPS.map(o => o.id), ['point', 'edge', 'curve', 'face', 'axis']);
+  const s = parseSnaps(JSON.stringify({ on: true, off: [], objOff: ['edge', 'bogus'] }));
+  assert.deepEqual(s.objOff, ['edge']);
+  assert.equal(allowed('END', s, [], 'edge'), false);
+  assert.equal(allowed('END', s, [], 'curve'), true);
+  assert.equal(allowed('END', s), true);
+  assert.deepEqual(parseSnaps('{"on":true,"off":[]}').objOff, []);
 });

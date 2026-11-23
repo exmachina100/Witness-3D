@@ -578,3 +578,4 @@ dialog.xdialog[aria-busy="true"] > * { pointer-events: none; }
 .inspector-section .units-fields select, .inspector-section .units-fields input { width: 100%; text-align: center; }
 /* Anything a command hides stays hidden, whatever display the dialog's control styles give it. */
 .cmd-dialog [hidden] { display: none !important; }
+.inspector-section .plane-icons { grid-template-columns: repeat(4, minmax(0, 1fr)); margin-top: 6px; }

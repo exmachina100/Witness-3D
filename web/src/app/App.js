@@ -96,7 +96,7 @@ import { newInstance, checkInstance, matrixOf, motionOf, instanceFromMotion, mir
 import { arrayMotions, radialSpec, rectangularSpec } from '../arrayMotions.js';
 import { FREE_STEPS, freeMove as freeMove3, freeRotate, freeScale } from '../freestyle.js';
 import { Constraints } from './constraints.js';
-import { SNAP_KINDS, allowed as snapAllowed, kindOf as snapKindOf, parseSnaps } from './snapKinds.js';
+import { OBJECT_SNAPS, SNAP_KINDS, allowed as snapAllowed, kindOf as snapKindOf, parseSnaps } from './snapKinds.js';
 import { Organise, curveKey } from './Organise.js';
 import { P_MENU, RADIALS, mergeKeys, parseRadial, shortLabel, showKey, sliceAt, slicePosition } from './menus.js';
 import { formatLength, fromUnit, parseAngle, parseLength, showMass, showVolume, toUnit } from '../units.js';
@@ -1133,7 +1133,7 @@ const SHELL = `
     <details class="inspector-section" open>
       <summary>SNAPPING</summary>
     <div class="sec" data-id="snapping">
-      <div class="chips"><button data-toggle="snap" aria-pressed="false" aria-label="Snap" title="Grid snapping without holding Ctrl"></button><button data-id="snap-object" aria-pressed="true" aria-label="Object snapping" title="Object snapping: points on solids, sheets and curves (Ctrl or drawing). Shift+X while a snap shows skips that kind until the command ends">${icon('snap-object')}</button>${SNAP_KINDS.map(k => `<button data-snapkind="${k.id}" aria-pressed="true" aria-label="${k.label} snaps" title="${k.label} snaps">${icon(`snap-${k.id}`)}</button>`).join('')}</div>
+      <div class="chips"><button data-toggle="snap" aria-pressed="false" aria-label="Snap" title="Grid snapping without holding Ctrl"></button><button data-id="snap-object" aria-pressed="true" aria-label="Object snapping" title="Object snapping: points on solids, sheets and curves (Ctrl or drawing). Shift+X while a snap shows skips that kind until the command ends">${icon('snap-object')}</button>${OBJECT_SNAPS.map(k => `<button data-snapon="${k.id}" aria-pressed="true" aria-label="${k.label} snaps" title="Snap to ${k.label === 'AXIS' ? 'the axes' : `${k.label.toLowerCase()}s`}">${icon(`snapon-${k.id}`)}</button>`).join('')}${SNAP_KINDS.map(k => `<button data-snapkind="${k.id}" aria-pressed="true" aria-label="${k.label} snaps" title="${k.label} snaps">${icon(`snap-${k.id}`)}</button>`).join('')}</div>
     </div>
     </details>
     <details class="inspector-section" open>
@@ -1321,7 +1321,7 @@ export function plasticityInspector(root) {
   if (snapping) {
     snapping.querySelector('summary').textContent = 'SNAPPING';
     const chips = snapping.querySelector('.chips');
-    const kinds = [...chips.querySelectorAll('[data-snapkind]')];
+    const kinds = [...chips.querySelectorAll('[data-snapkind]')], objects = [...chips.querySelectorAll('[data-snapon]')];
     const iconList = (label, buttons) => {
       const list = document.createElement('div');
       list.className = 'chips icons view-icons snap-icons';
@@ -1334,7 +1334,10 @@ export function plasticityInspector(root) {
     const head = document.createElement('span');
     head.className = 'label sub';
     head.textContent = 'OBJECT SNAPS';
-    snapping.querySelector('.sec').append(head, iconList('Object snaps', kinds));
+    const pointsHead = document.createElement('span');
+    pointsHead.className = 'label sub';
+    pointsHead.textContent = 'SNAP POINTS';
+    snapping.querySelector('.sec').append(head, iconList('Object snaps', objects), pointsHead, iconList('Snap points', kinds));
   }
   const planes = q('[data-action="plane:world"]')?.closest('details');
   if (planes) {
@@ -1350,9 +1353,13 @@ export function plasticityInspector(root) {
       b.innerHTML = `${icon('plane-world')}<span>${name}</span>`;
       axes.append(b);
     }
-    const fromSel = q('[data-action="plane:selection"]'), fromView = q('[data-action="plane:view"]');
-    for (const [b, text] of [[fromSel, 'PLANE FROM SELECTION'], [fromView, 'PLANE FROM CAMERA']]) { b.textContent = text; b.removeAttribute('aria-label'); b.classList.add('wide'); }
-    seg.before(axes, fromSel, fromView);
+    // Plane from selection and Plane from camera (Plasticity's text buttons) stay icon buttons with
+    // their tooltips, the user's choice, in the row under XY, YZ and XZ.
+    q('[data-action="plane:selection"]').title = q('[data-action="plane:selection"]').title.replace(/^From selection/, 'Plane from selection');
+    q('[data-action="plane:view"]').title = q('[data-action="plane:view"]').title.replace(/^Facing the view/, 'Plane from camera: facing the view');
+    seg.classList.add('chips', 'icons', 'view-icons', 'plane-icons');
+    seg.classList.remove('seg');
+    seg.before(axes);
   }
   const selection = q('[data-id="inspector-selection"]')?.closest('details');
   if (selection) selection.querySelector('summary').textContent = 'SELECTION';
@@ -2516,6 +2523,8 @@ export async function mount(root, backend) {
   const poleOpts = { mode: 'none', fu: 2, fv: 2, mirror: 'none' };
   const pointsGroup = new THREE.Group();
   scene.add(pointsGroup);
+  // The shown control points snap (Plasticity's Object snaps: Control point).
+  let shownPointSnaps = [];
   const netLine = new THREE.LineBasicMaterial({ color: 0x9a968c, transparent: true, opacity: 0.7, depthTest: false });
   const facesShown = (body, n) => { const w = shownPoints.faces.get(body); return w === 'all' || !!w?.has(n); };
   function paintShownPoints() {
@@ -2549,6 +2558,7 @@ export async function mount(root, backend) {
         });
       }
     }
+    shownPointSnaps = [...dots, ...lit.selected, ...lit.hover].map(q => ({ point: q.clone(), kind: 'CONTROL POINT', source: 'point' }));
     if (segs.length) { const l = new THREE.LineSegments(new THREE.BufferGeometry().setFromPoints(segs), netLine); l.renderOrder = 11; pointsGroup.add(l); }
     if (dots.length) { const d = new THREE.Points(new THREE.BufferGeometry().setFromPoints(dots), cpMat.normal); d.renderOrder = 11; pointsGroup.add(d); }
     for (const [k, pts] of Object.entries(lit)) if (pts.length) { const d = new THREE.Points(new THREE.BufferGeometry().setFromPoints(pts), cpMat[k]); d.renderOrder = 12; pointsGroup.add(d); }
@@ -4171,15 +4181,15 @@ export async function mount(root, backend) {
     const at = (e, i) => new THREE.Vector3(e[i], e[i + 1], e[i + 2]);
     for (const e of m.userData.edges) {
       const n = e.length / 3;
-      out.push({ point: at(e, 0), kind: 'END' }, { point: at(e, (n - 1) * 3), kind: 'END' });
+      out.push({ point: at(e, 0), kind: 'END', source: 'edge' }, { point: at(e, (n - 1) * 3), kind: 'END', source: 'edge' });
       // Lines come as two points; curves as even samples, so the middle sample is the midpoint.
       const mid = n === 2 ? at(e, 0).lerp(at(e, 3), 0.5) : n % 2 ? at(e, (n - 1) / 2 * 3) : at(e, (n / 2 - 1) * 3).lerp(at(e, n / 2 * 3), 0.5);
-      out.push({ point: mid, kind: 'MIDDLE' });
+      out.push({ point: mid, kind: 'MIDDLE', source: 'edge' });
     }
     const body = bodyOf(m.userData.id);
-    m.userData.facePlanes.forEach((p, f) => { const c = p && body && faceCentre(body, f); if (c) out.push({ point: c, kind: 'CENTER' }); });
+    m.userData.facePlanes.forEach((p, f) => { const c = p && body && faceCentre(body, f); if (c) out.push({ point: c, kind: 'CENTER', source: 'face' }); });
     // 2026.2: where edges cross the YZ and XZ planes (user x = 0 and y = 0), anywhere on them.
-    out.push(...crossings(m.userData.edges, new THREE.Plane(new THREE.Vector3(1, 0, 0), 0), 'YZ'), ...crossings(m.userData.edges, new THREE.Plane(new THREE.Vector3(0, 0, 1), 0), 'XZ'));
+    out.push(...[...crossings(m.userData.edges, new THREE.Plane(new THREE.Vector3(1, 0, 0), 0), 'YZ'), ...crossings(m.userData.edges, new THREE.Plane(new THREE.Vector3(0, 0, 1), 0), 'XZ')].map(s => ({ ...s, source: 'axis' })));
     return m.userData.snaps = out;
   }
   /** The points where edge polylines cross `plane`, as snaps of `kind`; edge ends are left to END. */
@@ -4203,7 +4213,7 @@ export async function mount(root, backend) {
     if (!master) return [];
     const key = o.matrix.elements.join(',');
     if (o.userData.snapKey !== key || o.userData.snapsOf !== master.userData.snaps) {
-      o.userData.snaps = snapCandidates(master).map(s => ({ point: s.point.clone().applyMatrix4(o.matrix), kind: s.kind }));
+      o.userData.snaps = snapCandidates(master).map(s => ({ point: s.point.clone().applyMatrix4(o.matrix), kind: s.kind, source: s.source }));
       o.userData.snapKey = key;
       o.userData.snapsOf = master.userData.snaps;
     }
@@ -4214,7 +4224,7 @@ export async function mount(root, backend) {
     const p = section.plane;
     if (!p) return [];
     const key = `${p.normal.toArray()}|${p.constant}`;
-    if (m.userData.sectionKey !== key) { m.userData.sectionKey = key; m.userData.sectionSnaps = crossings(m.userData.edges, p, 'SECTION'); }
+    if (m.userData.sectionKey !== key) { m.userData.sectionKey = key; m.userData.sectionSnaps = crossings(m.userData.edges, p, 'SECTION').map(s => ({ ...s, source: 'edge' })); }
     return m.userData.sectionSnaps;
   }
   // Curve snaps (curveSnaps.js): ends, middle, 1/4, 3/4, centre and crossings of the shown curves,
@@ -4237,7 +4247,7 @@ export async function mount(root, backend) {
       polys.push({ id, pts, closed: isClosed(c), center, radius, normal: f.n.toArray(), arc: c.kind === 'arc' });
     }
     const v = a => new THREE.Vector3(...a);
-    const snaps = [...polys.flatMap(q => curvePointSnaps(q.pts, q)), ...intersections(polys, 1e-3)].map(x => ({ point: v(x.point), kind: x.kind }));
+    const snaps = [...polys.flatMap(q => curvePointSnaps(q.pts, q)), ...intersections(polys, 1e-3)].map(x => ({ point: v(x.point), kind: x.kind, source: 'curve' }));
     return curveSnapCache = { list: curveList, shown: key, snaps, polys };
   }
   /** Perpendicular and Tangent snaps on the shown curves from the point `from` (in the drawing plane, `normal`). */
@@ -4252,7 +4262,7 @@ export async function mount(root, backend) {
         out.push(...(q.arc ? ts.filter(t => q.pts.some((p, i) => i && Math.hypot(...[0, 1, 2].map(k => (p[k] + q.pts[i - 1][k]) / 2 - t.point[k])) < Math.hypot(...[0, 1, 2].map(k => p[k] - q.pts[i - 1][k])))) : ts));
       } else out.push(...tangentPoints(q.pts, f, n, q.closed));
     }
-    return out.map(x => ({ point: new THREE.Vector3(...x.point), kind: x.kind }));
+    return out.map(x => ({ point: new THREE.Vector3(...x.point), kind: x.kind, source: 'curve' }));
   }
   // Plasticity's snap reference lines: point at something that snaps and tap Shift, and lines
   // through that point along the axes stay while the command runs, snapping themselves (and where
@@ -4303,14 +4313,14 @@ export async function mount(root, backend) {
   }
   function snapNear(e, meshes, plane = null, from = null, normal = null) {
     if (!snapSettings.on) return null;
-    const ok = s => snapAllowed(s.kind, snapSettings, cmd?.snapSkip);
+    const ok = s => snapAllowed(s.kind, snapSettings, cmd?.snapSkip, s.source);
     const c = local(e);
     let best = null, bestD = SNAP_PX;
     // 2026.2: instances snap as their masters do, where they stand.
     const placed = instanceGroup.children.filter(o => o.isMesh && o.visible).flatMap(o => instanceSnaps(o));
     const curves = curvePolys();
     const refs = refPoints.length ? refLines(plane) : [];
-    const all = [...meshes.flatMap(m => [...snapCandidates(m), ...sectionSnaps(m)]), ...placed, ...curves.snaps, ...(from ? fromSnaps(from, plane?.normal ?? normal) : []), ...refCrossings(refs)];
+    const all = [...meshes.flatMap(m => [...snapCandidates(m), ...sectionSnaps(m)]), ...placed, ...curves.snaps, ...(from ? fromSnaps(from, plane?.normal ?? normal) : []), ...refCrossings(refs), ...shownPointSnaps];
     for (const s of all) {
       if (!ok(s) || (plane && Math.abs(plane.distanceToPoint(s.point)) > 1e-3)) continue;
       const p = screenOf(s.point);
@@ -4319,7 +4329,7 @@ export async function mount(root, backend) {
       // Points along a curve give way to the named points of the same place.
       if (d < bestD - 1e-6) { bestD = d; best = s; }
     }
-    if (!best && ok({ kind: 'ON CURVE' })) {
+    if (!best && ok({ kind: 'ON CURVE', source: 'curve' })) {
       // Closest: the nearest point along a curve under the pointer.
       let near = null;
       for (const q of curves.polys) {
@@ -4327,7 +4337,7 @@ export async function mount(root, backend) {
         const hit = closestOnScreen(q.pts, q.pts.map(p => screenOf(new THREE.Vector3(...p))), c, q.closed);
         if (hit && hit.d < SNAP_PX * 0.7 && (!near || hit.d < near.d)) near = hit;
       }
-      if (near) return { point: new THREE.Vector3(...near.point), kind: 'ON CURVE' };
+      if (near) return { point: new THREE.Vector3(...near.point), kind: 'ON CURVE', source: 'curve' };
     }
     if (!best && refs.length && ok({ kind: 'REFERENCE' })) {
       // On a reference line: the point of the line nearest the pointer's ray, when close on screen.
@@ -4355,6 +4365,7 @@ export async function mount(root, backend) {
     try { localStorage.setItem('w3d-snaps', JSON.stringify(next)); } catch { /* private window: this session only */ }
     $('snap-object').setAttribute('aria-pressed', next.on);
     for (const b of $$('[data-snapkind]')) { b.setAttribute('aria-pressed', !next.off.includes(b.dataset.snapkind)); b.disabled = !next.on; }
+    for (const b of $$('[data-snapon]')) { b.setAttribute('aria-pressed', !(next.objOff ?? []).includes(b.dataset.snapon)); b.disabled = !next.on; }
   }
   function showSnap(s, e) {
     shownSnap = s?.kind ?? null;
@@ -5972,7 +5983,7 @@ export async function mount(root, backend) {
       return { uv: toLocal(from.clone().addScaledVector(d, t)), snap: s && { point: from.clone().addScaledVector(d, t), kind: s.kind } };
     }
     const onPlane = raycaster.ray.intersectPlane(plane, new THREE.Vector3());
-    if (!s && !e.altKey && snapSettings.on) {
+    if (!s && !e.altKey && snapSettings.on && !snapSettings.objOff?.includes('face')) {
       // A point on a face standing in front of the drawing plane (Plasticity snaps to faces too).
       const hit = raycaster.intersectObjects(shownMeshes(), false)[0];
       if (hit && (!onPlane || hit.distance < raycaster.ray.origin.distanceTo(onPlane) - 1e-6)) s = { point: hit.point.clone(), kind: 'ON FACE' };
@@ -16061,6 +16072,10 @@ export async function mount(root, backend) {
   for (const b of $$('[data-snapkind]')) b.onclick = () => {
     const id = b.dataset.snapkind, off = snapSettings.off.includes(id) ? snapSettings.off.filter(x => x !== id) : [...snapSettings.off, id];
     setSnaps({ ...snapSettings, off });
+  };
+  for (const b of $$('[data-snapon]')) b.onclick = () => {
+    const id = b.dataset.snapon, was = snapSettings.objOff ?? [], objOff = was.includes(id) ? was.filter(x => x !== id) : [...was, id];
+    setSnaps({ ...snapSettings, objOff });
   };
   setSnaps(snapSettings);
   $('size').addEventListener('input', e => {
