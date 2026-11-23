@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { box, filletShell, loadKernel, shellFaces, volume } from '../src/Kernel.js';
+import { box, facePlane, filletShell, loadKernel, numberedEdges, oc, shellFaces, volume } from '../src/Kernel.js';
 import { LocalBackend } from '../src/app/LocalBackend.js';
 
 test('Fillet Shell preview forwards only the shape to the viewport body builder', async () => {
@@ -32,4 +32,23 @@ test('Fillet Shell starts from the same validated open shell as Shell', async ()
     assert.equal(volume(result.shape), volume(expected.shape));
     assert.deepEqual(result.history, expected.history);
     assert.throws(() => filletShell(solid, [99], [], [], 1, 1), /face in the selection/);
+});
+
+test('Fillet Shell builds a valid round at a three-edge outer corner', async () => {
+    await loadKernel();
+    const o = oc();
+    const solid = box({ x: 0, y: 0, z: 0 }, { x: 12, y: 12, z: 12 });
+    const opening = facePlane(solid, 0).normal;
+    const corner = [opening.x > 0.5 ? 0 : 12, opening.y > 0.5 ? 0 : 12, opening.z > 0.5 ? 0 : 12];
+    const open = shellFaces(solid, [0], 1).shape;
+    const atCorner = p => Math.hypot(p.X() - corner[0], p.Y() - corner[1], p.Z() - corner[2]) < 1e-6;
+    const edges = numberedEdges(open).flatMap((edge, index) => {
+        const curve = new o.BRepAdaptor_Curve(edge);
+        return atCorner(curve.Value(curve.FirstParameter())) || atCorner(curve.Value(curve.LastParameter())) ? [index] : [];
+    });
+    assert.equal(edges.length, 3);
+    const { shape, history } = filletShell(solid, [0], edges, [], 1, 0.4);
+    assert.ok(new o.BRepCheck_Analyzer(shape, true, false, false).IsValid());
+    assert.ok(volume(shape) < volume(open));
+    for (const edge of edges) assert.ok(history.generatedFaces.some(([source]) => source === edge));
 });
