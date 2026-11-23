@@ -8,7 +8,7 @@ import { hasSurfaceInflection, THROAT, arrayMotions, importSTEP, import3DM, impo
 import { curveIsOpen, curveRegions, cutSheets, extrudeCurve, loft, loftFaces, loftGuided, loftSheet, loftSheetGuided, offsetFlatFaces, pipe, regionFace, revolve, revolveCurve, simplifyFlat, splineSamples, sweep, sweepCurve, sweepGuided } from '../Forms.js';
 import { curveFromNurbs, ends, join, loops, MEET, nurbsLoop } from '../curves.js';
 import { isoparam, meetCurves, projectCurveCurve, projectCurves, projectedEdges, sectionCurves } from '../Project.js';
-import { isSheet, patch } from '../Patch.js';
+import { isSheet, patch, patchWithQuality } from '../Patch.js';
 import { patchTrim } from '../patchTrim.js';
 import { offsetEdges } from '../edgeTube.js';
 import { faceSurfaces } from '../faceSurfaces.js';
@@ -1263,8 +1263,11 @@ export class LocalBackend {
 
     /** Patch with quality metrics preview: returns the body and G0/G1/G2 errors. */
     async previewPatchWithQuality(req) {
-        const { shape, g0, g1, g2 } = await this.patchWithQualityResult(req);
-        return this.body(0, shape);
+        return this.latest(async () => {
+            const { shape, g0, g1, g2 } = await this.patchWithQualityResult(req);
+            const body = await this.body(0, shape);
+            return body && { ...body, g0, g1, g2 };
+        });
     }
 
     /** Patch as one undo step: the sheet becomes a body of its own, and the loop stays. */

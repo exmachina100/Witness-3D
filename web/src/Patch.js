@@ -66,6 +66,15 @@ export function faceBeside(shape, edge, why = 'a tangent edge needs a face besid
  * how far the sheet may stray from them. Throws when the loop does not close or the sheet cannot meet it.
  */
 export function patch(curves, edges, tolerance = TOL_DEFAULT, guides = []) {
+    return patchWithQuality(curves, edges, tolerance, guides).shape;
+}
+
+/**
+ * Patch, with how well the sheet meets its loop, as the desktop's w3d_patch_with_quality gives it:
+ * `g0` the largest gap to the boundary (mm), `g1` the largest angle off tangent along the tangent
+ * edges (degrees), `g2` the largest curvature difference along them (1/mm). A flat fill is exact.
+ */
+export function patchWithQuality(curves, edges, tolerance = TOL_DEFAULT, guides = []) {
     const o = oc();
     const TOL = tolerance > 0 ? tolerance : TOL_DEFAULT;
     const pieces = [];
@@ -88,7 +97,7 @@ export function patch(curves, edges, tolerance = TOL_DEFAULT, guides = []) {
         for (const p of ordered) mk.Add(p.edge);
         if (mk.IsDone()) {
             const face = new o.BRepBuilderAPI_MakeFace(mk.Wire(), true);
-            if (face.IsDone()) return face.Face();
+            if (face.IsDone()) return { shape: face.Face(), g0: 0, g1: 0, g2: 0 };
         }
     }
     const fill = new o.BRepOffsetAPI_MakeFilling(3, 15, 2, false, 1e-5, TOL, 0.01, 0.1, 8, 9);
@@ -111,7 +120,7 @@ export function patch(curves, edges, tolerance = TOL_DEFAULT, guides = []) {
     if (fill.G0Error() > 10 * TOL) throw new Error(`the patch misses its boundary by ${fill.G0Error()} mm`);
     const off = fill.G1Error() * 180 / Math.PI;
     if (smooth && off > TANGENT) throw new Error(`the patch meets the faces up to ${off.toFixed(2)} degrees off tangent; try plain (G0) edges where the walls stand square to the loop`);
-    return fill.Shape();
+    return { shape: fill.Shape(), g0: fill.G0Error(), g1: off, g2: fill.G2Error() };
 }
 
 /** Whether `shape` holds no solid: a sheet, as Patch makes. */
