@@ -678,23 +678,7 @@ function variableFillet(shape, edges, edgeIds, size, withHistory, variable) {
  * @returns {Object} { shape, history }
  */
 export function filletShell(shape, openFaces, outerEdges, innerEdges, thickness, radius, outerVariable = [], innerVariable = [], shapeType = 'round') {
-    const o = oc();
-
-    // First, shell the body to create a hollow solid
-    const shellMk = new o.BRepOffsetAPI_MakeThickSolid();
-    const faces = numbered(shape, 'TopAbs_FACE');
-    for (const faceIdx of openFaces) {
-        if (faceIdx >= 0 && faceIdx < faces.length) {
-            shellMk.Add(faces[faceIdx]);
-        }
-    }
-    shellMk.MakeThickSolidByJoin(shape, thickness, 1e-3, false, false, false, o.BRepOffset_Mode.BRepOffset_Skin);
-    shellMk.Build();
-    if (!shellMk.IsDone()) {
-        throw new BlendError('the kernel could not shell the body; try a smaller thickness');
-    }
-    let currentShape = shellMk.Shape();
-    let history = trace([shape], currentShape, s => successors(shellMk, s));
+    let { shape: currentShape, history } = shellFaces(shape, openFaces, thickness);
 
     // Fillet outer edges if any (with Y-blend corner patch fallback)
     if (outerEdges.length > 0) {
