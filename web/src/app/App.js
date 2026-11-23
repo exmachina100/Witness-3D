@@ -236,7 +236,7 @@ const BAR = [['palette', 'F', 'SEARCH'], ['tool:move', 'G', 'MOVE'], ['tool:rota
 const SHELL = `
 <div class="w3d">
   <header class="bar">
-    <div class="brand"><button class="pmenu-open" data-id="pmenu-open" aria-haspopup="menu" aria-expanded="false" title="File menu">WITNESS 3D <span class="caret">▾</span></button></div>
+    <div class="brand"><button class="pmenu-open" data-id="pmenu-open" aria-haspopup="menu" aria-expanded="false" title="File menu"><span class="logo" aria-hidden="true">W</span>WITNESS 3D <span class="caret">▾</span></button></div>
     <nav class="ctx" data-id="ctx" aria-label="Suggested commands for the selection"></nav>
     <span class="spacer"></span>
     <button class="export" data-action="ask" title="Ask for a command in words (Ctrl+K)">${icon('ask')}ASK</button>
@@ -282,7 +282,7 @@ const SHELL = `
       <span class="hud" data-id="hud" data-idle>SELECT · F SEARCH</span>
     </div>
     <div class="vhead" role="toolbar" aria-label="View">
-      <button data-id="vh-ortho" aria-pressed="false" aria-label="Orthographic" title="Orthographic (Numpad 5) · right-click: field of view">${icon('nav-ortho')}</button>
+      <button data-id="vh-ortho" aria-pressed="false" aria-label="Orthographic" title="Orthographic (Numpad 5)">${icon('nav-ortho')}</button>
       <button data-id="vh-overlays" aria-pressed="true" aria-label="Overlays" title="Overlays: grid, navigation and key hints (Alt+Shift+Z)">${icon('overlays')}</button>
 
         <button data-toggle="edges" aria-pressed="true" aria-label="Edges" title="Edges"></button>
@@ -326,6 +326,7 @@ const SHELL = `
     </div>
     <div class="keys" data-id="keys">${keysHtml('idle')}</div>
     <span class="snap-tag" data-id="snap-tag" hidden></span>
+    <span class="gizmo-tag" data-id="gizmo-tag" hidden></span>
     <div class="radial" data-id="radial" hidden><div class="radial-hub" data-id="radial-hub"></div></div>
     <button class="isolated" data-id="isolated" hidden title="Unisolate (Alt+.)">${icon('isolate')}<span>0 ISOLATED</span></button>
     <div class="boxsel" data-id="boxsel" hidden></div>
@@ -1261,6 +1262,95 @@ function plasticitySteps(body) {
   }
 }
 
+/** A labelled on/off row in the Inspector (Plasticity's "Show edges" and its other switches). */
+function switchRow(button, label) {
+  button.textContent = label;
+  button.classList.add('sw');
+  button.removeAttribute('aria-label');
+  return button;
+}
+
+/** A collapsible Inspector section as Plasticity's right panel has them: a title and its rows. */
+function inspectorSection(title, ...rows) {
+  const d = document.createElement('details');
+  d.className = 'inspector-section';
+  d.open = true;
+  d.innerHTML = `<summary></summary><div class="sec"></div>`;
+  d.firstChild.textContent = title;
+  d.lastChild.append(...rows.filter(Boolean));
+  return d;
+}
+
+function switchList(...buttons) {
+  const list = document.createElement('div');
+  list.className = 'chips switches';
+  list.append(...buttons.filter(Boolean));
+  return list;
+}
+
+/**
+ * Lay the Inspector out as Plasticity's right panel (its 2025.1 workspace overview, top to bottom):
+ * Shader mode and its matcaps, the Show switches, Camera, Grid, Snapping with its Object snaps,
+ * Planes, and the selection last. The view toggles and the shader pop-up leave the viewport's
+ * top right for it; X-ray stays there, as Plasticity's half-circle button does. Elements keep
+ * their data attributes and handlers; only where they sit changes.
+ */
+export function plasticityInspector(root) {
+  const q = s => root.querySelector(s), aside = q('aside.right'), header = aside.querySelector(':scope > header');
+  const toggle = id => q(`[data-toggle="${id}"]`), pop = q('[data-id="view-pop"]');
+  const shader = inspectorSection('SHADER MODE', q('[data-id="shader-name"]')?.parentElement, q('[data-id="shader-swatches"]'), q('[data-id="matcap-file"]'), q('[data-id="shader-option"]'), q('[data-id="render-options"]'));
+  const show = inspectorSection('VIEWPORT',
+    switchList(switchRow(toggle('edges'), 'SHOW EDGES'), switchRow(toggle('curves'), 'SHOW CURVES'), switchRow(toggle('faces'), 'SHOW FACES'),
+      switchRow(toggle('images'), 'SHOW IMAGES'), switchRow(toggle('constraints'), 'SHOW CONSTRAINTS'), switchRow(toggle('curvature'), 'CURVATURE COMBS')),
+    q('[data-id="comb-scale"]')?.parentElement,
+    switchList(switchRow(toggle('render'), 'RENDER MODE'), switchRow(toggle('ao'), 'AMBIENT OCCLUSION'), switchRow(q('[data-id="section-btn"]'), 'SECTION ANALYSIS')));
+  const camera = inspectorSection('CAMERA', q('[data-id="fov"]')?.parentElement, q('[data-id="fov-value"]'));
+  const gridStep = q('[data-id="grid"]')?.parentElement;
+  const grid = inspectorSection('GRID', switchList(switchRow(toggle('snap'), 'SNAP TO GRID')), gridStep);
+  const snapping = q('[data-id="snapping"]')?.closest('details');
+  if (snapping) {
+    snapping.querySelector('summary').textContent = 'SNAPPING';
+    const chips = snapping.querySelector('.chips');
+    const kinds = [...chips.querySelectorAll('[data-snapkind]')];
+    const label = b => b.title.replace(/ snaps$/i, '').toUpperCase();
+    chips.replaceWith(switchList(switchRow(q('[data-id="snap-object"]'), 'OBJECT SNAPPING')));
+    const head = document.createElement('span');
+    head.className = 'label';
+    head.textContent = 'OBJECT SNAPS';
+    snapping.querySelector('.sec').append(head, switchList(...kinds.map(b => switchRow(b, label(b)))));
+  }
+  const planes = q('[data-action="plane:world"]')?.closest('details');
+  if (planes) {
+    planes.querySelector('summary').textContent = 'PLANES';
+    const seg = planes.querySelector('.seg'), axes = document.createElement('div');
+    axes.className = 'seg planes-axes';
+    axes.setAttribute('role', 'group');
+    axes.setAttribute('aria-label', 'Planes through the origin');
+    for (const [a, name] of [['world', 'XY'], ['yz', 'YZ'], ['xz', 'XZ']]) {
+      const b = a === 'world' ? q('[data-action="plane:world"]') : document.createElement('button');
+      b.dataset.action = `plane:${a}`;
+      b.title = `The ${name} plane through the origin`;
+      b.innerHTML = `${icon('plane-world')}<span>${name}</span>`;
+      axes.append(b);
+    }
+    const fromSel = q('[data-action="plane:selection"]'), fromView = q('[data-action="plane:view"]');
+    for (const [b, text] of [[fromSel, 'PLANE FROM SELECTION'], [fromView, 'PLANE FROM CAMERA']]) { b.textContent = text; b.removeAttribute('aria-label'); b.classList.add('wide'); }
+    seg.before(axes, fromSel, fromView);
+  }
+  const selection = q('[data-id="inspector-selection"]')?.closest('details');
+  if (selection) selection.querySelector('summary').textContent = 'SELECTION';
+  header.after(shader, show, camera, grid);
+  if (snapping) grid.after(snapping);
+  if (planes) (snapping ?? grid).after(planes);
+  if (selection) (planes ?? snapping ?? grid).after(selection);
+  // The viewport keeps X-ray at its top right; the rest moved into the panel.
+  const vhead = q('.vhead'), xray = toggle('xray');
+  if (xray) vhead.append(xray);
+  q('[data-id="vh-shader"]')?.remove();
+  pop?.remove();
+  q('[data-id="fov-pop"]')?.remove();
+}
+
 /** Chip buttons that do something once rather than switch an option on or off. */
 const ONCE_BUTTONS = '[data-id="xf-pick"], [data-id="xf-unpivot"], [data-draw="fewer"], [data-draw="more"], [data-id="bs-add"]';
 /** Chip buttons whose data attribute picks one of a set: Plasticity shows these as a row of tabs. */
@@ -1342,6 +1432,7 @@ export async function mount(root, backend) {
     for (const el of [...props.children]) if (el.tagName !== 'SUMMARY') body.append(el);
     props.remove();
     plasticityControls(body);
+    plasticityInspector(root);
   }
   // Panel options carry their icon ahead of the key and name.
   for (const b of root.querySelectorAll('[data-proj],[data-imp],[data-impcomp],[data-draw],[data-bop],[data-btmat],[data-bumat],[data-xop],[data-fop],[data-spiral],[data-toggle],[data-gmethod],[data-galign],[data-gcorner],[data-grow],[data-mfgrow],[data-drgrow],[data-eslimit],[data-flshape],[data-chshape],[data-drtaper],[data-avaxis],[data-extshape],[data-esshape],[data-isodir],[data-id="oe-both"],[data-id="iso-subdivide"],[data-id="oe-individual"],[data-id="blend-tangent"],[data-id="ex-lock"],[data-id="ex-keep"],[data-id="bool-keep"],[data-id="prim-keep"],[data-id="form-keep"],[data-pipeop],[data-id="pipe-keep"],[data-id="ex-free"],[data-id="ex-pivot"],[data-id="ex-individual"],[data-id="patch-individual"],[data-id="patch-quad"],[data-id="as-symmetric"],[data-id="as-analysis"],[data-id="as-ratio"],[data-id="as-constrain"],[data-id="sq-analysis"],[data-id="sq-constrain"],[data-id="dr-hidden"],[data-id="dr-curves"],[data-id="oc-lock"],[data-id="oc-free"],[data-id="oc-slot"],[data-id="oc-combine"],[data-id="es-unlimit"],[data-id="shell-local"],[data-id="es-modify"],[data-rbmethod],[data-rcmethod],[data-id="rb-corners"],[data-oecorner],[data-saplane],[data-plaxis],[data-plop],[data-id="pl-flip"],[data-id="pl-instance"],[data-id="mirror-instance"],[data-id="mirror-neg"],[data-id="mirror-free"],[data-id="mirror-cut"],[data-id="ra-instance"],[data-id="ra-spacing"],[data-id="ra-extent"],[data-id="rr-total"],[data-id="rr-spacing"],[data-id="rr-instance"],[data-id="ca-instance"],[data-caalign],[data-camethod],[data-id="br-trim"],[data-id="br-comb"],[data-id="br-constrain"],[data-id="ac-constrain"],[data-id="ac-comb"],[data-id="dc-reblend"],[data-id="section-btn"],[data-id="sa-flip"],[data-id="rf-shrink"],[data-id="ut-keep"],[data-txfont],[data-id="tx-load"],[data-id="tx-system"],[data-txalign],[data-sldir],[data-dcflip],[data-id="dc-keep"],[data-imdepth],[data-imcull],[data-id="im-delete"],[data-id="im-dup"],[data-id="cc-extend"],[data-id="cc-screen"],[data-id="cut-extend"],[data-id="cut-screen"],[data-inmode],[data-pfmode],[data-pfmirror],[data-xforient],[data-xfpivot],[data-id="xf-pick"],[data-id="xf-unpivot"],[data-id="xf-free"],[data-id="ls-loop"],[data-id="ls-limit"],[data-id="ls-simplify"],[data-id="sw-simplify"],[data-pmethod],[data-mxtopo],[data-id="mx-convex"],[data-sqbound],[data-asbound],[data-assolver],[data-bsshape],[data-bstrim],[data-id="bs-add"],[data-id="bs-s1"],[data-id="bs-s2"],[data-id="in-realize"],[data-id="in-dup"],[data-id="in-delete"],[data-id="matcap-load"],[data-id="matcap-custom"],[data-id="hdr-load"],[data-id="hdr-custom"]')) {
@@ -4215,6 +4306,7 @@ export async function mount(root, backend) {
     const h = $('hud');
     if (text) { h.textContent = text; delete h.dataset.idle; }
     else { h.textContent = 'SELECT · F SEARCH'; h.dataset.idle = ''; }
+    placeTag();
   }
   // Every key of the command is listed in the viewport's key hints, as Plasticity lists them
   // (its Fillet: A chamfer angle, D fillet distance, C chamfer distance): the dialog's keyed
@@ -4242,6 +4334,21 @@ export async function mount(root, backend) {
   }
   // A command that writes its own keys (Loft, primitives' sizes) keeps them.
   new MutationObserver(() => requestAnimationFrame(() => { if ($('keys').innerHTML === keysWritten) showKeys(); })).observe($('cd-body'), { attributes: true, attributeFilter: ['hidden'], subtree: true });
+  /**
+   * Plasticity shows the value being set beside the pointer while a handle is dragged (its Fillet:
+   * "69.093 cm" by the dot), not in a strip: the tag follows the pointer during a drag.
+   */
+  function placeTag() {
+    const t = $('gizmo-tag');
+    if (!t || !lastPointer) return;
+    const busy = liveGizmo()?.busy || cmd?.tc?.dragging;
+    t.hidden = !busy || $('hud').dataset.idle !== undefined;
+    if (t.hidden) return;
+    const v = root.querySelector('main.view').getBoundingClientRect();
+    t.textContent = $('hud').textContent;
+    t.style.left = `${lastPointer.clientX - v.left + 18}px`;
+    t.style.top = `${lastPointer.clientY - v.top + 14}px`;
+  }
   function showTool(id) {
     toolbar.setActive(id);
     for (const el of $$('[data-panel]')) el.hidden = el.dataset.panel !== (id === 'spiral' ? 'spiral' : DRAW[id] ? 'draw' : FORMS[id] ? 'form' : PRIMS[id] ? 'primitive' : id);
@@ -14621,6 +14728,9 @@ export async function mount(root, backend) {
         else if (arg === 'view') planeFromView();
         else if (arg === 'view-at') planeFromViewAt();
         else if (arg === 'save') savePlane();
+        // Plasticity's Planes section: XY (the ground), YZ and XZ through the origin.
+        else if (arg === 'yz') setPlane({ origin: new THREE.Vector3(), normal: new THREE.Vector3(1, 0, 0), name: 'YZ' });
+        else if (arg === 'xz') setPlane({ origin: new THREE.Vector3(), normal: new THREE.Vector3(0, 0, 1), name: 'XZ' });
         else setPlane({ origin: new THREE.Vector3(), normal: UP, name: 'XY' });
         return true;
       case 'radial': openRadial(arg); return true;
@@ -15631,6 +15741,7 @@ export async function mount(root, backend) {
   canvas.addEventListener('pointermove', e => {
     if (down && down.pointerId !== e.pointerId) return;
     lastPointer = e;
+    placeTag();
     ray(e);
     const p = raycaster.ray.intersectPlane(planeOf(), new THREE.Vector3());
     if (p) { const u = toUser(p.toArray()); $('cursor').textContent = `X ${u[0].toFixed(2)} Y ${u[1].toFixed(2)} Z ${u[2].toFixed(2)}`; }
@@ -15686,6 +15797,7 @@ export async function mount(root, backend) {
     $('boxsel').hidden = true;
     if (boxHover.length) { boxHover = []; drawOverlays(); }
   });
+  addEventListener('pointerup', () => requestAnimationFrame(placeTag));
   canvas.addEventListener('pointerup', async e => {
     const d = down;
     if (!d || d.pointerId !== e.pointerId || d.button !== e.button) return;
@@ -16017,34 +16129,12 @@ export async function mount(root, backend) {
   };
   $('bool-pick-targets').onclick = () => cmd?.id === 'boolean' && cmd.pick('targets');
   $('bool-pick-tools').onclick = () => cmd?.id === 'boolean' && cmd.pick('tools');
-  // The viewport header (approved layout plan): Ortho (right-click for the field of view), Overlays,
-  // the view toggles, and Shader, whose settings open in a panel under it (click or right-click).
-  const viewPop = $('view-pop'), fovPop = $('fov-pop');
-  const placePop = (pop, b) => {
-    const v = root.querySelector('main.view').getBoundingClientRect(), r = b.getBoundingClientRect();
-    pop.style.top = `${r.bottom - v.top + 4}px`;
-    pop.style.right = `${Math.max(8, v.right - r.right)}px`;
-  };
-  const togglePop = (pop, b, open = pop.hidden) => {
-    for (const p of [viewPop, fovPop]) if (p !== pop) p.hidden = true;
-    pop.hidden = !open;
-    if (open) placePop(pop, b);
-    $('vh-shader').setAttribute('aria-expanded', String(!viewPop.hidden));
-  };
+  // The viewport header: Ortho, Overlays and X-ray. The shader, view switches and field of view
+  // are in the Inspector, as in Plasticity's right panel.
   $('vh-ortho').onclick = () => doAction('view:ortho');
-  $('vh-ortho').oncontextmenu = e => {
-    e.preventDefault();
-    $('fov').value = prefs.navigation.fov; $('fov-value').textContent = `${prefs.navigation.fov}°`;
-    togglePop(fovPop, $('vh-ortho'));
-  };
+  $('fov').value = prefs.navigation.fov; $('fov-value').textContent = `${prefs.navigation.fov}°`;
   $('fov').oninput = () => { prefs = setPref(prefs, 'navigation', 'fov', $('fov').value); keepPrefs('navigation'); $('fov-value').textContent = `${prefs.navigation.fov}°`; };
   $('vh-overlays').onclick = () => doAction('overlays:toggle');
-  $('vh-shader').onclick = () => togglePop(viewPop, $('vh-shader'));
-  $('vh-shader').oncontextmenu = e => { e.preventDefault(); togglePop(viewPop, $('vh-shader'), true); };
-  addEventListener('pointerdown', e => {
-    if (e.target.closest?.('.vpop, [data-id="vh-shader"], [data-id="vh-ortho"]')) return;
-    if (!viewPop.hidden || !fovPop.hidden) togglePop(viewPop, $('vh-shader'), false);
-  }, true);
   $('pl-flip').onclick = () => cmd?.id === 'place' && cmd.key('flip');
   $('pl-instance').onclick = () => cmd?.id === 'place' && cmd.key('instance');
   for (const id of ['pl-scale', 'pl-angle', 'pl-d']) $(id).oninput = () => cmd?.id === 'place' && cmd.preview();
