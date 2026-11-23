@@ -127,6 +127,8 @@ const ICONS = {
     'view-faces': `<path d="M4 8l8-4 8 4v9l-8 4-8-4z"/><path ${A} d="M12 12l8-4v9l-8 4zM4 8l8 4v9l-8-4z"/>`,
     'view-xray': `<path d="M4 8l8-4 8 4v9l-8 4-8-4z"/><path ${A} d="M4 17l8-4 8 4M12 4v9" stroke-dasharray="2 2"/>`,
     'view-snap': `<path d="M6 4v8a6 6 0 0 0 12 0V4"/><path d="M6 4h4M14 4h4"/><path ${A} d="M6 8h4M14 8h4"/>`,
+    'view-images': `<rect x="3" y="5" width="18" height="14" rx="1"/><path ${A} d="M3 16l5-5 4 4 3-3 6 6"/><circle cx="16" cy="9" r="1.5"/>`,
+    'view-constraints': `<path d="M4 18c3-8 6-10 8-10"/><path d="M12 8c2 0 5 2 8 10"/><circle ${A} cx="12" cy="8" r="2.2"/><path ${A} d="M9 4l3 2 3-2"/>`,
     'view-curves': `<path d="M3 17C6 7 10 7 12 12s6 5 9-5"/><circle cx="3" cy="17" r="1.2"/><circle ${A} cx="21" cy="7" r="1.2"/>`,
     // Overlays: the grid and hints laid over the view, an eye on a grid.
     overlays: `<path d="M3 18h18M6 14l-3 4M18 14l3 4M9 14l-1 4M15 14l1 4"/><path ${A} d="M5 8c4-4.5 10-4.5 14 0-4 4.5-10 4.5-14 0z"/><circle ${A} cx="12" cy="8" r="1.6"/>`,

@@ -222,7 +222,7 @@ export const ACTIONS = {
     'isolate': 'Isolate selected', 'unisolate': 'Unisolate', 'group': 'Group selected', 'ungroup': 'Ungroup', 'rename': 'Rename selected',
     'lock': 'Lock selected', 'unlock-all': 'Unlock all', 'delete-empty-groups': 'Delete empty groups', 'asset:insert': 'Insert asset', 'spacemouse:connect': 'Connect SpaceMouse',
     'material:set': 'Set material', 'material:remove': 'Remove material', 'view:render': 'Toggle render mode',
-    'view:edges': 'Viewport: toggle edges', 'view:faces': 'Viewport: toggle faces', 'view:curves': 'Viewport: toggle curves',
+    'view:edges': 'Viewport: toggle edges', 'view:faces': 'Viewport: toggle faces', 'view:curves': 'Viewport: toggle curves', 'view:images': 'Viewport: toggle images', 'view:constraints': 'Viewport: toggle constraints', 'select:constraints': 'Select all constraints',
     'view:zebra': 'Shader: vertical zebra', 'view:draft': 'Shader: draft angle',
     'view:reflection-zebra': 'Shader: reflection zebra', 'view:reflection-check': 'Shader: reflection check', 'view:reflection-isophote': 'Shader: reflection isophote',
     'plane:selection': 'Construction plane from selection', 'plane:selection-keep-view': 'Construction plane from selection, keep view',
