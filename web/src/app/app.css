@@ -474,3 +474,16 @@ dialog::backdrop { background: rgb(0 0 0 / 45%); }
   .w3d button:disabled { color: GrayText; }
   .w3d dialog { border-color: CanvasText; }
 }
+
+.plane-dialog {
+    position: static;
+    width: 100%;
+    box-sizing: border-box;
+    margin: 8px 0 0;
+    padding: 8px;
+    color: var(--ink);
+    background: var(--raised);
+    border: 1px solid var(--rule);
+}
+.plane-dialog form { display: grid; gap: 8px; }
+.plane-dialog input { min-width: 0; }
