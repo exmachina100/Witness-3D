@@ -5,19 +5,27 @@
 // remembered on this browser.
 
 /**
- * The families, top to bottom: the manual's Sketching tools (Curves and Lines, Circles, Arcs,
- * Rectangles, Polygon and Spiral), its 3D Primitives and its Measurement tools. The common commands
- * live on the Command Bar at the bottom (App.js `BAR`); every other command is reached the way
+ * The families, top to bottom, in the order of Plasticity's own tool rail (its 2025.1 workspace
+ * overview: Line, Curve, Circle, Polygon, Spiral, Rectangle, Bridge Curve, Trim, Arc, Sphere, Box,
+ * Cylinder; read from the icons, so the order is inferred), with this app's Measurement tools
+ * last. Families with variants show the corner mark, as Plasticity's do. The common commands live
+ * on the Command Bar at the bottom (App.js `BAR`); every other command is reached the way
  * Plasticity reaches it, by its key, the F palette or Shift+F suggestions. `items` are command ids;
  * the first is the default face.
  */
 export const FAMILIES = [
-    { id: 'curve', label: 'CURVES AND LINES', items: ['line', 'spline', 'cv', 'bridge', 'split', 'insert-knot', 'trim'] },
+    { id: 'line', label: 'LINE', items: ['line'] },
+    { id: 'curve', label: 'CURVES', items: ['spline', 'cv', 'insert-knot'] },
     { id: 'circle', label: 'CIRCLES', items: ['circle', 'circle2', 'circle3', 'tangent-circle', 'ellipse', 'ellipse3'] },
+    { id: 'polygon', label: 'POLYGON', items: ['polygon'] },
+    { id: 'spiral', label: 'SPIRAL', items: ['spiral'] },
+    { id: 'rect', label: 'RECTANGLES', items: ['rect', 'center-rect', 'rect3', 'slot'] },
+    { id: 'bridge', label: 'BRIDGE CURVE', items: ['bridge'] },
+    { id: 'trim', label: 'TRIM', items: ['trim', 'split'] },
     { id: 'arc', label: 'ARCS', items: ['arc3', 'arc', 'tangent-arc'] },
-    { id: 'rect', label: 'RECTANGLES', items: ['rect', 'center-rect', 'rect3'] },
-    { id: 'polygon', label: 'POLYGON · SPIRAL', items: ['polygon', 'spiral', 'slot'] },
-    { id: 'box', label: '3D PRIMITIVES', items: ['box', 'center-box', 'box3', 'cylinder', 'sphere'] },
+    { id: 'sphere', label: 'SPHERE', items: ['sphere'] },
+    { id: 'box', label: 'BOXES', items: ['box', 'center-box', 'box3'] },
+    { id: 'cylinder', label: 'CYLINDER', items: ['cylinder'] },
     { id: 'measure', label: 'MEASUREMENT', items: ['measure-distance', 'measure-radius', 'measure-continuity', 'view-curvature'] },
 ];
 
@@ -27,11 +35,39 @@ const memory = {
     set(k, v) { try { localStorage.setItem(`w3d.toolbar.${k}`, v) } catch { /* private window: forget */ } },
 };
 
+/**
+ * The rail's grip, as the handle at the top of Plasticity's tool rail: drag it to move the rail
+ * about the viewport (kept on this browser), double-click to put it back.
+ */
+function placeRail(nav, pos) {
+    nav.style.left = pos ? `${pos[0]}px` : '';
+    nav.style.top = pos ? `${pos[1]}px` : '';
+}
+
 export class Toolbar {
     /**
      * `nav` is the element to fill; `host` holds the floating strip. `meta(id)` gives { name, key, icon }
      * for a command, and `run(id)` starts it.
      */
+    grip(nav) {
+        const grip = nav.querySelector('.grip');
+        try { const saved = JSON.parse(memory.get('pos')); if (Array.isArray(saved)) placeRail(nav, saved); } catch { /* none kept */ }
+        grip.addEventListener('pointerdown', e => {
+            if (e.button !== 0) return;
+            e.preventDefault();
+            const box = nav.offsetParent?.getBoundingClientRect(), x0 = nav.offsetLeft - e.clientX, y0 = nav.offsetTop - e.clientY;
+            if (!box) return;
+            let pos = null;
+            const move = m => {
+                pos = [Math.max(0, Math.min(box.width - nav.offsetWidth, x0 + m.clientX)), Math.max(0, Math.min(box.height - 40, y0 + m.clientY))].map(Math.round);
+                placeRail(nav, pos);
+            };
+            addEventListener('pointermove', move);
+            addEventListener('pointerup', () => { removeEventListener('pointermove', move); if (pos) memory.set('pos', JSON.stringify(pos)); }, { once: true });
+        });
+        grip.addEventListener('dblclick', () => { placeRail(nav, null); memory.set('pos', ''); });
+    }
+
     constructor(nav, host, meta, run) {
         this.meta = meta;
         this.run = run;
@@ -40,9 +76,11 @@ export class Toolbar {
             const saved = memory.get(f.id);
             this.face[f.id] = f.items.includes(saved) ? saved : f.items[0];
         }
-        nav.innerHTML = FAMILIES.map(f => `<div class="family${f.items.length > 1 ? ' multi' : ''}" data-family="${f.id}">`
+        nav.innerHTML = `<div class="grip" title="Drag to move the tool rail · double-click: back to its place"></div>`
+            + FAMILIES.map(f => `<div class="family${f.items.length > 1 ? ' multi' : ''}" data-family="${f.id}">`
             + `<button class="tool" data-face aria-pressed="false"></button>`
             + '</div>').join('');
+        this.grip(nav);
         this.strip = document.createElement('div');
         this.strip.className = 'flyout';
         this.strip.setAttribute('role', 'menu');
