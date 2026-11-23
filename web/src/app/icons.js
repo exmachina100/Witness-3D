@@ -370,6 +370,8 @@ const ICONS = {
     'bound-normal': `<path d="M3 20h18"/><path ${A} d="M7 20V5M15 20V5"/>`,
     'bound-next': `<path d="M3 20h18"/><path ${A} d="M7 20V5"/><path d="M15 20c0-6 2-10 5-14" stroke-dasharray="2 2"/>`,
     'bound-adjacent': `<path d="M3 20h18M3 20l4-15M21 20l-3-15"/><path ${A} d="M10 20l1-15M14 20l1-15"/>`,
+    'solver-constrained': `<path d="M3 18c4 0 6-10 10-10"/><path ${A} d="M13 8h8"/><circle cx="13" cy="8" r="1.5"/>`,
+    'solver-collinear': `<path d="M3 12h18" stroke-dasharray="2 2"/><circle ${A} cx="5" cy="12" r="1.5"/><circle ${A} cx="12" cy="12" r="1.5"/><circle ${A} cx="19" cy="12" r="1.5"/><path d="M5 5v14M19 5v14"/>`,
     'bound-skew': `<path d="M3 20h18"/><path d="M6 20V6" stroke-dasharray="2 2"/><path ${A} d="M6 20l-3-13M18 20l3-13"/><path d="M6 11a6 6 0 0 0-2-1"/>`,
     'slide-u': `<path d="M4 16L20 8" stroke-dasharray="2 2"/><path ${A} d="M8 14l8-4M13 9l3 1-1 3"/>`,
     'slide-back': `<path d="M4 16L20 8" stroke-dasharray="2 2"/><path ${A} d="M16 10l-8 4M11 15l-3-1 1-3"/>`,

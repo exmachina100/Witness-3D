@@ -247,3 +247,46 @@ test('Match tangent length ratio: the sheet leaves its side as fast as the refer
     assert.ok(d / c > 2.5 && d / c < 3.5, `in the reference's ratio: ${c} ${d}`);
     assert.ok(Math.abs((c + d) / 2 - a) < 0.5 * a, 'the mean reach kept');
 });
+
+test('Collinear lines the control points up one for one, the hulls running straight on', async () => {
+    const { sideOf, collinearMoves } = await import('../src/alignSurface.js');
+    const knots = [0, 0, 0, 0, 1, 1, 1, 1];
+    // The target: a flat sheet x 0..30 at z 0 whose side x = 30 sits a little off; the reference
+    // x 32..62, tilted up, drawn the other way along y.
+    const tPoles = Array.from({ length: 4 }, (_, i) => Array.from({ length: 4 }, (_, j) => [10 * i, 10 * j, i === 3 ? 1 : 0]));
+    const rPoles = Array.from({ length: 4 }, (_, i) => Array.from({ length: 4 }, (_, j) => [32 + 10 * i, 30 - 10 * j, 2 + 2 * i]));
+    const spline = poles => ({ du: 3, dv: 3, uk: knots, vk: knots, rational: false, poles });
+    const t = sideOf(spline(tPoles), [[30, 0, 1], [30, 15, 1], [30, 30, 1]]);
+    const r = sideOf(spline(rPoles), [[32, 30, 2], [32, 15, 2], [32, 0, 2]]);
+    const apply = (side, moves) => {
+        const by = new Map(moves);
+        return side.rows.map((row, i) => row.map((p, j) => p.map((v, k) => v + (by.get(side.ids[i][j])?.[k] ?? 0))));
+    };
+    const near = (a, b, e = 1e-9) => a.every((v, k) => Math.abs(v - b[k]) < e);
+    const rAt = j => rPoles[0][3 - j];   // the reference's side, the target's way round
+    // Asymmetric G1: the target's side onto the reference's points, its next row straight on from the reference's hull.
+    const a = collinearMoves(t, r, { continuity: 'G1' });
+    assert.equal(a.reference.length, 0);
+    const T = apply(t, a.target);
+    for (let j = 0; j < 4; j++) {
+        assert.ok(near(T[0][j], rAt(j)), `side ${T[0][j]}`);
+        const leg = T[1][j].map((v, k) => v - T[0][j][k]), back = rAt(j).map((v, k) => v - rPoles[1][3 - j][k]);
+        const c = leg.map((_, k) => leg[(k + 1) % 3] * back[(k + 2) % 3] - leg[(k + 2) % 3] * back[(k + 1) % 3]);
+        assert.ok(Math.hypot(...c) < 1e-9 && leg.reduce((s, v, k) => s + v * back[k], 0) > 0, `collinear and on through: ${leg} ${back}`);
+        assert.ok(Math.abs(Math.hypot(...leg) - Math.hypot(...tPoles[3][j].map((v, k) => v - tPoles[2][j][k]))) < 1e-9, 'own leg length kept');
+    }
+    // Symmetric: both move onto the middle and one line.
+    const sym = collinearMoves(t, r, { continuity: 'G1', symmetric: true });
+    const T2 = apply(t, sym.target), R2 = apply(r, sym.reference);
+    for (let j = 0; j < 4; j++) {
+        const rj = 3 - j;
+        assert.ok(near(T2[0][j], R2[0][rj]), 'one shared side');
+        const a1 = T2[1][j].map((v, k) => v - T2[0][j][k]), b1 = R2[1][rj].map((v, k) => v - R2[0][rj][k]);
+        const cosine = a1.reduce((s, v, k) => s + v * b1[k], 0) / Math.hypot(...a1) / Math.hypot(...b1);
+        assert.ok(Math.abs(cosine + 1) < 1e-9, `the hulls run opposite along one line: ${cosine}`);
+    }
+    // Different control point counts, or G2, are refused.
+    const r5 = sideOf({ du: 3, dv: 3, uk: knots, vk: [0, 0, 0, 0, 0.5, 1, 1, 1, 1], rational: false, poles: Array.from({ length: 4 }, (_, i) => Array.from({ length: 5 }, (_, j) => [32 + 10 * i, 30 - 7.5 * j, 2])) }, [[32, 30, 2], [32, 0, 2]]);
+    assert.throws(() => collinearMoves(t, r5, {}), /rebuild one to match/);
+    assert.throws(() => collinearMoves(t, r, { continuity: 'G2' }), /G0 or G1/);
+});
