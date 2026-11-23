@@ -34,12 +34,33 @@ const { chromium } = require('playwright-core');
         await page.keyboard.press('Escape');
         assert.equal(await mesh.evaluate(node => node.open), false);
 
+        const drawing = page.locator('dialog[data-panel="export-drawing"]');
+        const openDrawing = () => page.evaluate(() => window.__w3d.startTool('export-drawing'));
+        await openDrawing();
+        assert.equal(await drawing.evaluate(node => node.matches(':modal')), true);
+        const svg = drawing.locator('[data-drf="svg"]');
+        const dxf = drawing.locator('[data-drf="dxf"]');
+        const hiddenLines = drawing.locator('[data-id="dr-hidden"]');
+        assert.equal(await svg.getAttribute('aria-pressed'), 'true');
+        await dxf.click();
+        await hiddenLines.click();
+        assert.equal(await dxf.getAttribute('aria-pressed'), 'true');
+        assert.equal(await svg.getAttribute('aria-pressed'), 'false');
+        assert.equal(await hiddenLines.getAttribute('aria-pressed'), 'false');
+        await drawing.locator('.xd-foot [data-xd="cancel"]').click();
+        assert.equal(await drawing.evaluate(node => node.open), false);
+        await openDrawing();
+        assert.equal(await svg.getAttribute('aria-pressed'), 'true');
+        assert.equal(await hiddenLines.getAttribute('aria-pressed'), 'true');
+        await page.keyboard.press('Escape');
+        assert.equal(await drawing.evaluate(node => node.open), false);
+
         await appAction('app:preferences');
         const prefs = page.locator('[data-id="prefs"]');
         assert.equal(await prefs.evaluate(node => node.matches(':modal')), true);
         await page.keyboard.press('Escape');
         assert.equal(await prefs.evaluate(node => node.open), false);
-        console.log('Built preview mounted and New Plane, Mesh Export, and Preferences dialog checks passed');
+        console.log('Built preview mounted and New Plane, Mesh Export, Drawing Export, and Preferences dialog checks passed');
     } finally {
         await browser.close();
     }
