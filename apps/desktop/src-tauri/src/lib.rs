@@ -5,7 +5,7 @@ pub mod api;
 pub mod bridge;
 pub mod backup;
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 
 use tauri::{Manager, State};
@@ -974,6 +974,31 @@ fn backup_discard(app: tauri::AppHandle, path: PathBuf) -> Result<(), String> {
     std::fs::remove_file(path).map_err(|e| e.to_string())
 }
 
+/// Show `path` in the system's file explorer: a folder opened, a file selected in its folder.
+fn reveal(path: &Path) -> Result<(), String> {
+    if !path.exists() { return Err(format!("{} is not there any more", path.display())) }
+    let dir = path.is_dir();
+    #[cfg(target_os = "windows")]
+    let run = if dir { std::process::Command::new("explorer").arg(path).spawn() } else { std::process::Command::new("explorer").arg(format!("/select,{}", path.display())).spawn() };
+    #[cfg(target_os = "macos")]
+    let run = if dir { std::process::Command::new("open").arg(path).spawn() } else { std::process::Command::new("open").arg("-R").arg(path).spawn() };
+    #[cfg(all(unix, not(target_os = "macos")))]
+    let run = std::process::Command::new("xdg-open").arg(if dir { path } else { path.parent().unwrap_or(path) }).spawn();
+    run.map(|_| ()).map_err(|e| e.to_string())
+}
+
+/// The file tab's Reveal in File Explorer (2026.2): the open document's file.
+#[tauri::command]
+fn reveal_path(path: PathBuf) -> Result<(), String> { reveal(&path) }
+
+/// The file tab's Browse Backups (2026.2): the backup folder.
+#[tauri::command]
+fn reveal_backups(app: tauri::AppHandle) -> Result<(), String> {
+    let dir = backup_dir(&app)?;
+    std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+    reveal(&dir)
+}
+
 /// P-Menu › New Window: another copy of the app, starting a document of its own.
 #[tauri::command]
 fn new_window() -> Result<(), String> {
@@ -1360,6 +1385,8 @@ pub fn run() {
             backup_list,
             backup_open,
             backup_discard,
+            reveal_path,
+            reveal_backups,
             network_prefs,
             set_network_prefs,
             system_fonts,
