@@ -544,7 +544,7 @@ const SHELL = `
       <div class="field" title="Spans across the second side; 0 is as many as U"><label for="w3d-sq-v">SPANS V</label><input id="w3d-sq-v" data-id="sq-v" type="number" step="1" min="0" max="64" value="0"></div>
       <div class="field" title="How far the inner control points lie toward the plane of the sides: 0 follows the sides, 1 is as flat as they allow"><label for="w3d-sq-flat">FLATNESS</label><input id="w3d-sq-flat" data-id="sq-flat" type="number" step="0.1" min="0" max="1" value="0"></div>
       <div class="field" title="How strictly the sheet keeps to the sides: 1 on them, lower loosens them for a fairer surface"><label for="w3d-sq-w">WEIGHT</label><input id="w3d-sq-w" data-id="sq-w" type="number" step="0.1" min="0.05" max="1" value="1"></div>
-      <div class="chips" data-id="sq-xrow" hidden><button data-id="sq-quad" aria-pressed="false" title="Fill the whole loop as one untrimmed four-sided surface, cut at its four corners (Q)"><kbd>Q</kbd>QUAD SIDED</button></div>
+      <div class="chips" data-id="sq-xrow" hidden><button data-id="sq-quad" aria-pressed="false" title="Fill the whole loop as one untrimmed four-sided surface, cut at its four corners (Q)"><kbd>Q</kbd>QUAD SIDED</button><button data-id="sq-satisfy" aria-pressed="true" title="Satisfy tolerances: keep the sheet on its sides within the quality's tolerance; off lets it leave them a little for a fairer surface">SATISFY TOLERANCES</button></div>
       <div class="seg" data-id="sq-qrow" role="group" aria-label="Quality: how closely the fit follows the sides" hidden><button data-sqquality="auto" aria-pressed="true" title="Auto: within 0.01 mm of the sides">AUTO</button><button data-sqquality="high" aria-pressed="false" title="High: within 0.001 mm">HIGH</button><button data-sqquality="max" aria-pressed="false" title="Max: within 0.0001 mm">MAX</button></div>
       <span class="label">BOUNDARY</span>
       <div class="seg" role="group" aria-label="How the isocurves leave the free sides"><button data-sqbound="natural" aria-pressed="true" title="Natural: the isocurves leave the sides as the fit has them">NATURAL</button><button data-sqbound="normal" aria-pressed="false" title="Normal: the isocurves leave the sides square to them">NORMAL</button><button data-sqbound="next" aria-pressed="false" title="Next: square to the sides that are nearly flat">NEXT</button><button data-sqbound="adjacent" aria-pressed="false" title="Adjacent: the isocurves lean from one neighbouring side's direction to the other's">ADJ.</button></div>
@@ -1415,6 +1415,18 @@ export function plasticityControls(body) {
     if (first?.classList.contains('seg') && chips.children.length === 1) chips.replaceWith(first);
     else for (const seg of [...chips.querySelectorAll(':scope > .seg')]) chips.before(seg);
   }
+}
+
+/** How far an XNURBS sheet may leave its sides with Satisfy tolerances off (Square's Weight). */
+export const XNURBS_LOOSE = 0.5;
+
+/**
+ * The boundary an XNURBS (or Square) fit uses: in XNURBS, Next and Adjacent need Quad sided, so
+ * without it Adjacent acts as Normal (the manual) and Next as Natural.
+ */
+export function xnurbsBoundary({ xnurbs, quad, boundary = 'natural' }) {
+  if (!xnurbs || quad) return boundary;
+  return boundary === 'adjacent' ? 'normal' : boundary === 'next' ? 'natural' : boundary;
 }
 
 export function closestViewDir(name, offset) {
@@ -7772,8 +7784,18 @@ export async function mount(root, backend) {
   async function startSquare({ xnurbs = false } = {}) {
     if (cmd) await finish();
     if (!backend.previewSplineSheet || !backend.edgeCurvature) return toast(`${xnurbs ? 'XNURBS' : 'SQUARE'} IS NOT IN THIS BUILD YET`);
-    const c = cmd = { id: 'square', xnurbs, quad: xnurbs, quality: 'auto', data: null, sent: 0, shown: 0, edges: new Map(), faces: new Map(), continuity: 'G0' };
+    const c = cmd = { id: 'square', xnurbs, quad: xnurbs, satisfy: true, quality: 'auto', data: null, sent: 0, shown: 0, edges: new Map(), faces: new Map(), continuity: 'G0' };
     $('sq-xrow').hidden = $('sq-qrow').hidden = !xnurbs;
+    // XNURBS shows the manual's XNurbs fields only (Continuity G0-G2, Quad sided, Flatness, Tension,
+    // Boundary, Quality, Satisfy tolerances): Free, Degree, Spans, Weight, Analysis and Constrain
+    // are Square's. Its defaults are the manual's: Tension 0.5 (0.1 to 1), Flatness 0.95 with Quad
+    // sided (the manual recommends 0.95 to 1), Satisfy tolerances on.
+    for (const id of ['sq-d', 'sq-u', 'sq-v', 'sq-w']) $(id).closest('.field').hidden = xnurbs;
+    for (const el of [$$('[data-sqcont="FREE"]')[0], $('sq-analysis'), $('sq-constrain')]) el.hidden = xnurbs;
+    $('sq-t').value = xnurbs ? 0.5 : 1;
+    $('sq-t').max = xnurbs ? '1' : '';
+    $('sq-flat').value = xnurbs ? 0.95 : 0;
+    $('sq-satisfy').setAttribute('aria-pressed', 'true');
     lastTool = 'square';
     showTool('square');
     if (xnurbs) { $('tool-name').textContent = 'XNURBS'; $('status-tool').textContent = 'XNURBS'; }
@@ -7835,6 +7857,10 @@ export async function mount(root, backend) {
         const su = Math.round(num('sq-u')) || 0, sv = Math.round(num('sq-v')) || su;
         const tension = num('sq-t');
         if (!(tension > 0)) throw new Error('the tension must be greater than zero');
+        if (c.xnurbs && !(tension >= 0.1 && tension <= 1)) throw new Error('the tension runs from 0.1 to 1');
+        // Next and Adjacent need Quad sided (the manual): without it they are greyed out.
+        for (const b of $$('[data-sqbound]')) b.disabled = c.xnurbs && !c.quad && (b.dataset.sqbound === 'next' || b.dataset.sqbound === 'adjacent');
+        $('sq-satisfy').setAttribute('aria-pressed', String(c.satisfy));
         if (many) {
           const r = nSidedFill(sides, { degree: Math.round(num('sq-d')), spans: su ? [su, sv] : 0, tolerance: { auto: 0.01, high: 0.001, max: 0.0001 }[c.quality], continuity: c.continuity === 'FREE' ? 'G0' : c.continuity, tension });
           c.data = splineSheetData(r.patches[0]);
@@ -7847,16 +7873,16 @@ export async function mount(root, backend) {
           return;
         }
         c.more = [];
-        c.opts = { degree: Math.round(num('sq-d')), spans: su ? [su, sv] : 0, tolerance: { auto: 0.01, high: 0.001, max: 0.0001 }[c.quality], continuity: c.continuity, tension, flatness: Math.min(1, Math.max(0, num('sq-flat') || 0)), boundary: c.boundary ?? 'natural', weight: Math.min(1, Math.max(0.05, num('sq-w') || 1)) };
+        c.opts = { degree: Math.round(num('sq-d')), spans: su ? [su, sv] : 0, tolerance: { auto: 0.01, high: 0.001, max: 0.0001 }[c.quality], continuity: c.continuity, tension, flatness: Math.min(1, Math.max(0, num('sq-flat') || 0)), boundary: xnurbsBoundary(c), weight: c.xnurbs ? (c.satisfy ? 1 : XNURBS_LOOSE) : Math.min(1, Math.max(0.05, num('sq-w') || 1)) };
         // Create Constraints holds a sheet on curves only, in the order fitted.
         c.onCurves = !c.refit && !c.quad && items.every(it => it.kind === 'curve') ? items.map(it => it.id) : null;
         fit = square(sides, c.opts);
-        for (const b of $$('[data-sqbound]')) b.setAttribute('aria-pressed', String(b.dataset.sqbound === (c.boundary ?? 'natural')));
+        for (const b of $$('[data-sqbound]')) b.setAttribute('aria-pressed', String(b.dataset.sqbound === c.opts.boundary));
       } catch (e) { c.data = null; clearPreview(); $('sq-hint').textContent = say(e); return setState('failed'); }
       c.data = splineSheetData(fit);
       c.fit = fit;
       c.analyse();
-      $('sq-hint').textContent = `${c.xnurbs ? 'XNURBS · ' : ''}${c.continuity === 'FREE' ? 'FREE · ' : ''}${c.quad ? 'QUAD SIDED' : fit.kind === 'sweep' ? `SWEEP ON ${items.length} SIDES` : items.length === 2 ? 'LOFT' : items.length === 3 ? 'THREE SIDES' : 'FOUR SIDES'} · DEGREE ${fit.degree[0]} · ${fit.spans.join(' × ')} SPANS · SIDES WITHIN ${fit.gap < 1e-4 ? '< 0.0001' : fit.gap.toFixed(4)} MM${c.continuity === 'G1' || c.continuity === 'G2' ? ` · TANGENT WITHIN ${fit.turn.toFixed(2)}°` : ''}${c.continuity === 'G2' ? ` · CURVATURE WITHIN ${fit.bend.toFixed(5)} /MM` : ''}${num('sq-flat') > 0 ? ` · FLATNESS ${Math.min(1, num('sq-flat'))}` : ''}${num('sq-w') < 1 ? ` · WEIGHT ${Math.max(0.05, num('sq-w'))}` : ''}${c.boundary && c.boundary !== 'natural' ? ` · ${c.boundary.toUpperCase()} BOUNDARY` : ''}`;
+      $('sq-hint').textContent = `${c.xnurbs ? 'XNURBS · ' : ''}${c.continuity === 'FREE' ? 'FREE · ' : ''}${c.quad ? 'QUAD SIDED' : fit.kind === 'sweep' ? `SWEEP ON ${items.length} SIDES` : items.length === 2 ? 'LOFT' : items.length === 3 ? 'THREE SIDES' : 'FOUR SIDES'} · DEGREE ${fit.degree[0]} · ${fit.spans.join(' × ')} SPANS · SIDES WITHIN ${fit.gap < 1e-4 ? '< 0.0001' : fit.gap.toFixed(4)} MM${c.continuity === 'G1' || c.continuity === 'G2' ? ` · TANGENT WITHIN ${fit.turn.toFixed(2)}°` : ''}${c.continuity === 'G2' ? ` · CURVATURE WITHIN ${fit.bend.toFixed(5)} /MM` : ''}${num('sq-flat') > 0 ? ` · FLATNESS ${Math.min(1, num('sq-flat'))}` : ''}${num('sq-w') < 1 ? ` · WEIGHT ${Math.max(0.05, num('sq-w'))}` : ''}${c.opts.boundary !== 'natural' ? ` · ${c.opts.boundary.toUpperCase()} BOUNDARY` : ''}${c.xnurbs && !c.satisfy ? ' · TOLERANCES LOOSENED' : ''}`;
       setHud(`${c.xnurbs ? 'XNURBS' : 'SQUARE'} · ${fit.spans.join(' × ')} SPANS`);
       livePreview(c, () => backend.previewSplineSheet({ data: c.data }), b => showPreviewBody(b), 'sq-hint');
     };
@@ -7899,7 +7925,8 @@ export async function mount(root, backend) {
         setHud('TENSION _');
         return true;
       }
-      if (action === 'quad' && c.xnurbs) { c.quad = !c.quad; c.preview(); return true; }
+      if (action === 'quad' && c.xnurbs) { c.quad = !c.quad; $('sq-flat').value = c.quad ? 0.95 : 0; c.preview(); return true; }
+      if (action === 'satisfy' && c.xnurbs) { c.satisfy = !c.satisfy; c.preview(); return true; }
       if (action !== 'degree') return false;
       c.entry = { label: 'DEGREE', text: '', apply: v => { if (v >= 1 && v <= 7) { $('sq-d').value = Math.round(v); c.preview(); } else toast('THE DEGREE RUNS FROM 1 TO 7'); } };
       setHud('DEGREE _');
@@ -16192,6 +16219,7 @@ export async function mount(root, backend) {
   for (const b of $$('[data-sqcont]')) b.onclick = () => cmd?.id === 'square' && cmd.setContinuity(b.dataset.sqcont);
   for (const id of ['sq-d', 'sq-u', 'sq-v', 'sq-t', 'sq-flat', 'sq-w']) $(id).addEventListener('input', () => cmd?.id === 'square' && cmd.preview());
   $('sq-quad').onclick = () => cmd?.id === 'square' && cmd.key('quad');
+  $('sq-satisfy').onclick = () => cmd?.id === 'square' && cmd.key('satisfy');
   $('sq-analysis').onclick = () => cmd?.id === 'square' && cmd.setAnalysis(!cmd.analysis);
   $('sq-constrain').onclick = () => { if (cmd?.id !== 'square') return; squareConstrain = !squareConstrain; cmd.analyse(); };
   for (const id of ['sq-tg0', 'sq-tg1', 'sq-tg2']) $(id).addEventListener('input', () => cmd?.id === 'square' && cmd.analyse());
