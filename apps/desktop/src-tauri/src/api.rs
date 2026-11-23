@@ -9,7 +9,7 @@ use w3d_kernel::document::{BodyId, Document, FormRequest as FormKindRequest, Pro
 use w3d_kernel::engine::Engine;
 use w3d_kernel::occt::Occt;
 use w3d_kernel::blend::FilletShape;
-use w3d_kernel::{extrude, file, form, ArraySpec, Primitive, FormParams, Blend, BlendParams, BooleanOp, Material, Materials, Curve, CurveId, CurveShape, GuideRef, ExtrudeParams, ExtrudeResult, Frame, Kernel, KernelError, Motion, Operation, Profile, Ref, Refs, FaceRebuild, RebuiltFace, SheetExtension, Tessellation};
+use w3d_kernel::{extrude, file, form, ArraySpec, Primitive, FormParams, Blend, BlendParams, BooleanOp, Material, Materials, Curve, CurveId, CurveShape, GuideRef, ExtrudeParams, ExtrudeResult, Frame, Kernel, KernelError, Motion, Operation, Profile, Ref, Refs, FaceRebuild, RebuiltFace, SheetExtension, Tessellation, SubdCage, SubdivOptions, BsplinePatch};
 
 /// Chord tolerance for display meshes, in millimetres.
 const MESH_TOLERANCE: f64 = 0.05;
@@ -2275,15 +2275,12 @@ pub fn commit_poly_splines(m: &Model, cage_req: SubdCageRequest, options_req: Su
         let result = doc.kernel.subdivide_cage(&cage, &options)?;
         let mesh = (result.mesh.0.into_iter().map(|v| [v.x as f32, v.y as f32, v.z as f32]).collect(), result.mesh.1.into_iter().map(|f| f.into_iter().map(|v| v as u32).collect()).collect());
         let patches = convert_patches(result.patches);
-        let id = if let Some(solid) = result.solid {
-            doc.add_body(solid, None)
-        } else if !mesh.0.is_empty() {
-            // For non-closed cages, we still add a mesh-based body
-            // In a full implementation, this would create a proper B-rep from patches
-            doc.add_body(doc.kernel.box_from_corners(DVec3::ZERO, DVec3::new(1.0, 1.0, 1.0)), None)
-        } else {
-            return Err(ApiError::from("cage did not produce a valid result"));
+        // Only a closed all-quad cage gives a solid; anything else is refused rather than
+        // standing in a placeholder body.
+        let Some(solid) = result.solid else {
+            return Err(ApiError::from("this cage does not make a closed solid; use quads only and close the cage".to_string()));
         };
+        let id = doc.add(solid);
         Ok(PolySplinesCommitted { id, scene: bodies(doc)?, mesh, patches })
     })
 }
