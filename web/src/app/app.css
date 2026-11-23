@@ -445,6 +445,23 @@ input[type="range"] { accent-color: var(--accent); }
 /* Export options as a small dialog over the view rather than in the side panel. */
 .sec.xdialog { position: fixed; left: 50%; top: 50%; transform: translate(-50%, -50%); width: min(380px, calc(100vw - 32px)); max-height: calc(100vh - 96px); overflow-y: auto; z-index: 22; background: var(--raised); border: 1px solid var(--rule); box-shadow: 0 0 0 100vmax rgba(0, 0, 0, 0.35), 0 12px 40px rgba(0, 0, 0, 0.5); padding: 0 16px 0; }
 .sec.xdialog[hidden] { display: none; }
+/* Plasticity's command dialog: the running command's options, floating at the viewport's bottom
+   left beside the toolbar; the viewport stays usable around it. */
+.cmd-dialog { position: absolute; left: 62px; bottom: 34px; z-index: 6; width: min(300px, calc(100% - 80px)); max-height: calc(100% - 130px); display: flex; flex-direction: column; background: var(--raised); border: 1px solid var(--rule); box-shadow: 0 10px 30px rgba(0, 0, 0, 0.45); }
+.cmd-dialog[hidden] { display: none; }
+.cmd-dialog .cd-head { display: flex; align-items: center; justify-content: space-between; padding: 8px 10px 8px 14px; border-bottom: 1px solid var(--rule-soft); color: var(--accent); }
+.cmd-dialog .cd-head button { display: flex; color: var(--muted); }
+.cmd-dialog .cd-head button:hover { color: var(--ink); }
+.cmd-dialog .cd-head svg { width: 14px; height: 14px; }
+.cmd-dialog .cd-body { flex: 1 1 auto; min-height: 0; overflow-y: auto; position: relative; }
+.cmd-dialog .cd-body > .sec, .cmd-dialog .cd-body > div > .sec { border-bottom: 0; }
+.cmd-dialog .cd-foot { position: relative; display: flex; justify-content: space-between; padding: 8px 10px; border-top: 1px solid var(--rule-soft); }
+.cmd-dialog .cd-foot button { display: flex; align-items: center; gap: 6px; padding: 4px 6px; color: var(--muted); }
+.cmd-dialog .cd-foot button:hover { color: var(--ink); }
+.cmd-dialog .cd-foot kbd { font: inherit; padding: 1px 5px; border: 1px solid var(--rule); }
+.cmd-dialog.folded .cd-body { display: none; }
+.cmd-dialog.more .cd-foot::before { content: ''; position: absolute; left: 0; right: 0; bottom: 100%; height: 28px; background: linear-gradient(to bottom, transparent, var(--raised)); pointer-events: none; }
+.xdialog.more .xd-foot::before { content: ''; position: absolute; left: 0; right: 0; bottom: 100%; height: 28px; background: linear-gradient(to bottom, transparent, var(--raised)); pointer-events: none; }
 /* A command's dialog sits at the viewport's top left and leaves the viewport usable (Plasticity's). */
 .sec.xdialog.live { left: 288px; top: 132px; transform: none; margin: 0; box-shadow: 0 12px 40px rgba(0, 0, 0, 0.5); max-height: calc(100vh - 200px); }
 .xdialog .xd-head { display: flex; align-items: center; justify-content: space-between; margin: 0 -16px; padding: 10px 14px; border-bottom: 1px solid var(--rule-soft); color: var(--accent); position: sticky; top: 0; background: var(--raised); z-index: 1; }

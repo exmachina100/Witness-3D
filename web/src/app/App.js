@@ -272,6 +272,11 @@ const SHELL = `
     <canvas aria-label="3D modeling viewport"></canvas>
     <span class="corner tl"></span><span class="corner tr"></span><span class="corner bl"></span><span class="corner br"></span>
     <nav class="tools rail" data-id="tools" aria-label="Tools" aria-orientation="vertical"></nav>
+    <section class="cmd-dialog" data-id="cmd-dialog" aria-label="Command options" hidden>
+      <div class="cd-head"><span data-id="cd-name">—</span><button data-id="cd-fold" aria-expanded="true" aria-label="Fold" title="Fold the options away (the command keeps running)">${icon('fold')}</button></div>
+      <div class="cd-body" data-id="cd-body"></div>
+      <div class="cd-foot"><button data-id="cd-cancel" title="Cancel the command (Esc)"><kbd>ESC</kbd>CANCEL</button><button data-id="cd-ok" title="Finish the command (Enter or right-click)">OK<kbd>↵</kbd></button></div>
+    </section>
     <div class="vtl">
       <button class="plane-pill" data-action="plane:save" title="Construction plane: click to save it to the list in the Inspector">${icon('plane-world')}<output data-id="plane">XY</output></button>
       <span class="hud" data-id="hud" data-idle>SELECT · F SEARCH</span>
@@ -294,7 +299,7 @@ const SHELL = `
     </div>
     <div class="vpop" data-id="view-pop" role="dialog" aria-label="Shader and view settings" hidden>
 
-      <div class="field"><label for="w3d-comb-scale">COMB SCALE</label><input id="w3d-comb-scale" data-id="comb-scale" type="range" min="0.1" max="4" step="0.1" value="1" title="Length of the curvature combs on curves and edges"></div>
+      <div class="field"><label for="w3d-comb-scale">COMB SCALE</label><input id="w3d-comb-scale" data-id="comb-scale" type="range" min="0.1" max="4" step="0.1" value="1" title="Length of the curvature combs on curves and edges"><button class="pick" data-id="comb-auto" title="Autosize: combs sized again to fit the curves shown (the longest tooth a quarter of their size)">AUTO</button></div>
       <span class="label">SHADER <output data-id="shader-name">CERAMIC DARK</output></span>
       <div class="swatches" data-id="shader-swatches" role="group" aria-label="Shader mode">${SHADERS.map(s => `<button data-shader="${s.id}" aria-pressed="${s.id === 'ceramic-dark'}" aria-label="${s.name}" title="${s.name}: ${s.use}" style="background: ${s.swatch}"></button>`).join('')}</div>
       <input type="file" data-id="matcap-file" accept=".png,.jpg,.jpeg,image/png,image/jpeg" multiple hidden>
@@ -849,12 +854,6 @@ const SHELL = `
       <div class="chips"><button data-id="br-trim" aria-pressed="false" title="Trim the curves where they run on past the bridge"><kbd>Q</kbd>TRIM</button><button data-id="br-comb" aria-pressed="false" title="Show the curvature of the bridge and the curves it joins">CURVATURE</button><button data-id="br-constrain" aria-pressed="false" title="Create constraints: the bridge stays joined to the curves it bridges, remade with the same continuity when they are edited (for this session)">CONSTRAIN</button></div>
     </div>
     </div>
-    <dialog class="sec xdialog live" data-id="bridge-dialog" aria-label="Bridge Curve" hidden>
-      <div class="xd-head"><span>BRIDGE CURVE</span><button data-xd="cancel" aria-label="Cancel">${icon('close')}</button></div>
-      <div data-id="bridge-dialog-body"></div>
-      <output class="hint" data-xd-status role="status" aria-live="polite"></output>
-      <div class="xd-foot"><button data-xd="cancel">CANCEL</button><button data-xd="ok" class="primary">OK</button></div>
-    </dialog>
     <div class="sec" data-panel="bridge-edge" hidden>
       <span class="hint" data-id="be-hint">—</span>
       <div class="field"><label for="w3d-be-p1">PARAMETER 1</label><input id="w3d-be-p1" data-id="be-p1" type="number" step="0.05" min="0" max="1" value="1"></div>
@@ -1228,6 +1227,12 @@ const VIEWS = {
 
 export async function mount(root, backend) {
   root.innerHTML = SHELL;
+  {
+    // Every tool's options go in the command dialog (Plasticity's); the Inspector keeps the rest.
+    const props = root.querySelector('[data-id="tool-properties"]'), body = root.querySelector('[data-id="cd-body"]');
+    for (const el of [...props.children]) if (el.tagName !== 'SUMMARY') body.append(el);
+    props.remove();
+  }
   // Panel options carry their icon ahead of the key and name.
   for (const b of root.querySelectorAll('[data-proj],[data-imp],[data-impcomp],[data-draw],[data-bop],[data-btmat],[data-bumat],[data-xop],[data-fop],[data-spiral],[data-toggle],[data-gmethod],[data-galign],[data-gcorner],[data-grow],[data-mfgrow],[data-drgrow],[data-eslimit],[data-flshape],[data-chshape],[data-drtaper],[data-avaxis],[data-extshape],[data-esshape],[data-isodir],[data-id="oe-both"],[data-id="iso-subdivide"],[data-id="oe-individual"],[data-id="blend-tangent"],[data-id="ex-lock"],[data-id="ex-keep"],[data-id="bool-keep"],[data-id="prim-keep"],[data-id="form-keep"],[data-pipeop],[data-id="pipe-keep"],[data-id="ex-free"],[data-id="ex-pivot"],[data-id="ex-individual"],[data-id="patch-individual"],[data-id="patch-quad"],[data-id="as-symmetric"],[data-id="as-analysis"],[data-id="as-ratio"],[data-id="as-constrain"],[data-id="sq-analysis"],[data-id="sq-constrain"],[data-id="dr-hidden"],[data-id="dr-curves"],[data-id="oc-lock"],[data-id="oc-free"],[data-id="oc-slot"],[data-id="oc-combine"],[data-id="es-unlimit"],[data-id="shell-local"],[data-id="es-modify"],[data-rbmethod],[data-rcmethod],[data-id="rb-corners"],[data-oecorner],[data-saplane],[data-plaxis],[data-plop],[data-id="pl-flip"],[data-id="pl-instance"],[data-id="mirror-instance"],[data-id="mirror-neg"],[data-id="mirror-free"],[data-id="mirror-cut"],[data-id="ra-instance"],[data-id="ra-spacing"],[data-id="ra-extent"],[data-id="rr-total"],[data-id="rr-spacing"],[data-id="rr-instance"],[data-id="ca-instance"],[data-caalign],[data-camethod],[data-id="br-trim"],[data-id="br-comb"],[data-id="br-constrain"],[data-id="ac-constrain"],[data-id="ac-comb"],[data-id="dc-reblend"],[data-id="section-btn"],[data-id="sa-flip"],[data-id="rf-shrink"],[data-id="ut-keep"],[data-txfont],[data-id="tx-load"],[data-id="tx-system"],[data-txalign],[data-sldir],[data-dcflip],[data-id="dc-keep"],[data-imdepth],[data-imcull],[data-id="im-delete"],[data-id="im-dup"],[data-id="cc-extend"],[data-id="cc-screen"],[data-id="cut-extend"],[data-id="cut-screen"],[data-inmode],[data-pfmode],[data-pfmirror],[data-xforient],[data-xfpivot],[data-id="xf-pick"],[data-id="xf-unpivot"],[data-id="xf-free"],[data-id="ls-loop"],[data-id="ls-limit"],[data-id="ls-simplify"],[data-id="sw-simplify"],[data-pmethod],[data-mxtopo],[data-id="mx-convex"],[data-sqbound],[data-asbound],[data-assolver],[data-bsshape],[data-bstrim],[data-id="bs-add"],[data-id="bs-s1"],[data-id="bs-s2"],[data-id="in-realize"],[data-id="in-dup"],[data-id="in-delete"],[data-id="matcap-load"],[data-id="matcap-custom"],[data-id="hdr-load"],[data-id="hdr-custom"]')) {
     const name = (b.dataset.proj && (b.dataset.proj === 'screen' ? 'view-screen' : `proj-${b.dataset.proj}`)) ?? (b.dataset.imp && (b.dataset.imp === 'screen' ? 'view-screen' : `proj-${b.dataset.imp}`)) ?? (b.dataset.impcomp && `completion-${b.dataset.impcomp}`) ?? b.dataset.draw ?? b.dataset.bop ?? (b.dataset.xforient && `orient-${b.dataset.xforient}`) ?? (b.dataset.xfpivot && `pivot-${b.dataset.xfpivot}`) ?? (b.dataset.btmat && `mat-${b.dataset.btmat}`) ?? (b.dataset.bumat && `mat-${b.dataset.bumat}`) ?? b.dataset.xop ?? b.dataset.fop ?? b.dataset.spiral ?? (b.dataset.toggle && `view-${b.dataset.toggle}`)
@@ -4106,22 +4111,20 @@ export async function mount(root, backend) {
   function showTool(id) {
     toolbar.setActive(id);
     for (const el of $$('[data-panel]')) el.hidden = el.dataset.panel !== (id === 'spiral' ? 'spiral' : DRAW[id] ? 'draw' : FORMS[id] ? 'form' : PRIMS[id] ? 'primitive' : id);
-    const toolProperties = $('tool-properties');
-    const bridgeDialog = $('bridge-dialog');
-    const bridgePanel = $('bridge-panel');
-    // The first stage needs the canvas. Show modal options only once both ends are known.
-    const bridgeOptions = id === 'bridge' && !!cmd?.continuity;
-    if (bridgeOptions) {
-      $('bridge-dialog-body').append(bridgePanel);
-    } else {
-      if (bridgeDialog.open) bridgeDialog.close();
-      const home = $('bridge-panel-home');
-      if (bridgePanel.parentElement !== home) home.append(bridgePanel);
+    // Plasticity's command dialog: the running command's options float at the viewport's bottom
+    // left, beside the toolbar, and leave the viewport working (its handles, snaps and keys).
+    const dialog = $('cmd-dialog'), body = $('cd-body');
+    // Bridge Curve's first stage, the two clicks, has no options yet: the dialog waits for both ends.
+    dialog.hidden = !id || !body.querySelector('[data-panel]:not([hidden])') || (id === 'bridge' && !cmd?.continuity);
+    if (!dialog.hidden) {
+      $('cd-name').textContent = !id ? '' : EDITS[id] ?? DRAW[id] ?? toolInfo(id).label;
+      body.scrollTop = 0;
+      requestAnimationFrame(() => body.onscroll?.());
     }
-    bridgeDialog.hidden = !bridgeOptions;
-    toolProperties.hidden = !bridgeOptions && !toolProperties.querySelector('[data-panel]:not([hidden])');
-    if (!toolProperties.hidden) toolProperties.open = true;
     for (const dialog of $$('dialog.xdialog')) {
+      // Plasticity 2026.2: a long dialog fades away at its bottom while there is more to scroll to.
+      dialog.onscroll ??= () => dialog.classList.toggle('more', dialog.scrollTop + dialog.clientHeight < dialog.scrollHeight - 2);
+      requestAnimationFrame(() => dialog.onscroll());
       if (dialog.hidden && dialog.open) dialog.close();
       if (!dialog.hidden && !dialog.open) {
         dialog.querySelector('[data-xd-status]').textContent = '';
@@ -15808,6 +15811,17 @@ export async function mount(root, backend) {
   });
   $('hdr-custom').onclick = () => { view.environment = 'hdr'; applyView(); };
   $('comb-scale').addEventListener('input', () => drawCombs());
+  // The command dialog: OK, Cancel, fold, and the fade at its bottom while more is below.
+  $('cd-ok').onclick = () => finish();
+  $('cd-cancel').onclick = () => abort();
+  $('cd-fold').onclick = () => {
+    const folded = $('cmd-dialog').classList.toggle('folded');
+    $('cd-fold').setAttribute('aria-expanded', String(!folded));
+    $('cd-fold').innerHTML = icon(folded ? 'unfold' : 'fold');
+  };
+  $('cd-body').onscroll = () => { const b = $('cd-body'); $('cmd-dialog').classList.toggle('more', b.scrollTop + b.clientHeight < b.scrollHeight - 2); };
+  // Plasticity 2026.2's Curvature panel: autosize the combs.
+  $('comb-auto').onclick = () => { $('comb-scale').value = 1; drawCombs(); };
   $('env-rot').addEventListener('input', e => { view.envRotation = parseFloat(e.target.value); applyView(); });
   $('env-int').addEventListener('input', e => { view.envIntensity = parseFloat(e.target.value); applyView(); });
   for (const [id, dir] of [['shader-option-dec', -1], ['shader-option-inc', 1]]) $(id).onclick = () => {
@@ -15921,12 +15935,12 @@ export async function mount(root, backend) {
   for (const b of $$('[data-avaxis]')) b.onclick = () => cmd?.id === 'align-vertex' && cmd.setAxis(b.dataset.avaxis);
   for (const id of ['oc-d', 'fc-r', 'ov-d', 'fv-r', 'sl-d']) $(id).addEventListener('input', () => ['offset-curve', 'fillet-curve', 'offset-vertex', 'fillet-vertex', 'slide'].includes(cmd?.id) && cmd.preview());
   for (const b of $$('[data-sldir]')) b.onclick = () => cmd?.id === 'slide' && cmd.setDir(b.dataset.sldir);
-  $('br-start').onclick = () => cmd?.id === 'bridge' && cmd.cycleEnd(0);
+  $('br-start').onclick = () => cmd?.id === 'bridge' && cmd.cycleEnd?.(0);
   for (const id of ['br-p1', 'br-p2']) $(id).addEventListener('input', () => cmd?.id === 'bridge' && cmd.preview?.());
-  $('br-trim').onclick = () => cmd?.id === 'bridge' && cmd.key('trim');
+  $('br-trim').onclick = () => cmd?.id === 'bridge' && cmd.key?.('trim');
   $('br-constrain').onclick = () => cmd?.id === 'bridge' && cmd.key('constrain');
   $('br-comb').onclick = () => cmd?.id === 'bridge' && cmd.key('comb');
-  for (const b of $$('[data-braxis]')) b.onclick = () => cmd?.id === 'bridge' && cmd.setAxis(b.dataset.braxis);
+  for (const b of $$('[data-braxis]')) b.onclick = () => cmd?.id === 'bridge' && cmd.setAxis?.(b.dataset.braxis);
   for (const b of $$('[data-beaxis]')) b.onclick = () => cmd?.id === 'bridge-edge' && cmd.key(`axis-${b.dataset.beaxis}`);
   for (const id of ['be-p1', 'be-p2', 'be-t1a', 'be-t1b', 'be-t2a', 'be-t2b', 'be-t3a', 'be-t3b']) $(id).addEventListener('input', () => cmd?.id === 'bridge-edge' && cmd.preview());
   $('be-start').onclick = () => cmd?.id === 'bridge-edge' && cmd.cycleEnd(0);
@@ -15954,7 +15968,7 @@ export async function mount(root, backend) {
   $('as-t').addEventListener('input', () => cmd?.id === 'align-surface' && num('as-t') > 0 && cmd.preview());
   for (const id of ['as-blend', 'as-infl', 'as-p0', 'as-p1', 'as-k0', 'as-k1', 'as-deg', 'as-spans']) $(id).addEventListener('input', () => cmd?.id === 'align-surface' && cmd.preview());
   $('be-end').onclick = () => cmd?.id === 'bridge-edge' && cmd.cycleEnd(1);
-  $('br-end').onclick = () => cmd?.id === 'bridge' && cmd.cycleEnd(1);
+  $('br-end').onclick = () => cmd?.id === 'bridge' && cmd.cycleEnd?.(1);
   $('oc-lock').onclick = () => cmd?.id === 'offset-curve' && cmd.key('lock');
   for (const b of $$('[data-extshape]')) b.onclick = () => { setExtShape(b.dataset.extshape); if (cmd?.id === 'extend') (cmd.target ? cmd.meet() : cmd.preview()); };
   $('ext-len').addEventListener('input', () => { if (cmd?.id !== 'extend' || !cmd.gizmo) return; cmd.gizmo.value = num('ext-len'); cmd.gizmo.render(num('ext-len')); cmd.preview(); });
