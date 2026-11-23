@@ -1171,10 +1171,6 @@ const SHELL = `
     </div>
     </details>
     <span class="fill"></span>
-    <div class="pair">
-      <button data-id="cancel" disabled>ESC CANCEL</button>
-      <button data-id="commit" disabled>⏎ OK</button>
-    </div>
   </aside>
 
   <footer class="status">
@@ -1210,6 +1206,59 @@ const worldAxis = a => new THREE.Vector3(...toWorld(AXES[a]));
  * up stays the horizontal axis (±x or ±z) nearest the one the view has now. `offset` is the
  * camera's position less its target. Returns the view's direction as VIEWS gives it.
  */
+/** Chip buttons whose data attribute picks one of a set: Plasticity shows these as a row of tabs. */
+const TAB_SETS = ['flshape', 'chshape', 'oecorner', 'rcmethod', 'rbmethod', 'rflconv', 'impcomp', 'bstrim', 'esshape', 'pipeop', 'txfont'];
+/** Chip buttons picking one of a set by id or value, where their group also holds on/off options. */
+const TAB_IDS = [['oc-linear', 'oc-round', 'oc-natural'], ['[data-imp="normal"]', '[data-imp="vector"]', '[data-imp="both"]'], ['[data-proj="normal"]', '[data-proj="vector"]', '[data-proj="both"]']];
+
+/**
+ * Restyle the command dialog's controls the way Plasticity's are: a choice of one is a row of
+ * tabs, an on/off option is a labelled switch, and an action stays a button. The elements keep
+ * their data attributes and handlers; only their grouping and classes change.
+ */
+export function plasticityControls(body) {
+  // A value and its second (DISTANCE, DISTANCE 2): one row of two fields under one label.
+  for (const a of body.querySelectorAll('.field')) {
+    const b = a.nextElementSibling, la = a.querySelector(':scope > label'), lb = b?.querySelector?.(':scope > label');
+    const ia = a.querySelector(':scope > input'), ib = b?.querySelector?.(':scope > input');
+    if (!b?.classList.contains('field') || !la || !lb || !ia || !ib || a.querySelectorAll(':scope > input').length > 1) continue;
+    const base = la.textContent.replace(/ 1$/, '');
+    if (lb.textContent !== `${base} 2`) continue;
+    la.textContent = base;
+    a.classList.add('two');
+    a.append(ib);
+    b.classList.add('merged');
+    // The second still shows and hides with its own row.
+    const follow = () => { ib.hidden = b.hidden; };
+    new MutationObserver(follow).observe(b, { attributes: true, attributeFilter: ['hidden'] });
+    follow();
+  }
+  for (const chips of body.querySelectorAll('.chips:not(.icons)')) {
+    const buttons = [...chips.children].filter(b => b.tagName === 'BUTTON');
+    const sets = [];
+    for (const key of TAB_SETS) {
+      const set = buttons.filter(b => b.hasAttribute(`data-${key}`));
+      if (set.length > 1) sets.push(set);
+    }
+    for (const ids of TAB_IDS) {
+      const set = ids.map(id => chips.querySelector(id.startsWith('[') ? id : `[data-id="${id}"]`)).filter(Boolean);
+      if (set.length === ids.length) sets.push(set);
+    }
+    for (const set of sets) {
+      const seg = document.createElement('div');
+      seg.className = 'seg tabs';
+      seg.setAttribute('role', 'group');
+      set[0].before(seg);
+      seg.append(...set);
+    }
+    for (const b of chips.querySelectorAll(':scope > button[aria-pressed]')) b.classList.add('sw');
+    // Tabs taken out ahead of the group: the group's rest follows them.
+    const first = chips.firstElementChild;
+    if (first?.classList.contains('seg') && chips.children.length === 1) chips.replaceWith(first);
+    else for (const seg of [...chips.querySelectorAll(':scope > .seg')]) chips.before(seg);
+  }
+}
+
 export function closestViewDir(name, offset) {
   const v = VIEWS[name];
   if (name !== 'top' && name !== 'bottom') return v.dir;
@@ -1232,6 +1281,7 @@ export async function mount(root, backend) {
     const props = root.querySelector('[data-id="tool-properties"]'), body = root.querySelector('[data-id="cd-body"]');
     for (const el of [...props.children]) if (el.tagName !== 'SUMMARY') body.append(el);
     props.remove();
+    plasticityControls(body);
   }
   // Panel options carry their icon ahead of the key and name.
   for (const b of root.querySelectorAll('[data-proj],[data-imp],[data-impcomp],[data-draw],[data-bop],[data-btmat],[data-bumat],[data-xop],[data-fop],[data-spiral],[data-toggle],[data-gmethod],[data-galign],[data-gcorner],[data-grow],[data-mfgrow],[data-drgrow],[data-eslimit],[data-flshape],[data-chshape],[data-drtaper],[data-avaxis],[data-extshape],[data-esshape],[data-isodir],[data-id="oe-both"],[data-id="iso-subdivide"],[data-id="oe-individual"],[data-id="blend-tangent"],[data-id="ex-lock"],[data-id="ex-keep"],[data-id="bool-keep"],[data-id="prim-keep"],[data-id="form-keep"],[data-pipeop],[data-id="pipe-keep"],[data-id="ex-free"],[data-id="ex-pivot"],[data-id="ex-individual"],[data-id="patch-individual"],[data-id="patch-quad"],[data-id="as-symmetric"],[data-id="as-analysis"],[data-id="as-ratio"],[data-id="as-constrain"],[data-id="sq-analysis"],[data-id="sq-constrain"],[data-id="dr-hidden"],[data-id="dr-curves"],[data-id="oc-lock"],[data-id="oc-free"],[data-id="oc-slot"],[data-id="oc-combine"],[data-id="es-unlimit"],[data-id="shell-local"],[data-id="es-modify"],[data-rbmethod],[data-rcmethod],[data-id="rb-corners"],[data-oecorner],[data-saplane],[data-plaxis],[data-plop],[data-id="pl-flip"],[data-id="pl-instance"],[data-id="mirror-instance"],[data-id="mirror-neg"],[data-id="mirror-free"],[data-id="mirror-cut"],[data-id="ra-instance"],[data-id="ra-spacing"],[data-id="ra-extent"],[data-id="rr-total"],[data-id="rr-spacing"],[data-id="rr-instance"],[data-id="ca-instance"],[data-caalign],[data-camethod],[data-id="br-trim"],[data-id="br-comb"],[data-id="br-constrain"],[data-id="ac-constrain"],[data-id="ac-comb"],[data-id="dc-reblend"],[data-id="section-btn"],[data-id="sa-flip"],[data-id="rf-shrink"],[data-id="ut-keep"],[data-txfont],[data-id="tx-load"],[data-id="tx-system"],[data-txalign],[data-sldir],[data-dcflip],[data-id="dc-keep"],[data-imdepth],[data-imcull],[data-id="im-delete"],[data-id="im-dup"],[data-id="cc-extend"],[data-id="cc-screen"],[data-id="cut-extend"],[data-id="cut-screen"],[data-inmode],[data-pfmode],[data-pfmirror],[data-xforient],[data-xfpivot],[data-id="xf-pick"],[data-id="xf-unpivot"],[data-id="xf-free"],[data-id="ls-loop"],[data-id="ls-limit"],[data-id="ls-simplify"],[data-id="sw-simplify"],[data-pmethod],[data-mxtopo],[data-id="mx-convex"],[data-sqbound],[data-asbound],[data-assolver],[data-bsshape],[data-bstrim],[data-id="bs-add"],[data-id="bs-s1"],[data-id="bs-s2"],[data-id="in-realize"],[data-id="in-dup"],[data-id="in-delete"],[data-id="matcap-load"],[data-id="matcap-custom"],[data-id="hdr-load"],[data-id="hdr-custom"]')) {
@@ -4114,8 +4164,10 @@ export async function mount(root, backend) {
     // Plasticity's command dialog: the running command's options float at the viewport's bottom
     // left, beside the toolbar, and leave the viewport working (its handles, snaps and keys).
     const dialog = $('cmd-dialog'), body = $('cd-body');
-    // Bridge Curve's first stage, the two clicks, has no options yet: the dialog waits for both ends.
-    dialog.hidden = !id || !body.querySelector('[data-panel]:not([hidden])') || (id === 'bridge' && !cmd?.continuity);
+    // Every running command has the dialog, as in Plasticity (its title, Cancel and OK); its body
+    // only when it has options. Bridge Curve's first stage, the two clicks, has none yet.
+    dialog.hidden = !id;
+    body.hidden = !body.querySelector('[data-panel]:not([hidden])') || (id === 'bridge' && !cmd?.continuity);
     if (!dialog.hidden) {
       $('cd-name').textContent = !id ? '' : EDITS[id] ?? DRAW[id] ?? toolInfo(id).label;
       body.scrollTop = 0;
@@ -4140,7 +4192,7 @@ export async function mount(root, backend) {
     const name = !id ? 'SELECT' : EDITS[id] ?? DRAW[id] ?? toolInfo(id).label;
     $('tool-name').textContent = name;
     $('status-tool').textContent = name;
-    $('commit').disabled = $('cancel').disabled = !id;
+
   }
   function setTarget(text) { $('target').textContent = text ?? '—'; $('status-target').textContent = text ?? 'VOID'; }
   function endCmd(state) {
@@ -16050,8 +16102,6 @@ export async function mount(root, backend) {
   for (const b of $$('[data-impcomp]')) b.onclick = () => cmd?.id === 'imprint' && cmd.key(`complete-${b.dataset.impcomp}`);
   $('bool-keep').onclick = () => cmd?.id === 'boolean' && cmd.key('keep');
   for (const b of $$('[data-draw]')) b.onclick = () => DRAW[cmd?.id] && cmd.key(b.dataset.draw);
-  $('commit').onclick = () => finish();
-  $('cancel').onclick = () => abort();
   $('undo').onclick = () => step('undo');
   $('isolated').onclick = () => doAction('unisolate');
   $('redo').onclick = () => step('redo');
