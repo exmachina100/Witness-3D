@@ -3732,8 +3732,18 @@ export async function mount(root, backend) {
     failed: thickness(new THREE.LineBasicMaterial({ color: DANGER, depthTest: false }), 'edge'),
     hoverFace: new THREE.MeshBasicMaterial({ color: COLORS.ink, transparent: true, opacity: 0.08, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -1 }),
     face: new THREE.MeshBasicMaterial({ color: COLORS.accent, transparent: true, opacity: 0.28, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -1 }),
+    failedFace: new THREE.MeshBasicMaterial({ color: DANGER, transparent: true, opacity: 0.35, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -1 }),
   };
   let hover = null, failedEdges = [];
+  // Plasticity 2026.2: when Boolean or Hollow fails, the problem geometry shows in red. Whole
+  // bodies ({ body }) or some of their faces ({ body, faces }); cleared by the next good preview.
+  let failedParts = [];
+  function showFailed(parts) {
+    const key = JSON.stringify(parts);
+    if (key === JSON.stringify(failedParts)) return;
+    failedParts = parts;
+    drawOverlays();
+  }
   // What the box being dragged would take, lit as hover while it is dragged.
   let boxHover = [];
   const sameItem = (a, b) => a.kind === b.kind && a.id === b.id && a.body === b.body && a.n === b.n;
@@ -3771,6 +3781,10 @@ export async function mount(root, backend) {
       const edges = sel.list('edge').filter(it => it.body === id).map(it => it.n);
       if (edges.length) put(id, edgeLines(b, edges.filter(n => !failedEdges.includes(n)), overlayMat.selected));
       if (failedEdges.length && edges.length) put(id, edgeLines(b, failedEdges, overlayMat.failed));
+      for (const f of failedParts.filter(f => f.body === id)) {
+        if (f.faces) put(id, faceMesh(b, f.faces, overlayMat.failedFace));
+        else put(id, edgeLines(b, b.edges.map((_, n) => n), overlayMat.failed));
+      }
     }
     paintCurves();
     for (const h of [hover, ...boxHover]) {
@@ -6691,7 +6705,7 @@ export async function mount(root, backend) {
       return commitBooleanCmd();
     };
     c.abort = () => endCmd('cancelled');
-    c.cleanup = () => { clearPreview(); for (const t of [...c.targets, ...c.tools]) { const m = bodyMesh(t); if (m) m.visible = true; } };
+    c.cleanup = () => { clearPreview(); showFailed([]); for (const t of [...c.targets, ...c.tools]) { const m = bodyMesh(t); if (m) m.visible = true; } };
     if (c.stage) c.pick(c.stage);
     else { c.sync(); previewBooleanCmd(); }
   }
@@ -6717,10 +6731,13 @@ export async function mount(root, backend) {
       if (cmd !== c || n !== c.sent) return;
       clearPreview();
       setState('failed');
+      // The tools that would not combine, in red (the kernel names no faces, so the whole tool).
+      showFailed(c.tools.filter(t => bodyOf(t)).map(body => ({ body })));
       return setHud(say(e));
     }
     if (!bodies.every(Boolean) || cmd !== c || n < c.shown) return;
     c.shown = n;
+    showFailed([]);
     $('ms').textContent = Math.round(performance.now() - t0);
     clearPreview();
     for (const body of bodies) showPreviewBody(body);
@@ -9901,7 +9918,7 @@ export async function mount(root, backend) {
       } catch (e) { setState('failed'); toast(say(e)); }
     };
     c.abort = () => endCmd('cancelled');
-    c.cleanup = () => { clearPreview(); for (const g of [c.gizmo, c.wall, c.turn]) g?.dispose(); };
+    c.cleanup = () => { clearPreview(); showFailed([]); for (const g of [c.gizmo, c.wall, c.turn]) g?.dispose(); };
     syncOps();
     c.onSelection();
   }
@@ -12287,6 +12304,18 @@ export async function mount(root, backend) {
     c.onSelection();
   }
 
+  /**
+   * Where a Hollow of `thickness` most likely fails: round faces (cylinders, spheres, fillets) bending
+   * tighter than the wall, which the offset can't follow. None found: the whole body.
+   */
+  async function shellCulprits(body, thickness) {
+    let faces = [];
+    try {
+      const list = backend.faceSurfaces ? await backend.faceSurfaces({ body }) : [];
+      faces = list.map((f, n) => ({ f, n })).filter(({ f }) => f.radius > 0 && f.radius <= Math.abs(thickness) + 1e-9 && f.outward !== false).map(({ n }) => n);
+    } catch { faces = []; }
+    return faces.length ? [{ body, faces }] : [{ body }];
+  }
   function startShell() {
     // Faces picked: those are left open. A whole solid picked, no faces: it is hollowed round a closed void.
     const whole = () => sel.list('face').length ? null : sel.solids.filter(id => org.shows(id) && !bodyOf(id)?.sheet);
@@ -12302,7 +12331,10 @@ export async function mount(root, backend) {
     c.request = () => ({ body: c.body, faces: c.local ? c.faces : [], thickness: num('shell-t') });
     $('shell-local').setAttribute('aria-pressed', 'true');
     c.setLocal = on => { c.local = on; $('shell-local').setAttribute('aria-pressed', String(on)); c.onSelection(); };
-    c.preview = () => livePreview(c, () => backend.previewShell(c.request()), b => { showPreviewBody(b); setHud(`HOLLOW ${len(num('shell-t'))} ${U()}`); }, 'shell-hint');
+    c.preview = () => livePreview(c, async () => {
+      try { const b = await backend.previewShell(c.request()); showFailed([]); return b; }
+      catch (e) { if (cmd === c) shellCulprits(c.body, num('shell-t')).then(parts => { if (cmd === c) showFailed(parts); }); throw e; }
+    }, b => { showPreviewBody(b); setHud(`HOLLOW ${len(num('shell-t'))} ${U()}`); }, 'shell-hint');
     // Plasticity's yellow dot for the wall: on the first open face (or the solid's first face),
     // dragged inward, D grabbing it from the cursor.
     const setThickness = v => {
@@ -12358,7 +12390,7 @@ export async function mount(root, backend) {
       } catch (e) { setState('failed'); toast(say(e)); }
     };
     c.abort = () => endCmd('cancelled');
-    c.cleanup = () => { clearPreview(); for (const g of [c.gizmo, c.wall, c.turn]) g?.dispose(); };
+    c.cleanup = () => { clearPreview(); showFailed([]); for (const g of [c.gizmo, c.wall, c.turn]) g?.dispose(); };
     c.onSelection();
   }
 
