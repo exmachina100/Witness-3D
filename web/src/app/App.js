@@ -1205,6 +1205,20 @@ const AXES = { x: [1, 0, 0], y: [0, 1, 0], z: [0, 0, 1] };
 const worldAxis = a => new THREE.Vector3(...toWorld(AXES[a]));
 // Numpad views: where the camera sits from the target, and the construction plane it brings
 // (Plasticity: Num7 top and XY, Num1 front and XZ, Num3 right and YZ; Ctrl for the opposite side).
+/**
+ * Plasticity 2026.2's view cube: clicking a face orients the camera to the closest matching
+ * orientation. Side views always stand upright (y up), so only Top and Bottom differ: the screen's
+ * up stays the horizontal axis (±x or ±z) nearest the one the view has now. `offset` is the
+ * camera's position less its target. Returns the view's direction as VIEWS gives it.
+ */
+export function closestViewDir(name, offset) {
+  const v = VIEWS[name];
+  if (name !== 'top' && name !== 'bottom') return v.dir;
+  const [x, , z] = offset;
+  if (Math.hypot(x, z) < 1e-12) return v.dir;
+  const along = Math.abs(x) > Math.abs(z) ? [Math.sign(x), 0] : [0, Math.sign(z)];
+  return [along[0] * 0.0001, v.dir[1], along[1] * 0.0001];
+}
 const VIEWS = {
   top: { dir: [0, 1, 0.0001], plane: 'XY' }, bottom: { dir: [0, -1, 0.0001], plane: 'XY' },
   front: { dir: [0, 0, 1], plane: 'XZ' }, back: { dir: [0, 0, -1], plane: 'XZ' },
@@ -1510,13 +1524,13 @@ export async function mount(root, backend) {
     camera.lookAt(controls.target);
     if (k >= 1) turning = null;
   }
-  function setView(name, { animate = true } = {}) {
+  function setView(name, { animate = true, closest = false } = {}) {
     const v = VIEWS[name];
     // A named view stands upright again after arcball turns rolled it.
     camera.up.set(0, 1, 0);
     const dist = name === 'iso' ? 225 : camera.position.distanceTo(controls.target);
     const target = name === 'iso' ? new THREE.Vector3(0, 15, 0) : controls.target.clone();
-    const dir = new THREE.Vector3(...v.dir).normalize();
+    const dir = new THREE.Vector3(...(closest ? closestViewDir(name, camera.position.clone().sub(controls.target).toArray()) : v.dir)).normalize();
     turnTo(target, target.clone().addScaledVector(dir, dist), animate ? VIEW_MS : 0);
     if (v.plane) setPlane({ origin: new THREE.Vector3(), normal: new THREE.Vector3(...v.dir).normalize().round(), name: v.plane });
   }
@@ -15648,7 +15662,8 @@ export async function mount(root, backend) {
   $('factor').addEventListener('input', e => setFactor(parseFloat(e.target.value)));
   for (const b of $$('[data-axis]')) b.onclick = () => setAxis(b.dataset.axis);
   const nav = new ViewGizmo($('nav'), {
-    view: name => setView(name),
+    // Plasticity 2026.2: a face of the view cube turns the view to the closest matching orientation.
+    view: name => setView(name, { closest: true }),
     orbit: (dx, dy) => orbitBy(dx, dy),
     pan: (dx, dy) => panBy(dx, dy),
     zoom: dy => zoomBy(dy),
