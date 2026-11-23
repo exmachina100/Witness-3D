@@ -575,3 +575,5 @@ dialog.xdialog[aria-busy="true"] > * { pointer-events: none; }
 .inspector-section .units-fields { display: flex; flex-direction: column; gap: 6px; }
 .inspector-section .units-fields .field { display: grid; grid-template-columns: 1fr 110px; align-items: center; }
 .inspector-section .units-fields select, .inspector-section .units-fields input { width: 100%; text-align: center; }
+/* Anything a command hides stays hidden, whatever display the dialog's control styles give it. */
+.cmd-dialog [hidden] { display: none !important; }
