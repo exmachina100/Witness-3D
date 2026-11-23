@@ -30,17 +30,7 @@ jobs:
       - run: npm ci
         working-directory: web
       - name: Assemble site
-        run: |
-          mkdir -p _site/node_modules/replicad-opencascadejs
-          mkdir -p _site/node_modules/@nasedkinpv/opensubdiv-wasm
-          cp web/index.html _site/
-          cp -r web/src _site/
-          cp -r web/node_modules/replicad-opencascadejs/dist _site/node_modules/replicad-opencascadejs/
-          cp -r web/node_modules/@nasedkinpv/opensubdiv-wasm/dist _site/node_modules/@nasedkinpv/opensubdiv-wasm/
-          test -s _site/node_modules/replicad-opencascadejs/dist/replicad_single.js
-          test -s _site/node_modules/replicad-opencascadejs/dist/replicad_single.wasm
-          test -s _site/node_modules/@nasedkinpv/opensubdiv-wasm/dist/opensubdiv.mjs
-          touch _site/.nojekyll
+        run: bash web/assemble-pages.sh _site
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3
         with:
