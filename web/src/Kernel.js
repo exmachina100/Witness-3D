@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { chordal } from './filletShape.js';
 import { arrayMotions } from './arrayMotions.js';
 
 export { arrayMotions };
@@ -678,14 +679,19 @@ function variableFillet(shape, edges, edgeIds, size, withHistory, variable) {
  * @returns {Object} { shape, history }
  */
 export function filletShell(shape, openFaces, outerEdges, innerEdges, thickness, radius, outerVariable = [], innerVariable = [], shapeType = 'round') {
-    if (shapeType !== 'round') throw new BlendError('Fillet Shell currently supports round blends only');
+    if (!['round', 'chordal'].includes(shapeType)) throw new BlendError('Fillet Shell currently supports round and chordal blends only');
     let { shape: currentShape, history } = shellFaces(shape, openFaces, thickness);
 
     // Both selections refer to the freshly shelled body. Blend together so an outer
     // round cannot renumber the inner edges or their variable-radius points.
     const edgeIds = [...new Set([...outerEdges, ...innerEdges])];
     if (edgeIds.length) {
-        const result = blendEdges(currentShape, edgeIds, radius, false, true, 0, [...outerVariable, ...innerVariable]);
+        let size = radius, variable = [...outerVariable, ...innerVariable];
+        if (shapeType === 'chordal') {
+            if (variable.length) throw new BlendError('a chordal round takes one distance; remove the variable points');
+            ({ size, variable } = chordal(currentShape, edgeIds, radius));
+        }
+        const result = blendEdges(currentShape, edgeIds, size, false, true, 0, variable);
         currentShape = result.shape;
         // The document stores refs on the original solid; the blend maps from the shell.
         const throughShell = (before, after) => {
