@@ -2493,7 +2493,7 @@ export async function mount(root, backend) {
   const keepSources = () => { opSources = sel.list().map(it => ({ ...it })); };
   function record(text, id, tag = label(id)) { pushStep({ text, id, tag, sources: opSources ?? [] }); }
   function pushStep(entry) {
-    backupDue = true;
+    backupDue = unsaved = true;
     setTimeout(drawConstraintMarks, 0);   // constraints are made or let go next to a step
     if (typeof entry.id === 'number' && !entry.constrained) {
       const due = constraints.bodyEdited(entry.id);
@@ -13893,7 +13893,7 @@ export async function mount(root, backend) {
     if (!h.local) { let list; for (let i = 0; i < (h.steps ?? 1); i++) list = await backend[dir](); await showScene(list); }
     if (h.org) restoreOrg(dir === 'undo' ? h.org.before : h.org.after);
     undone += dir === 'undo' ? 1 : -1;
-    backupDue = true;
+    backupDue = unsaved = true;
     renderHistory();
   }
   async function deleteSelected() {
@@ -14499,7 +14499,7 @@ export async function mount(root, backend) {
             await keepAppState();
             const name = await fn.call(backend);
             if (!name) return;
-            if (arg === 'save-as') $('file-name').textContent = name.toUpperCase();
+            if (arg === 'save-as') { $('file-name').textContent = name.toUpperCase(); unsaved = false; }
             remember(backend.filePath);
             toast(`SAVED ${name.toUpperCase()}`);
           });
@@ -14527,7 +14527,7 @@ export async function mount(root, backend) {
           await fileAction(async () => {
             await keepAppState();
             const name = await backend.save();
-            if (name) { $('file-name').textContent = name.toUpperCase(); toast(`SAVED ${name.toUpperCase()}`); remember(backend.filePath); }
+            if (name) { $('file-name').textContent = name.toUpperCase(); unsaved = false; toast(`SAVED ${name.toUpperCase()}`); remember(backend.filePath); }
           });
           return true;
         }
@@ -15306,6 +15306,7 @@ export async function mount(root, backend) {
     renderHistory();
     showScene(list);
     $('file-name').textContent = name;
+    unsaved = false;
   }
   /** Groups, hidden and locked bodies and materials go into the file with the geometry. */
   async function keepAppState() {
@@ -15354,6 +15355,8 @@ export async function mount(root, backend) {
   // changed; a clean exit deletes the copy, so one found at launch was left by a crash and is
   // offered back here.
   let backupDue = false, lastBackup = Date.now();
+  // Changes since the document was opened or saved, for the file tab's Revert to saved.
+  let unsaved = false;
   setInterval(async () => {
     const b = prefs.backup;
     if (!backend.backupSave || !b.enabled || !backupDue || cmd || Date.now() - lastBackup < b.minutes * 60000) return;
@@ -15386,6 +15389,30 @@ export async function mount(root, backend) {
   async function fileAction(fn) {
     try { await fn(); } catch (e) { toast(say(e)); }
   }
+  /** Open a document (asked for when `path` is left out), as Recent Files and the startup scene do. */
+  function openFile(path) {
+    return fileAction(async () => {
+      if (!backend.open) return toast('NOT IN THE BROWSER YET');
+      const r = await backend.open(path);
+      if (!r) return;
+      newScene(r.scene, r.name.toUpperCase());
+      await restoreAppState();
+      remember(backend.filePath);
+    });
+  }
+  // Plasticity 2026.2's file tab menu (right-click the file name): reveal the file in the file
+  // explorer, browse the backup files, and, with changes made, revert to the last saved state.
+  $('file-name').title = 'Right-click for the file menu: reveal, backups, revert to saved';
+  $('file-name').oncontextmenu = e => {
+    e.preventDefault();
+    const path = backend.filePath;
+    openOMenu(e, [
+      ['REVEAL IN FILE EXPLORER', () => fileAction(() => backend.reveal(path)), !backend.reveal || !path],
+      ['BROWSE BACKUPS', () => fileAction(() => backend.revealBackups()), !backend.revealBackups],
+      null,
+      ['REVERT TO SAVED', () => { if (cmd) abort(); openFile(path).then(() => toast('REVERTED TO SAVED')); }, !backend.open || !path || !unsaved],
+    ]);
+  };
   // File operations (New, Open, Save, Import) are now in the P-Menu dropdown.
   // The top bar only shows the brand (P-Menu), context strip, ASK button, and file name.
   // Backend capability checks are done in openPMenu() via P_NEEDS and doAction() handles them directly.

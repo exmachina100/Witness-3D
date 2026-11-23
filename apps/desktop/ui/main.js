@@ -171,6 +171,9 @@ const rust = {
   // Backups for emergencies: this window's copy every few minutes, and what a crash left behind.
   backupSave: document => tauri.core.invoke('backup_save', { document }),
   backups: () => tauri.core.invoke('backup_list'),
+  // The file tab's menu: the document's file, or the backup folder, in the system's file explorer.
+  reveal: path => tauri.core.invoke('reveal_path', { path }),
+  revealBackups: () => tauri.core.invoke('reveal_backups'),
   discardBackup: path => tauri.core.invoke('backup_discard', { path }),
   async openBackup(path) {
     const scene = await tauri.core.invoke('backup_open', { path });
