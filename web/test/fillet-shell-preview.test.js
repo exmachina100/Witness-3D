@@ -47,6 +47,16 @@ test('Fillet Shell builds a valid round at a three-edge outer corner', async () 
         return atCorner(curve.Value(curve.FirstParameter())) || atCorner(curve.Value(curve.LastParameter())) ? [index] : [];
     });
     assert.equal(edges.length, 3);
+    const innerCorner = corner.map(v => v === 0 ? 1 : 11);
+    const inner = numberedEdges(open).flatMap((edge, index) => {
+        const curve = new o.BRepAdaptor_Curve(edge);
+        const atInner = p => Math.hypot(p.X() - innerCorner[0], p.Y() - innerCorner[1], p.Z() - innerCorner[2]) < 1e-6;
+        return atInner(curve.Value(curve.FirstParameter())) || atInner(curve.Value(curve.LastParameter())) ? [index] : [];
+    });
+    assert.equal(inner.length, 3);
+    const mixed = filletShell(solid, [0], edges, inner, 1, 0.25);
+    assert.ok(new o.BRepCheck_Analyzer(mixed.shape, true, false, false).IsValid());
+    for (const edge of [...edges, ...inner]) assert.ok(mixed.history.generatedFaces.some(([source]) => source === edge));
     const { shape, history } = filletShell(solid, [0], edges, [], 1, 0.4);
     assert.ok(new o.BRepCheck_Analyzer(shape, true, false, false).IsValid());
     assert.ok(volume(shape) < volume(open));
