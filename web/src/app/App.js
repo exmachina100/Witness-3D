@@ -284,6 +284,8 @@ const SHELL = `
         <button data-toggle="xray" aria-pressed="false" aria-label="X-ray" title="X-ray (Alt+Z)"></button>
         <button data-toggle="curves" aria-pressed="true" aria-label="Curves" title="Curves: show or hide them in the viewport"></button>
         <button data-toggle="curvature" aria-pressed="false" aria-label="Curvature" title="Curvature combs on curves (Toggle Curvature)"></button>
+        <button data-toggle="images" aria-pressed="true" aria-label="Images" title="Reference images: show or hide them in the viewport (Toggle Images)"></button>
+        <button data-toggle="constraints" aria-pressed="true" aria-label="Constraints" title="Constraints: mark the constrained curves and sheets in the viewport (Toggle Constraints)"></button>
         <button data-toggle="render" aria-pressed="false" aria-label="Render" title="Render mode: lit by an environment, with the materials' roughness and metal"></button>
         <button data-toggle="ao" aria-pressed="false" aria-label="Ambient occlusion" title="Ambient occlusion: darken creases and corners where light reaches less"></button>
         <button data-id="section-btn" aria-pressed="false" aria-label="Section analysis" title="Section analysis: slice the view through a face or the construction plane; click again to end it"></button>
@@ -1312,6 +1314,41 @@ export async function mount(root, backend) {
     }
   }
 
+  /** The curves and bodies the constraints hold now (constrained bridges and aligned ends, sheets). */
+  function constrainedObjects() {
+    const exists = id => !!curveById(id);
+    const curves = constraints.live(exists).map(r => r.out);
+    const bodies = [...constraints.sheets.map(k => k.sheet), ...constraints.surfaces.map(k => k.target)].filter(id => bodyOf(id));
+    return { curves: [...new Set(curves)], bodies: [...new Set(bodies)] };
+  }
+  /**
+   * Toggle Constraints: a mark on each constrained curve (its middle) and sheet (the middle of its
+   * box, or of the aligned edge). How Plasticity draws them isn't documented; ours is inferred.
+   */
+  function drawConstraintMarks() {
+    for (const o of [...constraintMarks.children]) dispose(o);
+    constraintMarks.visible = view.constraints;
+    if (!view.constraints || !constraints.count) return;
+    const pts = [];
+    const held = constrainedObjects();
+    for (const id of held.curves) {
+      const c = curveById(id);
+      if (!c) continue;
+      try { const { points } = curveSamples(c, 64), f = curveFrame(c), m = points[Math.floor(points.length / 2)]; pts.push(lift(f, { x: m[0], y: m[1], z: m[2] ?? 0 })); } catch { /* no mark */ }
+    }
+    for (const k of constraints.sheets) {
+      const b = bodyOf(k.sheet);
+      if (!b?.positions?.length) continue;
+      const box = new THREE.Box3().setFromArray(b.positions);
+      pts.push(box.getCenter(new THREE.Vector3()));
+    }
+    for (const k of constraints.surfaces) if (bodyOf(k.target)) pts.push(new THREE.Vector3(...edgeMiddle(k.target, edgeNear(k.target, k.tMark))));
+    if (!pts.length) return;
+    const marks = new THREE.Points(new THREE.BufferGeometry().setFromPoints(pts), new THREE.PointsMaterial({ color: COLORS.accent, size: 10, sizeAttenuation: false, depthTest: false }));
+    marks.renderOrder = 14;
+    constraintMarks.add(marks);
+  }
+
   // --- viewport and navigation ---------------------------------------------
   // Plasticity's mouse: middle-drag orbits, right-drag pans, the wheel zooms in steps and
   // Ctrl+middle-drag zooms smoothly. The left button is for selecting.
@@ -1549,7 +1586,10 @@ export async function mount(root, backend) {
   }
 
   // --- drawing what the backend sends ---------------------------------------
-  const view = { edges: true, faces: true, curves: true, xray: false, snap: false, curvature: false, shader: 'ceramic-dark', render: false, environment: 'studio', envRotation: 0, envIntensity: 1, ao: false };
+  const view = { edges: true, faces: true, curves: true, images: true, constraints: true, xray: false, snap: false, curvature: false, shader: 'ceramic-dark', render: false, environment: 'studio', envRotation: 0, envIntensity: 1, ao: false };
+  // Plasticity 2026.2's Toggle Images and Toggle Constraints: the groups they show or hide.
+  const imageGroup = new THREE.Group();
+  const constraintMarks = new THREE.Group();
   const shadeU = {
     mode: { value: 0 }, sectioned: { value: false }, pull: { value: new THREE.Vector3(0, 1, 0) }, stripes: { value: SHADER_OPTIONS.stripes.value },
     draftSin: { value: Math.sin(SHADER_OPTIONS.draft.value * DEG) }, spacing: { value: SHADER_OPTIONS.spacing.value }, bend: { value: 1 / SHADER_OPTIONS.radius.value },
@@ -1859,6 +1899,8 @@ export async function mount(root, backend) {
     $('shader-name').textContent = view.render ? 'RENDER' : sh.name.toUpperCase();
     scene.traverse(o => { if (o.userData.bodyEdges) o.visible = view.edges; });
     curveGroup.visible = view.curves;
+    imageGroup.visible = view.images;
+    drawConstraintMarks();
     drawCombs();
   }
 
@@ -2451,6 +2493,7 @@ export async function mount(root, backend) {
   function record(text, id, tag = label(id)) { pushStep({ text, id, tag, sources: opSources ?? [] }); }
   function pushStep(entry) {
     backupDue = true;
+    setTimeout(drawConstraintMarks, 0);   // constraints are made or let go next to a step
     if (typeof entry.id === 'number' && !entry.constrained) {
       const due = constraints.bodyEdited(entry.id);
       // Commands record their step next to showing the new scene, before or after: the aligned
@@ -2947,8 +2990,8 @@ export async function mount(root, backend) {
   // on (see images.js). They live in the file's app state, not the kernel, and are not picked in
   // the viewport: the outliner lists them, and clicking one opens its panel.
   let images = [], nextImage = 1;
-  const imageGroup = new THREE.Group();
   scene.add(imageGroup);
+  scene.add(constraintMarks);
   const textures = new Map();
   const imageLabel = id => `I-${String(id).padStart(2, '0')}`;
   function drawImages() {
@@ -2990,7 +3033,7 @@ export async function mount(root, backend) {
   /** The reference image under the pointer, unless `hit` lies in front of it. */
   function imageAt(e, hit) {
     ray(e);
-    const h = raycaster.intersectObjects(imageGroup.children, false)[0];
+    const h = imageGroup.visible ? raycaster.intersectObjects(imageGroup.children, false)[0] : undefined;
     if (!h) return null;
     if (hit?.point && camera.position.distanceTo(hit.point) < h.distance) return null;
     return h.object.userData.image ?? null;
@@ -14246,6 +14289,7 @@ export async function mount(root, backend) {
         // Remove constraints: the bridges stay as they are and no longer follow their curves.
         toast(constraints.count ? `${constraints.count} CONSTRAINT${constraints.count > 1 ? 'S' : ''} REMOVED` : 'NO CONSTRAINTS');
         constraints.clear();
+        drawConstraintMarks();
         return true;
       case 'snap':
         // Plasticity's palette command Toggle object snapping (no key by default).
@@ -14285,7 +14329,7 @@ export async function mount(root, backend) {
         else if (arg === 'reflection-check') { view.shader = view.shader === 'reflection' ? 'ceramic-dark' : 'reflection'; view.render = false; applyView(); }
         else if (arg === 'reflection-isophote') { view.shader = view.shader === 'isophote-ref' ? 'ceramic-dark' : 'isophote-ref'; view.render = false; applyView(); }
         else if (arg === 'render') { view.render = !view.render; applyView(); }
-        else if (arg === 'edges' || arg === 'faces' || arg === 'curves') { view[arg] = !view[arg]; applyView(); }
+        else if (arg === 'edges' || arg === 'faces' || arg === 'curves' || arg === 'images' || arg === 'constraints') { view[arg] = !view[arg]; applyView(); }
         else setView(arg);
         return true;
       case 'mode': sel.setMode(arg); renderModes(); hover = null; drawOverlays(); return true;
@@ -14325,6 +14369,13 @@ export async function mount(root, backend) {
           sel.clear();
           if (curveGroup.visible) for (const o of curveGroup.children) if (o.visible && o.layers.isEnabled(0) && o.userData.curve !== undefined) sel.add({ kind: 'curve', id: o.userData.curve });
           if (!sel.size) toast('NO CURVES TO SELECT');
+        } else if (arg === 'constraints') {
+          // Plasticity 2026.2's Select All Constraints: what the constraints hold, curves and sheets.
+          sel.clear();
+          const held = constrainedObjects();
+          for (const id of held.curves) if (org.picks(curveKey(id))) sel.add({ kind: 'curve', id });
+          for (const id of held.bodies) if (org.picks(id)) sel.add({ kind: 'solid', body: id });
+          if (!sel.size) toast('NO CONSTRAINTS');
         } else if (arg === 'measurements') {
           sel.clear();
           for (const c of surfaceCombs) if (!c.hidden && org.shows(c.body)) sel.add(c.face === undefined ? { kind: 'edge', body: c.body, n: c.n } : { kind: 'face', body: c.body, n: c.face });
