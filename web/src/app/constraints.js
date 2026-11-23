@@ -10,12 +10,16 @@
 // A Square sheet made with the option on, from curves only, rests on those curves the same way:
 // when one is edited the sheet is fitted again to the curves as they now are, with the options it
 // was made with, in the sheet's place (sheets, below).
+//
+// An Align Surface made with the option on keeps its sheet meeting the reference sheet: when the
+// reference body is edited, the side is aligned to it again with the same options (surfaces, below).
+// Bodies keep their ids through edits, so these hold body ids and where the two edges lie.
 
 export class Constraints {
-    constructor() { this.list = []; this.sheets = []; }
+    constructor() { this.list = []; this.sheets = []; this.surfaces = []; }
 
     /** How many constraints there are, of every kind. */
-    get count() { return this.list.length + this.sheets.length; }
+    get count() { return this.list.length + this.sheets.length + this.surfaces.length; }
 
     /** A Square sheet `sheet` (a body id) resting on `curves` (in the order fitted), made with `options`. */
     addSheet(sheet, curves, options) {
@@ -46,6 +50,27 @@ export class Constraints {
 
     /** A sheet no longer there (deleted, or replaced by hand) lets its curves go. */
     dropSheet(k) { this.sheets = this.sheets.filter(x => x !== k); }
+
+    /**
+     * Align Surface: body `target`'s edge near `tMark` kept meeting body `reference`'s edge near
+     * `rMark` (edge midpoints), with the options it was made with.
+     */
+    addSurface(target, reference, tMark, rMark, options) {
+        this.surfaces = this.surfaces.filter(k => k.target !== target);   // a sheet side follows one reference
+        this.surfaces.push({ kind: 'align-surface', target, reference, tMark, rMark, options });
+    }
+
+    /**
+     * After body `id` was edited by hand: the aligned sheets that follow it, to align again. A
+     * constrained sheet edited itself lets its constraint go.
+     */
+    bodyEdited(id) {
+        this.surfaces = this.surfaces.filter(k => k.target !== id);
+        return this.surfaces.filter(k => k.reference === id);
+    }
+
+    /** An aligned sheet that can no longer follow (a body gone, an align that fails) lets it go. */
+    dropSurface(k) { this.surfaces = this.surfaces.filter(x => x !== k); }
 
     /** A bridge `out` between curves `a` (end `ea`) and `b` (end `eb`), with the options it was made with. */
     addBridge(out, a, ea, b, eb, options) {
@@ -102,5 +127,5 @@ export class Constraints {
         return { ...extra, done };
     }
 
-    clear() { this.list = []; this.sheets = []; }
+    clear() { this.list = []; this.sheets = []; this.surfaces = []; }
 }
