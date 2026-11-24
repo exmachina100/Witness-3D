@@ -117,6 +117,10 @@ const ICONS = {
     ask: `<path ${A} d="M12 3l2 7 7 2-7 2-2 7-2-7-7-2 7-2z"/>`,
     import: `<path d="M4 15v5h16v-5"/><path ${A} d="M12 3v12M8 11l4 4 4-4"/>`,
     export: `<path d="M4 15v5h16v-5"/><path ${A} d="M12 15V3M8 7l4-4 4 4"/>`,
+    // A solid's box with a curved face: a CAD file of solids and sheets.
+    'export-cad': `<path d="M4 8l8-4 8 4v8l-8 4-8-4z"/><path ${A} d="M4 8l8 4 8-4M12 12v8"/>`,
+    // A square cut into triangles: a polygon mesh.
+    'export-mesh': `<path d="M4 4h16v16H4z"/><path ${A} d="M4 20L20 4M4 12l8-8M12 20l8-8"/>`,
     // A page with a box drawn on it, its far edges dashed.
     'export-drawing': `<path d="M5 3h10l4 4v14H5z"/><path ${A} d="M8 11l3-2h5v6l-3 2H8zM8 11h5v6M13 11l3-2"/>`,
     'hidden-lines': `<path d="M5 9h9v10H5z"/><path ${A} stroke-dasharray="2 2" d="M10 5h9v10h-5"/>`,
