@@ -190,6 +190,7 @@ const KEYS = {
   split: [['CLICK', 'WHERE TO SPLIT'], ['ESC / ⏎', 'DONE']],
   'measure-distance': [['CLICK', 'TWO POINTS'], ['MOVE', 'PICKS THE AXIS'], ['CLICK', 'PLACE'], ['RMB', 'PLACE STRAIGHT'], ['ESC', 'DONE']],
   'measure-radius': [['CLICK', 'A ROUND EDGE OR CURVE'], ['CLICK', 'PLACE'], ['ESC', 'DONE']],
+  'move-measure': [['MOVE', 'MOVE IT'], ['CLICK', 'PLACE'], ['ESC', 'CANCEL']],
   'measure-continuity': [['CLICK', 'NEAR TWO CURVE ENDS'], ['ESC', 'DONE']],
   'export-mesh': [['TYPE', 'OPTIONS IN THE DIALOG'], ['⏎ / RMB', 'SAVE'], ['ESC', 'CANCEL']],
   'export-drawing': [['VIEW', 'AS THE CAMERA SEES IT'], ['H', 'HIDDEN LINES'], ['C', 'CURVES'], ['⏎ / RMB', 'SAVE'], ['ESC', 'CANCEL']],
@@ -233,7 +234,7 @@ const CLICKS = { rect: 2, 'center-rect': 2, rect3: 3, circle: 2, circle2: 2, cir
 const FORMS = { revolve: true, loft: true, sweep: true, subd: true };
 const PRIMS = { box: true, 'center-box': true, box3: true, cylinder: true, sphere: true };
 // Commands that aren't tools in the registry (they act on a click, not on settings).
-const EDITS = { 'remove-fillets': 'REMOVE FILLETS', isoparam: 'ISOPARAM', 'offset-vertex': 'OFFSET VERTEX', slide: 'SLIDE CURVE CV', 'fillet-vertex': 'FILLET VERTEX', 'align-vertex': 'ALIGN VERTEX', 'align-curve': 'ALIGN CURVE', rebuild: 'REBUILD CURVE', 'rebuild-face': 'REBUILD FACE', 'match-face': 'MATCH FACE', 'deform-curve': 'DEFORM', image: 'REFERENCE IMAGE', instance: 'INSTANCE', untrim: 'UNTRIM', unwrap: 'UNWRAP FACE', section: 'SECTION ANALYSIS', place: 'PLACE', dimension: 'DIMENSION', text: 'TEXT', 'insert-knot': 'INSERT KNOT', 'offset-edge': 'OFFSET EDGE', material: 'SET MATERIAL', 'export-mesh': 'EXPORT MESH', 'export-drawing': 'EXPORT DRAWING', 'measure-continuity': 'MEASURE CONTINUITY', trim: 'TRIM', 'cut-curve': 'CUT CURVE', 'bridge-edge': 'BRIDGE EDGE', 'align-surface': 'ALIGN SURFACE', 'project-align': 'PROJECT ALIGN', 'constrained-surface': 'CONSTRAINED SURFACE', square: 'SQUARE', extend: 'EXTEND CURVE', 'tangent-circle': 'TANGENT CIRCLE', split: 'SPLIT CURVE', 'measure-distance': 'MEASURE DISTANCE', 'measure-radius': 'MEASURE RADIUS' };
+const EDITS = { 'remove-fillets': 'REMOVE FILLETS', isoparam: 'ISOPARAM', 'offset-vertex': 'OFFSET VERTEX', slide: 'SLIDE CURVE CV', 'fillet-vertex': 'FILLET VERTEX', 'align-vertex': 'ALIGN VERTEX', 'align-curve': 'ALIGN CURVE', rebuild: 'REBUILD CURVE', 'rebuild-face': 'REBUILD FACE', 'match-face': 'MATCH FACE', 'deform-curve': 'DEFORM', image: 'REFERENCE IMAGE', instance: 'INSTANCE', untrim: 'UNTRIM', unwrap: 'UNWRAP FACE', section: 'SECTION ANALYSIS', place: 'PLACE', dimension: 'DIMENSION', text: 'TEXT', 'insert-knot': 'INSERT KNOT', 'offset-edge': 'OFFSET EDGE', material: 'SET MATERIAL', 'export-mesh': 'EXPORT MESH', 'export-drawing': 'EXPORT DRAWING', 'measure-continuity': 'MEASURE CONTINUITY', trim: 'TRIM', 'cut-curve': 'CUT CURVE', 'bridge-edge': 'BRIDGE EDGE', 'align-surface': 'ALIGN SURFACE', 'project-align': 'PROJECT ALIGN', 'constrained-surface': 'CONSTRAINED SURFACE', square: 'SQUARE', extend: 'EXTEND CURVE', 'tangent-circle': 'TANGENT CIRCLE', split: 'SPLIT CURVE', 'measure-distance': 'MEASURE DISTANCE', 'measure-radius': 'MEASURE RADIUS', 'move-measure': 'MOVE MEASUREMENT' };
 const keysHtml = id => KEYS[id].map(([k, v]) => `<kbd>${k}</kbd><span>${v}</span>`).join('');
 // The Command Bar, exactly the manual's list (Plasticity Essentials › Command Bar).
 const BAR = [['palette', 'F', 'SEARCH'], ['tool:move', 'G', 'MOVE'], ['tool:rotate', 'R', 'ROTATE'], ['tool:scale', 'S', 'SCALE'], ['duplicate', '⇧D', 'DUPLICATE'], ['tool:boolean', 'Q', 'BOOLEAN'], ['tool:rect-array', '', 'RECTANGULAR ARRAY'], ['tool:radial-array', '', 'RADIAL ARRAY'], ['suggest', '⇧F', 'SUGGESTED COMMANDS']];
@@ -3269,11 +3270,16 @@ export async function mount(root, backend) {
     for (const m of measures) {
       const row = document.createElement('div');
       row.className = 'row-item curve measurement' + (m.hidden ? ' off' : '');
+      row.setAttribute('aria-current', pickedMeasure === m.id);
       const name = m.kind === 'radius' ? 'RADIUS' : m.axis ? 'DISTANCE' : 'STRAIGHT';
       row.innerHTML = `${icon('measure')}<span class="name" title="${m.kind === 'radius' ? 'Measure Radius' : m.axis ? 'Measure Distance along an axis' : 'Measure Distance, straight'}">${measureText(m)}</span><span class="tag" title="${name}">M-${String(m.id).padStart(2, '0')}</span><button class="eye" aria-pressed="${!m.hidden}" aria-label="Show or hide">◉</button><button class="drop" aria-label="Remove" title="Remove this measurement">${icon('delete')}</button>`;
       row.onclick = e => {
         if (e.target.closest('.eye')) { m.hidden = !m.hidden; return measuresChanged(); }
         if (e.target.closest('.drop')) { measures = measures.filter(x => x !== m); return measuresChanged(); }
+        // A click picks the measurement (G then moves it, as Plasticity's Measure page says).
+        pickedMeasure = pickedMeasure === m.id ? null : m.id;
+        drawMeasures();
+        renderOutliner();
       };
       out.append(row);
     }
@@ -3404,11 +3410,11 @@ export async function mount(root, backend) {
     for (const m of [...measures.filter(m => !m.hidden), ...(extra ? [extra] : [])]) {
       const s = measureShape(m);
       const pts = [...s.line, ...(s.ext ?? []).flat()].map(q => new THREE.Vector3(...q));
-      const lines = new THREE.LineSegments(new THREE.BufferGeometry().setFromPoints(pts), measureMat);
+      const lines = new THREE.LineSegments(new THREE.BufferGeometry().setFromPoints(pts), m.id === pickedMeasure ? measurePickedMat : measureMat);
       lines.renderOrder = 13;
       measureGroup.add(lines);
       const el = document.createElement('span');
-      el.className = 'measure-tag' + (m === extra ? ' live' : '');
+      el.className = 'measure-tag' + (m === extra ? ' live' : '') + (m.id === pickedMeasure ? ' picked' : '');
       el.textContent = measureText(m, s);
       host?.append(el);
       measureLabels.push({ el, at: new THREE.Vector3(...s.label) });
@@ -3425,6 +3431,30 @@ export async function mount(root, backend) {
       el.style.left = `${s.x + r.left - v.left}px`;
       el.style.top = `${s.y + r.top - v.top}px`;
     }
+  }
+  let pickedMeasure = null;
+  const measurePickedMat = new THREE.LineBasicMaterial({ color: COLORS.accent, depthTest: false });
+  /** G with a measurement picked in the outliner: its line or leader follows the pointer in the construction plane until a click places it. */
+  function startMoveMeasure() {
+    const m = measures.find(x => x.id === pickedMeasure);
+    if (!m) return toast('PICK A MEASUREMENT IN THE OUTLINER');
+    const c = cmd = { id: 'move-measure', from: null, orig: m };
+    lastTool = 'move-measure';
+    showTool('move-measure');
+    setState('none');
+    setHud(`MOVE ${measureText(m)} · CLICK TO PLACE`);
+    const swap = n => { measures = measures.map(x => x.id === m.id ? n : x); drawMeasures(); };
+    c.move = e => {
+      ray(e);
+      const p = raycaster.ray.intersectPlane(planeOf(), new THREE.Vector3());
+      if (!p) return;
+      c.from ??= p.clone();
+      // Its placement moves (the line or leader), still measuring the same points (inferred).
+      swap({ ...c.orig, p: new THREE.Vector3(...c.orig.p).add(p.clone().sub(c.from)).toArray() });
+    };
+    c.click = () => { measuresChanged(); endCmd('committed'); return true; };
+    c.finish = () => { measuresChanged(); endCmd('committed'); };
+    c.abort = () => { swap(c.orig); endCmd('cancelled'); };
   }
   function measuresChanged() {
     backupDue = unsaved = true;
@@ -4688,6 +4718,7 @@ export async function mount(root, backend) {
     // B with only curves selected is Fillet Curve, as in Plasticity.
     if (id === 'fillet' && sel.size && sel.list().every(it => it.kind === 'curve')) return startCurveEdit('fillet-curve');
     if (id === 'fillet') return startFillet(opts);
+    if (id === 'move' && pickedMeasure !== null && !sel.size && measures.some(m => m.id === pickedMeasure)) return startMoveMeasure();
     if (id === 'move' || id === 'rotate' || id === 'scale') return startTransform(id, opts);
     if (id === 'pushpull') return startPushPull(opts);
     if (id === 'extrude') return startExtrude(opts);
