@@ -238,7 +238,7 @@ export const ACTIONS = {
     'undo': 'Undo', 'redo': 'Redo', 'file:new': 'New', 'file:new-window': 'New window', 'file:open': 'Open…', 'file:save': 'Save',
     'file:save-as': 'Save as…', 'file:save-version': 'Quick save version', 'file:save-startup': 'Save as startup scene', 'file:reset-startup': 'Reset startup scene', 'file:export': 'Export…', 'file:recent': 'Recent files', 'app:quit': 'Quit', 'app:preferences': 'Preferences', 'app:menu': 'File menu (P-Menu)',
     'radial:selection-mode': 'Radial menu: selection mode', 'radial:viewport-settings': 'Radial menu: viewport settings',
-    'export:step': 'Export STEP', 'export:mesh': 'Export mesh (OBJ, STL)', 'export:drawing': 'Export drawing (SVG, DXF)', 'import:step': 'Import (STEP, IGES, DXF)',
+    'export:step': 'Export STEP', 'export:iges': 'Export IGES', 'export:mesh': 'Export mesh (OBJ, STL)', 'export:drawing': 'Export drawing (SVG, DXF)', 'import:step': 'Import (STEP, IGES, DXF)',
 };
 
 // The keys in use: the defaults until the app hands over the user's own (useKeys).

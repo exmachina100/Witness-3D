@@ -1839,7 +1839,9 @@ export async function mount(root, backend) {
     // A named view stands upright again after arcball turns rolled it.
     camera.up.set(0, 1, 0);
     const dist = name === 'iso' ? 225 : camera.position.distanceTo(controls.target);
-    const target = name === 'iso' ? new THREE.Vector3(0, 15, 0) : controls.target.clone();
+    // Home looks at the world origin, so it sits at the centre of the view and the axes through it
+    // run the same way as the navigator's (perspective bends lines only away from the centre).
+    const target = name === 'iso' ? new THREE.Vector3() : controls.target.clone();
     const dir = new THREE.Vector3(...(closest ? closestViewDir(name, camera.position.clone().sub(controls.target).toArray()) : v.dir)).normalize();
     turnTo(target, target.clone().addScaledVector(dir, dist), animate ? VIEW_MS : 0);
     if (v.plane) setPlane({ origin: new THREE.Vector3(), normal: new THREE.Vector3(...v.dir).normalize().round(), name: v.plane });
@@ -16186,6 +16188,8 @@ export async function mount(root, backend) {
     ACTIONS[`radial:${m.command}`] = `Radial menu: ${m.name}`;
     ENTRIES.push({ action: `radial:${m.command}`, label: `RADIAL MENU: ${m.name.toUpperCase()}` });
   }
+  // IGES needs a kernel build with its reader and writer (the desktop's; the browser's has none).
+  if (!backend.exportIGES || backend.igesSupported === false) ENTRIES.splice(ENTRIES.findIndex(e => e.action === 'export:iges'), 1);
   /**
    * Commands that fit what is selected (Plasticity's Shift+F, Suggested Commands). With the toolbars
    * holding only drawing tools and the Command Bar's common commands, this is where the rest of the
@@ -16235,7 +16239,7 @@ export async function mount(root, backend) {
     const out = [];
     if (sel.solids.length > 1) out.push('tool:boolean');
     if (sel.solids.length === 2) out.push('tool:project');
-    if (kinds.has('solid')) out.push('tool:move', 'tool:rotate', 'tool:scale', 'duplicate', 'create-outline', 'toggle-points', 'place', 'copy-place', 'dimension', 'tool:mirror', 'tool:rect-array', 'tool:radial-array', 'tool:curve-array', 'unify', 'boundary-edges', 'remove-fillets', 'raise-degree', 'deform-curve', 'create-instance', 'delete', 'hide', 'isolate', 'group', 'lock', 'material:set', 'export:step', 'export:iges', 'export:mesh', 'export:drawing');
+    if (kinds.has('solid')) out.push('tool:move', 'tool:rotate', 'tool:scale', 'duplicate', 'create-outline', 'toggle-points', 'place', 'copy-place', 'dimension', 'tool:mirror', 'tool:rect-array', 'tool:radial-array', 'tool:curve-array', 'unify', 'boundary-edges', 'remove-fillets', 'raise-degree', 'deform-curve', 'create-instance', 'delete', 'hide', 'isolate', 'group', 'lock', 'material:set', 'export:step', ...(backend.exportIGES && backend.igesSupported !== false ? ['export:iges'] : []), 'export:mesh', 'export:drawing');
     if (kinds.has('face')) out.push('tool:extrude', 'tool:offset', 'tool:thicken', 'tool:shell', 'tool:hole', 'tool:remove-face', 'alt-duplicate', 'remove-fillets', 'isoparam', 'rebuild', 'raise-degree', 'remove-nominal', 'subdivide', 'match-face', 'untrim', 'unwrap', 'toggle-points', 'view:surface-curvature', 'plane:selection', 'plane:selection-keep-view');
     if (sel.list('face').length >= 2) out.push('tool:loft');
     if (sel.list('edge').length === 1 && sel.list('face').length === 1) out.push('project-align');
@@ -16590,7 +16594,7 @@ export async function mount(root, backend) {
   }
   /** An IGES file read in the browser: the whole file as one body. */
   async function importIGESData(file) {
-    if (!backend.importIGESData) throw new Error('IGES import is not in this build');
+    if (!backend.importIGESData || backend.igesSupported === false) throw new Error('IGES import needs the desktop app; this build reads STEP');
     const r = await backend.importIGESData(new Uint8Array(await file.arrayBuffer()));
     if (cmd) abort();
     sel.clear();
@@ -16598,6 +16602,7 @@ export async function mount(root, backend) {
     await showScene(r.scene);
     toast(`IMPORTED ${file.name.toUpperCase()}`);
   }
+  if (backend.igesSupported === false) $('import-file').accept = '.step,.stp,.dxf,.png,.jpg,.jpeg';
   $('import-file').onchange = e => fileAction(async () => {
     const file = e.target.files?.[0];
     e.target.value = '';

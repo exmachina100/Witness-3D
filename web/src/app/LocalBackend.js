@@ -603,6 +603,8 @@ export class LocalBackend {
     }
 
     /** File › Import of an IGES file's bytes. */
+    /** Whether this kernel build reads and writes IGES (the browser's opencascade.js has no IGES). */
+    get igesSupported() { return typeof oc().IGESControl_Writer === 'function'; }
     async importIGESData(bytes) {
         const shape = importIGES(bytes);
         this.checkpoint();

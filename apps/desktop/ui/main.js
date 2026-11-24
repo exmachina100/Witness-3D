@@ -213,6 +213,13 @@ const rust = {
     await tauri.core.invoke('export_step', { id, path, motion, mirror });
     return `SAVED ${path}`;
   },
+  // Export IGES: the same command, which writes IGES by the file's extension.
+  async exportIGES(id, { motion = null, mirror = null, name = `body-${id}` } = {}) {
+    const path = await tauri.dialog.save({ defaultPath: `witness3d-${name}.igs`, filters: [STEP[1], STEP[0]] });
+    if (!path) return null;
+    await tauri.core.invoke('export_step', { id, path, motion, mirror });
+    return `SAVED ${path}`;
+  },
 };
 
 const root = document.getElementById('app');
