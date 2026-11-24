@@ -39,6 +39,19 @@ function loopNormal(pts) {
  *   sides (G1/G2), and the largest angle between neighbouring patches along the inner curves
  */
 export function nSidedFill(sides, options = {}) {
+    if (options.spans) return fillRound(sides, options);
+    // Auto spans (xNURBS' Quality): the lightest cage that holds the sides within the tolerance
+    // and the patches together within 0.5°, trying 2, then 4, then 8 spans each way.
+    const tol = options.tolerance ?? 0.01;
+    let last = null;
+    for (const s of [2, 4, 8]) {
+        try { last = fillRound(sides, { ...options, spans: s }); } catch (e) { if (s === 8) throw e; continue; }
+        if (last.gap <= tol && last.seam <= 0.5 && last.turn <= 0.5) return last;
+    }
+    return last;
+}
+
+function fillRound(sides, options) {
     const all = sides.flat(), size = Math.max(...all.map(p => dist(p, all[0]))) || 1;
     const loop = orderLoop(sides, Math.max(options.tolerance ?? 0.01, 1e-3 * size));
     const n = loop.length;

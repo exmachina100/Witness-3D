@@ -82,7 +82,7 @@ import { EDGE_CONTINUITY, bridgeCurve, bridgePoles, edgePoint, facePoint, sample
 import { ALIGN_CONTINUITY, alignAnalysis, alignRequest, readEdgeFaces, sidePoint, skewFrames, targetFace } from '../alignSurface.js';
 import { PROJECT_CONTINUITY, projectAlignRequest } from '../projectAlign.js';
 import { constrainedSurface, splineSheetData } from '../constrainedSurface.js';
-import { square, squareAnalysis, quadSides } from '../square.js';
+import { square, squareAnalysis, quadSides, loopCorners } from '../square.js';
 import { nSidedFill } from '../nSided.js';
 import { combTeeth, isoLines, onFace } from '../isoCombs.js';
 import { liftPiece, meshSilhouette, nearestOver } from '../createOutline.js';
@@ -8305,7 +8305,7 @@ export async function mount(root, backend) {
       const items = picked();
       setTarget(c.refit ? `REFIT ${items.length} SIDES${c.replace ? ' · REPLACES THE SHEET' : ''}` : `${items.length} SIDE${items.length === 1 ? '' : 'S'}`);
       // xNURBS fills five sides or more as one sheet of patches round a centre (nSided.js).
-      const many = c.xnurbs && !c.quad && items.length > 4;
+      let many = c.xnurbs && !c.quad && items.length > 4;
       const loose = c.quad ? items.length < 1 : items.length < 2 || (items.length > 4 && !many);
       if (loose) {
         c.data = null;
@@ -8324,8 +8324,15 @@ export async function mount(root, backend) {
           if (c.continuity !== 'G0') sides = faced;
         }
         if (cmd !== c) return;
+        // Quad sided is for a four-edged boundary (manual): a loop with more corners than four is
+        // filled as patches round a centre, each light, rather than forced into four sides.
+        c.quadFell = false;
+        if (c.xnurbs && c.quad && items.length > 4) {
+          const size = Math.max(...sides.flat().map(p => Math.hypot(...p.map((x, k) => x - sides[0][0][k])))) || 1;
+          if (loopCorners(sides, Math.max(0.01, 1e-3 * size)) > 4) many = c.quadFell = true;
+        }
         // Quad sided: the whole loop is chained and cut at its four corners (xNURBS' option).
-        if (c.quad) {
+        if (c.quad && !many) {
           const size = Math.max(...sides.flat().map(p => Math.hypot(...p.map((x, k) => x - sides[0][0][k])))) || 1;
           sides = quadSides(sides, Math.max(0.01, 1e-3 * size));
           faced = null;
@@ -8348,7 +8355,7 @@ export async function mount(root, backend) {
           c.more = r.patches.slice(1).map(splineSheetData);
           c.fit = null;
           c.analyse();
-          $('sq-hint').textContent = `XNURBS · ${items.length} SIDES · ${r.patches.length} PATCHES ROUND A CENTRE · ${r.patches[0].spans.join(' × ')} SPANS EACH · SIDES WITHIN ${r.gap < 1e-4 ? '< 0.0001' : r.gap.toFixed(4)} MM${r.turn ? ` · TANGENT WITHIN ${r.turn.toFixed(2)}° (AWAY FROM CORNERS)` : ''} · PATCHES MEET WITHIN ${r.seam.toFixed(2)}°`;
+          $('sq-hint').textContent = `XNURBS · ${items.length} SIDES${c.quadFell ? ' (QUAD SIDED NEEDS FOUR CORNERS)' : ''} · ${r.patches.length} PATCHES ROUND A CENTRE · ${r.patches[0].spans.join(' × ')} SPANS EACH · SIDES WITHIN ${r.gap < 1e-4 ? '< 0.0001' : r.gap.toFixed(4)} MM${r.turn ? ` · TANGENT WITHIN ${r.turn.toFixed(2)}° (AWAY FROM CORNERS)` : ''} · PATCHES MEET WITHIN ${r.seam.toFixed(2)}°`;
           setHud(`XNURBS · ${items.length} SIDES`);
           livePreview(c, () => backend.previewSplineSheet({ data: c.data, more: c.more }), b => showPreviewBody(b), 'sq-hint');
           return;

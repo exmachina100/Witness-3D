@@ -362,6 +362,22 @@ export function surfaceAt({ degree, uKnots, vKnots, poles }, u, v) {
  * four sides already, they are only put in order. Each turn is measured over a window of points, so
  * sampled curves do not read as corners.
  */
+/**
+ * How many corners the closed loop of `sides` has: joints between sides (in loop order) where the
+ * way on turns by more than `angle` radians. Four or fewer means it can be one quad-sided sheet.
+ */
+export function loopCorners(sides, gap, angle = 10 * Math.PI / 180) {
+    const loop = orderLoop(sides, gap);
+    let n = 0;
+    loop.forEach((s, i) => {
+        const t = loop[(i + 1) % loop.length];
+        const a = sub(s[s.length - 1], s[Math.max(0, s.length - 2)]), b = sub(t[Math.min(1, t.length - 1)], t[0]);
+        const la = Math.hypot(...a), lb = Math.hypot(...b);
+        if (la > 1e-12 && lb > 1e-12 && Math.acos(Math.min(1, Math.max(-1, dot(a, b) / (la * lb)))) > angle) n++;
+    });
+    return n;
+}
+
 export function quadSides(sides, gap) {
     const loop = orderLoop(sides, gap);
     if (loop.length === 4) return loop;
