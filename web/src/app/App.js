@@ -12044,6 +12044,31 @@ export async function mount(root, backend) {
       const pts = curveSamples(kept, 192).points.map(q => lift(f, { x: q[0], y: q[1], z: q[2] ?? 0 }).toArray());
       return sampledEnd(p.end ? pts : pts.reverse());
     };
+    // The 2026.2 gizmo as between two curves: a curve end has its Parameter handle and Sense arrow,
+    // and a face end a Sense arrow along the way the bridge leaves the face; a click turns it round.
+    // (How Plasticity shows a face end's handles is not documented; this reading is inferred.)
+    c.flipped = [false, false];
+    const pathOf = cv => { const f = curveFrame(cv); return curveSamples(cv, 192).points.map(q => lift(f, { x: q[0], y: q[1], z: q[2] ?? 0 })); };
+    const paths = ends.map(p => p.curve ? pathOf(p.curve) : null), field = i => (i ? 'br-p2' : 'br-p1');
+    const handle = kind => {
+      const h = new CurveHandle(camera, canvas, { kind });
+      h.onStart = () => { controls.enabled = false; };
+      h.onEnd = () => { controls.enabled = true; };
+      scene.add(h);
+      return h;
+    };
+    c.handles = [0, 1].filter(i => ends[i].curve).map(i => {
+      const h = handle('parameter');
+      h.end = i;
+      h.onChange = t => { $(field(i)).value = +t.toFixed(4); c.preview(); };
+      return h;
+    });
+    c.senses = [0, 1].map(i => {
+      const h = handle('sense');
+      h.onFlip = () => { if (ends[i].curve) ends[i].end = 1 - ends[i].end; else c.flipped[i] = !c.flipped[i]; c.preview(); };
+      return h;
+    });
+    c.extraGizmos = () => [...c.handles, ...c.senses];
     c.preview = () => {
       clearPreview();
       try {
@@ -12057,7 +12082,21 @@ export async function mount(root, backend) {
         const at = [num('br-p1'), num('br-p2')];
         const fromCurve = ends.map((p, i) => p.curve ? curveEnd(p, at[i]) : null);
         const toward = i => fromCurve[i]?.at ?? ends[i].point.toArray();
-        const E = ends.map((p, i) => fromCurve[i] ?? facePoint(p.point.toArray(), p.normal.toArray(), toward(1 - i)));
+        const E = ends.map((p, i) => {
+          if (fromCurve[i]) return fromCurve[i];
+          const f = facePoint(p.point.toArray(), p.normal.toArray(), toward(1 - i));
+          return c.flipped[i] ? { ...f, along: f.along.map(v => -v) } : f;
+        });
+        for (const h of c.handles) {
+          const t = Math.min(1, Math.max(0, at[h.end] || 0));
+          h.setPath(paths[h.end], t);
+        }
+        for (const i of [0, 1]) {
+          if (ends[i].curve) {
+            const { point, tangent } = pointAlong(paths[i], Math.min(1, Math.max(0, at[i] || 0)));
+            c.senses[i].setArrow(point, ends[i].end ? tangent : tangent.negate());
+          } else c.senses[i].setArrow(ends[i].point.clone(), new THREE.Vector3(...E[i].along));
+        }
         c.out = bridgeCurve(bridgePoles(E[0], E[1], { ...bridgeTensions('br'), continuity: g, axis: c.axis ? toWorld(AXES[c.axis]) : null }));
         showCurvePreview([c.out]);
         if (c.comb) showCombPreview([c.out]);
@@ -12087,7 +12126,7 @@ export async function mount(root, backend) {
     };
     c.setAxis = a => { c.axis = c.axis === a ? '' : a; c.preview(); };
     c.abort = () => endCmd('cancelled');
-    c.cleanup = () => clearPreview();
+    c.cleanup = () => { clearPreview(); for (const h of [...c.handles, ...c.senses]) h.dispose(); controls.enabled = true; };
     c.preview();
   }
   /** Bridge Curve's dialog between curves a and b, from ends pick.ea and pick.eb (at: the parameters). */
