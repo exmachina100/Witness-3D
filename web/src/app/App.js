@@ -1032,12 +1032,14 @@ const SHELL = `
         </div>
       </div>
       <div data-id="form-corner-row">
-        <span class="label">CORNER TYPE</span>
-        <div class="seg" role="group" aria-label="Corner type">
-          <button data-gcorner="mitre" aria-pressed="true" title="The section meets itself in a sharp mitre at the path's corners">MITRE</button>
-          <button data-gcorner="round" aria-pressed="false" title="The section turns round the path's corners">ROUND</button>
-        </div>
-        <div class="chips"><button data-id="sw-simplify" aria-pressed="false" title="Simplify: parts of the sweep that lie flat become trimmed planes rather than swept surfaces">SIMPLIFY</button></div>
+        <details class="advanced" data-id="sw-advanced"><summary title="Less used options (Plasticity's Advanced)">ADVANCED</summary>
+          <div class="chips"><button data-id="sw-simplify" aria-pressed="false" title="Simplify: parts of the sweep that lie flat become trimmed planes rather than swept surfaces">SIMPLIFY</button></div>
+          <span class="label">CORNER TYPE</span>
+          <div class="seg" role="group" aria-label="Corner type">
+            <button data-gcorner="mitre" aria-pressed="true" title="The section meets itself in a sharp mitre at the path's corners">MITRE</button>
+            <button data-gcorner="round" aria-pressed="false" title="The section turns round the path's corners">ROUND</button>
+          </div>
+        </details>
       </div>
       <div class="field"><label>RESULT</label><output data-id="form-outcome">—</output></div>
       <div data-id="form-ops">
@@ -1065,7 +1067,8 @@ const SHELL = `
         <div data-id="ls-edge-conts"></div>
         <div class="field"><label for="w3d-ls-t">TENSION</label><input id="w3d-ls-t" data-id="ls-t" type="number" step="0.1" min="0.05" value="1" title="How far the sheet carries on from each face before it turns (D); 1 is a smooth cubic"></div>
       </div>
-      <div class="chips"><button data-id="ls-loop" aria-pressed="false" title="Run the sheet on from the last curve back to the first (three curves or more)"><kbd>O</kbd>LOOP</button><button data-id="ls-limit" aria-pressed="false" title="Click a profile curve to set where the loft stops (up to two on each); click a point again to reverse it"><kbd>L</kbd>LIMIT POINT</button><button data-id="ls-simplify" aria-pressed="true" title="Simplify: parts of the loft that lie flat become trimmed planes rather than lofted surfaces">SIMPLIFY</button></div>
+      <div class="chips"><button data-id="ls-loop" aria-pressed="false" title="Run the sheet on from the last curve back to the first (three curves or more)"><kbd>O</kbd>LOOP</button><button data-id="ls-limit" aria-pressed="false" title="Click a profile curve to set where the loft stops (up to two on each); click a point again to reverse it"><kbd>L</kbd>LIMIT POINT</button></div>
+      <details class="advanced" data-id="ls-advanced"><summary title="Less used options (Plasticity's Advanced)">ADVANCED</summary><div class="chips"><button data-id="ls-simplify" aria-pressed="true" title="Simplify: parts of the loft that lie flat become trimmed planes rather than lofted surfaces">SIMPLIFY</button></div></details>
     </div>
     <div class="sec" data-panel="move" hidden>
       <span class="hint" data-id="move-hint">DRAG AN ARROW, PRESS X Y Z, OR TYPE</span>
@@ -1411,6 +1414,16 @@ export function plasticityControls(body) {
     new MutationObserver(follow).observe(b, { attributes: true, attributeFilter: ['hidden'] });
     follow();
   }
+  // Two single values Plasticity shows side by side (Sweep's Twist and Scale): one row, each with
+  // its own label; either takes the whole row while the other is hidden.
+  for (const ids of SIDE_BY_SIDE) {
+    const rows = ids.map(id => body.querySelector(`[data-id="${id}"]`));
+    if (rows.some(r => !r)) continue;
+    const duo = document.createElement('div');
+    duo.className = 'duo';
+    rows[0].before(duo);
+    duo.append(...rows);
+  }
   // Plasticity's link button at the right of a pair: the lock that holds the second value to the
   // first (Extrude's Both sides, S) moves into the pair's row as an icon; its key stays listed.
   for (const [lockId, inputId] of PAIR_LOCKS) {
@@ -1456,6 +1469,8 @@ export function plasticityControls(body) {
 
 /** Lock buttons shown as a link at the right of a pair of fields: [button, first field]. */
 const PAIR_LOCKS = [['ex-lock', 'ex-distance']];
+/** Single fields shown side by side, as Plasticity's dialogs do. */
+const SIDE_BY_SIDE = [['form-twist-row', 'form-scale-row']];
 
 /** How far an XNURBS sheet may leave its sides with Satisfy tolerances off (Square's Weight). */
 export const XNURBS_LOOSE = 0.5;
@@ -13505,7 +13520,7 @@ export async function mount(root, backend) {
     showTool('loft');
     $$('[data-panel="form"]')[0].hidden = true;
     $$('[data-panel="loft-sheet"]')[0].hidden = false;
-    for (const id of ['ls-loop', 'ls-limit', 'ls-simplify', 'ls-guide-count', 'ls-guide-actions', 'ls-guide-choice', 'ls-guide-list']) $(id).hidden = true;
+    for (const id of ['ls-loop', 'ls-limit', 'ls-simplify', 'ls-advanced', 'ls-guide-count', 'ls-guide-actions', 'ls-guide-choice', 'ls-guide-list']) $(id).hidden = true;
     $('ls-edges-row').hidden = true;
     $('keys').innerHTML = keysHtml('loft-faces');
     setState('none');
@@ -13548,7 +13563,7 @@ export async function mount(root, backend) {
       } catch (e) { setState('failed'); toast(say(e)); }
     };
     c.abort = () => endCmd('cancelled');
-    c.cleanup = () => { clearPreview(); for (const id of ['ls-loop', 'ls-limit', 'ls-simplify']) $(id).hidden = false; };
+    c.cleanup = () => { clearPreview(); for (const id of ['ls-loop', 'ls-limit', 'ls-simplify', 'ls-advanced']) $(id).hidden = false; };
     refresh();
   }
 
