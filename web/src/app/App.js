@@ -192,6 +192,7 @@ const KEYS = {
   'measure-radius': [['CLICK', 'A ROUND EDGE OR CURVE'], ['CLICK', 'PLACE'], ['ESC', 'DONE']],
   'move-measure': [['MOVE', 'MOVE IT'], ['CLICK', 'PLACE'], ['ESC', 'CANCEL']],
   'measure-continuity': [['CLICK', 'NEAR TWO CURVE ENDS'], ['ESC', 'DONE']],
+  export: [['CLICK', 'A FORMAT'], ['ESC', 'CANCEL']],
   'export-mesh': [['TYPE', 'OPTIONS IN THE DIALOG'], ['⏎ / RMB', 'SAVE'], ['ESC', 'CANCEL']],
   'export-drawing': [['VIEW', 'AS THE CAMERA SEES IT'], ['H', 'HIDDEN LINES'], ['C', 'CURVES'], ['⏎ / RMB', 'SAVE'], ['ESC', 'CANCEL']],
   'tangent-circle': [['CLICK', 'FIRST · SECOND CURVE · SIZE OR THIRD CURVE'], ['F', 'FREEZE'], ['TAB', 'RADIUS'], ['ESC', 'CANCEL']],
@@ -234,7 +235,7 @@ const CLICKS = { rect: 2, 'center-rect': 2, rect3: 3, circle: 2, circle2: 2, cir
 const FORMS = { revolve: true, loft: true, sweep: true, subd: true };
 const PRIMS = { box: true, 'center-box': true, box3: true, cylinder: true, sphere: true };
 // Commands that aren't tools in the registry (they act on a click, not on settings).
-const EDITS = { 'remove-fillets': 'REMOVE FILLETS', isoparam: 'ISOPARAM', 'offset-vertex': 'OFFSET VERTEX', slide: 'SLIDE CURVE CV', 'fillet-vertex': 'FILLET VERTEX', 'align-vertex': 'ALIGN VERTEX', 'align-curve': 'ALIGN CURVE', rebuild: 'REBUILD CURVE', 'rebuild-face': 'REBUILD FACE', 'match-face': 'MATCH FACE', 'deform-curve': 'DEFORM', image: 'REFERENCE IMAGE', instance: 'INSTANCE', untrim: 'UNTRIM', unwrap: 'UNWRAP FACE', section: 'SECTION ANALYSIS', place: 'PLACE', dimension: 'DIMENSION', text: 'TEXT', 'insert-knot': 'INSERT KNOT', 'offset-edge': 'OFFSET EDGE', material: 'SET MATERIAL', 'export-mesh': 'EXPORT MESH', 'export-drawing': 'EXPORT DRAWING', 'measure-continuity': 'MEASURE CONTINUITY', trim: 'TRIM', 'cut-curve': 'CUT CURVE', 'bridge-edge': 'BRIDGE EDGE', 'align-surface': 'ALIGN SURFACE', 'project-align': 'PROJECT ALIGN', 'constrained-surface': 'CONSTRAINED SURFACE', square: 'SQUARE', extend: 'EXTEND CURVE', 'tangent-circle': 'TANGENT CIRCLE', split: 'SPLIT CURVE', 'measure-distance': 'MEASURE DISTANCE', 'measure-radius': 'MEASURE RADIUS', 'move-measure': 'MOVE MEASUREMENT' };
+const EDITS = { 'remove-fillets': 'REMOVE FILLETS', isoparam: 'ISOPARAM', 'offset-vertex': 'OFFSET VERTEX', slide: 'SLIDE CURVE CV', 'fillet-vertex': 'FILLET VERTEX', 'align-vertex': 'ALIGN VERTEX', 'align-curve': 'ALIGN CURVE', rebuild: 'REBUILD CURVE', 'rebuild-face': 'REBUILD FACE', 'match-face': 'MATCH FACE', 'deform-curve': 'DEFORM', image: 'REFERENCE IMAGE', instance: 'INSTANCE', untrim: 'UNTRIM', unwrap: 'UNWRAP FACE', section: 'SECTION ANALYSIS', place: 'PLACE', dimension: 'DIMENSION', text: 'TEXT', 'insert-knot': 'INSERT KNOT', 'offset-edge': 'OFFSET EDGE', material: 'SET MATERIAL', export: 'EXPORT', 'export-mesh': 'EXPORT MESH', 'export-drawing': 'EXPORT DRAWING', 'measure-continuity': 'MEASURE CONTINUITY', trim: 'TRIM', 'cut-curve': 'CUT CURVE', 'bridge-edge': 'BRIDGE EDGE', 'align-surface': 'ALIGN SURFACE', 'project-align': 'PROJECT ALIGN', 'constrained-surface': 'CONSTRAINED SURFACE', square: 'SQUARE', extend: 'EXTEND CURVE', 'tangent-circle': 'TANGENT CIRCLE', split: 'SPLIT CURVE', 'measure-distance': 'MEASURE DISTANCE', 'measure-radius': 'MEASURE RADIUS', 'move-measure': 'MOVE MEASUREMENT' };
 const keysHtml = id => KEYS[id].map(([k, v]) => `<kbd>${k}</kbd><span>${v}</span>`).join('');
 // The Command Bar, exactly the manual's list (Plasticity Essentials › Command Bar).
 const BAR = [['palette', 'F', 'SEARCH'], ['tool:move', 'G', 'MOVE'], ['tool:rotate', 'R', 'ROTATE'], ['tool:scale', 'S', 'SCALE'], ['duplicate', '⇧D', 'DUPLICATE'], ['tool:boolean', 'Q', 'BOOLEAN'], ['tool:rect-array', '', 'RECTANGULAR ARRAY'], ['tool:radial-array', '', 'RADIAL ARRAY'], ['suggest', '⇧F', 'SUGGESTED COMMANDS']];
@@ -460,6 +461,18 @@ const SHELL = `
       <div class="seg" role="group" aria-label="Grow mode"><button data-grow="moving" aria-pressed="true" title="Move the whole wall when the offset gets to the outer wall">MOVING</button><button data-grow="fixed" aria-pressed="false" title="Stop at the outer wall">FIXED</button><button data-grow="none" aria-pressed="false" title="Keep going by itself, past the outer wall">NONE</button></div>
       <div class="field"><label>FACES</label><output data-id="off-count">0</output></div>
     </div>
+    <dialog class="sec xdialog" data-panel="export" aria-label="Export" hidden>
+      <div class="xd-head"><span>EXPORT</span><button data-xd="cancel" title="Cancel (Esc)" aria-label="Cancel">${icon('close')}</button></div>
+      <span class="hint" data-id="xf-hint">—</span>
+      <span class="label">SOLIDS AND SHEETS</span>
+      <div class="export-formats" data-id="xf-cad"></div>
+      <span class="label">MESH</span>
+      <div class="export-formats" data-id="xf-mesh"></div>
+      <span class="label">DRAWING</span>
+      <div class="export-formats" data-id="xf-drawing"></div>
+      <output class="hint" data-xd-status role="status" aria-live="polite"></output>
+      <div class="xd-foot"><button data-xd="cancel" title="Cancel (Esc)">CANCEL</button></div>
+    </dialog>
     <dialog class="sec xdialog" data-panel="export-mesh" aria-label="Export mesh" hidden>
       <div class="xd-head"><span>EXPORT MESH</span><button data-xd="cancel" title="Cancel (Esc)" aria-label="Cancel">${icon('close')}</button></div>
       <span class="hint" data-id="mx-hint">—</span>
@@ -477,7 +490,7 @@ const SHELL = `
       <div class="seg" role="group" aria-label="Topology" data-id="mx-topo"><button data-mxtopo="tris" aria-pressed="true" title="Triangles only">TRIS</button><button data-mxtopo="quads" aria-pressed="false" title="Quads, with triangles where two will not pair">QUADS</button><button data-mxtopo="ngons" aria-pressed="false" title="Each flat run of faces one polygon of any number of sides">NGONS</button></div>
       <div class="chips" data-id="mx-convex-row"><button data-id="mx-convex" aria-pressed="false" title="Ngons: only convex polygons; a run that is not convex stays triangles">CONVEX NGONS ONLY</button></div>
       <div class="field" title="Separate pieces smaller across (their bounding box's diagonal) than this are left out; 0 keeps them all"><label for="w3d-mx-small">REMOVE SMALL FEATURES</label><input id="w3d-mx-small" data-id="mx-small" type="number" step="0.5" min="0" value="0"></div>
-      <label class="field" data-id="mx-inflect-row" hidden><span>REFINE CURVATURE REVERSALS</span><input type="checkbox" data-id="mx-inflect" title="Use finer tessellation for bodies with a sampled curvature reversal"></label>
+      <div class="chips" data-id="mx-inflect-row" hidden><button data-id="mx-inflect" aria-pressed="false" title="Inflect: finer tessellation for bodies whose curvature reverses">INFLECT</button></div>
       <output class="hint" data-xd-status role="status" aria-live="polite"></output>
       <div class="xd-foot"><button data-xd="cancel" title="Cancel (Esc)">CANCEL</button><button data-xd="ok" class="primary" title="Export (Enter)">EXPORT</button></div>
     </dialog>
@@ -4674,6 +4687,9 @@ export async function mount(root, backend) {
     // a curve or a primitive is done in the viewport alone, its options on keys (shown at the
     // viewport's bottom right), as Plasticity's drawing tools are: no dialog for those.
     dialog.hidden = !id || id in DRAW || id in PRIMS || cmd?.auto === true;
+    // An app-level modal (Export) is the command's whole window: the command dialog it sits in shows
+    // no frame, title or buttons of its own behind it.
+    dialog.classList.toggle('shell', !!id && !!document.querySelector(`dialog.xdialog:not(.live)[data-panel="${id}"]`));
     body.hidden = !body.querySelector('[data-panel]:not([hidden])') || (id === 'bridge' && !cmd?.continuity);
     if (!dialog.hidden || cmd?.auto === true) {
       $('cd-name').textContent = !id ? '' : EDITS[id] ?? DRAW[id] ?? toolInfo(id).label;
@@ -11561,6 +11577,44 @@ export async function mount(root, backend) {
     materialsChanged();
   }
 
+  /**
+   * File > Export (Ctrl+Shift+E). Plasticity picks the format in its save dialog's file-type list,
+   * then shows the mesh options for OBJ. One window does it here in both builds: the formats as
+   * buttons, then the chosen format's options (mesh, drawing) or straight to the save (STEP, IGES).
+   */
+  function startExport() {
+    const ids = (sel.bodies.length ? sel.bodies : current.map(b => b.id)).filter(id => org.shows(id));
+    if (!ids.length && !instances.some(n => !n.curve && !n.hidden)) return toast('NOTHING TO EXPORT');
+    const c = cmd = { id: 'export' };
+    const iges = !!backend.exportIGES && backend.igesSupported !== false;
+    const groups = {
+      'xf-cad': [['step', 'STEP', 'STEP (.step): solids and sheets for other CAD programs'], ...(iges ? [['iges', 'IGES', 'IGES (.igs): surfaces for older CAD programs']] : [])],
+      'xf-mesh': [['obj', 'OBJ', 'OBJ: polygon mesh with tolerance and topology options'], ['stl', 'STL', 'STL: binary triangles in millimetres'], ['glb', 'GLB', "glTF binary with each body's material"], ['3mf', '3MF', "3MF for printing with each body's colour"]],
+      'xf-drawing': [['svg', 'SVG', 'SVG drawing of the view, hidden lines dashed'], ['dxf', 'DXF', 'DXF drawing of the view, on layers']],
+    };
+    const glyph = { 'xf-cad': 'export-cad', 'xf-mesh': 'export-mesh', 'xf-drawing': 'export-drawing' };
+    for (const [box, list] of Object.entries(groups)) {
+      $(box).innerHTML = list.map(([f, name, tip]) => `<button data-exf="${f}" title="${tip}">${icon(glyph[box])}<span>${name}</span></button>`).join('');
+    }
+    for (const b of $$('[data-exf]')) b.onclick = () => c.pick(b.dataset.exf);
+    c.pick = async f => {
+      endCmd('cancelled');
+      if (f === 'step') return exportSelected();
+      if (f === 'iges') return exportSelectedIGES();
+      const mesh = ['obj', 'stl', 'glb', '3mf'].includes(f);
+      await startTool(mesh ? 'export-mesh' : 'export-drawing');
+      if (cmd?.id === (mesh ? 'export-mesh' : 'export-drawing')) cmd.key(f);
+    };
+    c.key = () => false;
+    c.finish = () => {};
+    c.abort = () => endCmd('cancelled');
+    c.cleanup = () => {};
+    lastTool = 'export';
+    showTool('export');
+    setState('none');
+    setHud('EXPORT · PICK A FORMAT');
+    $("xf-hint").textContent = sel.bodies.length ? `${sel.bodies.length} SELECTED` : 'EVERYTHING SHOWN';
+  }
   function startExportMesh() {
     if (!backend.meshBodies) return toast('MESH EXPORT IS NOT IN THIS BUILD YET');
     const ids = (sel.bodies.length ? sel.bodies : current.map(b => b.id)).filter(id => org.shows(id));
@@ -11569,7 +11623,8 @@ export async function mount(root, backend) {
     if (!ids.length && !placed.length) return toast('NOTHING TO EXPORT');
     const c = cmd = { id: 'export-mesh', format: 'obj', up: 'z', topology: 'tris', convex: false };
     $('mx-inflect-row').hidden = !backend.supportsInflectionRefinement;
-    $('mx-inflect').checked = false;
+    $('mx-inflect').setAttribute('aria-pressed', 'false');
+    $('mx-inflect').onclick = () => $('mx-inflect').setAttribute('aria-pressed', String($('mx-inflect').getAttribute('aria-pressed') !== 'true'));
     lastTool = 'export-mesh';
     showTool('export-mesh');
     setState('none');
@@ -11604,7 +11659,7 @@ export async function mount(root, backend) {
       };
       try {
         const masters = placed.map(n => n.master).filter((id, i, all) => all.indexOf(id) === i);
-        const made = await backend.meshBodies([...new Set([...ids, ...masters])], { tolerance, angle, inflect: !!backend.supportsInflectionRefinement && $('mx-inflect').checked });
+        const made = await backend.meshBodies([...new Set([...ids, ...masters])], { tolerance, angle, inflect: !!backend.supportsInflectionRefinement && $('mx-inflect').getAttribute('aria-pressed') === 'true' });
         // Each body's material, for the formats that carry one (glTF and 3MF).
         const look = id => { const m = materials.get(materialOf.get(id)); return m ? { color: m.color, roughness: m.roughness, metalness: m.metalness, opacity: m.opacity } : {}; };
         const sheet = id => !!current.find(b => b.id === id)?.sheet;
@@ -15611,7 +15666,7 @@ export async function mount(root, backend) {
           else window.open(location.href.split('#')[0], '_blank');
           return true;
         }
-        if (arg === 'export') { openPalette(false, 'EXPORT'); return true; }
+        if (arg === 'export') { startExport(); return true; }
         if (arg === 'save-startup' || arg === 'reset-startup') {
           const fn = backend[arg === 'save-startup' ? 'saveStartupScene' : 'resetStartupScene'];
           if (!fn) { toast('NOT IN THE BROWSER YET'); return true; }

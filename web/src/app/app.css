@@ -599,6 +599,17 @@ dialog::backdrop { background: rgb(0 0 0 / 45%); }
 .plane-dialog form { display: grid; gap: 8px; }
 .plane-dialog input { min-width: 0; }
 
+.cmd-dialog.shell { background: none; border: 0; box-shadow: none; pointer-events: none; }
+.cmd-dialog.shell > .cd-head, .cmd-dialog.shell > .cd-help, .cmd-dialog.shell > .cd-foot { display: none; }
+.cmd-dialog.shell dialog { pointer-events: auto; }
+/* App-level modals (Export) keep each value on its label's row, so the dialog stays short. */
+.cmd-dialog dialog.xdialog:not(.live) .field:has(> input) { grid-template-columns: 1fr 150px; gap: 10px; }
+.cmd-dialog dialog.xdialog:not(.live) .field:has(> input[type="range"]) { grid-template-columns: 1fr 180px; }
+dialog.xdialog[open]:not(.live) { max-height: min(calc(100vh - 32px), 620px); }
+.export-formats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; margin: 6px 0 10px; }
+.export-formats button { display: flex; flex-direction: column; align-items: center; gap: 6px; padding: 12px 4px 10px; border: 1px solid var(--rule); color: var(--muted); font-size: 10px; letter-spacing: 1px; }
+.export-formats button:hover, .export-formats button:focus-visible { color: var(--ink); border-color: var(--accent); }
+.export-formats button svg { width: 18px; height: 18px; }
 dialog.xdialog[aria-busy="true"] { cursor: wait; }
 dialog.xdialog[aria-busy="true"] > * { pointer-events: none; }
 .inspector-section .swatches[data-id="shader-swatches"], .inspector-section .swatches[data-id="matcap-swatches"] { grid-template-columns: repeat(4, 30px); justify-content: space-between; max-height: none; }
