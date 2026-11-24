@@ -145,7 +145,8 @@ export const COMMAND = {
     isoparam: { tab: 'direction', u: 'u', v: 'v', s: 'subdivide' },
     'fillet-vertex': { d: 'distance', c: 'chamfer' },
     'align-vertex': { x: 'x', y: 'y', z: 'z', v: 'value' },
-    'align-curve': { tab: 'continuity', d: 'tension' },
+    // Vertex Align (manual): Tab continuity, D tension, C constraints, P partial alignment.
+    'align-curve': { tab: 'continuity', d: 'tension', c: 'constrain', p: 'partial' },
     // Constrained Surface (manual: Ctrl+Z takes the last point off).
     'constrained-surface': { 'ctrl-z': 'back', tab: 'optimize' },
     square: { d: 'degree', tab: 'continuity', t: 'tension', q: 'quad' },

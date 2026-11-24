@@ -160,7 +160,7 @@ const KEYS = {
   'offset-vertex': [['DRAG DOT', 'DISTANCE'], ['D', 'DISTANCE'], ['⏎ / RMB', 'OK']],
   slide: [['DRAG DOT', 'DISTANCE'], ['D', 'DISTANCE'], ['U', 'POSITIVE U'], ['⇧U', 'NEGATIVE U'], ['V', 'POSITIVE V (SURFACE)'], ['⇧V', 'NEGATIVE V (SURFACE)'], ['N', 'NORMAL'], ['⏎ / RMB', 'OK']],
   'align-vertex': [['X / Y / Z', 'AXIS'], ['V', 'VALUE'], ['⏎ / RMB', 'OK']],
-  'align-curve': [['TAB', 'CONTINUITY G0 G1 G2'], ['D', 'TENSION'], ['CHIP', 'CONSTRAIN'], ['⏎ / RMB', 'OK']],
+  'align-curve': [['TAB', 'CONTINUITY G0 G1 G2'], ['D', 'TENSION'], ['C', 'CONSTRAIN'], ['P', 'PARTIAL'], ['⏎ / RMB', 'OK']],
   rebuild: [['C', 'CONTROL POINTS'], ['D', 'DEGREE'], ['⏎ / RMB', 'OK']],
   'match-face': [['CLICK', 'TARGET FACE'], ['⇧ CLICK', 'FACES'], ['TAB', 'GROW'], ['⏎ / RMB', 'OK']],
   image: [['G R S', 'MOVE ROTATE SCALE'], ['⇧D', 'DUPLICATE'], ['DEL', 'REMOVE'], ['⏎ / RMB', 'OK'], ['ESC', 'CANCEL']],
@@ -2563,6 +2563,39 @@ export async function mount(root, backend) {
       else if (o.userData.region !== undefined) o.material = regionMat[is('region', o.userData.region)];
     }
     paintVertices();
+    paintCurveEnds();
+  }
+  /**
+   * Plasticity's Join Curves marks the ends of selected open curves: blue-green where an end meets
+   * another curve's end (they will join), purple where it meets none.
+   */
+  const curveEnds = new THREE.Group();
+  const curveEndMat = { met: new THREE.PointsMaterial({ color: 0x2ec4b6, size: 9, sizeAttenuation: false, depthTest: false }), open: new THREE.PointsMaterial({ color: 0xa45cff, size: 9, sizeAttenuation: false, depthTest: false }) };
+  curveEnds.renderOrder = 7;
+  scene.add(curveEnds);
+  function endsOf(c) {
+    if (isClosed(c)) return [];
+    const f = curveFrame(c);
+    if (c.kind === 'nurbs') return [c.poles[0], c.poles.at(-1)].map(([x, y, z]) => lift(f, { x, y, z }));
+    const vs = curveVertices(c);
+    return vs.length ? [vs[0], vs.at(-1)].map(([x, y]) => lift(f, { x, y })) : [];
+  }
+  function paintCurveEnds() {
+    for (const o of [...curveEnds.children]) dispose(o);
+    const picked = sel.curves.map(curveById).filter(Boolean);
+    if (!picked.length) return;
+    const all = curveList.map(c => ({ id: c.id, ends: endsOf(c) }));
+    const tol = 1e-3;
+    const pts = { met: [], open: [] };
+    for (const c of picked) for (const p of endsOf(c)) {
+      const met = all.some(o => o.id !== c.id && o.ends.some(q => q.distanceTo(p) < tol));
+      pts[met ? 'met' : 'open'].push(p);
+    }
+    for (const k of ['met', 'open']) if (pts[k].length) {
+      const g = new THREE.Points(new THREE.BufferGeometry().setFromPoints(pts[k]), curveEndMat[k]);
+      g.renderOrder = 7;
+      curveEnds.add(g);
+    }
   }
   // Curve vertices (point mode): every vertex a small grey dot, the hovered one white, selected ones orange.
   const vertexDots = new THREE.Group();
@@ -4649,6 +4682,8 @@ export async function mount(root, backend) {
     if (cmd) await finish();
     keepSources();
     lastTool = id;
+    // L with two curve vertices selected is Bridge Vertex (manual: Bridge Vertex, L).
+    if (id === 'loft' && sel.size === 2 && sel.list().every(it => it.kind === 'vertex')) { lastTool = 'bridge'; return startBridge(); }
     if (id === 'fillet' && sel.size && sel.list().every(it => it.kind === 'vertex')) return startFilletVertex();
     // B with only curves selected is Fillet Curve, as in Plasticity.
     if (id === 'fillet' && sel.size && sel.list().every(it => it.kind === 'curve')) return startCurveEdit('fillet-curve');
@@ -7930,6 +7965,12 @@ export async function mount(root, backend) {
       if (action === 'continuity') return c.setContinuity(ALIGN_CURVE_CONTINUITY[(ALIGN_CURVE_CONTINUITY.indexOf(c.continuity) + 1) % ALIGN_CURVE_CONTINUITY.length]), true;
       if (action === 'view-curvature') { c.comb = !c.comb; c.preview(); return true; }
       if (action === 'constrain') { alignConstrain = !alignConstrain; c.preview(); return true; }
+      // P: Partial Alignment, the target meets the reference at a typed parameter (0 to 1) instead of its end.
+      if (action === 'partial') {
+        c.entry = { label: 'PARAMETER', text: '', apply: v => { if (v >= 0 && v <= 1) { $('ac-p').value = v; c.preview(); } else toast('THE PARAMETER RUNS FROM 0 TO 1'); } };
+        setHud('PARAMETER _');
+        return true;
+      }
       if (action !== 'tension') return false;
       c.entry = { label: 'TENSION', text: '', apply: v => { if (v > 0) { $('ac-t').value = v; c.preview(); } else toast('THE TENSION MUST BE ABOVE ZERO'); } };
       setHud('TENSION _');
