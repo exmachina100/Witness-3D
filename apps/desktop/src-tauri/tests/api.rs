@@ -360,3 +360,35 @@ fn mesh_export_takes_the_angle_and_inflect() {
     assert_eq!(tris(0.5, true), tris(0.5, false));
     assert!(api::mesh_bodies(&m, vec![id], 0.5, 0.0, false).is_err());
 }
+
+#[test]
+fn a_face_curved_by_its_control_points_takes_part_in_booleans() {
+    let m = api::start_enclosure();
+    let tool = api::duplicate_bodies(&m, vec![1]).unwrap().ids[0];
+    let start = api::scene(&m).unwrap().remove(0);
+    let top = start.face_planes.iter().position(|p| p.as_ref().is_some_and(|p| p.normal[1] > 0.9)).unwrap() as u32;
+    // Rebuild the top as a 7x7 B-spline and lift its middle 3x3 points by 15: a dome.
+    let rebuild: api::RebuildFacesRequest = serde_json::from_value(serde_json::json!({
+        "body": 1, "faces": [top], "explicit": true, "degree": [3, 3], "spans": [4, 4], "tolerance": 0.01, "extend": [0, 0], "shrink": true,
+    })).unwrap();
+    api::commit_rebuild_faces(&m, rebuild).unwrap();
+    let nets = api::face_poles(&m, serde_json::from_str(r#"{"body":1}"#).unwrap()).unwrap();
+    let net = &nets[top as usize];
+    assert_eq!((net.len(), net[0].len()), (7, 7));
+    let moves: Vec<(u32, u32, [f64; 3])> = [16, 17, 18, 23, 24, 25, 30, 31, 32].iter().map(|&n| (top, n, [0.0, 15.0, 0.0])).collect();
+    let domed = api::commit_move_face_poles(&m, serde_json::from_value(serde_json::json!({ "body": 1, "moves": moves })).unwrap()).unwrap();
+    let a = domed.scene.iter().find(|b| b.id == 1).unwrap().volume;
+    assert!(a > 120_000.0 + 1000.0, "the dome adds volume: {a}");
+    // A block across half the dome: difference, then (undone) union, agree on the overlap.
+    api::commit_motion(&m, MotionRequest { bodies: vec![tool], offset: [40.0, 15.0, 0.0], pivot: [0.0; 3], axis: [0.0, 1.0, 0.0], angle: 0.0, scale: 1.0 }).unwrap();
+    let diff = api::commit_boolean(&m, serde_json::from_str(&format!(r#"{{"target":1,"tools":[{tool}],"op":"difference"}}"#)).unwrap()).unwrap();
+    assert_eq!(diff.scene.len(), 1);
+    let d = diff.scene[0].volume;
+    assert!(d > 0.0 && d < a);
+    api::undo(&m).unwrap();
+    let uni = api::commit_boolean(&m, serde_json::from_str(&format!(r#"{{"target":1,"tools":[{tool}],"op":"union"}}"#)).unwrap()).unwrap();
+    assert_eq!(uni.scene.len(), 1);
+    let overlap = a - d;
+    assert!((uni.scene[0].volume - (a + 120_000.0 - overlap)).abs() < 1.0, "union {} vs {}", uni.scene[0].volume, a + 120_000.0 - overlap);
+    println!("domed {a:.1} difference {d:.1} union {:.1}", uni.scene[0].volume);
+}
