@@ -290,3 +290,19 @@ test('Collinear lines the control points up one for one, the hulls running strai
     assert.throws(() => collinearMoves(t, r5, {}), /rebuild one to match/);
     assert.throws(() => collinearMoves(t, r, { continuity: 'G2' }), /G0 or G1/);
 });
+
+test('the partial handles sit on the side at their fraction, after the moves', async () => {
+    const { sideOf, alignPoints, alignMoves, sidePoint } = await import('../src/alignSurface.js');
+    const spline = { du: 3, dv: 3, uk: [0, 0, 0, 0, 1, 1, 1, 1], vk: [0, 0, 0, 0, 1, 1, 1, 1], rational: false,
+        poles: Array.from({ length: 4 }, (_, i) => Array.from({ length: 4 }, (_, j) => [21 + 3 * i, 20 * j / 3, 8])) };
+    const side = sideOf(spline, [[21, 0, 8], [21, 10, 8], [21, 20, 8]]);
+    const ends = [sidePoint(side, 0), sidePoint(side, 1)];
+    assert.ok(Math.abs(ends[0][0] - 21) < 1e-9 && Math.abs(ends[1][0] - 21) < 1e-9);
+    assert.ok(Math.abs(Math.abs(ends[1][1] - ends[0][1]) - 20) < 1e-9, 'the ends are the side\'s ends');
+    assert.ok(Math.abs(sidePoint(side, 0.5)[1] - 10) < 1e-9);
+    const plan = alignPoints(side, Array.from({ length: 41 }, (_, k) => [20, 20 * k / 40, 0]));
+    const flat = { at: [0, 0, 0], su: [1, 0, 0], sv: [0, 1, 0], suu: [0, 0, 0], suv: [0, 0, 0], svv: [0, 0, 0], sign: 1 };
+    const moves = alignMoves(side, plan, plan.points.map(() => flat), { continuity: 'G0' });
+    const moved = sidePoint(side, 0.5, moves);
+    assert.ok(Math.abs(moved[0] - 20) < 1e-6 && Math.abs(moved[2]) < 1e-6, `on the reference: ${moved}`);
+});
