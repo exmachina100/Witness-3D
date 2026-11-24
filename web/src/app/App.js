@@ -555,7 +555,7 @@ const SHELL = `
       <div class="field" title="How far the inner control points lie toward the plane of the sides: 0 follows the sides, 1 is as flat as they allow"><label for="w3d-sq-flat">FLATNESS</label><input id="w3d-sq-flat" data-id="sq-flat" type="number" step="0.1" min="0" max="1" value="0"></div>
       <div class="field" title="How strictly the sheet keeps to the sides: 1 on them, lower loosens them for a fairer surface"><label for="w3d-sq-w">WEIGHT</label><input id="w3d-sq-w" data-id="sq-w" type="number" step="0.1" min="0.05" max="1" value="1"></div>
       <div class="chips" data-id="sq-xrow" hidden><button data-id="sq-quad" aria-pressed="false" title="Fill the whole loop as one untrimmed four-sided surface, cut at its four corners (Q)"><kbd>Q</kbd>QUAD SIDED</button><button data-id="sq-satisfy" aria-pressed="true" title="Satisfy tolerances: keep the sheet on its sides within the quality's tolerance; off lets it leave them a little for a fairer surface">SATISFY TOLERANCES</button></div>
-      <div class="field" data-id="sq-guide-row" hidden title="Profile guides: Shift+click open curves inside the loop for the sheet to pass through; Shift+click one again to drop it"><label>GUIDES</label><output data-id="sq-guide-count">0</output></div>
+      <div class="field" data-id="sq-guide-row" hidden title="Profile guides: Shift+click open curves inside the loop for the sheet to pass through; Shift+click one again to drop it"><button class="pick" data-id="sq-guide-step" aria-pressed="false" disabled>GUIDES</button><output data-id="sq-guide-count">0</output></div>
       <div class="seg" data-id="sq-qrow" role="group" aria-label="Quality: how closely the fit follows the sides" hidden><button data-sqquality="auto" aria-pressed="true" title="Auto: within 0.01 mm of the sides">AUTO</button><button data-sqquality="high" aria-pressed="false" title="High: within 0.001 mm">HIGH</button><button data-sqquality="max" aria-pressed="false" title="Max: within 0.0001 mm">MAX</button></div>
       <span class="label">BOUNDARY</span>
       <div class="seg" role="group" aria-label="How the isocurves leave the free sides"><button data-sqbound="natural" aria-pressed="true" title="Natural: the isocurves leave the sides as the fit has them">NATURAL</button><button data-sqbound="normal" aria-pressed="false" title="Normal: the isocurves leave the sides square to them">NORMAL</button><button data-sqbound="next" aria-pressed="false" title="Next: square to the sides that are nearly flat">NEXT</button><button data-sqbound="adjacent" aria-pressed="false" title="Adjacent: the isocurves lean from one neighbouring side's direction to the other's">ADJ.</button></div>
@@ -1238,6 +1238,7 @@ const STEPS = {
   'bool-pick-tools': ['Select tool bodies', 'to cut, join or intersect with', 'body', 'bodies'],
   'cut-pick-targets': ['Select target bodies', 'to cut', 'body', 'bodies'],
   'cut-pick-cutters': ['Select curves, faces or sheets', 'to cut with', 'cutter', 'cutters'],
+  'sq-guide-step': ['Select guides', 'for the fill to pass through', 'guide', 'guides'],
 };
 
 /** What a step's output holds, said Plasticity's way ("4 faces"); '' while it holds nothing. */
