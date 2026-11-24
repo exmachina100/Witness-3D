@@ -332,6 +332,7 @@ const SHELL = `
     <div class="cmdbar" role="toolbar" aria-label="Command bar">
       ${BAR.map(([a, k, l]) => `<button data-action="${a}" aria-label="${l}" title="${l}${k ? ` (${k})` : ''}">${icon(a === 'palette' ? 'search' : a === 'suggest' ? 'suggest' : a.replace('tool:', ''))}${k ? `<kbd>${k}</kbd>` : ''}</button>`).join('')}
     </div>
+    <div class="bar-more" data-id="bar-more" role="toolbar" aria-label="Suggested commands" hidden></div>
     <div class="keys" data-id="keys">${keysHtml('idle')}</div>
     <span class="snap-tag" data-id="snap-tag" hidden></span>
     <span class="gizmo-tag" data-id="gizmo-tag" hidden></span>
@@ -4341,6 +4342,7 @@ export async function mount(root, backend) {
     openToSelection();
     renderOutliner();
     renderContext();
+    renderMore();
     const n = sel.size;
     $('sel-count').textContent = n ? `${n} ${[...new Set(sel.list().map(it => it.kind === 'pole' ? 'surface point' : it.kind))].join('+').toUpperCase()}` : '—';
     $('inspector-selection').textContent = $('sel-count').textContent;
@@ -15753,7 +15755,7 @@ export async function mount(root, backend) {
     switch (a) {
       case 'palette': openPalette(false); return true;
       case 'ask': openAsk(); return true;
-      case 'suggest': openPalette(true); return true;
+      case 'suggest': toggleMore(); return true;
       // Shift+R: the last command again. After Duplicate it is Duplicate (not its Move); a command
       // startTool does not start itself runs as its action.
       case 'repeat': {
@@ -16299,6 +16301,37 @@ export async function mount(root, backend) {
       + '</div>').join('');
     for (const b of el.querySelectorAll('[data-ctx]')) b.onclick = () => doAction(b.dataset.ctx);
   }
+  /**
+   * The Command Bar's ••• (Shift+F): Plasticity's Suggested Commands window, the bar extended
+   * upward with a button for every command that fits the selection (Patch and Rebuild for curves,
+   * Rebuild Face for faces and so on), grouped by the manual's categories. It follows the selection
+   * while open; a command, the button again, Shift+F or Escape closes it. Icon buttons with their
+   * names and keys as tooltips (the exact look of Plasticity's window is inferred).
+   */
+  function renderMore() {
+    const el = $('bar-more');
+    if (el.hidden) return;
+    const groups = new Map();
+    for (const e of suggestions()) {
+      const g = CTX_GROUPS.find(([, re]) => re.test(e.action))?.[0] ?? 'MORE';
+      if (!groups.has(g)) groups.set(g, []);
+      groups.get(g).push(e);
+    }
+    const order = [...CTX_GROUPS.map(([g]) => g), 'MORE'];
+    const what = sel.size ? `${sel.size} ${[...new Set(sel.list().map(it => it.kind === 'pole' ? 'surface point' : it.kind))].join('+').toUpperCase()}` : 'NOTHING SELECTED';
+    el.innerHTML = `<div class="bm-head">SUGGESTED COMMANDS · ${what}</div>` + order.filter(g => groups.has(g)).map(g => `<div class="bm-group" role="group" aria-label="${g}"><span class="bm-label">${g}</span><div class="bm-row">`
+      + groups.get(g).map(e => { const k = keyLabel(e.action); return `<button data-more="${e.action}" aria-label="${e.label}" title="${e.label}${k ? ` (${k})` : ''}">${iconFor(e.action)}</button>`; }).join('')
+      + '</div></div>').join('');
+    for (const b of el.querySelectorAll('[data-more]')) b.onclick = () => { toggleMore(false); doAction(b.dataset.more); };
+  }
+  function toggleMore(on = $('bar-more').hidden) {
+    $('bar-more').hidden = !on;
+    root.querySelector('.cmdbar [data-action="suggest"]')?.setAttribute('aria-expanded', String(on));
+    renderMore();
+  }
+  addEventListener('keydown', e => {
+    if (e.key === 'Escape' && !$('bar-more').hidden) { e.preventDefault(); e.stopImmediatePropagation(); toggleMore(false); }
+  }, true);
   function suggestions() {
     const kinds = new Set(sel.list().map(it => it.kind));
     const out = [];
