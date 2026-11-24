@@ -504,6 +504,19 @@ export const ANALYSIS_TOLERANCES = { g0: 0.01, g1: 0.5, g2: 5 };
  * numbering): each the point on the side, the derivative along it, the derivative across it and,
  * with three rows and degree 2 or more across, the second derivative across.
  */
+/**
+ * The point on the side's edge (its first row) at fraction `f` along it, as Partial Alignment
+ * counts, after `moves` ([pole, offset] as alignMoves gives them) when there are any.
+ */
+export function sidePoint(side, f, moves = []) {
+    const { rows, ids, along, q } = side;
+    const by = new Map(moves.map(([pole, d]) => [pole, d]));
+    const row = rows[0].map((v, j) => by.has(ids[0][j]) ? add(v, by.get(ids[0][j])) : v);
+    const x0 = along[q], x1 = along.at(-1 - q);
+    const { N } = basis(along, q, x0 + (x1 - x0) * Math.min(1, Math.max(0, f)));
+    return N.reduce((s, w, j) => w ? add(s, mul(row[j], w)) : s, [0, 0, 0]);
+}
+
 export function sideSamples(side, moves, n = 32) {
     const { rows, ids, along, q, across: A, p } = side;
     const by = new Map(moves.map(([pole, d]) => [pole, d]));

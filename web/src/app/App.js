@@ -79,7 +79,7 @@ import { curveArrayMotions, curveLength } from '../curveArray.js';
 import { chamferDimensions, curveDimensions, faceDimensions, filletDimensions, solidDimensions } from '../dimension.js';
 import { edgeCurve, flattenCurve } from '../altDuplicate.js';
 import { EDGE_CONTINUITY, bridgeCurve, bridgePoles, edgePoint, facePoint, sampledEnd } from '../bridgeEdge.js';
-import { ALIGN_CONTINUITY, alignAnalysis, alignRequest, readEdgeFaces, targetFace } from '../alignSurface.js';
+import { ALIGN_CONTINUITY, alignAnalysis, alignRequest, readEdgeFaces, sidePoint, targetFace } from '../alignSurface.js';
 import { PROJECT_CONTINUITY, projectAlignRequest } from '../projectAlign.js';
 import { constrainedSurface, splineSheetData } from '../constrainedSurface.js';
 import { square, squareAnalysis, quadSides } from '../square.js';
@@ -4759,6 +4759,26 @@ export async function mount(root, backend) {
 
   const previewGroup = new THREE.Group();
   scene.add(previewGroup);
+  // Edge Align's continuity circle and partial dots, drawn over everything.
+  const alignHandles = new THREE.Group();
+  alignHandles.renderOrder = 8;
+  scene.add(alignHandles);
+  const alignHandleMat = { dot: new THREE.PointsMaterial({ color: 0xffffff, size: 11, sizeAttenuation: false, depthTest: false }), picked: new THREE.PointsMaterial({ color: 0xff7a1a, size: 13, sizeAttenuation: false, depthTest: false }) };
+  const badgeCache = new Map();
+  /** A black circle with the continuity written in it, as Edge Align shows on the edge. */
+  function continuityBadge(text) {
+    if (badgeCache.has(text)) return badgeCache.get(text);
+    const cv = document.createElement('canvas');
+    cv.width = cv.height = 64;
+    const g = cv.getContext('2d');
+    g.fillStyle = '#0b0b0c'; g.strokeStyle = '#ffffff'; g.lineWidth = 3;
+    g.beginPath(); g.arc(32, 32, 28, 0, Math.PI * 2); g.fill(); g.stroke();
+    g.fillStyle = '#ffffff'; g.font = 'bold 22px "Space Mono", monospace'; g.textAlign = 'center'; g.textBaseline = 'middle';
+    g.fillText(text, 32, 34);
+    const mat = new THREE.SpriteMaterial({ map: new THREE.CanvasTexture(cv), depthTest: false, transparent: true });
+    badgeCache.set(text, mat);
+    return mat;
+  }
   function clearPreview() {
     for (const m of [...previewGroup.children]) dispose(m);
     for (const m of bodies.children) m.visible = org.shows(m.userData.id);
@@ -12211,8 +12231,91 @@ export async function mount(root, backend) {
         for (const r of [req, ...(req.more ?? [])]) list.push(await backend.previewMoveFacePoles(r));
         c.req = req;
         analyse(req);
+        paintHandles();
         return list;
       }, list => list.forEach(b => showPreviewBody(b)), 'as-hint');
+    };
+    // Edge Align's on-screen controls: a black circle on the edge names its continuity (a click
+    // cycles it), and with Partial on two dots mark the start and end (click one, move along the
+    // edge, click to keep). Where they sit follows the manual's text; their exact look is inferred.
+    const along = f => {
+      const side = c.req?.check?.side;
+      if (side) return new THREE.Vector3(...sidePoint(side, f, c.req.check.moves ?? []));
+      const e = bodyOf(target.body)?.edges?.[target.edge] ?? [];
+      const pts = [];
+      for (let i = 0; i + 2 < e.length; i += 3) pts.push(new THREE.Vector3(e[i], e[i + 1], e[i + 2]));
+      if (!pts.length) return null;
+      const cum = [0];
+      for (let i = 1; i < pts.length; i++) cum.push(cum[i - 1] + pts[i].distanceTo(pts[i - 1]));
+      const want = cum.at(-1) * Math.min(1, Math.max(0, f));
+      let i = 1;
+      while (i < pts.length - 1 && cum[i] < want) i++;
+      const t = cum[i] > cum[i - 1] ? (want - cum[i - 1]) / (cum[i] - cum[i - 1]) : 0;
+      return pts[i - 1].clone().lerp(pts[i] ?? pts[i - 1], Math.min(1, Math.max(0, t)));
+    };
+    const paintHandles = () => {
+      alignHandles.clear();
+      if (cmd !== c) return;
+      const mid = along(0.5);
+      if (mid) {
+        const ring = new THREE.Sprite(continuityBadge(c.continuity));
+        // A fixed size on screen, however far the camera is.
+        ring.onBeforeRender = () => { const k = 30 * unitsPerPixel(ring.position); ring.scale.set(k, k, 1); };
+        ring.onBeforeRender();
+        ring.position.copy(mid);
+        ring.userData = { handle: 'continuity', at: mid };
+        alignHandles.add(ring);
+      }
+      const p0 = num('as-p0'), p1 = num('as-p1');
+      if (!(p0 <= 0 && p1 >= 1)) for (const [k, f] of [['p0', p0], ['p1', p1]]) {
+        const at = along(f);
+        if (!at) continue;
+        const dot = new THREE.Points(new THREE.BufferGeometry().setFromPoints([at]), c.drag === k ? alignHandleMat.picked : alignHandleMat.dot);
+        dot.userData = { handle: k, at };
+        alignHandles.add(dot);
+      }
+    };
+    const handleAt = e => {
+      const p = local(e);
+      let best = null, bd = 14;
+      for (const h of alignHandles.children) {
+        const s = screenOf(h.userData.at);
+        const d = Math.hypot(s.x - p.x, s.y - p.y);
+        if (!s.behind && d < bd) { bd = d; best = h.userData.handle; }
+      }
+      return best;
+    };
+    const fractionAt = e => {
+      const p = local(e);
+      let best = 0, bd = Infinity;
+      for (let k = 0; k <= 200; k++) {
+        const at = along(k / 200);
+        if (!at) return null;
+        const s = screenOf(at), d = Math.hypot(s.x - p.x, s.y - p.y);
+        if (d < bd) { bd = d; best = k / 200; }
+      }
+      return best;
+    };
+    c.click = e => {
+      if (c.drag) { c.drag = null; paintHandles(); c.preview(); return true; }
+      const h = handleAt(e);
+      if (!h) return false;
+      if (h === 'continuity') { c.key('continuity'); return true; }
+      c.drag = h;
+      setHud(`MOVE ALONG THE EDGE TO SET THE PARTIAL ${h === 'p0' ? 'START' : 'END'} · CLICK TO KEEP`);
+      paintHandles();
+      return true;
+    };
+    c.move = e => {
+      if (!c.drag) return;
+      const f = fractionAt(e);
+      if (f === null) return;
+      const id = c.drag === 'p0' ? 'as-p0' : 'as-p1', other = num(c.drag === 'p0' ? 'as-p1' : 'as-p0');
+      const v = c.drag === 'p0' ? Math.min(f, other - 0.01) : Math.max(f, other + 0.01);
+      $(id).value = Math.round(Math.min(1, Math.max(0, v)) * 100) / 100;
+      paintHandles();
+      clearTimeout(c.dragTimer);
+      c.dragTimer = setTimeout(() => cmd === c && c.preview(), 60);
     };
     // Symmetric meets halfway in G0 or G1 only, so G2 drops to G1 while it is on.
     c.setContinuity = g => { c.continuity = (c.symmetric || c.solver === 'collinear') && g === 'G2' ? 'G1' : g; c.preview(); };
@@ -12260,8 +12363,9 @@ export async function mount(root, backend) {
       } catch (e) { setState('failed'); toast(say(e)); }
     };
     c.abort = async () => { await (c.ready ?? null)?.catch(() => {}); await unbuild(); endCmd('cancelled'); };
-    c.cleanup = () => clearPreview();
+    c.cleanup = () => { clearPreview(); alignHandles.clear(); };
     c.preview();
+    paintHandles();
   }
 
   /**
@@ -17423,6 +17527,8 @@ export async function mount(root, backend) {
       const r = canvas.getBoundingClientRect(), s = new THREE.Vector3(...p).project(camera);
       return [(s.x + 1) / 2 * r.width + r.left, (1 - s.y) / 2 * r.height + r.top];
     },
+    /** Edge Align's on-screen handles, each with where it is in the viewport. */
+    get alignHandles() { return alignHandles.children.map(h => ({ handle: h.userData.handle, at: h.userData.at.toArray() })) },
     get selection() { return sel.list().map(it => ({ ...it })) },
     get modes() { return [...sel.modes] },
     get command() {
