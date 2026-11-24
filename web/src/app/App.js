@@ -123,6 +123,7 @@ import { parallelCylinders, parallelFlatFaces, relatedFaces, samePlane } from '.
 import { circleTangents, closestOnScreen, commonTangents, curvePointSnaps, intersections, perpendicularFeet, tangentPoints } from '../curveSnaps.js';
 import { PREF_FIELDS, changedPrefs, controlSettings, defaultPrefs, readPrefs, setPref, viewColors, wheelSpeed } from './prefs.js';
 import { drawnCurve3d, isFlat as flat3d, cv3d, spline3d } from '../draw3d.js';
+import { bootHTML } from './boot.js';
 import { checkMeasure, circleOf3, measureAxis, measureShape, radiusMeasure } from './measures.js';
 import { arcPoints, circleThrough, curveFromNurbs, cvPoints, ellipsePoints, endTangent, helixPoints, loops, nurbsLoop, nurbsPoints, polygonCorners, spiralAngle, tangentArc, tangentArcEnds } from '../curves.js';
 
@@ -355,7 +356,7 @@ const SHELL = `
     </div>
     <div class="toast" data-id="toast" hidden></div>
     <div class="sr-only" data-id="announcement" role="status" aria-atomic="true"></div>
-    <div class="loading" data-id="loading">STARTING THE KERNEL…</div>
+    <div class="loading" data-id="loading">${bootHTML()}</div>
     <div class="recover" data-id="recover" role="alertdialog" aria-label="Recover a backup" hidden></div>
     <input type="file" data-id="import-file" accept=".step,.stp,.igs,.iges,.dxf,.png,.jpg,.jpeg" hidden>
   </main>
