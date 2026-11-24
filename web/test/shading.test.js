@@ -5,7 +5,7 @@ import { VIEWPORT, ACTIONS } from '../src/app/keymap.js';
 
 test("the manual's fourteen shader modes in its order, plus reflection analysis modes and 2026.2's curvature shaders, each with its own mode number", () => {
     assert.deepEqual(SHADERS.map(s => s.name), ['Ceramic dark', 'Metal carpaint', 'Dark shiny', 'Gradient', 'Ceramic lightbulb', 'Color matcap',
-        'Black silhouette', 'Color silhouette', 'Isophote / isoangle', 'Draft angle', 'Horizontal zebra', 'Vertical zebra', 'Reflection zebra', 'Topography', 'Face direction', 'Reflection check', 'Reflection isophote',
+        'Black silhouette', 'Color silhouette', 'Isophote / isoangle', 'Draft angle', 'Horizontal zebra', 'Vertical zebra', 'Reflection zebra', 'Topography', 'Normal checker', 'Reflection check', 'Reflection isophote',
         'Gaussian curvature', 'Mean curvature', 'Max curvature']);
     // 14 is the custom matcap (Load Matcap), which has no button of its own here.
     assert.deepEqual(SHADERS.map(s => s.mode), [...Array.from({ length: 12 }, (_, i) => i), 18, 12, 13, 19, 20, 15, 16, 17]);

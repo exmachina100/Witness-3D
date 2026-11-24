@@ -12363,7 +12363,7 @@ export async function mount(root, backend) {
     } catch (e) { toast(say(e)); }
   }
 
-  /** Plasticity's Reverse Sheet: the selected sheets face the other way (see the Face direction shader). */
+  /** Plasticity's Reverse Sheet: the selected sheets face the other way (see the Normal checker shader). */
   async function reverseSheets() {
     if (cmd) await finish();
     const ids = sel.bodies.filter(id => bodyOf(id)?.sheet && org.shows(id));
@@ -14280,6 +14280,48 @@ export async function mount(root, backend) {
     if (c.id === 'loft') req.guides = guideRequest(c);
     return req;
   }
+  /**
+   * Plasticity's Loft marks where each guide meets the profiles (25.2): a blue-green dot where it
+   * touches one, a red dot where it misses (at the guide's nearest point).
+   */
+  const guideMissMat = new THREE.PointsMaterial({ color: 0xff3b3b, size: 9, sizeAttenuation: false, depthTest: false });
+  function markLoftGuides(c) {
+    if (c.id !== 'loft' || !c.guides.length) return;
+    const polyOf = g => {
+      if (g?.key) { const e = bodyOf(g.body)?.edges[g.n] ?? []; const out = []; for (let i = 0; i + 2 < e.length; i += 3) out.push(new THREE.Vector3(e[i], e[i + 1], e[i + 2])); return out; }
+      const k = curveById(g);
+      if (!k) return [];
+      const f = curveFrame(k);
+      return curve2d(k).map(q => lift(f, q));
+    };
+    const nearest = (p, line) => {
+      let best = null;
+      for (let i = 1; i < line.length; i++) {
+        const q = new THREE.Line3(line[i - 1], line[i]).closestPointToPoint(p, true, new THREE.Vector3());
+        if (!best || q.distanceTo(p) < best.distanceTo(p)) best = q;
+      }
+      return best ?? line[0];
+    };
+    const pts = { met: [], open: [] };
+    for (const g of c.guides) {
+      const guide = polyOf(g);
+      if (guide.length < 2) continue;
+      for (const r of c.regions) {
+        const prof = polyOf(r);
+        if (prof.length < 2) continue;
+        let best = null;
+        for (const p of guide) { const q = nearest(p, prof); const d = q.distanceTo(p); if (!best || d < best.d) best = { d, at: p }; }
+        for (const p of prof) { const q = nearest(p, guide); const d = q.distanceTo(p); if (d < best.d) best = { d, at: q }; }
+        pts[best.d < 0.01 ? 'met' : 'open'].push(best.at);
+      }
+    }
+    const mats = { met: curveEndMat.met, open: guideMissMat };
+    for (const k of ['met', 'open']) if (pts[k].length) {
+      const dots = new THREE.Points(new THREE.BufferGeometry().setFromPoints(pts[k]), mats[k]);
+      dots.renderOrder = 8;
+      previewGroup.add(dots);
+    }
+  }
   async function previewFormCmd() {
     const c = cmd;
     if (!FORMS[c?.id]) return;
@@ -14294,6 +14336,7 @@ export async function mount(root, backend) {
     catch (e) {
       if (cmd !== c || n !== c.sent) return;
       clearPreview();
+      markLoftGuides(c);
       setState('failed');
       $('form-outcome').textContent = 'FAILED';
       return setHud(say(e));
@@ -14310,6 +14353,7 @@ export async function mount(root, backend) {
       m.renderOrder = 5;
       previewGroup.add(m);
     }
+    markLoftGuides(c);
     $('form-outcome').textContent = p.outcome.toUpperCase();
     if (n === c.sent) setState('updated');
   }

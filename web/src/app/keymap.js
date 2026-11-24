@@ -31,7 +31,7 @@ export const VIEWPORT = {
     // Selection (manual: Selection Mode, Selecting Objects; 5 is "all" since 26.1)
     1: 'mode:point', 2: 'mode:edge', 3: 'mode:face', 4: 'mode:solid', 5: 'mode:all',
     'shift-1': 'mode-toggle:point', 'shift-2': 'mode-toggle:edge', 'shift-3': 'mode-toggle:face', 'shift-4': 'mode-toggle:solid',
-    'ctrl-1': 'convert:point', 'ctrl-2': 'convert:edge', 'ctrl-3': 'convert:face', 'ctrl-4': 'convert:solid', 'ctrl-5': 'convert:group', tab: 'mode:all',
+    'ctrl-1': 'convert:point', 'ctrl-2': 'convert:edge', 'ctrl-3': 'convert:face', 'ctrl-4': 'convert:solid', 'ctrl-5': 'convert:group',
     a: 'select:all', escape: 'select:none', 'alt-a': 'select:invert', 'ctrl-shift-=': 'select:adjacent',
     // Commands (manual: Command Bar, General Functions)
     f: 'palette', 'shift-f': 'suggest', 'shift-r': 'repeat',
