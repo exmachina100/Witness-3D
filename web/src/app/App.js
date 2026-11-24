@@ -276,7 +276,8 @@ const SHELL = `
     <span class="corner tl"></span><span class="corner tr"></span><span class="corner bl"></span><span class="corner br"></span>
     <nav class="tools rail" data-id="tools" aria-label="Tools" aria-orientation="vertical"></nav>
     <section class="cmd-dialog" data-id="cmd-dialog" aria-label="Command options" hidden>
-      <div class="cd-head"><span data-id="cd-name">—</span><button data-id="cd-fold" aria-expanded="true" aria-label="Fold" title="Fold the options away (the command keeps running)">${icon('fold')}</button></div>
+      <div class="cd-head"><span data-id="cd-name">—</span><span class="cd-tools"><button data-id="cd-help" aria-expanded="false" aria-label="Help" title="What this command does, and how to finish it">${icon('info')}</button><button data-id="cd-fold" aria-expanded="true" aria-label="Fold" title="Fold the options away (the command keeps running)">${icon('fold')}</button></span></div>
+      <p class="cd-help" data-id="cd-help-text" hidden></p>
       <div class="cd-body" data-id="cd-body"></div>
       <div class="cd-foot"><button data-id="cd-cancel" title="Cancel the command (Esc)"><kbd>ESC</kbd>CANCEL</button><button data-id="cd-ok" title="Finish the command (Enter or right-click)">OK<kbd>↵</kbd></button></div>
     </section>
@@ -1410,6 +1411,21 @@ export function plasticityControls(body) {
     new MutationObserver(follow).observe(b, { attributes: true, attributeFilter: ['hidden'] });
     follow();
   }
+  // Plasticity's link button at the right of a pair: the lock that holds the second value to the
+  // first (Extrude's Both sides, S) moves into the pair's row as an icon; its key stays listed.
+  for (const [lockId, inputId] of PAIR_LOCKS) {
+    const lock = body.querySelector(`[data-id="${lockId}"]`), row = body.querySelector(`[data-id="${inputId}"]`)?.closest('.field.two');
+    if (!lock || !row) continue;
+    const key = lock.querySelector('kbd')?.textContent ?? '', what = lock.textContent.replace(key, '').trim();
+    const chips = lock.parentElement;
+    lock.innerHTML = `<kbd class="sr-only">${key}</kbd><span class="sr-only">${what}</span>`;
+    lock.classList.add('link');
+    lock.setAttribute('aria-label', `Link: ${what.toLowerCase()}`);
+    lock.title = `${what[0]}${what.slice(1).toLowerCase()}: the second value follows the first (${key})`;
+    row.classList.add('linked');
+    row.append(lock);
+    if (chips?.classList.contains('chips') && !chips.children.length) chips.remove();
+  }
   for (const chips of body.querySelectorAll('.chips:not(.icons)')) {
     const buttons = [...chips.children].filter(b => b.tagName === 'BUTTON');
     const sets = [];
@@ -1437,6 +1453,9 @@ export function plasticityControls(body) {
     else for (const seg of [...chips.querySelectorAll(':scope > .seg')]) chips.before(seg);
   }
 }
+
+/** Lock buttons shown as a link at the right of a pair of fields: [button, first field]. */
+const PAIR_LOCKS = [['ex-lock', 'ex-distance']];
 
 /** How far an XNURBS sheet may leave its sides with Satisfy tolerances off (Square's Weight). */
 export const XNURBS_LOOSE = 0.5;
@@ -1483,7 +1502,7 @@ export async function mount(root, backend) {
     const name = (b.dataset.proj && (b.dataset.proj === 'screen' ? 'view-screen' : `proj-${b.dataset.proj}`)) ?? (b.dataset.imp && (b.dataset.imp === 'screen' ? 'view-screen' : `proj-${b.dataset.imp}`)) ?? (b.dataset.impcomp && `completion-${b.dataset.impcomp}`) ?? b.dataset.draw ?? b.dataset.bop ?? (b.dataset.xforient && `orient-${b.dataset.xforient}`) ?? (b.dataset.xfpivot && `pivot-${b.dataset.xfpivot}`) ?? (b.dataset.btmat && `mat-${b.dataset.btmat}`) ?? (b.dataset.bumat && `mat-${b.dataset.bumat}`) ?? b.dataset.xop ?? b.dataset.fop ?? b.dataset.spiral ?? (b.dataset.toggle && `view-${b.dataset.toggle}`)
       ?? (b.dataset.gmethod && `guide-${b.dataset.gmethod}`) ?? (b.dataset.galign && `align-${b.dataset.galign}`) ?? (b.dataset.caalign && `align-${b.dataset.caalign}`) ?? (b.dataset.camethod && `array-${b.dataset.camethod}`) ?? (b.dataset.gcorner && (b.dataset.gcorner === 'round' ? 'corner-round' : 'corner-linear')) ?? (b.dataset.grow && `grow-${b.dataset.grow}`) ?? (b.dataset.mfgrow && `grow-${b.dataset.mfgrow}`) ?? (b.dataset.drgrow && `grow-${b.dataset.drgrow}`) ?? (b.dataset.eslimit && `limit-${b.dataset.eslimit}`) ?? (b.dataset.flshape && `fillet-${b.dataset.flshape}`) ?? (b.dataset.chshape && `chamfer-${b.dataset.chshape}`) ?? (b.dataset.drtaper && `taper-${b.dataset.drtaper}`) ?? (b.dataset.avaxis && `axis-${b.dataset.avaxis}`) ?? (b.dataset.extshape && `extend-${b.dataset.extshape}`) ?? (b.dataset.esshape && `extend-${b.dataset.esshape}`) ?? (b.dataset.isodir && `iso-${b.dataset.isodir}`) ?? (b.dataset.rbmethod && `rebuild-${b.dataset.rbmethod}`) ?? (b.dataset.rcmethod && `rebuild-${b.dataset.rcmethod}`) ?? (b.dataset.oecorner && `corner-${b.dataset.oecorner}`) ?? (b.dataset.saplane && `section-${b.dataset.saplane}`) ?? (b.dataset.plaxis && (b.dataset.plaxis === 'normal' ? 'place-normal' : `axis-${b.dataset.plaxis}`)) ?? b.dataset.plop ?? b.dataset.pipeop
       ?? (b.dataset.txfont && `font-${b.dataset.txfont}`) ?? (b.dataset.txalign && `txalign-${b.dataset.txalign}`) ?? (b.dataset.sldir && { u: 'slide-u', '-u': 'slide-back', v: 'slide-v', '-v': 'slide-vback', n: 'slide-n' }[b.dataset.sldir]) ?? (b.dataset.dcflip && { mirror: 'mirror', swap: 'swap-uv', normal: 'reverse-sheet' }[b.dataset.dcflip]) ?? (b.dataset.imdepth && `depth-${b.dataset.imdepth}`) ?? (b.dataset.imcull && `cull-${b.dataset.imcull}`) ?? b.dataset.inmode ?? (b.dataset.bsshape && `bridge-${b.dataset.bsshape}`) ?? (b.dataset.bstrim && `trimwall-${b.dataset.bstrim}`) ?? (b.dataset.mxtopo && `topo-${b.dataset.mxtopo}`) ?? (b.dataset.pmethod && (b.dataset.pmethod === 'fill' ? 'patch-fill' : `trim-${b.dataset.pmethod}`)) ?? (b.dataset.pfmode && `falloff-${b.dataset.pfmode}`) ?? ((b.dataset.sqbound ?? b.dataset.asbound) && `bound-${b.dataset.sqbound ?? b.dataset.asbound}`) ?? (b.dataset.pfmirror && `mirror-${b.dataset.pfmirror}`) ?? (b.dataset.assolver && `solver-${b.dataset.assolver}`)
-      ?? { 'matcap-load': 'matcap-load', 'matcap-custom': 'matcap', 'tx-load': 'font-load', 'tx-system': 'font-system', 'hdr-load': 'hdr-load', 'hdr-custom': 'hdr', 'ex-lock': 'lock', 'rb-corners': 'corner-linear', 'bool-keep': 'keep', 'ex-keep': 'keep', 'prim-keep': 'keep', 'form-keep': 'keep', 'pipe-keep': 'keep', 'ex-free': 'freestyle', 'ex-pivot': 'pivot', 'ex-individual': 'individual', 'patch-individual': 'individual', 'mx-convex': 'convex', 'patch-quad': 'square', 'as-symmetric': 'symmetric', 'as-analysis': 'analysis', 'as-ratio': 'tangent-ratio', 'as-constrain': 'constrain', 'sq-analysis': 'analysis', 'sq-constrain': 'constrain', 'bs-add': 'wall-pair', 'bs-s1': 'flip', 'bs-s2': 'flip', 'dr-hidden': 'hidden-lines', 'dr-curves': 'drawing-curves', 'oc-lock': 'lock', 'oc-free': 'freestyle', 'oc-slot': 'slot', 'oc-combine': 'combine', 'oe-both': 'both-sides', 'xf-pick': 'pivot', 'xf-unpivot': 'pivot-remove', 'xf-free': 'freestyle', 'ls-loop': 'loft-loop', 'ls-limit': 'limit-point', 'ls-simplify': 'simplify', 'sw-simplify': 'simplify', 'iso-subdivide': 'subdivide', 'oe-individual': 'individual', 'blend-tangent': 'tangent-chain', 'es-unlimit': 'unlimit', 'shell-local': 'shell', 'es-modify': 'join', 'rf-shrink': 'shrink', 'ut-keep': 'keep-edges', 'section-btn': 'view-section', 'sa-flip': 'flip', 'pl-flip': 'flip', 'pl-instance': 'instance', 'mirror-instance': 'instance', 'mirror-neg': 'mirror-neg', 'mirror-free': 'freestyle', 'mirror-cut': 'mirror-cut', 'ra-instance': 'instance', 'ra-spacing': 'array-spacing', 'ra-extent': 'array-extent', 'rr-total': 'array-total', 'rr-spacing': 'array-angle-step', 'rr-instance': 'instance', 'ca-instance': 'instance', 'br-trim': 'trim', 'br-comb': 'view-curvature', 'br-constrain': 'constrain', 'ac-constrain': 'constrain', 'ac-comb': 'view-curvature', 'dc-reblend': 'reblend', 'dc-keep': 'keep', 'im-delete': 'delete', 'im-dup': 'duplicate', 'in-realize': 'realize-instance', 'cc-extend': 'extend', 'cc-screen': 'view-screen', 'cut-extend': 'extend', 'cut-screen': 'view-screen', 'in-dup': 'duplicate', 'in-delete': 'delete' }[b.dataset.id];
+      ?? { 'matcap-load': 'matcap-load', 'matcap-custom': 'matcap', 'tx-load': 'font-load', 'tx-system': 'font-system', 'hdr-load': 'hdr-load', 'hdr-custom': 'hdr', 'ex-lock': 'link', 'rb-corners': 'corner-linear', 'bool-keep': 'keep', 'ex-keep': 'keep', 'prim-keep': 'keep', 'form-keep': 'keep', 'pipe-keep': 'keep', 'ex-free': 'freestyle', 'ex-pivot': 'pivot', 'ex-individual': 'individual', 'patch-individual': 'individual', 'mx-convex': 'convex', 'patch-quad': 'square', 'as-symmetric': 'symmetric', 'as-analysis': 'analysis', 'as-ratio': 'tangent-ratio', 'as-constrain': 'constrain', 'sq-analysis': 'analysis', 'sq-constrain': 'constrain', 'bs-add': 'wall-pair', 'bs-s1': 'flip', 'bs-s2': 'flip', 'dr-hidden': 'hidden-lines', 'dr-curves': 'drawing-curves', 'oc-lock': 'lock', 'oc-free': 'freestyle', 'oc-slot': 'slot', 'oc-combine': 'combine', 'oe-both': 'both-sides', 'xf-pick': 'pivot', 'xf-unpivot': 'pivot-remove', 'xf-free': 'freestyle', 'ls-loop': 'loft-loop', 'ls-limit': 'limit-point', 'ls-simplify': 'simplify', 'sw-simplify': 'simplify', 'iso-subdivide': 'subdivide', 'oe-individual': 'individual', 'blend-tangent': 'tangent-chain', 'es-unlimit': 'unlimit', 'shell-local': 'shell', 'es-modify': 'join', 'rf-shrink': 'shrink', 'ut-keep': 'keep-edges', 'section-btn': 'view-section', 'sa-flip': 'flip', 'pl-flip': 'flip', 'pl-instance': 'instance', 'mirror-instance': 'instance', 'mirror-neg': 'mirror-neg', 'mirror-free': 'freestyle', 'mirror-cut': 'mirror-cut', 'ra-instance': 'instance', 'ra-spacing': 'array-spacing', 'ra-extent': 'array-extent', 'rr-total': 'array-total', 'rr-spacing': 'array-angle-step', 'rr-instance': 'instance', 'ca-instance': 'instance', 'br-trim': 'trim', 'br-comb': 'view-curvature', 'br-constrain': 'constrain', 'ac-constrain': 'constrain', 'ac-comb': 'view-curvature', 'dc-reblend': 'reblend', 'dc-keep': 'keep', 'im-delete': 'delete', 'im-dup': 'duplicate', 'in-realize': 'realize-instance', 'cc-extend': 'extend', 'cc-screen': 'view-screen', 'cut-extend': 'extend', 'cut-screen': 'view-screen', 'in-dup': 'duplicate', 'in-delete': 'delete' }[b.dataset.id];
     b.insertAdjacentHTML('afterbegin', icon(name));
   }
   const $ = id => root.querySelector(`[data-id="${id}"]`);
@@ -4450,6 +4469,8 @@ export async function mount(root, backend) {
     body.hidden = !body.querySelector('[data-panel]:not([hidden])') || (id === 'bridge' && !cmd?.continuity);
     if (!dialog.hidden || cmd?.auto === true) {
       $('cd-name').textContent = !id ? '' : EDITS[id] ?? DRAW[id] ?? toolInfo(id).label;
+      $('cd-help-text').hidden = true;
+      $('cd-help').setAttribute('aria-expanded', 'false');
       body.scrollTop = 0;
       requestAnimationFrame(() => body.onscroll?.());
     }
@@ -4472,6 +4493,12 @@ export async function mount(root, backend) {
     $('tool-name').textContent = name;
     $('status-tool').textContent = name;
 
+  }
+  /** The help the dialog's (i) shows: the command's summary, its keys, and how to finish. */
+  function commandHelp(id) {
+    const about = toolInfo(id)?.summary ?? '';
+    const keys = (KEYS[id] ?? []).filter(([k]) => !/RMB|ESC/.test(k)).map(([k, what]) => `${k} ${what.toLowerCase()}`).join(' · ');
+    return [about, keys && `Keys: ${keys}.`, 'Enter, OK or a right-click finishes; Esc or Cancel cancels.'].filter(Boolean).join(' ');
   }
   function setTarget(text) { $('target').textContent = text ?? '—'; $('status-target').textContent = text ?? 'VOID'; }
   function endCmd(state) {
@@ -16209,6 +16236,19 @@ export async function mount(root, backend) {
   // The command dialog: OK, Cancel, fold, and the fade at its bottom while more is below.
   $('cd-ok').onclick = () => finish();
   $('cd-cancel').onclick = () => abort();
+  // Plasticity's (i) in the dialog's header: what the command does, and how to finish it.
+  $('cd-help').onclick = () => {
+    const box = $('cd-help-text'), open = box.hidden;
+    if (open) box.textContent = commandHelp(keysOf);
+    box.hidden = !open;
+    $('cd-help').setAttribute('aria-expanded', String(open));
+  };
+  // Right-click on the dialog finishes the command, as it does in the viewport (not in a field).
+  $('cmd-dialog').addEventListener('contextmenu', e => {
+    if (e.target.closest('input, select, textarea')) return;
+    e.preventDefault();
+    if (cmd) finish();
+  });
   $('cd-fold').onclick = () => {
     const folded = $('cmd-dialog').classList.toggle('folded');
     $('cd-fold').setAttribute('aria-expanded', String(!folded));
