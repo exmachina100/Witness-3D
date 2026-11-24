@@ -8010,6 +8010,78 @@ export async function mount(root, backend) {
         setHud(`ALIGN ${c.continuity} · TENSION ${num('ac-t')}`);
         setState('updated');
       } catch (e) { c.out = null; $('ac-hint').textContent = say(e); setHud('ALIGN FAILED'); setState('failed'); }
+      paintHandles();
+    };
+    // Plasticity's Vertex Align controls on the curves: a black circle beside the meeting point
+    // names the continuity (a click cycles it), and a dot on the reference where the target meets
+    // it slides along it (Partial Alignment: click, move along the curve, click to keep). Their look
+    // and the click-move-click handling are inferred; the manual names them only.
+    const refPoints = () => {
+      const src = curveById(reference);
+      if (!src) return [];
+      const f = curveFrame(src);
+      return curve2d(src).map(q => lift(f, q));
+    };
+    const along = t => {
+      const pts = refPoints();
+      if (!pts.length) return null;
+      const cum = [0];
+      for (let k = 1; k < pts.length; k++) cum.push(cum[k - 1] + pts[k].distanceTo(pts[k - 1]));
+      const want = cum.at(-1) * Math.min(1, Math.max(0, t));
+      let k = 1;
+      while (k < pts.length - 1 && cum[k] < want) k++;
+      const u = cum[k] > cum[k - 1] ? (want - cum[k - 1]) / (cum[k] - cum[k - 1]) : 0;
+      return pts[k - 1].clone().lerp(pts[k] ?? pts[k - 1], Math.min(1, Math.max(0, u)));
+    };
+    const paintHandles = () => {
+      alignHandles.clear();
+      if (cmd !== c) return;
+      const meet = along(num('ac-p'));
+      if (!meet) return;
+      const up = new THREE.Vector3(0, 1, 0).applyQuaternion(camera.quaternion).multiplyScalar(34 * unitsPerPixel(meet));
+      const badgeAt = meet.clone().add(up);
+      const ring = new THREE.Sprite(continuityBadge(c.continuity));
+      ring.onBeforeRender = () => { const k = 30 * unitsPerPixel(ring.position); ring.scale.set(k, k, 1); };
+      ring.onBeforeRender();
+      ring.position.copy(badgeAt);
+      ring.userData = { handle: 'continuity', at: badgeAt };
+      alignHandles.add(ring);
+      const dot = new THREE.Points(new THREE.BufferGeometry().setFromPoints([meet]), c.drag ? alignHandleMat.picked : alignHandleMat.dot);
+      dot.userData = { handle: 'p', at: meet };
+      alignHandles.add(dot);
+    };
+    const handleAt = e => {
+      const p = local(e);
+      let best = null, bd = 14;
+      for (const h of alignHandles.children) {
+        if (!h.userData.at) continue;
+        const q = screenOf(h.userData.at), d = Math.hypot(q.x - p.x, q.y - p.y);
+        if (!q.behind && d < bd) { bd = d; best = h.userData.handle; }
+      }
+      return best;
+    };
+    c.click = e => {
+      if (c.drag) { c.drag = false; paintHandles(); return true; }
+      const h = handleAt(e);
+      if (!h) return false;
+      if (h === 'continuity') { c.key('continuity'); return true; }
+      c.drag = true;
+      setHud('MOVE ALONG THE REFERENCE TO SET WHERE IT MEETS · CLICK TO KEEP');
+      paintHandles();
+      return true;
+    };
+    c.move = e => {
+      if (!c.drag) return;
+      const p = local(e);
+      let best = 0, bd = Infinity;
+      for (let k = 0; k <= 200; k++) {
+        const at = along(k / 200);
+        if (!at) return;
+        const q = screenOf(at), d = Math.hypot(q.x - p.x, q.y - p.y);
+        if (d < bd) { bd = d; best = k / 200; }
+      }
+      $('ac-p').value = best;
+      c.preview();
     };
     c.setContinuity = g => { c.continuity = g; c.preview(); };
     c.key = action => {
@@ -8038,7 +8110,7 @@ export async function mount(root, backend) {
       } catch (e) { setState('failed'); toast(say(e)); }
     };
     c.abort = () => endCmd('cancelled');
-    c.cleanup = () => clearPreview();
+    c.cleanup = () => { clearPreview(); alignHandles.clear(); };
     c.preview();
   }
 
