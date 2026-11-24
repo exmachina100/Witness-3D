@@ -1427,9 +1427,12 @@ export function plasticityControls(body) {
     const b = a.nextElementSibling, la = a.querySelector(':scope > label'), lb = b?.querySelector?.(':scope > label');
     const ia = a.querySelector(':scope > input'), ib = b?.querySelector?.(':scope > input');
     if (!b?.classList.contains('field') || !la || !lb || !ia || !ib || a.querySelectorAll(':scope > input').length > 1) continue;
-    const base = la.textContent.replace(/ 1$/, '');
-    if (lb.textContent !== `${base} 2`) continue;
-    la.textContent = base;
+    // Also a U and V pair (DEGREE U, DEGREE V), as Plasticity's Rebuild shows Degree and Spans.
+    const uv = / U$/.test(la.textContent) && lb.textContent === la.textContent.replace(/ U$/, ' V');
+    const base = la.textContent.replace(uv ? / U$/ : / 1$/, '');
+    if (!uv && lb.textContent !== `${base} 2`) continue;
+    la.textContent = uv ? `${base} U · V` : base;
+    if (uv) { ia.setAttribute('aria-label', `${base} U`); ib.setAttribute('aria-label', `${base} V`); }
     a.classList.add('two');
     a.append(ib);
     b.classList.add('merged');
@@ -2675,6 +2678,8 @@ export async function mount(root, backend) {
       const all = facePoleCache.get(body);
       if (!all || !org.shows(body)) continue;
       for (const n of which === 'all' ? all.keys() : which) {
+        // Rebuild Face shows the faces' new control points in place of these.
+        if (cmd?.id === 'rebuild-face' && cmd.netShown && cmd.body === body && cmd.faces.includes(n)) continue;
         const P = (cmd?.poleRows?.get(`${body}:${n}`) ?? all[n] ?? []).map(r => r.map(q => new THREE.Vector3(...q)));
         if (!P.length) continue;
         for (const r of P) for (let j = 1; j < r.length; j++) segs.push(r[j - 1], r[j]);
@@ -4863,6 +4868,19 @@ export async function mount(root, backend) {
     const m = meshOf(body, faces, edges);
     previewGroup.add(m);
     return m;
+  }
+  /** Control nets (each rows of [x, y, z]) drawn into the preview, as Toggle Points draws them. */
+  function showPreviewNets(nets) {
+    const dots = [], segs = [];
+    for (const net of nets) {
+      const P = (net ?? []).map(r => r.map(q => new THREE.Vector3(...q)));
+      if (!P.length) continue;
+      for (const r of P) for (let j = 1; j < r.length; j++) segs.push(r[j - 1], r[j]);
+      for (let j = 0; j < P[0].length; j++) for (let i = 1; i < P.length; i++) segs.push(P[i - 1][j], P[i][j]);
+      dots.push(...P.flat());
+    }
+    if (segs.length) { const l = new THREE.LineSegments(new THREE.BufferGeometry().setFromPoints(segs), netLine); l.renderOrder = 11; previewGroup.add(l); }
+    if (dots.length) { const d = new THREE.Points(new THREE.BufferGeometry().setFromPoints(dots), cpMat.normal); d.renderOrder = 11; previewGroup.add(d); }
   }
 
   /** A yellow-dot handle wired to the viewport; `onValue` gets every new value. */
@@ -9690,6 +9708,10 @@ export async function mount(root, backend) {
     c.preview = () => livePreview(c, () => backend.previewRebuildFaces(c.request()), b => {
       showPreviewBody(b);
       const r = b.rebuilt ?? [];
+      // The new control points show while the degree and spans are set (the old ones step aside).
+      showPreviewNets(r.map((f, i) => f.net ?? b.nets?.[i]));
+      c.netShown = true;
+      paintShownPoints();
       $('rf-cvs').textContent = r.map(f => `${f.poles[0]}×${f.poles[1]}`).join(' ') || '—';
       const dev = Math.max(0, ...r.map(f => f.deviation));
       $('rf-hint').textContent = `${c.faces.length} FACE${c.faces.length > 1 ? 'S' : ''} OF ${label(c.body)} · MAX DEVIATION ${len(mm(dev))} ${U()}`;
@@ -9753,7 +9775,7 @@ export async function mount(root, backend) {
       } catch (e) { setState('failed'); toast(say(e)); }
     };
     c.abort = () => endCmd('cancelled');
-    c.cleanup = () => clearPreview();
+    c.cleanup = () => { clearPreview(); c.netShown = false; paintShownPoints(); };
     c.setMethod('tolerance');
     c.onSelection();
   }

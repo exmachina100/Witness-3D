@@ -2305,6 +2305,8 @@ pub struct RebuildPreview {
     #[serde(flatten)]
     pub body: Body,
     pub rebuilt: Vec<RebuiltFace>,
+    /// Each rebuilt face's new control points, rows of [x, y, z] (u slowest), in `rebuilt`'s order.
+    pub nets: Vec<Vec<Vec<[f64; 3]>>>,
 }
 
 #[derive(Serialize, Debug)]
@@ -2376,7 +2378,9 @@ pub fn commit_nominal_faces(m: &Model, req: RaiseFacesRequest) -> Result<Rebuild
 pub fn preview_rebuild_faces(m: &Model, req: RebuildFacesRequest) -> Option<Result<RebuildPreview, ApiError>> {
     m.preview(move |doc| {
         let (solid, rebuilt) = doc.preview_rebuild_faces(req.body, &req.faces, &req.how)?;
-        Ok(RebuildPreview { body: body(&doc.kernel, req.body, &solid)?, rebuilt })
+        let all = doc.kernel.face_poles(&solid);
+        let nets = rebuilt.iter().map(|r| all.get(r.face as usize).map(|net| net.iter().map(|row| row.iter().map(|p| [p.x, p.y, p.z]).collect()).collect()).unwrap_or_default()).collect();
+        Ok(RebuildPreview { body: body(&doc.kernel, req.body, &solid)?, rebuilt, nets })
     })
 }
 
