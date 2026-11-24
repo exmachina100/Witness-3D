@@ -54,6 +54,7 @@
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { TransformControls } from 'three/addons/controls/TransformControls.js';
+import { plasticityGizmo } from './gizmoLook.js';
 import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
 import { HDRLoader } from 'three/addons/loaders/HDRLoader.js';
 import { EXRLoader } from 'three/addons/loaders/EXRLoader.js';
@@ -1486,8 +1487,8 @@ export function xnurbsBoundary({ xnurbs, quad, boundary = 'natural' }) {
   return boundary === 'adjacent' ? 'normal' : boundary === 'next' ? 'natural' : boundary;
 }
 
-/** The grid's world axis lines: X red, Y green, darkened to sit with the grid. */
-export const AXIS_COLORS = { x: '#9c3b36', y: '#4d7f3a' };
+/** The grid's world axis lines: X red, Y green, Z blue, darkened to sit with the grid. */
+export const AXIS_COLORS = { x: '#9c3b36', y: '#4d7f3a', z: '#3b5c9c' };
 
 export function closestViewDir(name, offset) {
   const v = VIEWS[name];
@@ -3298,6 +3299,10 @@ export async function mount(root, backend) {
     grid.geometry.dispose();
     grid.geometry = geo;
     grid.userData.major = g.major;
+    // The Z axis through the origin, blue, standing up from the grid as in Plasticity's viewport.
+    if (grid.userData.zAxis) { grid.remove(grid.userData.zAxis); grid.userData.zAxis.geometry.dispose(); }
+    const z = new THREE.Line(new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(0, -extent / 2, 0), new THREE.Vector3(0, extent / 2, 0)]), new THREE.LineBasicMaterial({ color: AXIS_COLORS.z, transparent: true, opacity: 0.8 }));
+    grid.add(grid.userData.zAxis = z);
     return true;
   }
   const planeOf = () => new THREE.Plane().setFromNormalAndCoplanarPoint(cplane.normal, cplane.origin);
@@ -3381,7 +3386,7 @@ export async function mount(root, backend) {
     };
     place();
     scene.add(handle);
-    const tc = new TransformControls(camera, canvas);
+    const tc = plasticityGizmo(new TransformControls(camera, canvas));
     tc.setSpace('world');
     tc.attach(handle);
     tc.addEventListener('dragging-changed', e => { controls.enabled = !e.value; if (!e.value) place(); });
@@ -3571,7 +3576,7 @@ export async function mount(root, backend) {
     };
     place();
     scene.add(handle);
-    const tc = new TransformControls(camera, canvas);
+    const tc = plasticityGizmo(new TransformControls(camera, canvas));
     tc.setSpace('world');
     tc.attach(handle);
     tc.addEventListener('dragging-changed', e => { controls.enabled = !e.value; });
@@ -5157,7 +5162,7 @@ export async function mount(root, backend) {
     const handle = new THREE.Object3D();
     handle.position.copy(pivot);
     scene.add(handle);
-    const tc = new TransformControls(camera, canvas);
+    const tc = plasticityGizmo(new TransformControls(camera, canvas));
     tc.setMode({ move: 'translate', rotate: 'rotate', scale: 'scale' }[kind]);
     tc.setSpace('local');
     tc.attach(handle);
