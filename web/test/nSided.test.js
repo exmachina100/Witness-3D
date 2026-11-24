@@ -34,3 +34,19 @@ test('a hexagonal hole in a pyramid, G1 to its faces: the patches leave the face
     const top = Math.max(...r.patches.map(f => surfaceAt(f, 0.5, 0.5)[2]));
     assert.ok(top > 1, `top ${top}`);
 });
+
+test('auto spans give the lightest cage that holds the sides and seams', () => {
+    const r = nSidedFill(polygon(6, 10));
+    assert.deepEqual(r.patches[0].spans, [2, 2]);
+    assert.ok(r.gap < 0.01 && r.seam < 0.5);
+    assert.deepEqual(nSidedFill(polygon(6, 10), { spans: 4 }).patches[0].spans, [4, 4]);
+});
+
+test('a skew hexagon counts six corners, so it is not one quad-sided sheet', async () => {
+    const { loopCorners } = await import('../src/square.js');
+    const V = s => [...s].map(c => (c === '+' ? 10 : -10));
+    const path = ['-++', '+++', '+-+', '+--', '---', '-+-', '-++'].map(V);
+    const sides = path.slice(0, 6).map((a, i) => [a, path[i + 1]]);
+    assert.equal(loopCorners(sides, 0.01), 6);
+    assert.equal(loopCorners(polygon(4, 10, 0, 4), 0.01), 4);
+});
