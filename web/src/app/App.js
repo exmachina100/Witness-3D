@@ -13150,6 +13150,7 @@ export async function mount(root, backend) {
     const text = () => `DRAFT ${num('draft-a')}°${c.taper === 'curve' ? ' · ABOUT THE LINE' : num('draft-d') ? ` · OFFSET ${num('draft-d')}` : ''}${c.grow !== 'moving' ? ` · GROW ${c.grow.toUpperCase()}` : ''}`;
     c.preview = () => {
       c.gizmo?.render(num('draft-a'));
+      c.planeDot?.render(num('draft-d') || 0);
       for (const b of $$('[data-drtaper]')) b.setAttribute('aria-pressed', String(b.dataset.drtaper === c.taper));
       for (const b of $$('[data-drgrow]')) b.setAttribute('aria-pressed', String(b.dataset.drgrow === c.grow));
       $('draft-pull').textContent = c.taper === 'curve' ? (c.hinge ? 'THE LINE' : 'CLICK A LINE') : c.ref !== null ? `FACE ${c.ref}` : `PLANE ${cplane.name}`;
@@ -13175,14 +13176,22 @@ export async function mount(root, backend) {
     c.taperTo = m => { c.taper = m; c.preview(); };
     // Grow (manual): for an inner face drafted out past the outer wall; Tab cycles Moving, Fixed, None.
     c.growTo = g => { c.grow = g; c.preview(); };
-    // The white dot sets the angle: dragged out along the first drafted face's normal, a degree per unit.
+    // Plasticity's white circle sets the angle: dragged out along the first drafted face's normal, a
+    // degree per unit. The yellow dot on the neutral plane moves it along the pull (D, Offset).
     const place = () => {
       c.gizmo?.dispose();
       c.gizmo = null;
+      c.planeDot?.dispose();
+      c.planeDot = null;
       const b = bodyOf(c.body), f = c.faces[0], p = f !== undefined && b?.facePlanes[f];
       if (!p) return;
-      c.gizmo = dot(faceCentre(b, f), new THREE.Vector3(...p.normal).normalize(), v => { $('draft-a').value = +v.toFixed(2); c.preview(); });
+      c.gizmo = dot(faceCentre(b, f), new THREE.Vector3(...p.normal).normalize(), v => { $('draft-a').value = +v.toFixed(2); c.preview(); }, null, 'ring');
+      const r = c.ref !== null && b?.facePlanes[c.ref];
+      const n = r ? new THREE.Vector3(...r.normal).normalize() : cplane.normal.clone().normalize();
+      const o = r ? faceCentre(b, c.ref).clone() : cplane.origin.clone();
+      c.planeDot = dot(o, n, v => { $('draft-d').value = +(snapping(lastPointer) ? Math.round(v / gridStep()) * gridStep() : v).toFixed(4); c.preview(); });
     };
+    c.extraGizmos = () => c.planeDot ? [c.planeDot] : [];
     c.onSelection = () => {
       drawOverlays();
       const b = faceBody();
@@ -13247,7 +13256,7 @@ export async function mount(root, backend) {
       } catch (e) { setState('failed'); toast(say(e)); }
     };
     c.abort = () => endCmd('cancelled');
-    c.cleanup = () => { c.gizmo?.dispose(); clearPreview(); };
+    c.cleanup = () => { c.gizmo?.dispose(); c.planeDot?.dispose(); clearPreview(); };
     c.onSelection();
   }
 
