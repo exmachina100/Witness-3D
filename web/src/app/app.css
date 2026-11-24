@@ -61,6 +61,8 @@ button:focus-visible, input:focus-visible { outline: 1px solid var(--accent); ou
 .list .obox { position: absolute; border: 1px dashed var(--accent); background: color-mix(in srgb, var(--accent) 12%, transparent); pointer-events: none; z-index: 2; }
 .list .boxed { background: color-mix(in srgb, var(--accent) 18%, transparent); }
 .group-title { padding: calc(12px * var(--space, 1)) calc(14px * var(--space, 1)) calc(6px * var(--space, 1)); color: var(--muted); }
+/* A long outliner keeps the section being scrolled through named at its top (SOLIDS, CURVES...). */
+.list > .group-title { position: sticky; top: 0; z-index: 1; background: var(--ground); }
 .row-item { display: flex; gap: calc(10px * var(--space, 1)); align-items: center; padding: calc(8px * var(--space, 1)) calc(14px * var(--space, 1)); cursor: pointer; user-select: none; -webkit-user-select: none; }
 .row-item:hover { background: var(--hover); }
 .row-item[aria-current="true"] { color: var(--accent); background: rgba(255, 77, 0, 0.06); }
