@@ -1526,6 +1526,17 @@ export class LocalBackend {
         return { id: body, scene: this.bodies(), rebuilt };
     }
 
+    /** Plasticity's Remove Nominal Surface as one undo step: `faces` of `body` made B-splines, degree kept. */
+    async commitNominalFaces({ body, faces = [] }) {
+        const s = this.shapes.get(body);
+        if (!s) throw new Error('that body no longer exists');
+        if (!faces.length) throw new Error('select the faces to remove the nominal surface of');
+        const { shape, rebuilt } = raiseFaces(s, faces, 0);
+        this.checkpoint();
+        this.put(body, shape);
+        return { id: body, scene: this.bodies(), rebuilt };
+    }
+
     /** Rebuild Face as one undo step: the body keeps its id. */
     async commitRebuildFaces(req) {
         const { shape, rebuilt } = this.rebuildResult(req);

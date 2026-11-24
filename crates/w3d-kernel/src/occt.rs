@@ -706,6 +706,13 @@ impl Kernel for Occt {
         Ok((made, info))
     }
 
+    fn nominal_faces(&self, s: &Shape, faces: &[u32]) -> Result<(Shape, Vec<RebuiltFace>), KernelError> {
+        let idx: Vec<usize> = faces.iter().map(|&f| f as usize).collect();
+        let made = s.raise_faces_by(&idx, 0).map_err(shim)?;
+        let info = rebuilt(s, &made, faces)?;
+        Ok((made, info))
+    }
+
     fn extension_only(&self, s: &Shape, grown: &Shape) -> Result<Shape, KernelError> {
         s.extension_only(grown).map_err(shim)
     }

@@ -2360,6 +2360,14 @@ pub fn commit_raise_faces(m: &Model, req: RaiseFacesRequest) -> Result<RebuildCo
     })
 }
 
+/// Remove Nominal Surface: `faces` of `body` made B-splines without raising their degree.
+pub fn commit_nominal_faces(m: &Model, req: RaiseFacesRequest) -> Result<RebuildCommitted, ApiError> {
+    m.call(move |doc| {
+        let rebuilt = doc.commit_nominal_faces(req.body, &req.faces)?;
+        Ok(RebuildCommitted { id: req.body, scene: bodies(doc)?, rebuilt })
+    })
+}
+
 pub fn preview_rebuild_faces(m: &Model, req: RebuildFacesRequest) -> Option<Result<RebuildPreview, ApiError>> {
     m.preview(move |doc| {
         let (solid, rebuilt) = doc.preview_rebuild_faces(req.body, &req.faces, &req.how)?;

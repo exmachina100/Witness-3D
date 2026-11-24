@@ -1671,6 +1671,18 @@ impl<K: Kernel> Document<K> {
         Ok(info)
     }
 
+    /// Plasticity's Remove Nominal Surface as one undoable step, on `faces` of `body`: each made a
+    /// B-spline at degree 3 (no degree raised). Faces and edges keep their numbers and refs.
+    pub fn commit_nominal_faces(&mut self, body: BodyId, faces: &[u32]) -> Result<Vec<RebuiltFace>, KernelError> {
+        let b = self.state.bodies.get(&body).ok_or(KernelError::Invalid("that body no longer exists"))?;
+        if faces.is_empty() { return Err(KernelError::Invalid("select the faces to remove the nominal surface of")) }
+        let (solid, info) = self.kernel.nominal_faces(&b.solid, faces)?;
+        let refs = b.refs.clone();
+        self.checkpoint();
+        self.state.bodies.insert(body, Rc::new(Body { solid, refs }));
+        Ok(info)
+    }
+
     /// Plasticity's Extend Sheet, without changing the document: sheet `body` grown past its open `edge`,
     /// by `distance` or, with `limit`, until it meets that body (on through it with `outside`).
     pub fn preview_extend_sheet(&self, body: BodyId, edge: u32, distance: f64, shape: SheetExtension, limit: Option<BodyId>, outside: bool) -> Result<K::Solid, KernelError> {
