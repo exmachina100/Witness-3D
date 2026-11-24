@@ -1123,7 +1123,8 @@ const SHELL = `
     </div>
     <div class="sec" data-panel="scale" hidden>
       <span class="hint">DRAG THE CENTRE OR AN AXIS, PRESS S OR X Y Z, OR TYPE</span>
-      <div class="field"><label for="w3d-factor">FACTOR</label><input id="w3d-factor" data-id="factor" type="number" step="0.1" min="0.01" value="1"></div>
+      <div class="field three" title="Plasticity's XYZ: the scale along X, Y and Z (curves and points take one value for all three)"><label>XYZ</label><input data-scale="0" aria-label="Scale X" type="number" step="0.1" min="0.001" value="1"><input data-scale="1" aria-label="Scale Y" type="number" step="0.1" min="0.001" value="1"><input data-scale="2" aria-label="Scale Z" type="number" step="0.1" min="0.001" value="1"></div>
+      <div class="field" hidden><label for="w3d-factor">FACTOR</label><input id="w3d-factor" data-id="factor" type="number" step="0.1" min="0.01" value="1"></div>
     </div>
     <div class="sec" data-panel="pushpull" hidden>
       <span class="hint" data-id="pp-hint">CLICK A FACE OR THE CONSTRUCTION PLANE</span>
@@ -1417,6 +1418,17 @@ export function plasticityControls(body) {
     new MutationObserver(follow).observe(b, { attributes: true, attributeFilter: ['hidden'] });
     follow();
   }
+  // Move's ΔX, ΔY, ΔZ in one row under one label, as Scale's XYZ (Plasticity's dialogs).
+  const moves = [...body.querySelectorAll('[data-move]')].map(i => i.closest('.field'));
+  if (moves.length === 3 && moves.every(Boolean)) {
+    moves[0].classList.add('three');
+    moves[0].querySelector('label').textContent = 'ΔXYZ';
+    for (const [k, f] of moves.entries()) {
+      const input = f.querySelector('input');
+      input.setAttribute('aria-label', `Move ${'XYZ'[k]}`);
+      if (k) { moves[0].append(input); f.remove(); }
+    }
+  }
   // Two single values Plasticity shows side by side (Sweep's Twist and Scale): one row, each with
   // its own label; either takes the whole row while the other is hidden.
   for (const ids of SIDE_BY_SIDE) {
@@ -1470,6 +1482,9 @@ export function plasticityControls(body) {
   }
 }
 
+/** The model axis (y-up) of each user axis X, Y, Z (the user's Y runs along the model's z). */
+const USER_TO_MODEL = { 0: 0, 1: 2, 2: 1 };
+
 /** Lock buttons shown as a link at the right of a pair of fields: [button, first field]. */
 const PAIR_LOCKS = [['ex-lock', 'ex-distance'], ['blend-link', 'blend-distance']];
 /** Single fields shown side by side, as Plasticity's dialogs do. */
@@ -1512,6 +1527,9 @@ export async function mount(root, backend) {
     const props = root.querySelector('[data-id="tool-properties"]'), body = root.querySelector('[data-id="cd-body"]');
     for (const el of [...props.children]) if (el.tagName !== 'SUMMARY') body.append(el);
     props.remove();
+    // Plasticity's Move and Scale dialogs put the values (XYZ) first, then Orientation and Pivot.
+    const xf = body.querySelector('[data-panel="xf-opts"]'), last = body.querySelector('[data-panel="scale"]');
+    if (xf && last) last.after(xf);
     plasticityControls(body);
     plasticityInspector(root);
   }
@@ -5533,6 +5551,7 @@ export async function mount(root, backend) {
     const angle = angleAbout(quat, c.axis);
     if (document.activeElement !== $('angle')) $('angle').value = +angle.toFixed(3);
     if (document.activeElement !== $('factor')) $('factor').value = +scale.toFixed(4);
+    for (const input of $$('[data-scale]')) if (document.activeElement !== input) input.value = +(scale * (c.stretch?.getComponent(USER_TO_MODEL[input.dataset.scale]) ?? 1)).toFixed(4);
     const lock = c.follow ? ` · ${c.follow.name}` : '';
     if (c.follow?.text) setHud(`${c.follow.name} ${c.follow.text}_`);
     else setHud(c.id === 'move' ? `Δ ${user.map(v => fmt(toUnit(v, lengthUnit))).join(' ')} ${U()}${lock}`
@@ -16119,6 +16138,15 @@ export async function mount(root, backend) {
   for (const input of $$('[data-move]')) input.addEventListener('input', () => setOffset($$('[data-move]').map(i => parseFloat(i.value) || 0)));
   $('angle').addEventListener('input', e => { const v = parseFloat(e.target.value); if (!isNaN(v)) setAngle(v); });
   $('factor').addEventListener('input', e => setFactor(parseFloat(e.target.value)));
+  // Scale's XYZ: each value stretches along that axis (the user's axes); what cannot stretch
+  // (curves, points, faces) takes the value for all three.
+  for (const input of $$('[data-scale]')) input.addEventListener('input', () => {
+    const c = cmd, v = parseFloat(input.value);
+    if (c?.id !== 'scale' || !(v > 0)) return;
+    if (!stretchable(c)) return setFactor(v);
+    c.stretch.setComponent(USER_TO_MODEL[input.dataset.scale], v / c.scale);
+    apply();
+  });
   for (const b of $$('[data-axis]')) b.onclick = () => setAxis(b.dataset.axis);
   const nav = new ViewGizmo($('nav'), {
     // Plasticity 2026.2: a face of the view cube turns the view to the closest matching orientation.

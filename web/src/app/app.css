@@ -159,6 +159,8 @@ button:focus-visible, input:focus-visible { outline: 1px solid var(--accent); ou
 .advanced summary { cursor: pointer; font-size: 10px; letter-spacing: 0.12em; color: var(--muted, inherit); padding: 4px 0; }
 .advanced[open] summary { margin-bottom: 4px; }
 .cmd-dialog .duo { display: flex; gap: 8px; }
+.cmd-dialog .field.three { grid-template-columns: 1fr 1fr 1fr; }
+.cmd-dialog .field.three > label { grid-column: 1 / -1; }
 .cmd-dialog .duo > .field { flex: 1; min-width: 0; }
 .cmd-dialog .advanced { margin-top: 6px; border-top: 1px solid var(--rule-soft); padding-top: 6px; }
 .cmd-dialog .advanced summary { list-style: none; display: flex; align-items: center; justify-content: space-between; }
