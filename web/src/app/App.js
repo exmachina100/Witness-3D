@@ -3095,7 +3095,9 @@ export async function mount(root, backend) {
     const itemOf = k => k.startsWith('g:') ? { kind: 'group', id: +k.slice(2) } : k.startsWith('c:') ? { kind: 'curve', id: curveKeyId(k) } : { kind: 'solid', body: +k };
     const crossed = (y0, y1) => [...list.querySelectorAll('[data-okey]')].filter(r => { const b = r.getBoundingClientRect(); return b.bottom > Math.min(y0, y1) && b.top < Math.max(y0, y1); });
     list.addEventListener('pointerdown', e => {
-      if (e.button !== 0 || e.target.closest('[data-okey], button, input, .sec-head, [contenteditable="true"]')) return;
+      // Rows with their own clicks (measurements, planes) are not empty space: capturing the
+      // pointer here would send their click to the list instead.
+      if (e.button !== 0 || e.target.closest('[data-okey], .measurement, .plane-row, button, input, .sec-head, [contenteditable="true"]')) return;
       const r = list.getBoundingClientRect();
       box = { x0: e.clientX, y0: e.clientY, mod: e.shiftKey ? 'add' : (e.ctrlKey || e.metaKey) ? 'remove' : 'replace', el: document.createElement('div'), moved: false };
       box.el.className = 'obox';
@@ -3264,6 +3266,30 @@ export async function mount(root, backend) {
       };
       out.append(row);
     }
+    // Plasticity's outliner Planes: the saved construction planes; a click uses one, a double-click
+    // uses it and turns the view to face it; the one in use is marked.
+    if (savedPlanes.length) out.insertAdjacentHTML('beforeend', '<div class="group-title">▾ PLANES</div>');
+    savedPlanes.forEach((q, i) => {
+      const row = document.createElement('div');
+      const using = cplane.name === q.name && q.origin.every((v, k) => Math.abs(v - cplane.origin.getComponent(k)) < 1e-9);
+      row.className = 'row-item curve plane-row';
+      row.setAttribute('aria-current', String(using));
+      row.innerHTML = `${icon('plane-face')}<span class="name" title="Click to use, double-click to use and face it"></span><span class="tag">P-${String(i + 1).padStart(2, '0')}</span><button class="drop" aria-label="Forget" title="Forget this plane">${icon('delete')}</button>`;
+      row.querySelector('.name').textContent = q.name;
+      const use = () => setPlane({ origin: new THREE.Vector3(...q.origin), normal: new THREE.Vector3(...q.normal), name: q.name });
+      row.onclick = e => {
+        if (e.target.closest('.drop')) { savedPlanes.splice(i, 1); drawSavedPlanes(); keepAppState(); return; }
+        use();
+        // Marked in place, not redrawn, so a double-click still lands on this row.
+        for (const r of out.querySelectorAll('.plane-row')) r.setAttribute('aria-current', String(r === row));
+      };
+      row.ondblclick = e => {
+        if (e.target.closest('.drop')) return;
+        use();
+        faceThePlane(new THREE.Vector3(...q.origin), new THREE.Vector3(...q.normal));
+      };
+      out.append(row);
+    });
     // Plasticity lists each curvature measurement under Measurements: an eye shows or hides it, a
     // click selects its edge or face, and × takes it off.
     if (surfaceCombs.length || view.curvature || measures.length) out.insertAdjacentHTML('beforeend', '<div class="group-title">▾ MEASUREMENTS</div>');
@@ -3859,6 +3885,10 @@ export async function mount(root, backend) {
     const name = got.kind === 'FACE' ? `FACE · ${label(faces[0].body)}` : got.kind;
     setPlane({ origin, normal, name });
     if (!alignView) return toast(`CONSTRUCTION PLANE · ${name}`);
+    faceThePlane(origin, normal);
+  }
+  /** The view turned to look straight at a plane through `origin`, at the same distance. */
+  function faceThePlane(origin, normal) {
     const dist = camera.position.distanceTo(controls.target);
     controls.target.copy(origin);
     const dir = normal.clone();
@@ -3941,6 +3971,7 @@ export async function mount(root, backend) {
       return row;
     }));
     el.hidden = !savedPlanes.length;
+    renderOutliner();
   }
 
   // --- picking ------------------------------------------------------------
