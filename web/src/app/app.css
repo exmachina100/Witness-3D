@@ -279,6 +279,15 @@ button:focus-visible, input:focus-visible { outline: 1px solid var(--accent); ou
 .tool .lbl { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
 .cmdbar button { display: flex; align-items: center; gap: 6px; }
 .cmdbar .ico { width: 18px; height: 18px; }
+/* Plasticity's command bar: the search button in a box of its own, the commands in a second box
+   beside it, icons only (each key is in its tooltip). */
+.cmdbar { border: 0; background: none; gap: 0; }
+.cmdbar button { background: var(--ground); border-top: 1px solid rgba(239, 235, 224, 0.35); border-bottom: 1px solid rgba(239, 235, 224, 0.35); padding: 7px 12px; }
+.cmdbar button:first-child { border: 1px solid rgba(239, 235, 224, 0.35); margin-right: 6px; }
+.cmdbar button:nth-child(2) { border-left: 1px solid rgba(239, 235, 224, 0.35); }
+.cmdbar button:last-child { border-right: 1px solid rgba(239, 235, 224, 0.35); }
+.cmdbar button + button:not(:nth-child(2)) { border-left: 0; }
+.cmdbar kbd { display: none; }
 .bar .export .ico, .pair .ico { margin-right: -2px; }
 .pair button { display: flex; align-items: center; justify-content: center; gap: 8px; }
 .chips button .ico, .seg button .ico { margin-right: 6px; width: 14px; height: 14px; vertical-align: -3px; }
