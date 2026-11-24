@@ -75,7 +75,7 @@ export const VIEWPORT = {
     // Organising (manual: Outliner; Focus and Isolate). Lock Selected and Unlock All have no key there either.
     '.': 'isolate', 'alt-.': 'unisolate', 'ctrl-g': 'group', 'ctrl-r': 'isoparam', 'alt-g': 'ungroup', f2: 'rename',
     // Materials (manual: Set Material is M)
-    m: 'material:set', 'alt-m': 'material:remove',
+    m: 'material:set', 'shift-m': 'material:fork', 'alt-m': 'material:remove',
     // Construction planes (manual: Construction Plane)
     space: 'plane:selection', 'shift-space': 'plane:selection-keep-view', 'ctrl-space': 'plane:view', 'ctrl-shift-space': 'plane:view-at',
     // Files and history
@@ -223,7 +223,7 @@ export const ACTIONS = {
     'hide': 'Hide selected', 'hide-others': 'Hide unselected', 'unhide-all': 'Unhide all', 'invert-hidden': 'Invert hidden',
     'isolate': 'Isolate selected', 'unisolate': 'Unisolate', 'group': 'Group selected', 'ungroup': 'Ungroup', 'rename': 'Rename selected',
     'lock': 'Lock selected', 'unlock-all': 'Unlock all', 'delete-empty-groups': 'Delete empty groups', 'asset:insert': 'Insert asset', 'spacemouse:connect': 'Connect SpaceMouse',
-    'material:set': 'Set material', 'material:remove': 'Remove material', 'view:render': 'Toggle render mode',
+    'material:set': 'Set material', 'material:fork': 'Fork material', 'material:remove': 'Remove material', 'view:render': 'Toggle render mode',
     'view:edges': 'Viewport: toggle edges', 'view:faces': 'Viewport: toggle faces', 'view:curves': 'Viewport: toggle curves', 'view:images': 'Viewport: toggle images', 'view:constraints': 'Viewport: toggle constraints', 'select:constraints': 'Select all constraints',
     'view:zebra': 'Shader: vertical zebra', 'view:draft': 'Shader: draft angle',
     'view:reflection-zebra': 'Shader: reflection zebra', 'view:reflection-check': 'Shader: reflection check', 'view:reflection-isophote': 'Shader: reflection isophote',
