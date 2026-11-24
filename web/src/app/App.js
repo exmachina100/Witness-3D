@@ -526,7 +526,7 @@ const SHELL = `
         <button data-isodir="v" aria-pressed="false" title="The curve that runs along the face's v, u held"><kbd>V</kbd>ALONG V</button>
       </div>
       <div class="field"><label for="w3d-iso-count">COUNT</label><input id="w3d-iso-count" data-id="iso-count" type="number" step="1" min="1" max="64" value="1" title="How many edges, spread evenly across the face (Shift + wheel); one follows the pointer"></div>
-      <div class="field"><label for="w3d-iso-param">PARAM</label><input id="w3d-iso-param" data-id="iso-param" type="number" step="0.05" min="0" max="1" placeholder="cursor" title="Where one edge lies, from 0 to 1 across the face; empty follows the pointer"></div>
+      <div class="field"><label for="w3d-iso-param">PARAM</label><input id="w3d-iso-param" data-id="iso-param" type="number" step="0.05" min="0" max="1" placeholder="AT CURSOR" title="Where one edge lies, from 0 to 1 across the face; empty follows the pointer"></div>
       <div class="chips"><button data-id="iso-subdivide" aria-pressed="false" title="Subdivide: split the face's control surface too, each piece its own, its control points meeting along the new edges"><kbd>S</kbd>SUBDIVIDE</button></div>
     </div>
     <div class="sec" data-panel="offset-vertex" hidden>
@@ -823,7 +823,7 @@ const SHELL = `
       <div class="field"><label for="w3d-th-b">BACK</label><input id="w3d-th-b" data-id="th-b" type="number" step="0.5" min="0" value="0"></div>
       <div class="field"><label>TOTAL</label><output data-id="th-total">1 MM</output></div>
       <div class="field"><label>FACES</label><output data-id="th-faces">—</output></div>
-      <div class="chips"><button class="chip" data-id="th-lock" aria-pressed="false" title="Lock distances: the back the same as the front (S)">S LOCK DISTANCES</button></div>
+      <div class="chips"><button class="chip" data-id="th-lock" aria-pressed="false" title="Lock distances: the back the same as the front (S)"><kbd>S</kbd>LOCK DISTANCES</button></div>
     </div>
     <div class="sec" data-panel="pipe" hidden>
       <span class="hint" data-id="pipe-hint">—</span>
@@ -1492,7 +1492,15 @@ export function plasticityControls(body) {
     }
     // On/off options become switches; an action (set or remove the pivot, one side more or
     // fewer, add a wall pair) stays a button with its key.
-    for (const b of chips.querySelectorAll(':scope > button[aria-pressed]')) if (!b.matches(ONCE_BUTTONS)) b.classList.add('sw');
+    for (const b of chips.querySelectorAll(':scope > button[aria-pressed]')) {
+      if (b.matches(ONCE_BUTTONS)) continue;
+      b.classList.add('sw');
+      // A switch row shows no icon, so an icon-only option (Mirror's Negative, Freestyle, Cut)
+      // shows its name instead.
+      const words = [...b.childNodes].filter(n => n.nodeType === 3 || (n.nodeType === 1 && !n.matches('kbd, svg, .ico, .sr-only'))).map(n => n.textContent).join('').trim();
+      if (!words && b.getAttribute('aria-label')) b.append(b.getAttribute('aria-label').toUpperCase());
+    }
+    for (const seg of body.querySelectorAll('.seg')) for (const b of seg.querySelectorAll(':scope > button')) if (b.textContent.trim().length > 10) b.classList.add('long');
     // Tabs taken out ahead of the group: the group's rest follows them.
     const first = chips.firstElementChild;
     if (first?.classList.contains('seg') && chips.children.length === 1) chips.replaceWith(first);
@@ -16078,6 +16086,8 @@ export async function mount(root, backend) {
   function closePMenu() { $('pmenu').hidden = true; $('pmenu-open').setAttribute('aria-expanded', 'false'); }
   $('pmenu-open').onclick = () => $('pmenu').hidden ? openPMenu() : closePMenu();
   addEventListener('pointerdown', e => { if (!$('pmenu').hidden && !e.target.closest('.pmenu, .pmenu-open')) closePMenu(); }, true);
+  // Escape closes the P-Menu, as it does every other menu.
+  addEventListener('keydown', e => { if (e.key === 'Escape' && !$('pmenu').hidden) { e.preventDefault(); e.stopImmediatePropagation(); closePMenu(); } }, true);
   addEventListener('pointerdown', e => { if (!$('omenu').hidden && !e.target.closest('.omenu')) $('omenu').hidden = true; }, true);
 
   // Radial menus: the items around the cursor; click one, or hold the menu's key, point and let go.
