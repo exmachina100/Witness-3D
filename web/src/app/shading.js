@@ -18,7 +18,7 @@ export const SHADERS = [
     { id: 'zebra-v', name: 'Vertical zebra', use: 'Surface continuity', mode: 11, option: 'stripes', swatch: 'repeating-linear-gradient(90deg, #eee 0 3px, #111 3px 6px)' },
     { id: 'zebra-ref', name: 'Reflection zebra', use: 'Reflection checker with environment', mode: 18, option: 'stripes', swatch: 'repeating-linear-gradient(45deg, #eee 0 3px, #111 3px 6px)' },
     { id: 'topography', name: 'Topography', use: 'Height lines along the construction plane normal', mode: 12, option: 'spacing', swatch: 'repeating-linear-gradient(#2a2926 0 4px, #ff4d00 4px 5px)' },
-    { id: 'face-direction', name: 'Face direction', use: 'Blue faces out, red faces in', mode: 13, swatch: 'linear-gradient(90deg, #3d6fd9 50%, #d94a3d 50%)' },
+    { id: 'face-direction', name: 'Normal checker', use: 'Blue faces out, red faces in', mode: 13, swatch: 'linear-gradient(90deg, #3d6fd9 50%, #d94a3d 50%)' },
     { id: 'reflection', name: 'Reflection check', use: 'Environment reflection map', mode: 19, option: 'stripes', swatch: 'linear-gradient(135deg, #1a1a2e 0%, #16213e 25%, #0f3460 50%, #e94560 75%, #fff 100%)' },
     { id: 'isophote-ref', name: 'Reflection isophote', use: 'Isophotes with reflection vector', mode: 20, option: 'stripes', swatch: 'repeating-radial-gradient(circle at 30% 30%, #fff 0 3px, #000 3px 6px)' },
     // Plasticity 2026.2's curvature shaders: red where a face bends outward, blue inward, green flat,
