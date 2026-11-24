@@ -16980,6 +16980,28 @@ export async function mount(root, backend) {
     await doAction(action);
   });
   addEventListener('keyup', e => { if (e.key === 'Control' && cmd?.tc) snapsFor(view.snap); });
+  /**
+   * Plasticity's Slide CV, Edge Align and Project Align: hold Ctrl to see the original instead of
+   * the preview; let go to see the preview again.
+   */
+  const ORIGINAL_ON_CTRL = new Set(['slide', 'align-curve', 'align-surface', 'project-align']);
+  let showingOriginal = null;
+  addEventListener('keydown', e => {
+    if (e.key !== 'Control' || e.repeat || showingOriginal || !ORIGINAL_ON_CTRL.has(cmd?.id)) return;
+    const hidden = bodies.children.filter(m => !m.visible && org.shows(m.userData.id));
+    for (const m of hidden) m.visible = true;
+    previewGroup.visible = false;
+    showingOriginal = { c: cmd, hidden };
+  });
+  const endShowingOriginal = () => {
+    if (!showingOriginal) return;
+    previewGroup.visible = true;
+    // Only bodies the same command's preview still hides go back to hidden.
+    if (cmd === showingOriginal.c) for (const m of showingOriginal.hidden) if (m.parent) m.visible = false;
+    showingOriginal = null;
+  };
+  addEventListener('keyup', e => { if (e.key === 'Control') endShowingOriginal(); });
+  addEventListener('blur', endShowingOriginal);
 
   // --- start --------------------------------------------------------------
   renderHistory();
