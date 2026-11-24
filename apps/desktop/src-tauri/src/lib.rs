@@ -308,8 +308,10 @@ async fn mesh_bodies(
     model: State<'_, Model>,
     ids: Vec<u32>,
     tolerance: f64,
+    angle: Option<f64>,
+    inflect: Option<bool>,
 ) -> Result<Vec<api::MeshOut>, api::ApiError> {
-    on_model(&model, move |m| api::mesh_bodies(m, ids, tolerance)).await?
+    on_model(&model, move |m| api::mesh_bodies(m, ids, tolerance, angle.unwrap_or(0.5), inflect.unwrap_or(false))).await?
 }
 
 #[tauri::command]

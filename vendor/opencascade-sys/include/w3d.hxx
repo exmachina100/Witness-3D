@@ -2736,6 +2736,40 @@ inline rust::Vec<double> w3d_refacet(const TopoDS_Shape &shape, rust::Slice<cons
   return out;
 }
 
+// Whether any face's normal curvature changes sign along a u or v isoline, sampled 9 x 9 inside
+// its parameter box: Export Mesh's Inflect refines such bodies (mirrors Kernel.js
+// hasSurfaceInflection in the browser build).
+inline bool w3d_has_inflection(const TopoDS_Shape &shape) {
+  for (TopExp_Explorer ex(shape, TopAbs_FACE); ex.More(); ex.Next()) {
+    try {
+      BRepAdaptor_Surface s(TopoDS::Face(ex.Current()), Standard_True);
+      double u0 = s.FirstUParameter(), u1 = s.LastUParameter(), v0 = s.FirstVParameter(), v1 = s.LastVParameter();
+      if (!std::isfinite(u0) || !std::isfinite(u1) || !std::isfinite(v0) || !std::isfinite(v1) || u1 <= u0 || v1 <= v0) continue;
+      double ku[9][9], kv[9][9];
+      gp_Pnt p; gp_Vec du, dv, duu, dvv, duv;
+      for (int i = 0; i < 9; i++) for (int j = 0; j < 9; j++) {
+        s.D2(u0 + (u1 - u0) * (i + 0.5) / 9, v0 + (v1 - v0) * (j + 0.5) / 9, p, du, dv, duu, dvv, duv);
+        gp_Vec n = du.Crossed(dv);
+        double m = n.Magnitude();
+        ku[i][j] = m > 1e-14 && du.SquareMagnitude() > 0 ? n.Dot(duu) / (m * du.SquareMagnitude()) : 0;
+        kv[i][j] = m > 1e-14 && dv.SquareMagnitude() > 0 ? n.Dot(dvv) / (m * dv.SquareMagnitude()) : 0;
+      }
+      // Along v (a row of fixed u): kv; along u (a column of fixed v): ku.
+      for (int i = 0; i < 9; i++) {
+        bool pos = false, neg = false, cpos = false, cneg = false;
+        for (int j = 0; j < 9; j++) {
+          if (std::isfinite(kv[i][j])) { pos |= kv[i][j] > 1e-7; neg |= kv[i][j] < -1e-7; }
+          if (std::isfinite(ku[j][i])) { cpos |= ku[j][i] > 1e-7; cneg |= ku[j][i] < -1e-7; }
+        }
+        if ((pos && neg) || (cpos && cneg)) return true;
+      }
+    } catch (Standard_Failure &) {
+      // A derivative may be unavailable on a degenerate face.
+    }
+  }
+  return false;
+}
+
 inline rust::Vec<double> w3d_face_poles(const TopoDS_Shape &shape) {
   TopTools_IndexedMapOfShape faces;
   TopExp::MapShapes(shape, TopAbs_FACE, faces);

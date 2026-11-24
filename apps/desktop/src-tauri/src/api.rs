@@ -1397,7 +1397,8 @@ pub fn commit_refillet(m: &Model, req: RefilletRequest) -> Result<Committed, Api
     })
 }
 
-/// A body's triangles for export, at `tolerance` mm from the true surface.
+/// A body's triangles for export, at `tolerance` mm from the true surface and `angle` radians
+/// between neighbouring normals; `inflect` halves both on bodies whose curvature reverses.
 #[derive(Serialize, Debug)]
 pub struct MeshOut {
     pub id: BodyId,
@@ -1405,12 +1406,16 @@ pub struct MeshOut {
     pub indices: Vec<u32>,
 }
 
-pub fn mesh_bodies(m: &Model, ids: Vec<BodyId>, tolerance: f64) -> Result<Vec<MeshOut>, ApiError> {
-    if !(tolerance > 0.0) || !tolerance.is_finite() { return Err(KernelError::Invalid("the tolerance must be greater than zero").into()) }
+pub fn mesh_bodies(m: &Model, ids: Vec<BodyId>, tolerance: f64, angle: f64, inflect: bool) -> Result<Vec<MeshOut>, ApiError> {
+    if !(tolerance > 0.0) || !tolerance.is_finite() || !(angle > 0.0) || !angle.is_finite() {
+        return Err(KernelError::Invalid("the tolerance and angle must be greater than zero").into())
+    }
     m.call(move |doc| {
         ids.iter().map(|&id| {
             let solid = doc.get(id).ok_or(KernelError::Invalid("that body no longer exists"))?;
-            let t = doc.kernel.tessellate(solid, tolerance)?;
+            let f = if inflect && doc.kernel.has_inflection(solid) { 0.5 } else { 1.0 };
+            // On a copy, so the display facets stay as they are and a coarser export is coarser.
+            let t = doc.kernel.refacet(solid, [tolerance * f, angle * f, tolerance * f, angle * f, 0.0])?;
             Ok(MeshOut { id, positions: t.positions.iter().flatten().map(|&c| c as f32).collect(), indices: t.indices })
         }).collect()
     })

@@ -327,6 +327,9 @@ impl Shape {
         ffi::w3d::w3d_refacet(&self.inner, p).map(|v| v.into_iter().collect()).map_err(|e| e.what().to_string())
     }
 
+    /// Whether a face's curvature changes sign along an isoline (see w3d.hxx).
+    pub fn has_inflection(&self) -> bool { ffi::w3d::w3d_has_inflection(&self.inner) }
+
     pub fn face_poles(&self) -> Vec<f64> {
         ffi::w3d::w3d_face_poles(&self.inner).into_iter().collect()
     }

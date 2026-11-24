@@ -810,6 +810,8 @@ pub trait Kernel {
     fn refacet(&self, _s: &Self::Solid, _p: [f64; 5]) -> Result<Tessellation, KernelError> {
         Err(KernelError::Refused("this kernel can't refacet".into()))
     }
+    /// Whether some face's curvature reverses along an isoline (Export Mesh's Inflect).
+    fn has_inflection(&self, _s: &Self::Solid) -> bool { false }
     fn write_step(&self, s: &Self::Solid, path: &std::path::Path) -> Result<(), KernelError>;
     fn read_step(&self, path: &std::path::Path) -> Result<Self::Solid, KernelError>;
     /// IGES out and in (Plasticity 26 reads and writes it through HOOPS Exchange; see the teardown).
