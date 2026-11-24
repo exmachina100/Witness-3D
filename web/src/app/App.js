@@ -101,6 +101,7 @@ import { Organise, curveKey } from './Organise.js';
 import { P_MENU, RADIALS, mergeKeys, parseRadial, shortLabel, showKey, sliceAt, slicePosition } from './menus.js';
 import { formatLength, fromUnit, parseAngle, parseLength, showMass, showVolume, toUnit } from '../units.js';
 import { MATCAPS, matcapById, matcapDataUrl } from './matcaps.js';
+import { fitThroughGuides } from '../profileGuides.js';
 import { ADVANCED_MATERIAL, ENVIRONMENTS, MATERIAL_LIBRARY, SHADERS, SHADER_OPTIONS, checkMaterial, isColorKey, massOf, newMaterial, shader } from './shading.js';
 import { claude, describe, MODEL, reply, request } from './ai.js';
 import { icon } from './icons.js';
@@ -196,6 +197,7 @@ const KEYS = {
   'bridge-edge': [['D', 'TENSION'], ['TAB', 'CONTINUITY G0 G1 G2 G3'], ['X Y Z', 'AXIS'], ['⏎ / RMB', 'OK']],
   'align-surface': [['TAB', 'CONTINUITY G0 G1 G2'], ['D', 'TENSION'], ['B', 'BOUNDARY ALIGNMENT'], ['P', 'PARTIAL ALIGNMENT'], ['⏎ / RMB', 'OK']],
   'project-align': [['TAB', 'CONTINUITY G0 G1 G2 PERP'], ['N X Y Z S', 'PROJECTION'], ['D', 'TENSION'], ['⏎ / RMB', 'OK']],
+  xnurbs: [['CLICK', 'SIDES: CURVES OR EDGES'], ['⇧ CLICK', 'GUIDES: CURVES INSIDE'], ['TAB', 'CONTINUITY G0 G1 G2'], ['T', 'TENSION'], ['⏎ / RMB', 'OK']],
   square: [['⇧ CLICK', 'SIDES: CURVES OR EDGES'], ['TAB', 'CONTINUITY G0 G1 G2'], ['T', 'TENSION'], ['D', 'DEGREE'], ['⏎ / RMB', 'OK']],
   'constrained-surface': [['CLICK', 'ADD A POINT'], ['CTRL Z', 'REMOVE THE LAST'], ['TAB', 'PERFORMANCE / SMOOTHNESS'], ['⏎ / RMB', 'OK']],
   trim: [['CLICK', 'PIECE TO CUT AWAY'], ['CTRL Z', 'UNDO ONE'], ['ESC / ⏎', 'DONE']],
@@ -547,6 +549,7 @@ const SHELL = `
       <div class="field" title="How far the inner control points lie toward the plane of the sides: 0 follows the sides, 1 is as flat as they allow"><label for="w3d-sq-flat">FLATNESS</label><input id="w3d-sq-flat" data-id="sq-flat" type="number" step="0.1" min="0" max="1" value="0"></div>
       <div class="field" title="How strictly the sheet keeps to the sides: 1 on them, lower loosens them for a fairer surface"><label for="w3d-sq-w">WEIGHT</label><input id="w3d-sq-w" data-id="sq-w" type="number" step="0.1" min="0.05" max="1" value="1"></div>
       <div class="chips" data-id="sq-xrow" hidden><button data-id="sq-quad" aria-pressed="false" title="Fill the whole loop as one untrimmed four-sided surface, cut at its four corners (Q)"><kbd>Q</kbd>QUAD SIDED</button><button data-id="sq-satisfy" aria-pressed="true" title="Satisfy tolerances: keep the sheet on its sides within the quality's tolerance; off lets it leave them a little for a fairer surface">SATISFY TOLERANCES</button></div>
+      <div class="field" data-id="sq-guide-row" hidden title="Profile guides: Shift+click open curves inside the loop for the sheet to pass through; Shift+click one again to drop it"><label>GUIDES</label><output data-id="sq-guide-count">0</output></div>
       <div class="seg" data-id="sq-qrow" role="group" aria-label="Quality: how closely the fit follows the sides" hidden><button data-sqquality="auto" aria-pressed="true" title="Auto: within 0.01 mm of the sides">AUTO</button><button data-sqquality="high" aria-pressed="false" title="High: within 0.001 mm">HIGH</button><button data-sqquality="max" aria-pressed="false" title="Max: within 0.0001 mm">MAX</button></div>
       <span class="label">BOUNDARY</span>
       <div class="seg" role="group" aria-label="How the isocurves leave the free sides"><button data-sqbound="natural" aria-pressed="true" title="Natural: the isocurves leave the sides as the fit has them">NATURAL</button><button data-sqbound="normal" aria-pressed="false" title="Normal: the isocurves leave the sides square to them">NORMAL</button><button data-sqbound="next" aria-pressed="false" title="Next: square to the sides that are nearly flat">NEXT</button><button data-sqbound="adjacent" aria-pressed="false" title="Adjacent: the isocurves lean from one neighbouring side's direction to the other's">ADJ.</button></div>
@@ -7849,8 +7852,8 @@ export async function mount(root, backend) {
   async function startSquare({ xnurbs = false } = {}) {
     if (cmd) await finish();
     if (!backend.previewSplineSheet || !backend.edgeCurvature) return toast(`${xnurbs ? 'XNURBS' : 'SQUARE'} IS NOT IN THIS BUILD YET`);
-    const c = cmd = { id: 'square', xnurbs, quad: xnurbs, satisfy: true, quality: 'auto', data: null, sent: 0, shown: 0, edges: new Map(), faces: new Map(), continuity: 'G0' };
-    $('sq-xrow').hidden = $('sq-qrow').hidden = !xnurbs;
+    const c = cmd = { id: 'square', xnurbs, quad: xnurbs, guides: [], satisfy: true, quality: 'auto', data: null, sent: 0, shown: 0, edges: new Map(), faces: new Map(), continuity: 'G0' };
+    $('sq-xrow').hidden = $('sq-qrow').hidden = $('sq-guide-row').hidden = !xnurbs;
     // XNURBS shows the manual's XNurbs fields only (Continuity G0-G2, Quad sided, Flatness, Tension,
     // Boundary, Quality, Satisfy tolerances): Free, Degree, Spans, Weight, Analysis and Constrain
     // are Square's. Its defaults are the manual's: Tension 0.5 (0.1 to 1), Flatness 0.95 with Quad
@@ -7863,7 +7866,7 @@ export async function mount(root, backend) {
     $('sq-satisfy').setAttribute('aria-pressed', 'true');
     lastTool = 'square';
     showTool('square');
-    if (xnurbs) { $('tool-name').textContent = 'XNURBS'; $('status-tool').textContent = 'XNURBS'; }
+    if (xnurbs) { $('tool-name').textContent = $('status-tool').textContent = $('cd-name').textContent = 'XNURBS'; keysOf = 'xnurbs'; showKeys(); }
     setState('none');
     const { sideOf, withOut } = edgeSideReader(c);
     // Refit (Plasticity's Square on one four-sided face): with no curves or edges picked, one face,
@@ -7885,7 +7888,7 @@ export async function mount(root, backend) {
       c.replace = r?.replace ?? null;
       c.refit = !!r;
       if (r) return r.edges.map(n => ({ kind: 'edge', body: r.body, n }));
-      return [...sel.curves.map(id => ({ kind: 'curve', id })), ...sel.list('edge').map(e => ({ kind: 'edge', body: e.body, n: e.n }))];
+      return [...sel.curves.filter(id => !c.guides.includes(id)).map(id => ({ kind: 'curve', id })), ...sel.list('edge').map(e => ({ kind: 'edge', body: e.body, n: e.n }))];
     };
     c.preview = async () => {
       const items = picked();
@@ -7926,6 +7929,8 @@ export async function mount(root, backend) {
         // Next and Adjacent need Quad sided (the manual): without it they are greyed out.
         for (const b of $$('[data-sqbound]')) b.disabled = c.xnurbs && !c.quad && (b.dataset.sqbound === 'next' || b.dataset.sqbound === 'adjacent');
         $('sq-satisfy').setAttribute('aria-pressed', String(c.satisfy));
+        $('sq-guide-count').textContent = c.guides.length;
+        if (many && c.guides.length) throw new Error('profile guides need four sides or Quad sided: five sides or more are filled as patches round a centre');
         if (many) {
           const r = nSidedFill(sides, { degree: Math.round(num('sq-d')), spans: su ? [su, sv] : 0, tolerance: { auto: 0.01, high: 0.001, max: 0.0001 }[c.quality], continuity: c.continuity === 'FREE' ? 'G0' : c.continuity, tension });
           c.data = splineSheetData(r.patches[0]);
@@ -7941,13 +7946,20 @@ export async function mount(root, backend) {
         c.opts = { degree: Math.round(num('sq-d')), spans: su ? [su, sv] : 0, tolerance: { auto: 0.01, high: 0.001, max: 0.0001 }[c.quality], continuity: c.continuity, tension, flatness: Math.min(1, Math.max(0, num('sq-flat') || 0)), boundary: xnurbsBoundary(c), weight: c.xnurbs ? (c.satisfy ? 1 : XNURBS_LOOSE) : Math.min(1, Math.max(0.05, num('sq-w') || 1)) };
         // Create Constraints holds a sheet on curves only, in the order fitted.
         c.onCurves = !c.refit && !c.quad && items.every(it => it.kind === 'curve') ? items.map(it => it.id) : null;
-        fit = square(sides, c.opts);
+        // XNURBS profile guides: the sheet's inner control points bent so it passes through them,
+        // with more spans when the auto fit has too few to follow them.
+        if (c.xnurbs && c.guides.length) {
+          const paths = await Promise.all(c.guides.map(id => sideOf({ kind: 'curve', id })));
+          if (cmd !== c) return;
+          const held = c.continuity === 'G2' ? 3 : c.continuity === 'G1' ? 2 : 1;
+          fit = fitThroughGuides(s => square(sides, { ...c.opts, spans: s }), paths, { spans: c.opts.spans, tolerance: c.opts.tolerance, held });
+        } else fit = square(sides, c.opts);
         for (const b of $$('[data-sqbound]')) b.setAttribute('aria-pressed', String(b.dataset.sqbound === c.opts.boundary));
       } catch (e) { c.data = null; clearPreview(); $('sq-hint').textContent = say(e); return setState('failed'); }
       c.data = splineSheetData(fit);
       c.fit = fit;
       c.analyse();
-      $('sq-hint').textContent = `${c.xnurbs ? 'XNURBS · ' : ''}${c.continuity === 'FREE' ? 'FREE · ' : ''}${c.quad ? 'QUAD SIDED' : fit.kind === 'sweep' ? `SWEEP ON ${items.length} SIDES` : items.length === 2 ? 'LOFT' : items.length === 3 ? 'THREE SIDES' : 'FOUR SIDES'} · DEGREE ${fit.degree[0]} · ${fit.spans.join(' × ')} SPANS · SIDES WITHIN ${fit.gap < 1e-4 ? '< 0.0001' : fit.gap.toFixed(4)} MM${c.continuity === 'G1' || c.continuity === 'G2' ? ` · TANGENT WITHIN ${fit.turn.toFixed(2)}°` : ''}${c.continuity === 'G2' ? ` · CURVATURE WITHIN ${fit.bend.toFixed(5)} /MM` : ''}${num('sq-flat') > 0 ? ` · FLATNESS ${Math.min(1, num('sq-flat'))}` : ''}${num('sq-w') < 1 ? ` · WEIGHT ${Math.max(0.05, num('sq-w'))}` : ''}${c.opts.boundary !== 'natural' ? ` · ${c.opts.boundary.toUpperCase()} BOUNDARY` : ''}${c.xnurbs && !c.satisfy ? ' · TOLERANCES LOOSENED' : ''}`;
+      $('sq-hint').textContent = `${c.xnurbs ? 'XNURBS · ' : ''}${c.continuity === 'FREE' ? 'FREE · ' : ''}${c.quad ? 'QUAD SIDED' : fit.kind === 'sweep' ? `SWEEP ON ${items.length} SIDES` : items.length === 2 ? 'LOFT' : items.length === 3 ? 'THREE SIDES' : 'FOUR SIDES'} · DEGREE ${fit.degree[0]} · ${fit.spans.join(' × ')} SPANS · SIDES WITHIN ${fit.gap < 1e-4 ? '< 0.0001' : fit.gap.toFixed(4)} MM${c.continuity === 'G1' || c.continuity === 'G2' ? ` · TANGENT WITHIN ${fit.turn.toFixed(2)}°` : ''}${c.continuity === 'G2' ? ` · CURVATURE WITHIN ${fit.bend.toFixed(5)} /MM` : ''}${num('sq-flat') > 0 ? ` · FLATNESS ${Math.min(1, num('sq-flat'))}` : ''}${num('sq-w') < 1 ? ` · WEIGHT ${Math.max(0.05, num('sq-w'))}` : ''}${c.opts.boundary !== 'natural' ? ` · ${c.opts.boundary.toUpperCase()} BOUNDARY` : ''}${c.xnurbs && !c.satisfy ? ' · TOLERANCES LOOSENED' : ''}${fit.guideMiss != null ? ` · ${c.guides.length} GUIDE${c.guides.length > 1 ? 'S' : ''} WITHIN ${fit.guideMiss < 1e-4 ? '< 0.0001' : fit.guideMiss.toFixed(4)} MM` : ''}`;
       setHud(`${c.xnurbs ? 'XNURBS' : 'SQUARE'} · ${fit.spans.join(' × ')} SPANS`);
       livePreview(c, () => backend.previewSplineSheet({ data: c.data }), b => showPreviewBody(b), 'sq-hint');
     };
@@ -7972,6 +7984,12 @@ export async function mount(root, backend) {
     c.onSelection = () => { drawOverlays(); c.preview(); };
     c.click = e => {
       const hit = pickAt(e);
+      // Shift+click picks an XNURBS profile guide (as Loft's guides): kept apart from the sides.
+      if (c.xnurbs && e.shiftKey && hit?.kind === 'curve') {
+        c.guides = c.guides.includes(hit.id) ? c.guides.filter(id => id !== hit.id) : [...c.guides, hit.id];
+        if (sel.curves.includes(hit.id)) { sel.toggle({ kind: 'curve', id: hit.id }); selectionChanged(); } else c.preview();
+        return true;
+      }
       if (hit?.kind === 'curve') sel.toggle({ kind: 'curve', id: hit.id });
       else if (hit?.kind === 'edge') sel.toggle({ kind: 'edge', body: hit.body, n: hit.n });
       else return true;

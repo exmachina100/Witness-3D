@@ -280,7 +280,7 @@ function hermite(t, a, b, da, db) {
 const knots = (spans, p) => [...Array(p + 1).fill(0), ...Array.from({ length: spans - 1 }, (_, i) => (i + 1) / spans), ...Array(p + 1).fill(1)];
 
 /** The degree-`p` basis functions of `t` at `x`, all of them (zeros included). */
-function basisRow(t, p, x) {
+export function basisRow(t, p, x) {
     const n = t.length - p - 1;
     x = Math.min(Math.max(x, 0), 1);
     let s = p;
