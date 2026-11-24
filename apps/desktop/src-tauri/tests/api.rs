@@ -392,3 +392,36 @@ fn a_face_curved_by_its_control_points_takes_part_in_booleans() {
     assert!((uni.scene[0].volume - (a + 120_000.0 - overlap)).abs() < 1.0, "union {} vs {}", uni.scene[0].volume, a + 120_000.0 - overlap);
     println!("domed {a:.1} difference {d:.1} union {:.1}", uni.scene[0].volume);
 }
+
+#[test]
+fn shared_edge_points_move_between_faces_of_different_degrees() {
+    // A box's top rebuilt at degree 3 (7x7 points) beside a side at another degree: a point on
+    // their shared edge moves, the side follows, and the body still takes part in a Boolean.
+    for side_how in [None, Some((1, 1)), Some((2, 2)), Some((3, 4)), Some((5, 1))] {
+        let m = api::start();
+        let b = api::scene(&m).unwrap().remove(0);
+        let top = b.face_planes.iter().position(|p| p.as_ref().is_some_and(|p| p.normal[1] > 0.9)).unwrap() as u32;
+        let side = b.face_planes.iter().position(|p| p.as_ref().is_some_and(|p| p.normal[0] > 0.9)).unwrap() as u32;
+        let rebuild = |f: u32, d: u32, s: u32| {
+            let r: api::RebuildFacesRequest = serde_json::from_value(serde_json::json!({
+                "body": 1, "faces": [f], "explicit": true, "degree": [d, d], "spans": [s, s], "tolerance": 0.01, "extend": [0, 0], "shrink": true,
+            })).unwrap();
+            api::commit_rebuild_faces(&m, r).unwrap();
+        };
+        rebuild(top, 3, 4);
+        if let Some((d, s)) = side_how { rebuild(side, d, s); }
+        let nets = api::face_poles(&m, serde_json::from_str(r#"{"body":1}"#).unwrap()).unwrap();
+        let flat: Vec<[f64; 3]> = nets[top as usize].iter().flatten().cloned().collect();
+        let edge: Vec<usize> = (0..flat.len()).filter(|&i| (flat[i][0] - 50.0).abs() < 1e-6).collect();
+        let mid = edge[edge.len() / 2] as u32;
+        let moved = api::commit_move_face_poles(&m, serde_json::from_value(serde_json::json!({ "body": 1, "moves": [[top, mid, [0.0, 10.0, 0.0]]] })).unwrap())
+            .unwrap_or_else(|e| panic!("side {side_how:?}: {}", e.message));
+        let v = moved.scene[0].volume;
+        assert!(v > 125_000.0 + 100.0, "side {side_how:?}: the lifted edge adds volume ({v})");
+        let tool = api::duplicate_bodies(&m, vec![1]).unwrap().ids[0];
+        api::commit_motion(&m, MotionRequest { bodies: vec![tool], offset: [25.0, 20.0, -25.0], pivot: [0.0; 3], axis: [0.0, 1.0, 0.0], angle: 0.0, scale: 1.0 }).unwrap();
+        let u = api::commit_boolean(&m, serde_json::from_str(&format!(r#"{{"target":1,"tools":[{tool}],"op":"union"}}"#)).unwrap()).unwrap();
+        assert_eq!(u.scene.len(), 1, "side {side_how:?}");
+        assert!(u.scene[0].volume > v, "side {side_how:?}");
+    }
+}

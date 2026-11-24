@@ -2972,6 +2972,9 @@ inline std::unique_ptr<TopoDS_Shape> w3d_move_poles_sewn(const TopoDS_Shape &wor
         const TopoDS_Edge there = sf->edge(e);
         double a, b;
         Handle(Geom2d_Curve) pc = BRep_Tool::CurveOnSurface(there, sf->face, a, b);
+        // A face given a new surface (Rebuild Face, Raise Degree) can keep its edges' curves on the
+        // old one: project the edge onto the new surface instead.
+        if (pc.IsNull()) { ShapeFix_Edge().FixAddPCurve(there, sf->face, false, 1e-6); pc = BRep_Tool::CurveOnSurface(there, sf->face, a, b); }
         if (pc.IsNull()) throw std::runtime_error("an edge beside those points has no curve on its face");
         BRepAdaptor_Curve c(there);
         for (int i = 0; i <= SAMPLES; i++) {
@@ -3017,6 +3020,7 @@ inline std::unique_ptr<TopoDS_Shape> w3d_move_poles_sewn(const TopoDS_Shape &wor
         if (BRep_Tool::Degenerated(e)) continue;
         double a, b;
         Handle(Geom2d_Curve) pc = BRep_Tool::CurveOnSurface(e, src, a, b);
+        if (pc.IsNull()) { ShapeFix_Edge().FixAddPCurve(e, src, false, 1e-6); pc = BRep_Tool::CurveOnSurface(e, src, a, b); }
         if (pc.IsNull()) throw std::runtime_error("an edge of that face has no curve on it");
         TopoDS_Edge ne = BRepBuilderAPI_MakeEdge(pc, made, a, b).Edge();
         if (e.Orientation() == TopAbs_REVERSED) ne.Reverse();
