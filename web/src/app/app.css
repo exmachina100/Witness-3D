@@ -438,6 +438,10 @@ input[type="range"] { accent-color: var(--accent); }
 /* The value being set, beside the pointer while a handle is dragged (Plasticity's label). */
 .gizmo-tag { position: absolute; z-index: 7; padding: 3px 7px; background: rgba(20, 20, 22, 0.9); color: var(--ink); border: 1px solid var(--rule); font-size: 11px; white-space: nowrap; pointer-events: none; }
 .gizmo-tag[hidden] { display: none; }
+/* Measurements' values, in the measurement colour (Preferences › Appearance), over the model. */
+.measure-tag { position: absolute; z-index: 6; transform: translate(-50%, -50%); padding: 1px 5px; background: rgba(15, 15, 17, 0.85); color: var(--measure, #6cbf5f); border: 1px solid var(--measure, #6cbf5f); font-size: 10px; letter-spacing: 0.04em; white-space: nowrap; pointer-events: none; }
+.measure-tag.live { border-style: dashed; }
+.measure-tag[hidden] { display: none; }
 .plane-pill { display: flex; align-items: center; gap: 6px; padding: 3px 10px 3px 7px; border: 1px solid var(--rule); border-radius: 999px; background: var(--ground); color: var(--muted); font-size: 10px; }
 .plane-pill:hover { color: var(--ink); border-color: var(--ink); }
 .plane-pill .ico { width: 14px; height: 14px; }

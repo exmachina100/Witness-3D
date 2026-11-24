@@ -123,6 +123,7 @@ import { parallelCylinders, parallelFlatFaces, relatedFaces, samePlane } from '.
 import { circleTangents, closestOnScreen, commonTangents, curvePointSnaps, intersections, perpendicularFeet, tangentPoints } from '../curveSnaps.js';
 import { PREF_FIELDS, changedPrefs, controlSettings, defaultPrefs, readPrefs, setPref, viewColors, wheelSpeed } from './prefs.js';
 import { drawnCurve3d, isFlat as flat3d, cv3d, spline3d } from '../draw3d.js';
+import { checkMeasure, circleOf3, measureAxis, measureShape, radiusMeasure } from './measures.js';
 import { arcPoints, circleThrough, curveFromNurbs, cvPoints, ellipsePoints, endTangent, helixPoints, loops, nurbsLoop, nurbsPoints, polygonCorners, spiralAngle, tangentArc, tangentArcEnds } from '../curves.js';
 
 const KEYS = {
@@ -187,8 +188,8 @@ const KEYS = {
   patch: [['⇧ CLICK', 'CURVES · EDGES'], ['T', 'TANGENT TO FACES'], ['Q', 'QUAD-SIDED'], ['⏎ / RMB', 'OK']],
   hole: [['CLICK', 'A FLAT FACE'], ['T', 'THROUGH ALL'], ['TYPE', 'SIZE IN PANEL'], ['⏎ / RMB', 'OK']],
   split: [['CLICK', 'WHERE TO SPLIT'], ['ESC / ⏎', 'DONE']],
-  'measure-distance': [['CLICK', 'TWO POINTS'], ['CLICK', 'AGAIN TO RESTART'], ['ESC', 'DONE']],
-  'measure-radius': [['CLICK', 'A ROUND EDGE OR CURVE'], ['ESC', 'DONE']],
+  'measure-distance': [['CLICK', 'TWO POINTS'], ['MOVE', 'PICKS THE AXIS'], ['CLICK', 'PLACE'], ['RMB', 'PLACE STRAIGHT'], ['ESC', 'DONE']],
+  'measure-radius': [['CLICK', 'A ROUND EDGE OR CURVE'], ['CLICK', 'PLACE'], ['ESC', 'DONE']],
   'measure-continuity': [['CLICK', 'NEAR TWO CURVE ENDS'], ['ESC', 'DONE']],
   'export-mesh': [['TYPE', 'OPTIONS IN THE DIALOG'], ['⏎ / RMB', 'SAVE'], ['ESC', 'CANCEL']],
   'export-drawing': [['VIEW', 'AS THE CAMERA SEES IT'], ['H', 'HIDDEN LINES'], ['C', 'CURVES'], ['⏎ / RMB', 'SAVE'], ['ESC', 'CANCEL']],
@@ -3228,7 +3229,18 @@ export async function mount(root, backend) {
     }
     // Plasticity lists each curvature measurement under Measurements: an eye shows or hides it, a
     // click selects its edge or face, and × takes it off.
-    if (surfaceCombs.length || view.curvature) out.insertAdjacentHTML('beforeend', '<div class="group-title">▾ MEASUREMENTS</div>');
+    if (surfaceCombs.length || view.curvature || measures.length) out.insertAdjacentHTML('beforeend', '<div class="group-title">▾ MEASUREMENTS</div>');
+    for (const m of measures) {
+      const row = document.createElement('div');
+      row.className = 'row-item curve measurement' + (m.hidden ? ' off' : '');
+      const name = m.kind === 'radius' ? 'RADIUS' : m.axis ? 'DISTANCE' : 'STRAIGHT';
+      row.innerHTML = `${icon('measure')}<span class="name" title="${m.kind === 'radius' ? 'Measure Radius' : m.axis ? 'Measure Distance along an axis' : 'Measure Distance, straight'}">${measureText(m)}</span><span class="tag" title="${name}">M-${String(m.id).padStart(2, '0')}</span><button class="eye" aria-pressed="${!m.hidden}" aria-label="Show or hide">◉</button><button class="drop" aria-label="Remove" title="Remove this measurement">${icon('delete')}</button>`;
+      row.onclick = e => {
+        if (e.target.closest('.eye')) { m.hidden = !m.hidden; return measuresChanged(); }
+        if (e.target.closest('.drop')) { measures = measures.filter(x => x !== m); return measuresChanged(); }
+      };
+      out.append(row);
+    }
     if (view.curvature) {
       const row = document.createElement('div');
       row.className = 'row-item curve measurement';
@@ -3340,6 +3352,49 @@ export async function mount(root, backend) {
   // on (see images.js). They live in the file's app state, not the kernel, and are not picked in
   // the viewport: the outliner lists them, and clicking one opens its panel.
   let images = [], nextImage = 1;
+  // Plasticity's measurements (Measure Distance, Measure Radius) stay in the scene, listed under
+  // Measurements in the outliner, until taken off there; they go into the file.
+  let measures = [], nextMeasure = 1, measureLabels = [];
+  const measureGroup = new THREE.Group();
+  const measureMat = new THREE.LineBasicMaterial({ color: 0x6cbf5f, depthTest: false });
+  scene.add(measureGroup);
+  const measureText = (m, s = measureShape(m)) => `${m.kind === 'radius' ? 'R ' : ''}${len(s.value.toFixed(3))} ${U()}`;
+  /** The measurements, with `extra` (one being placed) drawn too. */
+  function drawMeasures(extra = null) {
+    for (const o of [...measureGroup.children]) { o.geometry.dispose(); o.removeFromParent(); }
+    for (const l of measureLabels) l.el.remove();
+    measureLabels = [];
+    const host = root.querySelector('main.view');
+    for (const m of [...measures.filter(m => !m.hidden), ...(extra ? [extra] : [])]) {
+      const s = measureShape(m);
+      const pts = [...s.line, ...(s.ext ?? []).flat()].map(q => new THREE.Vector3(...q));
+      const lines = new THREE.LineSegments(new THREE.BufferGeometry().setFromPoints(pts), measureMat);
+      lines.renderOrder = 13;
+      measureGroup.add(lines);
+      const el = document.createElement('span');
+      el.className = 'measure-tag' + (m === extra ? ' live' : '');
+      el.textContent = measureText(m, s);
+      host?.append(el);
+      measureLabels.push({ el, at: new THREE.Vector3(...s.label) });
+    }
+    placeMeasureLabels();
+  }
+  /** Each measurement's value sits at its middle (a radius's at its leader's end), kept there as the view moves. */
+  function placeMeasureLabels() {
+    if (!measureLabels.length) return;
+    const v = root.querySelector('main.view').getBoundingClientRect(), r = canvas.getBoundingClientRect();
+    for (const { el, at } of measureLabels) {
+      const s = screenOf(at);
+      el.hidden = s.behind;
+      el.style.left = `${s.x + r.left - v.left}px`;
+      el.style.top = `${s.y + r.top - v.top}px`;
+    }
+  }
+  function measuresChanged() {
+    backupDue = unsaved = true;
+    drawMeasures();
+    renderOutliner();
+  }
   scene.add(imageGroup);
   scene.add(constraintMarks);
   const textures = new Map();
@@ -11054,9 +11109,15 @@ export async function mount(root, backend) {
     c.abort = () => endCmd(c.count ? 'committed' : 'cancelled');
   }
 
-  /** Plasticity's Measure Distance: click two points (they snap); the distance and its x, y, z show. */
+  /**
+   * Plasticity's Measure Distance (manual: Measure, Ctrl+=): click two points (they snap), then move
+   * out and click to place it; the pointer picks the construction-plane axis it measures along
+   * (pulled up it measures across, pulled sideways it measures up), and a right-click there places
+   * the straight distance instead. Each one stays, listed under Measurements in the outliner;
+   * the command carries on for the next until Escape.
+   */
   function startMeasureDistance() {
-    const c = cmd = { id: 'measure-distance', a: null };
+    const c = cmd = { id: 'measure-distance', a: null, b: null, p: null };
     lastTool = 'measure-distance';
     showTool('measure-distance');
     setState('none');
@@ -11070,24 +11131,58 @@ export async function mount(root, backend) {
       ray(e);
       return raycaster.ray.intersectPlane(planeOf(), new THREE.Vector3());
     };
-    const show = (a, b) => {
-      line.geometry.setFromPoints([a, b]);
-      const [dx, dy, dz] = toUser(b.clone().sub(a).toArray());
-      setHud(`DISTANCE ${len(a.distanceTo(b).toFixed(3))} ${U()} · ΔX ${dx.toFixed(3)} ΔY ${dy.toFixed(3)} ΔZ ${dz.toFixed(3)}`);
+    const frame = () => {
+      const n = cplane.normal.clone().normalize(), u = frameFor(n);
+      return { u: u.toArray(), v: n.clone().cross(u).normalize().toArray(), n: n.toArray() };
     };
-    c.move = e => { if (!c.a) return; const b = pointOf(e); if (b) show(c.a, b); };
+    // Placing, the pointer moves in the construction plane's parallel through the first point, so the
+    // measurement stays level with what it measures.
+    const outAt = e => { ray(e); return raycaster.ray.intersectPlane(new THREE.Plane().setFromNormalAndCoplanarPoint(cplane.normal, new THREE.Vector3(...c.a)), new THREE.Vector3()); };
+    const pending = straight => {
+      const f = frame(), ax = straight ? null : measureAxis(c.a, c.b, c.p, f);
+      return { id: 0, kind: 'distance', a: c.a, b: c.b, p: c.p, axis: ax ? f[ax] : null };
+    };
+    const place = straight => {
+      const m = { ...pending(straight), id: nextMeasure++ };
+      measures.push(m);
+      measuresChanged();
+      setHud(`${measureText(m)} PLACED · CLICK THE FIRST POINT OF THE NEXT`);
+      c.a = c.b = c.p = null;
+      setState('updated');
+    };
+    c.move = e => {
+      if (!c.a) return;
+      const q = pointOf(e);
+      if (!q) return;
+      if (!c.b) {
+        line.geometry.setFromPoints([new THREE.Vector3(...c.a), q]);
+        const [dx, dy, dz] = toUser(q.clone().sub(new THREE.Vector3(...c.a)).toArray());
+        return setHud(`DISTANCE ${len(q.distanceTo(new THREE.Vector3(...c.a)).toFixed(3))} ${U()} · ΔX ${dx.toFixed(3)} ΔY ${dy.toFixed(3)} ΔZ ${dz.toFixed(3)}`);
+      }
+      c.p = outAt(e)?.toArray() ?? q.toArray();
+      const m = pending(false);
+      drawMeasures(m);
+      setHud(`${measureText(m)} · CLICK TO PLACE · RIGHT-CLICK: STRAIGHT ${measureText(pending(true))}`);
+    };
     c.click = e => {
       const p = pointOf(e);
       if (!p) return true;
-      if (!c.a || c.done) { c.a = p; c.done = false; line.geometry.setFromPoints([p, p]); setHud('CLICK THE SECOND POINT'); return true; }
-      show(c.a, p);
-      c.done = true;
-      setState('updated');
+      if (!c.a) { c.a = p.toArray(); line.geometry.setFromPoints([p, p]); setHud('CLICK THE SECOND POINT'); return true; }
+      if (!c.b) {
+        if (p.distanceTo(new THREE.Vector3(...c.a)) < 1e-9) return true;
+        c.b = p.toArray(); c.p = p.toArray();
+        line.geometry.setFromPoints([]);
+        setHud('MOVE OUT AND CLICK TO PLACE · RIGHT-CLICK FOR THE STRAIGHT DISTANCE');
+        return true;
+      }
+      c.p = outAt(e)?.toArray() ?? p.toArray();
+      place(false);
       return true;
     };
-    c.finish = () => endCmd(null);
+    // A right-click while placing keeps the straight distance; otherwise it ends the command.
+    c.finish = () => (c.a && c.b && c.p ? place(true) : endCmd(null));
     c.abort = () => endCmd(null);
-    c.cleanup = () => { line.geometry.dispose(); line.removeFromParent(); };
+    c.cleanup = () => { line.geometry.dispose(); line.removeFromParent(); drawMeasures(); };
   }
 
   /**
@@ -11352,37 +11447,71 @@ export async function mount(root, backend) {
     c.abort = () => endCmd(null);
   }
 
-  /** Plasticity's Measure Radius: click a circle or arc, or a round edge of a solid. */
+  /**
+   * Plasticity's Measure Radius: click a round edge or curve, move out to set the leader and click
+   * (left or right) to place it; it stays, listed under Measurements, marked R.
+   */
   function startMeasureRadius() {
-    const c = cmd = { id: 'measure-radius' };
+    const c = cmd = { id: 'measure-radius', circle: null, p: null };
     lastTool = 'measure-radius';
     showTool('measure-radius');
     setState('none');
     setHud('CLICK A ROUND EDGE OR CURVE');
-    c.click = e => {
-      const hit = pickAt(e);
-      let r = null;
+    // The leader's end moves in the circle's plane (the construction plane when seen edge-on).
+    const pointOf = e => {
+      ray(e);
+      const own = new THREE.Plane().setFromNormalAndCoplanarPoint(new THREE.Vector3(...c.circle.normal), new THREE.Vector3(...c.circle.centre));
+      const facing = Math.abs(own.normal.dot(raycaster.ray.direction)) > 0.15;
+      return (facing && raycaster.ray.intersectPlane(own, new THREE.Vector3())) || raycaster.ray.intersectPlane(planeOf(), new THREE.Vector3());
+    };
+    const circleAt = hit => {
+      let pts = [];
       if (hit?.kind === 'curve' || hit?.kind === 'region') {
         const k = curveById(hit.id);
-        if (k?.kind === 'circle') r = k.radius;
-        else if (k?.kind === 'arc') { const g = circleThrough(k.start, k.mid, k.end); r = g?.radius ?? null; }
+        if (k && ['circle', 'arc'].includes(k.kind)) { const f = curveFrame(k); pts = curve2d(k).map(q => lift(f, q)); }
       } else if (hit?.kind === 'edge') {
-        // The circle through three points of the edge; a straight edge has none.
         const e3 = bodyOf(hit.body)?.edges[hit.n] ?? [];
-        const pts = []; for (let i = 0; i < e3.length; i += 3) pts.push(new THREE.Vector3(e3[i], e3[i + 1], e3[i + 2]));
-        if (pts.length >= 3) {
-          const [a, b, q] = [pts[0], pts[Math.floor(pts.length / 2)], pts[pts.length - 1].distanceTo(pts[0]) < 1e-6 ? pts[Math.floor(pts.length / 4)] : pts[pts.length - 1]];
-          const ab = b.clone().sub(a), aq = q.clone().sub(a), n = ab.clone().cross(aq);
-          if (n.lengthSq() > 1e-12) r = ab.length() * aq.length() * q.clone().sub(b).length() / (2 * n.length());
-        }
+        for (let i = 0; i < e3.length; i += 3) pts.push(new THREE.Vector3(e3[i], e3[i + 1], e3[i + 2]));
       }
-      if (r === null) { setHud('NO RADIUS THERE: PICK A CIRCLE, ARC OR ROUND EDGE'); return true; }
-      setHud(`RADIUS ${len(r.toFixed(3))} ${U()} · DIAMETER ${len((2 * r).toFixed(3))} ${U()}`);
+      if (pts.length < 3) return null;
+      // The circle through three points of the edge; a straight edge has none.
+      const closed = pts[pts.length - 1].distanceTo(pts[0]) < 1e-6;
+      const [a, b, q] = [pts[0], pts[Math.floor(pts.length / (closed ? 3 : 2))], closed ? pts[Math.floor(2 * pts.length / 3)] : pts[pts.length - 1]];
+      return circleOf3(a.toArray(), b.toArray(), q.toArray());
+    };
+    const pending = () => ({ id: 0, kind: 'radius', ...c.circle, p: c.p });
+    const place = () => {
+      const m = { ...pending(), id: nextMeasure++ };
+      measures.push(m);
+      measuresChanged();
+      setHud(`${measureText(m)} PLACED · CLICK THE NEXT ROUND EDGE OR CURVE`);
+      c.circle = c.p = null;
       setState('updated');
+    };
+    c.move = e => {
+      if (!c.circle) return;
+      const q = pointOf(e);
+      if (!q) return;
+      c.p = q.toArray();
+      drawMeasures(pending());
+      setHud(`${measureText(pending())} · DIAMETER ${len((2 * c.circle.radius).toFixed(3))} ${U()} · CLICK TO PLACE`);
+    };
+    c.click = e => {
+      if (c.circle) {
+        const q = pointOf(e);
+        if (q) { c.p = q.toArray(); place(); }
+        return true;
+      }
+      const circle = circleAt(pickAt(e));
+      if (!circle) { setHud('NO RADIUS THERE: PICK A CIRCLE, ARC OR ROUND EDGE'); return true; }
+      c.circle = circle;
+      c.p = radiusMeasure(circle, circle.centre).line[0];
+      setHud(`R ${len(circle.radius.toFixed(3))} ${U()} · MOVE OUT AND CLICK TO PLACE`);
       return true;
     };
-    c.finish = () => endCmd(null);
+    c.finish = () => (c.circle && c.p ? place() : endCmd(null));
     c.abort = () => endCmd(null);
+    c.cleanup = () => drawMeasures();
   }
 
   /** Plasticity's Extend Curve: click near an open end of a line or arc to lengthen it by the panel's length. */
@@ -15289,6 +15418,8 @@ export async function mount(root, backend) {
     vertexMat.hover.size = vertexMat.selected.size = look.vertexSize + 4;
     instanceEdgeMat.color.set(look.instanceEdge);
     combMat.color.set(look.measurement);
+    measureMat.color.set(look.measurement);
+    root.style.setProperty('--measure', look.measurement);
     root.style.setProperty('--muted', look.supporting);
     root.style.setProperty('--raised', look.neutral);
     $('nav').style.zoom = look.cubeSize === 1 ? '' : String(look.cubeSize);
@@ -15817,7 +15948,7 @@ export async function mount(root, backend) {
     if (!backend.setAppState) return;
     let preview = null;
     try { preview = previewPng(); } catch { preview = null; }
-    await backend.setAppState({ organise: org.toJSON(), materials: [...materials.values()], materialOf: [...materialOf], nextMaterial, images, nextImage, instances: instances.filter(masterOf), nextInstance, planes: savedPlanes, ...(preview && { preview }) });
+    await backend.setAppState({ organise: org.toJSON(), materials: [...materials.values()], materialOf: [...materialOf], nextMaterial, images, nextImage, instances: instances.filter(masterOf), nextInstance, planes: savedPlanes, measures, nextMeasure, ...(preview && { preview }) });
   }
   /**
    * The view as a small PNG (at most `size` px), saved at the top of the file for Explorer's
@@ -15850,6 +15981,9 @@ export async function mount(root, backend) {
     instances = (Array.isArray(st?.instances) ? st.instances : []).filter(m => !checkInstance(m).length);
     nextInstance = Math.max(Number.isInteger(st?.nextInstance) ? st.nextInstance : 1, ...instances.map(m => m.id + 1));
     drawInstances();
+    measures = (Array.isArray(st?.measures) ? st.measures : []).filter(m => !checkMeasure(m).length);
+    nextMeasure = Math.max(Number.isInteger(st?.nextMeasure) ? st.nextMeasure : 1, ...measures.map(m => m.id + 1));
+    drawMeasures();
     org.prune(current.map(b => b.id));
     materialsChanged();
     organised();
@@ -16700,6 +16834,7 @@ export async function mount(root, backend) {
     if (cmd?.gizmo) cmd.gizmo.render(cmd.gizmo.value);
     for (const g of [...Object.values(cmd?.dots ?? {}), ...(cmd?.extraGizmos?.() ?? [])]) if (g?.visible !== false) g.render(g.value);
     thickLines();
+    placeMeasureLabels();
     if (view.ao) renderAO(); else renderer.render(scene, camera);
   });
   /** Edge and curve thickness (Preferences › Appearance): thick copies of the lines past 1 px. */
@@ -17094,6 +17229,7 @@ export async function mount(root, backend) {
     get bodies() { return current },
     get curves() { return curveList },
     get instances() { return instances.map(n => ({ id: n.id, master: n.master, curve: !!n.curve })) },
+    get measures() { return measures.map(m => ({ ...m, value: measureShape(m).value })) },
     get history() { return history.slice(0, history.length - undone).map(h => h.text) },
     /** Turn a sentence into a command with its preview, as the ASK box does. */
     ask,
