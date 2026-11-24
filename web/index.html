@@ -25,30 +25,51 @@
 }
 </script>
 <script type="module">
-import { loadKernel } from './src/Kernel.js';
-import { LocalBackend } from './src/app/LocalBackend.js';
-import { mount } from './src/app/App.js';
+// The loading screen first (boot.js has no imports), then the kernel and the app behind it.
+import { bootHTML, bootProgress } from './src/app/boot.js';
 
-document.getElementById('app').innerHTML = '<div class="loading" style="position:fixed">LOADING THE OPENCASCADE KERNEL (7 MB)…</div>';
+const app = document.getElementById('app');
+app.innerHTML = `<div class="loading" style="position:fixed">${bootHTML()}</div>`;
 // OpenCascade compiled to WebAssembly: a hosted copy ships it gzipped next to the page
 // (occ.gz.wasm); without it the loader fetches its own .wasm beside replicad_single.js.
-async function bootKernel() {
+// The download is read in pieces so the loading line can show how far it has got.
+async function fetchWithProgress(url) {
+  const res = await fetch(url);
+  if (!res.ok) throw new Error(res.status);
+  const total = Number(res.headers.get('content-length')) || 0;
+  if (!res.body || !total) return res.arrayBuffer();
+  const reader = res.body.getReader(), parts = [];
+  let got = 0;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    parts.push(value);
+    got += value.length;
+    bootProgress(app, Math.min(got / total, 0.99));
+  }
+  return new Blob(parts).arrayBuffer();
+}
+async function bootKernel(kernel) {
   try {
-    const res = await fetch('./occ.gz.wasm');
-    if (!res.ok) throw new Error(res.status);
     // Some hosts decode gzip on the way; only decompress if the bytes are still gzipped.
-    const raw = await res.arrayBuffer();
+    const raw = await fetchWithProgress('./occ.gz.wasm');
     const gz = new Uint8Array(raw, 0, 2);
     const wasmBinary = gz[0] === 0x1f && gz[1] === 0x8b
       ? await new Response(new Blob([raw]).stream().pipeThrough(new DecompressionStream('gzip'))).arrayBuffer()
       : raw;
-    await loadKernel({ wasmBinary });
+    bootProgress(app, null);
+    await (await kernel).loadKernel({ wasmBinary });
   } catch {
-    await loadKernel();
+    bootProgress(app, null);
+    await (await kernel).loadKernel();
   }
 }
-await bootKernel();
-window.__w3d = await mount(document.getElementById('app'), new LocalBackend());
+// The download starts at once; the app's code loads alongside it.
+const kernel = import('./src/Kernel.js');
+const rest = Promise.all([import('./src/app/LocalBackend.js'), import('./src/app/App.js')]);
+await bootKernel(kernel);
+const [{ LocalBackend }, { mount }] = await rest;
+window.__w3d = await mount(app, new LocalBackend());
 </script>
 </body>
 </html>

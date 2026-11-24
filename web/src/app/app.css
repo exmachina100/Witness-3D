@@ -115,6 +115,30 @@ button:focus-visible, input:focus-visible { outline: 1px solid var(--accent); ou
 .recover button[data-rc="open"] { border-color: var(--accent); color: var(--accent); }
 .toast { position: absolute; left: 50%; top: 12px; transform: translateX(-50%); padding: 4px 8px; border: 1px solid var(--accent); color: var(--accent); background: var(--ground); white-space: nowrap; }
 .loading { position: absolute; inset: 0; display: grid; place-items: center; background: var(--ground); color: var(--muted); }
+/* The loading screen (boot.js): the W's pixels fill in on a faint construction grid, a label, a thin line. */
+.boot { display: grid; justify-items: center; gap: 22px; font-family: 'Space Mono', ui-monospace, monospace; }
+.boot-mark { --u: 14px; --gap: 3px; position: relative; width: calc(5 * var(--u) + 4 * var(--gap)); height: calc(5 * var(--u) + 4 * var(--gap)); }
+.boot-mark i { position: absolute; width: var(--u); height: var(--u); left: calc(var(--c) * (var(--u) + var(--gap))); top: calc(var(--r) * (var(--u) + var(--gap))); box-sizing: border-box; }
+.boot-cell { border: 1px solid rgba(239, 235, 224, 0.10); }
+.boot-px { background: var(--accent); opacity: 0; transform: scale(0.4); animation: boot-px 2.6s cubic-bezier(.2, .7, .2, 1) infinite; animation-delay: calc(var(--k) * 70ms); }
+@keyframes boot-px {
+  0% { opacity: 0; transform: scale(0.4); }
+  14% { opacity: 1; transform: scale(1); }
+  72% { opacity: 1; transform: scale(1); }
+  88%, 100% { opacity: 0.12; transform: scale(1); }
+}
+.boot-label { font-size: 11px; letter-spacing: 0.24em; color: var(--muted); white-space: nowrap; }
+.boot-cursor { color: var(--accent); animation: boot-blink 1s steps(1) infinite; }
+.boot-pct { color: var(--ink, #efebe0); }
+@keyframes boot-blink { 50% { opacity: 0; } }
+.boot-line { position: relative; width: 180px; height: 1px; background: rgba(239, 235, 224, 0.14); overflow: hidden; }
+.boot-line b { position: absolute; left: 0; top: 0; bottom: 0; width: 30%; background: var(--accent); animation: boot-sweep 1.4s ease-in-out infinite; }
+.boot-line.known b { animation: none; transition: width 0.2s linear; }
+@keyframes boot-sweep { 0% { transform: translateX(-100%); } 100% { transform: translateX(340%); } }
+@media (prefers-reduced-motion: reduce) {
+  .boot-px { animation: none; opacity: 1; transform: none; }
+  .boot-cursor, .boot-line b { animation: none; }
+}
 .loading[hidden], .toast[hidden], .snap-tag[hidden], .isolated[hidden] { display: none; }
 .isolated { position: absolute; left: 50%; top: 40px; transform: translateX(-50%); display: flex; align-items: center; gap: 6px; padding: 4px 10px; border: 1px solid var(--accent); color: var(--on-accent); background: var(--accent); font-weight: 700; white-space: nowrap; }
 .isolated .ico { width: 14px; height: 14px; }
