@@ -12440,7 +12440,8 @@ export async function mount(root, backend) {
 
   /**
    * Plasticity's Subdivide: the selected curves get twice the control points (their new points are
-   * selected, in point mode), the selected faces twice the spans each way; shapes stay as they were.
+   * selected, in point mode), the selected faces twice the spans each way and one degree more (the
+   * manual); shapes stay as they were.
    */
   async function subdivideSelected() {
     if (cmd) await finish();
@@ -15194,7 +15195,14 @@ export async function mount(root, backend) {
         // body's separate shells.
         if (arg === 'curves' || (!targetBodies().length && !sel.list('face').length && sel.curves.some(curveById))) { await explodeSelected('UNJOIN'); return true; }
         await unjoinSelected(arg === 'faces' || (!arg && sel.list('face').length > 0)); return true;
-      case 'material': if (arg === 'remove') removeMaterial(); else await startTool('material'); return true;
+      case 'material':
+        if (arg === 'remove') removeMaterial();
+        else {
+          await startTool('material');
+          // Fork Material (Shift+M, 2025.2): the selection gets its own copy to change.
+          if (arg === 'fork' && cmd?.id === 'material') cmd.fork();
+        }
+        return true;
     }
     switch (a) {
       case 'palette': openPalette(false); return true;
@@ -15707,7 +15715,7 @@ export async function mount(root, backend) {
   }
   const ICON_ALIAS = {
     unjoin: 'explode', 'unjoin:pieces': 'explode', 'unjoin:faces': 'explode', 'unjoin:curves': 'explode', select: 'mode-all', 'select:invert': 'mode-all', 'select:all': 'mode-all',
-    convert: 'mode-solid', export: 'export', 'export:drawing': 'export-drawing', material: 'material', 'material:set': 'material', measure: 'measure',
+    convert: 'mode-solid', export: 'export', 'export:drawing': 'export-drawing', material: 'material', 'material:set': 'material', 'material:fork': 'fork-material', measure: 'measure',
     'view:focus': 'nav-focus', 'view:surface-curvature': 'view-curvature', 'plane:selection': 'plane-face', 'plane:selection-keep-view': 'plane-face', 'plane:view': 'plane-view',
     hide: 'view-faces', 'unhide-all': 'view-faces', 'tool:shell': 'shell', 'tool:offset': 'offset', 'tool:hole': 'hole', unify: 'unify', lock: 'padlock', 'unlock-all': 'unlock',
   };

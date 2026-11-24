@@ -1392,7 +1392,8 @@ export class LocalBackend {
     async commitSubdivideFaces({ body, faces }) {
         const s = this.shapes.get(body);
         if (!s) throw new Error('that body no longer exists');
-        const shape = subdivideFaces(s, faces);
+        // Plasticity's Subdivide: twice the spans and one degree more (the manual), shape unchanged.
+        const { shape } = raiseFaces(subdivideFaces(s, faces), faces);
         this.checkpoint();
         this.put(body, shape);
         return { id: body, scene: this.bodies() };
