@@ -245,6 +245,17 @@ button:focus-visible, input:focus-visible { outline: 1px solid var(--accent); ou
 .cmdbar button + button { border-left: 1px solid var(--rule-soft); }
 .cmdbar button:hover { color: var(--ink); background: var(--hover); }
 .cmdbar kbd { font: inherit; opacity: 0.6; margin-right: 6px; }
+/* The Command Bar extended (•••, Shift+F): suggested commands for the selection as icon rows. */
+.bar-more { position: absolute; left: 50%; bottom: 72px; transform: translateX(-50%); max-width: min(640px, calc(100% - 32px)); max-height: calc(100% - 140px); overflow: auto; background: var(--ground); border: 1px solid rgba(239, 235, 224, 0.35); padding: 8px 10px 10px; z-index: 6; }
+.bar-more[hidden] { display: none; }
+.bar-more .bm-head { font-size: 9px; letter-spacing: 1.5px; color: var(--muted); padding-bottom: 6px; border-bottom: 1px solid var(--rule-soft); margin-bottom: 4px; }
+.bar-more .bm-group { display: grid; grid-template-columns: 96px 1fr; align-items: start; gap: 8px; padding: 4px 0; }
+.bar-more .bm-label { font-size: 8.5px; letter-spacing: 1px; color: var(--muted); padding-top: 9px; }
+.bar-more .bm-row { display: flex; flex-wrap: wrap; gap: 2px; }
+.bar-more button { width: 32px; height: 32px; display: grid; place-items: center; color: var(--muted); border: 1px solid transparent; }
+.bar-more button:hover, .bar-more button:focus-visible { color: var(--ink); border-color: var(--accent); }
+.bar-more .ico, .bar-more svg { width: 18px; height: 18px; }
+.cmdbar [aria-expanded="true"] { color: var(--accent); }
 
 /* box select: green touches (right to left), purple holds (left to right), as in Plasticity */
 .boxsel { position: absolute; pointer-events: none; border: 1px solid #a78bfa; background: rgba(167, 139, 250, 0.08); }
