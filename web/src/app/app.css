@@ -130,7 +130,7 @@ button:focus-visible, input:focus-visible { outline: 1px solid var(--accent); ou
 .row-item .dis:not([aria-pressed="true"]) { display: none; }
 .row-item:hover .dis { display: grid; }
 .row-item.disabled .name, .row-item.disabled .tag { color: var(--dim); text-decoration: line-through; }
-.row-item.active-collection .name { color: var(--accent); }
+.row-item.active-collection .name { color: var(--supporting, #2ec4b6); }
 .row-item.filtered { display: none; }
 .outliner-search { margin: 6px 10px 0; padding: 4px 6px; background: transparent; border: 1px solid var(--rule); color: var(--ink); font: inherit; font-size: 11px; letter-spacing: 0.08em; }
 .row-item.folder { padding-left: 14px; }

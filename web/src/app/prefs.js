@@ -26,10 +26,10 @@ export const PREF_FIELDS = {
     appearance: [
         // Plasticity's Language: the app's words laid over in that language (i18n.js).
         { key: 'language', label: 'LANGUAGE', type: 'choice', value: 'en', options: LANGUAGES },
-        // Plasticity's Appearance colour groups: Accent, Supporting (secondary text and icons),
+        // Plasticity's Appearance colour groups: Accent, Supporting (the active collection and connected points),
         // Neutral (menus and toolbars), Viewport (with preset swatches), Grid, edges, Measurement.
         { key: 'accent', label: 'ACCENT', type: 'color', value: '#ff4d00' },
-        { key: 'supporting', label: 'SUPPORTING', type: 'color', value: '#8e949e' },
+        { key: 'supporting', label: 'SUPPORTING (ACTIVE GROUP, CONNECTED POINTS)', type: 'color', value: '#2ec4b6' },
         { key: 'neutral', label: 'NEUTRAL (MENUS AND TOOLBARS)', type: 'color', value: '#141416' },
         { key: 'background', label: 'VIEWPORT BACKGROUND', type: 'color', value: '#0f0f11', presets: ['#0f0f11', '#1b1c20', '#2a2c31', '#3c3f45', '#5a5e66', '#c9c6bd'] },
         { key: 'grid', label: 'GRID', type: 'color', value: '#19191c' },
