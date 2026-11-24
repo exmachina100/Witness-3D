@@ -10189,7 +10189,16 @@ export async function mount(root, backend) {
       c.preview();
     };
     $('th-lock').onclick = () => setLock(!c.lock);
-    c.preview = () => livePreview(c, () => backend.previewThicken(c.request()), b => {
+    // Plasticity 2026.2: a Thicken that fails shows the problem in red, as Hollow does: the round
+    // faces bending tighter than the thickness (either side, as it may grow both ways), else the body.
+    c.preview = () => livePreview(c, async () => {
+      try { const b = await backend.previewThicken(c.request()); showFailed([]); return b; }
+      catch (e) {
+        const r = c.request(), t = Math.max(r.front, r.back);
+        if (cmd === c) shellCulprits(c.body, t, { only: c.faces, eitherSide: true }).then(parts => { if (cmd === c) showFailed(parts); });
+        throw e;
+      }
+    }, b => {
       // Thicken Face's solid is a new body; the one its faces are on stays in view.
       showPreviewBody(c.faces.length ? { ...b, id: -1 } : b);
       $('th-hint').textContent = `${label(c.body)}${c.faces.length ? ` · ${c.faces.length} FACE${c.faces.length > 1 ? 'S' : ''}` : ''} · ${len(num('th-f') + num('th-b'))} ${U()} THICK`;
@@ -10202,6 +10211,7 @@ export async function mount(root, backend) {
         const missing = faces().length ? 'PICK FACES ON ONE BODY' : 'SELECT ONE SHEET OR FACES';
         $('th-hint').textContent = missing;
         clearPreview();
+        showFailed([]);
         return setHud(missing);
       }
       Object.assign(c, t);
@@ -10231,7 +10241,7 @@ export async function mount(root, backend) {
       } catch (e) { setState('failed'); toast(say(e)); }
     };
     c.abort = () => endCmd('cancelled');
-    c.cleanup = () => { clearPreview(); c.gizmo?.dispose(); $('th-b').disabled = false; };
+    c.cleanup = () => { clearPreview(); showFailed([]); c.gizmo?.dispose(); $('th-b').disabled = false; };
     c.onSelection();
   }
 
@@ -12824,11 +12834,13 @@ export async function mount(root, backend) {
    * Where a Hollow of `thickness` most likely fails: round faces (cylinders, spheres, fillets) bending
    * tighter than the wall, which the offset can't follow. None found: the whole body.
    */
-  async function shellCulprits(body, thickness) {
+  async function shellCulprits(body, thickness, { only = null, eitherSide = false } = {}) {
     let faces = [];
     try {
       const list = backend.faceSurfaces ? await backend.faceSurfaces({ body }) : [];
-      faces = list.map((f, n) => ({ f, n })).filter(({ f }) => f.radius > 0 && f.radius <= Math.abs(thickness) + 1e-9 && f.outward !== false).map(({ n }) => n);
+      faces = list.map((f, n) => ({ f, n }))
+        .filter(({ f, n }) => (!only?.length || only.includes(n)) && f.radius > 0 && f.radius <= Math.abs(thickness) + 1e-9 && (eitherSide || f.outward !== false))
+        .map(({ n }) => n);
     } catch { faces = []; }
     return faces.length ? [{ body, faces }] : [{ body }];
   }
