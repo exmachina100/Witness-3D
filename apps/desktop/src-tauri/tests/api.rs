@@ -347,3 +347,16 @@ fn sweep_distance_follows_the_shortened_path_given_whole() {
     let c = api::commit_form(&m, req).unwrap();
     close(c.scene.iter().find(|b| b.id == c.id).unwrap().volume, 1000.0);
 }
+
+#[test]
+fn mesh_export_takes_the_angle_and_inflect() {
+    let m = api::start_enclosure();
+    let id = api::scene(&m).unwrap()[0].id;
+    api::commit_blend(&m, fillet(id, vec![0], 8.0)).unwrap();
+    let tris = |angle: f64, inflect: bool| api::mesh_bodies(&m, vec![id], 0.5, angle, inflect).unwrap()[0].indices.len() / 3;
+    // A finer angle between normals puts more facets round the fillet.
+    assert!(tris(0.05, false) > tris(0.5, false));
+    // A fillet's curvature never reverses, so Inflect leaves it alone.
+    assert_eq!(tris(0.5, true), tris(0.5, false));
+    assert!(api::mesh_bodies(&m, vec![id], 0.5, 0.0, false).is_err());
+}

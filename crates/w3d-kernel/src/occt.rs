@@ -871,6 +871,8 @@ impl Kernel for Occt {
         Ok(t)
     }
 
+    fn has_inflection(&self, s: &Shape) -> bool { s.has_inflection() }
+
     fn write_step(&self, s: &Shape, path: &FilePath) -> Result<(), KernelError> {
         s.write_step(path).map_err(failed)
     }
