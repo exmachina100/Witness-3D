@@ -181,10 +181,21 @@ export function assemble(shape, all, replaced, gap, what, hint = '') {
     return result;
 }
 
+/** A B-spline surface's control points as rows of [x, y, z] (u slowest), as Toggle Points shows them. */
+const netOf = b => {
+    const rows = [];
+    for (let a = 1; a <= b.NbUPoles(); a++) {
+        const row = [];
+        for (let c = 1; c <= b.NbVPoles(); c++) { const p = b.Pole(a, c); row.push([p.X(), p.Y(), p.Z()]); }
+        rows.push(row);
+    }
+    return rows;
+};
+
 /**
  * `shape` with `faces` rebuilt; `how` as FaceRebuild on the desktop: { explicit, degree: [u, v],
  * spans: [u, v], tolerance, extend: [u, v] (mm past both sides), shrink }. Returns the new shape and,
- * per face, its degree, pole counts and furthest deviation from the old surface.
+ * per face, its degree, pole counts and furthest deviation from the old surface and its control net.
  */
 export function rebuildFaces(shape, faces, how = {}) {
     const o = oc();
@@ -227,7 +238,7 @@ export function rebuildFaces(shape, faces, how = {}) {
         const dev = deviation(at, made, own, 48);
         gap = Math.max(gap, dev * 1.5 + 1e-4);
         replaced.set(n, remade(face, made, own));
-        out.push({ face: n, degree: [made.UDegree(), made.VDegree()], poles: [made.NbUPoles(), made.NbVPoles()], deviation: dev });
+        out.push({ face: n, degree: [made.UDegree(), made.VDegree()], poles: [made.NbUPoles(), made.NbVPoles()], deviation: dev, net: netOf(made) });
     }
     return { shape: assemble(shape, all, replaced, gap, 'the rebuilt face', '; try more spans or a higher degree'), rebuilt: out };
 }
