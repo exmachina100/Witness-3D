@@ -36,7 +36,7 @@ button:focus-visible, input:focus-visible { outline: 1px solid var(--accent); ou
 .tools::-webkit-scrollbar { display: none; }
 .tool { display: flex; align-items: center; gap: 6px; padding: 0 10px; flex: none; border-right: 1px solid var(--rule-soft); white-space: nowrap; color: var(--muted); }
 .tool kbd { font: inherit; font-size: 9px; opacity: 0.6; }
-.tool[aria-pressed="true"] { background: var(--ink); color: var(--on-accent); }
+.tool[aria-pressed="true"] { background: var(--accent); color: var(--on-accent); }
 .tool:disabled { color: var(--dim); }
 .bar .spacer { flex: 1 1 0; min-width: 0; }
 .bar .file, .bar .export { display: flex; align-items: center; gap: 8px; padding: 0 12px; border-left: 1px solid var(--rule); color: var(--muted); white-space: nowrap; }
@@ -53,7 +53,7 @@ button:focus-visible, input:focus-visible { outline: 1px solid var(--accent); ou
 .rail .family + .family { border-top: 1px solid var(--rule-soft); }
 .rail .family .tool { justify-content: center; padding: 0; height: 34px; width: 34px; border-right: 0; }
 .rail .family .tool:hover { color: var(--ink); }
-.rail .family .tool[aria-pressed="true"] { background: var(--ink); color: var(--on-accent); }
+.rail .family .tool[aria-pressed="true"] { background: var(--accent); color: var(--on-accent); }
 .tabs { display: grid; grid-template-columns: 1fr 1fr; border-bottom: 1px solid var(--rule); }
 .tabs button { height: 37px; color: var(--muted); font-size: 10px; }
 .tabs button[aria-selected="true"] { background: var(--ink); color: var(--on-accent); }
@@ -100,11 +100,11 @@ button:focus-visible, input:focus-visible { outline: 1px solid var(--accent); ou
 .hud[data-idle] { background: var(--ground); color: var(--muted); border: 1px solid var(--rule); font-weight: 400; }
 .modes { position: absolute; left: 14px; top: 12px; display: flex; border: 1px solid rgba(239, 235, 224, 0.35); background: var(--ground); }
 .modes button { padding: 5px 10px; color: var(--muted); }
-.modes button[aria-pressed="true"] { background: var(--ink); color: var(--on-accent); }
+.modes button[aria-pressed="true"] { background: var(--accent); color: var(--on-accent); }
 .modes button:disabled { color: var(--dim); }
 /* The running command's keys, bottom right of the viewport as in Plasticity's key overlay. */
 .keys { position: absolute; right: 14px; bottom: 72px; display: grid; grid-template-columns: auto auto auto auto; gap: 5px 10px; font-size: 10px; pointer-events: none; max-height: calc(100% - 200px); overflow: hidden; align-content: end; }
-.keys kbd { font: inherit; text-align: right; padding: 0 5px; border: 1px solid rgba(239, 235, 224, 0.6); }
+.keys kbd { font: inherit; text-align: right; padding: 0 5px; border: 1px solid rgba(239, 235, 224, 0.16); background: rgba(239, 235, 224, 0.05); color: var(--ink); }
 .keys span { color: var(--muted); }
 .recover { position: absolute; left: 50%; top: 44px; transform: translateX(-50%); z-index: 6; display: flex; align-items: center; gap: 8px; padding: 8px 10px; background: var(--raised); border: 1px solid var(--accent); box-shadow: 0 12px 40px rgba(0, 0, 0, 0.5); font-size: 11px; width: max-content; max-width: calc(100% - 32px); }
 .recover[hidden] { display: none; }
@@ -163,7 +163,7 @@ button:focus-visible, input:focus-visible { outline: 1px solid var(--accent); ou
 .seg.wrap2 { grid-auto-flow: row; grid-template-columns: repeat(2, minmax(0, 1fr)); }
 .seg button, .chips button { padding: calc(7px * var(--space, 1)) calc(6px * var(--space, 1)); border: 1px solid var(--rule); color: var(--muted); white-space: nowrap; }
 .seg button kbd, .chips button kbd { font: inherit; opacity: 0.6; margin-right: 6px; }
-.seg button[aria-pressed="true"], .chips button[aria-pressed="true"] { background: var(--ink); border-color: var(--ink); color: var(--on-accent); }
+.seg button[aria-pressed="true"], .chips button[aria-pressed="true"] { background: var(--accent); border-color: var(--accent); color: var(--on-accent); }
 .seg button:hover:not([aria-pressed="true"]):not(:disabled), .chips button:hover:not([aria-pressed="true"]) { color: var(--ink); border-color: var(--muted); }
 .seg button:disabled { color: var(--dim); border-color: var(--rule-soft); }
 .chips { display: flex; flex-wrap: wrap; gap: calc(4px * var(--space, 1)); font-size: 10px; }
@@ -423,7 +423,7 @@ input[type="range"] { accent-color: var(--accent); }
 .vhead button { width: 30px; height: 28px; display: grid; place-items: center; color: var(--muted); }
 .vhead button + button { border-left: 1px solid var(--rule-soft); }
 .vhead button:hover { color: var(--ink); }
-.vhead button[aria-pressed="true"], .vhead button[aria-expanded="true"] { background: var(--ink); color: var(--on-accent); }
+.vhead button[aria-pressed="true"], .vhead button[aria-expanded="true"] { background: var(--accent); color: var(--on-accent); }
 .vhead .ico { width: 16px; height: 16px; margin: 0; }
 .vpop { position: absolute; z-index: 30; width: 300px; max-height: calc(100% - 60px); overflow: auto; display: flex; flex-direction: column; gap: 12px; padding: 14px; background: var(--raised); border: 1px solid var(--rule); box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5); }
 .vpop[hidden] { display: none; }
@@ -579,3 +579,8 @@ dialog.xdialog[aria-busy="true"] > * { pointer-events: none; }
 /* Anything a command hides stays hidden, whatever display the dialog's control styles give it. */
 .cmd-dialog [hidden] { display: none !important; }
 .inspector-section .plane-icons { grid-template-columns: repeat(4, minmax(0, 1fr)); margin-top: 6px; }
+/* Selected functions are lit in the accent, as Plasticity lights its selected ones in its own
+   accent: the icon's accent strokes take the dark ink so they stay seen on the accent fill. */
+[aria-pressed="true"] > .ico .ac, [aria-pressed="true"] > .ico { stroke: var(--on-accent); }
+.keys kbd kbd { border: 0; background: none; padding: 0; }
+.inspector-section .view-icons button[aria-pressed="true"] { background: var(--accent); border-color: var(--accent); color: var(--on-accent); }
