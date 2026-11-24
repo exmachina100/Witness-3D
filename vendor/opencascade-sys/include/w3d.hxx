@@ -5882,7 +5882,9 @@ inline std::unique_ptr<TopoDS_Shape> w3d_reshape_fillets(const TopoDS_Shape &sha
 // Plasticity's Raise Surface Degree: each of `faces` with its surface's U and V degree raised by one,
 // which adds a row and a column of control points without changing its shape. A face that is not
 // a B-spline (a plane, cylinder, sphere...) is first fitted as one, degree 3, within 1e-3 mm.
-inline std::unique_ptr<TopoDS_Shape> w3d_raise_faces(const TopoDS_Shape &shape, rust::Slice<const int32_t> faces) {
+// With `by` 0 it is Remove Nominal Surface: the face only becomes that B-spline (its control points
+// shown and editable); a face that already is one is refused.
+inline std::unique_ptr<TopoDS_Shape> w3d_raise_faces(const TopoDS_Shape &shape, rust::Slice<const int32_t> faces, int32_t by) {
   if (faces.empty()) throw std::runtime_error("select the faces or solids to raise");
   try {
     TopoDS_Shape work = BRepBuilderAPI_Copy(shape).Shape();
@@ -5898,6 +5900,7 @@ inline std::unique_ptr<TopoDS_Shape> w3d_raise_faces(const TopoDS_Shape &shape, 
       BRepTools::UVBounds(f, u0, u1, v0, v1);
       Handle(Geom_BSplineSurface) bs = Handle(Geom_BSplineSurface)::DownCast(s);
       double dev = 0.0;
+      if (!bs.IsNull() && by == 0) throw std::runtime_error("that face is already a B-spline with its control points");
       if (!bs.IsNull()) bs = Handle(Geom_BSplineSurface)::DownCast(bs->Copy());
       else {
         for (int k : {1, 2, 3, 4, 6, 8, 12, 16, 24, 32, 48}) {
@@ -5911,9 +5914,11 @@ inline std::unique_ptr<TopoDS_Shape> w3d_raise_faces(const TopoDS_Shape &shape, 
           if (dev <= 1e-3) break;
         }
       }
-      const int du = std::min(bs->UDegree() + 1, Geom_BSplineSurface::MaxDegree()), dv = std::min(bs->VDegree() + 1, Geom_BSplineSurface::MaxDegree());
-      if (du == bs->UDegree() && dv == bs->VDegree()) throw std::runtime_error("that face is already at the highest degree");
-      bs->IncreaseDegree(du, dv);
+      if (by > 0) {
+        const int du = std::min(bs->UDegree() + by, Geom_BSplineSurface::MaxDegree()), dv = std::min(bs->VDegree() + by, Geom_BSplineSurface::MaxDegree());
+        if (du == bs->UDegree() && dv == bs->VDegree()) throw std::runtime_error("that face is already at the highest degree");
+        bs->IncreaseDegree(du, dv);
+      }
       rs->Replace(f, w3d_face_on(f, bs, loc, dev));
     }
     TopoDS_Shape result = rs->Apply(work);

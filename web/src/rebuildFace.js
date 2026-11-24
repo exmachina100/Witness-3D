@@ -235,9 +235,10 @@ export function rebuildFaces(shape, faces, how = {}) {
 /**
  * Plasticity's Raise Surface Degree, as w3d_raise_faces: each of `faces` (all of them when empty)
  * with its U and V degree raised by one, which adds control points without changing its shape. A
- * face that isn't a B-spline is first fitted as one, degree 3, within 1e-3 mm.
+ * face that isn't a B-spline is first fitted as one, degree 3, within 1e-3 mm. With `by` 0 it is
+ * Remove Nominal Surface: the face only becomes that B-spline; one that already is one is refused.
  */
-export function raiseFaces(shape, faces = []) {
+export function raiseFaces(shape, faces = [], by = 1) {
     const o = oc();
     const all = numbered(shape, 'TopAbs_FACE').map(f => o.TopoDS.Face(f));
     const which = faces.length ? faces : all.map((_, i) => i);
@@ -251,13 +252,17 @@ export function raiseFaces(shape, faces = []) {
         const { UMin, UMax, VMin, VMax } = o.BRepTools.UVBounds(face, 0, 0, 0, 0);
         const own = [UMin, UMax, VMin, VMax];
         let made;
-        if (ad.GetType() === o.GeomAbs_SurfaceType.GeomAbs_BSplineSurface) made = new o.Geom_BSplineSurface(ad.BSpline());
+        const isSpline = ad.GetType() === o.GeomAbs_SurfaceType.GeomAbs_BSplineSurface;
+        if (isSpline && by === 0) throw new Error('that face is already a B-spline with its control points');
+        if (isSpline) made = new o.Geom_BSplineSurface(ad.BSpline());
         else for (const k of STEPS) {
             made = refit(at, own, [3, 3], [k, k]);
             if (deviation(at, made, own) <= 1e-3) break;
         }
-        if (made.UDegree() >= 25 && made.VDegree() >= 25) throw new Error('that face is already at the highest degree');
-        made.IncreaseDegree(Math.min(made.UDegree() + 1, 25), Math.min(made.VDegree() + 1, 25));
+        if (by > 0) {
+            if (made.UDegree() >= 25 && made.VDegree() >= 25) throw new Error('that face is already at the highest degree');
+            made.IncreaseDegree(Math.min(made.UDegree() + by, 25), Math.min(made.VDegree() + by, 25));
+        }
         const dev = deviation(at, made, own, 48);
         gap = Math.max(gap, dev * 1.5 + 1e-4);
         replaced.set(n, remade(face, made, own));

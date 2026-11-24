@@ -12531,6 +12531,30 @@ export async function mount(root, backend) {
     } catch (e) { toast(say(e)); }
   }
 
+  /**
+   * Plasticity's Remove Nominal Surface: the selected analytic faces (planes, cylinders, cones...)
+   * become B-spline surfaces of the same shape, so their control points can be shown and moved.
+   */
+  async function removeNominal() {
+    if (cmd) await finish();
+    if (!backend.commitNominalFaces) return toast('REMOVE NOMINAL SURFACE IS NOT IN THIS BUILD YET');
+    const byBody = new Map();
+    for (const it of sel.list('face')) byBody.set(it.body, [...(byBody.get(it.body) ?? []), it.n]);
+    if (!byBody.size) return toast('SELECT THE FACES TO REMOVE THE NOMINAL SURFACE OF');
+    try {
+      let list = null, last = null, count = 0;
+      for (const [body, faces] of byBody) {
+        const r = await backend.commitNominalFaces({ body, faces });
+        list = r.scene; last = r.id; count += r.rebuilt.length;
+        record(`REMOVE NOMINAL ×${faces.length}`, r.id);
+      }
+      await showScene(list);
+      sel.replace({ kind: 'solid', body: last });
+      selectionChanged({ quiet: true });
+      toast(`${count} FACE${count > 1 ? 'S' : ''} NOW B-SPLINE`);
+    } catch (e) { toast(say(e)); }
+  }
+
   async function raiseSelected() {
     if (cmd) await finish();
     const ids = sel.curves.filter(curveById);
@@ -15402,6 +15426,7 @@ export async function mount(root, backend) {
       case 'align-curve': await startAlignCurve(); return true;
       case 'rebuild': await startRebuild(); return true;
       case 'raise-degree': await raiseSelected(); return true;
+      case 'remove-nominal': await removeNominal(); return true;
       case 'subdivide': await subdivideSelected(); return true;
       case 'complete-edge': await completeSelected(); return true;
       case 'convert-vertex': await convertSelected(); return true;
@@ -15886,7 +15911,7 @@ export async function mount(root, backend) {
     ['BOOLEAN · CUT', /^tool:(boolean|cut|imprint|project)$|^(cut-curve|trim|split|slot)$/],
     ['FILLET · OFFSET', /^tool:(fillet|fillet-curve|offset|offset-curve|remove-face|draft|extend-sheet)$|^(remove-fillets|extend)$/],
     ['TRANSFORM', /^tool:(move|rotate|scale|mirror|rect-array|radial-array|curve-array)$|^(duplicate|place|copy-place|create-instance|slide|align-vertex|align-curve|align-surface|project-align|deform-curve|dimension)$/],
-    ['EDIT', /^(join|unjoin:.*|explode|reverse|reverse-sheet|rebuild|insert-knot|raise-degree|subdivide|complete-edge|match-face|untrim|unwrap|isoparam|unify|boundary-edges|convert-vertex|toggle-points)$/],
+    ['EDIT', /^(join|unjoin:.*|explode|reverse|reverse-sheet|rebuild|insert-knot|raise-degree|remove-nominal|subdivide|complete-edge|match-face|untrim|unwrap|isoparam|unify|boundary-edges|convert-vertex|toggle-points)$/],
   ];
   function renderContext() {
     const el = $('ctx');
@@ -15910,7 +15935,7 @@ export async function mount(root, backend) {
     if (sel.solids.length > 1) out.push('tool:boolean');
     if (sel.solids.length === 2) out.push('tool:project');
     if (kinds.has('solid')) out.push('tool:move', 'tool:rotate', 'tool:scale', 'duplicate', 'create-outline', 'toggle-points', 'place', 'copy-place', 'dimension', 'tool:mirror', 'tool:rect-array', 'tool:radial-array', 'tool:curve-array', 'unify', 'boundary-edges', 'remove-fillets', 'raise-degree', 'deform-curve', 'create-instance', 'delete', 'hide', 'isolate', 'group', 'lock', 'material:set', 'export:step', 'export:iges', 'export:mesh', 'export:drawing');
-    if (kinds.has('face')) out.push('tool:extrude', 'tool:offset', 'tool:thicken', 'tool:shell', 'tool:hole', 'tool:remove-face', 'alt-duplicate', 'remove-fillets', 'isoparam', 'rebuild', 'raise-degree', 'subdivide', 'match-face', 'untrim', 'unwrap', 'toggle-points', 'view:surface-curvature', 'plane:selection', 'plane:selection-keep-view');
+    if (kinds.has('face')) out.push('tool:extrude', 'tool:offset', 'tool:thicken', 'tool:shell', 'tool:hole', 'tool:remove-face', 'alt-duplicate', 'remove-fillets', 'isoparam', 'rebuild', 'raise-degree', 'remove-nominal', 'subdivide', 'match-face', 'untrim', 'unwrap', 'toggle-points', 'view:surface-curvature', 'plane:selection', 'plane:selection-keep-view');
     if (sel.list('face').length >= 2) out.push('tool:loft');
     if (sel.list('edge').length === 1 && sel.list('face').length === 1) out.push('project-align');
     if (kinds.has('edge')) out.push('tool:fillet', 'tool:patch', 'alt-duplicate', 'measure:radius', 'view:surface-curvature', ...(sel.list('edge').length === 2 ? ['bridge-edge', 'align-surface'] : []), ...([2, 3, 4].includes(sel.list('edge').length) ? ['square'] : []));

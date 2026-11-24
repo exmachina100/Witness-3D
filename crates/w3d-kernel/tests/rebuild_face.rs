@@ -190,3 +190,17 @@ fn raise_degree_on_a_solid_fits_its_flat_and_round_faces_first() {
     let v = k.tessellate(&r, 0.001).unwrap().volume();
     assert!((v - PI * 250.0).abs() < 0.5, "volume {v}");
 }
+
+#[test]
+fn remove_nominal_surface_makes_analytic_faces_splines_once() {
+    let k = Occt;
+    let ground = Frame::new(DVec3::ZERO, DVec3::X, DVec3::Y);
+    let c = primitive(&k, &w3d_kernel::solids::Primitive::Cylinder { frame: ground, radius: 5.0, height: 10.0 }).unwrap();
+    let all: Vec<u32> = (0..k.face_count(&c) as u32).collect();
+    let (r, info) = k.nominal_faces(&c, &all).unwrap();
+    assert!(k.is_valid(&r) && !k.is_sheet(&r));
+    assert!(info.iter().all(|f| f.degree == [3, 3] && f.deviation <= 1e-3), "{info:?}");
+    let v = k.tessellate(&r, 0.001).unwrap().volume();
+    assert!((v - PI * 250.0).abs() < 0.5, "volume {v}");
+    assert!(k.nominal_faces(&r, &[0]).is_err(), "a B-spline face has no nominal surface left");
+}

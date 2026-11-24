@@ -662,6 +662,11 @@ pub trait Kernel {
     fn raise_faces(&self, _s: &Self::Solid, _faces: &[u32]) -> Result<(Self::Solid, Vec<RebuiltFace>), KernelError> {
         Err(KernelError::Invalid("this kernel cannot raise the degree of faces"))
     }
+    /// Plasticity's Remove Nominal Surface: `faces` that aren't B-splines made into ones (degree 3,
+    /// within 1e-3 mm), so their control points show and can be moved; faces keep their numbers.
+    fn nominal_faces(&self, _s: &Self::Solid, _faces: &[u32]) -> Result<(Self::Solid, Vec<RebuiltFace>), KernelError> {
+        Err(KernelError::Invalid("this kernel cannot remove nominal surfaces"))
+    }
     /// Plasticity's Toggle Surface Curvature: `n + 1` comb teeth along edge `edge` of `s`.
     fn edge_curvature(&self, _s: &Self::Solid, _edge: u32, _n: usize) -> Result<Vec<CombTooth>, KernelError> {
         Err(KernelError::Invalid("this kernel cannot measure edge curvature"))

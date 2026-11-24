@@ -212,6 +212,7 @@ const ICONS = {
     'swap-uv': `<path d="M6 4v12h12"/><path ${A} d="M15 4l3 3-3 3M18 7H11M9 20l-3-3 3-3M6 17h7"/>`,
     'complete-edge': `<path d="M3 4v16M21 4v16"/><path ${A} d="M8 12h8"/><path d="M4 12h4M16 12h4" stroke-dasharray="2 2"/>`,
     subdivide: `<path d="M3 18C7 6 17 6 21 18"/><path d="M3 18L7 8h10l4 10" stroke-dasharray="2 2"/><path ${A} d="M5 13h0M12 8h0M19 13h0" stroke-width="3" stroke-linecap="round"/>`,
+    'remove-nominal': `<path d="M4 17L20 17" stroke-dasharray="2 2"/><path ${A} d="M4 13C9 9 15 9 20 13"/><circle ${A} cx="4" cy="13" r="1.4"/><circle ${A} cx="12" cy="10" r="1.4"/><circle ${A} cx="20" cy="13" r="1.4"/>`,
     'raise-degree': `<path d="M3 18C8 6 14 6 21 18"/><path ${A} d="M3 14C8 2 14 2 21 14" stroke-dasharray="2 2"/><path ${A} d="M12 9V5M10 7l2-2 2 2"/>`,
     // Reverse Sheet: a sheet with its normal flipped over.
     'reverse-sheet': `<path d="M4 14l8-4 8 4"/><path ${A} d="M12 10V3M9.5 5.5L12 3l2.5 2.5M12 12v8M9.5 17.5L12 20l2.5-2.5" stroke-dasharray="0"/>`,
