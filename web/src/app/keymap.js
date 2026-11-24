@@ -57,6 +57,8 @@ export const VIEWPORT = {
     'ctrl-c': 'copy', 'ctrl-v': 'paste',
     // Dimension (manual: =)
     '=': 'dimension',
+    // Measure Distance (manual: Measure, Ctrl+=)
+    'ctrl-=': 'measure:distance',
     // Curves (0.6.30's default keymap: J joins curves; 26.1 keeps it)
     j: 'join',
     // Raise Degree (manual: Raise Surface Degree is Shift+S; curves by what is selected)
