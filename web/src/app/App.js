@@ -79,7 +79,7 @@ import { curveArrayMotions, curveLength } from '../curveArray.js';
 import { chamferDimensions, curveDimensions, faceDimensions, filletDimensions, solidDimensions } from '../dimension.js';
 import { edgeCurve, flattenCurve } from '../altDuplicate.js';
 import { EDGE_CONTINUITY, bridgeCurve, bridgePoles, edgePoint, facePoint, sampledEnd } from '../bridgeEdge.js';
-import { ALIGN_CONTINUITY, alignAnalysis, alignRequest, readEdgeFaces, sidePoint, targetFace } from '../alignSurface.js';
+import { ALIGN_CONTINUITY, alignAnalysis, alignRequest, readEdgeFaces, sidePoint, skewFrames, targetFace } from '../alignSurface.js';
 import { PROJECT_CONTINUITY, projectAlignRequest } from '../projectAlign.js';
 import { constrainedSurface, splineSheetData } from '../constrainedSurface.js';
 import { square, squareAnalysis, quadSides } from '../square.js';
@@ -4763,7 +4763,7 @@ export async function mount(root, backend) {
   const alignHandles = new THREE.Group();
   alignHandles.renderOrder = 8;
   scene.add(alignHandles);
-  const alignHandleMat = { dot: new THREE.PointsMaterial({ color: 0xffffff, size: 11, sizeAttenuation: false, depthTest: false }), picked: new THREE.PointsMaterial({ color: 0xff7a1a, size: 13, sizeAttenuation: false, depthTest: false }) };
+  const alignHandleMat = { dot: new THREE.PointsMaterial({ color: 0xffffff, size: 11, sizeAttenuation: false, depthTest: false }), picked: new THREE.PointsMaterial({ color: 0xff7a1a, size: 13, sizeAttenuation: false, depthTest: false }), skew: new THREE.PointsMaterial({ color: 0xffd23f, size: 11, sizeAttenuation: false, depthTest: false }), line: new THREE.LineBasicMaterial({ color: 0xffd23f, depthTest: false }) };
   const badgeCache = new Map();
   /** A black circle with the continuity written in it, as Edge Align shows on the edge. */
   function continuityBadge(text) {
@@ -12274,11 +12274,30 @@ export async function mount(root, backend) {
         dot.userData = { handle: k, at };
         alignHandles.add(dot);
       }
+      // Skew: a handle off each end of the side, along the way the sheet leaves it, on a line from
+      // the corner; dragging it round turns that end's angle (Start, End).
+      c.skew = null;
+      const side = c.req?.check?.side;
+      if (c.boundary === 'skew' && side) {
+        c.skew = skewFrames(side, c.req.check.moves ?? []);
+        c.skew.forEach((f, k) => {
+          if (!f) return;
+          const a = num(k ? 'as-k1' : 'as-k0') * DEG, corner = new THREE.Vector3(...f.corner);
+          const dir = new THREE.Vector3(...f.square).multiplyScalar(Math.cos(a)).addScaledVector(new THREE.Vector3(...f.out), Math.sin(a));
+          const at = corner.clone().addScaledVector(dir, 48 * unitsPerPixel(corner));
+          const line = new THREE.Line(new THREE.BufferGeometry().setFromPoints([corner, at]), alignHandleMat.line);
+          alignHandles.add(line);
+          const dot = new THREE.Points(new THREE.BufferGeometry().setFromPoints([at]), c.drag === `k${k}` ? alignHandleMat.picked : alignHandleMat.skew);
+          dot.userData = { handle: `k${k}`, at };
+          alignHandles.add(dot);
+        });
+      }
     };
     const handleAt = e => {
       const p = local(e);
       let best = null, bd = 14;
       for (const h of alignHandles.children) {
+        if (!h.userData.at) continue;
         const s = screenOf(h.userData.at);
         const d = Math.hypot(s.x - p.x, s.y - p.y);
         if (!s.behind && d < bd) { bd = d; best = h.userData.handle; }
@@ -12302,12 +12321,27 @@ export async function mount(root, backend) {
       if (!h) return false;
       if (h === 'continuity') { c.key('continuity'); return true; }
       c.drag = h;
-      setHud(`MOVE ALONG THE EDGE TO SET THE PARTIAL ${h === 'p0' ? 'START' : 'END'} · CLICK TO KEEP`);
+      setHud(h[0] === 'k' ? `MOVE ROUND TO SET THE ${h === 'k0' ? 'START' : 'END'} SKEW ANGLE · CLICK TO KEEP` : `MOVE ALONG THE EDGE TO SET THE PARTIAL ${h === 'p0' ? 'START' : 'END'} · CLICK TO KEEP`);
       paintHandles();
       return true;
     };
     c.move = e => {
       if (!c.drag) return;
+      if (c.drag[0] === 'k') {
+        const k = +c.drag[1], f = c.skew?.[k];
+        if (!f) return;
+        const sq = new THREE.Vector3(...f.square), out = new THREE.Vector3(...f.out), corner = new THREE.Vector3(...f.corner);
+        ray(e);
+        const hit = raycaster.ray.intersectPlane(new THREE.Plane().setFromNormalAndCoplanarPoint(sq.clone().cross(out).normalize(), corner), new THREE.Vector3());
+        if (!hit) return;
+        const v = hit.sub(corner);
+        const deg = Math.max(-85, Math.min(85, Math.round(Math.atan2(v.dot(out), v.dot(sq)) / DEG * 2) / 2));
+        $(k ? 'as-k1' : 'as-k0').value = deg;
+        setHud(`${k ? 'END' : 'START'} SKEW ${deg}° · CLICK TO KEEP`);
+        clearTimeout(c.dragTimer);
+        c.dragTimer = setTimeout(() => cmd === c && c.preview(), 60);
+        return;
+      }
       const f = fractionAt(e);
       if (f === null) return;
       const id = c.drag === 'p0' ? 'as-p0' : 'as-p1', other = num(c.drag === 'p0' ? 'as-p1' : 'as-p0');
@@ -17528,7 +17562,7 @@ export async function mount(root, backend) {
       return [(s.x + 1) / 2 * r.width + r.left, (1 - s.y) / 2 * r.height + r.top];
     },
     /** Edge Align's on-screen handles, each with where it is in the viewport. */
-    get alignHandles() { return alignHandles.children.map(h => ({ handle: h.userData.handle, at: h.userData.at.toArray() })) },
+    get alignHandles() { return alignHandles.children.filter(h => h.userData.at).map(h => ({ handle: h.userData.handle, at: h.userData.at.toArray() })) },
     get selection() { return sel.list().map(it => ({ ...it })) },
     get modes() { return [...sel.modes] },
     get command() {

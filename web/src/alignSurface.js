@@ -517,6 +517,29 @@ export function sidePoint(side, f, moves = []) {
     return N.reduce((s, w, j) => w ? add(s, mul(row[j], w)) : s, [0, 0, 0]);
 }
 
+/**
+ * Where Skew's handles sit, after `moves`: for the side's start and end corner, the corner, the
+ * square direction off the side (in the sheet's leaving plane) and the outward direction along
+ * the side, so a skew angle a leaves along cos(a) square + sin(a) out, as alignMoves tilts it.
+ */
+export function skewFrames(side, moves = []) {
+    const { rows, ids } = side;
+    if (rows.length < 2) return [];
+    const by = new Map(moves.map(([pole, d]) => [pole, d]));
+    const at = (i, j) => by.has(ids[i][j]) ? add(rows[i][j], by.get(ids[i][j])) : rows[i][j];
+    const m = rows[0].length - 1;
+    return [0, m].map(e => {
+        const corner = at(0, e), t = e === 0 ? sub(at(0, 1), at(0, 0)) : sub(at(0, e), at(0, e - 1));
+        const off = sub(at(1, e), corner);
+        if (len(t) < 1e-12 || len(off) < 1e-12) return null;
+        const out = mul(unit(t), e === 0 ? -1 : 1);
+        let square = sub(off, mul(out, dot(off, out)));
+        if (len(square) < 1e-12) return null;
+        square = unit(square);
+        return { corner, square, out, reach: len(off) };
+    });
+}
+
 export function sideSamples(side, moves, n = 32) {
     const { rows, ids, along, q, across: A, p } = side;
     const by = new Map(moves.map(([pole, d]) => [pole, d]));

@@ -306,3 +306,25 @@ test('the partial handles sit on the side at their fraction, after the moves', a
     const moved = sidePoint(side, 0.5, moves);
     assert.ok(Math.abs(moved[0] - 20) < 1e-6 && Math.abs(moved[2]) < 1e-6, `on the reference: ${moved}`);
 });
+
+test('the skew handles read back the angle each end leaves at', async () => {
+    const { sideOf, alignPoints, alignMoves, skewFrames } = await import('../src/alignSurface.js');
+    const spline = { du: 3, dv: 3, uk: [0, 0, 0, 0, 1, 1, 1, 1], vk: [0, 0, 0, 0, 1, 1, 1, 1], rational: false,
+        poles: Array.from({ length: 4 }, (_, i) => Array.from({ length: 4 }, (_, j) => [21 + 3 * i, 20 * j / 3, 8])) };
+    const side = sideOf(spline, [[21, 0, 8], [21, 10, 8], [21, 20, 8]]);
+    const plan = alignPoints(side, Array.from({ length: 41 }, (_, k) => [20, 20 * k / 40, 0]));
+    const flat = { at: [0, 0, 0], su: [1, 0, 0], sv: [0, 1, 0], suu: [0, 0, 0], suv: [0, 0, 0], svv: [0, 0, 0], sign: 1 };
+    const moves = alignMoves(side, plan, plan.points.map(() => flat), { continuity: 'G1', boundary: 'skew', skew: [20, -10] });
+    const frames = skewFrames(side, moves);
+    assert.equal(frames.length, 2);
+    const angle = (f, k) => {
+        const by = new Map(moves.map(([p, d]) => [p, d]));
+        const m = side.rows[0].length - 1, e = k ? m : 0;
+        const p1 = by.has(side.ids[1][e]) ? side.rows[1][e].map((v, i) => v + by.get(side.ids[1][e])[i]) : side.rows[1][e];
+        const off = p1.map((v, i) => v - f.corner[i]);
+        const d = (a, b) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
+        return Math.atan2(d(off, f.out), d(off, f.square)) * 180 / Math.PI;
+    };
+    assert.ok(Math.abs(angle(frames[0], 0) - 20) < 1e-6, `start ${angle(frames[0], 0)}`);
+    assert.ok(Math.abs(angle(frames[1], 1) - -10) < 1e-6, `end ${angle(frames[1], 1)}`);
+});
