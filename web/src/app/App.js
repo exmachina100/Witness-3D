@@ -898,6 +898,8 @@ const SHELL = `
       <span class="hint" data-id="pa-hint">—</span>
       <span class="label">CONTINUITY</span>
       <div class="seg" role="group" aria-label="Continuity with the reference surface"><button data-pacont="G0" aria-pressed="false" title="Meet the reference surface (G0)">G0</button><button data-pacont="G1" aria-pressed="true" title="Meet it and its tangent plane (G1)">G1</button><button data-pacont="G2" aria-pressed="false" title="Meet it, its tangent plane and its curvature (G2)">G2</button><button data-pacont="PERP" aria-pressed="false" title="Meet it and leave it square (Perpendicular)">PERP</button></div>
+      <span class="label">SOLVER</span>
+      <div class="seg" role="group" aria-label="Solver"><button data-pasolver="constrained" aria-pressed="true" title="Constrained: the aligned rows move, and as many extra rows as Blend extra rows says">CONSTRAINED</button><button data-pasolver="xnurbs" aria-pressed="false" title="XNurbs: the whole sheet eases toward the new side; needs a reference curve">XNURBS</button></div>
       <span class="label">PROJECTION</span>
       <div class="seg" role="group" aria-label="Projection direction"><button data-padir="normal" aria-pressed="true" title="Along the reference surface's normal: the nearest points (N)">NORMAL</button><button data-padir="x" aria-pressed="false" title="Along X (X)">X</button><button data-padir="y" aria-pressed="false" title="Along Y (Y)">Y</button><button data-padir="z" aria-pressed="false" title="Along Z (Z)">Z</button><button data-padir="screen" aria-pressed="false" title="Along the view (S)">SCREEN</button></div>
       <div class="field" title="How fast the sheet leaves its side, against how fast it does now (D)"><label for="w3d-pa-t">TENSION</label><input id="w3d-pa-t" data-id="pa-t" type="number" step="0.1" min="0.05" value="1"></div>
@@ -11914,7 +11916,7 @@ export async function mount(root, backend) {
     if (curves.length) {
       try { curve = curveSidePoints(curveById(curves[0].id), curves[0].id); } catch (e) { return toast(say(e)); }
     }
-    const c = cmd = { id: 'project-align', continuity: 'G1', dir: 'normal', screen: null, req: null, sent: 0, shown: 0 };
+    const c = cmd = { id: 'project-align', continuity: 'G1', solver: 'constrained', dir: 'normal', screen: null, req: null, sent: 0, shown: 0 };
     lastTool = 'project-align';
     showTool('project-align');
     setState('none');
@@ -11922,22 +11924,24 @@ export async function mount(root, backend) {
     const buttons = () => {
       for (const b of $$('[data-pacont]')) b.setAttribute('aria-pressed', String(b.dataset.pacont === c.continuity));
       for (const b of $$('[data-padir]')) b.setAttribute('aria-pressed', String(b.dataset.padir === c.dir));
+      for (const b of $$('[data-pasolver]')) b.setAttribute('aria-pressed', String(b.dataset.pasolver === c.solver));
     };
     const direction = () => c.dir === 'normal' ? null : c.dir === 'screen' ? c.screen : toWorld(userAxis(c.dir));
     c.preview = () => {
       buttons();
       const along = curve ? `TO ${curveLabel(curves[0].id)}` : c.dir === 'normal' ? 'ALONG ITS NORMAL' : c.dir === 'screen' ? 'ALONG THE VIEW' : `ALONG ${c.dir.toUpperCase()}`;
-      $('pa-hint').textContent = `${label(target.body)} PROJECTS ONTO ${label(reference.body)} ${along} · ${c.continuity === 'PERP' ? 'PERPENDICULAR' : c.continuity}`;
+      $('pa-hint').textContent = `${label(target.body)} PROJECTS ONTO ${label(reference.body)} ${along} · ${c.continuity === 'PERP' ? 'PERPENDICULAR' : c.continuity}${c.solver === 'xnurbs' ? ' · XNURBS SOLVER' : ''}`;
       setHud(`PROJECT ALIGN ${c.continuity === 'PERP' ? 'PERPENDICULAR' : c.continuity} · TENSION ${num('pa-t')}`);
       livePreview(c, async () => {
         c.req = null;
-        const req = await projectAlignRequest(backend, { target, reference, direction: direction(), curve, continuity: c.continuity, tension: num('pa-t'), blend: Math.max(0, Math.round(num('pa-blend') || 0)) });
+        const req = await projectAlignRequest(backend, { target, reference, direction: direction(), curve, continuity: c.continuity, tension: num('pa-t'), blend: Math.max(0, Math.round(num('pa-blend') || 0)), solver: c.solver });
         const b = await backend.previewMoveFacePoles(req);
         c.req = req;
         return b;
       }, b => showPreviewBody(b), 'pa-hint');
     };
     c.setContinuity = g => { c.continuity = g; c.preview(); };
+    c.setSolver = v => { c.solver = v; c.preview(); };
     c.setDirection = d => {
       c.dir = d;
       if (d === 'screen') c.screen = controls.target.clone().sub(camera.position).normalize().toArray();
@@ -16332,6 +16336,7 @@ export async function mount(root, backend) {
   $('as-ratio').onclick = () => { if (cmd?.id !== 'align-surface') return; cmd.matchRatio = !cmd.matchRatio; cmd.preview(); };
   $('as-constrain').onclick = () => { if (cmd?.id !== 'align-surface') return; surfaceConstrain = !surfaceConstrain; cmd.preview(); };
   for (const b of $$('[data-assolver]')) b.onclick = () => cmd?.id === 'align-surface' && cmd.setSolver(b.dataset.assolver);
+  for (const b of $$('[data-pasolver]')) b.onclick = () => cmd?.id === 'project-align' && cmd.setSolver(b.dataset.pasolver);
   for (const b of $$('[data-asbound]')) b.onclick = () => { if (cmd?.id === 'align-surface') { cmd.boundary = b.dataset.asbound; cmd.preview(); } };
   $('as-analysis').onclick = () => cmd?.id === 'align-surface' && cmd.setAnalysis(!cmd.analysis);
   for (const id of ['as-tg0', 'as-tg1', 'as-tg2']) $(id).addEventListener('input', () => cmd?.id === 'align-surface' && cmd.analyse());

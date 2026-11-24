@@ -17,6 +17,9 @@ const unit = a => mul(a, 1 / len(a));
 /** Continuity in the order Tab cycles it. */
 export const PROJECT_CONTINUITY = ['G0', 'G1', 'G2', 'PERP'];
 
+/** Plasticity 2026.2's solvers for Project Align; XNurbs needs a reference curve. */
+export const PROJECT_SOLVERS = ['constrained', 'xnurbs'];
+
 /** The step in face parameters (0..1 over the face) for derivatives by differences. */
 const H = 1e-3;
 
@@ -94,8 +97,10 @@ export function alongLine(points, line) {
  * curve instead, each point at its share of the length, dropped onto the surface along its normal.
  * Returns { body, moves } for previewMoveFacePoles / commitMoveFacePoles.
  */
-export async function projectAlignRequest(backend, { target, reference, direction = null, curve = null, continuity = 'G1', tension = 1, blend = 0, influence = 0 }) {
+export async function projectAlignRequest(backend, { target, reference, direction = null, curve = null, continuity = 'G1', tension = 1, blend = 0, influence = 0, solver = 'constrained' }) {
     if (target.body === reference.body) throw new Error('the reference surface must be another body');
+    if (!PROJECT_SOLVERS.includes(solver)) throw new Error('the solver is Constrained or XNurbs');
+    if (solver === 'xnurbs' && !curve) throw new Error('the XNurbs solver needs a reference curve: Shift-select one with the edge and face');
     const uvn = async points => (await backend.faceUvn({ body: reference.body, face: reference.face, points })).points;
     const mapAt = async points => (await backend.faceUvn({ body: reference.body, face: reference.face, map: true, points })).points;
     const teeth = await backend.edgeCurvature({ body: target.body, edge: target.edge, n: 400 });
@@ -110,6 +115,9 @@ export async function projectAlignRequest(backend, { target, reference, directio
     if (st.some(([s, t]) => s < -0.02 || s > 1.02 || t < -0.02 || t > 1.02)) throw new Error('the edge projects past the reference surface; extend it or pick a bigger one');
     const frames = await framesAt(mapAt, st);
     if (frames.some(f => len(cross(f.su, f.sv)) < 1e-12)) throw new Error('the reference surface has no tangent plane there');
-    const moves = alignMoves(side, { greville, points: frames.map(f => f.at) }, frames, { continuity, tension, blend, influence });
+    // XNurbs (inferred: the manual names the solver only): the whole sheet eases toward the new
+    // side, every row following less and less across it, rather than the aligned rows alone.
+    const spread = solver === 'xnurbs' ? Math.max(blend, rows.length - 2) : blend;
+    const moves = alignMoves(side, { greville, points: frames.map(f => f.at) }, frames, { continuity, tension, blend: spread, influence });
     return { body: target.body, moves: moves.map(([pole, by]) => [face.face, pole, by]) };
 }
