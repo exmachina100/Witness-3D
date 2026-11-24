@@ -367,6 +367,8 @@ const SHELL = `
     <div class="sec" data-panel="fillet" hidden>
       <span class="hint" data-id="blend-hint">SELECT EDGES TO ROUND</span>
       <div class="field"><label for="w3d-blend-distance">DISTANCE</label><input id="w3d-blend-distance" data-id="blend-distance" type="number" step="0.5" value="0" title="Negative makes a chamfer"></div>
+      <div class="field"><label for="w3d-blend-distance2">DISTANCE 2</label><input id="w3d-blend-distance2" data-id="blend-distance2" type="number" step="0.5" min="0" value="0" disabled title="A chamfer's distance along its second face (sets the angle); unused by fillets"></div>
+      <div class="chips"><button data-id="blend-link" aria-pressed="true">EQUAL DISTANCES</button></div>
       <div class="field"><label for="w3d-blend-angle">ANGLE °</label><input id="w3d-blend-angle" data-id="blend-angle" type="number" step="5" min="1" max="89" value="45" title="The chamfer's angle"></div>
       <div class="field"><label>SHAPE</label><output data-id="blend-kind">ROUND</output></div>
       <div class="seg" role="group" aria-label="Fillet shape"><button data-flshape="round" aria-pressed="true" title="A circular round of the radius">ROUND</button><button data-flshape="chordal" aria-pressed="false" title="The distance is the width across the round">CHORDAL</button><button data-flshape="conic" aria-pressed="false" title="A conic between the same lines; Tension is its rho">CONIC</button><button data-flshape="g2" aria-pressed="false" title="Curvature continuous with the faces it joins">G2</button><button data-flshape="full" aria-pressed="false" title="Full: two edges of one face; the round touches that face and both beside it, so the size is not used">FULL</button></div>
@@ -1434,7 +1436,7 @@ export function plasticityControls(body) {
     lock.innerHTML = `<kbd class="sr-only">${key}</kbd><span class="sr-only">${what}</span>`;
     lock.classList.add('link');
     lock.setAttribute('aria-label', `Link: ${what.toLowerCase()}`);
-    lock.title = `${what[0]}${what.slice(1).toLowerCase()}: the second value follows the first (${key})`;
+    lock.title = `${what[0]}${what.slice(1).toLowerCase()}: the second value follows the first${key ? ` (${key})` : ''}`;
     row.classList.add('linked');
     row.append(lock);
     if (chips?.classList.contains('chips') && !chips.children.length) chips.remove();
@@ -1468,7 +1470,7 @@ export function plasticityControls(body) {
 }
 
 /** Lock buttons shown as a link at the right of a pair of fields: [button, first field]. */
-const PAIR_LOCKS = [['ex-lock', 'ex-distance']];
+const PAIR_LOCKS = [['ex-lock', 'ex-distance'], ['blend-link', 'blend-distance']];
 /** Single fields shown side by side, as Plasticity's dialogs do. */
 const SIDE_BY_SIDE = [['form-twist-row', 'form-scale-row']];
 
@@ -1513,11 +1515,11 @@ export async function mount(root, backend) {
     plasticityInspector(root);
   }
   // Panel options carry their icon ahead of the key and name.
-  for (const b of root.querySelectorAll('[data-proj],[data-imp],[data-impcomp],[data-draw],[data-bop],[data-btmat],[data-bumat],[data-xop],[data-fop],[data-spiral],[data-toggle],[data-gmethod],[data-galign],[data-gcorner],[data-grow],[data-mfgrow],[data-drgrow],[data-eslimit],[data-flshape],[data-chshape],[data-drtaper],[data-avaxis],[data-extshape],[data-esshape],[data-isodir],[data-id="oe-both"],[data-id="iso-subdivide"],[data-id="oe-individual"],[data-id="blend-tangent"],[data-id="ex-lock"],[data-id="ex-keep"],[data-id="bool-keep"],[data-id="prim-keep"],[data-id="form-keep"],[data-pipeop],[data-id="pipe-keep"],[data-id="ex-free"],[data-id="ex-pivot"],[data-id="ex-individual"],[data-id="patch-individual"],[data-id="patch-quad"],[data-id="as-symmetric"],[data-id="as-analysis"],[data-id="as-ratio"],[data-id="as-constrain"],[data-id="sq-analysis"],[data-id="sq-constrain"],[data-id="dr-hidden"],[data-id="dr-curves"],[data-id="oc-lock"],[data-id="oc-free"],[data-id="oc-slot"],[data-id="oc-combine"],[data-id="es-unlimit"],[data-id="shell-local"],[data-id="es-modify"],[data-rbmethod],[data-rcmethod],[data-id="rb-corners"],[data-oecorner],[data-saplane],[data-plaxis],[data-plop],[data-id="pl-flip"],[data-id="pl-instance"],[data-id="mirror-instance"],[data-id="mirror-neg"],[data-id="mirror-free"],[data-id="mirror-cut"],[data-id="ra-instance"],[data-id="ra-spacing"],[data-id="ra-extent"],[data-id="rr-total"],[data-id="rr-spacing"],[data-id="rr-instance"],[data-id="ca-instance"],[data-caalign],[data-camethod],[data-id="br-trim"],[data-id="br-comb"],[data-id="br-constrain"],[data-id="ac-constrain"],[data-id="ac-comb"],[data-id="dc-reblend"],[data-id="section-btn"],[data-id="sa-flip"],[data-id="rf-shrink"],[data-id="ut-keep"],[data-txfont],[data-id="tx-load"],[data-id="tx-system"],[data-txalign],[data-sldir],[data-dcflip],[data-id="dc-keep"],[data-imdepth],[data-imcull],[data-id="im-delete"],[data-id="im-dup"],[data-id="cc-extend"],[data-id="cc-screen"],[data-id="cut-extend"],[data-id="cut-screen"],[data-inmode],[data-pfmode],[data-pfmirror],[data-xforient],[data-xfpivot],[data-id="xf-pick"],[data-id="xf-unpivot"],[data-id="xf-free"],[data-id="ls-loop"],[data-id="ls-limit"],[data-id="ls-simplify"],[data-id="sw-simplify"],[data-pmethod],[data-mxtopo],[data-id="mx-convex"],[data-sqbound],[data-asbound],[data-assolver],[data-bsshape],[data-bstrim],[data-id="bs-add"],[data-id="bs-s1"],[data-id="bs-s2"],[data-id="in-realize"],[data-id="in-dup"],[data-id="in-delete"],[data-id="matcap-load"],[data-id="matcap-custom"],[data-id="hdr-load"],[data-id="hdr-custom"]')) {
+  for (const b of root.querySelectorAll('[data-proj],[data-imp],[data-impcomp],[data-draw],[data-bop],[data-btmat],[data-bumat],[data-xop],[data-fop],[data-spiral],[data-toggle],[data-gmethod],[data-galign],[data-gcorner],[data-grow],[data-mfgrow],[data-drgrow],[data-eslimit],[data-flshape],[data-chshape],[data-drtaper],[data-avaxis],[data-extshape],[data-esshape],[data-isodir],[data-id="oe-both"],[data-id="iso-subdivide"],[data-id="oe-individual"],[data-id="blend-tangent"],[data-id="ex-lock"],[data-id="blend-link"],[data-id="ex-keep"],[data-id="bool-keep"],[data-id="prim-keep"],[data-id="form-keep"],[data-pipeop],[data-id="pipe-keep"],[data-id="ex-free"],[data-id="ex-pivot"],[data-id="ex-individual"],[data-id="patch-individual"],[data-id="patch-quad"],[data-id="as-symmetric"],[data-id="as-analysis"],[data-id="as-ratio"],[data-id="as-constrain"],[data-id="sq-analysis"],[data-id="sq-constrain"],[data-id="dr-hidden"],[data-id="dr-curves"],[data-id="oc-lock"],[data-id="oc-free"],[data-id="oc-slot"],[data-id="oc-combine"],[data-id="es-unlimit"],[data-id="shell-local"],[data-id="es-modify"],[data-rbmethod],[data-rcmethod],[data-id="rb-corners"],[data-oecorner],[data-saplane],[data-plaxis],[data-plop],[data-id="pl-flip"],[data-id="pl-instance"],[data-id="mirror-instance"],[data-id="mirror-neg"],[data-id="mirror-free"],[data-id="mirror-cut"],[data-id="ra-instance"],[data-id="ra-spacing"],[data-id="ra-extent"],[data-id="rr-total"],[data-id="rr-spacing"],[data-id="rr-instance"],[data-id="ca-instance"],[data-caalign],[data-camethod],[data-id="br-trim"],[data-id="br-comb"],[data-id="br-constrain"],[data-id="ac-constrain"],[data-id="ac-comb"],[data-id="dc-reblend"],[data-id="section-btn"],[data-id="sa-flip"],[data-id="rf-shrink"],[data-id="ut-keep"],[data-txfont],[data-id="tx-load"],[data-id="tx-system"],[data-txalign],[data-sldir],[data-dcflip],[data-id="dc-keep"],[data-imdepth],[data-imcull],[data-id="im-delete"],[data-id="im-dup"],[data-id="cc-extend"],[data-id="cc-screen"],[data-id="cut-extend"],[data-id="cut-screen"],[data-inmode],[data-pfmode],[data-pfmirror],[data-xforient],[data-xfpivot],[data-id="xf-pick"],[data-id="xf-unpivot"],[data-id="xf-free"],[data-id="ls-loop"],[data-id="ls-limit"],[data-id="ls-simplify"],[data-id="sw-simplify"],[data-pmethod],[data-mxtopo],[data-id="mx-convex"],[data-sqbound],[data-asbound],[data-assolver],[data-bsshape],[data-bstrim],[data-id="bs-add"],[data-id="bs-s1"],[data-id="bs-s2"],[data-id="in-realize"],[data-id="in-dup"],[data-id="in-delete"],[data-id="matcap-load"],[data-id="matcap-custom"],[data-id="hdr-load"],[data-id="hdr-custom"]')) {
     const name = (b.dataset.proj && (b.dataset.proj === 'screen' ? 'view-screen' : `proj-${b.dataset.proj}`)) ?? (b.dataset.imp && (b.dataset.imp === 'screen' ? 'view-screen' : `proj-${b.dataset.imp}`)) ?? (b.dataset.impcomp && `completion-${b.dataset.impcomp}`) ?? b.dataset.draw ?? b.dataset.bop ?? (b.dataset.xforient && `orient-${b.dataset.xforient}`) ?? (b.dataset.xfpivot && `pivot-${b.dataset.xfpivot}`) ?? (b.dataset.btmat && `mat-${b.dataset.btmat}`) ?? (b.dataset.bumat && `mat-${b.dataset.bumat}`) ?? b.dataset.xop ?? b.dataset.fop ?? b.dataset.spiral ?? (b.dataset.toggle && `view-${b.dataset.toggle}`)
       ?? (b.dataset.gmethod && `guide-${b.dataset.gmethod}`) ?? (b.dataset.galign && `align-${b.dataset.galign}`) ?? (b.dataset.caalign && `align-${b.dataset.caalign}`) ?? (b.dataset.camethod && `array-${b.dataset.camethod}`) ?? (b.dataset.gcorner && (b.dataset.gcorner === 'round' ? 'corner-round' : 'corner-linear')) ?? (b.dataset.grow && `grow-${b.dataset.grow}`) ?? (b.dataset.mfgrow && `grow-${b.dataset.mfgrow}`) ?? (b.dataset.drgrow && `grow-${b.dataset.drgrow}`) ?? (b.dataset.eslimit && `limit-${b.dataset.eslimit}`) ?? (b.dataset.flshape && `fillet-${b.dataset.flshape}`) ?? (b.dataset.chshape && `chamfer-${b.dataset.chshape}`) ?? (b.dataset.drtaper && `taper-${b.dataset.drtaper}`) ?? (b.dataset.avaxis && `axis-${b.dataset.avaxis}`) ?? (b.dataset.extshape && `extend-${b.dataset.extshape}`) ?? (b.dataset.esshape && `extend-${b.dataset.esshape}`) ?? (b.dataset.isodir && `iso-${b.dataset.isodir}`) ?? (b.dataset.rbmethod && `rebuild-${b.dataset.rbmethod}`) ?? (b.dataset.rcmethod && `rebuild-${b.dataset.rcmethod}`) ?? (b.dataset.oecorner && `corner-${b.dataset.oecorner}`) ?? (b.dataset.saplane && `section-${b.dataset.saplane}`) ?? (b.dataset.plaxis && (b.dataset.plaxis === 'normal' ? 'place-normal' : `axis-${b.dataset.plaxis}`)) ?? b.dataset.plop ?? b.dataset.pipeop
       ?? (b.dataset.txfont && `font-${b.dataset.txfont}`) ?? (b.dataset.txalign && `txalign-${b.dataset.txalign}`) ?? (b.dataset.sldir && { u: 'slide-u', '-u': 'slide-back', v: 'slide-v', '-v': 'slide-vback', n: 'slide-n' }[b.dataset.sldir]) ?? (b.dataset.dcflip && { mirror: 'mirror', swap: 'swap-uv', normal: 'reverse-sheet' }[b.dataset.dcflip]) ?? (b.dataset.imdepth && `depth-${b.dataset.imdepth}`) ?? (b.dataset.imcull && `cull-${b.dataset.imcull}`) ?? b.dataset.inmode ?? (b.dataset.bsshape && `bridge-${b.dataset.bsshape}`) ?? (b.dataset.bstrim && `trimwall-${b.dataset.bstrim}`) ?? (b.dataset.mxtopo && `topo-${b.dataset.mxtopo}`) ?? (b.dataset.pmethod && (b.dataset.pmethod === 'fill' ? 'patch-fill' : `trim-${b.dataset.pmethod}`)) ?? (b.dataset.pfmode && `falloff-${b.dataset.pfmode}`) ?? ((b.dataset.sqbound ?? b.dataset.asbound) && `bound-${b.dataset.sqbound ?? b.dataset.asbound}`) ?? (b.dataset.pfmirror && `mirror-${b.dataset.pfmirror}`) ?? (b.dataset.assolver && `solver-${b.dataset.assolver}`)
-      ?? { 'matcap-load': 'matcap-load', 'matcap-custom': 'matcap', 'tx-load': 'font-load', 'tx-system': 'font-system', 'hdr-load': 'hdr-load', 'hdr-custom': 'hdr', 'ex-lock': 'link', 'rb-corners': 'corner-linear', 'bool-keep': 'keep', 'ex-keep': 'keep', 'prim-keep': 'keep', 'form-keep': 'keep', 'pipe-keep': 'keep', 'ex-free': 'freestyle', 'ex-pivot': 'pivot', 'ex-individual': 'individual', 'patch-individual': 'individual', 'mx-convex': 'convex', 'patch-quad': 'square', 'as-symmetric': 'symmetric', 'as-analysis': 'analysis', 'as-ratio': 'tangent-ratio', 'as-constrain': 'constrain', 'sq-analysis': 'analysis', 'sq-constrain': 'constrain', 'bs-add': 'wall-pair', 'bs-s1': 'flip', 'bs-s2': 'flip', 'dr-hidden': 'hidden-lines', 'dr-curves': 'drawing-curves', 'oc-lock': 'lock', 'oc-free': 'freestyle', 'oc-slot': 'slot', 'oc-combine': 'combine', 'oe-both': 'both-sides', 'xf-pick': 'pivot', 'xf-unpivot': 'pivot-remove', 'xf-free': 'freestyle', 'ls-loop': 'loft-loop', 'ls-limit': 'limit-point', 'ls-simplify': 'simplify', 'sw-simplify': 'simplify', 'iso-subdivide': 'subdivide', 'oe-individual': 'individual', 'blend-tangent': 'tangent-chain', 'es-unlimit': 'unlimit', 'shell-local': 'shell', 'es-modify': 'join', 'rf-shrink': 'shrink', 'ut-keep': 'keep-edges', 'section-btn': 'view-section', 'sa-flip': 'flip', 'pl-flip': 'flip', 'pl-instance': 'instance', 'mirror-instance': 'instance', 'mirror-neg': 'mirror-neg', 'mirror-free': 'freestyle', 'mirror-cut': 'mirror-cut', 'ra-instance': 'instance', 'ra-spacing': 'array-spacing', 'ra-extent': 'array-extent', 'rr-total': 'array-total', 'rr-spacing': 'array-angle-step', 'rr-instance': 'instance', 'ca-instance': 'instance', 'br-trim': 'trim', 'br-comb': 'view-curvature', 'br-constrain': 'constrain', 'ac-constrain': 'constrain', 'ac-comb': 'view-curvature', 'dc-reblend': 'reblend', 'dc-keep': 'keep', 'im-delete': 'delete', 'im-dup': 'duplicate', 'in-realize': 'realize-instance', 'cc-extend': 'extend', 'cc-screen': 'view-screen', 'cut-extend': 'extend', 'cut-screen': 'view-screen', 'in-dup': 'duplicate', 'in-delete': 'delete' }[b.dataset.id];
+      ?? { 'matcap-load': 'matcap-load', 'matcap-custom': 'matcap', 'tx-load': 'font-load', 'tx-system': 'font-system', 'hdr-load': 'hdr-load', 'hdr-custom': 'hdr', 'ex-lock': 'link', 'blend-link': 'link', 'rb-corners': 'corner-linear', 'bool-keep': 'keep', 'ex-keep': 'keep', 'prim-keep': 'keep', 'form-keep': 'keep', 'pipe-keep': 'keep', 'ex-free': 'freestyle', 'ex-pivot': 'pivot', 'ex-individual': 'individual', 'patch-individual': 'individual', 'mx-convex': 'convex', 'patch-quad': 'square', 'as-symmetric': 'symmetric', 'as-analysis': 'analysis', 'as-ratio': 'tangent-ratio', 'as-constrain': 'constrain', 'sq-analysis': 'analysis', 'sq-constrain': 'constrain', 'bs-add': 'wall-pair', 'bs-s1': 'flip', 'bs-s2': 'flip', 'dr-hidden': 'hidden-lines', 'dr-curves': 'drawing-curves', 'oc-lock': 'lock', 'oc-free': 'freestyle', 'oc-slot': 'slot', 'oc-combine': 'combine', 'oe-both': 'both-sides', 'xf-pick': 'pivot', 'xf-unpivot': 'pivot-remove', 'xf-free': 'freestyle', 'ls-loop': 'loft-loop', 'ls-limit': 'limit-point', 'ls-simplify': 'simplify', 'sw-simplify': 'simplify', 'iso-subdivide': 'subdivide', 'oe-individual': 'individual', 'blend-tangent': 'tangent-chain', 'es-unlimit': 'unlimit', 'shell-local': 'shell', 'es-modify': 'join', 'rf-shrink': 'shrink', 'ut-keep': 'keep-edges', 'section-btn': 'view-section', 'sa-flip': 'flip', 'pl-flip': 'flip', 'pl-instance': 'instance', 'mirror-instance': 'instance', 'mirror-neg': 'mirror-neg', 'mirror-free': 'freestyle', 'mirror-cut': 'mirror-cut', 'ra-instance': 'instance', 'ra-spacing': 'array-spacing', 'ra-extent': 'array-extent', 'rr-total': 'array-total', 'rr-spacing': 'array-angle-step', 'rr-instance': 'instance', 'ca-instance': 'instance', 'br-trim': 'trim', 'br-comb': 'view-curvature', 'br-constrain': 'constrain', 'ac-constrain': 'constrain', 'ac-comb': 'view-curvature', 'dc-reblend': 'reblend', 'dc-keep': 'keep', 'im-delete': 'delete', 'im-dup': 'duplicate', 'in-realize': 'realize-instance', 'cc-extend': 'extend', 'cc-screen': 'view-screen', 'cut-extend': 'extend', 'cut-screen': 'view-screen', 'in-dup': 'duplicate', 'in-delete': 'delete' }[b.dataset.id];
     b.insertAdjacentHTML('afterbegin', icon(name));
   }
   const $ = id => root.querySelector(`[data-id="${id}"]`);
@@ -4723,7 +4725,7 @@ export async function mount(root, backend) {
       }
       if (action === 'tangent') { setFilletTangent(!c.tangent); return true; }
       if (action === 'angle') {
-        c.entry = { label: 'ANGLE °', text: '', parse: parseAngle, apply: v => { if (v > 0 && v < 90) { c.angle = v; $('blend-angle').value = v; previewFillet(); } else toast('THE ANGLE MUST BE BETWEEN 0 AND 90'); } };
+        c.entry = { label: 'ANGLE °', text: '', parse: parseAngle, apply: v => { if (v > 0 && v < 90) setChamferAngle(v); else toast('THE ANGLE MUST BE BETWEEN 0 AND 90'); } };
         setHud('ANGLE ° _');
         return true;
       }
@@ -4777,6 +4779,7 @@ export async function mount(root, backend) {
     };
     $('blend-distance').value = 0;
     $('blend-angle').value = c.angle;
+    syncDistance2();
     c.onSelection();
   }
   function abortFillet(state) {
@@ -4906,6 +4909,30 @@ export async function mount(root, backend) {
     if (document.activeElement !== $('blend-distance')) $('blend-distance').value = +v.toFixed(3);
     $('blend-kind').textContent = v < 0 ? (c.chamferShape === 'apex' ? 'APEX CHAMFER' : 'CHAMFER') : (c.shape === 'g2' ? 'G2' : c.shape.toUpperCase());
     $('blend-chamfer-row').hidden = !(v < 0);
+    syncDistance2();
+    previewFillet();
+  }
+
+  /**
+   * Plasticity's second Distance beside the first: a chamfer's distance along its second face
+   * (our chamfers take a distance and an angle, so it is |distance| × tan(angle)); greyed for
+   * fillets and Apex chamfers. The link holds the two equal (a 45° chamfer).
+   */
+  function syncDistance2() {
+    const c = cmd;
+    if (c?.id !== 'fillet') return;
+    const used = c.value < 0 && c.chamferShape !== 'apex';
+    $('blend-distance2').disabled = !used;
+    $('blend-link').disabled = !used;
+    $('blend-link').setAttribute('aria-pressed', String(Math.abs(c.angle - 45) < 1e-9));
+    if (document.activeElement !== $('blend-distance2')) $('blend-distance2').value = used ? +(Math.abs(c.value) * Math.tan(c.angle * DEG)).toFixed(3) : 0;
+  }
+  function setChamferAngle(a) {
+    const c = cmd;
+    if (c?.id !== 'fillet' || !(a > 0 && a < 90)) return;
+    c.angle = a;
+    if (document.activeElement !== $('blend-angle')) $('blend-angle').value = +a.toFixed(3);
+    syncDistance2();
     previewFillet();
   }
 
@@ -4961,6 +4988,7 @@ export async function mount(root, backend) {
     c.chamferShape = shape;
     for (const b of $$('[data-chshape]')) b.setAttribute('aria-pressed', String(b.dataset.chshape === shape));
     $('blend-angle').disabled = shape === 'apex';
+    syncDistance2();
     if (c.value < 0) $('blend-kind').textContent = shape === 'apex' ? 'APEX CHAMFER' : 'CHAMFER';
     c.good = c.bad = null;
     previewFillet();
@@ -16151,7 +16179,13 @@ export async function mount(root, backend) {
   });
   $('distance').addEventListener('input', e => { const v = parseFloat(e.target.value); if (!isNaN(v)) setDistance(v); });
   $('blend-distance').addEventListener('input', e => { const v = parseFloat(e.target.value); if (!isNaN(v) && cmd?.id === 'fillet') { cmd.auto = false; setFillet(v, false); } });
-  $('blend-angle').addEventListener('input', e => { const v = parseFloat(e.target.value); if (cmd?.id === 'fillet' && v > 0 && v < 90) { cmd.angle = v; previewFillet(); } });
+  $('blend-angle').addEventListener('input', e => { const v = parseFloat(e.target.value); if (cmd?.id === 'fillet' && v > 0 && v < 90) setChamferAngle(v); });
+  // The second distance sets the chamfer's angle from the first; the link makes them equal.
+  $('blend-distance2').addEventListener('input', e => {
+    const v = parseFloat(e.target.value);
+    if (cmd?.id === 'fillet' && v > 0 && cmd.value < 0) setChamferAngle(Math.min(89, Math.max(1, Math.atan2(v, Math.abs(cmd.value)) / DEG)));
+  });
+  $('blend-link').onclick = () => { if (cmd?.id === 'fillet' && cmd.value < 0) setChamferAngle(45); };
   $('ex-distance').addEventListener('input', e => { const v = parseFloat(e.target.value); if (!isNaN(v) && cmd?.id === 'extrude') { cmd.auto = false; setExtrude(v, false); } });
   for (const b of $$('[data-xop]')) b.onclick = () => cmd?.id === 'extrude' && cmd.key(b.dataset.xop);
   $('ex-lock').onclick = () => cmd?.id === 'extrude' && cmd.key('lock');
@@ -16258,6 +16292,9 @@ export async function mount(root, backend) {
     box.hidden = !open;
     $('cd-help').setAttribute('aria-expanded', String(open));
   };
+  // A pressed dialog button gives the keys back to the command (Enter finishes, D, F, A...), as
+  // Plasticity's dialog never holds the focus; fields keep it while typing.
+  $('cmd-dialog').addEventListener('click', e => { const b = e.target.closest('button'); if (b && b !== $('cd-cancel') && b !== $('cd-ok')) b.blur(); });
   // Right-click on the dialog finishes the command, as it does in the viewport (not in a field).
   $('cmd-dialog').addEventListener('contextmenu', e => {
     if (e.target.closest('input, select, textarea')) return;
