@@ -160,6 +160,11 @@ button:focus-visible, input:focus-visible { outline: 1px solid var(--accent); ou
 .advanced[open] summary { margin-bottom: 4px; }
 .cmd-dialog .duo { display: flex; gap: 8px; }
 .cmd-dialog .field.three { grid-template-columns: 1fr 1fr 1fr; }
+/* Plasticity's Orientation | Pivot: two rows of icon buttons side by side under their labels. */
+.cmd-dialog .xf-row { display: grid; grid-template-columns: 4fr 3fr; gap: 12px; }
+.cmd-dialog .xf-row > div { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.cmd-dialog .seg.icons { display: grid; grid-auto-flow: column; grid-auto-columns: 1fr; }
+.cmd-dialog .seg.icons button { display: flex; align-items: center; justify-content: center; padding: 6px 0; }
 .cmd-dialog .field.three > label { grid-column: 1 / -1; }
 .cmd-dialog .duo > .field { flex: 1; min-width: 0; }
 .cmd-dialog .advanced { margin-top: 6px; border-top: 1px solid var(--rule-soft); padding-top: 6px; }
@@ -602,3 +607,7 @@ dialog.xdialog[aria-busy="true"] > * { pointer-events: none; }
 [aria-pressed="true"] > .ico .ac, [aria-pressed="true"] > .ico { stroke: var(--on-accent); }
 .keys kbd kbd { border: 0; background: none; padding: 0; }
 .inspector-section .view-icons button[aria-pressed="true"] { background: var(--accent); border-color: var(--accent); color: var(--on-accent); }
+
+.cmd-dialog .seg.icons button .ico { display: block; width: 16px; height: 16px; margin: 0; }
+.cmd-dialog .seg.icons { grid-template-columns: none; }
+.cmd-dialog .seg.icons button[aria-pressed="true"] { background: var(--accent); border-color: var(--accent); }
