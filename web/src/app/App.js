@@ -15600,7 +15600,9 @@ export async function mount(root, backend) {
     instanceEdgeMat.color.set(look.instanceEdge);
     measureMat.color.set(look.measurement);
     root.style.setProperty('--measure', look.measurement);
-    root.style.setProperty('--muted', look.supporting);
+    // Supporting marks the active collection and points that connect (curve ends that meet, guides on profiles).
+    root.style.setProperty('--supporting', look.supporting);
+    curveEndMat.met.color.set(look.supporting);
     root.style.setProperty('--raised', look.neutral);
     $('nav').style.zoom = look.cubeSize === 1 ? '' : String(look.cubeSize);
     setAccent(look.accent);
