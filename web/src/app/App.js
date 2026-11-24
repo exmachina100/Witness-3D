@@ -2301,6 +2301,7 @@ export async function mount(root, backend) {
     hover = null;
     selectionChanged({ quiet: true });
     bridgeOutline();
+    if (section.plane) showInterference();
     if (shownPoints.faces.size) refreshShownPoints(list);
     drawInstances();
     return loadCurves();
@@ -8938,11 +8939,46 @@ export async function mount(root, backend) {
    */
   const section = { plane: null, last: null };
   function applySection(plane) {
+    const was = !!section.plane;
     section.plane = plane;
     renderer.localClippingEnabled = !!plane;
-    for (const m of [...faceMats(), edgeMat, ...Object.values(overlayMat)]) { m.clippingPlanes = plane ? [plane] : null; m.needsUpdate = true; }
+    for (const m of [...faceMats(), edgeMat, ...Object.values(overlayMat), interference.face, interference.edge]) { m.clippingPlanes = plane ? [plane] : null; m.needsUpdate = true; }
     shadeU.sectioned.value = !!plane;
     $('section-btn').setAttribute('aria-pressed', String(!!plane));
+    if (was !== !!plane) showInterference();
+  }
+  /**
+   * Plasticity's Section Analysis shows interfering objects in red: here, where two visible solids
+   * overlap, their common volume (an intersect boolean of each pair whose boxes meet), drawn over
+   * both and cut by the section like the rest. Worked out again when the scene changes.
+   */
+  const interference = {
+    group: new THREE.Group(), run: 0, count: 0,
+    face: new THREE.MeshBasicMaterial({ color: 0xff3b3b, transparent: true, opacity: 0.6, side: THREE.DoubleSide, polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -1 }),
+    edge: new THREE.LineBasicMaterial({ color: 0xff3b3b }),
+  };
+  scene.add(interference.group);
+  async function showInterference() {
+    const run = ++interference.run;
+    for (const m of [...interference.group.children]) dispose(m);
+    interference.count = 0;
+    if (!section.plane || !backend.previewBoolean) return;
+    const boxOf = b => new THREE.Box3().setFromBufferAttribute(new THREE.Float32BufferAttribute(b.positions, 3));
+    const solids = current.filter(b => !b.sheet && b.volume > 0 && org.shows(b.id)).map(b => ({ b, box: boxOf(b) }));
+    const pairs = [];
+    for (let i = 0; i < solids.length; i++) for (let j = i + 1; j < solids.length; j++) if (solids[i].box.intersectsBox(solids[j].box)) pairs.push([solids[i].b, solids[j].b]);
+    for (const [a, b] of pairs.slice(0, 40)) {
+      let r = null;
+      try { r = await backend.previewBoolean({ target: a.id, tools: [b.id], op: 'intersect' }); } catch { r = null; }
+      if (run !== interference.run || !section.plane) return;
+      // Bodies that only touch leave nothing, or a sliver with no volume to speak of.
+      if (!r?.positions?.length || !(r.volume > 1e-6 * Math.min(a.volume, b.volume))) continue;
+      const m = meshOf(r, interference.face, interference.edge);
+      m.renderOrder = 4;
+      interference.group.add(m);
+      interference.count++;
+    }
+    if (interference.count) toast(`${interference.count} INTERFERENCE${interference.count > 1 ? 'S' : ''} IN RED`);
   }
   function startSection() {
     if (section.plane && cmd?.id !== 'section') { applySection(null); return toast('SECTION ANALYSIS OFF'); }
