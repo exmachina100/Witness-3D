@@ -479,7 +479,9 @@ input[type="range"] { accent-color: var(--accent); }
 .sec.xdialog[hidden] { display: none; }
 /* Plasticity's command dialog: the running command's options, floating at the viewport's bottom
    left beside the toolbar; the viewport stays usable around it. */
-.cmd-dialog { position: absolute; left: 62px; bottom: 34px; z-index: 6; width: min(300px, calc(100% - 80px)); max-height: calc(100% - 130px); display: flex; flex-direction: column; background: var(--raised); border: 1px solid var(--rule); box-shadow: 0 10px 30px rgba(0, 0, 0, 0.45); }
+/* Plasticity's command dialog stays a compact box at the viewport's bottom left: a long one
+   scrolls inside it, fading at its foot, rather than running up the whole viewport (55% inferred). */
+.cmd-dialog { position: absolute; left: 62px; bottom: 34px; z-index: 6; width: min(300px, calc(100% - 80px)); max-height: max(260px, min(55%, calc(100% - 130px))); display: flex; flex-direction: column; background: var(--raised); border: 1px solid var(--rule); box-shadow: 0 10px 30px rgba(0, 0, 0, 0.45); }
 .cmd-dialog[hidden] { display: none; }
 .cmd-dialog .cd-head { display: flex; align-items: center; justify-content: space-between; padding: 8px 10px 8px 14px; border-bottom: 1px solid var(--rule-soft); color: var(--accent); }
 .cmd-dialog .cd-head button { display: flex; color: var(--muted); }
