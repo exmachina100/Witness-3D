@@ -3284,10 +3284,20 @@ export async function mount(root, backend) {
         // Marked in place, not redrawn, so a double-click still lands on this row.
         for (const r of out.querySelectorAll('.plane-row')) r.setAttribute('aria-current', String(r === row));
       };
+      // Plasticity: a double-click uses it and faces it, and its name opens to rename (Enter keeps).
       row.ondblclick = e => {
         if (e.target.closest('.drop')) return;
         use();
         faceThePlane(new THREE.Vector3(...q.origin), new THREE.Vector3(...q.normal));
+        editName(row.querySelector('.name'), text => {
+          const name = text.trim().toUpperCase();
+          if (!name || name === q.name) return;
+          const was = q.name;
+          q.name = name;
+          if (cplane.name === was) setPlane({ origin: cplane.origin.clone(), normal: cplane.normal.clone(), name });
+          drawSavedPlanes();
+          keepAppState();
+        });
       };
       out.append(row);
     });
@@ -3918,7 +3928,8 @@ export async function mount(root, backend) {
   // Saved construction planes (Plasticity's Temporary construction plane, kept in a list).
   let savedPlanes = [];
   function defaultPlaneName() {
-    return cplane.name === 'XY' || /^PLANE \d+$/.test(cplane.name) ? `PLANE ${savedPlanes.length + 1}` : cplane.name;
+    // Plasticity names a saved plane "Custom plane 0", then 1, 2...
+    return cplane.name === 'XY' || /^(CUSTOM )?PLANE \d+$/.test(cplane.name) ? `CUSTOM PLANE ${savedPlanes.length}` : cplane.name;
   }
   function savePlane(name = defaultPlaneName()) {
     if (savedPlanes.some(q => q.origin.every((v, i) => Math.abs(v - cplane.origin.getComponent(i)) < 1e-9) && q.normal.every((v, i) => Math.abs(v - cplane.normal.getComponent(i)) < 1e-9))) { toast('THAT PLANE IS SAVED ALREADY'); return false; }
