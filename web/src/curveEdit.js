@@ -1103,12 +1103,24 @@ export function mirrorCurve(c, origin, normal) {
 }
 
 /**
- * The curve with the vertices in `moves` (vertex number → new model-space point) moved, each kept
- * in the curve's plane by dropping the part of its move across the plane.
+ * The curve with the vertices in `moves` (vertex number → new model-space point) moved. A move
+ * across the curve's plane (Move along its normal, as Plasticity allows on control points) makes
+ * the curve a 3D one: lines and control-point curves become the equal NURBS curve first, whose
+ * control points may leave the plane. Other curves (splines through points, arcs, contours) keep
+ * their vertices in the plane, the part of the move across it dropped.
  */
 export function moveVerticesTo(c, moves) {
     const a = planeAxes(c), local = new Map();
-    for (const [n, w] of moves) { const q = v3.sub(w, a.O); local.set(n, [v3.dot(q, a.X), v3.dot(q, a.Y)]); }
+    let off = false;
+    for (const [n, w] of moves) {
+        const q = v3.sub(w, a.O), h = v3.dot(q, a.N);
+        if (Math.abs(h) > 1e-6) off = true;
+        local.set(n, [v3.dot(q, a.X), v3.dot(q, a.Y), h]);
+    }
+    if (off && (c.kind === 'polyline' || (c.kind === 'cv' && !c.closed))) {
+        return moveVertices(asNurbs(c), local);
+    }
+    if (c.kind !== 'nurbs') for (const [n, p] of local) local.set(n, p.slice(0, 2));
     return moveVertices(c, local);
 }
 
@@ -2181,7 +2193,8 @@ const pieceEnd = p => p.kind === 'arc' ? p.end : p.points.at(-1);
 export function curveVertices(c) {
     if (c.kind === 'spline' || c.kind === 'cv') return c.points.map(p => [...p]);
     // A NURBS curve's vertices are its control points (a closed one's last repeats its first).
-    if (c.kind === 'nurbs') return (nurbsLoop(c) ? c.poles.slice(0, -1) : c.poles).map(q => [q[0], q[1]]);
+    // Its third number is the height off the curve's plane (0 unless a point was moved off it).
+    if (c.kind === 'nurbs') return (nurbsLoop(c) ? c.poles.slice(0, -1) : c.poles).map(q => [q[0], q[1], q[2] ?? 0]);
     const a = asPieces(c);
     if (!a) return [];
     return vertexEntries(a).map(({ piece, at }) => {
@@ -2216,7 +2229,7 @@ export function moveVertices(c, moves) {
     }
     if (c.kind === 'nurbs') {
         const poles = c.poles.map(q => [...q]), loop = nurbsLoop(c);
-        poles.forEach((q, n) => { if (at(n)) poles[n] = [...at(n), q[2]]; });
+        poles.forEach((q, n) => { const to = at(n); if (to) poles[n] = [to[0], to[1], to[2] ?? q[2] ?? 0]; });
         if (loop) poles[poles.length - 1] = [...poles[0]];
         return { ...c, poles };
     }

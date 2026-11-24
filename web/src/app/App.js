@@ -2635,7 +2635,7 @@ export async function mount(root, backend) {
     const out = [];
     for (const c of curveList) {
       const f = curveFrame(c);
-      curveVertices(c).forEach(([x, y], n) => out.push({ id: c.id, n, at: lift(f, { x, y }, 0.02) }));
+      curveVertices(c).forEach(([x, y, z = 0], n) => out.push({ id: c.id, n, at: lift(f, { x, y, z }, 0.02) }));
     }
     return out;
   }
@@ -2660,7 +2660,7 @@ export async function mount(root, backend) {
       if (!c) continue;
       const f = curveFrame(c);
       const net = c.kind === 'cv' ? c.points.map(([x, y]) => lift(f, { x, y }, 0.03)) : c.kind === 'nurbs' ? c.poles.map(([x, y, z]) => lift(f, { x, y, z }, 0.03)) : null;
-      if (!net) { dots.push(...curveVertices(c).map(([x, y]) => lift(f, { x, y }, 0.03))); continue; }
+      if (!net) { dots.push(...curveVertices(c).map(([x, y, z = 0]) => lift(f, { x, y, z }, 0.03))); continue; }
       const run = c.kind === 'cv' && c.closed ? [...net, net[0]] : net;
       for (let i = 1; i < run.length; i++) segs.push(run[i - 1], run[i]);
       dots.push(...net);
@@ -5382,7 +5382,7 @@ export async function mount(root, backend) {
     if ((curves.length || verts.length) && !backend.replaceCurves) return toast(`${kind.toUpperCase()} OF CURVES IS NOT IN THIS BUILD YET`);
     if (poles.length && !backend.previewMoveFacePoles) return toast(`${kind.toUpperCase()} OF SURFACE POINTS IS NOT IN THIS BUILD YET`);
     if (new Set(poles.map(p => p.body)).size > 1) return toast('PICK THE SURFACE POINTS OF ONE BODY AT A TIME');
-    const vertexAt = v => { const src = curveById(v.id), [x, y] = curveVertices(src)[v.n]; return lift(curveFrame(src), { x, y }); };
+    const vertexAt = v => { const src = curveById(v.id), [x, y, z = 0] = curveVertices(src)[v.n]; return lift(curveFrame(src), { x, y, z }); };
     const box = new THREE.Box3();
     for (const id of ids) box.expandByObject(bodyMesh(id));
     for (const id of curves) { const src = curveById(id), f = curveFrame(src); for (const p of curve2d(src)) box.expandByPoint(lift(f, p)); }
@@ -12883,6 +12883,16 @@ export async function mount(root, backend) {
         record(`RAISE DEGREE ${faces.length ? `×${faces.length}` : 'ALL FACES'}`, r.id);
       }
       await showScene(list);
+      // The raised faces' control points come up, so the new cage is there to pick and move (the
+      // way Plasticity shows a face's CVs once its degree is raised; inferred from its videos).
+      if (backend.facePoles) {
+        for (const [body, faces] of byBody) {
+          facePoleCache.set(body, await backend.facePoles({ body }));
+          const was = shownPoints.faces.get(body);
+          shownPoints.faces.set(body, !faces.length || was === 'all' ? 'all' : new Set([...(was ?? []), ...faces]));
+        }
+        paintShownPoints();
+      }
       sel.replace({ kind: 'solid', body: last });
       selectionChanged({ quiet: true });
       const degrees = [...new Set(done.map(f => `${f.degree[0]}×${f.degree[1]}`))].join(', ');
