@@ -1973,9 +1973,12 @@ export async function mount(root, backend) {
       float fres = pow(1.0 - clamp(dot(n, v), 0.0, 1.0), 3.0);
       // The colour modes show a body's material, or a light grey where it has none.
       vec3 base = ownColor ? diffuseColor.rgb : vec3(0.62, 0.60, 0.56);
-      // Ceramic dark keeps the lit standard material; a body with a material shows its colour in it
-      // without needing an environment (render mode, -1, leaves everything to the physical material).
-      if (shadeMode == 0 && ownColor) gl_FragColor.rgb = base * (0.25 + 0.7 * lam) + 0.2 * spec;
+      // Ceramic dark, the default: a dark matcap lit from the view like Plasticity's, so a face
+      // turned away from the scene's lights (a twisted sheet's underside, say) still shows its
+      // shape instead of going black. A body with a material shows its colour in it without
+      // needing an environment (render mode, -1, leaves everything to the physical material).
+      if (shadeMode == 0) gl_FragColor.rgb = ownColor ? base * (0.25 + 0.7 * lam) + 0.2 * spec
+        : vec3(0.10, 0.10, 0.11) + vec3(0.34, 0.33, 0.31) * lam + vec3(0.22 * spec) + 0.10 * fres;
       else if (shadeMode == 1) gl_FragColor.rgb = mix(vec3(0.07, 0.10, 0.16), vec3(0.42, 0.52, 0.64), lam) + vec3(spec) + 0.35 * fres * vec3(0.6, 0.75, 1.0);
       else if (shadeMode == 2) gl_FragColor.rgb = vec3(0.03 + 0.17 * lam) + vec3(spec) * 1.2 + 0.25 * fres;
       else if (shadeMode == 3) gl_FragColor.rgb = mix(vec3(0.24, 0.23, 0.21), vec3(0.86, 0.84, 0.79), 0.5 + 0.5 * n.y);
@@ -2062,7 +2065,7 @@ export async function mount(root, backend) {
       if (sectioned && !gl_FrontFacing) gl_FragColor.rgb = vec3(1.0, 0.30, 0.0) * 0.7;
       // The modes above write colours as shown on screen. Drawn into a linear buffer (ambient
       // occlusion, whose last pass makes them screen colours again), they are made linear first.
-      if (shadeMode >= 0 && !(shadeMode == 0 && !ownColor) || (sectioned && !gl_FrontFacing))
+      if (shadeMode >= 0 || (sectioned && !gl_FrontFacing))
         gl_FragColor = linearToOutputTexel(sRGBTransferEOTF(vec4(clamp(gl_FragColor.rgb, 0.0, 1.0), gl_FragColor.a)));
       }
       #include <dithering_fragment>`);
