@@ -1080,18 +1080,20 @@ const SHELL = `
       <div class="field"><label for="w3d-dz">ΔZ</label><input id="w3d-dz" data-move="2" type="number" step="2.5" value="0"></div>
     </div>
     <div class="sec" data-panel="xf-opts" hidden>
-      <span class="label">ORIENTATION</span>
-      <div class="seg wrap2" role="group" aria-label="Gizmo orientation">
-        <button data-xforient="normal" aria-pressed="false" title="Normal: the gizmo's axes stand on the selected face (or the curve's plane)"><kbd>W</kbd>NORMAL</button>
-        <button data-xforient="pivot" aria-pressed="false" title="Pivot: the axes stand on the face where the pivot was clicked">PIVOT</button>
-        <button data-xforient="plane" aria-pressed="false" title="Construction plane: the axes follow the construction plane">CPLANE</button>
-        <button data-xforient="world" aria-pressed="true" title="World: the axes follow the world's">WORLD</button>
-      </div>
-      <span class="label">PIVOT</span>
-      <div class="seg" role="group" aria-label="Pivot">
-        <button data-xfpivot="bbox" aria-pressed="true" title="The middle of the box round everything selected">BBOX</button>
-        <button data-xfpivot="median" aria-pressed="false" title="The mean of the selected items' middles">MEDIAN</button>
-        <button data-xfpivot="active" aria-pressed="false" title="The middle of the item selected last">ACTIVE</button>
+      <div class="xf-row">
+        <div><span class="label">ORIENTATION</span>
+        <div class="seg icons" role="group" aria-label="Gizmo orientation">
+        <button data-xforient="normal" aria-pressed="false" title="Normal: the gizmo's axes stand on the selected face (or the curve's plane)"><kbd class="sr-only">W</kbd><span class="sr-only">NORMAL</span></button>
+        <button data-xforient="pivot" aria-pressed="false" title="Pivot: the axes stand on the face where the pivot was clicked"><span class="sr-only">PIVOT</span></button>
+        <button data-xforient="plane" aria-pressed="false" title="Construction plane: the axes follow the construction plane"><span class="sr-only">CPLANE</span></button>
+        <button data-xforient="world" aria-pressed="true" title="World: the axes follow the world's"><span class="sr-only">WORLD</span></button>
+      </div></div>
+        <div><span class="label">PIVOT</span>
+        <div class="seg icons" role="group" aria-label="Pivot">
+        <button data-xfpivot="bbox" aria-pressed="true" title="The middle of the box round everything selected"><span class="sr-only">BBOX</span></button>
+        <button data-xfpivot="median" aria-pressed="false" title="The mean of the selected items' middles"><span class="sr-only">MEDIAN</span></button>
+        <button data-xfpivot="active" aria-pressed="false" title="The middle of the item selected last"><span class="sr-only">ACTIVE</span></button>
+      </div></div>
       </div>
       <div class="chips"><button data-id="xf-pick" aria-pressed="false" title="Click where the gizmo goes"><kbd>V</kbd>SET PIVOT</button><button data-id="xf-unpivot" aria-pressed="false" title="Remove the pivot you set"><kbd>⌥V</kbd>REMOVE PIVOT</button><button data-id="xf-free" aria-pressed="false" title="Freestyle: set the move, turn or scale by clicking points"><kbd>F</kbd>FREESTYLE</button></div>
     </div>
