@@ -17,26 +17,46 @@ export const SNAP_KINDS = [
     { id: 'planes', label: 'YZ · XZ', names: ['YZ', 'XZ'] },
     { id: 'section', label: 'SECTION', names: ['SECTION'] },
 ];
+/**
+ * Plasticity's OBJECT SNAPS, in its order: what a snap may lie on. Control points (shown with
+ * Toggle Points), body edges, curves, faces, and the world axes and planes (the YZ and XZ snaps).
+ */
+export const OBJECT_SNAPS = [
+    { id: 'point', label: 'CONTROL POINT' },
+    { id: 'edge', label: 'EDGE' },
+    { id: 'curve', label: 'CURVE' },
+    { id: 'face', label: 'FACE' },
+    { id: 'axis', label: 'AXIS' },
+];
+
 const KIND_OF = new Map(SNAP_KINDS.flatMap(k => k.names.map(n => [n, k.id])));
 
 /** The kind id a snap name belongs to (unknown names count as their own kind). */
 export const kindOf = name => KIND_OF.get(name) ?? name;
 
 /** The default state: object snapping on, every kind offered. */
-export const defaultSnaps = () => ({ on: true, off: [] });
+export const defaultSnaps = () => ({ on: true, off: [], objOff: [] });
 
 /** Read stored settings, keeping only known kinds; anything unreadable gives the defaults. */
 export function parseSnaps(text) {
     try {
         const v = JSON.parse(text);
         if (!v || typeof v !== 'object') return defaultSnaps();
-        return { on: v.on !== false, off: Array.isArray(v.off) ? v.off.filter(id => SNAP_KINDS.some(k => k.id === id)) : [] };
+        return {
+            on: v.on !== false,
+            off: Array.isArray(v.off) ? v.off.filter(id => SNAP_KINDS.some(k => k.id === id)) : [],
+            objOff: Array.isArray(v.objOff) ? v.objOff.filter(id => OBJECT_SNAPS.some(k => k.id === id)) : [],
+        };
     } catch { return defaultSnaps(); }
 }
 
-/** Whether a snap named `name` may be offered, given the settings and the kinds skipped with Shift+X. */
-export function allowed(name, settings, skipped = []) {
+/**
+ * Whether a snap named `name`, lying on `source` (one of OBJECT_SNAPS, or none), may be offered,
+ * given the settings and the kinds skipped with Shift+X.
+ */
+export function allowed(name, settings, skipped = [], source = null) {
     if (!settings.on) return false;
     const id = kindOf(name);
+    if (source && settings.objOff?.includes(source)) return false;
     return !settings.off.includes(id) && !skipped.includes(id);
 }

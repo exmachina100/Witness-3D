@@ -560,7 +560,8 @@ dialog::backdrop { background: rgb(0 0 0 / 45%); }
 
 dialog.xdialog[aria-busy="true"] { cursor: wait; }
 dialog.xdialog[aria-busy="true"] > * { pointer-events: none; }
-.inspector-section .swatches[data-id="shader-swatches"] { grid-template-columns: repeat(6, 30px); max-height: none; }
+.inspector-section .swatches[data-id="shader-swatches"], .inspector-section .swatches[data-id="matcap-swatches"] { grid-template-columns: repeat(4, 30px); justify-content: space-between; max-height: none; }
+.inspector-section .swatches[data-id="matcap-swatches"] { margin-bottom: 10px; }
 .inspector-section .view-icons { grid-template-columns: repeat(9, minmax(0, 1fr)); gap: 4px; }
 .inspector-section .view-icons button { padding: 6px 0; border: 1px solid var(--rule); color: var(--muted); }
 .inspector-section .view-icons button[aria-pressed="true"] { border-color: var(--accent); color: var(--accent); background: none; }
@@ -577,3 +578,4 @@ dialog.xdialog[aria-busy="true"] > * { pointer-events: none; }
 .inspector-section .units-fields select, .inspector-section .units-fields input { width: 100%; text-align: center; }
 /* Anything a command hides stays hidden, whatever display the dialog's control styles give it. */
 .cmd-dialog [hidden] { display: none !important; }
+.inspector-section .plane-icons { grid-template-columns: repeat(4, minmax(0, 1fr)); margin-top: 6px; }
