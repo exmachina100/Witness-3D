@@ -4244,9 +4244,9 @@ export async function mount(root, backend) {
     hover: thickness(new THREE.LineBasicMaterial({ color: 0xffffff }), 'edge'),
     selected: thickness(new THREE.LineBasicMaterial({ color: COLORS.accent }), 'edge'),
     failed: thickness(new THREE.LineBasicMaterial({ color: DANGER, depthTest: false }), 'edge'),
-    hoverFace: new THREE.MeshBasicMaterial({ color: COLORS.ink, transparent: true, opacity: 0.08, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -1 }),
-    face: new THREE.MeshBasicMaterial({ color: COLORS.accent, transparent: true, opacity: 0.28, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -1 }),
-    failedFace: new THREE.MeshBasicMaterial({ color: DANGER, transparent: true, opacity: 0.35, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -1 }),
+    hoverFace: new THREE.MeshBasicMaterial({ color: COLORS.ink, transparent: true, opacity: 0.08, depthWrite: false, side: THREE.DoubleSide, polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -1 }),
+    face: new THREE.MeshBasicMaterial({ color: COLORS.accent, transparent: true, opacity: 0.28, depthWrite: false, side: THREE.DoubleSide, polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -1 }),
+    failedFace: new THREE.MeshBasicMaterial({ color: DANGER, transparent: true, opacity: 0.35, depthWrite: false, side: THREE.DoubleSide, polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -1 }),
   };
   let hover = null, failedEdges = [];
   // Plasticity 2026.2: when Boolean or Hollow fails, the problem geometry shows in red. Whole
