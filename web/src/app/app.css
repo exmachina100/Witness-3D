@@ -139,6 +139,11 @@ button:focus-visible, input:focus-visible { outline: 1px solid var(--accent); ou
 .row-item.folder .tw { width: 10px; flex: none; color: var(--muted); }
 .row-item.folder.empty-group .name { color: var(--dim); }
 .row-item .name[contenteditable="true"] { user-select: text; -webkit-user-select: text; outline: 1px solid var(--accent); color: var(--ink); }
+/* Patch: a dot on each picked edge with its continuity; a click cycles G0, G1, G2. */
+.pdots[hidden] { display: none; }
+.pdots button { position: absolute; transform: translate(-50%, -50%); min-width: 26px; height: 18px; padding: 0 4px; border-radius: 9px; background: #0b0b0b; color: var(--ink); border: 1px solid rgba(239, 235, 224, 0.6); font-size: 9px; letter-spacing: 0.5px; z-index: 4; }
+.pdots button.own { border-color: var(--accent); color: var(--accent); }
+.pdots button:hover { border-color: var(--accent); }
 .snap-tag { position: absolute; left: 14px; top: 40px; padding: 2px 6px; border: 1px solid var(--ink); color: var(--ink); background: var(--ground); font-size: 10px; pointer-events: none; }
 .sec > .label output, .vpop > .label output { color: var(--accent); margin-left: 6px; }
 

@@ -333,6 +333,7 @@ const SHELL = `
       ${BAR.map(([a, k, l]) => `<button data-action="${a}" aria-label="${l}" title="${l}${k ? ` (${k})` : ''}">${icon(a === 'palette' ? 'search' : a === 'suggest' ? 'suggest' : a.replace('tool:', ''))}${k ? `<kbd>${k}</kbd>` : ''}</button>`).join('')}
     </div>
     <div class="bar-more" data-id="bar-more" role="toolbar" aria-label="Suggested commands" hidden></div>
+    <div class="pdots" data-id="pdots" hidden></div>
     <div class="keys" data-id="keys">${keysHtml('idle')}</div>
     <span class="snap-tag" data-id="snap-tag" hidden></span>
     <span class="gizmo-tag" data-id="gizmo-tag" hidden></span>
@@ -10928,7 +10929,55 @@ export async function mount(root, backend) {
     showTool('patch');
     setState('none');
     const tolerance = () => Math.max(1e-4, num('patch-tol') || 0.001);
-    const request = (curves, edges) => ({ curves, edges: edges.map(e => ({ body: e.body, edge: e.n, tangent: LEVEL[c.cont] > 0, continuity: LEVEL[c.cont] })), tolerance: tolerance() });
+    // Per edge (manual: "click the black circles on the surface"): an edge's own continuity, set
+    // from its dot, wins over the dialog's for that edge.
+    c.edgeCont = new Map();
+    const edgeKey = e => `${e.body}:${e.n}`;
+    const levelOf = e => c.cont === 'planar' ? 0 : c.edgeCont.get(edgeKey(e)) ?? LEVEL[c.cont];
+    const request = (curves, edges) => ({ curves, edges: edges.map(e => ({ body: e.body, edge: e.n, tangent: levelOf(e) > 0, continuity: levelOf(e) })), tolerance: tolerance() });
+    // A dot at the middle of each picked edge shows its continuity; a click cycles it G0, G1, G2.
+    const NAMES = ['G0', 'G1', 'G2'];
+    const dots = $('pdots');
+    const edgeMiddle = e => {
+      const pts = bodyOf(e.body)?.edges?.[e.n];
+      if (!pts || pts.length < 3) return null;
+      // Halfway along the edge's polyline by length.
+      const P = [];
+      for (let i = 0; i + 2 < pts.length; i += 3) P.push(new THREE.Vector3(pts[i], pts[i + 1], pts[i + 2]));
+      let total = 0;
+      for (let i = 1; i < P.length; i++) total += P[i].distanceTo(P[i - 1]);
+      let left = total / 2;
+      for (let i = 1; i < P.length; i++) {
+        const d = P[i].distanceTo(P[i - 1]);
+        if (d >= left && d > 0) return P[i - 1].clone().lerp(P[i], left / d);
+        left -= d;
+      }
+      return P[0];
+    };
+    const placeDots = () => {
+      if (cmd !== c) return;
+      for (const b of dots.children) {
+        const at = edgeMiddle({ body: +b.dataset.body, n: +b.dataset.n }), s = at && screenOf(at);
+        b.hidden = !s || s.behind;
+        if (s) { b.style.left = `${s.x}px`; b.style.top = `${s.y}px`; }
+      }
+      requestAnimationFrame(placeDots);
+    };
+    c.renderDots = () => {
+      dots.hidden = c.cont === 'planar' || !c.edges.length || c.method !== 'fill';
+      dots.innerHTML = dots.hidden ? '' : c.edges.map(e => {
+        const own = c.edgeCont.has(edgeKey(e)), g = NAMES[levelOf(e)];
+        return `<button data-body="${e.body}" data-n="${e.n}" class="${own ? 'own' : ''}" title="Edge ${e.n}: ${g}${own ? '' : ' (the dialog\'s)'} · click for ${NAMES[(levelOf(e) + 1) % 3]}">${g}</button>`;
+      }).join('');
+      for (const b of dots.children) b.onclick = ev => {
+        ev.stopPropagation();
+        const e = { body: +b.dataset.body, n: +b.dataset.n };
+        const next = (levelOf(e) + 1) % 3;
+        if (next === LEVEL[c.cont]) c.edgeCont.delete(edgeKey(e)); else c.edgeCont.set(edgeKey(e), next);
+        c.onSelection();
+      };
+    };
+    requestAnimationFrame(placeDots);
     // Individual: one request per closed loop the pieces make; otherwise all of them as one loop.
     c.requests = () => {
       // Trim to hole / Trim to sheet: the target sheet cut by the base sheet's edges.
@@ -11082,6 +11131,7 @@ export async function mount(root, backend) {
       $('patch-quad').disabled = !backend.previewSplineSheet;
       $('patch-analysis').setAttribute('aria-pressed', String(c.analysis));
       $('patch-analysis-row').hidden = !c.analysis;
+      c.renderDots();
       setTarget(c.curves.length + c.edges.length ? `${c.curves.length + c.edges.length} PIECES` : '—');
       if (c.fill && !c.edges.length) {
         const missing = c.holes ? 'THOSE SHEETS HAVE NO HOLES: EVERY EDGE IS SHARED' : 'FINDING THE HOLES';
@@ -11210,7 +11260,7 @@ export async function mount(root, backend) {
       }
     };
     c.abort = () => endCmd('cancelled');
-    c.cleanup = () => clearPreview();
+    c.cleanup = () => { clearPreview(); dots.hidden = true; dots.innerHTML = ''; };
     c.onSelection();
   }
 
