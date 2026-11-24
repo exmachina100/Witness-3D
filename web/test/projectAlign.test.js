@@ -63,3 +63,15 @@ test('points along a line keep their shares of the length', () => {
     assert.ok(near(got[1], [0, 2, 0]) && near(got[2], [0, 8, 0]), JSON.stringify(got));
     assert.throws(() => alongLine([[0, 0, 0], [1, 0, 0]], [[1, 1, 1]]), /too short/);
 });
+
+test('the XNurbs solver needs a reference curve and eases the whole sheet', async () => {
+    await assert.rejects(() => projectAlignRequest(backend, { target, reference, continuity: 'G0', solver: 'xnurbs' }), /needs a reference curve/);
+    const curve = Array.from({ length: 31 }, (_, i) => [i, 5, 0]);
+    const c = after((await projectAlignRequest(backend, { target, reference, continuity: 'G0', curve })).moves);
+    const x = after((await projectAlignRequest(backend, { target, reference, continuity: 'G0', curve, solver: 'xnurbs' })).moves);
+    for (let b = 0; b < 4; b++) assert.ok(near(x[b], [10 * b, 5, 0], 1e-5), `${x[b]}`);
+    // Constrained leaves the next rows; XNurbs moves them less and less, the far side not at all.
+    assert.ok(near(c[4], poles.flat()[4]));
+    assert.ok(x[4][2] < 10 && x[8][2] < 10 && x[8][2] > x[4][2], `${x[4]} ${x[8]}`);
+    assert.ok(near(x[12], poles.flat()[12]));
+});
