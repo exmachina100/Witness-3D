@@ -8,6 +8,10 @@ const A = 'class="ac"'; // the accent stroke
 const ICONS = {
     close: `<path d="M6 6l12 12M18 6L6 18"/>`,
     fold: `<path d="M6 14l6-6 6 6"/>`,
+    // Two values locked together (Plasticity's link button beside a pair of fields).
+    link: `<path d="M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1 1"/><path ${A} d="M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1-1"/>`,
+    // The command dialog's help: a circled i (Plasticity's header shows one).
+    info: `<circle cx="12" cy="12" r="8"/><path d="M12 11v5"/><path ${A} d="M12 8v.5"/>`,
     unfold: `<path d="M6 10l6 6 6-6"/>`,
     'tangent-ratio': `<path d="M5 4v16"/><path ${A} d="M5 7h8M5 12h13M5 17h6"/><path d="M11 5l2 2-2 2M16 10l2 2-2 2M9 15l2 2-2 2"/>`,
     search: `<circle cx="10.5" cy="10.5" r="6"/><path d="M15 15l5.5 5.5"/>`,

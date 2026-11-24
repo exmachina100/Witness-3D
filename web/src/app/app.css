@@ -455,6 +455,10 @@ input[type="range"] { accent-color: var(--accent); }
 .cmd-dialog .cd-head button { display: flex; color: var(--muted); }
 .cmd-dialog .cd-head button:hover { color: var(--ink); }
 .cmd-dialog .cd-head svg { width: 14px; height: 14px; }
+.cmd-dialog .cd-tools { display: flex; gap: 8px; }
+.cmd-dialog .cd-head button[aria-expanded="true"][data-id="cd-help"] { color: var(--accent); }
+.cmd-dialog .cd-help { margin: 0; padding: 8px 14px; border-bottom: 1px solid var(--rule-soft); color: var(--muted); font-size: 11px; line-height: 1.5; text-transform: none; letter-spacing: 0; }
+.cmd-dialog.folded .cd-help { display: none; }
 .cmd-dialog .cd-body { flex: 1 1 auto; min-height: 0; overflow-y: auto; position: relative; }
 .cmd-dialog .cd-body > .sec, .cmd-dialog .cd-body > div > .sec { border-bottom: 0; }
 .cmd-dialog .cd-foot { position: relative; display: flex; justify-content: space-between; padding: 8px 10px; border-top: 1px solid var(--rule-soft); }
@@ -468,6 +472,11 @@ input[type="range"] { accent-color: var(--accent); }
 .cmd-dialog .field:has(> input, > select) { grid-template-columns: 1fr; gap: 5px; }
 .cmd-dialog .field.two:has(> input) { grid-template-columns: 1fr 1fr; }
 .cmd-dialog .field.two:has(> input) > label { grid-column: 1 / -1; }
+.cmd-dialog .field.two.linked:has(> input) { grid-template-columns: 1fr 1fr 26px; }
+.cmd-dialog .field.two.linked > input[hidden] + .link { grid-column: 3; }
+.cmd-dialog .field .link { display: flex; align-items: center; justify-content: center; width: 26px; height: 100%; min-height: 26px; border: 1px solid var(--rule-soft); background: none; color: var(--muted); padding: 0; }
+.cmd-dialog .field .link svg { width: 14px; height: 14px; }
+.cmd-dialog .field .link[aria-pressed="true"] { background: var(--accent); border-color: var(--accent); color: var(--on-accent); }
 .cmd-dialog .field input { padding: 6px 8px; text-align: center; background: var(--ground); border-color: var(--rule-soft); }
 /* Plasticity's selection steps: a mark (ticked once it holds something), what to pick and what
    for, and how many; the step being picked is lit. */
