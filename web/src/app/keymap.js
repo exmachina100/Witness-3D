@@ -125,7 +125,7 @@ export const COMMAND = {
     spline: { 'ctrl-z': 'back', tab: 'switch', x: 'axis-x', y: 'axis-y', z: 'axis-z' },
     cv: { 'ctrl-z': 'back', tab: 'switch', x: 'axis-x', y: 'axis-y', z: 'axis-z' },
     // Tangent Arc's D flips it; Spiral's A, D and R (manual), X/Y/Z while placing the axis end.
-    'tangent-arc': { d: 'flip', x: 'axis-x', y: 'axis-y', z: 'axis-z' },
+    'tangent-arc': { d: 'flip', n: 'normal', b: 'binormal', x: 'axis-x', y: 'axis-y', z: 'axis-z' },
     // Primitives (manual: Corner / Center / Three Point Box, Cylinder, Sphere). Tab types sizes; C and S
     // shape a box's base; H, F and D hand the cursor to the height, radius or diameter; V stands a
     // cylinder up; X, Y and Z hold the base to an axis; Q W Shift+E Shift+Q B pick the boolean.

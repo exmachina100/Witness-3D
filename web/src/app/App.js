@@ -155,7 +155,7 @@ const KEYS = {
   ellipse3: [['CLICK', 'AXIS ENDS · WIDTH'], ['ALT', 'NO SNAP'], ['ESC', 'CANCEL']],
   cv: [['CLICK', 'CONTROL POINTS'], ['CLICK START', 'CLOSE'], ['TAB', 'THROUGH POINTS'], ['X Y Z', 'AXIS'], ['CTRL Z', 'BACK'], ['⏎ / RMB', 'DONE']],
   spline: [['CLICK', 'POINTS'], ['CLICK START', 'CLOSE'], ['TAB', 'CONTROL POINTS'], ['X Y Z', 'AXIS'], ['CTRL Z', 'BACK'], ['⏎ / RMB', 'DONE']],
-  'tangent-arc': [['CLICK', 'CURVE (END OR ANYWHERE) · SIZE'], ['D', 'FLIP'], ['ALT', 'NO SNAP'], ['ESC', 'CANCEL']],
+  'tangent-arc': [['CLICK', 'CURVE (END OR ANYWHERE) · SIZE'], ['D', 'FLIP'], ['N', "IN THE CURVE'S PLANE"], ['B', 'STANDING UP (BINORMAL)'], ['ALT', 'NO SNAP'], ['ESC', 'CANCEL']],
   spiral: [['CLICK', 'AXIS START · END · RADIUS'], ['X Y Z', 'AXIS'], ['A', 'ANGLE'], ['D', 'LENGTH'], ['R', 'RADIUS'], ['⏎ / RMB', 'OK']],
   'offset-vertex': [['DRAG DOT', 'DISTANCE'], ['D', 'DISTANCE'], ['⏎ / RMB', 'OK']],
   slide: [['DRAG DOT', 'DISTANCE'], ['D', 'DISTANCE'], ['U', 'POSITIVE U'], ['⇧U', 'NEGATIVE U'], ['V', 'POSITIVE V (SURFACE)'], ['⇧V', 'NEGATIVE V (SURFACE)'], ['N', 'NORMAL'], ['⏎ / RMB', 'OK']],
@@ -2378,7 +2378,9 @@ export async function mount(root, backend) {
   // the curvature is strong, joined by an envelope. One scale for all curves, so they compare.
   const combGroup = new THREE.Group();
   scene.add(combGroup);
-  const combMat = new THREE.LineBasicMaterial({ color: 0x6cbf5f, transparent: true, opacity: 0.7, depthTest: false });
+  // Plasticity's curvature combs (manual: Toggle Curve Curvature): white teeth, a red line through their tips.
+  const combMat = new THREE.LineBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.7, depthTest: false });
+  const combTipMat = new THREE.LineBasicMaterial({ color: 0xff3b3b, depthTest: false });
   const combScale = () => Number($('comb-scale').value) || 1;
   function drawCombs() {
     drawSurfaceCombs();
@@ -2397,7 +2399,7 @@ export async function mount(root, backend) {
         teeth.push(at(t.at), at(tip));
         envelope.push(at(tip));
       }
-      const tl = new THREE.LineSegments(new THREE.BufferGeometry().setFromPoints(teeth), combMat), el = new THREE.Line(new THREE.BufferGeometry().setFromPoints(envelope), combMat);
+      const tl = new THREE.LineSegments(new THREE.BufferGeometry().setFromPoints(teeth), combMat), el = new THREE.Line(new THREE.BufferGeometry().setFromPoints(envelope), combTipMat);
       tl.renderOrder = el.renderOrder = 11;
       combGroup.add(tl, el);
     }
@@ -2429,7 +2431,7 @@ export async function mount(root, backend) {
         teeth.push(at, tip);
         envelope.push(tip);
       }
-      const tl = new THREE.LineSegments(new THREE.BufferGeometry().setFromPoints(teeth), combMat), el = new THREE.Line(new THREE.BufferGeometry().setFromPoints(envelope), combMat);
+      const tl = new THREE.LineSegments(new THREE.BufferGeometry().setFromPoints(teeth), combMat), el = new THREE.Line(new THREE.BufferGeometry().setFromPoints(envelope), combTipMat);
       tl.renderOrder = el.renderOrder = 11;
       surfaceCombGroup.add(tl, el);
     }
@@ -6027,6 +6029,25 @@ export async function mount(root, backend) {
       }
       if (action === 'typed') { typeSize(); return true; }
       if (action === 'flip' && c.id === 'tangent-arc') { c.flip = !c.flip; drawShape(); return true; }
+      // Tangent Arc's N and B (manual): the arc in the curve's own plane (its normal side), or
+      // standing up from it in the plane of the tangent and the curve plane's normal (its binormal).
+      if ((action === 'normal' || action === 'binormal') && c.id === 'tangent-arc' && c.plane) {
+        c.base ??= { plane: c.plane, pts: c.pts.map(v => v.clone()), tangent: c.tangent, others: c.others };
+        const b = c.base;
+        if (action === 'normal') Object.assign(c, { plane: b.plane, pts: b.pts.map(v => v.clone()), tangent: b.tangent, others: b.others });
+        else {
+          const t = b.plane.x.clone().multiplyScalar(b.tangent[0]).addScaledVector(b.plane.y, b.tangent[1]).normalize();
+          const y = b.plane.n.clone().normalize();
+          c.plane = { o: lift(b.plane, { x: b.pts[0].x, y: b.pts[0].y }), x: t, y, n: t.clone().cross(y).normalize(), target: null };
+          c.pts = [new THREE.Vector2(0, 0)];
+          c.tangent = [1, 0];
+          c.others = [];
+        }
+        c.lean = action;
+        c.cursor = { uv: c.pts[0].clone() };
+        drawShape();
+        return true;
+      }
       if (action === 'switch' && (c.id === 'spline' || c.id === 'cv')) {
         // Tab: through-points and control points, keeping what's been clicked (manual: Control / Through-point).
         c.id = lastTool = c.id === 'spline' ? 'cv' : 'spline';
@@ -6352,7 +6373,7 @@ export async function mount(root, backend) {
     const c = cmd, f = c.plane;
     $('draw-points').textContent = c.pts.length;
     const need = CLICKS[c.id], left = need ? need - c.pts.length : 0;
-    $('draw-hint').textContent = c.id === 'tangent-arc' ? (!f ? 'CLICK A CURVE, AT AN END OR ANYWHERE ALONG IT' : `CLICK FOR THE SIZE · D FLIPS${c.flip ? ' (FLIPPED)' : ''}`)
+    $('draw-hint').textContent = c.id === 'tangent-arc' ? (!f ? 'CLICK A CURVE, AT AN END OR ANYWHERE ALONG IT' : `CLICK FOR THE SIZE · D FLIPS${c.flip ? ' (FLIPPED)' : ''} · N / B: ${c.lean === 'binormal' ? 'STANDING UP' : "IN THE CURVE'S PLANE"}`)
       : !f ? 'CLICK A FACE OR THE CONSTRUCTION PLANE'
       : c.axis ? `CLICK THE NEXT POINT · ALONG ${c.axis.toUpperCase()} (${c.axis.toUpperCase()} AGAIN FREES IT)`
       : c.id === 'rect' || c.id === 'center-rect' ? 'CLICK THE OTHER CORNER · TAB TYPES'
@@ -7464,7 +7485,7 @@ export async function mount(root, backend) {
         teeth.push(at(t.at), at(tip));
         envelope.push(at(tip));
       }
-      const tl = new THREE.LineSegments(new THREE.BufferGeometry().setFromPoints(teeth), combMat), el = new THREE.Line(new THREE.BufferGeometry().setFromPoints(envelope), combMat);
+      const tl = new THREE.LineSegments(new THREE.BufferGeometry().setFromPoints(teeth), combMat), el = new THREE.Line(new THREE.BufferGeometry().setFromPoints(envelope), combTipMat);
       tl.renderOrder = el.renderOrder = 11;
       previewGroup.add(tl, el);
     }
@@ -15417,7 +15438,6 @@ export async function mount(root, backend) {
     vertexMat.normal.size = look.vertexSize;
     vertexMat.hover.size = vertexMat.selected.size = look.vertexSize + 4;
     instanceEdgeMat.color.set(look.instanceEdge);
-    combMat.color.set(look.measurement);
     measureMat.color.set(look.measurement);
     root.style.setProperty('--measure', look.measurement);
     root.style.setProperty('--muted', look.supporting);
