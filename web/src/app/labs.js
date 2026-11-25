@@ -11,15 +11,18 @@ import * as THREE from 'three';
 import { CLASS_A, HIGHLIGHT_KINK, checkSeam, seamSummary } from '../seamCheck.js';
 import { SOLVER_CONTINUITY, seamSolveRequest } from '../seamSolver.js';
 import { g3Blend, nearestEdge } from '../g3Blend.js';
+import { FIT_TOLERANCE, classAFitFace, classAFitPoints } from '../classAFit.js';
+import { scanPoints } from '../scanPoints.js';
 
 /** The LABS commands, by id: their dialog titles. */
-export const LABS_NAMES = { 'seam-check': 'SEAM CHECK', 'seam-solver': 'SEAM SOLVER', 'g3-blend': 'G3 BLEND' };
+export const LABS_NAMES = { 'seam-check': 'SEAM CHECK', 'seam-solver': 'SEAM SOLVER', 'g3-blend': 'G3 BLEND', 'class-a-fit': 'CLASS-A FIT' };
 
 /** The LABS commands' keys, as KEYS lists them for the key strip. */
 export const LABS_KEYS = {
     'seam-check': [['CLICK', 'ADD AN EDGE'], ['ENTER', 'DONE'], ['ESC', 'DONE']],
     'seam-solver': [['TAB', 'CONTINUITY'], ['ENTER', 'KEEP AND MEASURE'], ['ESC', 'CANCEL']],
     'g3-blend': [['TAB', 'CONTINUITY'], ['ENTER', 'KEEP AND MEASURE'], ['ESC', 'CANCEL']],
+    'class-a-fit': [['ENTER', 'KEEP THE PATCH'], ['ESC', 'CANCEL']],
 };
 
 /** Their options in the command dialog. */
@@ -42,6 +45,14 @@ export const LABS_PANELS = `
       <div class="seg" role="group" aria-label="Continuity">${SOLVER_CONTINUITY.map(c => `<button data-gbcont="${c}" aria-pressed="${c === 'G3'}" title="Meet both faces in ${c} (Tab cycles)">${c}</button>`).join('')}</div>
       <div class="field" title="How far the blend runs along the first face before it turns"><label for="w3d-gb-t1">TENSION 1</label><input id="w3d-gb-t1" data-id="gb-t1" type="number" step="0.1" min="0.1" value="1"></div>
       <div class="field" title="How far the blend runs along the second face before it turns"><label for="w3d-gb-t2">TENSION 2</label><input id="w3d-gb-t2" data-id="gb-t2" type="number" step="0.1" min="0.1" value="1"></div>
+    </div>
+    <div class="sec" data-panel="class-a-fit" hidden>
+      <span class="hint" data-id="cf-hint">SELECT A FACE TO REBUILD AS ONE CLASS-A PATCH</span>
+      <div class="field" title="The furthest the patch may stand off the face"><label for="w3d-cf-tol">TOLERANCE</label><input id="w3d-cf-tol" data-id="cf-tol" type="number" step="0.01" min="0.001" value="${FIT_TOLERANCE}"></div>
+      <div class="seg" role="group" aria-label="Fairing"><button data-cffair="on" aria-pressed="true" title="Fair the patch as far as the tolerance allows (irons out ripples and inflections)">FAIR</button><button data-cffair="off" aria-pressed="false" title="The closest fit, no fairing">CLOSEST</button></div>
+      <button data-id="cf-load" title="Fit one patch to the points of a mesh or scan (OBJ or STL) instead of a face">LOAD SCAN…</button>
+      <input data-id="cf-scan" type="file" accept=".obj,.stl" hidden>
+      <span class="hint" data-id="cf-result" title="Degree, furthest distance from the face, inflections before and after">—</span>
     </div>`;
 
 const COLOURS = { ok: new THREE.Color(0x2ec46b), soft: new THREE.Color(0xff8a1c), bad: new THREE.Color(0xe5484d) };
@@ -265,7 +276,61 @@ export function createLabs(ctx) {
         for (const id of ['gb-t1', 'gb-t2']) $(id).oninput = () => ctx.current() === c && c.preview();
         c.preview();
     }
-    let lastSolve = null, lastBlend = null;
+    /**
+     * Class-A Fit: the selected face rebuilt as one single-span patch of degree 5 to 7 within the
+     * tolerance, faired (classAFit.js), shown live; Enter keeps it as a new sheet beside the face.
+     */
+    function startClassAFit(faces) {
+        if (faces.length > 1) return ctx.toast('SELECT ONE FACE TO FIT');
+        const target = faces.length ? { body: faces[0].body, face: faces[0].n } : null;
+        const c = { id: 'class-a-fit', fair: true, fit: null, scan: null, sent: 0, shown: 0 };
+        ctx.begin(c);
+        ctx.setState('none');
+        const buttons = () => { for (const btn of document.querySelectorAll('[data-cffair]')) btn.setAttribute('aria-pressed', String((btn.dataset.cffair === 'on') === c.fair)); };
+        c.preview = () => {
+            buttons();
+            if (!target && !c.scan) { $('cf-hint').textContent = 'SELECT ONE FACE, OR LOAD A SCAN (OBJ OR STL)'; return; }
+            $('cf-hint').textContent = 'FITTING…';
+            ctx.livePreview(c, async () => {
+                const options = { tolerance: +$('cf-tol').value || FIT_TOLERANCE, fair: c.fair };
+                const r = c.scan ? classAFitPoints(c.scan.points, options) : await classAFitFace(ctx.backend, target, options);
+                if (ctx.current() !== c) return null;
+                c.fit = r;
+                const what = c.scan ? `OFF ${r.points} SCAN POINTS` : 'OFF THE FACE';
+                const text = `DEGREE ${r.degree} · ${r.deviation.toFixed(4)} mm ${what} · INFLECTIONS ${r.before ?? '—'} → ${r.inflections}`;
+                $('cf-result').textContent = text;
+                $('cf-hint').textContent = `${text} · ENTER KEEPS IT`;
+                return ctx.backend.previewSplineSheet({ data: r.data });
+            }, sheet => ctx.showPreviewBody(sheet), 'cf-hint');
+        };
+        c.finish = async () => {
+            if (!c.fit) return ctx.toast($('cf-hint').textContent);
+            try {
+                const { ids: [id], scene } = await ctx.backend.commitSplineSheet({ data: c.fit.data });
+                ctx.endCmd('committed');
+                ctx.record(`CLASS-A FIT DEGREE ${c.fit.degree}`, id, `${c.fit.deviation.toFixed(4)} mm`);
+                await ctx.showScene(scene);
+                lastFit = { body: id, degree: c.fit.degree, deviation: c.fit.deviation, inflections: c.fit.inflections, before: c.fit.before };
+                ctx.setHud(`CLASS-A FIT · DEGREE ${c.fit.degree} · ${c.fit.deviation.toFixed(4)} mm · INFLECTIONS ${c.fit.inflections}`);
+            } catch (e) { ctx.setState('failed'); ctx.toast(ctx.say(e)); }
+        };
+        c.abort = () => ctx.endCmd('cancelled');
+        c.cleanup = () => ctx.clearPreview();
+        for (const btn of document.querySelectorAll('[data-cffair]')) btn.onclick = () => { if (ctx.current() === c) { c.fair = btn.dataset.cffair === 'on'; c.preview(); } };
+        $('cf-tol').oninput = () => ctx.current() === c && c.preview();
+        $('cf-load').onclick = () => ctx.current() === c && $('cf-scan').click();
+        $('cf-scan').onchange = async e => {
+            const file = e.target.files?.[0];
+            e.target.value = '';
+            if (!file || ctx.current() !== c) return;
+            try {
+                c.scan = { name: file.name, points: scanPoints(new Uint8Array(await file.arrayBuffer()), file.name) };
+                c.preview();
+            } catch (err) { ctx.toast(ctx.say(err)); }
+        };
+        c.preview();
+    }
+    let lastSolve = null, lastBlend = null, lastFit = null;
 
     return {
         has: id => id in LABS_NAMES,
@@ -273,8 +338,10 @@ export function createLabs(ctx) {
         lastSolve: () => lastSolve,
         /** The last G3 Blend's two Seam Checks, for the agent. */
         lastBlend: () => lastBlend,
+        /** The last Class-A Fit kept, for the agent. */
+        lastFit: () => lastFit,
         /** Start command `id` on `edges` (the edges selected when it was asked for). */
-        start(id, edges = ctx.sel.list('edge')) {
+        start(id, edges = ctx.sel.list('edge'), faces = ctx.sel.list('face')) {
             if (id === 'seam-check') {
                 if (!ctx.backend.edgeFaces || !ctx.backend.edgeCurvature) return ctx.toast('SEAM CHECK IS NOT IN THIS BUILD YET');
                 return startSeamCheck(edges);
@@ -286,6 +353,10 @@ export function createLabs(ctx) {
             if (id === 'g3-blend') {
                 if (!ctx.backend.edgeFaces || !ctx.backend.previewSplineSheet || !ctx.backend.undo) return ctx.toast('G3 BLEND IS NOT IN THIS BUILD YET');
                 return startG3Blend(edges);
+            }
+            if (id === 'class-a-fit') {
+                if (!ctx.backend.faceUvn || !ctx.backend.previewSplineSheet) return ctx.toast('CLASS-A FIT IS NOT IN THIS BUILD YET');
+                return startClassAFit(faces);
             }
         },
         /** Seam numbers for the agent and MCP tools (no viewport). */

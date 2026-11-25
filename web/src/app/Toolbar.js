@@ -28,7 +28,7 @@ export const FAMILIES = [
     { id: 'cylinder', label: 'CYLINDER', items: ['cylinder'] },
     { id: 'measure', label: 'MEASUREMENT', items: ['measure-distance', 'measure-radius', 'measure-continuity', 'view-curvature'] },
     // Not Plasticity's: the AI surfacing tools (LABS, docs/ai-roadmap.md), last on the rail.
-    { id: 'labs', label: 'LABS', items: ['seam-check', 'seam-solver', 'g3-blend'] },
+    { id: 'labs', label: 'LABS', items: ['seam-check', 'seam-solver', 'g3-blend', 'class-a-fit'] },
 ];
 
 const HOLD_MS = 350;
