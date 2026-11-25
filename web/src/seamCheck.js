@@ -112,6 +112,61 @@ export function seamMetrics(tangents, a, b, { h = 0, aIn = null, bIn = null, len
     return { samples, worst };
 }
 
+/** Highlight (isophote) target: the worst bend of a highlight line where it crosses a seam, in degrees (inferred). */
+export const HIGHLIGHT_KINK = 1;
+
+/**
+ * Where a highlight line runs on a face at a frame: the isophote of n·L through the point, as a unit
+ * direction in the tangent plane, or null where the face is lit evenly there (no line to follow).
+ */
+export function isophoteDir(f, L) {
+    const N = cross(f.su, f.sv), m = len(N);
+    if (!(m > 1e-15)) return null;
+    const n = mul(N, 1 / m);
+    // The derivatives of the unit normal, and of the light n·L, along u and v.
+    const dN = (a, b) => {
+        const d = add(cross(a, f.sv), cross(f.su, b));
+        return mul(sub(d, mul(n, dot(n, d))), 1 / m);
+    };
+    const fu = dot(dN(f.suu, f.suv), L), fv = dot(dN(f.suv, f.svv), L);
+    const E = dot(f.su, f.su), F = dot(f.su, f.sv), G = dot(f.sv, f.sv), det = E * G - F * F;
+    if (!(Math.abs(det) > 1e-18)) return null;
+    const g = add(mul(f.su, (G * fu - F * fv) / det), mul(f.sv, (E * fv - F * fu) / det));
+    if (!(len(g) > 1e-9)) return null;
+    return unit(cross(n, g));
+}
+
+/** Lights for the highlight check: `count` directions tilted `tilt` degrees off `up`, spread around it. */
+export function studioLights(up, count = 6, tilt = 35) {
+    const u = unit(up), a = Math.abs(u[0]) < 0.9 ? [1, 0, 0] : [0, 1, 0];
+    const x = unit(cross(u, a)), y = cross(u, x), t = tilt * Math.PI / 180;
+    return Array.from({ length: count }, (_, i) => {
+        const p = 2 * Math.PI * i / count;
+        return unit(add(mul(u, Math.cos(t)), add(mul(x, Math.sin(t) * Math.cos(p)), mul(y, Math.sin(t) * Math.sin(p)))));
+    });
+}
+
+/**
+ * How highlight lines bend where they cross the seam: for each light, at each sample, the angle
+ * between the isophote on either side, where it actually crosses (not where it runs along the
+ * seam, nor where a face is lit evenly). Returns the worst angle (degrees, or null when no line
+ * crosses) and how many crossings were seen.
+ */
+export function highlightKinks(tangents, a, b, lights) {
+    let worst = null, crossings = 0, at = null;
+    tangents.forEach((t, k) => {
+        for (const L of lights) {
+            const da = isophoteDir(a.frames[k], L), db = isophoteDir(b.frames[k], L);
+            if (!da || !db) continue;
+            if (Math.abs(dot(da, t)) > 0.95 || Math.abs(dot(db, t)) > 0.95) continue;
+            crossings++;
+            const angle = Math.acos(Math.min(1, Math.abs(dot(da, db)))) * 180 / Math.PI;
+            if (worst === null || angle > worst) { worst = angle; at = a.frames[k].at; }
+        }
+    });
+    return { worst, crossings, at };
+}
+
 /**
  * Measure seam `seam` = { body, edge } (an edge two faces of the body share) or { body, edge, other:
  * { body, edge } } (an edge of one body against an edge of another) with `backend`. `n` samples,
@@ -163,13 +218,17 @@ export async function checkSeam(backend, seam, { n = 48, tol = CLASS_A, g3 = tru
         } catch { aIn = bIn = null; }
     }
     const { samples, worst } = seamMetrics(tangents, A, B, { h, aIn, bIn, length });
+    // Highlights: lights around the seam's mean normal, as a studio's light tunnel tilts them.
+    const up = A.frames.reduce((m, f) => add(m, normalOf(f)), [0, 0, 0]);
+    const highlight = highlightKinks(tangents, A, B, studioLights(up));
     const ok = { g0: worst.gap <= tol.g0, g1: worst.angle <= tol.g1, g2: worst.g2 === null ? null : worst.g2 <= tol.g2, g3: worst.g3 === null ? null : worst.g3 <= tol.g3 };
-    return { samples, worst, ok, level: levelOf(worst, tol), length, faces: [A.face, B.face], bodies: [seam.body, bodyB] };
+    ok.highlight = highlight.worst === null ? null : highlight.worst <= HIGHLIGHT_KINK;
+    return { samples, worst, ok, highlight, level: levelOf(worst, tol), length, faces: [A.face, B.face], bodies: [seam.body, bodyB] };
 }
 
 /** One line for a seam's result, as the panel and the agent show it. */
 export function seamSummary(r, tol = CLASS_A) {
     const w = r.worst, f = (v, d) => v === null ? '—' : v.toFixed(d);
     const mark = ok => ok === null ? '' : ok ? ' ✓' : ' ✗';
-    return `${r.level} · GAP ${f(w.gap, 4)} mm${mark(r.ok.g0)} · ANGLE ${f(w.angle, 3)}°${mark(r.ok.g1)} · G2 ${f(w.g2, 2)}%${mark(r.ok.g2)} · G3 ${f(w.g3, 1)}%${mark(r.ok.g3)}`;
+    return `${r.level} · GAP ${f(w.gap, 4)} mm${mark(r.ok.g0)} · ANGLE ${f(w.angle, 3)}°${mark(r.ok.g1)} · G2 ${f(w.g2, 2)}%${mark(r.ok.g2)} · G3 ${f(w.g3, 1)}%${mark(r.ok.g3)} · HIGHLIGHT ${f(r.highlight?.worst ?? null, 2)}°${mark(r.ok.highlight ?? null)}`;
 }

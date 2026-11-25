@@ -12,7 +12,7 @@ before(async () => { await loadKernel() });
  * A cubic Bezier sheet over x in [x0, x1], y in [0, 100], z = c[0] + c[1] x + c[2] x² + c[3] x³:
  * exact, because the cubic's Bernstein poles come from its Taylor terms at x0.
  */
-function sheet(x0, x1, c) {
+function sheet(x0, x1, c, cy = 0) {
     const o = oc(), L = x1 - x0;
     const d = [
         c[0] + c[1] * x0 + c[2] * x0 ** 2 + c[3] * x0 ** 3,
@@ -21,8 +21,10 @@ function sheet(x0, x1, c) {
         c[3] * L ** 3,
     ];
     const z = [d[0], d[0] + d[1] / 3, d[0] + 2 * d[1] / 3 + d[2] / 3, d[0] + d[1] + d[2] + d[3]];
+    // Plus cy y² over y in [0, 100] (its Bernstein poles), so highlights also run across the seam.
+    const zy = [0, 0, cy * 1e4 / 3, cy * 1e4];
     const poles = new o.NCollection_Array2_gp_Pnt(1, 4, 1, 4);
-    for (let i = 0; i < 4; i++) for (let j = 0; j < 4; j++) poles.SetValue(i + 1, j + 1, new o.gp_Pnt(x0 + L * i / 3, 100 * j / 3, z[i]));
+    for (let i = 0; i < 4; i++) for (let j = 0; j < 4; j++) poles.SetValue(i + 1, j + 1, new o.gp_Pnt(x0 + L * i / 3, 100 * j / 3, z[i] + zy[j]));
     const arr = (vals, Type) => { const a = new Type(1, vals.length); vals.forEach((v, i) => a.SetValue(i + 1, v)); return a; };
     const k = () => arr([0, 1], o.NCollection_Array1_double), m = () => arr([4, 4], o.NCollection_Array1_int);
     return new o.BRepBuilderAPI_MakeFace(new o.Geom_BSplineSurface(poles, k(), k(), m(), m(), 3, 3, false, false), 1e-7).Face();
@@ -40,8 +42,8 @@ const backendOf = shapes => ({
     edgeCurvature: async ({ body, edge, n }) => edgeCurvature(shapes[body], edge, n),
     edgeFaces: async ({ body, edge, points }) => edgeFaces(shapes[body], edge, points),
 });
-const pair = async (ca, cb) => {
-    const a = sheet(-100, 0, ca), b = sheet(0, 100, cb);
+const pair = async (ca, cb, cy = 0) => {
+    const a = sheet(-100, 0, ca, cy), b = sheet(0, 100, cb, cy);
     return checkSeam(backendOf([a, b]), { body: 0, edge: seamEdge(a), other: { body: 1, edge: seamEdge(b) } });
 };
 
@@ -96,4 +98,14 @@ test('an edge two faces of one shell share is measured on its own', async () => 
 test('levelOf reads the targets in order', () => {
     assert.equal(levelOf({ gap: 0, angle: 0, g2: 0.1, g3: null }), 'G2');
     assert.equal(levelOf({ gap: 0, angle: 0.06, g2: 0, g3: 0 }), 'G0');
+});
+
+test('highlight lines cross a G3 seam straight and bend at a G1 one', async () => {
+    const smooth = await pair([0, 0, 0.002, 0.00001], [0, 0, 0.002, 0.00001], 0.003);
+    assert.ok(smooth.highlight.crossings > 0);
+    assert.ok(smooth.highlight.worst < 0.05, `smooth ${smooth.highlight.worst}`);
+    assert.equal(smooth.ok.highlight, true);
+    const kinked = await pair([0, 0, 0.002, 0], [0, 0, 0.006, 0], 0.003);
+    assert.ok(kinked.highlight.worst > 5, `kinked ${kinked.highlight.worst}`);
+    assert.equal(kinked.ok.highlight, false);
 });

@@ -8,7 +8,7 @@
 // every target is met, orange where only G2/G3 miss and red where the gap or angle does.
 
 import * as THREE from 'three';
-import { CLASS_A, checkSeam, seamSummary } from '../seamCheck.js';
+import { CLASS_A, HIGHLIGHT_KINK, checkSeam, seamSummary } from '../seamCheck.js';
 
 /** The LABS commands, by id: their dialog titles. */
 export const LABS_NAMES = { 'seam-check': 'SEAM CHECK' };
@@ -23,7 +23,7 @@ export const LABS_PANELS = `
     <div class="sec" data-panel="seam-check" hidden>
       <span class="hint" data-id="sc-hint">SELECT SEAM EDGES</span>
       <span class="label">TARGETS</span>
-      <span class="hint" data-id="sc-targets" title="Class-A targets: gap, angle between the faces, curvature difference (G2) and its rate of change (G3) across the seam">GAP ${CLASS_A.g0} mm · ${CLASS_A.g1}° · G2 ${CLASS_A.g2}% · G3 ${CLASS_A.g3}%</span>
+      <span class="hint" data-id="sc-targets" title="Class-A targets: gap, angle between the faces, curvature difference (G2) and its rate of change (G3) across the seam; how much highlight lines bend crossing it (6 studio lights)">GAP ${CLASS_A.g0} mm · ${CLASS_A.g1}° · G2 ${CLASS_A.g2}% · G3 ${CLASS_A.g3}% · HIGHLIGHT ${HIGHLIGHT_KINK}°</span>
       <ol class="sc-list" data-id="sc-list"></ol>
     </div>`;
 
