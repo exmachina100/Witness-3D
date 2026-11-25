@@ -3124,6 +3124,7 @@ export async function mount(root, backend) {
   /** F2: rename the one selected object or group (manual: Outliner, double-click a name). */
   function renameSelected() {
     const keys = [...sel.solids, ...selectedCurveKeys()], groups = sel.groups;
+    for (const it of sel.list('image')) keys.push(`i:${it.id}`);
     if (keys.length + groups.length !== 1) return toast('SELECT ONE OBJECT OR GROUP TO RENAME');
     tab('outliner');
     const want = groups.length ? `g:${groups[0]}` : String(keys[0]);
@@ -3386,17 +3387,44 @@ export async function mount(root, backend) {
       };
       out.append(row);
     }
-    if (images.length) out.insertAdjacentHTML('beforeend', '<div class="group-title">▾ IMAGES</div>');
+    if (images.length) {
+      out.insertAdjacentHTML('beforeend', '<div class="group-title">▾ IMAGES</div>');
+      out.lastElementChild.oncontextmenu = e => { e.preventDefault(); openOMenu(e, [['SELECT ALL', () => doAction('select:images')]]); };
+    }
     for (const im of images) {
-      const row = document.createElement('div');
-      row.className = 'row-item curve' + (im.hidden ? ' off' : '');
-      row.setAttribute('aria-current', cmd?.id === 'image' && cmd.image === im.id);
-      row.innerHTML = `${icon('image')}<span class="name" title="${im.name.replace(/[<>&"]/g, '')}">IMAGE</span><span class="tag">${imageLabel(im.id)}</span><button class="eye" aria-pressed="${!im.hidden}" aria-label="Show or hide">◉</button>`;
+      // Plasticity's Images section: a row per picture under its file name; double-click or F2
+      // renames it, the eye hides it, the padlock keeps it from being picked (manual: Outliner).
+      const row = document.createElement('div'), it = { kind: 'image', id: im.id };
+      row.className = 'row-item curve' + (im.hidden ? ' off' : '') + (im.locked ? ' locked' : '');
+      row.setAttribute('aria-current', (cmd?.id === 'image' && cmd.image === im.id) || sel.has(it));
+      row.innerHTML = `${icon('image')}<span class="name"></span><span class="tag">${imageLabel(im.id)}</span><button class="lk" aria-pressed="${!!im.locked}" aria-label="Lock or unlock" title="${im.locked ? 'Unlock' : 'Lock'}">${icon(im.locked ? 'padlock' : 'unlock')}</button><button class="eye" aria-pressed="${!im.hidden}" aria-label="Show or hide">◉</button>`;
+      row.dataset.okey = `i:${im.id}`;
+      const iname = row.querySelector('.name');
+      iname.textContent = im.name;
+      iname.title = im.name;
+      iname.ondblclick = e => { e.stopPropagation(); editName(iname, t => renameImage(im.id, t)); };
       row.onclick = async e => {
-        if (e.target.closest('.eye')) { im.hidden = !im.hidden; drawImages(); return renderOutliner(); }
+        if (e.target.closest('.eye')) return toggleImage(im.id, 'hidden');
+        if (e.target.closest('.lk')) return toggleImage(im.id, 'locked');
+        if (im.locked) return toast('LOCKED · UNLOCK TO SELECT');
+        if (im.hidden) return toast('HIDDEN');
+        const how = modOf(e);
+        if (how !== 'replace') { if (cmd?.id === 'image') await finish(); applySelect(it, how); selectionChanged(); return renderOutliner(); }
+        if (cmd?.id === 'image' && cmd.image === im.id) return;   // open already: a second click may be a double-click
         if (cmd) await finish();
         startImage(im.id);
         renderOutliner();
+      };
+      row.oncontextmenu = e => {
+        e.preventDefault();
+        openOMenu(e, [
+          ['RENAME', () => iname.dispatchEvent(new MouseEvent('dblclick', { bubbles: true }))],
+          [im.hidden ? 'SHOW' : 'HIDE', () => toggleImage(im.id, 'hidden')],
+          [im.locked ? 'UNLOCK' : 'LOCK', () => toggleImage(im.id, 'locked')],
+          ['SET MATERIAL', async () => { if (cmd) await finish(); startImage(im.id); renderOutliner(); }, im.locked || im.hidden],
+          null,
+          ['DELETE', () => removeImages([im.id])],
+        ]);
       };
       out.append(row);
     }
@@ -3571,6 +3599,34 @@ export async function mount(root, backend) {
   }
   const asDataUrl = blob => new Promise((ok, fail) => { const r = new FileReader(); r.onload = () => ok(r.result); r.onerror = () => fail(new Error('that image could not be read')); r.readAsDataURL(blob); });
   const pictureSize = src => new Promise((ok, fail) => { const i = new Image(); i.onload = () => ok([i.naturalWidth, i.naturalHeight]); i.onerror = () => fail(new Error('that file is not a PNG or JPEG picture')); i.src = src; });
+  /** Rename a reference image (its outliner name, saved with the file). */
+  function renameImage(id, text) {
+    const im = images.find(m => m.id === id), t = String(text).replace(/\s+/g, ' ').trim().slice(0, 120);
+    if (im && t) im.name = t;
+    if (cmd?.id === 'image' && cmd.image === id) cmd.refresh?.();
+  }
+  /** Hide or lock a reference image: either way it can't be picked, and an open one closes. */
+  async function toggleImage(id, key) {
+    const im = images.find(m => m.id === id);
+    if (!im) return;
+    if (cmd?.id === 'image' && cmd.image === id) await finish();
+    im[key] = !im[key];
+    if (im[key]) sel.remove({ kind: 'image', id });
+    drawImages();
+    selectionChanged({ quiet: true });
+    renderOutliner();
+    toast(`${key === 'hidden' ? (im.hidden ? 'HID' : 'SHOWED') : (im.locked ? 'LOCKED' : 'UNLOCKED')} ${imageLabel(id)}`);
+  }
+  /** Delete reference images (Delete on selected images, or the outliner menu). */
+  async function removeImages(ids) {
+    if (cmd?.id === 'image' && ids.includes(cmd.image)) await finish();
+    images = images.filter(m => !ids.includes(m.id));
+    for (const id of ids) { textures.get(id)?.dispose(); textures.delete(id); sel.remove({ kind: 'image', id }); }
+    drawImages();
+    selectionChanged({ quiet: true });
+    renderOutliner();
+    toast(ids.length === 1 ? `REMOVED ${imageLabel(ids[0])}` : `REMOVED ${ids.length} IMAGES`);
+  }
   /** A PNG or JPEG placed on the construction plane, 100 mm wide, centred on its origin. */
   async function importImage(blob, name) {
     const src = await asDataUrl(blob);
@@ -3589,7 +3645,8 @@ export async function mount(root, backend) {
     const h = imageGroup.visible ? raycaster.intersectObjects(imageGroup.children, false)[0] : undefined;
     if (!h) return null;
     if (hit?.point && camera.position.distanceTo(hit.point) < h.distance) return null;
-    return h.object.userData.image ?? null;
+    const id = h.object.userData.image ?? null;
+    return images.find(m => m.id === id)?.locked ? null : id;
   }
   /**
    * Plasticity's image appearance (M on an image): width, opacity, depth and culling, live. A click
@@ -11602,6 +11659,9 @@ export async function mount(root, backend) {
    * Selected curves take the material too (its colour draws their line).
    */
   function startMaterial() {
+    // M on a selected reference image opens its appearance (Depth, Opacity, Culling), as Plasticity's M does.
+    const pic = sel.list('image').map(it => it.id).find(i => images.some(m => m.id === i && !m.locked && !m.hidden));
+    if (pic !== undefined && !sel.bodies.length && !sel.curves.length) return startImage(pic);
     const ids = [...sel.bodies.filter(id => org.picks(id)), ...sel.curves.filter(curveById).map(curveKey)];
     if (!ids.length) return toast('SELECT SOLIDS, SHEETS OR CURVES');
     const before = { materials: new Map([...materials].map(([k, v]) => [k, { ...v }])), materialOf: new Map(materialOf), next: nextMaterial };
@@ -15222,6 +15282,9 @@ export async function mount(root, backend) {
     const ids = sel.solids, curves = sel.curves;
     // Delete Control Point: picked vertices go from their curves (curveEdit.js deleteVertices).
     const verts = sel.list('vertex').filter(v => curveById(v.id));
+    // Selected reference images go too (outliner Select all, then Delete).
+    const pics = sel.list('image').map(it => it.id).filter(i => images.some(m => m.id === i));
+    if (!ids.length && !curves.length && !verts.length && pics.length) return removeImages(pics);
     if (!ids.length && !curves.length && verts.length) {
       if (!backend.replaceCurves) return toast('DELETING POINTS IS NOT IN THIS BUILD YET');
       const byCurve = new Map();
@@ -15766,6 +15829,12 @@ export async function mount(root, backend) {
           for (const id of held.curves) if (org.picks(curveKey(id))) sel.add({ kind: 'curve', id });
           for (const id of held.bodies) if (org.picks(id)) sel.add({ kind: 'solid', body: id });
           if (!sel.size) toast('NO CONSTRAINTS');
+        } else if (arg === 'images') {
+          // Plasticity's Images section: right-click, Select all (shown, unlocked pictures).
+          if (cmd?.id === 'image') await finish();
+          sel.clear();
+          for (const m of images) if (!m.hidden && !m.locked) sel.add({ kind: 'image', id: m.id });
+          if (!sel.size) toast('NO IMAGES TO SELECT');
         } else if (arg === 'measurements') {
           sel.clear();
           for (const c of surfaceCombs) if (!c.hidden && org.shows(c.body)) sel.add(c.face === undefined ? { kind: 'edge', body: c.body, n: c.n } : { kind: 'face', body: c.body, n: c.face });
