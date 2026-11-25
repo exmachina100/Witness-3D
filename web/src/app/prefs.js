@@ -22,6 +22,8 @@ export const PREF_FIELDS = {
         { key: 'rotateSpeed', label: 'ROTATE SPEED', type: 'number', value: 1, min: 0.1, max: 5 },
         { key: 'panSpeed', label: 'PAN SPEED', type: 'number', value: 1, min: 0.1, max: 5 },
         { key: 'fov', label: 'CAMERA FIELD OF VIEW (°)', type: 'number', value: 50, min: 10, max: 120, step: 1 },
+        // Plasticity's Camera Settings: "Squish: Controls optical distortion by compressing the camera view. The default value is 1.0."
+        { key: 'squish', label: 'CAMERA SQUISH', type: 'number', value: 1, min: 0.25, max: 4, step: 0.05 },
     ],
     appearance: [
         // Plasticity's Language: the app's words laid over in that language (i18n.js).
