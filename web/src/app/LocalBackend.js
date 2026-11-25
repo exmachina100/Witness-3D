@@ -1249,7 +1249,7 @@ export class LocalBackend {
         // Guides (Shift+click): the sheet's sides run along them.
         if (req.loop) throw new Error("a loop doesn't go with guides; turn Loop off");
         if (guides.some(g => typeof g !== 'object' && (req.curves ?? []).includes(g))) throw new Error("a curve can't be both a profile and a guide");
-        return loftSheetGuided((req.curves ?? []).map(of), guides.map(of), req.simplify ?? true);
+        return loftSheetGuided((req.curves ?? []).map(of), guides.map(of), req.simplify ?? true, { guides: req.trimGuides ?? true, profiles: req.trimProfiles ?? true });
     }
 
     previewLoftSheet(req) { return this.latest(async () => this.body(0, this.loftSheetResult(req))) }

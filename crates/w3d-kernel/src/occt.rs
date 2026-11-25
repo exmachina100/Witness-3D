@@ -461,12 +461,12 @@ impl Kernel for Occt {
         Shape::loft_faces(faces).map_err(shim)
     }
 
-    fn loft_sheet_guided(&self, curves: &[Path], guides: &[Path], simplify: bool) -> Result<Shape, KernelError> {
+    fn loft_sheet_guided(&self, curves: &[Path], guides: &[Path], simplify: bool, trim: [bool; 2]) -> Result<Shape, KernelError> {
         let mut all = Vec::new();
         for c in curves { all.extend(path_numbers(c)?) }
         let mut rails = Vec::new();
         for g in guides { rails.extend(path_numbers(g)?) }
-        Shape::loft_sheet_guided(&all, &rails, simplify).map_err(shim)
+        Shape::loft_sheet_guided(&all, &rails, simplify, trim).map_err(shim)
     }
 
     fn loft_guided(&self, sections: &[(Profile, Frame)], guides: &[Path]) -> Result<Shape, KernelError> {
