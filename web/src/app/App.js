@@ -113,6 +113,7 @@ import { distanceToFace } from '../dependentOffset.js';
 import { pipePath, untrimmed } from '../pipePath.js';
 import { ALIGN_CURVE_CONTINUITY, curvePart, mirrorCurve, alignCurveEnd, BRIDGE_CONTINUITY, bridgeContinuous, bridgeEnd, continuity, curvatureComb, curveVertices, deleteVertices, explode, EXTEND_SHAPES, extendCurve, extendStart, filletCurve, nearestEnd, OFFSET_CORNERS, offsetCurve, offsetSlot, offsetThrough, unionLoops, moveVertices, alignedInPlane, offsetVertex, rebuildCurve, rebuildCurveExplicit, refitCurve, subdivideCurve, completeCurve, convertVertices, insertKnotAt, raiseDegree, reverseCurve, transformCurve, moveVerticesTo, slideCurveCVs, splitCurve, tangentCircle, tangentCircle3, trim, cutCurve, cuttersFor, samples as curveSamples } from '../curveEdit.js';
 import { ViewGizmo } from './ViewGizmo.js';
+import { createLabs, LABS_KEYS, LABS_NAMES, LABS_PANELS } from './labs.js';
 import { Toolbar } from './Toolbar.js';
 import { arcballAbout, dragAngles, orbitAbout } from './orbit.js';
 import { spaceMouse, spaceMouseStep } from './spaceMouse.js';
@@ -237,6 +238,9 @@ const FORMS = { revolve: true, loft: true, sweep: true, subd: true };
 const PRIMS = { box: true, 'center-box': true, box3: true, cylinder: true, sphere: true };
 // Commands that aren't tools in the registry (they act on a click, not on settings).
 const EDITS = { 'remove-fillets': 'REMOVE FILLETS', isoparam: 'ISOPARAM', 'offset-vertex': 'OFFSET VERTEX', slide: 'SLIDE CURVE CV', 'fillet-vertex': 'FILLET VERTEX', 'align-vertex': 'ALIGN VERTEX', 'align-curve': 'ALIGN CURVE', rebuild: 'REBUILD CURVE', 'rebuild-face': 'REBUILD FACE', 'match-face': 'MATCH FACE', 'deform-curve': 'DEFORM', image: 'REFERENCE IMAGE', instance: 'INSTANCE', untrim: 'UNTRIM', unwrap: 'UNWRAP FACE', section: 'SECTION ANALYSIS', place: 'PLACE', dimension: 'DIMENSION', text: 'TEXT', 'insert-knot': 'INSERT KNOT', 'offset-edge': 'OFFSET EDGE', material: 'SET MATERIAL', export: 'EXPORT', 'export-mesh': 'EXPORT MESH', 'export-drawing': 'EXPORT DRAWING', 'measure-continuity': 'MEASURE CONTINUITY', trim: 'TRIM', 'cut-curve': 'CUT CURVE', 'bridge-edge': 'BRIDGE EDGE', 'align-surface': 'ALIGN SURFACE', 'project-align': 'PROJECT ALIGN', 'constrained-surface': 'CONSTRAINED SURFACE', square: 'SQUARE', extend: 'EXTEND CURVE', 'tangent-circle': 'TANGENT CIRCLE', split: 'SPLIT CURVE', 'measure-distance': 'MEASURE DISTANCE', 'measure-radius': 'MEASURE RADIUS', 'move-measure': 'MOVE MEASUREMENT' };
+// The LABS commands (labs.js) share the command dialog's titles and the key strip.
+Object.assign(EDITS, LABS_NAMES);
+Object.assign(KEYS, LABS_KEYS);
 const keysHtml = id => KEYS[id].map(([k, v]) => `<kbd>${k}</kbd><span>${v}</span>`).join('');
 // The Command Bar, exactly the manual's list (Plasticity Essentials › Command Bar).
 const BAR = [['palette', 'F', 'SEARCH'], ['tool:move', 'G', 'MOVE'], ['tool:rotate', 'R', 'ROTATE'], ['tool:scale', 'S', 'SCALE'], ['duplicate', '⇧D', 'DUPLICATE'], ['tool:boolean', 'Q', 'BOOLEAN'], ['tool:rect-array', '', 'RECTANGULAR ARRAY'], ['tool:radial-array', '', 'RADIAL ARRAY'], ['suggest', '⇧F', 'SUGGESTED COMMANDS']];
@@ -1563,6 +1567,7 @@ export async function mount(root, backend) {
     // Every tool's options go in the command dialog (Plasticity's); the Inspector keeps the rest.
     const props = root.querySelector('[data-id="tool-properties"]'), body = root.querySelector('[data-id="cd-body"]');
     for (const el of [...props.children]) if (el.tagName !== 'SUMMARY') body.append(el);
+    body.insertAdjacentHTML('beforeend', LABS_PANELS);
     props.remove();
     // Plasticity's Move and Scale dialogs put the values (XYZ) first, then Orientation and Pivot.
     const xf = body.querySelector('[data-panel="xf-opts"]'), last = body.querySelector('[data-panel="scale"]');
@@ -4867,6 +4872,7 @@ export async function mount(root, backend) {
     // B with only curves selected is Fillet Curve, as in Plasticity.
     if (id === 'fillet' && sel.size && sel.list().every(it => it.kind === 'curve')) return startCurveEdit('fillet-curve');
     if (id === 'fillet') return startFillet(opts);
+    if (id in LABS_NAMES) return labsOf().start(id);
     if (id === 'move' && pickedMeasure !== null && !sel.size && measures.some(m => m.id === pickedMeasure)) return startMoveMeasure();
     if (id === 'move' || id === 'rotate' || id === 'scale') return startTransform(id, opts);
     if (id === 'pushpull') return startPushPull(opts);
@@ -4908,6 +4914,12 @@ export async function mount(root, backend) {
 
   const previewGroup = new THREE.Group();
   scene.add(previewGroup);
+  // The LABS tools (labs.js), made on first use.
+  let labs = null;
+  const labsOf = () => labs ??= createLabs({
+    backend, sel, bodyOf, label, $, previewGroup, clearPreview, endCmd, setHud, setState, toast, say, pickAt,
+    begin(c) { cmd = c; lastTool = c.id; showTool(c.id); },
+  });
   // Edge Align's continuity circle and partial dots, drawn over everything.
   const alignHandles = new THREE.Group();
   alignHandles.renderOrder = 8;
