@@ -704,10 +704,11 @@ impl Shape {
         Ok(Shape::from_shape(&sheet))
     }
 
-    /// The numbered faces drafted by `angle` radians about the neutral plane through `origin` square to `pull`.
-    pub fn draft_faces_with_history(&self, faces: &[usize], pull: DVec3, origin: DVec3, angle: f64) -> Result<(Shape, ShapeHistory), String> {
+    /// The numbered faces drafted by `angle` radians about the neutral plane through `origin` square to
+    /// `neutral` (the pull itself, or a second reference surface's normal).
+    pub fn draft_faces_with_history(&self, faces: &[usize], pull: DVec3, origin: DVec3, neutral: DVec3, angle: f64) -> Result<(Shape, ShapeHistory), String> {
         let faces: Vec<i32> = faces.iter().map(|&f| f as i32).collect();
-        let frame = [pull.x, pull.y, pull.z, origin.x, origin.y, origin.z];
+        let frame = [pull.x, pull.y, pull.z, origin.x, origin.y, origin.z, neutral.x, neutral.y, neutral.z];
         let r = ffi::w3d::w3d_draft_faces(&self.inner, &faces, &frame, angle).map_err(reason)?;
         Ok((Shape::from_shape(&ffi::w3d::w3d_result_shape(&r)), history(&r, 1)))
     }

@@ -1128,10 +1128,11 @@ export function faceSheet(shape, index, size, wide = null) {
 
 /**
  * Plasticity's Draft Face: the numbered faces tilted by `angle` radians about the neutral plane
- * through `origin`, square to `pull` (the direction the part leaves its mould). Positive angles
+ * through `origin`, square to `pull` (the direction the part leaves its mould), or square to
+ * `neutral` when given (Taper Method Surface: a second reference face's normal). Positive angles
  * open the faces out along `pull`. Flat, cylindrical and conical faces. Returns { shape, history }.
  */
-export function draftFaces(shape, faces, pull, origin, angle) {
+export function draftFaces(shape, faces, pull, origin, angle, neutral = null) {
     const o = oc();
     if (!faces.length) throw new Error('select the faces to draft');
     if (!(Math.abs(angle) > 1e-9) || !Number.isFinite(angle)) throw new Error('the draft angle must not be zero');
@@ -1141,11 +1142,15 @@ export function draftFaces(shape, faces, pull, origin, angle) {
     if (n.length() < 1e-12) throw new Error('the pull direction has no length');
     n.normalize();
     const dirn = new o.gp_Dir(n.x, n.y, n.z);
-    const neutral = new o.gp_Pln(new o.gp_Pnt(...origin), dirn);
+    const m = neutral ? new THREE.Vector3(...neutral) : n.clone();
+    if (m.length() < 1e-12) throw new Error("the reference surface's normal has no length");
+    m.normalize();
+    if (Math.abs(m.dot(n)) < 1e-6) throw new Error('the reference surface runs along the pull; pick one facing it');
+    const plane = new o.gp_Pln(new o.gp_Pnt(...origin), new o.gp_Dir(m.x, m.y, m.z));
     const draft = new o.BRepOffsetAPI_DraftAngle(shape);
     for (const i of faces) {
         if (!all[i]) throw new Error('that face no longer exists');
-        draft.Add(o.TopoDS.Face(all[i]), dirn, angle, neutral, true);
+        draft.Add(o.TopoDS.Face(all[i]), dirn, angle, plane, true);
         if (!draft.AddDone()) throw new Error('that face cannot be drafted; faces square to the pull, or free-form ones, cannot');
     }
     draft.Build(new o.Message_ProgressRange());
