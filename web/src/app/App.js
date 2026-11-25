@@ -1866,9 +1866,9 @@ export async function mount(root, backend) {
     // A named view stands upright again after arcball turns rolled it.
     camera.up.set(0, 1, 0);
     const dist = name === 'iso' ? 225 : camera.position.distanceTo(controls.target);
-    // Home looks at the world origin, so it sits at the centre of the view and the axes through it
-    // run the same way as the navigator's (perspective bends lines only away from the centre).
-    const target = name === 'iso' ? new THREE.Vector3() : controls.target.clone();
+    // Home looks at the middle of what is shown (the world origin in an empty scene), so the model
+    // sits at the centre of the view, as Plasticity frames its scene.
+    const target = name === 'iso' ? homeTarget() : controls.target.clone();
     const dir = new THREE.Vector3(...(closest ? closestViewDir(name, camera.position.clone().sub(controls.target).toArray()) : v.dir)).normalize();
     turnTo(target, target.clone().addScaledVector(dir, dist), animate ? VIEW_MS : 0);
     if (v.plane) setPlane({ origin: new THREE.Vector3(), normal: new THREE.Vector3(...v.dir).normalize().round(), name: v.plane });
@@ -1923,6 +1923,12 @@ export async function mount(root, backend) {
     for (const g of [cmd?.gizmo, cmd?.tc, ...(cmd?.extraGizmos?.() ?? [])]) if (g) g.camera = camera;
     resize(true);
     $('vh-ortho')?.setAttribute('aria-pressed', String(on));
+  }
+  /** Where the Home view looks: the centre of every shown body, or the world origin when there are none. */
+  function homeTarget() {
+    const box = new THREE.Box3();
+    for (const b of current) { const m = bodyMesh(b.id); if (m?.visible) box.expandByObject(m); }
+    return box.isEmpty() ? new THREE.Vector3() : box.getCenter(new THREE.Vector3());
   }
   /** Frame the selection, or everything (Plasticity 0.6.30's /). */
   function focus() {
@@ -17532,6 +17538,8 @@ export async function mount(root, backend) {
   setPlane({ origin: new THREE.Vector3(), normal: UP, name: 'XY' });
   showTool(null);
   showScene(await backend.scene());
+  // The startup view frames what the document starts with.
+  setView('iso', { animate: false });
   // The startup scene (Save As Startup Scene) carries groups, materials and images too.
   await restoreAppState();
   $('loading').hidden = true;
