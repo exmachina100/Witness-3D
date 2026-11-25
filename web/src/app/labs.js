@@ -10,14 +10,16 @@
 import * as THREE from 'three';
 import { CLASS_A, HIGHLIGHT_KINK, checkSeam, seamSummary } from '../seamCheck.js';
 import { SOLVER_CONTINUITY, seamSolveRequest } from '../seamSolver.js';
+import { g3Blend, nearestEdge } from '../g3Blend.js';
 
 /** The LABS commands, by id: their dialog titles. */
-export const LABS_NAMES = { 'seam-check': 'SEAM CHECK', 'seam-solver': 'SEAM SOLVER' };
+export const LABS_NAMES = { 'seam-check': 'SEAM CHECK', 'seam-solver': 'SEAM SOLVER', 'g3-blend': 'G3 BLEND' };
 
 /** The LABS commands' keys, as KEYS lists them for the key strip. */
 export const LABS_KEYS = {
     'seam-check': [['CLICK', 'ADD AN EDGE'], ['ENTER', 'DONE'], ['ESC', 'DONE']],
     'seam-solver': [['TAB', 'CONTINUITY'], ['ENTER', 'KEEP AND MEASURE'], ['ESC', 'CANCEL']],
+    'g3-blend': [['TAB', 'CONTINUITY'], ['ENTER', 'KEEP AND MEASURE'], ['ESC', 'CANCEL']],
 };
 
 /** Their options in the command dialog. */
@@ -33,6 +35,13 @@ export const LABS_PANELS = `
       <span class="label">CONTINUITY</span>
       <div class="seg" role="group" aria-label="Continuity">${SOLVER_CONTINUITY.map(c => `<button data-sscont="${c}" aria-pressed="${c === 'G3'}" title="Meet the other face in ${c} (Tab cycles)">${c}</button>`).join('')}</div>
       <span class="hint" data-id="ss-result" title="Seam Check's numbers after the last solve was kept">—</span>
+    </div>
+    <div class="sec" data-panel="g3-blend" hidden>
+      <span class="hint" data-id="gb-hint">SELECT TWO EDGES TO BLEND BETWEEN</span>
+      <span class="label">CONTINUITY</span>
+      <div class="seg" role="group" aria-label="Continuity">${SOLVER_CONTINUITY.map(c => `<button data-gbcont="${c}" aria-pressed="${c === 'G3'}" title="Meet both faces in ${c} (Tab cycles)">${c}</button>`).join('')}</div>
+      <div class="field" title="How far the blend runs along the first face before it turns"><label for="w3d-gb-t1">TENSION 1</label><input id="w3d-gb-t1" data-id="gb-t1" type="number" step="0.1" min="0.1" value="1"></div>
+      <div class="field" title="How far the blend runs along the second face before it turns"><label for="w3d-gb-t2">TENSION 2</label><input id="w3d-gb-t2" data-id="gb-t2" type="number" step="0.1" min="0.1" value="1"></div>
     </div>`;
 
 const COLOURS = { ok: new THREE.Color(0x2ec46b), soft: new THREE.Color(0xff8a1c), bad: new THREE.Color(0xe5484d) };
@@ -203,12 +212,67 @@ export function createLabs(ctx) {
         for (const b of document.querySelectorAll('[data-sscont]')) b.onclick = () => ctx.current() === c && c.setContinuity(b.dataset.sscont);
         c.preview();
     }
-    let lastSolve = null;
+    /**
+     * G3 Blend: a sheet from the first selected edge to the second, meeting both faces in G0 to G3
+     * with a tension at each end (g3Blend.js), shown live; Enter keeps it and measures both seams.
+     */
+    function startG3Blend(edges) {
+        if (edges.length !== 2) return ctx.toast('SELECT TWO EDGES TO BLEND BETWEEN');
+        const [a, b] = edges.map(e => ({ body: e.body, edge: e.n }));
+        const mids = edges.map(e => middle(e.body, e.n));
+        const c = { id: 'g3-blend', continuity: 'G3', data: null, sent: 0, shown: 0 };
+        ctx.begin(c);
+        ctx.setState('none');
+        const tension = () => ['gb-t1', 'gb-t2'].map(id => +$(id).value || 1);
+        const buttons = () => { for (const btn of document.querySelectorAll('[data-gbcont]')) btn.setAttribute('aria-pressed', String(btn.dataset.gbcont === c.continuity)); };
+        c.preview = () => {
+            buttons();
+            $('gb-hint').textContent = `BLENDING IN ${c.continuity}…`;
+            ctx.livePreview(c, async () => {
+                const r = await g3Blend(ctx.backend, a, b, { continuity: [c.continuity, c.continuity], tension: tension() });
+                if (ctx.current() !== c) return null;
+                c.data = r.data;
+                $('gb-hint').textContent = `${c.continuity} PREVIEW · ENTER KEEPS AND MEASURES BOTH SEAMS`;
+                return ctx.backend.previewSplineSheet({ data: r.data });
+            }, sheet => ctx.showPreviewBody(sheet), 'gb-hint');
+        };
+        c.key = action => {
+            if (action !== 'continuity' && action !== 'tab') return false;
+            c.continuity = SOLVER_CONTINUITY[(SOLVER_CONTINUITY.indexOf(c.continuity) + 1) % SOLVER_CONTINUITY.length];
+            c.preview();
+            return true;
+        };
+        c.finish = async () => {
+            if (!c.data) return ctx.toast($('gb-hint').textContent);
+            try {
+                const { ids: [id], scene } = await ctx.backend.commitSplineSheet({ data: c.data });
+                ctx.endCmd('committed');
+                ctx.record(`G3 BLEND ${c.continuity}`, id, 'BLEND SHEET');
+                await ctx.showScene(scene);
+                const seams = [];
+                for (const [k, ref] of [a, b].entries()) {
+                    const edge = nearestEdge(scene, id, mids[k]);
+                    seams.push(await checkSeam(ctx.backend, { body: id, edge, other: ref }));
+                }
+                lastBlend = seams;
+                ctx.setHud(seams.map((r, k) => `${k + 1}: ${seamSummary(r)}`).join('  |  '));
+                ctx.toast(`BLEND ${seams.map(r => r.level).join(' / ')}`);
+            } catch (e) { ctx.setState('failed'); ctx.toast(ctx.say(e)); }
+        };
+        c.abort = () => ctx.endCmd('cancelled');
+        c.cleanup = () => ctx.clearPreview();
+        for (const btn of document.querySelectorAll('[data-gbcont]')) btn.onclick = () => { if (ctx.current() === c) { c.continuity = btn.dataset.gbcont; c.preview(); } };
+        for (const id of ['gb-t1', 'gb-t2']) $(id).oninput = () => ctx.current() === c && c.preview();
+        c.preview();
+    }
+    let lastSolve = null, lastBlend = null;
 
     return {
         has: id => id in LABS_NAMES,
         /** The last Seam Solver result's Seam Check, for the agent. */
         lastSolve: () => lastSolve,
+        /** The last G3 Blend's two Seam Checks, for the agent. */
+        lastBlend: () => lastBlend,
         /** Start command `id` on `edges` (the edges selected when it was asked for). */
         start(id, edges = ctx.sel.list('edge')) {
             if (id === 'seam-check') {
@@ -218,6 +282,10 @@ export function createLabs(ctx) {
             if (id === 'seam-solver') {
                 if (!ctx.backend.edgeFaces || !ctx.backend.previewMoveFacePoles) return ctx.toast('SEAM SOLVER IS NOT IN THIS BUILD YET');
                 return startSeamSolver(edges);
+            }
+            if (id === 'g3-blend') {
+                if (!ctx.backend.edgeFaces || !ctx.backend.previewSplineSheet || !ctx.backend.undo) return ctx.toast('G3 BLEND IS NOT IN THIS BUILD YET');
+                return startG3Blend(edges);
             }
         },
         /** Seam numbers for the agent and MCP tools (no viewport). */

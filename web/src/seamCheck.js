@@ -203,7 +203,7 @@ export async function checkSeam(backend, seam, { n = 48, tol = CLASS_A, g3 = tru
     }
     let aIn = null, bIn = null, h = 0;
     if (g3) {
-        h = Math.max(length * 0.002, 1e-3);
+        h = Math.max(length * 0.0005, 1e-3);
         const into = (F, s) => points.map((p, k) => add(F.frames[k].at, mul(intoFace(F.frames[k], tangents[k], F.middle), s)));
         const pick = (fs, face) => fs.find(f => f.face === face) ?? fs[0];
         const ask = async (F, body, edge) => {

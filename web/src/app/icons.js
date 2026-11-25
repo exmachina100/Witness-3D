@@ -10,6 +10,8 @@ const ICONS = {
     'seam-check': `<path d="M3 15c3-5 6-6 9-6"/><path d="M12 9c3 0 6 1 9 6"/><path ${A} d="M12 4v16" stroke-dasharray="2 2"/><path ${A} d="M12 9h0"/>`,
     // LABS Seam Solver: a sheet's edge pulled onto the curved face it meets, the rows that move marked.
     'seam-solver': `<path d="M3 17c4-1 6-4 9-8"/><path d="M12 9c3-3 6-4 9-4"/><path ${A} d="M9 13l-2-2M7 15l-2-2"/><path ${A} d="M12 9h0"/>`,
+    // LABS G3 Blend: two separate surfaces, an S-shaped blend sheet flowing from one into the other.
+    'g3-blend': `<path d="M2 18h5"/><path d="M17 6h5"/><path ${A} d="M7 18c4 0 6-12 10-12"/><path d="M7 15v6M17 3v6" stroke-dasharray="1.5 1.5"/>`,
     close: `<path d="M6 6l12 12M18 6L6 18"/>`,
     fold: `<path d="M6 14l6-6 6 6"/>`,
     // Two values locked together (Plasticity's link button beside a pair of fields).

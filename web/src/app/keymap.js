@@ -168,6 +168,7 @@ export const COMMAND = {
     'align-surface': { d: 'tension', tab: 'continuity', b: 'boundary', p: 'partial' },
     // LABS Seam Solver (not Plasticity's): Tab cycles G0 to G3.
     'seam-solver': { tab: 'continuity' },
+    'g3-blend': { tab: 'continuity' },
     'project-align': { d: 'tension', tab: 'continuity', n: 'normal', x: 'axis-x', y: 'axis-y', z: 'axis-z', s: 'screen' },
     // Instance (manual: Create Solid and Sheet Instance; moved, turned and scaled like a body)
     instance: { g: 'move', r: 'rotate', s: 'scale', 'shift-d': 'duplicate', delete: 'delete', backspace: 'delete' },

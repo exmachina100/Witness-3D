@@ -23,7 +23,7 @@ const unit = a => { const l = len(a); return l > 1e-15 ? mul(a, 1 / l) : [0, 0, 
 export const SOLVER_CONTINUITY = ['G0', 'G1', 'G2', 'G3'];
 
 /** `A` x = `b` for a small dense square system, b a list of 3-vectors. */
-function solve(A, b) {
+export function solve(A, b) {
     const n = A.length, M = A.map((r, i) => [...r, ...b[i]]);
     for (let c = 0; c < n; c++) {
         let piv = c;
@@ -143,7 +143,7 @@ export async function g3Moves(backend, check, { reach = null, rounds = 4 } = {})
     const seam = xs.map(x => sideFrame(R, A, p, along, q, A[p], x));
     let size = 0;
     for (let j = 1; j < m; j++) size += len(sub(seam[j].at, seam[j - 1].at));
-    const h = reach ?? Math.max(size * 0.002, 1e-3);
+    const h = reach ?? Math.max(size * 0.0005, 1e-3);
     // The reference: its normal and its rate at each point, measured the way Seam Check does.
     const P = seam.map(f => f.at);
     const rf = async pts => { const fs = readEdgeFaces(await backend.edgeFaces({ body: check.reference.body, edge: check.reference.edge, points: pts }), pts.length); return (fs.find(f => f.face === check.face) ?? fs[0]).frames; };
