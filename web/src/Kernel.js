@@ -1132,11 +1132,15 @@ export function faceSheet(shape, index, size, wide = null) {
  * `neutral` when given (Taper Method Surface: a second reference face's normal). Positive angles
  * open the faces out along `pull`. Flat, cylindrical and conical faces. Returns { shape, history }.
  */
-export function draftFaces(shape, faces, pull, origin, angle, neutral = null) {
+export function draftFaces(shape, faces, pull, origin, angle, neutral = null, each = null) {
     const o = oc();
     if (!faces.length) throw new Error('select the faces to draft');
-    if (!(Math.abs(angle) > 1e-9) || !Number.isFinite(angle)) throw new Error('the draft angle must not be zero');
-    if (Math.abs(angle) >= Math.PI / 2) throw new Error('a draft is less than 90 degrees');
+    // `each`: a point on each face's own neutral plane and its own angle (Taper Methods Isocline and Normal).
+    if (each?.length && each.length !== faces.length) throw new Error('each drafted face needs its own plane and angle');
+    for (const a of each?.length ? each.map(e => e[3]) : [angle]) {
+        if (!(Math.abs(a) > 1e-9) || !Number.isFinite(a)) throw new Error('the draft angle must not be zero');
+        if (Math.abs(a) >= Math.PI / 2) throw new Error('a draft is less than 90 degrees');
+    }
     const all = numbered(shape, 'TopAbs_FACE');
     const n = new THREE.Vector3(...pull);
     if (n.length() < 1e-12) throw new Error('the pull direction has no length');
@@ -1148,11 +1152,12 @@ export function draftFaces(shape, faces, pull, origin, angle, neutral = null) {
     if (Math.abs(m.dot(n)) < 1e-6) throw new Error('the reference surface runs along the pull; pick one facing it');
     const plane = new o.gp_Pln(new o.gp_Pnt(...origin), new o.gp_Dir(m.x, m.y, m.z));
     const draft = new o.BRepOffsetAPI_DraftAngle(shape);
-    for (const i of faces) {
+    faces.forEach((i, k) => {
         if (!all[i]) throw new Error('that face no longer exists');
-        draft.Add(o.TopoDS.Face(all[i]), dirn, angle, plane, true);
+        const e = each?.length ? each[k] : null;
+        draft.Add(o.TopoDS.Face(all[i]), dirn, e ? e[3] : angle, e ? new o.gp_Pln(new o.gp_Pnt(e[0], e[1], e[2]), new o.gp_Dir(m.x, m.y, m.z)) : plane, true);
         if (!draft.AddDone()) throw new Error('that face cannot be drafted; faces square to the pull, or free-form ones, cannot');
-    }
+    });
     draft.Build(new o.Message_ProgressRange());
     if (!draft.IsDone()) throw new Error('the faces cannot be drafted that far; try a smaller angle');
     const result = draft.Shape();

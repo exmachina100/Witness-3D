@@ -52,7 +52,7 @@ fn taper_surface_tilts_the_face_about_its_line_on_the_reference_plane() {
     let s = k.box_from_corners(DVec3::ZERO, DVec3::new(10.0, 10.0, 10.0));
     let side = k.tessellate(&s, 0.1).unwrap().face_planes.iter().position(|p| p.map_or(false, |p| p.normal.x > 0.999)).unwrap() as u32;
     let b = doc.add(s);
-    let t = doc.preview_draft_about(b, &[side], DVec3::Z, DVec3::new(10.0, 0.0, 0.0), DVec3::new(0.0, -0.5, 1.0), 0.2, Grow::None).unwrap();
+    let t = doc.preview_draft_about(b, &[side], DVec3::Z, DVec3::new(10.0, 0.0, 0.0), DVec3::new(0.0, -0.5, 1.0), 0.2, Grow::None, &[]).unwrap();
     let mesh = doc.kernel.tessellate(&t.solid, 0.1).unwrap();
     let p = mesh.face_planes.iter().flatten().find(|p| p.normal.x > 0.9 && p.normal.x < 0.9999).expect("the tilted face");
     for q in [DVec3::new(10.0, 0.0, 0.0), DVec3::new(10.0, 10.0, 5.0)] {
@@ -65,5 +65,23 @@ fn taper_surface_tilts_the_face_about_its_line_on_the_reference_plane() {
     assert!((DVec3::new(10.0, 10.0, 0.0) - p.origin).dot(p.normal).abs() < 1e-6);
     assert!((DVec3::new(10.0, 10.0, 5.0) - p.origin).dot(p.normal).abs() > 0.1);
     // A reference surface running along the pull is refused.
-    assert!(doc.preview_draft_about(b, &[side], DVec3::Z, DVec3::new(10.0, 0.0, 0.0), DVec3::Y, 0.2, Grow::None).is_err());
+    assert!(doc.preview_draft_about(b, &[side], DVec3::Z, DVec3::new(10.0, 0.0, 0.0), DVec3::Y, 0.2, Grow::None, &[]).is_err());
+}
+
+/// Taper Methods Isocline and Normal: each face gets its own neutral plane point and angle. Isocline
+/// turns the cube's x = 10 face about its middle (z = 5); Normal adds the angle to a face's slope.
+#[test]
+fn each_face_takes_its_own_plane_and_angle() {
+    let mut doc = Document::new(Occt);
+    let k = &doc.kernel;
+    let s = k.box_from_corners(DVec3::ZERO, DVec3::new(10.0, 10.0, 10.0));
+    let side = k.tessellate(&s, 0.1).unwrap().face_planes.iter().position(|p| p.map_or(false, |p| p.normal.x > 0.999)).unwrap() as u32;
+    let b = doc.add(s);
+    let tilted = |doc: &Document<Occt>, t: &Traced<<Occt as Kernel>::Solid>| doc.kernel.tessellate(&t.solid, 0.1).unwrap().face_planes.iter().flatten().find(|p| p.normal.x > 0.9 && p.normal.x < 0.9999).copied().expect("the tilted face");
+    let t = doc.preview_draft_about(b, &[side], DVec3::Z, DVec3::ZERO, DVec3::Z, 0.2, Grow::None, &[[10.0, 5.0, 5.0, 0.2]]).unwrap();
+    let p = tilted(&doc, &t);
+    assert!((DVec3::new(10.0, 5.0, 5.0) - p.origin).dot(p.normal).abs() < 1e-6, "turned about its middle");
+    assert!((p.normal.z - 0.2f64.sin()).abs() < 1e-6);
+    // A face count that doesn't match is refused.
+    assert!(doc.preview_draft_about(b, &[side], DVec3::Z, DVec3::ZERO, DVec3::Z, 0.2, Grow::None, &[[0.0, 0.0, 0.0, 0.2], [0.0, 0.0, 0.0, 0.2]]).is_err());
 }

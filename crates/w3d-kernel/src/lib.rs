@@ -739,7 +739,8 @@ pub trait Kernel {
     /// Plasticity's Draft Face: the numbered faces tilted by `angle` radians about the neutral plane
     /// through `origin` square to `neutral` (the pull, or Taper Method Surface's reference normal);
     /// positive closes them in along the pull.
-    fn draft_faces(&self, _s: &Self::Solid, _faces: &[u32], _pull: DVec3, _origin: DVec3, _neutral: DVec3, _angle: f64) -> Result<Traced<Self::Solid>, KernelError> {
+    #[allow(clippy::too_many_arguments)]
+    fn draft_faces(&self, _s: &Self::Solid, _faces: &[u32], _pull: DVec3, _origin: DVec3, _neutral: DVec3, _angle: f64, _each: &[[f64; 4]]) -> Result<Traced<Self::Solid>, KernelError> {
         Err(KernelError::Invalid("this kernel cannot draft faces"))
     }
     /// Faces on one surface and edges on one curve merged (Delete Redundant Topology).

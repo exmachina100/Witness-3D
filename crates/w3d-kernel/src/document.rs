@@ -2122,16 +2122,18 @@ impl<K: Kernel> Document<K> {
     /// it: Moving takes the wall's own flat faces out as far, Fixed stops the face at the wall, None
     /// lets it carry on by itself.
     pub fn preview_draft(&self, body: BodyId, faces: &[u32], pull: DVec3, origin: DVec3, angle: f64, grow: Grow) -> Result<Traced<K::Solid>, KernelError> {
-        self.preview_draft_about(body, faces, pull, origin, pull, angle, grow)
+        self.preview_draft_about(body, faces, pull, origin, pull, angle, grow, &[])
     }
 
     /// Draft Face about a neutral plane square to `neutral` rather than the pull (Taper Method
     /// Surface: the plane of a second reference face), without changing the document.
     #[allow(clippy::too_many_arguments)]
-    pub fn preview_draft_about(&self, body: BodyId, faces: &[u32], pull: DVec3, origin: DVec3, neutral: DVec3, angle: f64, grow: Grow) -> Result<Traced<K::Solid>, KernelError> {
+    /// `each`, when not empty, gives every face its own neutral plane point and angle (Taper Methods
+    /// Isocline and Normal), as [x, y, z, angle].
+    pub fn preview_draft_about(&self, body: BodyId, faces: &[u32], pull: DVec3, origin: DVec3, neutral: DVec3, angle: f64, grow: Grow, each: &[[f64; 4]]) -> Result<Traced<K::Solid>, KernelError> {
         const TOL: f64 = 1e-6;
         let s = self.get(body).ok_or(KernelError::Invalid("that body no longer exists"))?;
-        let mut out = self.kernel.draft_faces(s, faces, pull, origin, neutral, angle)?;
+        let mut out = self.kernel.draft_faces(s, faces, pull, origin, neutral, angle, each)?;
         if grow == Grow::None { return Ok(out) }
         let mesh = self.kernel.tessellate(s, 0.1)?;
         let reach = |positions: &[[f64; 3]], p: &crate::Plane| {
@@ -2181,13 +2183,13 @@ impl<K: Kernel> Document<K> {
 
     /// Draft Face as one undoable step.
     pub fn commit_draft(&mut self, body: BodyId, faces: &[u32], pull: DVec3, origin: DVec3, angle: f64, grow: Grow) -> Result<BodyId, KernelError> {
-        self.commit_draft_about(body, faces, pull, origin, pull, angle, grow)
+        self.commit_draft_about(body, faces, pull, origin, pull, angle, grow, &[])
     }
 
     /// Draft Face about a neutral plane square to `neutral`, as one undoable step.
     #[allow(clippy::too_many_arguments)]
-    pub fn commit_draft_about(&mut self, body: BodyId, faces: &[u32], pull: DVec3, origin: DVec3, neutral: DVec3, angle: f64, grow: Grow) -> Result<BodyId, KernelError> {
-        let traced = self.preview_draft_about(body, faces, pull, origin, neutral, angle, grow)?;
+    pub fn commit_draft_about(&mut self, body: BodyId, faces: &[u32], pull: DVec3, origin: DVec3, neutral: DVec3, angle: f64, grow: Grow, each: &[[f64; 4]]) -> Result<BodyId, KernelError> {
+        let traced = self.preview_draft_about(body, faces, pull, origin, neutral, angle, grow, each)?;
         self.checkpoint();
         self.replace_traced(body, traced);
         Ok(body)
