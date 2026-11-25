@@ -745,7 +745,7 @@ const SHELL = `
       <div class="field" title="Moves the neutral plane along the pull direction (D)"><label for="w3d-draft-d">OFFSET</label><input id="w3d-draft-d" data-id="draft-d" type="number" step="0.5" value="0"></div>
       <div class="field"><label>NEUTRAL</label><output data-id="draft-pull">—</output></div>
       <div class="field"><label>PULL DIR</label><output data-id="draft-pull-dir">—</output></div>
-      <div class="seg" role="group" aria-label="Taper method"><button data-drtaper="offset" aria-pressed="true" title="Offset: the faces tilt about the neutral plane, moved along the pull by Offset">OFFSET</button><button data-drtaper="curve" aria-pressed="false" title="Curve: click a straight curve or edge; the faces tilt about it">CURVE</button><button data-drtaper="surface" aria-pressed="false" title="Surface: click a flat face as a second reference; the faces tilt about where they meet its plane">SURFACE</button></div>
+      <div class="seg" role="group" aria-label="Taper method"><button class="long" data-drtaper="isocline" aria-pressed="false" title="Isocline: each face tilts about its own middle to the angle from the pull, the same angle all along it">ISOCLINE</button><button data-drtaper="curve" aria-pressed="false" title="Curve: click a straight curve or edge; the faces tilt about it">CURVE</button><button data-drtaper="surface" aria-pressed="false" title="Surface: click a flat face as a second reference; the faces tilt about where they meet its plane">SURFACE</button><button data-drtaper="offset" aria-pressed="true" title="Offset: the faces tilt about the neutral plane, moved along the pull by Offset">OFFSET</button><button data-drtaper="normal" aria-pressed="false" title="Normal: the angle is added to each face's own starting slope, tilting it about the neutral plane">NORMAL</button></div>
       <span class="label">GROW</span>
       <div class="seg" role="group" aria-label="Grow mode"><button data-drgrow="moving" aria-pressed="true" title="Moving: an inner face drafted out past the outer wall takes the wall with it (Tab)">MOVING</button><button data-drgrow="fixed" aria-pressed="false" title="Fixed: the drafted face stops at the outer wall (Tab)">FIXED</button><button data-drgrow="none" aria-pressed="false" title="None: the drafted face carries on by itself, past the outer wall (Tab)">NONE</button></div>
     </div>
@@ -13535,7 +13535,21 @@ export async function mount(root, backend) {
         const at = c.surface.o.clone().addScaledVector(c.surface.n, num('draft-d') || 0);
         return { body: c.body, faces: c.faces, pull: n.toArray(), origin: at.toArray(), neutral: c.surface.n.toArray(), angle: num('draft-a') * DEG, grow: c.grow };
       }
-      return { body: c.body, faces: c.faces, pull: n.toArray(), origin: o.toArray(), angle: num('draft-a') * DEG, grow: c.grow };
+      const r = { body: c.body, faces: c.faces, pull: n.toArray(), origin: o.toArray(), angle: num('draft-a') * DEG, grow: c.grow };
+      // Isocline and Normal give each face its own neutral plane point and angle (inferred: the manual
+      // says Isocline keeps a constant angle to the pull, Normal applies the angle from the face's
+      // starting surface). Isocline: each face turns about its own middle to the angle from the pull.
+      // Normal: the angle is added to the face's own slope to the pull, about the neutral plane.
+      if (c.taper === 'isocline' || c.taper === 'normal') {
+        const b = bodyOf(c.body);
+        r.each = c.faces.map(f => {
+          const p = b?.facePlanes[f];
+          const at = c.taper === 'isocline' ? faceCentre(b, f) : o;
+          const slope = c.taper === 'normal' && p ? Math.asin(Math.max(-1, Math.min(1, new THREE.Vector3(...p.normal).normalize().dot(n)))) : 0;
+          return [at.x, at.y, at.z, r.angle + slope];
+        });
+      }
+      return r;
     };
     // Taper Method Curve: the faces tilt about the picked line. A line square to the pull is the
     // draft whose neutral plane runs through it; a slanted one turns its face about it (Move Face),
@@ -13557,7 +13571,7 @@ export async function mount(root, backend) {
       const axis = d.clone().multiplyScalar(lean > 0 ? 1 : -1);
       return { turn: { body: c.body, faces: c.faces, offset: [0, 0, 0], pivot: p.toArray(), axis: axis.toArray(), angle: r.angle } };
     };
-    const text = () => `DRAFT ${num('draft-a')}°${c.taper === 'curve' ? ' · ABOUT THE LINE' : c.taper === 'surface' ? ' · ABOUT THE SURFACE' : num('draft-d') ? ` · OFFSET ${num('draft-d')}` : ''}${c.grow !== 'moving' ? ` · GROW ${c.grow.toUpperCase()}` : ''}`;
+    const text = () => `DRAFT ${num('draft-a')}°${c.taper === 'curve' ? ' · ABOUT THE LINE' : c.taper === 'surface' ? ' · ABOUT THE SURFACE' : c.taper === 'isocline' ? ' · ISOCLINE' : c.taper === 'normal' ? ` · NORMAL${num('draft-d') ? ` · OFFSET ${num('draft-d')}` : ''}` : num('draft-d') ? ` · OFFSET ${num('draft-d')}` : ''}${c.grow !== 'moving' ? ` · GROW ${c.grow.toUpperCase()}` : ''}`;
     c.preview = () => {
       c.gizmo?.render(num('draft-a'));
       c.planeDot?.render(num('draft-d') || 0);

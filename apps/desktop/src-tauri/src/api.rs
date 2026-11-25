@@ -1820,6 +1820,10 @@ pub struct DraftRequest {
     /// the faces tilt about; none tilts them about the plane square to the pull.
     #[serde(default)]
     pub neutral: Option<[f64; 3]>,
+    /// Taper Methods Isocline and Normal: for each face, a point on its own neutral plane and its
+    /// own angle, [x, y, z, angle]; empty uses `origin` and `angle` for all.
+    #[serde(default)]
+    pub each: Vec<[f64; 4]>,
 }
 
 impl DraftRequest {
@@ -1828,14 +1832,14 @@ impl DraftRequest {
 
 pub fn preview_draft(m: &Model, req: DraftRequest) -> Option<Result<Body, ApiError>> {
     m.preview(move |doc| {
-        let t = doc.preview_draft_about(req.body, &req.faces, DVec3::from(req.pull), DVec3::from(req.origin), req.neutral(), req.angle, grow_of(&req.grow))?;
+        let t = doc.preview_draft_about(req.body, &req.faces, DVec3::from(req.pull), DVec3::from(req.origin), req.neutral(), req.angle, grow_of(&req.grow), &req.each)?;
         Ok(body(&doc.kernel, req.body, &t.solid)?)
     })
 }
 
 pub fn commit_draft(m: &Model, req: DraftRequest) -> Result<Committed, ApiError> {
     m.call(move |doc| {
-        let id = doc.commit_draft_about(req.body, &req.faces, DVec3::from(req.pull), DVec3::from(req.origin), req.neutral(), req.angle, grow_of(&req.grow))?;
+        let id = doc.commit_draft_about(req.body, &req.faces, DVec3::from(req.pull), DVec3::from(req.origin), req.neutral(), req.angle, grow_of(&req.grow), &req.each)?;
         Ok(Committed { id, scene: bodies(doc)? })
     })
 }

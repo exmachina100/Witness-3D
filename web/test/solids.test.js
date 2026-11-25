@@ -304,6 +304,28 @@ test('Draft Face Taper Method Surface tilts the face about its line on a second 
     assert.throws(() => be.draftResult({ ...req, neutral: [0, 1, 0] }), /along the pull/);
 });
 
+test('Draft Face Taper Methods Isocline and Normal: each face its own plane and angle', async () => {
+    const be = new LocalBackend({ seed: 'enclosure' });
+    be.put(953, box({ x: 0, y: 0, z: 0 }, { x: 10, y: 10, z: 10 }));
+    const planes = be.scene().find(b => b.id === 953).facePlanes;
+    const east = planes.findIndex(p => p && p.normal[0] > 0.999), west = planes.findIndex(p => p && p.normal[0] < -0.999);
+    const req = { body: 953, faces: [east, west], pull: [0, 0, 1], origin: [0, 0, 0], angle: 0.2, grow: 'none' };
+    const off = (p, q) => Math.abs(q.reduce((s, v, i) => s + (v - p.origin[i]) * p.normal[i], 0));
+    // Isocline: each face turns about its own middle (z = 5), at 0.2 rad from the pull.
+    const iso = await be.body(953, be.draftResult({ ...req, each: [[10, 5, 5, 0.2], [0, 5, 5, 0.2]] }).shape);
+    const e = iso.facePlanes.find(p => p && p.normal[0] > 0.9 && p.normal[0] < 0.9999), w = iso.facePlanes.find(p => p && p.normal[0] < -0.9 && p.normal[0] > -0.9999);
+    assert.ok(off(e, [10, 5, 5]) < 1e-6 && off(w, [0, 5, 5]) < 1e-6);
+    close(e.normal[2], Math.sin(0.2));
+    close(w.normal[2], Math.sin(0.2));
+    // Normal: a face already sloped 0.2 takes another 0.1 to 0.3; plain Offset would set it to 0.1.
+    be.put(954, be.draftResult({ ...req, faces: [east] }).shape);
+    const f = be.scene().find(b => b.id === 954).facePlanes.findIndex(p => p && p.normal[0] > 0.9 && p.normal[0] < 0.9999);
+    const sloped = async r => (await be.body(954, be.draftResult(r).shape)).facePlanes.find(p => p && p.normal[0] > 0.9 && p.normal[0] < 0.9999).normal[2];
+    close(await sloped({ ...req, body: 954, faces: [f], angle: 0.1, each: [[0, 0, 0, 0.3]] }), Math.sin(0.3));
+    close(await sloped({ ...req, body: 954, faces: [f], angle: 0.1 }), Math.sin(0.1));
+    assert.throws(() => be.draftResult({ ...req, each: [[0, 0, 0, 0.2]] }), /its own plane/);
+});
+
 test('Find Boundary Edges: a sheet\'s open sides, none on a solid or at a seam', () => {
     const sheet = planeSheet([0, 0, 0], [0, 1, 0], 20);
     assert.deepEqual(boundaryEdges(sheet), [0, 1, 2, 3]);
