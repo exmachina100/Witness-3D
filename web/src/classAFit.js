@@ -215,14 +215,14 @@ export function gridInflections(Q, { flat = 1e-5 } = {}) {
  * poles, degree, deviation, lambda, inflections, fits } or throws when no degree fits; `fits` lists
  * each degree's closest fit, so the user sees why.
  */
-export function classAFit(Q, { tolerance = FIT_TOLERANCE, degrees = FIT_DEGREES, fair = true } = {}) {
+export function classAFit(Q, { tolerance = FIT_TOLERANCE, degrees = FIT_DEGREES, fair = true, params: start = null } = {}) {
     if (!(tolerance > 0)) throw new Error('the tolerance must be above zero');
-    if (Q.length < 8 || Q[0].length < 8) throw new Error('too few points on the face to fit');
+    if (start ? Q.length * Q[0].length < 64 : Q.length < 8 || Q[0].length < 8) throw new Error('too few points to fit');
     const fits = [];
     for (const d of degrees) {
         // Closest fit, with the points' parameters corrected a few times so the face's own
         // parametrisation (uneven speed near clamped ends) isn't counted as deviation.
-        let params = chordParams(Q), close = fitPatch(Q, d, 0, params);
+        let params = start ?? chordParams(Q), close = fitPatch(Q, d, 0, params);
         for (let it = 0; it < 8; it++) { params = reproject(Q, close, d, params); close = fitPatch(Q, d, 0, params); }
         params = reproject(Q, close, d, params);
         const dev = patchDeviation(Q, close, d, params).worst;
@@ -238,10 +238,49 @@ export function classAFit(Q, { tolerance = FIT_TOLERANCE, degrees = FIT_DEGREES,
                 if (e <= tolerance * 0.95) { best = { poles: P, deviation: e, lambda }; lo = mid; } else hi = mid;
             }
         }
-        return { ...best, degree: d, inflections: inflections(best.poles, d), before: gridInflections(Q), fits };
+        return { ...best, degree: d, inflections: inflections(best.poles, d), before: start ? null : gridInflections(Q), fits };
     }
     const near = fits.reduce((a, b) => a.deviation < b.deviation ? a : b);
     throw new Error(`no single patch fits within ${tolerance} mm: the closest is degree ${near.degree} at ${near.deviation.toFixed(3)} mm; split the face or raise the tolerance`);
+}
+
+/**
+ * Starting parameters for scattered points (a scan): each point's place on the plane that best fits
+ * them (its two widest directions, by power iteration on the covariance), scaled to 0..1.
+ */
+export function planeParams(points) {
+    if (points.length < 64) throw new Error('too few points to fit');
+    const c = [0, 1, 2].map(k => points.reduce((s, p) => s + p[k], 0) / points.length);
+    const C = [0, 1, 2].map(i => [0, 1, 2].map(j => points.reduce((s, p) => s + (p[i] - c[i]) * (p[j] - c[j]), 0)));
+    const times = v => C.map(row => dot(row, v));
+    const widest = (away = null) => {
+        let v = away ? cross(away, [0.3, 0.5, 0.8]) : [1, 0.7, 0.3];
+        for (let it = 0; it < 200; it++) {
+            let w = times(v);
+            if (away) w = sub(w, away.map(x => x * dot(w, away)));
+            const l = len(w);
+            if (!(l > 1e-30)) break;
+            v = w.map(x => x / l);
+        }
+        return v;
+    };
+    const e1 = widest(), e2 = widest(e1);
+    const raw = points.map(p => { const d = sub(p, c); return [dot(d, e1), dot(d, e2)]; });
+    const lo = [0, 1].map(k => Math.min(...raw.map(r => r[k]))), hi = [0, 1].map(k => Math.max(...raw.map(r => r[k])));
+    if (!(hi[0] - lo[0] > 1e-9) || !(hi[1] - lo[1] > 1e-9)) throw new Error('the points lie on a line');
+    return raw.map(r => [(r[0] - lo[0]) / (hi[0] - lo[0]), (r[1] - lo[1]) / (hi[1] - lo[1])]);
+}
+
+/**
+ * Class-A Fit of scattered points (a mesh or scan's vertices, at most `limit` of them, spread
+ * evenly through the list): one faired patch over them, as classAFit. Returns its sheet numbers too.
+ */
+export function classAFitPoints(points, options = {}) {
+    const limit = options.limit ?? 1500;
+    const step = Math.max(1, points.length / limit), pick = [];
+    for (let i = 0; i < points.length && pick.length < limit; i += step) pick.push(points[Math.floor(i)]);
+    const r = classAFit([pick], { ...options, params: [planeParams(pick)] });
+    return { ...r, points: pick.length, data: patchSheetData(r.poles, r.degree) };
 }
 
 /** Grid points (s, t, 0) for face_uvn, `count` each way, rows along s. */

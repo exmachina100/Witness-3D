@@ -65,3 +65,32 @@ test('Class-A Fit of a kernel face: a 12 x 12 span face becomes one degree-5 pat
     const sheet = await be.commitSplineSheet({ data: r.data });
     assert.equal(sheet.scene.length, made.scene.length + 1);
 });
+
+test('a noisy scan (OBJ) of a roof panel fits one faired patch within 0.05 mm', async () => {
+    const { scanPoints } = await import('../src/scanPoints.js');
+    const { classAFitPoints } = await import('../src/classAFit.js');
+    // A tilted scan: 2000 scattered points with ±0.015 mm noise, as an OBJ.
+    let seed = 7;
+    const rand = () => (seed = (seed * 16807) % 2147483647) / 2147483647;
+    const lines = [];
+    for (let i = 0; i < 2000; i++) {
+        const x = 200 * rand(), y = 120 * rand(), z = 40 - 0.0009 * (x - 100) ** 2 - 0.0016 * (y - 60) ** 2 + 0.03 * (rand() - 0.5);
+        lines.push(`v ${x} ${0.8 * y - 0.6 * z} ${0.6 * y + 0.8 * z}`);
+    }
+    const pts = scanPoints(new TextEncoder().encode(lines.join('\n')), 'roof.obj');
+    const r = classAFitPoints(pts);
+    console.log(`scan: degree ${r.degree} · ${r.deviation.toFixed(4)} mm over ${r.points} points · inflections ${r.inflections}`);
+    assert.equal(r.degree, 5);
+    assert.ok(r.deviation <= 0.05);
+    assert.equal(r.inflections, 0);
+});
+
+test('binary STL vertices are read once each', async () => {
+    const { scanPoints } = await import('../src/scanPoints.js');
+    const tris = [];
+    for (let i = 0; i < 10; i++) for (let j = 0; j < 10; j++) tris.push([[i, j, 0], [i + 1, j, 0], [i, j + 1, 0]]);
+    const buf = new ArrayBuffer(84 + tris.length * 50), dv = new DataView(buf);
+    dv.setUint32(80, tris.length, true);
+    tris.forEach((t, k) => t.forEach((p, c) => p.forEach((v, x) => dv.setFloat32(84 + k * 50 + 12 + c * 12 + x * 4, v, true))));
+    assert.equal(scanPoints(new Uint8Array(buf), 'grid.stl').length, 120);
+});

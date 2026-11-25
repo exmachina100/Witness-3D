@@ -11,7 +11,8 @@ import * as THREE from 'three';
 import { CLASS_A, HIGHLIGHT_KINK, checkSeam, seamSummary } from '../seamCheck.js';
 import { SOLVER_CONTINUITY, seamSolveRequest } from '../seamSolver.js';
 import { g3Blend, nearestEdge } from '../g3Blend.js';
-import { FIT_TOLERANCE, classAFitFace } from '../classAFit.js';
+import { FIT_TOLERANCE, classAFitFace, classAFitPoints } from '../classAFit.js';
+import { scanPoints } from '../scanPoints.js';
 
 /** The LABS commands, by id: their dialog titles. */
 export const LABS_NAMES = { 'seam-check': 'SEAM CHECK', 'seam-solver': 'SEAM SOLVER', 'g3-blend': 'G3 BLEND', 'class-a-fit': 'CLASS-A FIT' };
@@ -49,6 +50,8 @@ export const LABS_PANELS = `
       <span class="hint" data-id="cf-hint">SELECT A FACE TO REBUILD AS ONE CLASS-A PATCH</span>
       <div class="field" title="The furthest the patch may stand off the face"><label for="w3d-cf-tol">TOLERANCE</label><input id="w3d-cf-tol" data-id="cf-tol" type="number" step="0.01" min="0.001" value="${FIT_TOLERANCE}"></div>
       <div class="seg" role="group" aria-label="Fairing"><button data-cffair="on" aria-pressed="true" title="Fair the patch as far as the tolerance allows (irons out ripples and inflections)">FAIR</button><button data-cffair="off" aria-pressed="false" title="The closest fit, no fairing">CLOSEST</button></div>
+      <button data-id="cf-load" title="Fit one patch to the points of a mesh or scan (OBJ or STL) instead of a face">LOAD SCAN…</button>
+      <input data-id="cf-scan" type="file" accept=".obj,.stl" hidden>
       <span class="hint" data-id="cf-result" title="Degree, furthest distance from the face, inflections before and after">—</span>
     </div>`;
 
@@ -278,20 +281,23 @@ export function createLabs(ctx) {
      * tolerance, faired (classAFit.js), shown live; Enter keeps it as a new sheet beside the face.
      */
     function startClassAFit(faces) {
-        if (faces.length !== 1) return ctx.toast('SELECT ONE FACE TO FIT');
-        const target = { body: faces[0].body, face: faces[0].n };
-        const c = { id: 'class-a-fit', fair: true, fit: null, sent: 0, shown: 0 };
+        if (faces.length > 1) return ctx.toast('SELECT ONE FACE TO FIT');
+        const target = faces.length ? { body: faces[0].body, face: faces[0].n } : null;
+        const c = { id: 'class-a-fit', fair: true, fit: null, scan: null, sent: 0, shown: 0 };
         ctx.begin(c);
         ctx.setState('none');
         const buttons = () => { for (const btn of document.querySelectorAll('[data-cffair]')) btn.setAttribute('aria-pressed', String((btn.dataset.cffair === 'on') === c.fair)); };
         c.preview = () => {
             buttons();
+            if (!target && !c.scan) { $('cf-hint').textContent = 'SELECT ONE FACE, OR LOAD A SCAN (OBJ OR STL)'; return; }
             $('cf-hint').textContent = 'FITTING…';
             ctx.livePreview(c, async () => {
-                const r = await classAFitFace(ctx.backend, target, { tolerance: +$('cf-tol').value || FIT_TOLERANCE, fair: c.fair });
+                const options = { tolerance: +$('cf-tol').value || FIT_TOLERANCE, fair: c.fair };
+                const r = c.scan ? classAFitPoints(c.scan.points, options) : await classAFitFace(ctx.backend, target, options);
                 if (ctx.current() !== c) return null;
                 c.fit = r;
-                const text = `DEGREE ${r.degree} · ${r.deviation.toFixed(4)} mm OFF THE FACE · INFLECTIONS ${r.before} → ${r.inflections}`;
+                const what = c.scan ? `OFF ${r.points} SCAN POINTS` : 'OFF THE FACE';
+                const text = `DEGREE ${r.degree} · ${r.deviation.toFixed(4)} mm ${what} · INFLECTIONS ${r.before ?? '—'} → ${r.inflections}`;
                 $('cf-result').textContent = text;
                 $('cf-hint').textContent = `${text} · ENTER KEEPS IT`;
                 return ctx.backend.previewSplineSheet({ data: r.data });
@@ -312,6 +318,16 @@ export function createLabs(ctx) {
         c.cleanup = () => ctx.clearPreview();
         for (const btn of document.querySelectorAll('[data-cffair]')) btn.onclick = () => { if (ctx.current() === c) { c.fair = btn.dataset.cffair === 'on'; c.preview(); } };
         $('cf-tol').oninput = () => ctx.current() === c && c.preview();
+        $('cf-load').onclick = () => ctx.current() === c && $('cf-scan').click();
+        $('cf-scan').onchange = async e => {
+            const file = e.target.files?.[0];
+            e.target.value = '';
+            if (!file || ctx.current() !== c) return;
+            try {
+                c.scan = { name: file.name, points: scanPoints(new Uint8Array(await file.arrayBuffer()), file.name) };
+                c.preview();
+            } catch (err) { ctx.toast(ctx.say(err)); }
+        };
         c.preview();
     }
     let lastSolve = null, lastBlend = null, lastFit = null;
