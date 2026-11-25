@@ -48,3 +48,30 @@ test('a loft of two faces is a solid between them', async () => {
     assert.ok(Math.abs(volume(s) - 1000) < 1);
     assert.throws(() => be.loftSheetResult({ faces: [[a, 0]] }), /two faces/);
 });
+
+/** The x and y extent of a shape's mesh. */
+const xyRange = async (be, s) => {
+    const { positions: p } = await be.body(0, s);
+    const r = [Infinity, -Infinity, Infinity, -Infinity];
+    for (let i = 0; i < p.length; i += 3) { r[0] = Math.min(r[0], p[i]); r[1] = Math.max(r[1], p[i]); r[2] = Math.min(r[2], p[i + 1]); r[3] = Math.max(r[3], p[i + 1]); }
+    return r;
+};
+/** A straight line along x from x0 to x1 at y, and one along y from y0 to y1 at x. */
+const xLine = (y, x0, x1) => ({ origin: [0, y, 0], x: [1, 0, 0], normal: [0, 0, 1], kind: 'polyline', points: [[x0, 0], [x1, 0]], closed: false });
+const yLine = (x, y0, y1) => ({ origin: [x, 0, 0], x: [0, 1, 0], normal: [0, 0, 1], kind: 'polyline', points: [[y0, 0], [y1, 0]], closed: false });
+const near = (a, b) => Math.abs(a - b) < 0.02;
+
+test('Trim overlap: Guides cuts profiles running past the guides, Profiles off runs on to the guides\' ends', async () => {
+    const be = new LocalBackend({ seed: 'enclosure' });
+    // Profiles from x -5 to 15 at y 0 and 20; guides at x 0 and 10 from y -5 to 25.
+    const { ids: [a, b, g1, g2] } = await be.addCurves([xLine(0, -5, 15), xLine(20, -5, 15), yLine(0, -5, 25), yLine(10, -5, 25)]);
+    const req = { curves: [a, b], guides: [g1, g2], simplify: false };
+    const [x0, x1, y0, y1] = await xyRange(be, be.loftSheetResult(req));
+    assert.ok(near(x0, 0) && near(x1, 10) && near(y0, 0) && near(y1, 20), `trimmed ${[x0, x1, y0, y1]}`);
+    const kept = await xyRange(be, be.loftSheetResult({ ...req, trimGuides: false }));
+    assert.ok(near(kept[0], -5) && near(kept[1], 15) && near(kept[2], 0) && near(kept[3], 20), `profiles whole ${kept}`);
+    const run = await xyRange(be, be.loftSheetResult({ ...req, trimProfiles: false }));
+    assert.ok(near(run[0], 0) && near(run[1], 10) && near(run[2], -5) && near(run[3], 25), `run on ${run}`);
+    const both = await xyRange(be, be.loftSheetResult({ ...req, trimGuides: false, trimProfiles: false }));
+    assert.ok(near(both[0], -5) && near(both[1], 15) && near(both[2], -5) && near(both[3], 25), `neither ${both}`);
+});

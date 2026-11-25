@@ -687,12 +687,80 @@ export function loftFaces(faces) {
  * Plasticity's Loft of curves with guides (Shift+click): a sheet through the curves, in order, its
  * sides running along the guides, as loftGuided does for regions. As w3d_loft_sheet_guided.
  */
-export function loftSheetGuided(cs, guides, simplify = true) {
+export function loftSheetGuided(cs, guides, simplify = true, trim = { guides: true, profiles: true }) {
     if (!guides.length) return loftSheet(cs, false, simplify);
     if (cs.length < 2) throw new Error('select two curves or more, in order, to loft');
-    const ws = cs.map(c => wireOf(geometry(c)).Wire());
-    const sheet = loftAlong(ws, guides, false, loftSheet(cs, false, false), (i, j) => stationOf(ws[i], ws[j]));
+    let ws = cs.map(c => wireOf(geometry(c)).Wire());
+    // Trim overlap, Guides: the sheet stops at the guides, each open profile cut between the
+    // outermost guides touching it (two guides or more).
+    if (trim.guides !== false && guides.length >= 2) ws = ws.map(w => trimBetweenGuides(w, guides.map(g => curveWire(g))));
+    const plain = plainLoft(ws);
+    const sheet = loftAlong(ws, guides, false, plain, (i, j) => stationOf(ws[i], ws[j]), trim.profiles === false);
     return simplify ? flatFaces(sheet) : sheet;
+}
+
+/** The plain loft through wires, a sheet. */
+function plainLoft(ws) {
+    const o = oc(), mk = new o.BRepOffsetAPI_ThruSections(false, false, 1e-6);
+    for (const w of ws) mk.AddWire(w);
+    mk.Build(new o.Message_ProgressRange());
+    if (!mk.IsDone()) throw new Error('no surface could be lofted through those curves');
+    return mk.Shape();
+}
+
+/** The parameter of curve `at` (t0..t1) nearest point `p`: sampled, then narrowed. */
+function nearestParam(at, t0, t1, p, samples = 64) {
+    let best = t0, bestD = Infinity;
+    for (let i = 0; i <= samples; i++) { const t = t0 + (t1 - t0) * i / samples, d = at(t).distanceTo(p); if (d < bestD) { bestD = d; best = t; } }
+    let a = Math.max(t0, best - (t1 - t0) / samples), b = Math.min(t1, best + (t1 - t0) / samples);
+    for (let k = 0; k < 60; k++) {
+        const m1 = a + (b - a) / 3, m2 = b - (b - a) / 3;
+        if (at(m1).distanceTo(p) < at(m2).distanceTo(p)) b = m2; else a = m1;
+    }
+    const t = (a + b) / 2;
+    return { t, gap: at(t).distanceTo(p) };
+}
+
+/**
+ * The open wire `w` cut between the two outermost points where `rails` touch it; the wire as it was
+ * when it is closed or fewer than two rails touch it inside. As w3d_trim_between_guides.
+ */
+function trimBetweenGuides(w, rails) {
+    const o = oc();
+    const edges = [];
+    for (const ex = new o.TopExp_Explorer(w, o.TopAbs_ShapeEnum.TopAbs_EDGE, o.TopAbs_ShapeEnum.TopAbs_SHAPE); ex.More(); ex.Next()) {
+        const e = o.TopoDS.Edge(ex.Current()), { returnValue: g, First, Last } = o.BRep_Tool.Curve(e, 0, 0);
+        const rev = e.Orientation() === o.TopAbs_Orientation.TopAbs_REVERSED;
+        // s runs 0..1 along the wire's own direction.
+        const param = s => rev ? Last - s * (Last - First) : First + s * (Last - First);
+        edges.push({ g, First, Last, rev, param, at: s => V3(g.Value(param(s))) });
+    }
+    const ends = [edges[0].at(0), edges[edges.length - 1].at(1)];
+    if (ends[0].distanceTo(ends[1]) < 1e-6) return w;
+    // Where along the wire (edge number + s) each rail touches it.
+    const spots = [];
+    for (const r of rails) {
+        const d = nearest(r, w);
+        if (d.gap > 0.01) continue;
+        let best = null;
+        edges.forEach((e, k) => { const n = nearestParam(e.at, 0, 1, d.on2); if (!best || n.gap < best.gap) best = { gap: n.gap, pos: k + n.t }; });
+        spots.push(best.pos);
+    }
+    if (spots.length < 2) return w;
+    const lo = Math.min(...spots), hi = Math.max(...spots), span = edges.length;
+    if (hi - lo < 1e-9) throw new Error('two guides touch a profile at one point; start them apart');
+    if (lo < 1e-7 && hi > span - 1e-7) return w;
+    const mk = new o.BRepBuilderAPI_MakeWire();
+    for (let k = Math.floor(lo); k < span && k < hi; k++) {
+        const e = edges[k], sa = Math.max(0, lo - k), sb = Math.min(1, hi - k);
+        if (sb - sa < 1e-9) continue;
+        const pa = e.param(sa), pb = e.param(sb);
+        let piece = new o.BRepBuilderAPI_MakeEdge(e.g, Math.min(pa, pb), Math.max(pa, pb)).Edge();
+        if (e.rev) piece = o.TopoDS.Edge(piece.Reversed());
+        mk.Add(piece);
+    }
+    if (!mk.IsDone()) throw new Error('a profile could not be cut at the guides');
+    return mk.Wire();
 }
 
 /**
@@ -716,8 +784,12 @@ function stationOf(w, next) {
     return { centre: here, normal: span };
 }
 
-/** The loft through the wires `profiles` along `guides`: a solid, or a sheet when not `solid`. */
-function loftAlong(profiles, guides, solid, plain, planeAt) {
+/**
+ * The loft through the wires `profiles` along `guides`: a solid, or a sheet when not `solid`. With
+ * `extend` (Trim overlap's Profiles off) the sheet runs on past the first and last profiles to the
+ * guides' ends, those profiles carried along the guides.
+ */
+function loftAlong(profiles, guides, solid, plain, planeAt, extend = false) {
     const o = oc();
     const rails = guides.map(g => guideFrom(g, profiles[0]));
     const curves = rails.map(adaptor);
@@ -728,6 +800,31 @@ function loftAlong(profiles, guides, solid, plain, planeAt) {
     }));
     const stations = 16;
     const mk = new o.BRepOffsetAPI_ThruSections(solid, false, 1e-6);
+    // The end profile `i` carried to where the guides are at fraction f of their run past it.
+    const overhang = (i, past) => {
+        const plane = planeAt(i, past ? i - 1 : i + 1), n = plane.normal.clone().normalize();
+        const runs = curves.map((g, j) => {
+            const at = nearestParam(g.at, g.t0, g.t1, touch[j][i], 400).t;
+            return { g, from: at, to: past ? g.t1 : g.t0, touch: touch[j][i] };
+        });
+        if (runs.every(r => Math.abs(r.to - r.from) < 1e-6 * Math.max(1, Math.abs(r.g.t1 - r.g.t0)))) return [];
+        const out = [];
+        for (let k = 1; k <= 4; k++) {
+            const gs = runs.map(r => r.g.at(r.from + (r.to - r.from) * k / 4)), r0 = runs.map(r => r.touch);
+            let t = new o.gp_Trsf();
+            if (curves.length === 1) t.SetTranslation(pnt(r0[0]), pnt(gs[0]));
+            else {
+                const move = new o.gp_Trsf();
+                move.SetTranslation(pnt(r0[0]), pnt(gs[0]));
+                t = move.Multiplied(onto(r0[0], n, r0[1], r0[0].clone().add(gs[1].clone().sub(gs[0])), true));
+            }
+            let placed = o.TopoDS.Wire(new o.BRepBuilderAPI_Transform(profiles[i], t, true, false).Shape());
+            if (curves.length > 2) placed = warpWire(placed, r0.map(p => V3(pnt(p).Transformed(t))), gs);
+            out.push(placed);
+        }
+        return out;
+    };
+    if (extend) for (const w of overhang(0, false).reverse()) mk.AddWire(w);
     mk.AddWire(profiles[0]);
     for (let i = 0; i + 1 < profiles.length; i++) {
         const pa = planeAt(i, i + 1), pb = planeAt(i + 1, i);
@@ -769,6 +866,7 @@ function loftAlong(profiles, guides, solid, plain, planeAt) {
         }
         mk.AddWire(profiles[i + 1]);
     }
+    if (extend) for (const w of overhang(profiles.length - 1, true)) mk.AddWire(w);
     mk.Build(new o.Message_ProgressRange());
     if (!mk.IsDone()) throw new Error('no surface could be lofted along those guides; check they run from the first profile to the last');
     return mk.Shape();

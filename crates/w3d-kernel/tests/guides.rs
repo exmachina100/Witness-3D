@@ -294,7 +294,7 @@ fn a_sheet_loft_of_curves_bends_out_to_its_guides() {
     assert!(bounds(&k, &plain).1.z.abs() < 1e-6);
     let arc = |x: f64| Path::Arc { start: DVec3::new(x, 0.0, 0.0), mid: DVec3::new(x, 10.0, 5.0), end: DVec3::new(x, 20.0, 0.0) };
     for guides in [vec![arc(0.0)], vec![arc(0.0), arc(10.0)]] {
-        let s = k.loft_sheet_guided(&[a.clone(), b.clone()], &guides, false).unwrap();
+        let s = k.loft_sheet_guided(&[a.clone(), b.clone()], &guides, false, [true, true]).unwrap();
         assert!(k.is_valid(&s) && k.is_sheet(&s));
         let (lo, hi) = bounds(&k, &s);
         assert!((hi.z - 5.0).abs() < 0.01 && lo.z.abs() < 0.01, "bows up to the guide: z {}..{}", lo.z, hi.z);
@@ -303,5 +303,20 @@ fn a_sheet_loft_of_curves_bends_out_to_its_guides() {
     }
     // A guide that misses a curve is refused.
     let miss = Path::Arc { start: DVec3::new(0.0, 0.0, 3.0), mid: DVec3::new(0.0, 10.0, 5.0), end: DVec3::new(0.0, 20.0, 0.0) };
-    assert!(k.loft_sheet_guided(&[a, b], &[miss], false).is_err());
+    assert!(k.loft_sheet_guided(&[a, b], &[miss], false, [true, true]).is_err());
+}
+
+#[test]
+fn trim_overlap_cuts_curves_at_the_guides_and_runs_on_without_profiles() {
+    let k = Occt;
+    // Curves from x -5 to 15 at y 0 and 20; straight guides at x 0 and 10 from y -5 to 25.
+    let (a, b) = (line(DVec3::new(-5.0, 0.0, 0.0), DVec3::new(15.0, 0.0, 0.0)), line(DVec3::new(-5.0, 20.0, 0.0), DVec3::new(15.0, 20.0, 0.0)));
+    let guides = [line(DVec3::new(0.0, -5.0, 0.0), DVec3::new(0.0, 25.0, 0.0)), line(DVec3::new(10.0, -5.0, 0.0), DVec3::new(10.0, 25.0, 0.0))];
+    let near = |x: f64, y: f64| (x - y).abs() < 0.02;
+    for (trim, want) in [([true, true], [0.0, 10.0, 0.0, 20.0]), ([false, true], [-5.0, 15.0, 0.0, 20.0]), ([true, false], [0.0, 10.0, -5.0, 25.0]), ([false, false], [-5.0, 15.0, -5.0, 25.0])] {
+        let s = k.loft_sheet_guided(&[a.clone(), b.clone()], &guides, false, trim).unwrap();
+        assert!(k.is_valid(&s) && k.is_sheet(&s));
+        let (lo, hi) = bounds(&k, &s);
+        assert!(near(lo.x, want[0]) && near(hi.x, want[1]) && near(lo.y, want[2]) && near(hi.y, want[3]), "{trim:?}: x {}..{} y {}..{}", lo.x, hi.x, lo.y, hi.y);
+    }
 }

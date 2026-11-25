@@ -208,9 +208,10 @@ impl Shape {
         Ok(Shape::from_shape(&s))
     }
 
-    /// Loft of curves along guides: a sheet (w3d_loft_sheet_guided).
-    pub fn loft_sheet_guided(sections: &[f64], guides: &[f64], simplify: bool) -> Result<Shape, String> {
-        let s = ffi::w3d::w3d_loft_sheet_guided(sections, guides, simplify).map_err(reason)?;
+    /// Loft of curves along guides: a sheet (w3d_loft_sheet_guided). `trim` is Trim overlap's
+    /// [Guides, Profiles].
+    pub fn loft_sheet_guided(sections: &[f64], guides: &[f64], simplify: bool, trim: [bool; 2]) -> Result<Shape, String> {
+        let s = ffi::w3d::w3d_loft_sheet_guided(sections, guides, simplify, trim[0], trim[1]).map_err(reason)?;
         Ok(Shape::from_shape(&s))
     }
 

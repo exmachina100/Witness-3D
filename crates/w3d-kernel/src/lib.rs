@@ -463,8 +463,9 @@ pub trait Kernel {
         Err(KernelError::Invalid("this kernel cannot loft faces"))
     }
     /// Loft of curves with guides (Shift+click): the sheet's sides run along `guides`, each of
-    /// which touches every curve.
-    fn loft_sheet_guided(&self, _curves: &[Path], _guides: &[Path], _simplify: bool) -> Result<Self::Solid, KernelError> {
+    /// which touches every curve. `trim` is Trim overlap's [Guides, Profiles]: Guides cuts open
+    /// curves at the outermost guides; without Profiles the sheet runs on to the guides' ends.
+    fn loft_sheet_guided(&self, _curves: &[Path], _guides: &[Path], _simplify: bool, _trim: [bool; 2]) -> Result<Self::Solid, KernelError> {
         Err(KernelError::Invalid("this kernel cannot loft curves along guides"))
     }
     /// `profile` swept along `path`; the far end turned by `twist` radians and scaled by `scale`.

@@ -1726,6 +1726,12 @@ pub struct LoftSheetRequest {
     /// Guides (Shift+click): drawn curves or body edges the sheet's sides run along.
     #[serde(default)]
     pub guides: Vec<GuideRef>,
+    /// Trim overlap (ADVANCED, with guides): Guides cuts open curves at the outermost guides;
+    /// Profiles off runs the sheet on past the end curves to the guides' ends. Both on to begin with.
+    #[serde(default = "yes", rename = "trimGuides")]
+    pub trim_guides: bool,
+    #[serde(default = "yes", rename = "trimProfiles")]
+    pub trim_profiles: bool,
     /// Loft of faces: (body, face number) pairs, in order; makes a solid instead of a sheet.
     #[serde(default)]
     pub faces: Vec<(BodyId, u32)>,
@@ -1736,7 +1742,7 @@ impl LoftSheetRequest {
         if !self.faces.is_empty() { return doc.preview_loft_faces(&self.faces) }
         if self.guides.is_empty() { return doc.preview_loft_sheet(&self.curves, self.looped, self.simplify) }
         if self.looped { return Err(KernelError::Invalid("a loop doesn't go with guides; turn Loop off")) }
-        doc.preview_loft_sheet_guided(&self.curves, &self.guides, self.simplify)
+        doc.preview_loft_sheet_guided(&self.curves, &self.guides, self.simplify, [self.trim_guides, self.trim_profiles])
     }
 }
 

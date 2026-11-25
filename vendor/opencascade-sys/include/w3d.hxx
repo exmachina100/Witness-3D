@@ -1459,9 +1459,72 @@ inline std::pair<gp_Pnt, gp_Vec> w3d_station_of(const TopoDS_Wire &w, const Topo
   return {here.CentreOfMass(), span};
 }
 
+// The parameter in t0..t1 of the curve `at` nearest `p`, and the gap there: sampled, then narrowed.
+template <class F> inline std::pair<double, double> w3d_nearest_param(F at, double t0, double t1, const gp_Pnt &p, int samples = 64) {
+  double best = t0, bestD = 1e300;
+  for (int i = 0; i <= samples; i++) {
+    double t = t0 + (t1 - t0) * i / samples, d = at(t).Distance(p);
+    if (d < bestD) { bestD = d; best = t; }
+  }
+  double a = std::max(t0, best - (t1 - t0) / samples), b = std::min(t1, best + (t1 - t0) / samples);
+  for (int k = 0; k < 60; k++) {
+    double m1 = a + (b - a) / 3, m2 = b - (b - a) / 3;
+    if (at(m1).Distance(p) < at(m2).Distance(p)) b = m2; else a = m1;
+  }
+  double t = (a + b) / 2;
+  return {t, at(t).Distance(p)};
+}
+
+// Loft's Trim overlap, Guides: the open wire `w` cut between the two outermost points where `rails`
+// touch it; the wire as it was when it is closed or fewer than two rails touch it.
+inline TopoDS_Wire w3d_trim_between_guides(const TopoDS_Wire &w, const std::vector<TopoDS_Wire> &rails) {
+  struct Piece { Handle(Geom_Curve) g; double first, last; bool rev; };
+  std::vector<Piece> edges;
+  for (TopExp_Explorer ex(w, TopAbs_EDGE); ex.More(); ex.Next()) {
+    TopoDS_Edge e = TopoDS::Edge(ex.Current());
+    double f, l;
+    Handle(Geom_Curve) g = BRep_Tool::Curve(e, f, l);
+    if (g.IsNull()) throw std::runtime_error("a profile has an edge with no curve");
+    edges.push_back({g, f, l, e.Orientation() == TopAbs_REVERSED});
+  }
+  if (edges.empty()) return w;
+  auto param = [](const Piece &e, double s) { return e.rev ? e.last - s * (e.last - e.first) : e.first + s * (e.last - e.first); };
+  auto at = [&](const Piece &e, double s) { return e.g->Value(param(e, s)); };
+  if (at(edges.front(), 0).Distance(at(edges.back(), 1)) < 1e-6) return w;
+  std::vector<double> spots;
+  for (const auto &r : rails) {
+    BRepExtrema_DistShapeShape d(r, w);
+    if (!d.IsDone() || d.Value() > 0.01) continue;
+    gp_Pnt on = d.PointOnShape2(1);
+    double bestGap = 1e300, pos = 0;
+    for (size_t k = 0; k < edges.size(); k++) {
+      auto n = w3d_nearest_param([&](double s) { return at(edges[k], s); }, 0.0, 1.0, on);
+      if (n.second < bestGap) { bestGap = n.second; pos = k + n.first; }
+    }
+    spots.push_back(pos);
+  }
+  if (spots.size() < 2) return w;
+  double lo = *std::min_element(spots.begin(), spots.end()), hi = *std::max_element(spots.begin(), spots.end());
+  double span = double(edges.size());
+  if (hi - lo < 1e-9) throw std::runtime_error("two guides touch a profile at one point; start them apart");
+  if (lo < 1e-7 && hi > span - 1e-7) return w;
+  BRepBuilderAPI_MakeWire mk;
+  for (size_t k = size_t(std::floor(lo)); k < edges.size() && double(k) < hi; k++) {
+    double sa = std::max(0.0, lo - k), sb = std::min(1.0, hi - k);
+    if (sb - sa < 1e-9) continue;
+    double pa = param(edges[k], sa), pb = param(edges[k], sb);
+    TopoDS_Edge piece = BRepBuilderAPI_MakeEdge(edges[k].g, std::min(pa, pb), std::max(pa, pb)).Edge();
+    if (edges[k].rev) piece = TopoDS::Edge(piece.Reversed());
+    mk.Add(piece);
+  }
+  if (!mk.IsDone()) throw std::runtime_error("a profile could not be cut at the guides");
+  return mk.Wire();
+}
+
 // The loft through `profiles` along `rails` (see w3d_loft_guided): a solid, or with `solid` false a
-// sheet through open or closed curves.
-inline TopoDS_Shape w3d_loft_along(const std::vector<TopoDS_Wire> &profiles, std::vector<TopoDS_Wire> rails, bool solid) {
+// sheet through open or closed curves. With `extend` (Trim overlap's Profiles off) the sheet runs on
+// past the first and last profiles to the guides' ends, those profiles carried along the guides.
+inline TopoDS_Shape w3d_loft_along(const std::vector<TopoDS_Wire> &profiles, std::vector<TopoDS_Wire> rails, bool solid, bool extend = false) {
   {
     if (profiles.size() < 2) throw std::runtime_error("a loft needs two profiles or more");
     if (rails.empty()) throw std::runtime_error("select the guide curves");
@@ -1486,6 +1549,42 @@ inline TopoDS_Shape w3d_loft_along(const std::vector<TopoDS_Wire> &profiles, std
 
     const int stations = 16;
     BRepOffsetAPI_ThruSections mk(solid, Standard_False, 1e-6);
+    // The end profile `i` carried along the guides' run past it, at four stations.
+    auto overhang = [&](size_t i, bool past) {
+      std::vector<TopoDS_Wire> out;
+      gp_Vec n = w3d_station_of(profiles[i], profiles[past ? i - 1 : i + 1], solid).second;
+      std::vector<double> from, to;
+      bool any = false;
+      for (size_t j = 0; j < rails.size(); j++) {
+        auto &g = curves[j];
+        double t0 = g.FirstParameter(), t1 = g.LastParameter();
+        from.push_back(w3d_nearest_param([&](double t) { return g.Value(t); }, t0, t1, touch[j][i], 400).first);
+        to.push_back(past ? t1 : t0);
+        if (std::abs(to.back() - from.back()) > 1e-6 * std::max(1.0, std::abs(t1 - t0))) any = true;
+      }
+      if (!any) return out;
+      for (int k = 1; k <= 4; k++) {
+        std::vector<gp_Pnt> g;
+        for (size_t j = 0; j < rails.size(); j++) g.push_back(curves[j].Value(from[j] + (to[j] - from[j]) * k / 4));
+        const auto &r = touch;
+        gp_Trsf t;
+        if (rails.size() == 1) t.SetTranslation(r[0][i], g[0]);
+        else {
+          gp_Trsf onto = w3d_onto(r[0][i], n, r[1][i], gp_Pnt(r[0][i].XYZ() + (g[1].XYZ() - g[0].XYZ())), true), move;
+          move.SetTranslation(r[0][i], g[0]);
+          t = move * onto;
+        }
+        TopoDS_Wire placed = TopoDS::Wire(BRepBuilderAPI_Transform(profiles[i], t, Standard_True).Shape());
+        if (rails.size() > 2) {
+          std::vector<gp_Pnt> at;
+          for (size_t j = 0; j < rails.size(); j++) at.push_back(r[j][i].Transformed(t));
+          placed = w3d_warp_wire(placed, at, g);
+        }
+        out.push_back(placed);
+      }
+      return out;
+    };
+    if (extend) { auto before = overhang(0, false); for (auto it = before.rbegin(); it != before.rend(); ++it) mk.AddWire(*it); }
     mk.AddWire(profiles[0]);
     for (size_t i = 0; i + 1 < profiles.size(); i++) {
       auto [ca, na] = w3d_station_of(profiles[i], profiles[i + 1], solid);
@@ -1536,6 +1635,7 @@ inline TopoDS_Shape w3d_loft_along(const std::vector<TopoDS_Wire> &profiles, std
       }
       mk.AddWire(profiles[i + 1]);
     }
+    if (extend) for (const auto &w : overhang(profiles.size() - 1, true)) mk.AddWire(w);
     mk.Build();
     if (!mk.IsDone()) throw std::runtime_error("no surface could be lofted along those guides; check they run from the first profile to the last");
     return mk.Shape();
@@ -1575,12 +1675,16 @@ inline std::unique_ptr<TopoDS_Shape> w3d_loft_faces(const TopoDS_Shape &faces) {
 
 // Plasticity's Loft of curves with guides (Shift+click): a sheet through the curves, in order, its
 // sides running along the guides, as w3d_loft_guided does for regions.
-inline std::unique_ptr<TopoDS_Shape> w3d_loft_sheet_guided(rust::Slice<const double> sections, rust::Slice<const double> guides, bool simplify) {
+// Trim overlap: `trim_guides` cuts open profiles at the outermost guides (two or more); without
+// `trim_profiles` the sheet runs on past the end profiles to the guides' ends.
+inline std::unique_ptr<TopoDS_Shape> w3d_loft_sheet_guided(rust::Slice<const double> sections, rust::Slice<const double> guides, bool simplify, bool trim_guides, bool trim_profiles) {
   try {
     std::vector<TopoDS_Wire> profiles, rails;
     for (const double *p = sections.data(), *end = p + sections.size(); p < end;) profiles.push_back(w3d_section(p, end));
     for (const double *p = guides.data(), *end = p + guides.size(); p < end;) rails.push_back(w3d_section(p, end));
-    TopoDS_Shape sheet = w3d_loft_along(profiles, rails, false);
+    if (trim_guides && rails.size() >= 2)
+      for (auto &w : profiles) w = w3d_trim_between_guides(w, rails);
+    TopoDS_Shape sheet = w3d_loft_along(profiles, rails, false, !trim_profiles);
     return std::unique_ptr<TopoDS_Shape>(new TopoDS_Shape(simplify ? w3d_flat_faces(sheet) : sheet));
   } catch (const Standard_Failure &f) {
     throw w3d_kernel_error(f);
