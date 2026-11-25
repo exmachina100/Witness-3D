@@ -5773,6 +5773,7 @@ export async function mount(root, backend) {
     // unless another command was started meanwhile.
     if (then) c.then = then;
     c.cleanup = () => {
+      if (c.turnArc) { for (const o of [c.turnArc, c.turnArc.children[0]]) { o.geometry.dispose(); o.material.dispose(); } c.turnArc.removeFromParent(); c.turnArc = null; }
       if (c.free) { c.free.line.removeFromParent(); c.free = null; }
       for (const id of ids) { const m = bodyMesh(id); if (m) { m.matrixAutoUpdate = true; m.position.set(0, 0, 0); m.quaternion.identity(); m.scale.set(1, 1, 1); m.updateMatrix(); } }
       clearPreview();
@@ -5880,9 +5881,48 @@ export async function mount(root, backend) {
   }
 
   /** Preview: M = T(pivot + offset) · R · S · T(−pivot) on every target mesh, and the panel. */
+  /**
+   * Plasticity 2026.2's rotation indicator: "a visual indicator now shows how far you've rotated".
+   * A see-through sector at the gizmo, in the plane square to the turn's axis, sweeping the angle
+   * turned so far (its look is ours: the manual doesn't show it).
+   */
+  function drawTurnIndicator(c) {
+    c.turnArc ??= (() => {
+      const m = new THREE.Mesh(new THREE.BufferGeometry(), new THREE.MeshBasicMaterial({ color: COLORS.accent, transparent: true, opacity: 0.22, side: THREE.DoubleSide, depthTest: false }));
+      const edge = new THREE.Line(new THREE.BufferGeometry(), new THREE.LineBasicMaterial({ color: COLORS.accent, depthTest: false }));
+      m.renderOrder = edge.renderOrder = 19;
+      m.add(edge);
+      scene.add(m);
+      return m;
+    })();
+    // Unflipped, so a turn past 180° shows as itself (up to a whole turn) rather than the short way back.
+    const q = c.quat, vec = new THREE.Vector3(q.x, q.y, q.z), angle = 2 * Math.atan2(vec.length(), q.w);
+    const arc = c.turnArc;
+    arc.visible = angle > 1e-4 && vec.lengthSq() > 1e-18;
+    if (!arc.visible) return;
+    const axis = vec.normalize();
+    const centre = c.pivot.clone().add(c.offset), r = unitsPerPixel(centre) * 70;
+    // Start square to the axis, towards the camera's right where it can.
+    let u = new THREE.Vector3().setFromMatrixColumn(camera.matrixWorld, 0);
+    u.addScaledVector(axis, -u.dot(axis));
+    if (u.lengthSq() < 1e-9) u = new THREE.Vector3(1, 0, 0).addScaledVector(axis, -axis.x);
+    u.normalize();
+    const v = axis.clone().cross(u), steps = Math.max(8, Math.ceil(angle / (Math.PI / 48)));
+    const rim = [];
+    for (let i = 0; i <= steps; i++) { const t = (angle * i) / steps; rim.push(u.clone().multiplyScalar(Math.cos(t) * r).addScaledVector(v, Math.sin(t) * r)); }
+    const tri = [];
+    for (let i = 0; i < steps; i++) tri.push(0, 0, 0, ...rim[i].toArray(), ...rim[i + 1].toArray());
+    arc.geometry.dispose();
+    arc.geometry = new THREE.BufferGeometry().setAttribute('position', new THREE.Float32BufferAttribute(tri, 3));
+    const edge = arc.children[0];
+    edge.geometry.dispose();
+    edge.geometry = new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(), ...rim, new THREE.Vector3()]);
+    arc.position.copy(centre);
+  }
   function apply() {
     const c = cmd;
     const { pivot, offset, quat, scale } = c;
+    if (c.id === 'rotate') drawTurnIndicator(c);
     c.handle.position.copy(pivot).add(offset);
     c.handle.quaternion.copy(quat).multiply(c.frame ?? new THREE.Quaternion());
     c.handle.scale.copy(c.stretch ?? new THREE.Vector3(1, 1, 1)).multiplyScalar(scale);
