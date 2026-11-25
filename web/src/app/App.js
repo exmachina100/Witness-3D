@@ -79,6 +79,7 @@ import { curveArrayMotions, curveLength } from '../curveArray.js';
 import { chamferDimensions, curveDimensions, faceDimensions, filletDimensions, solidDimensions } from '../dimension.js';
 import { edgeCurve, flattenCurve } from '../altDuplicate.js';
 import { EDGE_CONTINUITY, bridgeCurve, bridgePoles, edgePoint, facePoint, sampledEnd } from '../bridgeEdge.js';
+import { nearestEdgePair } from '../nearEdges.js';
 import { ALIGN_CONTINUITY, alignAnalysis, alignRequest, readEdgeFaces, sidePoint, skewFrames, targetFace } from '../alignSurface.js';
 import { PROJECT_CONTINUITY, projectAlignRequest } from '../projectAlign.js';
 import { constrainedSurface, splineSheetData } from '../constrainedSurface.js';
@@ -12537,11 +12538,38 @@ export async function mount(root, backend) {
    * target and the second the reference; the target sheet's side moves to meet the reference in G0,
    * G1 or G2 (Tab), its first rows of control points moved (alignSurface.js), with a live preview.
    */
+  /**
+   * Edge Align's near-edge pairing (Plasticity 2026.2: "click anywhere near the boundary edges of the
+   * two sheets, and they'll be paired correctly"): the two sheets picked (as faces or whole sheets,
+   * the first to move) give the pair of their open edges lying nearest each other. Undefined when
+   * the selection isn't two sheets, null when they have no open edges.
+   */
+  async function nearPair() {
+    const bodies = [];
+    for (const it of sel.list()) {
+      const b = it.kind === 'solid' ? it.body : it.kind === 'face' ? it.body : null;
+      if (b !== null && !bodies.includes(b)) bodies.push(b);
+    }
+    if (bodies.length !== 2 || !bodies.every(id => bodyOf(id)?.sheet) || !backend.boundaryEdges) return undefined;
+    const found = await backend.boundaryEdges({ bodies });
+    const open = id => (found.find(f => f.body === id)?.edges ?? []).map(n => ({ n, points: bodyOf(id)?.edges?.[n] ?? [] }));
+    const best = nearestEdgePair(open(bodies[0]), open(bodies[1]));
+    return best ? [{ kind: 'edge', body: bodies[0], n: best.a }, { kind: 'edge', body: bodies[1], n: best.b }] : null;
+  }
   async function startAlignSurface() {
     if (cmd) await finish();
     if (!backend.edgeFaces || !backend.previewMoveFacePoles) return toast('ALIGN SURFACE IS NOT IN THIS BUILD YET');
-    const edges = sel.list('edge');
-    if (edges.length !== 2) return toast('SELECT THE EDGE TO MOVE, THEN THE EDGE TO MEET');
+    let edges = sel.list('edge');
+    if (edges.length !== 2) {
+      // Near-edge pairing (2026.2): two sheets picked in face or solid mode pair their nearest boundary edges.
+      const pair = await nearPair();
+      if (pair === undefined) return toast('SELECT THE EDGE TO MOVE, THEN THE EDGE TO MEET, OR TWO SHEETS');
+      if (pair === null) return toast('THOSE SHEETS HAVE NO OPEN EDGES TO PAIR');
+      edges = pair;
+      sel.clear();
+      for (const e of edges) sel.add(e);
+      selectionChanged({ quiet: true });
+    }
     const [target, reference] = edges.map(e => ({ body: e.body, edge: e.n }));
     const c = cmd = { id: 'align-surface', continuity: 'G1', symmetric: false, analysis: false, boundary: 'natural', solver: 'constrained', req: null, sent: 0, shown: 0 };
     lastTool = 'align-surface';
@@ -16574,6 +16602,7 @@ export async function mount(root, backend) {
     if (sel.list('edge').length === 2) out.push('tool:bridge-surface');
     if (sel.solids.some(id => current.find(b => b.id === id)?.sheet)) out.push('tool:thicken', 'reverse-sheet');
     if (sel.solids.length > 1 && sel.solids.every(id => current.find(b => b.id === id)?.sheet)) out.push('join');
+    if (sel.solids.length === 2 && sel.solids.every(id => current.find(b => b.id === id)?.sheet)) out.push('align-surface');
     if (sel.solids.length === 1) out.push('unjoin:faces', 'unjoin:pieces');
     if (sel.list('edge').some(e => current.find(b => b.id === e.body)?.sheet)) out.push('tool:extend-sheet');
     if (kinds.has('region')) out.push('tool:extrude', 'tool:revolve', 'tool:loft', 'tool:sweep', 'tool:subd');
