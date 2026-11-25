@@ -6,6 +6,8 @@
 const A = 'class="ac"'; // the accent stroke
 
 const ICONS = {
+    // LABS Seam Check: two surfaces meeting along a seam, the seam's samples marked.
+    'seam-check': `<path d="M3 15c3-5 6-6 9-6"/><path d="M12 9c3 0 6 1 9 6"/><path ${A} d="M12 4v16" stroke-dasharray="2 2"/><path ${A} d="M12 9h0"/>`,
     close: `<path d="M6 6l12 12M18 6L6 18"/>`,
     fold: `<path d="M6 14l6-6 6 6"/>`,
     // Two values locked together (Plasticity's link button beside a pair of fields).

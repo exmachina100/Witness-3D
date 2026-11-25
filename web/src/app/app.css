@@ -698,3 +698,9 @@ dialog.xdialog[aria-busy="true"] > * { pointer-events: none; }
 .cmd-dialog .seg.icons button .ico { display: block; width: 16px; height: 16px; margin: 0; }
 .cmd-dialog .seg.icons { grid-template-columns: none; }
 .cmd-dialog .seg.icons button[aria-pressed="true"] { background: var(--accent); border-color: var(--accent); }
+
+/* LABS Seam Check: one row per seam, coloured by the level it reaches. */
+.sc-list { margin: 4px 0 0; padding-left: 18px; font-size: 10px; line-height: 1.5; }
+.sc-list li[data-level="G3"], .sc-list li[data-level="G2"] { color: #2ec46b; }
+.sc-list li[data-level="G1"] { color: var(--accent, #ff8a1c); }
+.sc-list li[data-level="G0"], .sc-list li[data-level="none"], .sc-list li[data-level="error"] { color: #e5484d; }
