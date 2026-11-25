@@ -159,11 +159,14 @@ export function assemble(shape, all, replaced, gap, what, hint = '') {
         all.forEach((f, i) => sew.Add(replaced.get(i) ?? f));
         sew.Perform(new o.Message_ProgressRange());
         result = sew.SewedShape();
-        if (!numbered(result, 'TopAbs_SHELL').length) {
+        const loose = numbered(result, 'TopAbs_FACE');
+        // Faces that don't touch (two sheets imported as one body) stay a compound: one shell of
+        // unconnected faces fails the check.
+        if (!numbered(result, 'TopAbs_SHELL').length && loose.length === 1) {
             // One face sews to itself: hold it in a shell, as the body held it.
             const tb = new o.TopoDS_Builder(), shell = new o.TopoDS_Shell();
             tb.MakeShell(shell);
-            for (const f of numbered(result, 'TopAbs_FACE')) tb.Add(shell, f);
+            tb.Add(shell, loose[0]);
             shell.Closed(o.BRep_Tool.IsClosed(shell));
             result = shell;
         }
