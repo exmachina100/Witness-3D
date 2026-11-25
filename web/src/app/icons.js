@@ -16,6 +16,8 @@ const ICONS = {
     'class-a-fit': `<path d="M4 16c2-1 3 1 5 0s3-2 5-1 3 1 6 0" stroke-dasharray="2 1.5"/><path ${A} d="M4 13c5-6 11-6 16 0"/><path ${A} d="M4 13h0M20 13h0M9 9h0M15 9h0" stroke-width="3"/>`,
     // LABS Patch Layout: a panel split into four-sided patches along a curved feature line.
     'patch-layout': `<path d="M4 5h16v14H4z"/><path ${A} d="M11 5c2 4 2 10 0 14"/><path d="M4 12h16" stroke-dasharray="2 1.5"/>`,
+    // LABS Surfacing Agent: a speech bubble with a surface curve inside it, the measured point marked.
+    'labs-agent': `<path d="M4 5h16v11H10l-4 3v-3H4z"/><path ${A} d="M7 13c3-5 7-5 10 0"/><path ${A} d="M12 9.3h0" stroke-width="3"/>`,
     close: `<path d="M6 6l12 12M18 6L6 18"/>`,
     fold: `<path d="M6 14l6-6 6 6"/>`,
     // Two values locked together (Plasticity's link button beside a pair of fields).

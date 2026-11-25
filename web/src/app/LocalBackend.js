@@ -64,7 +64,7 @@ const v3 = a => new THREE.Vector3(...a);
 export class LocalBackend {
     info = { kernel: 'OPENCASCADE · WASM', units: 'mm' };
 
-    /** `seed` 'cube' (new documents) or 'enclosure' (the 80 × 30 × 50 blank the tests are written on). */
+    /** `seed` 'cube' (new documents), 'enclosure' (the 80 × 30 × 50 blank the tests are written on) or 'empty' (the MCP server, before a file is opened). */
     constructor({ seed = 'cube' } = {}) {
         this.shapes = new Map();
         // Copy with Placement's bodies, outside the document and its undo steps.
@@ -85,7 +85,7 @@ export class LocalBackend {
         // New documents start with a 50 mm cube on the ground, as on the desktop, one corner at the
         // world origin and the rest along +X, +Y and +Z (the viewport's y is up, the user's +Y is -z).
         if (seed === 'enclosure') this.put(this.nextId++, box(new THREE.Vector3(-40, 0, -25), new THREE.Vector3(40, 30, 25)));
-        else this.put(this.nextId++, box(new THREE.Vector3(0, 0, -50), new THREE.Vector3(50, 50, 0)));
+        else if (seed !== 'empty') this.put(this.nextId++, box(new THREE.Vector3(0, 0, -50), new THREE.Vector3(50, 50, 0)));
     }
 
     fresh(n) { const start = this.nextRef; this.nextRef += n; return Array.from({ length: n }, (_, i) => start + i) }

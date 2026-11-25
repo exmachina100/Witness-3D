@@ -14,9 +14,11 @@ import { g3Blend, nearestEdge } from '../g3Blend.js';
 import { FIT_TOLERANCE, classAFitFace, classAFitPoints } from '../classAFit.js';
 import { scanPoints } from '../scanPoints.js';
 import { planFaceLayout } from '../layoutPlanner.js';
+import { labsSession } from '../labsTools.js';
+import { runAgent } from '../labsAgent.js';
 
 /** The LABS commands, by id: their dialog titles. */
-export const LABS_NAMES = { 'seam-check': 'SEAM CHECK', 'seam-solver': 'SEAM SOLVER', 'g3-blend': 'G3 BLEND', 'class-a-fit': 'CLASS-A FIT', 'patch-layout': 'PATCH LAYOUT' };
+export const LABS_NAMES = { 'seam-check': 'SEAM CHECK', 'seam-solver': 'SEAM SOLVER', 'g3-blend': 'G3 BLEND', 'class-a-fit': 'CLASS-A FIT', 'patch-layout': 'PATCH LAYOUT', 'labs-agent': 'SURFACING AGENT' };
 
 /** The LABS commands' keys, as KEYS lists them for the key strip. */
 export const LABS_KEYS = {
@@ -25,6 +27,7 @@ export const LABS_KEYS = {
     'g3-blend': [['TAB', 'CONTINUITY'], ['ENTER', 'KEEP AND MEASURE'], ['ESC', 'CANCEL']],
     'class-a-fit': [['ENTER', 'KEEP THE PATCH'], ['ESC', 'CANCEL']],
     'patch-layout': [['ENTER', 'KEEP THE PATCHES'], ['ESC', 'CANCEL']],
+    'labs-agent': [['CTRL+ENTER', 'RUN'], ['ENTER', 'KEEP ALL CHANGES'], ['ESC', 'DISCARD ALL CHANGES']],
 };
 
 /** Their options in the command dialog. */
@@ -63,6 +66,24 @@ export const LABS_PANELS = `
       <div class="field" title="Cuts across the face's second direction, in % of the way along it"><label for="w3d-pl-t">CUTS V %</label><input id="w3d-pl-t" data-id="pl-t" type="text" value=""></div>
       <button data-id="pl-auto" title="Plan the cuts again from the face's feature lines">PROPOSE AGAIN</button>
       <span class="hint" data-id="pl-result" title="Each patch: furthest distance from the face, inflections">—</span>
+    </div>
+    <div class="sec" data-panel="labs-agent" hidden>
+      <span class="hint" data-id="ag-hint">SAY WHAT TO DO WITH THE SURFACES</span>
+      <div class="ag-key" data-id="ag-keyrow" hidden>
+        <span class="hint" data-id="ag-keynote">YOUR ANTHROPIC API KEY</span>
+        <input data-id="ag-key" type="password" autocomplete="off" spellcheck="false" placeholder="PASTE YOUR ANTHROPIC API KEY" title="Your own key: kept on this computer (desktop) or in this tab only (browser), never in the file">
+        <button data-id="ag-savekey" title="Keep the key and go on">SAVE KEY</button>
+      </div>
+      <textarea data-id="ag-prompt" rows="3" spellcheck="false" placeholder="E.G. MAKE THE SEAM BETWEEN THE TWO SHEETS G3 AND REPORT THE NUMBERS" title="What the agent should do; it measures with Seam Check before and after (Ctrl+Enter runs)"></textarea>
+      <div class="seg" role="group" aria-label="Agent">
+        <button data-id="ag-run" title="Run the agent on this request (Ctrl+Enter)">RUN</button>
+        <button data-id="ag-stop" title="Stop after the step it is on" disabled>STOP</button>
+        <button data-id="ag-keep" title="Keep every change the agent made (Enter)">KEEP</button>
+        <button data-id="ag-discard" title="Undo every change the agent made (Escape)">DISCARD</button>
+      </div>
+      <div class="ag-sum" data-id="ag-sum" hidden></div>
+      <details data-id="ag-logbox"><summary title="Every step the agent took and what it measured">STEP LOG</summary><ol class="ag-log" data-id="ag-log"></ol></details>
+      <span class="hint" data-id="ag-steps" title="Changes the agent made in this session; each is one undo step">0 CHANGES</span>
     </div>`;
 
 const COLOURS = { ok: new THREE.Color(0x2ec46b), soft: new THREE.Color(0xff8a1c), bad: new THREE.Color(0xe5484d) };
@@ -397,6 +418,211 @@ export function createLabs(ctx) {
         $('pl-t').value = '';
         c.preview();
     }
+    /**
+     * The surfacing agent (labsAgent.js): Claude works through a request with the LABS tools on this
+     * model, with the user's own key. Every change is an undo step of its session: KEEP leaves them,
+     * DISCARD (or Escape) undoes all of them.
+     */
+    /** A tool's result in one short line for the transcript (the model gets the whole JSON). */
+    const brief = r => {
+        if (typeof r === 'string') return r;
+        if (r?.error) return `ERROR · ${r.error}`;
+        const seam = x => `${x.level} · GAP ${x.gap_mm} mm · ${x.angle_deg}° · G2 ${x.g2_pct ?? '—'}% · G3 ${x.g3_pct ?? '—'}%`;
+        if (r?.bodies) return `${r.bodies.length} BOD${r.bodies.length === 1 ? 'Y' : 'IES'}`;
+        if (r?.level) return seam(r);
+        if (r?.seams) return `BODY ${r.body} · ${r.seams.map(seam).join(' | ')}`;
+        if (r?.after) return `MOVED ${r.moved_points} POINTS · BEFORE ${seam(r.before)} → AFTER ${seam(r.after)}`;
+        if (r?.degree) return `BODY ${r.body} · DEGREE ${r.degree} · ${r.deviation_mm} mm · INFLECTIONS ${r.inflections_before ?? '—'} → ${r.inflections_after}`;
+        if (r?.patches) return `BODY ${r.body} · ${r.patches.length} PATCHES · WORST ${Math.max(...r.patches.map(x => x.deviation_mm))} mm`;
+        const t = JSON.stringify(r);
+        return t.length > 160 ? `${t.slice(0, 160)}…` : t;
+    };
+    /** Tool names as the user knows the commands. */
+    const TOOL_LABEL = { describe_model: 'LOOKING AT THE MODEL', seam_check: 'SEAM CHECK', seam_solve: 'SEAM SOLVER', g3_blend: 'G3 BLEND', class_a_fit: 'CLASS-A FIT', patch_layout: 'PATCH LAYOUT', undo_last: 'UNDOING ITS LAST STEP', capture_view: 'LOOKING AT THE VIEW' };
+    const TARGET_CHIPS = [['g0', 'GAP'], ['g1', 'ANGLE'], ['g2', 'G2'], ['g3', 'G3'], ['highlight', 'HIGHLIGHT']];
+    /** Seam results inside a tool result, with the edges they belong to (for the viewport and the summary). */
+    function seamsOf(name, args, r) {
+        if (!r || r.error) return [];
+        if (name === 'seam_check' && r.level) return [{ label: `B${args.body} E${args.edge}`, edges: [[args.body, args.edge], ...(args.other_body !== undefined ? [[args.other_body, args.other_edge]] : [])], after: r }];
+        if (name === 'seam_solve' && r.after) return [{ label: `B${args.target_body} E${args.target_edge}`, edges: [[args.target_body, args.target_edge], [args.reference_body, args.reference_edge]], before: r.before, after: r.after }];
+        if (name === 'g3_blend' && r.seams) return r.seams.map((x, k) => { const e = k ? [args.b_body, args.b_edge] : [args.a_body, args.a_edge]; return { label: `${k ? 'END B' : 'END A'} B${e[0]} E${e[1]}`, edges: [e], after: x }; });
+        return [];
+    }
+    /** The seams' edges lit on the model: green when every target is met, orange G2/G3 misses, red gap or angle. */
+    function lightSeams(seams) {
+        ctx.clearPreview();
+        for (const sm of seams) {
+            const ok = sm.after.ok ?? {}, colour = ok.g0 && ok.g1 ? (ok.g2 && ok.g3 !== false ? COLOURS.ok : COLOURS.soft) : COLOURS.bad;
+            for (const [body, n] of sm.edges) {
+                const e = ctx.bodyOf(body)?.edges[n];
+                if (!e || e.length < 6) continue;
+                // Dots along the edge, as Seam Check draws its samples: they read at any line width.
+                const pts = [];
+                const step = Math.max(3, Math.floor(e.length / 3 / 80) * 3);
+                for (let i = 0; i < e.length; i += step) pts.push(e[i], e[i + 1], e[i + 2]);
+                const g = new THREE.BufferGeometry();
+                g.setAttribute('position', new THREE.Float32BufferAttribute(pts, 3));
+                const dots = new THREE.Points(g, new THREE.PointsMaterial({ color: colour, size: 6, sizeAttenuation: false, depthTest: false }));
+                dots.renderOrder = 12;
+                ctx.previewGroup.add(dots);
+            }
+        }
+    }
+    /** The status strip over the viewport: the step it is on, a bar, and the last seam's targets. */
+    function strip({ now = '', progress = 0, busy = false, seam = null } = {}) {
+        const el = $('ag-strip');
+        if (!el) return;
+        if (now === null) { el.hidden = true; return; }
+        el.hidden = false;
+        el.toggleAttribute('data-busy', busy);
+        const chips = TARGET_CHIPS.map(([k, l]) => `<span class="ag-chip" data-ok="${seam ? String(seam.ok?.[k] ?? 'none') : 'none'}">${l}</span>`).join('');
+        el.innerHTML = `<div class="row"><span>AGENT</span><span class="now"></span>${chips}</div><div class="bar"><i style="width:${Math.round(progress * 100)}%"></i></div>`;
+        el.querySelector('.now').textContent = now;
+    }
+    /** The card at the end: each seam before and after, against every target, and one verdict. */
+    function summary(seams, fits) {
+        const el = $('ag-sum');
+        const last = new Map();
+        for (const sm of seams) { const was = last.get(sm.label); last.set(sm.label, { ...sm, before: sm.before ?? was?.before ?? was?.after ?? null }); }
+        const rows = [...last.values()];
+        if (!rows.length && !fits.length) { el.hidden = true; return; }
+        const cell = (v, ok, unit) => `<td data-ok="${ok}">${v ?? '—'}${v === null || v === undefined ? '' : unit}</td>`;
+        const all = rows.every(r => Object.values(r.after.ok ?? {}).every(Boolean)) && fits.every(f => f.ok);
+        el.hidden = false;
+        el.innerHTML = `<div class="verdict" data-ok="${all}">${all ? 'EVERY TARGET MET' : 'SOME TARGETS MISSED'}</div>
+          ${rows.length ? `<table><tr><th>SEAM</th><th>GAP mm</th><th>ANGLE °</th><th>G2 %</th><th>G3 %</th><th>BEFORE</th></tr>${rows.map(r => `<tr><td></td>${cell(r.after.gap_mm, r.after.ok?.g0, '')}${cell(r.after.angle_deg, r.after.ok?.g1, '')}${cell(r.after.g2_pct, r.after.ok?.g2, '')}${cell(r.after.g3_pct, r.after.ok?.g3, '')}<td>${r.before ? `${r.before.level} ${r.before.gap_mm}/${r.before.angle_deg}°` : 'NEW'}</td></tr>`).join('')}</table>` : ''}
+          ${fits.map(f => `<div data-ok="${f.ok}">${f.text}</div>`).join('')}`;
+        el.querySelectorAll('tr td:first-child').forEach((td, i) => { td.textContent = rows[i].label; });
+    }
+    async function startAgent() {
+        const c = { id: 'labs-agent', running: false, stop: false, session: null, seams: [], fits: [], calls: 0 };
+        ctx.begin(c);
+        ctx.setState('none');
+        const log = (kind, text) => {
+            const li = document.createElement('li');
+            li.dataset.kind = kind;
+            li.textContent = text;
+            $('ag-log').append(li);
+            li.scrollIntoView?.({ block: 'nearest' });
+        };
+        const steps = () => {
+            const n = c.session?.steps ?? 0;
+            $('ag-steps').textContent = `${n} CHANGE${n === 1 ? '' : 'S'}${n ? ' · ' + c.session.log.join(' · ').toUpperCase() : ''}`;
+        };
+        const buttons = () => {
+            $('ag-run').disabled = c.running;
+            $('ag-stop').disabled = !c.running;
+            $('ag-keep').disabled = $('ag-discard').disabled = c.running;
+        };
+        const keyRow = async () => {
+            const has = await ctx.ai.hasKey();
+            $('ag-keyrow').hidden = has;
+            $('ag-keynote').textContent = ctx.ai.keyNote();
+            return has;
+        };
+        c.session = labsSession(ctx.backend, {
+            scene: ctx.scene(),
+            onScene: list => ctx.showScene(list),
+            onCommit: (what, id) => { ctx.record(`AGENT · ${what.toUpperCase().replace(/_/g, ' ')}`, id ?? undefined); steps(); },
+            onUndo: () => { ctx.dropStep(); steps(); },
+        });
+        c.run = async () => {
+            const prompt = $('ag-prompt').value.trim();
+            if (c.running || !prompt) return;
+            let done;
+            c.finished = new Promise(r => { done = r; });
+            if (!(await keyRow())) { $('ag-hint').textContent = 'ADD YOUR API KEY FIRST'; return $('ag-key').focus(); }
+            c.running = true; c.stop = false; buttons();
+            ctx.setState('updating');
+            $('ag-hint').textContent = 'WORKING…';
+            log('you', prompt);
+            c.seams = []; c.fits = []; c.calls = 0;
+            $('ag-sum').hidden = true;
+            strip({ now: 'THINKING…', busy: true, progress: 0.05 });
+            let lastSeam = null, pending = null;
+            try {
+                const send = await ctx.ai.sender();
+                const stoppable = body => { if (c.stop) throw new Error('stopped'); return send(body); };
+                c.session.scene = ctx.scene();
+                const r = await runAgent({
+                    send: stoppable, session: c.session, prompt, capture: ctx.capture,
+                    onEvent: ev => {
+                        if (ctx.current() !== c) return;
+                        if (ev.kind === 'tool') {
+                            log('tool', `${ev.name.toUpperCase().replace(/_/g, ' ')} ${JSON.stringify(ev.args ?? {})}`);
+                            pending = ev;
+                            c.calls++;
+                            strip({ now: `STEP ${c.calls} · ${TOOL_LABEL[ev.name] ?? ev.name.toUpperCase()}…`, busy: true, progress: Math.min(0.95, 0.1 + c.calls / 10), seam: lastSeam });
+                        } else if (ev.kind === 'result') {
+                            log('result', brief(ev.result));
+                            const found = seamsOf(ev.name, pending?.args ?? {}, ev.result);
+                            if (found.length) { c.seams.push(...found); lastSeam = found[found.length - 1].after; lightSeams(found); }
+                            if (ev.name === 'class_a_fit' && ev.result?.degree) c.fits.push({ ok: ev.result.deviation_mm <= FIT_TOLERANCE, text: `CLASS-A FIT · BODY ${ev.result.body} · DEGREE ${ev.result.degree} · ${ev.result.deviation_mm} mm · INFLECTIONS ${ev.result.inflections_before ?? '—'} → ${ev.result.inflections_after}` });
+                            if (ev.name === 'patch_layout' && ev.result?.patches) c.fits.push({ ok: !!ev.result.ok, text: `PATCH LAYOUT · BODY ${ev.result.body} · ${ev.result.patches.length} PATCHES · WORST ${Math.max(...ev.result.patches.map(x => x.deviation_mm))} mm` });
+                            if ((ev.name === 'class_a_fit' || ev.name === 'patch_layout') && ev.result?.body !== undefined) {
+                                const edges = ctx.bodyOf(ev.result.body)?.edges ?? [];
+                                lightSeams([{ edges: edges.map((_, n) => [ev.result.body, n]), after: { ok: { g0: c.fits.at(-1)?.ok, g1: c.fits.at(-1)?.ok, g2: true } } }]);
+                            }
+                            if (ev.name === 'undo_last') { c.seams.pop(); ctx.clearPreview(); }
+                            strip({ now: `STEP ${c.calls} · ${brief(ev.result)}`, busy: true, progress: Math.min(0.95, 0.1 + c.calls / 10), seam: lastSeam });
+                        }
+                        else if (ev.kind === 'text' || ev.kind === 'error') log(ev.kind, ev.text ?? ev.error);
+                    },
+                });
+                $('ag-hint').textContent = `DONE IN ${r.turns} TURN${r.turns === 1 ? '' : 'S'} · ENTER KEEPS, ESC DISCARDS`;
+                summary(c.seams, c.fits);
+                strip({ now: `DONE · ${c.session.steps} CHANGE${c.session.steps === 1 ? '' : 'S'} · ${c.calls} STEPS · ENTER KEEPS, ESC DISCARDS`, progress: 1, seam: lastSeam });
+                ctx.setState('updated');
+            } catch (e) {
+                if (e?.status === 401) { await ctx.ai.forgetKey(); await keyRow(); $('ag-hint').textContent = 'THAT KEY WAS NOT ACCEPTED'; }
+                else $('ag-hint').textContent = e?.message === 'stopped' ? 'STOPPED · ENTER KEEPS, ESC DISCARDS' : ctx.say(e);
+                ctx.setState(e?.message === 'stopped' ? 'updated' : 'failed');
+                if (e?.message !== 'stopped') log('error', $('ag-hint').textContent);
+                summary(c.seams, c.fits);
+                strip({ now: $('ag-hint').textContent, progress: 1, seam: lastSeam });
+            } finally { c.running = false; done(); if (ctx.current() === c) { buttons(); steps(); } }
+        };
+        c.finish = () => {
+            if (c.running) return ctx.toast('THE AGENT IS STILL WORKING; STOP IT FIRST');
+            c.session.keep();
+            ctx.endCmd(null);
+        };
+        c.abort = async () => {
+            c.stop = true;
+            // A step in flight goes in first, so the rollback takes it back too.
+            if (c.running) await c.finished;
+            const undo = c.session.steps;
+            await c.session.rollback();
+            ctx.endCmd(null);
+            if (undo) ctx.toast(`DISCARDED ${undo} AGENT CHANGE${undo === 1 ? '' : 'S'}`);
+        };
+        c.cleanup = () => { ctx.clearPreview(); strip({ now: null }); };
+        $('ag-log').innerHTML = '';
+        $('ag-sum').hidden = true;
+        $('ag-run').onclick = () => ctx.current() === c && c.run();
+        $('ag-stop').onclick = () => { if (ctx.current() === c) { c.stop = true; $('ag-hint').textContent = 'STOPPING AFTER THIS STEP…'; } };
+        $('ag-keep').onclick = () => ctx.current() === c && c.finish();
+        $('ag-discard').onclick = () => ctx.current() === c && c.abort();
+        $('ag-prompt').onkeydown = e => {
+            e.stopPropagation();
+            if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) { e.preventDefault(); c.run(); }
+            else if (e.key === 'Escape') { e.preventDefault(); $('ag-prompt').blur(); }
+        };
+        const save = async () => {
+            const k = $('ag-key').value.trim();
+            if (!k) return;
+            await ctx.ai.saveKey(k);
+            $('ag-key').value = '';
+            await keyRow();
+            $('ag-hint').textContent = 'KEY SAVED · SAY WHAT TO DO';
+            $('ag-prompt').focus();
+        };
+        $('ag-savekey').onclick = () => ctx.current() === c && save();
+        $('ag-key').onkeydown = e => { e.stopPropagation(); if (e.key === 'Enter') { e.preventDefault(); save(); } };
+        buttons(); steps();
+        await keyRow();
+        $('ag-prompt').focus();
+    }
     let lastSolve = null, lastBlend = null, lastFit = null, lastLayout = null;
 
     return {
@@ -430,6 +656,10 @@ export function createLabs(ctx) {
             if (id === 'patch-layout') {
                 if (!ctx.backend.faceUvn || !ctx.backend.previewSplineSheet) return ctx.toast('PATCH LAYOUT IS NOT IN THIS BUILD YET');
                 return startPatchLayout(faces);
+            }
+            if (id === 'labs-agent') {
+                if (!ctx.ai || !ctx.backend.undo) return ctx.toast('THE AGENT IS NOT IN THIS BUILD YET');
+                return startAgent();
             }
         },
         /** Seam numbers for the agent and MCP tools (no viewport). */
