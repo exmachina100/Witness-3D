@@ -288,6 +288,22 @@ test("Draft Face's Grow: an inner face drafted past the outer wall pushes it, st
     close(vol(req(angle, 'moving')), 2750, 1e-3);
 });
 
+test('Draft Face Taper Method Surface tilts the face about its line on a second reference plane', async () => {
+    // As draft_grow.rs: a 10 mm cube's x = 10 face, the reference plane z = y / 2, so the hinge runs
+    // from (10, 0, 0) to (10, 10, 5) rather than along the foot.
+    const be = new LocalBackend({ seed: 'enclosure' });
+    be.put(951, box({ x: 0, y: 0, z: 0 }, { x: 10, y: 10, z: 10 }));
+    const side = be.scene().find(b => b.id === 951).facePlanes.findIndex(p => p && p.normal[0] > 0.999);
+    const req = { body: 951, faces: [side], pull: [0, 0, 1], origin: [10, 0, 0], angle: 0.2, grow: 'none' };
+    const tilted = async r => { const b = await be.body(951, be.draftResult(r).shape); return b.facePlanes.find(p => p && p.normal[0] > 0.9 && p.normal[0] < 0.9999); };
+    const off = (p, q) => Math.abs(q.reduce((s, v, i) => s + (v - p.origin[i]) * p.normal[i], 0));
+    const p = await tilted({ ...req, neutral: [0, -0.5, 1] });
+    assert.ok(off(p, [10, 0, 0]) < 1e-6 && off(p, [10, 10, 5]) < 1e-6);
+    const plain = await tilted(req);
+    assert.ok(off(plain, [10, 10, 0]) < 1e-6 && off(plain, [10, 10, 5]) > 0.1);
+    assert.throws(() => be.draftResult({ ...req, neutral: [0, 1, 0] }), /along the pull/);
+});
+
 test('Find Boundary Edges: a sheet\'s open sides, none on a solid or at a seam', () => {
     const sheet = planeSheet([0, 0, 0], [0, 1, 0], 20);
     assert.deepEqual(boundaryEdges(sheet), [0, 1, 2, 3]);

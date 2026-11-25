@@ -41,3 +41,29 @@ fn grow_says_what_the_outer_wall_does_when_a_draft_reaches_it() {
     // Moving: the whole wedge, and the wall pushed out 2 mm under it.
     assert!((vol(Grow::Moving) - 2750.0).abs() < 1e-3, "moving {}", vol(Grow::Moving));
 }
+
+/// Taper Method Surface: the faces tilt about where they meet a second reference surface's plane,
+/// here one slanting up across the block (z = y / 2), so the hinge on the x = 10 face runs from
+/// (10, 0, 0) to (10, 10, 5) rather than along its foot.
+#[test]
+fn taper_surface_tilts_the_face_about_its_line_on_the_reference_plane() {
+    let mut doc = Document::new(Occt);
+    let k = &doc.kernel;
+    let s = k.box_from_corners(DVec3::ZERO, DVec3::new(10.0, 10.0, 10.0));
+    let side = k.tessellate(&s, 0.1).unwrap().face_planes.iter().position(|p| p.map_or(false, |p| p.normal.x > 0.999)).unwrap() as u32;
+    let b = doc.add(s);
+    let t = doc.preview_draft_about(b, &[side], DVec3::Z, DVec3::new(10.0, 0.0, 0.0), DVec3::new(0.0, -0.5, 1.0), 0.2, Grow::None).unwrap();
+    let mesh = doc.kernel.tessellate(&t.solid, 0.1).unwrap();
+    let p = mesh.face_planes.iter().flatten().find(|p| p.normal.x > 0.9 && p.normal.x < 0.9999).expect("the tilted face");
+    for q in [DVec3::new(10.0, 0.0, 0.0), DVec3::new(10.0, 10.0, 5.0)] {
+        assert!((q - p.origin).dot(p.normal).abs() < 1e-6, "{q} lies on the tilted face");
+    }
+    // The plain draft (neutral plane square to the pull) keeps the whole foot instead.
+    let plain = doc.preview_draft(b, &[side], DVec3::Z, DVec3::new(10.0, 0.0, 0.0), 0.2, Grow::None).unwrap();
+    let mesh = doc.kernel.tessellate(&plain.solid, 0.1).unwrap();
+    let p = mesh.face_planes.iter().flatten().find(|p| p.normal.x > 0.9 && p.normal.x < 0.9999).unwrap();
+    assert!((DVec3::new(10.0, 10.0, 0.0) - p.origin).dot(p.normal).abs() < 1e-6);
+    assert!((DVec3::new(10.0, 10.0, 5.0) - p.origin).dot(p.normal).abs() > 0.1);
+    // A reference surface running along the pull is refused.
+    assert!(doc.preview_draft_about(b, &[side], DVec3::Z, DVec3::new(10.0, 0.0, 0.0), DVec3::Y, 0.2, Grow::None).is_err());
+}

@@ -1816,18 +1816,26 @@ pub struct DraftRequest {
     /// The manual's Grow (Tab): "moving" (the default), "fixed" or "none".
     #[serde(default)]
     pub grow: String,
+    /// Taper Method Surface: the normal of the second reference face, whose plane through `origin`
+    /// the faces tilt about; none tilts them about the plane square to the pull.
+    #[serde(default)]
+    pub neutral: Option<[f64; 3]>,
+}
+
+impl DraftRequest {
+    fn neutral(&self) -> DVec3 { DVec3::from(self.neutral.unwrap_or(self.pull)) }
 }
 
 pub fn preview_draft(m: &Model, req: DraftRequest) -> Option<Result<Body, ApiError>> {
     m.preview(move |doc| {
-        let t = doc.preview_draft(req.body, &req.faces, DVec3::from(req.pull), DVec3::from(req.origin), req.angle, grow_of(&req.grow))?;
+        let t = doc.preview_draft_about(req.body, &req.faces, DVec3::from(req.pull), DVec3::from(req.origin), req.neutral(), req.angle, grow_of(&req.grow))?;
         Ok(body(&doc.kernel, req.body, &t.solid)?)
     })
 }
 
 pub fn commit_draft(m: &Model, req: DraftRequest) -> Result<Committed, ApiError> {
     m.call(move |doc| {
-        let id = doc.commit_draft(req.body, &req.faces, DVec3::from(req.pull), DVec3::from(req.origin), req.angle, grow_of(&req.grow))?;
+        let id = doc.commit_draft_about(req.body, &req.faces, DVec3::from(req.pull), DVec3::from(req.origin), req.neutral(), req.angle, grow_of(&req.grow))?;
         Ok(Committed { id, scene: bodies(doc)? })
     })
 }

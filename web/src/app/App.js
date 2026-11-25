@@ -740,7 +740,7 @@ const SHELL = `
       <div class="field" title="Moves the neutral plane along the pull direction (D)"><label for="w3d-draft-d">OFFSET</label><input id="w3d-draft-d" data-id="draft-d" type="number" step="0.5" value="0"></div>
       <div class="field"><label>NEUTRAL</label><output data-id="draft-pull">—</output></div>
       <div class="field"><label>PULL DIR</label><output data-id="draft-pull-dir">—</output></div>
-      <div class="seg" role="group" aria-label="Taper method"><button data-drtaper="offset" aria-pressed="true" title="Offset: the faces tilt about the neutral plane, moved along the pull by Offset">OFFSET</button><button data-drtaper="curve" aria-pressed="false" title="Curve: click a straight curve or edge; the faces tilt about it">CURVE</button></div>
+      <div class="seg" role="group" aria-label="Taper method"><button data-drtaper="offset" aria-pressed="true" title="Offset: the faces tilt about the neutral plane, moved along the pull by Offset">OFFSET</button><button data-drtaper="curve" aria-pressed="false" title="Curve: click a straight curve or edge; the faces tilt about it">CURVE</button><button data-drtaper="surface" aria-pressed="false" title="Surface: click a flat face as a second reference; the faces tilt about where they meet its plane">SURFACE</button></div>
       <span class="label">GROW</span>
       <div class="seg" role="group" aria-label="Grow mode"><button data-drgrow="moving" aria-pressed="true" title="Moving: an inner face drafted out past the outer wall takes the wall with it (Tab)">MOVING</button><button data-drgrow="fixed" aria-pressed="false" title="Fixed: the drafted face stops at the outer wall (Tab)">FIXED</button><button data-drgrow="none" aria-pressed="false" title="None: the drafted face carries on by itself, past the outer wall (Tab)">NONE</button></div>
     </div>
@@ -13433,7 +13433,7 @@ export async function mount(root, backend) {
     const body = faceBody();
     if (body === null) return toast(sel.list('face').length ? 'DRAFT THE FACES OF ONE SOLID AT A TIME' : 'SELECT THE REFERENCE FACE, THEN SHIFT-SELECT THE FACES TO DRAFT');
     if (!backend.previewDraft) return toast('DRAFT FACE IS NOT IN THIS BUILD YET');
-    const c = cmd = { id: 'draft', body, faces: [], ref: null, plane: draftAboutPlane, gizmo: null, taper: 'offset', grow: 'moving', hinge: null, sent: 0, shown: 0 };
+    const c = cmd = { id: 'draft', body, faces: [], ref: null, plane: draftAboutPlane, gizmo: null, taper: 'offset', grow: 'moving', hinge: null, surface: null, sent: 0, shown: 0 };
     draftAboutPlane = false;
     lastTool = 'draft';
     showTool('draft');
@@ -13447,12 +13447,22 @@ export async function mount(root, backend) {
       const o = p ? faceCentre(b, c.ref).clone() : cplane.origin.clone();
       return { n, o: o.addScaledVector(n, num('draft-d') || 0) };
     };
-    c.request = () => { const { n, o } = neutral(); return { body: c.body, faces: c.faces, pull: n.toArray(), origin: o.toArray(), angle: num('draft-a') * DEG, grow: c.grow }; };
+    c.request = () => {
+      const { n, o } = neutral();
+      // Taper Method Surface: the neutral plane is the second reference face's plane (D moves it
+      // along its own normal); the pull stays the first reference's.
+      if (c.taper === 'surface' && c.surface) {
+        const at = c.surface.o.clone().addScaledVector(c.surface.n, num('draft-d') || 0);
+        return { body: c.body, faces: c.faces, pull: n.toArray(), origin: at.toArray(), neutral: c.surface.n.toArray(), angle: num('draft-a') * DEG, grow: c.grow };
+      }
+      return { body: c.body, faces: c.faces, pull: n.toArray(), origin: o.toArray(), angle: num('draft-a') * DEG, grow: c.grow };
+    };
     // Taper Method Curve: the faces tilt about the picked line. A line square to the pull is the
     // draft whose neutral plane runs through it; a slanted one turns its face about it (Move Face),
     // the way that leans the face's normal towards the pull, as the draft does.
     c.call = () => {
       const r = c.request();
+      if (c.taper === 'surface' && !c.surface) throw new Error('click a flat face as the second reference surface');
       if (c.taper !== 'curve') return { draft: r };
       if (!c.hinge) throw new Error('click the straight curve or edge to tilt the faces about');
       const pull = new THREE.Vector3(...r.pull), { p, d } = c.hinge;
@@ -13467,18 +13477,19 @@ export async function mount(root, backend) {
       const axis = d.clone().multiplyScalar(lean > 0 ? 1 : -1);
       return { turn: { body: c.body, faces: c.faces, offset: [0, 0, 0], pivot: p.toArray(), axis: axis.toArray(), angle: r.angle } };
     };
-    const text = () => `DRAFT ${num('draft-a')}°${c.taper === 'curve' ? ' · ABOUT THE LINE' : num('draft-d') ? ` · OFFSET ${num('draft-d')}` : ''}${c.grow !== 'moving' ? ` · GROW ${c.grow.toUpperCase()}` : ''}`;
+    const text = () => `DRAFT ${num('draft-a')}°${c.taper === 'curve' ? ' · ABOUT THE LINE' : c.taper === 'surface' ? ' · ABOUT THE SURFACE' : num('draft-d') ? ` · OFFSET ${num('draft-d')}` : ''}${c.grow !== 'moving' ? ` · GROW ${c.grow.toUpperCase()}` : ''}`;
     c.preview = () => {
       c.gizmo?.render(num('draft-a'));
       c.planeDot?.render(num('draft-d') || 0);
       for (const b of $$('[data-drtaper]')) b.setAttribute('aria-pressed', String(b.dataset.drtaper === c.taper));
       for (const b of $$('[data-drgrow]')) b.setAttribute('aria-pressed', String(b.dataset.drgrow === c.grow));
-      $('draft-pull').textContent = c.taper === 'curve' ? (c.hinge ? 'THE LINE' : 'CLICK A LINE') : c.ref !== null ? `FACE ${c.ref}` : `PLANE ${cplane.name}`;
+      $('draft-pull').textContent = c.taper === 'curve' ? (c.hinge ? 'THE LINE' : 'CLICK A LINE') : c.taper === 'surface' ? (c.surface ? `SURFACE · ${c.surface.label}` : 'CLICK A FACE') : c.ref !== null ? `FACE ${c.ref}` : `PLANE ${cplane.name}`;
       // Show pull direction vector
       const { n } = (() => { const b = bodyOf(c.body), p = c.ref !== null && b?.facePlanes[c.ref]; const n = p ? new THREE.Vector3(...p.normal).normalize() : cplane.normal.clone().normalize(); return { n }; })();
       $('draft-pull-dir').textContent = `[${n.x.toFixed(2)}, ${n.y.toFixed(2)}, ${n.z.toFixed(2)}]`;
       if (!c.faces.length) { clearPreview(); setState('none'); return setHud('SHIFT-SELECT THE FACES TO DRAFT'); }
       if (c.taper === 'curve' && !c.hinge) { clearPreview(); setState('none'); return setHud('CLICK THE STRAIGHT CURVE OR EDGE TO TILT ABOUT'); }
+      if (c.taper === 'surface' && !c.surface) { clearPreview(); setState('none'); return setHud('CLICK A FLAT FACE AS THE SECOND REFERENCE SURFACE'); }
       livePreview(c, () => { const q = c.call(); return q.draft ? backend.previewDraft(q.draft) : backend.previewMoveFaces(q.turn); }, b => { showPreviewBody(b); setHud(text()); }, 'draft-hint');
     };
     // A straight curve's or body edge's line in the world, or null.
@@ -13555,6 +13566,14 @@ export async function mount(root, backend) {
         const line = lineOf(hit);
         if (!line) { toast('PICK A STRAIGHT CURVE OR EDGE'); return true; }
         c.hinge = line;
+        c.preview();
+        return true;
+      }
+      // Taper Method Surface: a plain click on a flat face makes it the second reference.
+      if (c.taper === 'surface' && hit?.kind === 'face' && !(e.ctrlKey || e.metaKey || e.shiftKey)) {
+        const p = bodyOf(hit.body)?.facePlanes[hit.n];
+        if (!p) { toast('PICK A FLAT FACE AS THE REFERENCE SURFACE'); return true; }
+        c.surface = { o: faceCentre(bodyOf(hit.body), hit.n).clone(), n: new THREE.Vector3(...p.normal).normalize(), label: `${label(hit.body)} FACE ${hit.n}` };
         c.preview();
         return true;
       }
