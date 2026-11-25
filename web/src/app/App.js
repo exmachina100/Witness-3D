@@ -244,11 +244,12 @@ const BAR = [['palette', 'F', 'SEARCH'], ['tool:move', 'G', 'MOVE'], ['tool:rota
 const SHELL = `
 <div class="w3d">
   <header class="bar">
-    <div class="brand"><button class="pmenu-open" data-id="pmenu-open" aria-haspopup="menu" aria-expanded="false" title="File menu"><span class="logo" aria-hidden="true">W</span>WITNESS 3D <span class="caret">▾</span></button></div>
+    <div class="brand"><button class="pmenu-open" data-id="pmenu-open" aria-haspopup="menu" aria-expanded="false" title="File menu"><span class="logo" aria-hidden="true">W</span>WITNESS 3D <span class="caret">▾</span></button><button class="side-toggle" data-id="side-left" data-action="sidebar:left" aria-pressed="true" aria-label="Left panel" title="Show or hide the outliner and history panel (Ctrl+B)">${icon('panel-left')}</button></div>
     <nav class="ctx" data-id="ctx" aria-label="Suggested commands for the selection"></nav>
     <span class="spacer"></span>
     <button class="export" data-action="ask" title="Ask for a command in words (Ctrl+K)">${icon('ask')}ASK</button>
     <span class="file" data-id="file-name">UNTITLED.W3D</span>
+    <button class="side-toggle" data-id="side-right" data-action="sidebar:right" aria-pressed="true" aria-label="Right panel" title="Show or hide the right panel: view, shader, camera, grid and snapping (Ctrl+Shift+B)">${icon('panel-right')}</button>
   </header>
   <div class="pmenu" data-id="pmenu" role="menu" hidden></div>
   <div class="pmenu omenu" data-id="omenu" role="menu" hidden></div>
@@ -1325,7 +1326,7 @@ export function plasticityInspector(root) {
   icons.className = 'chips icons view-icons';
   icons.setAttribute('role', 'group');
   icons.setAttribute('aria-label', 'Viewport');
-  icons.append(...['edges', 'curves', 'faces', 'images', 'constraints', 'curvature', 'render', 'ao'].map(toggle).filter(Boolean), q('[data-id="section-btn"]'));
+  icons.append(...['edges', 'curves', 'faces', 'images', 'constraints', 'curvature', 'ao'].map(toggle).filter(Boolean), q('[data-id="section-btn"]'));
   // Plasticity's ALL MATCAPS, then its Show switches under them (here the icon row) without a title.
   const show = inspectorSection('ALL MATCAPS', q('[data-id="matcap-swatches"]'), icons, q('[data-id="comb-scale"]')?.parentElement);
   const camReset = document.createElement('button');
@@ -1401,9 +1402,13 @@ export function plasticityInspector(root) {
   if (snapping) units.after(snapping);
   if (planes) (snapping ?? units).after(planes);
   if (selection) (planes ?? snapping ?? units).after(selection);
-  // The viewport keeps X-ray at its top right; the rest moved into the panel.
-  const vhead = q('.vhead'), xray = toggle('xray');
-  if (xray) vhead.append(xray);
+  // Plasticity's view mode toolbar sits at the top of its right panel: Orthographic, Overlays,
+  // X-ray and Render mode (its manual's View Mode list, in that order; its reference shots show
+  // the four buttons above Shader mode). The panel's own toolbar, staying put as the panel scrolls.
+  const vhead = q('.vhead');
+  for (const b of [toggle('xray'), toggle('render')]) if (b) vhead.append(b);
+  vhead.classList.add('panel-bar');
+  aside.prepend(vhead);
   q('[data-id="vh-shader"]')?.remove();
   pop?.remove();
   q('[data-id="fov-pop"]')?.remove();
@@ -15697,7 +15702,8 @@ export async function mount(root, backend) {
       case 'sidebar': {
         // Plasticity: Ctrl+B shows or hides the left sidebar, Ctrl+Shift+B the right one.
         const shell = root.querySelector('.w3d'), cls = arg === 'right' ? 'no-right' : 'no-left';
-        shell.classList.toggle(cls);
+        const hidden = shell.classList.toggle(cls);
+        $(arg === 'right' ? 'side-right' : 'side-left')?.setAttribute('aria-pressed', String(!hidden));
         return true;
       }
       case 'view':

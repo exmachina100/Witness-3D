@@ -39,6 +39,13 @@ button:focus-visible, input:focus-visible { outline: 1px solid var(--accent); ou
 .tool[aria-pressed="true"] { background: var(--accent); color: var(--on-accent); }
 .tool:disabled { color: var(--dim); }
 .bar .spacer { flex: 1 1 0; min-width: 0; }
+/* Plasticity's sidebar switches: the left one at the outliner's right edge, the right one at the bar's end. */
+.brand .side-toggle { margin-left: auto; margin-right: -8px; }
+.side-toggle { display: grid; place-items: center; width: 34px; flex: none; color: var(--muted); }
+.bar > .side-toggle { border-left: 1px solid var(--rule); }
+.side-toggle:hover { color: var(--ink); background: var(--hover); }
+.side-toggle[aria-pressed="false"] { color: var(--accent); }
+.side-toggle .ico { width: 16px; height: 16px; margin: 0; }
 .bar .file, .bar .export { display: flex; align-items: center; gap: 8px; padding: 0 12px; border-left: 1px solid var(--rule); color: var(--muted); white-space: nowrap; }
 .bar .export:hover:not(:disabled) { color: var(--ink); background: var(--hover); }
 .bar .export:disabled { color: var(--dim); }
@@ -495,6 +502,10 @@ input[type="range"] { accent-color: var(--accent); }
 .vhead button:hover { color: var(--ink); }
 .vhead button[aria-pressed="true"], .vhead button[aria-expanded="true"] { background: var(--accent); color: var(--on-accent); }
 .vhead .ico { width: 16px; height: 16px; margin: 0; }
+/* At the top of the right panel (Plasticity's view mode toolbar): a strip that stays as the panel scrolls. */
+.right > .vhead.panel-bar { position: sticky; top: 0; right: auto; flex: none; justify-content: flex-end; border: 0; border-bottom: 1px solid var(--rule); padding: 6px 10px; gap: 0; }
+.right > .vhead.panel-bar button { border: 1px solid rgba(239, 235, 224, 0.25); }
+.right > .vhead.panel-bar button + button { border-left: 0; }
 .vpop { position: absolute; z-index: 30; width: 300px; max-height: calc(100% - 60px); overflow: auto; display: flex; flex-direction: column; gap: 12px; padding: 14px; background: var(--raised); border: 1px solid var(--rule); box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5); }
 .vpop[hidden] { display: none; }
 .vpop.fov { width: 260px; flex-direction: row; align-items: center; }

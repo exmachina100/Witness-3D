@@ -66,6 +66,9 @@ const ICONS = {
     'nav-zoom': `<circle cx="10" cy="10" r="6"/><path d="M14.5 14.5L20 20"/><path ${A} d="M10 7v6M7 10h6"/>`,
     'nav-pan': `<path d="M12 3v18M3 12h18"/><path ${A} d="M9 6l3-3 3 3M9 18l3 3 3-3M6 9l-3 3 3 3M18 9l3 3-3 3"/>`,
     'nav-persp': `<path d="M8 6h8l4 12H4z"/><path ${A} d="M12 6v12"/>`,
+    // The side panels' show/hide switches in the top bar (Plasticity's sidebar buttons).
+    'panel-left': `<path d="M4 5h16v14H4z"/><path ${A} d="M9 5v14"/><path d="M6 9h1M6 12h1"/>`,
+    'panel-right': `<path d="M4 5h16v14H4z"/><path ${A} d="M15 5v14"/><path d="M17 9h1M17 12h1"/>`,
     'nav-ortho': `<path d="M5 6h14v12H5z"/><path ${A} d="M12 6v12"/>`,
     'nav-focus': `<path d="M4 9V4h5M15 4h5v5M20 15v5h-5M9 20H4v-5"/><path ${A} d="M9 9h6v6H9z"/>`,
     'nav-home': `<path d="M4 11l8-7 8 7"/><path d="M6 10v10h12V10"/><path ${A} d="M10 20v-6h4v6"/>`,
