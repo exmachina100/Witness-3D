@@ -2353,7 +2353,7 @@ export async function mount(root, backend) {
     selectionChanged({ quiet: true });
     bridgeOutline();
     if (section.plane) showInterference();
-    if (shownPoints.faces.size) refreshShownPoints(list);
+    if (shownPoints.faces.size || facePoleCache.size) refreshShownPoints(list);
     drawInstances();
     return loadCurves();
   }
@@ -2760,6 +2760,47 @@ export async function mount(root, backend) {
     }
     return best;
   }
+  /**
+   * A solid's or sheet's corner in point mode (1), as the control point there: Plasticity moves a
+   * box's corner by its control points, so a click on a corner picks the corner's point on one of the
+   * faces meeting there (moving it moves the same point on the others, see movePoles.js), whether or
+   * not Toggle Points is showing them. The bodies' points load in the background the first time.
+   */
+  const cornerLoads = new Set();
+  function cornerAt(p, px = 7) {
+    if (!backend.facePoles || !backend.previewMoveFacePoles) return null;
+    const meshes = shownMeshes().filter(m => !org.locked.has(m.userData.id));
+    const front = raycaster.intersectObjects(meshes, false)[0];
+    let best = null, bestD = px;
+    for (const m of meshes) {
+      const body = m.userData.id, b = bodyOf(body);
+      if (!b?.edges) continue;
+      const ends = [];
+      for (const e of b.edges) if (e.length >= 6) ends.push(e.slice(0, 3), e.slice(-3));
+      for (const q of ends) {
+        const v = new THREE.Vector3(...q), s = screenOf(v);
+        if (s.behind) continue;
+        const d = Math.hypot(s.x - p.x, s.y - p.y);
+        if (d > bestD) continue;
+        // Hidden behind the model: further away than the nearest surface under the pointer.
+        if (front && camera.position.distanceTo(v) > front.distance + unitsPerPixel(v) * 4 + 1e-6) continue;
+        const nets = facePoleCache.get(body);
+        if (!nets) {
+          if (!cornerLoads.has(body)) { cornerLoads.add(body); backend.facePoles({ body }).then(n => { if (!facePoleCache.has(body)) facePoleCache.set(body, n); }, () => {}).finally(() => cornerLoads.delete(body)); }
+          continue;
+        }
+        const tol = 1e-5 * Math.max(1, v.length());
+        nets.some((net, face) => {
+          const k = net?.flat().findIndex(r => Math.hypot(r[0] - v.x, r[1] - v.y, r[2] - v.z) <= tol) ?? -1;
+          if (k < 0) return false;
+          bestD = d;
+          best = { kind: 'pole', body, face, n: k, point: v.clone() };
+          return true;
+        });
+      }
+    }
+    return best;
+  }
   /** A face's control point (as poleList gives them) by face and number. */
   const poleOf = it => { const q = facePoleCache.get(it.body)?.[it.face]?.flat()[it.n]; return q && new THREE.Vector3(...q); };
   /** The shown face control point within a few pixels of a canvas point, nearest first. */
@@ -2792,6 +2833,8 @@ export async function mount(root, backend) {
     for (const body of [...shownPoints.faces.keys()]) if (!list.some(b => b.id === body)) shownPoints.faces.delete(body);
     const cache = new Map();
     for (const body of shownPoints.faces.keys()) { try { cache.set(body, await backend.facePoles({ body })); } catch { shownPoints.faces.delete(body); } }
+    // Bodies whose points were loaded for picking their corners (cornerAt) load again too.
+    for (const body of facePoleCache.keys()) if (!cache.has(body) && list.some(b => b.id === body)) { try { cache.set(body, await backend.facePoles({ body })); } catch { /* left out: loads again on hover */ } }
     // A rebuilt body numbers its faces afresh: follow each shown face to the face whose control
     // net is nearest its old one (a moved point changes only a few).
     for (const [body, which] of shownPoints.faces) {
@@ -4122,7 +4165,7 @@ export async function mount(root, backend) {
    */
   function pickAt(e, { guide = false } = {}) {
     ray(e);
-    const vertex = !guide && sel.allows('point') && (vertexAt(local(e)) ?? poleAt(local(e)));
+    const vertex = !guide && sel.allows('point') && (vertexAt(local(e)) ?? poleAt(local(e)) ?? cornerAt(local(e)));
     if (vertex) return vertex;
     const meshes = shownMeshes().filter(m => !org.locked.has(m.userData.id));
     const faceHit = raycaster.intersectObjects(meshes, false)[0];
@@ -4160,7 +4203,7 @@ export async function mount(root, backend) {
     ray(e);
     const out = [], seen = new Set();
     const put = (it, d) => { const k = JSON.stringify({ ...it, point: undefined }); if (!seen.has(k)) { seen.add(k); out.push({ ...it, d }); } };
-    if (sel.allows('point')) { const v = vertexAt(local(e)) ?? poleAt(local(e)); if (v) put(v, -1); }
+    if (sel.allows('point')) { const v = vertexAt(local(e)) ?? poleAt(local(e)) ?? cornerAt(local(e)); if (v) put(v, -1); }
     const meshes = shownMeshes().filter(m => !org.locked.has(m.userData.id));
     const faces = raycaster.intersectObjects(meshes, false);
     raycaster.params.Line.threshold = unitsPerPixel(faces[0]?.point ?? controls.target) * 6;
