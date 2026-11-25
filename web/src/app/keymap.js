@@ -166,6 +166,8 @@ export const COMMAND = {
     'bridge-edge': { d: 'tension', tab: 'continuity', x: 'axis-x', y: 'axis-y', z: 'axis-z' },
     // Edge Align (2026.2): B toggles boundary alignment, P partial alignment
     'align-surface': { d: 'tension', tab: 'continuity', b: 'boundary', p: 'partial' },
+    // LABS Seam Solver (not Plasticity's): Tab cycles G0 to G3.
+    'seam-solver': { tab: 'continuity' },
     'project-align': { d: 'tension', tab: 'continuity', n: 'normal', x: 'axis-x', y: 'axis-y', z: 'axis-z', s: 'screen' },
     // Instance (manual: Create Solid and Sheet Instance; moved, turned and scaled like a body)
     instance: { g: 'move', r: 'rotate', s: 'scale', 'shift-d': 'duplicate', delete: 'delete', backspace: 'delete' },

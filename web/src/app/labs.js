@@ -9,13 +9,15 @@
 
 import * as THREE from 'three';
 import { CLASS_A, HIGHLIGHT_KINK, checkSeam, seamSummary } from '../seamCheck.js';
+import { SOLVER_CONTINUITY, seamSolveRequest } from '../seamSolver.js';
 
 /** The LABS commands, by id: their dialog titles. */
-export const LABS_NAMES = { 'seam-check': 'SEAM CHECK' };
+export const LABS_NAMES = { 'seam-check': 'SEAM CHECK', 'seam-solver': 'SEAM SOLVER' };
 
 /** The LABS commands' keys, as KEYS lists them for the key strip. */
 export const LABS_KEYS = {
     'seam-check': [['CLICK', 'ADD AN EDGE'], ['ENTER', 'DONE'], ['ESC', 'DONE']],
+    'seam-solver': [['TAB', 'CONTINUITY'], ['ENTER', 'KEEP AND MEASURE'], ['ESC', 'CANCEL']],
 };
 
 /** Their options in the command dialog. */
@@ -25,13 +27,20 @@ export const LABS_PANELS = `
       <span class="label">TARGETS</span>
       <span class="hint" data-id="sc-targets" title="Class-A targets: gap, angle between the faces, curvature difference (G2) and its rate of change (G3) across the seam; how much highlight lines bend crossing it (6 studio lights)">GAP ${CLASS_A.g0} mm · ${CLASS_A.g1}° · G2 ${CLASS_A.g2}% · G3 ${CLASS_A.g3}% · HIGHLIGHT ${HIGHLIGHT_KINK}°</span>
       <ol class="sc-list" data-id="sc-list"></ol>
+    </div>
+    <div class="sec" data-panel="seam-solver" hidden>
+      <span class="hint" data-id="ss-hint">SELECT THE SHEET EDGE TO MOVE, THEN THE EDGE TO MEET</span>
+      <span class="label">CONTINUITY</span>
+      <div class="seg" role="group" aria-label="Continuity">${SOLVER_CONTINUITY.map(c => `<button data-sscont="${c}" aria-pressed="${c === 'G3'}" title="Meet the other face in ${c} (Tab cycles)">${c}</button>`).join('')}</div>
+      <span class="hint" data-id="ss-result" title="Seam Check's numbers after the last solve was kept">—</span>
     </div>`;
 
 const COLOURS = { ok: new THREE.Color(0x2ec46b), soft: new THREE.Color(0xff8a1c), bad: new THREE.Color(0xe5484d) };
 
 /**
  * `ctx`: { backend, sel, bodyOf, label, $, previewGroup, clearPreview, begin(c) (makes c the running
- * command and shows its dialog), endCmd, setHud, setState, toast, say, pickAt }.
+ * command and shows its dialog), current() (the running command), endCmd, setHud, setState, toast,
+ * say, pickAt, livePreview, showPreviewBody, record, showScene }.
  */
 export function createLabs(ctx) {
     const { $ } = ctx;
@@ -59,7 +68,7 @@ export function createLabs(ctx) {
             if (used.has(i)) return;
             let best = -1, d = Infinity;
             lone.forEach((f, j) => {
-                if (j === i || used.has(j) || f.body === e.body) return;
+                if (j === i || used.has(j)) return;
                 const dd = near(middle(e.body, e.n), middle(f.body, f.n));
                 if (dd < d) { d = dd; best = j; }
             });
@@ -109,8 +118,8 @@ export function createLabs(ctx) {
         });
     }
 
-    async function startSeamCheck() {
-        const c = { id: 'seam-check', edges: ctx.sel.list('edge').map(e => ({ body: e.body, n: e.n })), results: [] };
+    async function startSeamCheck(picked) {
+        const c = { id: 'seam-check', edges: picked.map(e => ({ body: e.body, n: e.n })), results: [] };
         ctx.begin(c);
         ctx.setState('none');
         c.run = async () => {
@@ -146,12 +155,69 @@ export function createLabs(ctx) {
         await c.run();
     }
 
+    /**
+     * Seam Solver: the first selected edge (along a side of a B-spline sheet) moved to meet the
+     * second's face in G0 to G3 (seamSolver.js), shown live; Enter keeps it as one undo step and
+     * measures the seam with Seam Check.
+     */
+    function startSeamSolver(edges) {
+        if (edges.length !== 2) return ctx.toast('SELECT THE SHEET EDGE TO MOVE, THEN THE EDGE TO MEET');
+        const [target, reference] = edges.map(e => ({ body: e.body, edge: e.n }));
+        const c = { id: 'seam-solver', continuity: 'G3', req: null, sent: 0, shown: 0 };
+        ctx.begin(c);
+        ctx.setState('none');
+        const buttons = () => { for (const b of document.querySelectorAll('[data-sscont]')) b.setAttribute('aria-pressed', String(b.dataset.sscont === c.continuity)); };
+        c.preview = () => {
+            buttons();
+            $('ss-hint').textContent = `SOLVING ${c.continuity}…`;
+            ctx.livePreview(c, async () => {
+                const req = await seamSolveRequest(ctx.backend, { target, reference, continuity: c.continuity });
+                if (ctx.current() !== c) return null;
+                c.req = req;
+                const g3 = req.g3 ? ` · G3 RATE ${Math.max(...req.g3.after.map((v, j) => Math.abs(v - req.g3.want[j]))).toExponential(1)} OFF` : '';
+                $('ss-hint').textContent = `${c.continuity} PREVIEW · ${req.moves.length} CONTROL POINTS${g3} · ENTER KEEPS AND MEASURES`;
+                return ctx.backend.previewMoveFacePoles({ body: req.body, moves: req.moves });
+            }, b => ctx.showPreviewBody(b), 'ss-hint');
+        };
+        c.setContinuity = v => { c.continuity = v; c.preview(); };
+        c.key = action => {
+            if (action !== 'continuity' && action !== 'tab') return false;
+            c.setContinuity(SOLVER_CONTINUITY[(SOLVER_CONTINUITY.indexOf(c.continuity) + 1) % SOLVER_CONTINUITY.length]);
+            return true;
+        };
+        c.finish = async () => {
+            if (!c.req) return ctx.toast($('ss-hint').textContent);
+            try {
+                const { id, scene } = await ctx.backend.commitMoveFacePoles({ body: c.req.body, moves: c.req.moves });
+                ctx.endCmd('committed');
+                ctx.record(`SEAM SOLVER ${c.continuity}`, id, `${c.req.moves.length} CONTROL POINTS`);
+                await ctx.showScene(scene);
+                const r = await checkSeam(ctx.backend, { ...target, other: reference });
+                lastSolve = r;
+                ctx.setHud(seamSummary(r));
+                ctx.toast(`SEAM ${r.level}`);
+            } catch (e) { ctx.setState('failed'); ctx.toast(ctx.say(e)); }
+        };
+        c.abort = () => ctx.endCmd('cancelled');
+        c.cleanup = () => ctx.clearPreview();
+        for (const b of document.querySelectorAll('[data-sscont]')) b.onclick = () => ctx.current() === c && c.setContinuity(b.dataset.sscont);
+        c.preview();
+    }
+    let lastSolve = null;
+
     return {
         has: id => id in LABS_NAMES,
-        start(id) {
+        /** The last Seam Solver result's Seam Check, for the agent. */
+        lastSolve: () => lastSolve,
+        /** Start command `id` on `edges` (the edges selected when it was asked for). */
+        start(id, edges = ctx.sel.list('edge')) {
             if (id === 'seam-check') {
                 if (!ctx.backend.edgeFaces || !ctx.backend.edgeCurvature) return ctx.toast('SEAM CHECK IS NOT IN THIS BUILD YET');
-                return startSeamCheck();
+                return startSeamCheck(edges);
+            }
+            if (id === 'seam-solver') {
+                if (!ctx.backend.edgeFaces || !ctx.backend.previewMoveFacePoles) return ctx.toast('SEAM SOLVER IS NOT IN THIS BUILD YET');
+                return startSeamSolver(edges);
             }
         },
         /** Seam numbers for the agent and MCP tools (no viewport). */

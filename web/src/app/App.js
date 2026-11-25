@@ -4863,6 +4863,8 @@ export async function mount(root, backend) {
     if (cmd && cmd.id === id && !cmd.auto) return;
     // The same tool auto-invoked but not yet given a value starts over in earnest, committing nothing.
     if (cmd && cmd.id === id && cmd.armed === false) endCmd(null);
+    // LABS tools (labs.js) take the edges selected before an auto-invoked command (Extend Sheet on a sheet edge) ends.
+    if (id in LABS_NAMES) { const edges = sel.list('edge'); if (cmd?.auto && cmd.armed === false) endCmd(null); else if (cmd) await finish(); return labsOf().start(id, edges); }
     if (cmd) await finish();
     keepSources();
     lastTool = id;
@@ -4872,7 +4874,6 @@ export async function mount(root, backend) {
     // B with only curves selected is Fillet Curve, as in Plasticity.
     if (id === 'fillet' && sel.size && sel.list().every(it => it.kind === 'curve')) return startCurveEdit('fillet-curve');
     if (id === 'fillet') return startFillet(opts);
-    if (id in LABS_NAMES) return labsOf().start(id);
     if (id === 'move' && pickedMeasure !== null && !sel.size && measures.some(m => m.id === pickedMeasure)) return startMoveMeasure();
     if (id === 'move' || id === 'rotate' || id === 'scale') return startTransform(id, opts);
     if (id === 'pushpull') return startPushPull(opts);
@@ -4918,7 +4919,9 @@ export async function mount(root, backend) {
   let labs = null;
   const labsOf = () => labs ??= createLabs({
     backend, sel, bodyOf, label, $, previewGroup, clearPreview, endCmd, setHud, setState, toast, say, pickAt,
+    livePreview, showPreviewBody, record, showScene,
     begin(c) { cmd = c; lastTool = c.id; showTool(c.id); },
+    current: () => cmd,
   });
   // Edge Align's continuity circle and partial dots, drawn over everything.
   const alignHandles = new THREE.Group();
