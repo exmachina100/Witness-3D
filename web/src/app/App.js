@@ -4864,7 +4864,7 @@ export async function mount(root, backend) {
     // The same tool auto-invoked but not yet given a value starts over in earnest, committing nothing.
     if (cmd && cmd.id === id && cmd.armed === false) endCmd(null);
     // LABS tools (labs.js) take the edges selected before an auto-invoked command (Extend Sheet on a sheet edge) ends.
-    if (id in LABS_NAMES) { const edges = sel.list('edge'); if (cmd?.auto && cmd.armed === false) endCmd(null); else if (cmd) await finish(); return labsOf().start(id, edges); }
+    if (id in LABS_NAMES) { const edges = sel.list('edge'), faces = sel.list('face'); if (cmd?.auto && cmd.armed === false) endCmd(null); else if (cmd) await finish(); return labsOf().start(id, edges, faces); }
     if (cmd) await finish();
     keepSources();
     lastTool = id;
