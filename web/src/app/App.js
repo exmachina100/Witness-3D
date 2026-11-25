@@ -331,6 +331,8 @@ const SHELL = `
     <div class="vpop fov" data-id="fov-pop" role="dialog" aria-label="Field of view" hidden>
       <div class="field"><label for="w3d-fov">FIELD OF VIEW</label><input id="w3d-fov" data-id="fov" type="range" min="10" max="120" step="1" value="50"></div>
       <output data-id="fov-value">50°</output>
+      <div class="field"><label for="w3d-squish">SQUISH</label><input id="w3d-squish" data-id="squish" type="range" min="0.25" max="4" step="0.05" value="1" title="Squish: compresses the perspective view along the depth (1 is none)"></div>
+      <output data-id="squish-value">1.00</output>
     </div>
     <div class="nav" data-id="nav" aria-label="View navigation"></div>
     <div class="modes" role="group" aria-label="Selection mode">
@@ -1337,9 +1339,9 @@ export function plasticityInspector(root) {
   const camReset = document.createElement('button');
   camReset.dataset.id = 'camera-reset';
   camReset.className = 'wide';
-  camReset.title = 'Field of view back to its default';
+  camReset.title = 'Field of view and squish back to their defaults';
   camReset.textContent = 'RESET TO DEFAULT';
-  const camera = inspectorSection('CAMERA', q('[data-id="fov"]')?.parentElement, q('[data-id="fov-value"]'), camReset);
+  const camera = inspectorSection('CAMERA', q('[data-id="fov"]')?.parentElement, q('[data-id="fov-value"]'), q('[data-id="squish"]')?.parentElement, q('[data-id="squish-value"]'), camReset);
   const gridStep = q('[data-id="grid"]')?.parentElement;
   // Snap to grid is an icon button, as the other snapping controls are (the user's choice).
   const gridSnap = document.createElement('div');
@@ -1734,6 +1736,24 @@ export async function mount(root, backend) {
   const scene = new THREE.Scene();
   scene.background = new THREE.Color(COLORS.ground);
   const persp = new THREE.PerspectiveCamera(35, 1, 1, 4000);
+  // Plasticity's Camera Squish (Camera Settings: "controls optical distortion by compressing the
+  // camera view", 1.0 by default). Our reading (inferred): the perspective is squeezed along the view
+  // depth, as a longer lens seen from further back, so above 1 the near-far foreshortening flattens
+  // and below 1 it grows, while the picture keeps its size at the orbit target. Picking uses the
+  // same matrix, so clicks stay true.
+  let squish = 1;
+  {
+    const plain = persp.updateProjectionMatrix.bind(persp);
+    persp.updateProjectionMatrix = () => {
+      plain();
+      if (Math.abs(squish - 1) < 1e-9) return;
+      // Compress view-space depth about the target's depth: z' = d + (z - d) / squish.
+      const d = -(persp.userData.focus ?? 100), k = 1 / squish;
+      const m = new THREE.Matrix4().set(1, 0, 0, 0, 0, 1, 0, 0, 0, 0, k, d * (1 - k), 0, 0, 0, 1);
+      persp.projectionMatrix.multiply(m);
+      persp.projectionMatrixInverse.copy(persp.projectionMatrix).invert();
+    };
+  }
   const ortho = new THREE.OrthographicCamera(-1, 1, 1, -1, -4000, 4000);
   // Layer 2: locked curves and regions, drawn but out of the default raycast layer so clicks pass them.
   persp.layers.enable(2);
@@ -4145,7 +4165,15 @@ export async function mount(root, backend) {
     const r = canvas.getBoundingClientRect();
     return new THREE.Vector2(((e.clientX - r.left) / r.width) * 2 - 1, -((e.clientY - r.top) / r.height) * 2 + 1);
   };
-  function ray(e) { raycaster.setFromCamera(ndc(e), camera); return raycaster.ray; }
+  function ray(e) {
+    raycaster.setFromCamera(ndc(e), camera);
+    // With Squish the rays no longer meet at the camera: take the pixel's line from its near and far points.
+    if (camera === persp && squish !== 1) {
+      const p = ndc(e), a = new THREE.Vector3(p.x, p.y, -1).unproject(camera), b = new THREE.Vector3(p.x, p.y, 1).unproject(camera);
+      raycaster.ray.set(a, b.sub(a).normalize());
+    }
+    return raycaster.ray;
+  }
   /** World units per screen pixel at a point. */
   function unitsPerPixel(at) {
     const h = canvas.clientHeight || 1;
@@ -16307,7 +16335,8 @@ export async function mount(root, backend) {
     const perf = prefs.performance;
     renderer.setPixelRatio(Math.min(devicePixelRatio, perf.renderQuality));
     // Plasticity's camera FOV (Preferences › Navigation, 50° by default).
-    if (persp.fov !== prefs.navigation.fov) { persp.fov = prefs.navigation.fov; persp.updateProjectionMatrix(); }
+    if (persp.fov !== prefs.navigation.fov || squish !== prefs.navigation.squish) { persp.fov = prefs.navigation.fov; squish = prefs.navigation.squish; persp.updateProjectionMatrix(); }
+    $('squish').value = prefs.navigation.squish; $('squish-value').textContent = Number(prefs.navigation.squish).toFixed(2);
     resize(true);
     if (perf.aoShader !== aoShader) { aoShader = perf.aoShader; view.ao = aoShader; applyView(); }
     if (perf.facetQuality !== facetQuality && backend.setMeshQuality) {
@@ -17290,7 +17319,8 @@ export async function mount(root, backend) {
   $('units-length').onchange = () => { prefs = setPref(prefs, 'units', 'length', $('units-length').value); keepPrefs('units'); };
   $('units-line-every').onkeydown = $('units-grid-size').onkeydown = e => e.stopPropagation();
   $('units-grid-size').onchange = () => { prefs = setPref(prefs, 'units', 'gridExtent', parseFloat($('units-grid-size').value)); keepPrefs('units'); };
-  $('camera-reset').onclick = () => { prefs = setPref(prefs, 'navigation', 'fov', defaultPrefs().navigation.fov); keepPrefs('navigation'); };
+  $('camera-reset').onclick = () => { prefs = setPref(prefs, 'navigation', 'fov', defaultPrefs().navigation.fov); prefs = setPref(prefs, 'navigation', 'squish', defaultPrefs().navigation.squish); keepPrefs('navigation'); };
+  $('squish').oninput = () => { prefs = setPref(prefs, 'navigation', 'squish', $('squish').value); keepPrefs('navigation'); };
   $('units-line-every').onchange = () => { prefs = setPref(prefs, 'units', 'lineEvery', parseFloat($('units-line-every').value)); keepPrefs('units'); };
   $('units-reset').onclick = () => {
     const d = defaultPrefs().units;
@@ -17810,6 +17840,8 @@ export async function mount(root, backend) {
   applyPrefs();
   renderer.setAnimationLoop(() => {
     resize();
+    // Squish compresses depth about the orbit target, so it follows the camera's distance to it.
+    if (squish !== 1) { const f = persp.position.distanceTo(controls.target); if (Math.abs(f - (persp.userData.focus ?? 0)) > 1e-3 * f) { persp.userData.focus = f; persp.updateProjectionMatrix(); } }
     stepTurn(performance.now());
     stepSpaceMouse(performance.now());
     if (!turning) controls.update();
