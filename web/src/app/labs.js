@@ -13,9 +13,10 @@ import { SOLVER_CONTINUITY, seamSolveRequest } from '../seamSolver.js';
 import { g3Blend, nearestEdge } from '../g3Blend.js';
 import { FIT_TOLERANCE, classAFitFace, classAFitPoints } from '../classAFit.js';
 import { scanPoints } from '../scanPoints.js';
+import { planFaceLayout } from '../layoutPlanner.js';
 
 /** The LABS commands, by id: their dialog titles. */
-export const LABS_NAMES = { 'seam-check': 'SEAM CHECK', 'seam-solver': 'SEAM SOLVER', 'g3-blend': 'G3 BLEND', 'class-a-fit': 'CLASS-A FIT' };
+export const LABS_NAMES = { 'seam-check': 'SEAM CHECK', 'seam-solver': 'SEAM SOLVER', 'g3-blend': 'G3 BLEND', 'class-a-fit': 'CLASS-A FIT', 'patch-layout': 'PATCH LAYOUT' };
 
 /** The LABS commands' keys, as KEYS lists them for the key strip. */
 export const LABS_KEYS = {
@@ -23,6 +24,7 @@ export const LABS_KEYS = {
     'seam-solver': [['TAB', 'CONTINUITY'], ['ENTER', 'KEEP AND MEASURE'], ['ESC', 'CANCEL']],
     'g3-blend': [['TAB', 'CONTINUITY'], ['ENTER', 'KEEP AND MEASURE'], ['ESC', 'CANCEL']],
     'class-a-fit': [['ENTER', 'KEEP THE PATCH'], ['ESC', 'CANCEL']],
+    'patch-layout': [['ENTER', 'KEEP THE PATCHES'], ['ESC', 'CANCEL']],
 };
 
 /** Their options in the command dialog. */
@@ -53,6 +55,14 @@ export const LABS_PANELS = `
       <button data-id="cf-load" title="Fit one patch to the points of a mesh or scan (OBJ or STL) instead of a face">LOAD SCAN…</button>
       <input data-id="cf-scan" type="file" accept=".obj,.stl" hidden>
       <span class="hint" data-id="cf-result" title="Degree, furthest distance from the face, inflections before and after">—</span>
+    </div>
+    <div class="sec" data-panel="patch-layout" hidden>
+      <span class="hint" data-id="pl-hint">SELECT A FACE TO LAY OUT IN PATCHES</span>
+      <div class="field" title="The furthest any patch may stand off the face"><label for="w3d-pl-tol">TOLERANCE</label><input id="w3d-pl-tol" data-id="pl-tol" type="number" step="0.01" min="0.001" value="0.05"></div>
+      <div class="field" title="Cuts across the face's first direction, in % of the way along it (edit to move, add or remove cuts)"><label for="w3d-pl-s">CUTS U %</label><input id="w3d-pl-s" data-id="pl-s" type="text" value=""></div>
+      <div class="field" title="Cuts across the face's second direction, in % of the way along it"><label for="w3d-pl-t">CUTS V %</label><input id="w3d-pl-t" data-id="pl-t" type="text" value=""></div>
+      <button data-id="pl-auto" title="Plan the cuts again from the face's feature lines">PROPOSE AGAIN</button>
+      <span class="hint" data-id="pl-result" title="Each patch: furthest distance from the face, inflections">—</span>
     </div>`;
 
 const COLOURS = { ok: new THREE.Color(0x2ec46b), soft: new THREE.Color(0xff8a1c), bad: new THREE.Color(0xe5484d) };
@@ -330,7 +340,64 @@ export function createLabs(ctx) {
         };
         c.preview();
     }
-    let lastSolve = null, lastBlend = null, lastFit = null;
+    /**
+     * Patch Layout: cuts proposed along the selected face's feature lines until every patch fits one
+     * Class-A patch (layoutPlanner.js); the cuts are editable as percentages. Enter keeps the
+     * patches as one sheet and measures the seams between them.
+     */
+    function startPatchLayout(faces) {
+        if (faces.length !== 1) return ctx.toast('SELECT ONE FACE TO LAY OUT');
+        const target = { body: faces[0].body, face: faces[0].n };
+        const c = { id: 'patch-layout', cuts: null, made: null, sent: 0, shown: 0 };
+        ctx.begin(c);
+        ctx.setState('none');
+        const pct = list => list.map(f => +(f * 100).toFixed(1)).join(', ');
+        const parse = text => text.split(/[,\s]+/).filter(Boolean).map(Number).filter(v => v > 0 && v < 100).map(v => v / 100);
+        c.preview = () => {
+            $('pl-hint').textContent = c.cuts ? 'FITTING YOUR CUTS…' : 'PROPOSING CUTS ALONG THE FEATURE LINES…';
+            ctx.livePreview(c, async () => {
+                const r = await planFaceLayout(ctx.backend, target, { tolerance: +$('pl-tol').value || 0.05, ...(c.cuts ? { cuts: c.cuts } : {}) });
+                if (ctx.current() !== c) return null;
+                c.made = r;
+                if (!c.cuts) { $('pl-s').value = pct(r.fractions[0]); $('pl-t').value = pct(r.fractions[1]); }
+                const worst = Math.max(...r.patches.map(p => p.deviation));
+                $('pl-result').textContent = r.patches.map((p, i) => `${i + 1}: ${p.deviation.toFixed(3)} mm${p.inflections ? ` · ${p.inflections} INFL` : ''}`).join(' · ');
+                $('pl-hint').textContent = `${r.patches.length} PATCH${r.patches.length > 1 ? 'ES' : ''} · WORST ${worst.toFixed(4)} mm ${r.plan.ok ? '✓' : '✗ (ADD A CUT OR RAISE THE TOLERANCE)'} · ENTER KEEPS THEM`;
+                const [first, ...more] = r.data;
+                return ctx.backend.previewSplineSheet({ data: first, more });
+            }, sheet => ctx.showPreviewBody(sheet), 'pl-hint');
+        };
+        c.finish = async () => {
+            if (!c.made) return ctx.toast($('pl-hint').textContent);
+            try {
+                const [first, ...more] = c.made.data;
+                const { ids: [id], scene } = await ctx.backend.commitSplineSheet({ data: first, more });
+                ctx.endCmd('committed');
+                ctx.record(`PATCH LAYOUT ${c.made.patches.length} PATCHES`, id, `WORST ${Math.max(...c.made.patches.map(p => p.deviation)).toFixed(4)} mm`);
+                await ctx.showScene(scene);
+                // The seams between the patches: the body's edges two of its faces share.
+                const seams = [];
+                const edges = scene.find(b => b.id === id)?.edges ?? [];
+                for (let n = 0; n < edges.length; n++) {
+                    try { seams.push(await checkSeam(ctx.backend, { body: id, edge: n }, { g3: false })); } catch { /* a free edge */ }
+                }
+                const worstAngle = seams.reduce((w, r) => Math.max(w, r.worst.angle), 0), worstGap = seams.reduce((w, r) => Math.max(w, r.worst.gap), 0);
+                lastLayout = { body: id, patches: c.made.patches.map(p => ({ deviation: p.deviation, inflections: p.inflections })), seams: seams.map(r => r.worst) };
+                ctx.setHud(`PATCH LAYOUT · ${c.made.patches.length} PATCHES · ${seams.length} SEAMS · WORST GAP ${worstGap.toFixed(4)} mm · WORST ANGLE ${worstAngle.toFixed(3)}°`);
+            } catch (e) { ctx.setState('failed'); ctx.toast(ctx.say(e)); }
+        };
+        c.abort = () => ctx.endCmd('cancelled');
+        c.cleanup = () => ctx.clearPreview();
+        const edited = () => { if (ctx.current() !== c) return; c.cuts = [parse($('pl-s').value), parse($('pl-t').value)]; c.preview(); };
+        $('pl-s').onchange = edited;
+        $('pl-t').onchange = edited;
+        $('pl-tol').onchange = () => ctx.current() === c && c.preview();
+        $('pl-auto').onclick = () => { if (ctx.current() === c) { c.cuts = null; c.preview(); } };
+        $('pl-s').value = '';
+        $('pl-t').value = '';
+        c.preview();
+    }
+    let lastSolve = null, lastBlend = null, lastFit = null, lastLayout = null;
 
     return {
         has: id => id in LABS_NAMES,
@@ -340,6 +407,8 @@ export function createLabs(ctx) {
         lastBlend: () => lastBlend,
         /** The last Class-A Fit kept, for the agent. */
         lastFit: () => lastFit,
+        /** The last Patch Layout kept: patches and the seams between them, for the agent. */
+        lastLayout: () => lastLayout,
         /** Start command `id` on `edges` (the edges selected when it was asked for). */
         start(id, edges = ctx.sel.list('edge'), faces = ctx.sel.list('face')) {
             if (id === 'seam-check') {
@@ -357,6 +426,10 @@ export function createLabs(ctx) {
             if (id === 'class-a-fit') {
                 if (!ctx.backend.faceUvn || !ctx.backend.previewSplineSheet) return ctx.toast('CLASS-A FIT IS NOT IN THIS BUILD YET');
                 return startClassAFit(faces);
+            }
+            if (id === 'patch-layout') {
+                if (!ctx.backend.faceUvn || !ctx.backend.previewSplineSheet) return ctx.toast('PATCH LAYOUT IS NOT IN THIS BUILD YET');
+                return startPatchLayout(faces);
             }
         },
         /** Seam numbers for the agent and MCP tools (no viewport). */
