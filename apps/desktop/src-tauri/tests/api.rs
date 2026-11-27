@@ -412,7 +412,7 @@ fn shared_edge_points_move_between_faces_of_different_degrees() {
         if let Some((d, s)) = side_how { rebuild(side, d, s); }
         let nets = api::face_poles(&m, serde_json::from_str(r#"{"body":1}"#).unwrap()).unwrap();
         let flat: Vec<[f64; 3]> = nets[top as usize].iter().flatten().cloned().collect();
-        let edge: Vec<usize> = (0..flat.len()).filter(|&i| (flat[i][0] - 50.0).abs() < 1e-6).collect();
+        let edge: Vec<usize> = (0..flat.len()).filter(|&i| (flat[i][0] - 25.0).abs() < 1e-6).collect();
         let mid = edge[edge.len() / 2] as u32;
         let moved = api::commit_move_face_poles(&m, serde_json::from_value(serde_json::json!({ "body": 1, "moves": [[top, mid, [0.0, 10.0, 0.0]]] })).unwrap())
             .unwrap_or_else(|e| panic!("side {side_how:?}: {}", e.message));
