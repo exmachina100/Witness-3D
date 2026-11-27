@@ -1627,10 +1627,10 @@ export class LocalBackend {
     }
 
     /** Plasticity's Draft Face: `faces` of `body` tilted by `angle` about the neutral plane through `origin` square to `pull`. */
-    draftResult({ body, faces = [], pull, origin, angle, grow = 'moving', neutral = null }) {
+    draftResult({ body, faces = [], pull, origin, angle, grow = 'moving', neutral = null, each = null }) {
         const s = this.shapes.get(body);
         if (!s) throw new Error('that body no longer exists');
-        let { shape, history } = draftFaces(s, faces, pull, origin, angle, neutral);
+        let { shape, history } = draftFaces(s, faces, pull, origin, angle, neutral, each);
         if (grow === 'none') return { shape, history };
         // The manual's Grow, for an inner face drafted out past the body's outer wall beyond it (as
         // document.rs): Moving takes the wall's flat faces out as far, Fixed stops the face at the wall.

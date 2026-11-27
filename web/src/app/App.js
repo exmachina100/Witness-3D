@@ -79,6 +79,7 @@ import { curveArrayMotions, curveLength } from '../curveArray.js';
 import { chamferDimensions, curveDimensions, faceDimensions, filletDimensions, solidDimensions } from '../dimension.js';
 import { edgeCurve, flattenCurve } from '../altDuplicate.js';
 import { EDGE_CONTINUITY, bridgeCurve, bridgePoles, edgePoint, facePoint, sampledEnd } from '../bridgeEdge.js';
+import { nearestEdgePair } from '../nearEdges.js';
 import { ALIGN_CONTINUITY, alignAnalysis, alignRequest, readEdgeFaces, sidePoint, skewFrames, targetFace } from '../alignSurface.js';
 import { PROJECT_CONTINUITY, projectAlignRequest } from '../projectAlign.js';
 import { constrainedSurface, splineSheetData } from '../constrainedSurface.js';
@@ -330,6 +331,8 @@ const SHELL = `
     <div class="vpop fov" data-id="fov-pop" role="dialog" aria-label="Field of view" hidden>
       <div class="field"><label for="w3d-fov">FIELD OF VIEW</label><input id="w3d-fov" data-id="fov" type="range" min="10" max="120" step="1" value="50"></div>
       <output data-id="fov-value">50°</output>
+      <div class="field"><label for="w3d-squish">SQUISH</label><input id="w3d-squish" data-id="squish" type="range" min="0.25" max="4" step="0.05" value="1" title="Squish: compresses the perspective view along the depth (1 is none)"></div>
+      <output data-id="squish-value">1.00</output>
     </div>
     <div class="nav" data-id="nav" aria-label="View navigation"></div>
     <div class="modes" role="group" aria-label="Selection mode">
@@ -746,7 +749,7 @@ const SHELL = `
       <div class="field" title="Moves the neutral plane along the pull direction (D)"><label for="w3d-draft-d">OFFSET</label><input id="w3d-draft-d" data-id="draft-d" type="number" step="0.5" value="0"></div>
       <div class="field"><label>NEUTRAL</label><output data-id="draft-pull">—</output></div>
       <div class="field"><label>PULL DIR</label><output data-id="draft-pull-dir">—</output></div>
-      <div class="seg" role="group" aria-label="Taper method"><button data-drtaper="offset" aria-pressed="true" title="Offset: the faces tilt about the neutral plane, moved along the pull by Offset">OFFSET</button><button data-drtaper="curve" aria-pressed="false" title="Curve: click a straight curve or edge; the faces tilt about it">CURVE</button><button data-drtaper="surface" aria-pressed="false" title="Surface: click a flat face as a second reference; the faces tilt about where they meet its plane">SURFACE</button></div>
+      <div class="seg" role="group" aria-label="Taper method"><button class="long" data-drtaper="isocline" aria-pressed="false" title="Isocline: each face tilts about its own middle to the angle from the pull, the same angle all along it">ISOCLINE</button><button data-drtaper="curve" aria-pressed="false" title="Curve: click a straight curve or edge; the faces tilt about it">CURVE</button><button data-drtaper="surface" aria-pressed="false" title="Surface: click a flat face as a second reference; the faces tilt about where they meet its plane">SURFACE</button><button data-drtaper="offset" aria-pressed="true" title="Offset: the faces tilt about the neutral plane, moved along the pull by Offset">OFFSET</button><button data-drtaper="normal" aria-pressed="false" title="Normal: the angle is added to each face's own starting slope, tilting it about the neutral plane">NORMAL</button></div>
       <span class="label">GROW</span>
       <div class="seg" role="group" aria-label="Grow mode"><button data-drgrow="moving" aria-pressed="true" title="Moving: an inner face drafted out past the outer wall takes the wall with it (Tab)">MOVING</button><button data-drgrow="fixed" aria-pressed="false" title="Fixed: the drafted face stops at the outer wall (Tab)">FIXED</button><button data-drgrow="none" aria-pressed="false" title="None: the drafted face carries on by itself, past the outer wall (Tab)">NONE</button></div>
     </div>
@@ -1337,9 +1340,9 @@ export function plasticityInspector(root) {
   const camReset = document.createElement('button');
   camReset.dataset.id = 'camera-reset';
   camReset.className = 'wide';
-  camReset.title = 'Field of view back to its default';
+  camReset.title = 'Field of view and squish back to their defaults';
   camReset.textContent = 'RESET TO DEFAULT';
-  const camera = inspectorSection('CAMERA', q('[data-id="fov"]')?.parentElement, q('[data-id="fov-value"]'), camReset);
+  const camera = inspectorSection('CAMERA', q('[data-id="fov"]')?.parentElement, q('[data-id="fov-value"]'), q('[data-id="squish"]')?.parentElement, q('[data-id="squish-value"]'), camReset);
   const gridStep = q('[data-id="grid"]')?.parentElement;
   // Snap to grid is an icon button, as the other snapping controls are (the user's choice).
   const gridSnap = document.createElement('div');
@@ -1734,6 +1737,24 @@ export async function mount(root, backend) {
   const scene = new THREE.Scene();
   scene.background = new THREE.Color(COLORS.ground);
   const persp = new THREE.PerspectiveCamera(35, 1, 1, 4000);
+  // Plasticity's Camera Squish (Camera Settings: "controls optical distortion by compressing the
+  // camera view", 1.0 by default). Our reading (inferred): the perspective is squeezed along the view
+  // depth, as a longer lens seen from further back, so above 1 the near-far foreshortening flattens
+  // and below 1 it grows, while the picture keeps its size at the orbit target. Picking uses the
+  // same matrix, so clicks stay true.
+  let squish = 1;
+  {
+    const plain = persp.updateProjectionMatrix.bind(persp);
+    persp.updateProjectionMatrix = () => {
+      plain();
+      if (Math.abs(squish - 1) < 1e-9) return;
+      // Compress view-space depth about the target's depth: z' = d + (z - d) / squish.
+      const d = -(persp.userData.focus ?? 100), k = 1 / squish;
+      const m = new THREE.Matrix4().set(1, 0, 0, 0, 0, 1, 0, 0, 0, 0, k, d * (1 - k), 0, 0, 0, 1);
+      persp.projectionMatrix.multiply(m);
+      persp.projectionMatrixInverse.copy(persp.projectionMatrix).invert();
+    };
+  }
   const ortho = new THREE.OrthographicCamera(-1, 1, 1, -1, -4000, 4000);
   // Layer 2: locked curves and regions, drawn but out of the default raycast layer so clicks pass them.
   persp.layers.enable(2);
@@ -2353,7 +2374,7 @@ export async function mount(root, backend) {
     selectionChanged({ quiet: true });
     bridgeOutline();
     if (section.plane) showInterference();
-    if (shownPoints.faces.size) refreshShownPoints(list);
+    if (shownPoints.faces.size || facePoleCache.size) refreshShownPoints(list);
     drawInstances();
     return loadCurves();
   }
@@ -2760,6 +2781,47 @@ export async function mount(root, backend) {
     }
     return best;
   }
+  /**
+   * A solid's or sheet's corner in point mode (1), as the control point there: Plasticity moves a
+   * box's corner by its control points, so a click on a corner picks the corner's point on one of the
+   * faces meeting there (moving it moves the same point on the others, see movePoles.js), whether or
+   * not Toggle Points is showing them. The bodies' points load in the background the first time.
+   */
+  const cornerLoads = new Set();
+  function cornerAt(p, px = 7) {
+    if (!backend.facePoles || !backend.previewMoveFacePoles) return null;
+    const meshes = shownMeshes().filter(m => !org.locked.has(m.userData.id));
+    const front = raycaster.intersectObjects(meshes, false)[0];
+    let best = null, bestD = px;
+    for (const m of meshes) {
+      const body = m.userData.id, b = bodyOf(body);
+      if (!b?.edges) continue;
+      const ends = [];
+      for (const e of b.edges) if (e.length >= 6) ends.push(e.slice(0, 3), e.slice(-3));
+      for (const q of ends) {
+        const v = new THREE.Vector3(...q), s = screenOf(v);
+        if (s.behind) continue;
+        const d = Math.hypot(s.x - p.x, s.y - p.y);
+        if (d > bestD) continue;
+        // Hidden behind the model: further away than the nearest surface under the pointer.
+        if (front && camera.position.distanceTo(v) > front.distance + unitsPerPixel(v) * 4 + 1e-6) continue;
+        const nets = facePoleCache.get(body);
+        if (!nets) {
+          if (!cornerLoads.has(body)) { cornerLoads.add(body); backend.facePoles({ body }).then(n => { if (!facePoleCache.has(body)) facePoleCache.set(body, n); }, () => {}).finally(() => cornerLoads.delete(body)); }
+          continue;
+        }
+        const tol = 1e-5 * Math.max(1, v.length());
+        nets.some((net, face) => {
+          const k = net?.flat().findIndex(r => Math.hypot(r[0] - v.x, r[1] - v.y, r[2] - v.z) <= tol) ?? -1;
+          if (k < 0) return false;
+          bestD = d;
+          best = { kind: 'pole', body, face, n: k, point: v.clone() };
+          return true;
+        });
+      }
+    }
+    return best;
+  }
   /** A face's control point (as poleList gives them) by face and number. */
   const poleOf = it => { const q = facePoleCache.get(it.body)?.[it.face]?.flat()[it.n]; return q && new THREE.Vector3(...q); };
   /** The shown face control point within a few pixels of a canvas point, nearest first. */
@@ -2792,6 +2854,8 @@ export async function mount(root, backend) {
     for (const body of [...shownPoints.faces.keys()]) if (!list.some(b => b.id === body)) shownPoints.faces.delete(body);
     const cache = new Map();
     for (const body of shownPoints.faces.keys()) { try { cache.set(body, await backend.facePoles({ body })); } catch { shownPoints.faces.delete(body); } }
+    // Bodies whose points were loaded for picking their corners (cornerAt) load again too.
+    for (const body of facePoleCache.keys()) if (!cache.has(body) && list.some(b => b.id === body)) { try { cache.set(body, await backend.facePoles({ body })); } catch { /* left out: loads again on hover */ } }
     // A rebuilt body numbers its faces afresh: follow each shown face to the face whose control
     // net is nearest its old one (a moved point changes only a few).
     for (const [body, which] of shownPoints.faces) {
@@ -4102,7 +4166,15 @@ export async function mount(root, backend) {
     const r = canvas.getBoundingClientRect();
     return new THREE.Vector2(((e.clientX - r.left) / r.width) * 2 - 1, -((e.clientY - r.top) / r.height) * 2 + 1);
   };
-  function ray(e) { raycaster.setFromCamera(ndc(e), camera); return raycaster.ray; }
+  function ray(e) {
+    raycaster.setFromCamera(ndc(e), camera);
+    // With Squish the rays no longer meet at the camera: take the pixel's line from its near and far points.
+    if (camera === persp && squish !== 1) {
+      const p = ndc(e), a = new THREE.Vector3(p.x, p.y, -1).unproject(camera), b = new THREE.Vector3(p.x, p.y, 1).unproject(camera);
+      raycaster.ray.set(a, b.sub(a).normalize());
+    }
+    return raycaster.ray;
+  }
   /** World units per screen pixel at a point. */
   function unitsPerPixel(at) {
     const h = canvas.clientHeight || 1;
@@ -4122,7 +4194,7 @@ export async function mount(root, backend) {
    */
   function pickAt(e, { guide = false } = {}) {
     ray(e);
-    const vertex = !guide && sel.allows('point') && (vertexAt(local(e)) ?? poleAt(local(e)));
+    const vertex = !guide && sel.allows('point') && (vertexAt(local(e)) ?? poleAt(local(e)) ?? cornerAt(local(e)));
     if (vertex) return vertex;
     const meshes = shownMeshes().filter(m => !org.locked.has(m.userData.id));
     const faceHit = raycaster.intersectObjects(meshes, false)[0];
@@ -4160,7 +4232,7 @@ export async function mount(root, backend) {
     ray(e);
     const out = [], seen = new Set();
     const put = (it, d) => { const k = JSON.stringify({ ...it, point: undefined }); if (!seen.has(k)) { seen.add(k); out.push({ ...it, d }); } };
-    if (sel.allows('point')) { const v = vertexAt(local(e)) ?? poleAt(local(e)); if (v) put(v, -1); }
+    if (sel.allows('point')) { const v = vertexAt(local(e)) ?? poleAt(local(e)) ?? cornerAt(local(e)); if (v) put(v, -1); }
     const meshes = shownMeshes().filter(m => !org.locked.has(m.userData.id));
     const faces = raycaster.intersectObjects(meshes, false);
     raycaster.params.Line.threshold = unitsPerPixel(faces[0]?.point ?? controls.target) * 6;
@@ -5743,6 +5815,7 @@ export async function mount(root, backend) {
     // unless another command was started meanwhile.
     if (then) c.then = then;
     c.cleanup = () => {
+      if (c.turnArc) { for (const o of [c.turnArc, c.turnArc.children[0]]) { o.geometry.dispose(); o.material.dispose(); } c.turnArc.removeFromParent(); c.turnArc = null; }
       if (c.free) { c.free.line.removeFromParent(); c.free = null; }
       for (const id of ids) { const m = bodyMesh(id); if (m) { m.matrixAutoUpdate = true; m.position.set(0, 0, 0); m.quaternion.identity(); m.scale.set(1, 1, 1); m.updateMatrix(); } }
       clearPreview();
@@ -5850,9 +5923,48 @@ export async function mount(root, backend) {
   }
 
   /** Preview: M = T(pivot + offset) · R · S · T(−pivot) on every target mesh, and the panel. */
+  /**
+   * Plasticity 2026.2's rotation indicator: "a visual indicator now shows how far you've rotated".
+   * A see-through sector at the gizmo, in the plane square to the turn's axis, sweeping the angle
+   * turned so far (its look is ours: the manual doesn't show it).
+   */
+  function drawTurnIndicator(c) {
+    c.turnArc ??= (() => {
+      const m = new THREE.Mesh(new THREE.BufferGeometry(), new THREE.MeshBasicMaterial({ color: COLORS.accent, transparent: true, opacity: 0.22, side: THREE.DoubleSide, depthTest: false }));
+      const edge = new THREE.Line(new THREE.BufferGeometry(), new THREE.LineBasicMaterial({ color: COLORS.accent, depthTest: false }));
+      m.renderOrder = edge.renderOrder = 19;
+      m.add(edge);
+      scene.add(m);
+      return m;
+    })();
+    // Unflipped, so a turn past 180° shows as itself (up to a whole turn) rather than the short way back.
+    const q = c.quat, vec = new THREE.Vector3(q.x, q.y, q.z), angle = 2 * Math.atan2(vec.length(), q.w);
+    const arc = c.turnArc;
+    arc.visible = angle > 1e-4 && vec.lengthSq() > 1e-18;
+    if (!arc.visible) return;
+    const axis = vec.normalize();
+    const centre = c.pivot.clone().add(c.offset), r = unitsPerPixel(centre) * 70;
+    // Start square to the axis, towards the camera's right where it can.
+    let u = new THREE.Vector3().setFromMatrixColumn(camera.matrixWorld, 0);
+    u.addScaledVector(axis, -u.dot(axis));
+    if (u.lengthSq() < 1e-9) u = new THREE.Vector3(1, 0, 0).addScaledVector(axis, -axis.x);
+    u.normalize();
+    const v = axis.clone().cross(u), steps = Math.max(8, Math.ceil(angle / (Math.PI / 48)));
+    const rim = [];
+    for (let i = 0; i <= steps; i++) { const t = (angle * i) / steps; rim.push(u.clone().multiplyScalar(Math.cos(t) * r).addScaledVector(v, Math.sin(t) * r)); }
+    const tri = [];
+    for (let i = 0; i < steps; i++) tri.push(0, 0, 0, ...rim[i].toArray(), ...rim[i + 1].toArray());
+    arc.geometry.dispose();
+    arc.geometry = new THREE.BufferGeometry().setAttribute('position', new THREE.Float32BufferAttribute(tri, 3));
+    const edge = arc.children[0];
+    edge.geometry.dispose();
+    edge.geometry = new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(), ...rim, new THREE.Vector3()]);
+    arc.position.copy(centre);
+  }
   function apply() {
     const c = cmd;
     const { pivot, offset, quat, scale } = c;
+    if (c.id === 'rotate') drawTurnIndicator(c);
     c.handle.position.copy(pivot).add(offset);
     c.handle.quaternion.copy(quat).multiply(c.frame ?? new THREE.Quaternion());
     c.handle.scale.copy(c.stretch ?? new THREE.Vector3(1, 1, 1)).multiplyScalar(scale);
@@ -12551,11 +12663,38 @@ export async function mount(root, backend) {
    * target and the second the reference; the target sheet's side moves to meet the reference in G0,
    * G1 or G2 (Tab), its first rows of control points moved (alignSurface.js), with a live preview.
    */
+  /**
+   * Edge Align's near-edge pairing (Plasticity 2026.2: "click anywhere near the boundary edges of the
+   * two sheets, and they'll be paired correctly"): the two sheets picked (as faces or whole sheets,
+   * the first to move) give the pair of their open edges lying nearest each other. Undefined when
+   * the selection isn't two sheets, null when they have no open edges.
+   */
+  async function nearPair() {
+    const bodies = [];
+    for (const it of sel.list()) {
+      const b = it.kind === 'solid' ? it.body : it.kind === 'face' ? it.body : null;
+      if (b !== null && !bodies.includes(b)) bodies.push(b);
+    }
+    if (bodies.length !== 2 || !bodies.every(id => bodyOf(id)?.sheet) || !backend.boundaryEdges) return undefined;
+    const found = await backend.boundaryEdges({ bodies });
+    const open = id => (found.find(f => f.body === id)?.edges ?? []).map(n => ({ n, points: bodyOf(id)?.edges?.[n] ?? [] }));
+    const best = nearestEdgePair(open(bodies[0]), open(bodies[1]));
+    return best ? [{ kind: 'edge', body: bodies[0], n: best.a }, { kind: 'edge', body: bodies[1], n: best.b }] : null;
+  }
   async function startAlignSurface() {
     if (cmd) await finish();
     if (!backend.edgeFaces || !backend.previewMoveFacePoles) return toast('ALIGN SURFACE IS NOT IN THIS BUILD YET');
-    const edges = sel.list('edge');
-    if (edges.length !== 2) return toast('SELECT THE EDGE TO MOVE, THEN THE EDGE TO MEET');
+    let edges = sel.list('edge');
+    if (edges.length !== 2) {
+      // Near-edge pairing (2026.2): two sheets picked in face or solid mode pair their nearest boundary edges.
+      const pair = await nearPair();
+      if (pair === undefined) return toast('SELECT THE EDGE TO MOVE, THEN THE EDGE TO MEET, OR TWO SHEETS');
+      if (pair === null) return toast('THOSE SHEETS HAVE NO OPEN EDGES TO PAIR');
+      edges = pair;
+      sel.clear();
+      for (const e of edges) sel.add(e);
+      selectionChanged({ quiet: true });
+    }
     const [target, reference] = edges.map(e => ({ body: e.body, edge: e.n }));
     const c = cmd = { id: 'align-surface', continuity: 'G1', symmetric: false, analysis: false, boundary: 'natural', solver: 'constrained', req: null, sent: 0, shown: 0 };
     lastTool = 'align-surface';
@@ -13549,7 +13688,21 @@ export async function mount(root, backend) {
         const at = c.surface.o.clone().addScaledVector(c.surface.n, num('draft-d') || 0);
         return { body: c.body, faces: c.faces, pull: n.toArray(), origin: at.toArray(), neutral: c.surface.n.toArray(), angle: num('draft-a') * DEG, grow: c.grow };
       }
-      return { body: c.body, faces: c.faces, pull: n.toArray(), origin: o.toArray(), angle: num('draft-a') * DEG, grow: c.grow };
+      const r = { body: c.body, faces: c.faces, pull: n.toArray(), origin: o.toArray(), angle: num('draft-a') * DEG, grow: c.grow };
+      // Isocline and Normal give each face its own neutral plane point and angle (inferred: the manual
+      // says Isocline keeps a constant angle to the pull, Normal applies the angle from the face's
+      // starting surface). Isocline: each face turns about its own middle to the angle from the pull.
+      // Normal: the angle is added to the face's own slope to the pull, about the neutral plane.
+      if (c.taper === 'isocline' || c.taper === 'normal') {
+        const b = bodyOf(c.body);
+        r.each = c.faces.map(f => {
+          const p = b?.facePlanes[f];
+          const at = c.taper === 'isocline' ? faceCentre(b, f) : o;
+          const slope = c.taper === 'normal' && p ? Math.asin(Math.max(-1, Math.min(1, new THREE.Vector3(...p.normal).normalize().dot(n)))) : 0;
+          return [at.x, at.y, at.z, r.angle + slope];
+        });
+      }
+      return r;
     };
     // Taper Method Curve: the faces tilt about the picked line. A line square to the pull is the
     // draft whose neutral plane runs through it; a slanted one turns its face about it (Move Face),
@@ -13571,7 +13724,7 @@ export async function mount(root, backend) {
       const axis = d.clone().multiplyScalar(lean > 0 ? 1 : -1);
       return { turn: { body: c.body, faces: c.faces, offset: [0, 0, 0], pivot: p.toArray(), axis: axis.toArray(), angle: r.angle } };
     };
-    const text = () => `DRAFT ${num('draft-a')}°${c.taper === 'curve' ? ' · ABOUT THE LINE' : c.taper === 'surface' ? ' · ABOUT THE SURFACE' : num('draft-d') ? ` · OFFSET ${num('draft-d')}` : ''}${c.grow !== 'moving' ? ` · GROW ${c.grow.toUpperCase()}` : ''}`;
+    const text = () => `DRAFT ${num('draft-a')}°${c.taper === 'curve' ? ' · ABOUT THE LINE' : c.taper === 'surface' ? ' · ABOUT THE SURFACE' : c.taper === 'isocline' ? ' · ISOCLINE' : c.taper === 'normal' ? ` · NORMAL${num('draft-d') ? ` · OFFSET ${num('draft-d')}` : ''}` : num('draft-d') ? ` · OFFSET ${num('draft-d')}` : ''}${c.grow !== 'moving' ? ` · GROW ${c.grow.toUpperCase()}` : ''}`;
     c.preview = () => {
       c.gizmo?.render(num('draft-a'));
       c.planeDot?.render(num('draft-d') || 0);
@@ -16196,7 +16349,8 @@ export async function mount(root, backend) {
     const perf = prefs.performance;
     renderer.setPixelRatio(Math.min(devicePixelRatio, perf.renderQuality));
     // Plasticity's camera FOV (Preferences › Navigation, 50° by default).
-    if (persp.fov !== prefs.navigation.fov) { persp.fov = prefs.navigation.fov; persp.updateProjectionMatrix(); }
+    if (persp.fov !== prefs.navigation.fov || squish !== prefs.navigation.squish) { persp.fov = prefs.navigation.fov; squish = prefs.navigation.squish; persp.updateProjectionMatrix(); }
+    $('squish').value = prefs.navigation.squish; $('squish-value').textContent = Number(prefs.navigation.squish).toFixed(2);
     resize(true);
     if (perf.aoShader !== aoShader) { aoShader = perf.aoShader; view.ao = aoShader; applyView(); }
     if (perf.facetQuality !== facetQuality && backend.setMeshQuality) {
@@ -16574,6 +16728,7 @@ export async function mount(root, backend) {
     if (sel.list('edge').length === 2) out.push('tool:bridge-surface');
     if (sel.solids.some(id => current.find(b => b.id === id)?.sheet)) out.push('tool:thicken', 'reverse-sheet');
     if (sel.solids.length > 1 && sel.solids.every(id => current.find(b => b.id === id)?.sheet)) out.push('join');
+    if (sel.solids.length === 2 && sel.solids.every(id => current.find(b => b.id === id)?.sheet)) out.push('align-surface');
     if (sel.solids.length === 1) out.push('unjoin:faces', 'unjoin:pieces');
     if (sel.list('edge').some(e => current.find(b => b.id === e.body)?.sheet)) out.push('tool:extend-sheet');
     if (kinds.has('region')) out.push('tool:extrude', 'tool:revolve', 'tool:loft', 'tool:sweep', 'tool:subd');
@@ -17178,7 +17333,8 @@ export async function mount(root, backend) {
   $('units-length').onchange = () => { prefs = setPref(prefs, 'units', 'length', $('units-length').value); keepPrefs('units'); };
   $('units-line-every').onkeydown = $('units-grid-size').onkeydown = e => e.stopPropagation();
   $('units-grid-size').onchange = () => { prefs = setPref(prefs, 'units', 'gridExtent', parseFloat($('units-grid-size').value)); keepPrefs('units'); };
-  $('camera-reset').onclick = () => { prefs = setPref(prefs, 'navigation', 'fov', defaultPrefs().navigation.fov); keepPrefs('navigation'); };
+  $('camera-reset').onclick = () => { prefs = setPref(prefs, 'navigation', 'fov', defaultPrefs().navigation.fov); prefs = setPref(prefs, 'navigation', 'squish', defaultPrefs().navigation.squish); keepPrefs('navigation'); };
+  $('squish').oninput = () => { prefs = setPref(prefs, 'navigation', 'squish', $('squish').value); keepPrefs('navigation'); };
   $('units-line-every').onchange = () => { prefs = setPref(prefs, 'units', 'lineEvery', parseFloat($('units-line-every').value)); keepPrefs('units'); };
   $('units-reset').onclick = () => {
     const d = defaultPrefs().units;
@@ -17698,6 +17854,8 @@ export async function mount(root, backend) {
   applyPrefs();
   renderer.setAnimationLoop(() => {
     resize();
+    // Squish compresses depth about the orbit target, so it follows the camera's distance to it.
+    if (squish !== 1) { const f = persp.position.distanceTo(controls.target); if (Math.abs(f - (persp.userData.focus ?? 0)) > 1e-3 * f) { persp.userData.focus = f; persp.updateProjectionMatrix(); } }
     stepTurn(performance.now());
     stepSpaceMouse(performance.now());
     if (!turning) controls.update();

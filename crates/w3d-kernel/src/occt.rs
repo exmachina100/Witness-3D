@@ -575,9 +575,10 @@ impl Kernel for Occt {
         nurbs_paths(&Shape::project_curve_curve(&cutter_numbers(&[a.clone(), b.clone()])?, length).map_err(shim)?)
     }
 
-    fn draft_faces(&self, s: &Shape, faces: &[u32], pull: DVec3, origin: DVec3, neutral: DVec3, angle: f64) -> Result<Traced<Shape>, KernelError> {
+    #[allow(clippy::too_many_arguments)]
+    fn draft_faces(&self, s: &Shape, faces: &[u32], pull: DVec3, origin: DVec3, neutral: DVec3, angle: f64, each: &[[f64; 4]]) -> Result<Traced<Shape>, KernelError> {
         let faces: Vec<usize> = faces.iter().map(|&f| f as usize).collect();
-        let (solid, h) = s.draft_faces_with_history(&faces, pull, origin, neutral, angle).map_err(shim)?;
+        let (solid, h) = s.draft_faces_with_history(&faces, pull, origin, neutral, angle, each).map_err(shim)?;
         Ok(Traced { solid, history: history(h) })
     }
 

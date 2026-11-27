@@ -331,6 +331,8 @@ const ICONS = {
     'taper-offset': `<path d="M3 20h18"/><path d="M3 14h18" stroke-dasharray="2 2"/><path ${A} d="M7 20l2-14M17 20l-2-14"/><path d="M20 14v-4M19 11l1-1 1 1"/>`,
     // Taper Method Surface: the drafted walls tilt about a second, slanted reference plane.
     'taper-surface': `<path d="M3 20h18"/><path ${A} d="M7 20l2-14M17 20l-2-14"/><path d="M2 15l20-5" stroke-dasharray="2 2"/><path d="M15 4l5 2-2 3-5-2z"/>`,
+    'taper-isocline': `<path d="M3 20h18"/><path ${A} d="M7 20l2-14M17 20l-2-14"/><path d="M4 13h4M16 13h4" stroke-dasharray="2 2"/><path d="M12 3v6M10 5l2-2 2 2"/>`,
+    'taper-normal': `<path d="M3 20h18"/><path d="M7 20l1-14" stroke-dasharray="2 2"/><path ${A} d="M7 20l4-14"/><path d="M17 20l-1-14"/><path d="M8 10a4 4 0 0 1 2 0"/>`,
     'taper-curve': `<path d="M3 20h18"/><path ${A} d="M7 20l3-14h4l3 14"/><path d="M4 13h16" stroke-width="2"/><circle cx="12" cy="13" r="1.5"/>`,
     'grow-moving': `<path d="M3 20V5h6v10h9v5z"/><path ${A} d="M9 5h12v15h-3M14 9l2 1.5-2 1.5"/>`,
     'grow-fixed': `<path d="M3 20V5h6v10h9v5z"/><path ${A} d="M9 5h9v10M20 4v16"/>`,

@@ -3605,26 +3605,37 @@ inline std::unique_ptr<W3dResult> w3d_imprint(const TopoDS_Shape &shape, rust::S
 // through (frame[3..6]) square to the pull direction (frame[0..3]), or with nine numbers square to
 // frame[6..9] (Taper Method Surface: the plane of a second reference face). Positive angles close
 // the faces in along the pull, as a part leaving its mould needs. Flat, cylindrical and conical faces.
+// Four more numbers per face after the frame (a point on that face's neutral plane, then its angle)
+// give each face its own plane and angle (Taper Methods Isocline and Normal).
 inline std::unique_ptr<W3dResult> w3d_draft_faces(const TopoDS_Shape &shape, rust::Slice<const int32_t> faces,
                                                   rust::Slice<const double> frame, double angle) {
   if (faces.empty()) throw std::runtime_error("select the faces to draft");
-  if (frame.size() != 6 && frame.size() != 9) throw std::runtime_error("a draft needs a pull direction and a point on the neutral plane");
-  if (!(std::fabs(angle) > 1e-9) || !std::isfinite(angle)) throw std::runtime_error("the draft angle must not be zero");
-  if (std::fabs(angle) >= M_PI / 2) throw std::runtime_error("a draft is less than 90 degrees");
+  const size_t base = frame.size() >= 9 && (frame.size() - 9) % 4 == 0 ? 9 : 6;
+  const bool each = frame.size() == base + 4 * faces.size() && frame.size() > base;
+  if (frame.size() != base && !each) throw std::runtime_error("a draft needs a pull direction and a point on the neutral plane");
+  for (size_t i = 0; i < (each ? faces.size() : 1); i++) {
+    const double a = each ? frame[base + 4 * i + 3] : angle;
+    if (!(std::fabs(a) > 1e-9) || !std::isfinite(a)) throw std::runtime_error("the draft angle must not be zero");
+    if (std::fabs(a) >= M_PI / 2) throw std::runtime_error("a draft is less than 90 degrees");
+  }
   gp_Vec n(frame[0], frame[1], frame[2]);
   if (n.Magnitude() < 1e-12) throw std::runtime_error("the pull direction has no length");
   TopTools_IndexedMapOfShape map;
   TopExp::MapShapes(shape, TopAbs_FACE, map);
   try {
     gp_Dir pull(n);
-    gp_Vec m = frame.size() == 9 ? gp_Vec(frame[6], frame[7], frame[8]) : n;
+    gp_Vec m = base == 9 ? gp_Vec(frame[6], frame[7], frame[8]) : n;
     if (m.Magnitude() < 1e-12) throw std::runtime_error("the reference surface's normal has no length");
     if (std::fabs(gp_Dir(m).Dot(pull)) < 1e-6) throw std::runtime_error("the reference surface runs along the pull; pick one facing it");
     gp_Pln neutral(gp_Pnt(frame[3], frame[4], frame[5]), gp_Dir(m));
     std::shared_ptr<BRepOffsetAPI_DraftAngle> draft(new BRepOffsetAPI_DraftAngle(shape));
-    for (int32_t f : faces) {
+    for (size_t i = 0; i < faces.size(); i++) {
+      const int32_t f = faces[i];
       if (f < 0 || f >= map.Extent()) throw std::out_of_range("no such face");
-      draft->Add(TopoDS::Face(map(f + 1)), pull, angle, neutral);
+      if (each) {
+        const double *e = &frame[base + 4 * i];
+        draft->Add(TopoDS::Face(map(f + 1)), pull, e[3], gp_Pln(gp_Pnt(e[0], e[1], e[2]), gp_Dir(m)));
+      } else draft->Add(TopoDS::Face(map(f + 1)), pull, angle, neutral);
       if (!draft->AddDone()) throw std::runtime_error("that face cannot be drafted; faces square to the pull, or free-form ones, cannot");
     }
     draft->Build();
