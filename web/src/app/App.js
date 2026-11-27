@@ -344,6 +344,7 @@ const SHELL = `
     <div class="bar-more" data-id="bar-more" role="toolbar" aria-label="Suggested commands" hidden></div>
     <div class="pdots" data-id="pdots" hidden></div>
     <div class="keys" data-id="keys">${keysHtml('idle')}</div>
+    <div class="ag-strip" data-id="ag-strip" role="status" aria-live="polite" hidden></div>
     <span class="snap-tag" data-id="snap-tag" hidden></span>
     <span class="gizmo-tag" data-id="gizmo-tag" hidden></span>
     <div class="radial" data-id="radial" hidden><div class="radial-hub" data-id="radial-hub"></div></div>
@@ -4994,6 +4995,19 @@ export async function mount(root, backend) {
     livePreview, showPreviewBody, record, showScene,
     begin(c) { cmd = c; lastTool = c.id; showTool(c.id); },
     current: () => cmd,
+    scene: () => current,
+    /** Take the last history step off (the agent undid it). */
+    dropStep() { history.pop(); renderHistory(); },
+    /** The viewport as the user sees it, a PNG in base64 for the agent. */
+    capture: () => previewPng(1024).split(',')[1],
+    // The user's own Anthropic key, as the Ask box (Ctrl+K) keeps it.
+    ai: {
+      hasKey: async () => !!(send || (backend.aiKey ? await backend.aiKey() : session.get('w3d-anthropic-key'))),
+      keyNote: () => (backend.setAiKey ? 'YOUR ANTHROPIC API KEY · SAVED FOR THIS USER ON THIS COMPUTER, NEVER IN THE FILE' : 'YOUR ANTHROPIC API KEY · KEPT IN THIS TAB ONLY'),
+      sender: async () => { const t = await sender(); if (!t) throw new Error('add an Anthropic API key first'); return t; },
+      async saveKey(k) { if (backend.setAiKey) await backend.setAiKey(k); else session.set('w3d-anthropic-key', k); send = backend.ai ?? null; },
+      async forgetKey() { send = backend.ai ?? null; if (backend.setAiKey) await backend.setAiKey(''); else session.set('w3d-anthropic-key', ''); },
+    },
   });
   // Edge Align's continuity circle and partial dots, drawn over everything.
   const alignHandles = new THREE.Group();
