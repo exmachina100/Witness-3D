@@ -16,7 +16,7 @@ import { facePoles } from '../facePoles.js';
 import { faceUvn } from '../faceUvn.js';
 import { deformBodies, deformReblend, warpBodies } from '../deformBody.js';
 import { filletFaces, rechamfer, refilletFaces, removeFaces, turnFlatFace } from '../removeFace.js';
-import { moveEdges, moveFlatFaces } from '../moveEdges.js';
+import { circleEdgeCaps, moveEdges, moveFlatFaces } from '../moveEdges.js';
 import { offsetCurvedFaces } from '../offsetCurved.js';
 import { moveFacePoles, subdivideFaces } from '../movePoles.js';
 import { isoparamSplit } from '../isoparamSplit.js';
@@ -492,7 +492,22 @@ export class LocalBackend {
         // A chamfer turned to a new setback on one side (Dimension).
         if (chamfer) return { shape: rechamfer(shape, chamfer) };
         // Edges on their own (Move Edge): the faces at their corners tilt to them.
-        if (!faces?.length && edges?.length) return { shape: moveEdges(shape, edges, { offset, pivot: req.pivot, axis: req.axis, angle }) };
+        if (!faces?.length && edges?.length) {
+            // Circular edges round a flat cap move along their axis with the cap (Move Circular Edges).
+            const caps = circleEdgeCaps(shape, edges);
+            if (caps) {
+                if (Math.abs(angle) > 1e-12) throw new Error('a circular edge moves along its axis; turn the solid or its faces instead');
+                const len = Math.hypot(...offset);
+                const along = caps.map(c => Math.abs(c.axis[0] * offset[0] + c.axis[1] * offset[1] + c.axis[2] * offset[2]));
+                if (along.some(a => len - a > 1e-6 * Math.max(1, len))) throw new Error('a circular edge keeps its circle by moving along its axis; press the axis key for it (X, Y or Z) or use Normal orientation (W)');
+                const capFaces = [...new Set(caps.map(c => c.face))];
+                const across = capFaces.map(f => { const n = facePlane(shape, f).normal; return offset[0] * n.x + offset[1] * n.y + offset[2] * n.z; });
+                if (across.some(d => Math.abs(d - across[0]) > 1e-9)) throw new Error('the circular edges would move different distances along their axes; move one at a time');
+                if (Math.abs(across[0]) < 1e-9) return null;
+                return this.offset({ body, faces: capFaces, distance: across[0], grow: 'none' });
+            }
+            return { shape: moveEdges(shape, edges, { offset, pivot: req.pivot, axis: req.axis, angle }) };
+        }
         if (!faces?.length) throw new Error('select the faces to move');
         if (Math.abs(angle) > 1e-12) {
             // Several faces turn together on bodies with flat faces and straight edges.

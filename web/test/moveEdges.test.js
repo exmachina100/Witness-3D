@@ -100,3 +100,20 @@ test('a face moved along itself changes nothing, and round bodies are refused', 
     const cyl = new (oc().BRepPrimAPI_MakeCylinder)(5, 10).Shape();
     assert.throws(() => moveFlatFaces(cyl, [0], { offset: [0, 1, 0] }), /desktop/);
 });
+
+test("a cylinder's top rim moves along its axis with its cap, the side staying a cylinder", async () => {
+    const { LocalBackend } = await import('../src/app/LocalBackend.js');
+    const { primitive } = await import('../src/Kernel.js');
+    const be = new LocalBackend({ seed: 'enclosure' });
+    const c = primitive({ kind: 'cylinder', radius: 5, height: 10, frame: { origin: [0, 0, 0], x: [1, 0, 0], normal: [0, 0, 1] } });
+    const id = 9001;
+    be.shapes.set(id, c);
+    const o = oc();
+    const rim = numberedEdges(c).findIndex(e => { const a = new o.BRepAdaptor_Curve(e); return a.GetType() === o.GeomAbs_CurveType.GeomAbs_Circle && Math.abs(a.Value(a.FirstParameter()).Z() - 10) < 1e-6; });
+    assert.ok(rim >= 0);
+    const r = be.moveFacesResult({ body: id, edges: [rim], offset: [0, 0, 4] });
+    close(volume(r.shape), Math.PI * 25 * 14, 1e-3);
+    const kinds = numbered(r.shape, 'TopAbs_FACE').map(f => new o.BRepAdaptor_Surface(o.TopoDS.Face(f), true).GetType());
+    assert.ok(kinds.includes(o.GeomAbs_SurfaceType.GeomAbs_Cylinder));
+    assert.throws(() => be.moveFacesResult({ body: id, edges: [rim], offset: [3, 0, 0] }), /along its axis/);
+});

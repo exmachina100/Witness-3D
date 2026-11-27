@@ -81,6 +81,32 @@ export function moveEdges(shape, edgeNos, { offset = [0, 0, 0], pivot = [0, 0, 0
     return closeUp(out, tol);
 }
 
+/**
+ * Move Circular Edges (Plasticity: "move individual Solid and Sheet body edges that are circular
+ * while preserving their analytical geometry"): a circle that is the whole rim of a flat cap (a
+ * cylinder's or boss's end) moves along its axis by moving the cap, so the side stays a cylinder or
+ * cone. Returns the caps as { face, axis } when every picked edge is such a circle, else null (not all
+ * circles); throws when a circle has no cap of its own (a hole's rim in a larger face).
+ */
+export function circleEdgeCaps(shape, edgeNos) {
+    const o = oc();
+    const all = numberedEdges(shape), picked = edgeNos.map(n => all[n]);
+    if (!picked.length || picked.some(e => !e)) return null;
+    const circle = e => new o.BRepAdaptor_Curve(e).GetType() === o.GeomAbs_CurveType.GeomAbs_Circle;
+    if (!picked.every(circle)) return null;
+    const faces = numbered(shape, 'TopAbs_FACE').map(f => o.TopoDS.Face(f));
+    return picked.map(e => {
+        const c = new o.BRepAdaptor_Curve(e).Circle(), d = c.Axis().Direction(), axis = [d.X(), d.Y(), d.Z()];
+        const face = faces.findIndex(f => {
+            if (new o.BRepAdaptor_Surface(f, true).GetType() !== o.GeomAbs_SurfaceType.GeomAbs_Plane) return false;
+            const rim = numbered(o.BRepTools.OuterWire(f), 'TopAbs_EDGE');
+            return numbered(f, 'TopAbs_WIRE').length === 1 && rim.length === 1 && rim[0].IsSame(e);
+        });
+        if (face < 0) throw new Error("that circular edge has no flat cap of its own to carry it (a hole's rim); move the face round it instead");
+        return { face, axis };
+    });
+}
+
 /** The faces sewn back into one closed solid, checked, with faces in one plane merged. */
 function closeUp(out, tol, what = 'the edges') {
     const o = oc();
