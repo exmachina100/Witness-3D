@@ -29,10 +29,10 @@ pub fn set_mesh_quality(m: &Model, quality: f64) -> Result<Vec<Body>, String> {
 
 pub type Model = Engine<Occt>;
 
-/// The cube every new document starts with: 50 mm on each side, standing on the ground with one
-/// corner at the world origin and the rest along the user's +X, +Y and +Z (model y up, user +Y = -z).
+/// The cube every new document starts with: 50 mm on each side, standing on the ground centred on
+/// the user's Z axis, as Plasticity's cube sits (its XYZ reads 0, 0 and half the height).
 fn seed(doc: &mut Document<Occt>) {
-    let body = doc.kernel.box_from_corners(DVec3::new(0.0, 0.0, -50.0), DVec3::new(50.0, 50.0, 0.0));
+    let body = doc.kernel.box_from_corners(DVec3::new(-25.0, 0.0, -25.0), DVec3::new(25.0, 50.0, 25.0));
     doc.replace_all([(1, body, None)], 2, 1);
 }
 

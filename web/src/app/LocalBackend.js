@@ -85,7 +85,7 @@ export class LocalBackend {
         // New documents start with a 50 mm cube on the ground, as on the desktop, one corner at the
         // world origin and the rest along +X, +Y and +Z (the viewport's y is up, the user's +Y is -z).
         if (seed === 'enclosure') this.put(this.nextId++, box(new THREE.Vector3(-40, 0, -25), new THREE.Vector3(40, 30, 25)));
-        else if (seed !== 'empty') this.put(this.nextId++, box(new THREE.Vector3(0, 0, -50), new THREE.Vector3(50, 50, 0)));
+        else if (seed !== 'empty') this.put(this.nextId++, box(new THREE.Vector3(-25, 0, -25), new THREE.Vector3(25, 50, 25)));
     }
 
     fresh(n) { const start = this.nextRef; this.nextRef += n; return Array.from({ length: n }, (_, i) => start + i) }
